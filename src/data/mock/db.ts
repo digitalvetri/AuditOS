@@ -23,11 +23,15 @@ import {
   salaryStructures,
 } from '@/data/seed/payroll';
 import { expenseLedgerSeed, expensePaymentSeed, expenseSeed } from '@/data/seed/expenses';
+import { chats as chatSeed, chatMembers as chatMemberSeed, chatMessages as chatMessageSeed, messageReads as messageReadSeed } from '@/data/seed/chats';
 import type {
   ArticledTraining,
   Attendance,
   AttendanceCorrection,
   AuditLog,
+  Chat,
+  ChatMember,
+  ChatMessage,
   Department,
   Designation,
   Employee,
@@ -40,6 +44,7 @@ import type {
   LeaveRequest,
   LeaveType,
   LedgerTransaction,
+  MessageRead,
   Notification,
   Organisation,
   Payment,
@@ -56,8 +61,8 @@ import type {
   WorkSchedule,
 } from '@/data/models';
 
-// v8: adds Expense + ExpenseApproval tables and seeded expenses/payments/ledger.
-const STORAGE_KEY = 'audit-os:mock-db:v8';
+// v9: adds chats + members + messages + reads.
+const STORAGE_KEY = 'audit-os:mock-db:v9';
 
 export interface MockDB {
   organisation: Organisation;
@@ -88,6 +93,10 @@ export interface MockDB {
   ledger: LedgerTransaction[];
   expenses: Expense[];
   expenseApprovals: ExpenseApproval[];
+  chats: Chat[];
+  chatMembers: ChatMember[];
+  chatMessages: ChatMessage[];
+  messageReads: MessageRead[];
   notifications: Notification[];
   auditLog: AuditLog[];
 }
@@ -122,6 +131,10 @@ function freshDb(): MockDB {
     ledger: [...ledgerTransactions, ...expenseLedgerSeed],
     expenses: expenseSeed,
     expenseApprovals: [],
+    chats: chatSeed,
+    chatMembers: chatMemberSeed,
+    chatMessages: chatMessageSeed,
+    messageReads: messageReadSeed,
     notifications: [],
     auditLog: [],
   };

@@ -7,7 +7,6 @@ import { LoginPage } from '@/pages/Login';
 import { DashboardPage } from '@/pages/Dashboard';
 import { WorkstationPage } from '@/pages/reserved/Workstation';
 import { ToolsPage } from '@/pages/reserved/Tools';
-import { ModulePlaceholder } from '@/pages/hrms/ModulePlaceholder';
 import { AttendancePage } from '@/pages/hrms/Attendance';
 import { LeavePage } from '@/pages/hrms/Leave';
 import { EmployeesPage } from '@/pages/hrms/Employees';
@@ -19,6 +18,8 @@ import { PayslipDetailPage } from '@/pages/hrms/PayslipDetail';
 import { MyPayslipsPage } from '@/pages/MyPayslips';
 import { ExpensesPage } from '@/pages/hrms/Expenses';
 import { AccountsPage } from '@/pages/hrms/Accounts';
+import { MessagesPage } from '@/pages/hrms/Messages';
+import { ReportsPage } from '@/pages/hrms/Reports';
 import { useAuth } from '@/platform/auth/AuthContext';
 import { NotFoundPage } from '@/pages/NotFound';
 import { NotificationsPage } from '@/pages/Notifications';
@@ -69,9 +70,9 @@ export default function App() {
               <Route path="hrms/payroll/payslips/:id" element={<PayslipDetailPage />} />
               <Route path="hrms/expenses" element={<ExpensesPage />} />
               <Route path="hrms/accounts" element={<AccountsPage />} />
-              <Route path="hrms/messages" element={<ModulePlaceholder name="Messages" plannedIn="Part 2 (owned by Developer 2)" />} />
+              <Route path="hrms/messages" element={<MessagesPage />} />
               <Route path="hrms/documents" element={<DocumentsPage />} />
-              <Route path="hrms/reports" element={<ModulePlaceholder name="Reports" plannedIn="Part 2 (owned by Developer 2)" />} />
+              <Route path="hrms/reports" element={<ReportsPage />} />
               <Route path="hrms/settings" element={<SettingsPage />} />
 
               <Route path="me/profile" element={<MyProfileRoute />} />

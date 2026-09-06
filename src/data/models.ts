@@ -478,6 +478,53 @@ export interface Payment extends Auditable {
   paid_at: ISODateTime | null;
 }
 
+// ── Messages / Chats (§8.7) ──────────────────────────────────────────────
+
+export type ChatType = 'group' | 'dm';
+
+export interface Chat extends Auditable {
+  id: ID;
+  organisation_id: ID;
+  type: ChatType;
+  /** Groups have a name; DMs derive display name from the other member. */
+  name: string | null;
+  description: string | null;
+  /** Reserved for Workstation — nullable from day one. */
+  subject_type: string | null;
+  subject_id: ID | null;
+  last_message_at: ISODateTime | null;
+}
+
+export interface ChatMember {
+  id: ID;
+  chat_id: ID;
+  employee_id: ID;
+  role: 'member' | 'admin';
+  joined_at: ISODateTime;
+  /** Soft-leave — history preserved. */
+  left_at: ISODateTime | null;
+}
+
+export interface ChatMessage {
+  id: ID;
+  chat_id: ID;
+  author_employee_id: ID;
+  body: string;
+  parent_id: ID | null;  // reply-to
+  mentions: ID[];        // reserved for @mentions; empty in scaffold
+  created_at: ISODateTime;
+  updated_at: ISODateTime;
+  deleted_at: ISODateTime | null;
+}
+
+export interface MessageRead {
+  id: ID;
+  chat_id: ID;
+  message_id: ID;
+  employee_id: ID;
+  read_at: ISODateTime;
+}
+
 // ── Expenses ──────────────────────────────────────────────────────────────
 
 export type ExpenseStage =

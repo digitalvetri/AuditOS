@@ -1,7 +1,9 @@
 import { useLocation, useNavigate } from 'react-router-dom';
 import { useState } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import { useAuth } from '@/platform/auth/AuthContext';
 import { NotificationsBell } from '@/platform/notifications/NotificationsBell';
+import { messagesApi } from '@/modules/messages/api';
 
 /**
  * Top bar (§6.1):
@@ -34,14 +36,7 @@ export function TopBar() {
 
       <NotificationsBell />
 
-      <button
-        type="button"
-        className="relative h-8 w-8 text-13 text-neutral-700 border border-neutral-200 rounded hover:text-neutral-900 flex items-center justify-center"
-        aria-label="Messages"
-        title="Messages (Part 2)"
-      >
-        <MessagesIcon />
-      </button>
+      <MessagesBadge onOpen={() => navigate('/hrms/messages')} />
 
       <div className="relative">
         <button
@@ -120,5 +115,33 @@ function MessagesIcon() {
     <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
       <path d="M2 4h12v7H5l-3 2V4z" />
     </svg>
+  );
+}
+
+function MessagesBadge({ onOpen }: { onOpen: () => void }) {
+  const q = useQuery({
+    queryKey: ['chats', 'list'],
+    queryFn: messagesApi.listChats,
+    refetchInterval: 15_000,
+  });
+  const total = q.data?.total_unread ?? 0;
+  return (
+    <button
+      type="button"
+      onClick={onOpen}
+      className="relative h-8 w-8 text-13 text-neutral-700 border border-neutral-200 rounded hover:text-neutral-900 flex items-center justify-center"
+      aria-label={total > 0 ? `${total} unread messages` : 'Messages'}
+      data-testid="messages-badge"
+    >
+      <MessagesIcon />
+      {total > 0 ? (
+        <span
+          className="absolute -top-1 -right-1 h-4 min-w-[16px] px-1 text-11 leading-[16px] text-white bg-gold rounded"
+          data-testid="messages-unread"
+        >
+          {total > 9 ? '9+' : total}
+        </span>
+      ) : null}
+    </button>
   );
 }
