@@ -563,42 +563,57 @@ export function auditLogToApi(a: AuditLog) {
 }
 
 // ── Messages ──────────────────────────────────────────────────────────────
-export interface ChatSummary {
-  id: string
-  type: string
-  name: string
-  description: string | null
-  is_system: boolean
-  member_count: number
-  members: { employee_id: string; full_name: string; employee_code: string }[]
-  unread_count: number
-  last_message: { body: string; at: string; sender: string } | null
-  last_activity_at: string
+export function chatToApi(c: Chat) {
+  return {
+    id: c.id,
+    organisation_id: c.organisationId,
+    type: c.type,
+    name: c.name,
+    description: c.description,
+    subject_type: c.subjectType,
+    subject_id: c.subjectId,
+    last_message_at: iso(c.lastMessageAt),
+    ...auditable(c),
+  }
 }
 
+export interface ChatListItem extends ReturnType<typeof chatToApi> {
+  display_name: string
+  last_message: { id: string; body: string; created_at: string; author_id: string } | null
+  unread: number
+  member_count: number
+}
+
+export type ChatMessageWithAuthor = ReturnType<typeof chatMessageToApi>
+
+/** Reply previews are inlined and truncated so the thread renders in one pass. */
 export function chatMessageToApi(m: ChatMessage & {
-  sender: Pick<Employee, 'id' | 'fullName' | 'employeeCode'>
-  replyTo?: (Pick<ChatMessage, 'id' | 'body'> & { sender: Pick<Employee, 'fullName'> }) | null
-  reads?: { employeeId: string; readAt: Date }[]
+  author: Pick<Employee, 'id' | 'fullName' | 'employeeCode'> | null
+  parent?: (Pick<ChatMessage, 'id' | 'body' | 'deletedAt'> & { author: Pick<Employee, 'fullName'> | null }) | null
+  reads?: { id: string }[]
 }) {
   return {
     id: m.id,
     chat_id: m.chatId,
+    author_employee_id: m.authorEmployeeId,
     body: m.body,
-    created_at: isoReq(m.createdAt),
-    sender: {
-      employee_id: m.sender.id,
-      full_name: m.sender.fullName,
-      employee_code: m.sender.employeeCode,
-    },
-    reply_to: m.replyTo
-      ? { id: m.replyTo.id, body: m.replyTo.body, sender: m.replyTo.sender.fullName }
-      : null,
-    attachment_name: m.attachmentName,
-    reactions: parseJson<Record<string, string[]>>(m.reactionsJson, {}),
+    parent_id: m.parentId,
     mentions: parseJson<string[]>(m.mentionsJson, []),
-    read_by: (m.reads ?? []).map((r) => ({ employee_id: r.employeeId, at: isoReq(r.readAt) })),
+    created_at: isoReq(m.createdAt),
+    updated_at: isoReq(m.updatedAt),
+    deleted_at: iso(m.deletedAt),
+    author: m.author
+      ? { id: m.author.id, full_name: m.author.fullName, employee_code: m.author.employeeCode }
+      : null,
+    parent_preview: m.parent
+      ? {
+          id: m.parent.id,
+          body: m.parent.deletedAt
+            ? '(deleted message)'
+            : m.parent.body.length > 80 ? `${m.parent.body.slice(0, 80)}…` : m.parent.body,
+          author_full_name: m.parent.author?.fullName ?? null,
+        }
+      : null,
+    read_by_me: (m.reads?.length ?? 0) > 0,
   }
 }
-
-export type ApiChat = Chat

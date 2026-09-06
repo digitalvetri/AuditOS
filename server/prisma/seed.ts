@@ -15,7 +15,6 @@ import { computeCheckOutStatus } from '../src/domain/attendanceStatus.js'
 import { calculatePayrollItem } from '../src/domain/payroll/calc.js'
 import { snapshotAt } from '../src/domain/payroll/statutory.js'
 import { ALL_PERMISSION_CODES, MATRIX, PERMISSION_DESCRIPTIONS, type RoleCode } from '../src/platform/rbac/matrix.js'
-import { SEEDED_GROUPS } from '../src/modules/messages/service.js'
 
 const prisma = new PrismaClient()
 
@@ -779,65 +778,135 @@ async function main() {
     }
   }
 
-  // ── Messages: seeded group chats + a direct message ─────────────────────
+  // ── Messages: group chats derived from department + role, plus two DMs ──
+  //
+  // Membership is derived AT SEED TIME, not on every request. Re-deriving
+  // would silently add someone to a chat when their department changes, and
+  // the history there predates them.
   if ((await prisma.chat.count()) === 0) {
-    const membersFor: Record<string, string[]> = {
-      GENERAL: activeEmployees.map((e) => e.id),
-      MANAGEMENT: ['emp-md', 'emp-hr', 'emp-fin', 'emp-mgr'],
-      HR_TEAM: ['emp-hr', 'emp-md'],
-      FINANCE_TEAM: ['emp-fin', 'emp-md'],
-      OPERATIONS: ['emp-mgr', 'emp-exec', 'emp-articled', 'emp-probation'],
-    }
-    for (const g of SEEDED_GROUPS) {
-      const chat = await prisma.chat.create({
+    const active = activeEmployees.map((e) => e.id)
+    const byDept = (dept: string) => activeEmployees.filter((e) => e.departmentId === dept).map((e) => e.id)
+    const byType = (...types: string[]) => activeEmployees.filter((e) => types.includes(e.type)).map((e) => e.id)
+
+    const groups: { id: string; name: string; description: string; members: string[]; admin: string }[] = [
+      { id: 'chat-general', name: 'Audit OS General', description: 'Firm-wide announcements and general chatter.', members: active, admin: 'emp-md' },
+      { id: 'chat-mgmt', name: 'Management', description: 'Partners + managers.', members: byType('partner', 'manager'), admin: 'emp-md' },
+      { id: 'chat-hr', name: 'HR Team', description: 'HR department + MD.', members: [...new Set([...byDept('dep-hr'), 'emp-md'])], admin: 'emp-hr' },
+      { id: 'chat-finance', name: 'Finance Team', description: 'Finance department + MD.', members: [...new Set([...byDept('dep-fin'), 'emp-md'])], admin: 'emp-fin' },
+      // No GST department exists in the seed yet; Operations + MD stands in.
+      { id: 'chat-gst', name: 'GST Team', description: 'GST filings work.', members: [...new Set([...byDept('dep-ops'), 'emp-md'])], admin: 'emp-md' },
+      { id: 'chat-ops', name: 'Operations', description: 'Audit + field operations.', members: byDept('dep-ops'), admin: 'emp-mgr' },
+    ]
+    for (const g of groups) {
+      await prisma.chat.create({
         data: {
-          type: 'GROUP',
+          id: g.id,
+          organisationId: org.id,
+          type: 'group',
           name: g.name,
           description: g.description,
-          isSystem: true,
           members: {
-            create: (membersFor[g.code] ?? []).map((employeeId, i) => ({
+            create: g.members.map((employeeId) => ({
               employeeId,
-              role: i === 0 ? 'OWNER' : 'MEMBER',
+              role: employeeId === g.admin ? 'admin' : 'member',
             })),
           },
         },
       })
-      if (g.code === 'GENERAL') {
-        await prisma.chatMessage.create({
+    }
+
+    const dms: { id: string; between: [string, string] }[] = [
+      { id: 'chat-dm-meera-vikram', between: ['emp-exec', 'emp-mgr'] },
+      { id: 'chat-dm-priya-md', between: ['emp-hr', 'emp-md'] },
+    ]
+    for (const d of dms) {
+      await prisma.chat.create({
+        data: {
+          id: d.id,
+          organisationId: org.id,
+          type: 'dm',
+          members: { create: d.between.map((employeeId) => ({ employeeId, role: 'member' })) },
+        },
+      })
+    }
+
+    const conversations: [string, [string, string][]][] = [
+      ['chat-general', [
+        ['emp-md', 'Welcome to Audit OS. New quarter starts Monday.'],
+        ['emp-hr', 'Reminder: holiday calendar for the year is now live in Settings.'],
+        ['emp-mgr', 'Sundar & Co audit closing this Friday — great work team.'],
+      ]],
+      ['chat-mgmt', [
+        ['emp-md', 'Board update at 4pm today.'],
+        ['emp-mgr', 'Will circulate the client roll-forward before then.'],
+      ]],
+      ['chat-hr', [
+        ['emp-hr', 'Diwali holiday list published — check the Leave module.'],
+        ['emp-md', 'Thanks Priya.'],
+      ]],
+      ['chat-finance', [
+        ['emp-fin', 'September payroll goes to review by 25th.'],
+        ['emp-md', 'Noted.'],
+      ]],
+      ['chat-ops', [
+        ['emp-mgr', 'Field visit roster for next week going out tomorrow.'],
+        ['emp-exec', 'I can take the Trichy visit.'],
+        ['emp-articled', 'Happy to shadow on the Chennai audits.'],
+      ]],
+      ['chat-dm-meera-vikram', [
+        ['emp-mgr', 'Meera — can you own the GST reconciliation for Sundar this month?'],
+        ['emp-exec', 'On it. Draft by Thursday.'],
+        ['emp-mgr', 'Great.'],
+      ]],
+      ['chat-dm-priya-md', [
+        ['emp-hr', "Ravi — Divya's probation ends in early January."],
+        ['emp-md', "Let's discuss in the next 1:1."],
+      ]],
+    ]
+
+    // Timestamps are spaced so ordering is deterministic across reseeds.
+    let seq = 0
+    for (const [chatId, conversation] of conversations) {
+      for (const [authorEmployeeId, body] of conversation) {
+        seq += 1
+        const at = new Date(Date.now() - (200 - seq) * 60_000)
+        const message = await prisma.chatMessage.create({
           data: {
-            chatId: chat.id,
-            senderEmployeeId: 'emp-hr',
-            body: 'Welcome to Audit OS. Payslips for last month are published — check Payroll → My payslips.',
+            chatId,
+            authorEmployeeId,
+            body,
+            createdAt: at,
+            updatedAt: at,
+            // The author has read their own message by definition.
+            reads: { create: { chatId, employeeId: authorEmployeeId, readAt: at } },
           },
         })
-        await prisma.chatMessage.create({
-          data: {
-            chatId: chat.id,
-            senderEmployeeId: 'emp-md',
-            body: 'Reminder: statutory filings for the quarter close on the 20th. Keep client trackers current.',
-          },
-        })
+        await prisma.chat.update({ where: { id: chatId }, data: { lastMessageAt: at } })
+        void message
       }
     }
 
-    const dm = await prisma.chat.create({
-      data: {
-        type: 'DIRECT',
-        members: {
-          create: [
-            { employeeId: 'emp-mgr', role: 'OWNER' },
-            { employeeId: 'emp-exec', role: 'MEMBER' },
-          ],
-        },
-      },
-    })
-    await prisma.chatMessage.create({
-      data: { chatId: dm.id, senderEmployeeId: 'emp-mgr', body: 'Meera — can you take the Sundar & Co fieldwork next week?' },
-    })
-    await prisma.chatMessage.create({
-      data: { chatId: dm.id, senderEmployeeId: 'emp-exec', body: 'Yes, I have raised the travel expense already.' },
-    })
+    // Everyone else has read all but the LAST message in each chat, so every
+    // demo login lands with exactly one unread per conversation.
+    for (const chat of await prisma.chat.findMany({ include: { members: true } })) {
+      const messages = await prisma.chatMessage.findMany({
+        where: { chatId: chat.id }, orderBy: { createdAt: 'asc' },
+      })
+      if (messages.length === 0) continue
+      for (const message of messages.slice(0, -1)) {
+        for (const member of chat.members) {
+          if (member.employeeId === message.authorEmployeeId) continue
+          await prisma.messageRead.create({
+            data: {
+              chatId: chat.id,
+              messageId: message.id,
+              employeeId: member.employeeId,
+              readAt: message.createdAt,
+            },
+          })
+        }
+      }
+    }
   }
 
   const counts = {

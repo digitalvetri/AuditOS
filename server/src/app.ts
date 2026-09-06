@@ -14,7 +14,7 @@ import { auditRouter, dashboardRouter, notificationsRouter } from './modules/pla
 import { payrollRouter, salaryRouter } from './modules/payroll/routes.js'
 import { expensesRouter } from './modules/expenses/routes.js'
 import { accountsRouter, paymentsRouter } from './modules/accounts/routes.js'
-import { messagesRouter } from './modules/messages/routes.js'
+import { chatsRouter } from './modules/messages/routes.js'
 import { reportsRouter } from './modules/reports/routes.js'
 import { signedRouter } from './modules/signed.routes.js'
 
@@ -72,7 +72,7 @@ export function createApp() {
   app.use('/api/expenses', expensesRouter)
   app.use('/api/accounts', accountsRouter)
   app.use('/api/payments', paymentsRouter)
-  app.use('/api/messages', messagesRouter)
+  app.use('/api/chats', chatsRouter)
   app.use('/api/reports', reportsRouter)
 
   app.use('/api', (_req, res) => {

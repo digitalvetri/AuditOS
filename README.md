@@ -198,8 +198,8 @@ build shows nothing.
 | **Expenses** | `/hrms/expenses` | `/api/expenses` | Draft → manager → finance → paid, with an append-only approval trail |
 | **Accounts** | `/hrms/accounts` | `/api/accounts` | Append-only ledger, contra entries, reconciliation check |
 | **Payments** | `/hrms/accounts` | `/api/payments` | Simulated disbursement, always paired with a ledger row |
-| **Messages** | `/hrms/messages` | `/api/messages` | Groups and DMs, replies, reactions, mentions, unread state, Socket.IO |
-| **Reports** | `/hrms/reports` | `/api/reports` | 14 scoped reports, filters, CSV / Excel export |
+| **Messages** | `/hrms/messages` | `/api/chats` | Group chats and DMs, reply-to, per-message read receipts, unread badge, Socket.IO |
+| **Reports** | `/hrms/reports` | `/api/reports/:type` | Attendance, leave, payroll and expense reports, query-level scoping, CSV export |
 | **Documents** | `/hrms/documents` | `/api/documents` | Signed-URL downloads, expiry derivation |
 | **Notifications** | `/notifications` | `/api/notifications` | Platform primitive every module emits into |
 | **Settings** | `/hrms/settings` | `/api/settings` | Departments, designations, locations, holidays, leave types, expense categories, statutory rates, role matrix |
@@ -207,6 +207,28 @@ build shows nothing.
 Reserved, deliberately not built: **Workstation** and **Tools**. Their routes,
 navigation entries and the nullable columns they will need (`client_id`,
 `weekly_capacity_hours`, `Chat.subjectType`) already exist.
+
+### Messages
+
+Membership is the authorization boundary for both reads and writes. `chat.manage`
+(MD) overrides it for **reads only** — writing as a non-member would fake group
+presence, so the override deliberately stops at GET. A DM is idempotent per pair:
+asking for one twice returns the same thread. Read state is one row per
+(message, employee), which is what lets the UI answer "have I read *this*
+message" rather than only tracking a per-chat high-water mark.
+
+### Reports
+
+Four report types — attendance, leave, payroll, expenses — scoped **at query
+level**, not by filtering the response:
+
+| Report | Employee | Dept Manager | HR | Finance | MD |
+|---|---|---|---|---|---|
+| attendance, leave | self | department | organisation | denied | organisation |
+| payroll, expenses | own rows | own rows | denied | organisation | organisation |
+
+A Dept Manager's attendance query cannot return another department's rows
+because those employee ids never enter the `where` clause.
 
 ### Payroll stage machine
 

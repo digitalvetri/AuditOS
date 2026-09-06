@@ -85,8 +85,8 @@ than running two of anything.
 | Domain model | **Part 1's** `src/data/models.ts` | Richer and already consumed by working components. Part 2's Prisma models for the same entities were stubs written to let Part 2 run. |
 | Payroll model | **Part 1's** (stage machine, statutory snapshot, earnings/deductions breakdown) | It matches the frontend and captures immutability properly. Part 2's gratuity accrual, payslip PDF and "show the working" were folded in. |
 | Expenses / Accounts | **Part 1's** stage names and ledger shape | Already rendered by the Expenses and Accounts pages. Part 2's monotonic ledger `sequence`, `transactionRef` and contra-entry discipline were adopted wholesale — they are stronger. |
-| Messages | **Part 2's**, adapted | Part 1 had only a placeholder. Service logic kept; response shapes converted to the Part 1 contract. |
-| Reports | **Part 2's**, adapted | Definition-driven engine, kept as-is in structure; column keys and filters converted to snake_case, scope resolution rewritten against the unified schema. |
+| Messages | **Frontend from `main`, backend rewritten to serve it** | `main` shipped a complete MSW-backed Messages UI while this integration was in flight. Its UI and contract won; the Express implementation was rewritten to match it exactly (per-message read receipts, DM idempotency, MD read-only override). |
+| Reports | **Frontend from `main`, backend rewritten to serve it** | Same story. `main`'s four typed aggregate reports replaced the generic definition-driven engine, and the backend now serves that contract against Prisma. |
 | API envelope | **Part 1's** `{ data }` / `{ error }` | The frontend adapter already assumes it. Part 2's `{ ok, data }` was converted rather than teaching 40 components a second format. |
 | Auth | **Part 2's JWT**, delivered in an httpOnly cookie | Real authentication, but shaped so `credentials: 'include'` keeps working and no token sits in `localStorage`. |
 | RBAC | **Part 1's matrix**, enforced server-side | Part 2's role matrix was a stub. Part 1's is the spec §5 matrix; it now lives in `server/src/platform/rbac/matrix.ts` and is seeded into the database. |
@@ -125,6 +125,29 @@ routes under `/api` that do not sit behind `authenticate`. That is deliberate:
 the HMAC in the query string binds the resource, the requesting user and an
 expiry, which is what lets a plain browser navigation fetch the file. Issuing a
 link still requires the authenticated `…/download-url` endpoint.
+
+### Reconciling with `main`
+
+While this integration was being built, `main` advanced with **"Ship Part 2
+modules"** — a parallel implementation of Payroll, Expenses, Accounts,
+Messages and Reports as MSW mock handlers plus frontend pages, with no
+backend. The two efforts overlapped in nine files.
+
+This branch was rebased onto that commit rather than merged over it, and the
+overlap was resolved by role:
+
+- **Frontend belongs to `main`.** Its `Messages.tsx`, `Reports.tsx`, module
+  API clients, chat mock handlers, chat seed, `models.ts` chat types and the
+  TopBar unread badge are kept verbatim. The duplicate files this branch had
+  written for the same purpose were deleted.
+- **Backend belongs to this branch**, rewritten to serve `main`'s contract:
+  `/api/chats*` and `/api/reports/:type` with `main`'s exact request and
+  response shapes, against the unified Prisma schema. The chat tables were
+  reshaped to `main`'s model (lowercase `group`/`dm`, soft-leave membership,
+  `parent_id` replies, per-message read receipts, `last_message_at`).
+
+The result is one contract with two implementations — MSW and Express — which
+is what makes `VITE_MOCK_MODE` a single switch rather than two codebases.
 
 ### Mock mode kept
 

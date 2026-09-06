@@ -325,8 +325,9 @@ employeesRouter.post('/:id/deactivate', handler(async (req, res) => {
     })
     // Session revocation: the linked login stops working immediately.
     await tx.user.updateMany({ where: { employeeId: target.id }, data: { isActive: false } })
-    // Close open chat memberships so a deactivated person leaves conversations.
-    await tx.chatMember.updateMany({ where: { employeeId: target.id, deletedAt: null }, data: { deletedAt: now } })
+    // Soft-leave every conversation: the person stops receiving chats, but
+    // the history they contributed to stays intact.
+    await tx.chatMember.updateMany({ where: { employeeId: target.id, leftAt: null }, data: { leftAt: now } })
     return emp
   })
 

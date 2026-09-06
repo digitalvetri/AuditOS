@@ -54,6 +54,7 @@ model Organisation {
   expenseCategories ExpenseCategory[]
   statutoryRates    StatutoryRate[]
   payrollRuns       PayrollRun[]
+  chats             Chat[]
 
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt
@@ -816,71 +817,78 @@ model LedgerTransaction {
 // ============================================================
 // MESSAGES (§8.7)
 // ============================================================
+//
+// Shapes follow src/data/models.ts: a chat is `group` or `dm`; membership is
+// a soft-leave row so history survives someone leaving; a read receipt is one
+// row per (message, employee) rather than a per-chat high-water mark, which is
+// what lets "read by me" be answered for an individual message.
 
 model Chat {
-  id          String  @id @default(uuid())
-  // GROUP | DIRECT
-  type        String
-  name        String?
-  description String?
-  isSystem    Boolean @default(false)
+  id             String  @id @default(uuid())
+  organisationId String
+  // group | dm
+  type           String
+  // Groups carry a name; a DM derives its display name from the other member.
+  name           String?
+  description    String?
 
   // RESERVED FOR WORKSTATION — nullable, no UI in this phase.
   subjectType String?
   subjectId   String?
 
-  members  ChatMember[]
-  messages ChatMessage[]
+  // Denormalised so the chat list can sort by activity without a join.
+  lastMessageAt DateTime?
+
+  organisation Organisation  @relation(fields: [organisationId], references: [id])
+  members      ChatMember[]
+  messages     ChatMessage[]
+  reads        MessageRead[]
 
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt
   createdBy String?
   updatedBy String?
   deletedAt DateTime?
+
+  @@index([lastMessageAt])
 }
 
 model ChatMember {
   id         String    @id @default(uuid())
   chatId     String
   employeeId String
-  // OWNER | MEMBER
-  role       String    @default("MEMBER")
-  lastReadAt DateTime?
+  // member | admin
+  role       String    @default("member")
+  joinedAt   DateTime  @default(now())
+  /// Soft leave — the person stops receiving the chat but history is intact.
+  leftAt     DateTime?
 
   chat     Chat     @relation(fields: [chatId], references: [id])
   employee Employee @relation(fields: [employeeId], references: [id])
 
-  createdAt DateTime  @default(now())
-  updatedAt DateTime  @updatedAt
-  createdBy String?
-  updatedBy String?
-  deletedAt DateTime?
-
   @@unique([chatId, employeeId])
+  @@index([employeeId])
 }
 
 model ChatMessage {
   id               String @id @default(uuid())
   chatId           String
-  senderEmployeeId String
+  authorEmployeeId String
   body             String
-  replyToId        String?
-  attachmentPath   String?
-  attachmentName   String?
-  reactionsJson    String @default("{}")
+  /// Reply-to. A thread is one level deep by design.
+  parentId         String?
+  /// JSON array of employee ids. Reserved for @mentions; empty in this phase.
   mentionsJson     String @default("[]")
 
   chat     Chat          @relation(fields: [chatId], references: [id])
-  sender   Employee      @relation(fields: [senderEmployeeId], references: [id])
-  replyTo  ChatMessage?  @relation("MessageReply", fields: [replyToId], references: [id])
+  author   Employee      @relation(fields: [authorEmployeeId], references: [id])
+  parent   ChatMessage?  @relation("MessageReply", fields: [parentId], references: [id])
   replies  ChatMessage[] @relation("MessageReply")
   reads    MessageRead[]
 
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt
-  createdBy String?
-  updatedBy String?
-  // Soft delete — messages are retained for audit.
+  /// Soft delete — messages are retained for audit.
   deletedAt DateTime?
 
   @@index([chatId, createdAt])
@@ -888,16 +896,17 @@ model ChatMessage {
 
 model MessageRead {
   id         String   @id @default(uuid())
+  chatId     String
   messageId  String
   employeeId String
   readAt     DateTime @default(now())
 
+  chat     Chat        @relation(fields: [chatId], references: [id])
   message  ChatMessage @relation(fields: [messageId], references: [id])
   employee Employee    @relation(fields: [employeeId], references: [id])
 
-  createdAt DateTime @default(now())
-
   @@unique([messageId, employeeId])
+  @@index([chatId, employeeId])
 }
 
 // ============================================================

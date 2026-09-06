@@ -2,18 +2,22 @@ import { prisma } from '../../lib/prisma.js'
 import { ApiError } from '../../lib/http.js'
 import { writeAudit } from '../../platform/audit.js'
 import { notifyEmployee } from '../../platform/notify.js'
-import type { Session } from '../../platform/auth.js'
-import { chatMessageToApi, type ChatSummary } from '../../api/serialize.js'
+import { can, type Session } from '../../platform/auth.js'
+import {
+  chatToApi, chatMessageToApi, type ChatListItem, type ChatMessageWithAuthor,
+} from '../../api/serialize.js'
 import { publishChatEvent } from './events.js'
 
 /**
  * MESSAGES (§8.7).
  *
  * Internal organisation communication only. There is no client-facing surface
- * here and no route that could reach one: Chat.subjectType / subjectId are
- * modelled and left null, reserved for the Workstation.
+ * and no route that could reach one: Chat.subjectType / subjectId are modelled
+ * and left null, reserved for the Workstation.
  *
- * Membership is the authorization boundary — every read and write asserts it.
+ * MEMBERSHIP IS THE AUTHORIZATION BOUNDARY for both read and write.
+ * `chat.manage` (MD) overrides it for READS only — writing as a non-member
+ * would fake group presence, so the override deliberately stops at GET.
  */
 
 export const SEEDED_GROUPS = [
@@ -21,7 +25,8 @@ export const SEEDED_GROUPS = [
   { code: 'MANAGEMENT', name: 'Management', description: 'Partners and managers' },
   { code: 'HR_TEAM', name: 'HR Team', description: 'Human resources' },
   { code: 'FINANCE_TEAM', name: 'Finance Team', description: 'Finance and accounts' },
-  { code: 'OPERATIONS', name: 'Operations', description: 'Audit and office operations' },
+  { code: 'GST_TEAM', name: 'GST Team', description: 'Indirect tax practice' },
+  { code: 'OPERATIONS', name: 'Operations', description: 'Office operations' },
 ]
 
 function requireEmployee(session: Session): string {
@@ -31,206 +36,257 @@ function requireEmployee(session: Session): string {
   return session.employeeId
 }
 
-async function requireMembership(chatId: string, employeeId: string) {
-  const member = await prisma.chatMember.findFirst({
-    where: { chatId, employeeId, deletedAt: null },
+const canManageChats = (session: Session) => can(session, 'chat.manage', 'organisation')
+
+async function isMember(chatId: string, employeeId: string): Promise<boolean> {
+  const row = await prisma.chatMember.findFirst({
+    where: { chatId, employeeId, leftAt: null },
+    select: { id: true },
   })
-  if (!member) throw ApiError.forbidden('You are not a member of this conversation.')
-  return member
+  return !!row
 }
 
-export async function listChats(session: Session): Promise<ChatSummary[]> {
+/** A DM has no name of its own — it is named after the other participant. */
+async function displayName(
+  chat: { id: string; type: string; name: string | null },
+  viewerEmployeeId: string,
+): Promise<string> {
+  if (chat.type !== 'dm') return chat.name ?? 'Chat'
+  const other = await prisma.chatMember.findFirst({
+    where: { chatId: chat.id, employeeId: { not: viewerEmployeeId } },
+    include: { employee: { select: { fullName: true } } },
+  })
+  return other?.employee.fullName ?? 'Direct message'
+}
+
+/** Unread = messages by others in this chat with no read receipt for me. */
+async function unreadForChat(chatId: string, employeeId: string): Promise<number> {
+  return prisma.chatMessage.count({
+    where: {
+      chatId,
+      deletedAt: null,
+      authorEmployeeId: { not: employeeId },
+      reads: { none: { employeeId } },
+    },
+  })
+}
+
+export async function listChats(session: Session): Promise<{ items: ChatListItem[]; total_unread: number }> {
   const employeeId = requireEmployee(session)
   const memberships = await prisma.chatMember.findMany({
-    where: { employeeId, deletedAt: null },
+    where: { employeeId, leftAt: null },
+    select: { chatId: true },
+  })
+  const memberChatIds = new Set(memberships.map((m) => m.chatId))
+
+  // Everyone sees their own chats; `chat.manage` (MD) additionally sees all.
+  const chats = await prisma.chat.findMany({
+    where: {
+      deletedAt: null,
+      ...(canManageChats(session) ? {} : { id: { in: [...memberChatIds] } }),
+    },
     include: {
-      chat: {
-        include: {
-          members: { where: { deletedAt: null }, include: { employee: true } },
-          messages: {
-            where: { deletedAt: null }, orderBy: { createdAt: 'desc' }, take: 1,
-            include: { sender: true },
-          },
-        },
+      messages: {
+        where: { deletedAt: null },
+        orderBy: { createdAt: 'desc' },
+        take: 1,
       },
+      _count: { select: { members: true } },
     },
   })
 
-  const out: ChatSummary[] = []
-  for (const m of memberships) {
-    if (m.chat.deletedAt) continue
-    const unread = await prisma.chatMessage.count({
-      where: {
-        chatId: m.chatId,
-        deletedAt: null,
-        senderEmployeeId: { not: employeeId },
-        ...(m.lastReadAt ? { createdAt: { gt: m.lastReadAt } } : {}),
-      },
-    })
-    const others = m.chat.members.filter((x) => x.employeeId !== employeeId)
-    const last = m.chat.messages[0]
-    out.push({
-      id: m.chat.id,
-      type: m.chat.type,
-      name: m.chat.type === 'DIRECT'
-        ? (others[0]?.employee.fullName ?? 'Direct message')
-        : (m.chat.name ?? 'Conversation'),
-      description: m.chat.description,
-      is_system: m.chat.isSystem,
-      member_count: m.chat.members.length,
-      members: m.chat.members.map((x) => ({
-        employee_id: x.employeeId,
-        full_name: x.employee.fullName,
-        employee_code: x.employee.employeeCode,
-      })),
-      unread_count: unread,
+  const items: ChatListItem[] = []
+  for (const c of chats) {
+    const last = c.messages[0]
+    items.push({
+      ...chatToApi(c),
+      display_name: await displayName(c, employeeId),
       last_message: last
-        ? { body: last.body, at: last.createdAt.toISOString(), sender: last.sender.fullName }
+        ? {
+            id: last.id,
+            body: last.body,
+            created_at: last.createdAt.toISOString(),
+            author_id: last.authorEmployeeId,
+          }
         : null,
-      last_activity_at: (last?.createdAt ?? m.chat.createdAt).toISOString(),
+      // A chat visible only through the MD override has no unread for you.
+      unread: memberChatIds.has(c.id) ? await unreadForChat(c.id, employeeId) : 0,
+      member_count: c._count.members,
     })
   }
-  return out.sort((a, b) => (a.last_activity_at < b.last_activity_at ? 1 : -1))
+
+  // Newest activity first; chats with no messages fall to the bottom.
+  items.sort((a, b) => {
+    const at = a.last_message_at ?? ''
+    const bt = b.last_message_at ?? ''
+    return at === bt ? 0 : at < bt ? 1 : -1
+  })
+  return { items, total_unread: items.reduce((s, c) => s + c.unread, 0) }
 }
 
 export async function totalUnread(employeeId: string): Promise<number> {
   const memberships = await prisma.chatMember.findMany({
-    where: { employeeId, deletedAt: null }, select: { chatId: true, lastReadAt: true },
+    where: { employeeId, leftAt: null },
+    select: { chatId: true },
   })
   let total = 0
-  for (const m of memberships) {
-    total += await prisma.chatMessage.count({
-      where: {
-        chatId: m.chatId, deletedAt: null, senderEmployeeId: { not: employeeId },
-        ...(m.lastReadAt ? { createdAt: { gt: m.lastReadAt } } : {}),
-      },
-    })
-  }
+  for (const m of memberships) total += await unreadForChat(m.chatId, employeeId)
   return total
 }
 
-/** A direct message reuses the existing thread rather than opening a second one. */
+/** Create a DM (idempotent per pair) or a group (`chat.manage` only). */
 export async function createChat(
   session: Session,
-  input: { type: 'GROUP' | 'DIRECT'; name?: string; member_employee_ids: string[] },
+  input: { type?: 'group' | 'dm'; name?: string; description?: string; member_ids?: string[]; other_employee_id?: string },
 ) {
   const employeeId = requireEmployee(session)
-  const members = Array.from(new Set([employeeId, ...input.member_employee_ids]))
+  const type = input.type ?? 'dm'
+  const org = await prisma.organisation.findFirstOrThrow({ where: { deletedAt: null } })
 
-  if (input.type === 'DIRECT') {
-    if (members.length !== 2) {
-      throw ApiError.unprocessable('direct_participants', 'A direct message has exactly two participants.')
-    }
+  if (type === 'dm') {
+    const other = input.other_employee_id
+    if (!other) throw ApiError.badRequest('other_employee_id required for a DM.')
+    if (other === employeeId) throw ApiError.unprocessable('self_dm', 'You cannot DM yourself.')
+    const target = await prisma.employee.findFirst({ where: { id: other, deletedAt: null } })
+    if (!target) throw ApiError.unprocessable('invalid_target', 'Unknown or inactive employee.')
+
+    // Uniqueness per pair — return the existing thread rather than a second one.
     const existing = await prisma.chat.findFirst({
       where: {
-        type: 'DIRECT', deletedAt: null,
-        AND: members.map((id) => ({ members: { some: { employeeId: id, deletedAt: null } } })),
+        type: 'dm',
+        deletedAt: null,
+        AND: [
+          { members: { some: { employeeId, leftAt: null } } },
+          { members: { some: { employeeId: other, leftAt: null } } },
+        ],
       },
     })
-    if (existing) return { id: existing.id, existing: true }
-  } else if (!input.name?.trim()) {
-    throw ApiError.unprocessable('name_required', 'Give the group a name.')
+    if (existing) return { chat: chatToApi(existing), created: false }
+
+    const chat = await prisma.chat.create({
+      data: {
+        organisationId: org.id,
+        type: 'dm',
+        createdBy: session.userId,
+        updatedBy: session.userId,
+        members: {
+          create: [employeeId, other].map((id) => ({ employeeId: id, role: 'member' })),
+        },
+      },
+    })
+    await writeAudit({
+      actorUserId: session.userId, action: 'chat.dm_created',
+      entityType: 'Chat', entityId: chat.id, after: { with: other },
+    })
+    return { chat: chatToApi(chat), created: true }
   }
 
+  if (!canManageChats(session)) throw ApiError.forbidden('Only MD can create group chats.')
+  if (!input.name?.trim()) throw ApiError.badRequest('name required for a group.')
+  const memberIds = (input.member_ids ?? []).filter(Boolean)
+  if (memberIds.length < 2) {
+    throw ApiError.unprocessable('too_few_members', 'A group needs at least 2 members.')
+  }
   const found = await prisma.employee.findMany({
-    where: { id: { in: members }, deletedAt: null }, select: { id: true },
+    where: { id: { in: memberIds }, deletedAt: null }, select: { id: true },
   })
-  if (found.length !== members.length) {
-    throw ApiError.unprocessable('unknown_participant', 'One or more participants could not be found.')
+  if (found.length !== memberIds.length) {
+    const known = new Set(found.map((f) => f.id))
+    const missing = memberIds.find((id) => !known.has(id))
+    throw ApiError.unprocessable('invalid_target', `Unknown/inactive employee: ${missing}`)
   }
 
   const chat = await prisma.chat.create({
     data: {
-      type: input.type,
-      name: input.type === 'GROUP' ? input.name!.trim() : null,
+      organisationId: org.id,
+      type: 'group',
+      name: input.name.trim(),
+      description: input.description ?? null,
       createdBy: session.userId,
       updatedBy: session.userId,
       members: {
-        create: members.map((id) => ({
+        create: memberIds.map((id) => ({
           employeeId: id,
-          role: id === employeeId ? 'OWNER' : 'MEMBER',
-          createdBy: session.userId,
+          role: id === employeeId ? 'admin' : 'member',
         })),
       },
     },
   })
-  return { id: chat.id, existing: false }
+  await writeAudit({
+    actorUserId: session.userId, action: 'chat.group_created',
+    entityType: 'Chat', entityId: chat.id,
+    after: { name: chat.name, members: memberIds.length },
+  })
+  return { chat: chatToApi(chat), created: true }
 }
 
-export async function listMessages(
-  chatId: string, session: Session, opts: { search?: string; before?: Date; take?: number },
-) {
+export async function listMessages(chatId: string, session: Session) {
   const employeeId = requireEmployee(session)
-  await requireMembership(chatId, employeeId)
+  const chat = await prisma.chat.findFirst({ where: { id: chatId, deletedAt: null } })
+  if (!chat) throw ApiError.notFound('Chat not found.')
+  if (!(await isMember(chatId, employeeId)) && !canManageChats(session)) {
+    throw ApiError.forbidden('You are not a member of this chat.')
+  }
+
   const rows = await prisma.chatMessage.findMany({
-    where: {
-      chatId,
-      deletedAt: null,
-      ...(opts.search ? { body: { contains: opts.search } } : {}),
-      ...(opts.before ? { createdAt: { lt: opts.before } } : {}),
-    },
+    where: { chatId, deletedAt: null },
     include: {
-      sender: true,
-      replyTo: { include: { sender: true } },
-      reads: { select: { employeeId: true, readAt: true } },
+      author: { select: { id: true, fullName: true, employeeCode: true } },
+      parent: { include: { author: { select: { fullName: true } } } },
+      reads: { where: { employeeId }, select: { id: true } },
     },
     orderBy: { createdAt: 'asc' },
-    take: opts.take ?? 200,
   })
-  return rows.map(chatMessageToApi)
-}
 
-/** Detect @mentions against the members of this conversation only. */
-async function detectMentions(chatId: string, body: string, senderEmployeeId: string) {
-  if (!body.includes('@')) return []
-  const members = await prisma.chatMember.findMany({
-    where: { chatId, deletedAt: null }, include: { employee: true },
-  })
-  const lower = body.toLowerCase()
-  return members
-    .filter((m) => m.employeeId !== senderEmployeeId)
-    .filter((m) => {
-      const e = m.employee
-      return lower.includes(`@${e.firstName.toLowerCase()}`)
-        || lower.includes(`@${e.employeeCode.toLowerCase()}`)
-        || lower.includes(`@${e.firstName.toLowerCase()}.${e.lastName.toLowerCase()}`)
-    })
-    .map((m) => m.employeeId)
+  return {
+    chat: { ...chatToApi(chat), display_name: await displayName(chat, employeeId) },
+    items: rows.map(chatMessageToApi),
+  }
 }
 
 export async function postMessage(
-  chatId: string, session: Session,
-  input: { body: string; reply_to_id?: string; attachment_name?: string | null },
+  chatId: string, session: Session, input: { body?: string; parent_id?: string },
 ) {
   const employeeId = requireEmployee(session)
-  await requireMembership(chatId, employeeId)
-  if (!input.body.trim()) {
-    throw ApiError.unprocessable('empty_message', 'Write a message before sending.')
-  }
-
   const chat = await prisma.chat.findFirst({
     where: { id: chatId, deletedAt: null },
-    include: { members: { where: { deletedAt: null } } },
+    include: { members: { where: { leftAt: null } } },
   })
-  if (!chat) throw ApiError.notFound('Conversation not found.')
+  if (!chat) throw ApiError.notFound('Chat not found.')
+  // The MD read override does NOT extend to writing.
+  if (!(await isMember(chatId, employeeId))) {
+    throw ApiError.forbidden('You are not a member of this chat.')
+  }
 
-  const mentions = await detectMentions(chatId, input.body, employeeId)
-  const message = await prisma.chatMessage.create({
-    data: {
-      chatId,
-      senderEmployeeId: employeeId,
-      body: input.body.trim(),
-      replyToId: input.reply_to_id ?? null,
-      attachmentName: input.attachment_name ?? null,
-      mentionsJson: JSON.stringify(mentions),
-      createdBy: session.userId,
-      updatedBy: session.userId,
-    },
-    include: {
-      sender: true,
-      replyTo: { include: { sender: true } },
-      reads: { select: { employeeId: true, readAt: true } },
-    },
+  const text = input.body?.trim()
+  if (!text) throw ApiError.badRequest('Message body is required.')
+  if (text.length > 4000) throw ApiError.unprocessable('too_long', 'Message exceeds 4000 characters.')
+  if (input.parent_id) {
+    const parent = await prisma.chatMessage.findFirst({
+      where: { id: input.parent_id, chatId }, select: { id: true },
+    })
+    if (!parent) throw ApiError.unprocessable('invalid_parent', 'Parent message not in this chat.')
+  }
+
+  const now = new Date()
+  const message = await prisma.$transaction(async (tx) => {
+    const created = await tx.chatMessage.create({
+      data: {
+        chatId,
+        authorEmployeeId: employeeId,
+        body: text,
+        parentId: input.parent_id ?? null,
+        // The author has read their own message by definition.
+        reads: { create: { chatId, employeeId, readAt: now } },
+      },
+      include: {
+        author: { select: { id: true, fullName: true, employeeCode: true } },
+        parent: { include: { author: { select: { fullName: true } } } },
+        reads: { where: { employeeId }, select: { id: true } },
+      },
+    })
+    await tx.chat.update({ where: { id: chatId }, data: { lastMessageAt: now } })
+    return created
   })
 
   const serialized = chatMessageToApi(message)
@@ -241,128 +297,60 @@ export async function postMessage(
     payload: serialized,
   })
 
-  const senderName = message.sender.fullName
-  for (const id of mentions) {
-    await notifyEmployee(id, {
-      type: 'message.mention', module: 'message',
-      title: `${senderName} mentioned you`,
-      body: message.body.slice(0, 160),
-      entityType: 'Chat', entityId: chatId, actionUrl: `/hrms/messages/${chatId}`,
-    })
-  }
-  if (chat.type === 'DIRECT') {
+  // §8.9: a DM notifies the other side. Group traffic is a UI badge only —
+  // notifying every member of every group message is noise, not signal.
+  if (chat.type === 'dm') {
+    const author = message.author.fullName
     for (const m of chat.members) {
-      if (m.employeeId === employeeId || mentions.includes(m.employeeId)) continue
+      if (m.employeeId === employeeId) continue
       await notifyEmployee(m.employeeId, {
-        type: 'message.direct', module: 'message',
-        title: `New message from ${senderName}`,
-        body: message.body.slice(0, 160),
-        entityType: 'Chat', entityId: chatId, actionUrl: `/hrms/messages/${chatId}`,
+        type: 'chat.dm_new', module: 'message',
+        title: `New message from ${author}`,
+        body: text.length > 80 ? `${text.slice(0, 80)}…` : text,
+        entityType: 'ChatMessage', entityId: message.id,
+        actionUrl: `/hrms/messages?chat=${chatId}`,
       })
     }
   }
+
+  await writeAudit({
+    actorUserId: session.userId, action: 'chat.message_sent',
+    entityType: 'ChatMessage', entityId: message.id,
+    after: { chat_id: chatId, has_parent: !!message.parentId },
+  })
   return serialized
 }
 
-export async function markRead(chatId: string, session: Session) {
+/** Mark everything up to `message_id` (or now) read. High frequency: no audit. */
+export async function markRead(chatId: string, session: Session, messageId?: string) {
   const employeeId = requireEmployee(session)
-  await requireMembership(chatId, employeeId)
-  const now = new Date()
+  if (!(await isMember(chatId, employeeId))) {
+    throw ApiError.forbidden('You are not a member of this chat.')
+  }
 
-  await prisma.chatMember.updateMany({ where: { chatId, employeeId }, data: { lastReadAt: now } })
+  let cutoff = new Date()
+  if (messageId) {
+    const target = await prisma.chatMessage.findFirst({ where: { id: messageId, chatId } })
+    if (!target) throw ApiError.unprocessable('invalid_message', 'Message not in this chat.')
+    cutoff = target.createdAt
+  }
+
   const unread = await prisma.chatMessage.findMany({
     where: {
-      chatId, deletedAt: null, senderEmployeeId: { not: employeeId },
+      chatId, deletedAt: null,
+      createdAt: { lte: cutoff },
       reads: { none: { employeeId } },
     },
     select: { id: true },
   })
   if (unread.length) {
     await prisma.messageRead.createMany({
-      data: unread.map((m) => ({ messageId: m.id, employeeId, readAt: now })),
+      data: unread.map((m) => ({ chatId, messageId: m.id, employeeId })),
+    })
+    publishChatEvent({
+      chatId, memberEmployeeIds: [employeeId], type: 'chat:read',
+      payload: { chat_id: chatId, marked: unread.length },
     })
   }
-  publishChatEvent({
-    chatId, memberEmployeeIds: [employeeId], type: 'chat:read',
-    payload: { chat_id: chatId, at: now.toISOString() },
-  })
-  return { chat_id: chatId, read_at: now.toISOString() }
-}
-
-export async function reactToMessage(messageId: string, session: Session, emoji: string) {
-  const employeeId = requireEmployee(session)
-  const message = await prisma.chatMessage.findFirst({ where: { id: messageId, deletedAt: null } })
-  if (!message) throw ApiError.notFound('Message not found.')
-  await requireMembership(message.chatId, employeeId)
-
-  const reactions = JSON.parse(message.reactionsJson) as Record<string, string[]>
-  const list = reactions[emoji] ?? []
-  // Toggle: reacting twice removes the reaction.
-  reactions[emoji] = list.includes(employeeId)
-    ? list.filter((id) => id !== employeeId)
-    : [...list, employeeId]
-  if (reactions[emoji].length === 0) delete reactions[emoji]
-
-  await prisma.chatMessage.update({
-    where: { id: messageId },
-    data: { reactionsJson: JSON.stringify(reactions), updatedBy: session.userId },
-  })
-  const members = await prisma.chatMember.findMany({
-    where: { chatId: message.chatId, deletedAt: null }, select: { employeeId: true },
-  })
-  publishChatEvent({
-    chatId: message.chatId,
-    memberEmployeeIds: members.map((m) => m.employeeId),
-    type: 'message:updated',
-    payload: { id: messageId, reactions },
-  })
-  return { id: messageId, reactions }
-}
-
-/** Soft delete — messages are retained for audit (§8.7). */
-export async function deleteMessage(messageId: string, session: Session) {
-  const employeeId = requireEmployee(session)
-  const message = await prisma.chatMessage.findFirst({ where: { id: messageId, deletedAt: null } })
-  if (!message) throw ApiError.notFound('Message not found.')
-  if (message.senderEmployeeId !== employeeId) {
-    throw ApiError.forbidden('You can only delete your own message.')
-  }
-  const now = new Date()
-  await prisma.chatMessage.update({
-    where: { id: messageId }, data: { deletedAt: now, updatedBy: session.userId },
-  })
-  await writeAudit({
-    actorUserId: session.userId, action: 'message.deleted',
-    entityType: 'ChatMessage', entityId: messageId,
-    before: { body: message.body }, after: { deleted_at: now.toISOString() },
-  })
-  const members = await prisma.chatMember.findMany({
-    where: { chatId: message.chatId, deletedAt: null }, select: { employeeId: true },
-  })
-  publishChatEvent({
-    chatId: message.chatId,
-    memberEmployeeIds: members.map((m) => m.employeeId),
-    type: 'message:deleted',
-    payload: { id: messageId },
-  })
-  return { id: messageId, deleted: true }
-}
-
-/** Colleagues a DM can be opened with. Internal directory only. */
-export async function directory(session: Session) {
-  const rows = await prisma.employee.findMany({
-    where: {
-      deletedAt: null, status: { not: 'inactive' },
-      ...(session.employeeId ? { id: { not: session.employeeId } } : {}),
-    },
-    include: { department: true, designation: true },
-    orderBy: { fullName: 'asc' },
-  })
-  return rows.map((e) => ({
-    id: e.id,
-    full_name: e.fullName,
-    employee_code: e.employeeCode,
-    department: e.department.name,
-    designation: e.designation.name,
-  }))
+  return { marked: unread.length }
 }
