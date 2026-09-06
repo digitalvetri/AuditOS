@@ -1,16 +1,18 @@
 ```text
-Owner: Developer 1 (this session)
 Document: AUDIT_OS_HRMS.md
-Scope:   Part 1 (core HR + shared platform foundation)
+Scope:   Part 1 + Part 2, integrated
 ```
 
-# AUDIT OS · HRMS — Project Spec (Part 1 scope)
+# AUDIT OS · HRMS — Project Spec
 
-This is the project's living spec. It is intentionally **Part-1-scoped**: it
-covers the shared platform foundation and the core-HR modules owned by
-Developer 1. The finance / communication modules (Payroll, Expenses, Accounts,
-Messages, Reports) are owned by `HRMS-Part-2.md` and will be appended here when
-that document lands.
+This is the project's living spec. It began Part-1-scoped (the shared platform
+foundation and the core-HR modules) and now covers the **integrated**
+application: Part 1's React frontend and platform, plus Part 2's Express
+backend and its Payroll, Expenses, Accounts, Payments, Messages and Reports
+modules, against one unified data model.
+
+See `README.md` for how to run it. This file records deliverables, decisions
+and the reasoning behind them.
 
 ## Source of truth
 
@@ -30,8 +32,13 @@ deliverables, and records decisions taken during implementation.
 | 2 | Application shell + four-item nav | Part 1 | ✓ done |
 | 3 | Data layer — models + minimum seed (Part 1 tables) | Part 1 | ✓ done (seed intentionally minimal — 5 users/employees, one per role. Full 28-employee mix + 90-day attendance + statutory rates land with their modules.) |
 | 4 | Auth + RBAC enforced by mock service layer | Part 1 | ✓ done |
-| 5 | Modules (Attendance → Leave → Employees → …) | split | **not this session** |
-| 6 | Demo walkthrough (§12) | split | **not this session** |
+| 5 | Modules (Attendance → Leave → Employees → …) | Part 1 | ✓ done |
+| 6 | Demo walkthrough (§12) | split | ✓ covered by the seeded dataset |
+| 7 | Express + Prisma backend behind the Part 1 API contract | integration | ✓ done |
+| 8 | Unified Prisma schema (Part 1 core-HR + Part 2 modules) | integration | ✓ done |
+| 9 | Payroll, Expenses, Accounts, Payments on the real backend | integration | ✓ done |
+| 10 | Messages integrated into the Part 1 shell | integration | ✓ done |
+| 11 | Reports integrated into the Part 1 shell | integration | ✓ done |
 
 ## Mermaid flows
 
@@ -61,6 +68,71 @@ be added when Part 2 arrives. Do not invent them here.
 6. **Route-based login.** `/login` public, `/` protected. Refreshing preserves
    state (session in `sessionStorage`, sidebar collapse in `localStorage`).
 
+
+---
+
+## Part 2 integration (this session)
+
+Part 1 and Part 2 were built independently and described several of the same
+entities. The integration resolved that into one model and one server rather
+than running two of anything.
+
+### What won, and why
+
+| Area | Decision | Reason |
+|---|---|---|
+| Frontend shell | **Part 1** | It is the shipped application: routing, design system, RBAC-driven navigation, widget registry. Part 2's `web/` was treated as a source of functionality, not an app. |
+| Domain model | **Part 1's** `src/data/models.ts` | Richer and already consumed by working components. Part 2's Prisma models for the same entities were stubs written to let Part 2 run. |
+| Payroll model | **Part 1's** (stage machine, statutory snapshot, earnings/deductions breakdown) | It matches the frontend and captures immutability properly. Part 2's gratuity accrual, payslip PDF and "show the working" were folded in. |
+| Expenses / Accounts | **Part 1's** stage names and ledger shape | Already rendered by the Expenses and Accounts pages. Part 2's monotonic ledger `sequence`, `transactionRef` and contra-entry discipline were adopted wholesale — they are stronger. |
+| Messages | **Part 2's**, adapted | Part 1 had only a placeholder. Service logic kept; response shapes converted to the Part 1 contract. |
+| Reports | **Part 2's**, adapted | Definition-driven engine, kept as-is in structure; column keys and filters converted to snake_case, scope resolution rewritten against the unified schema. |
+| API envelope | **Part 1's** `{ data }` / `{ error }` | The frontend adapter already assumes it. Part 2's `{ ok, data }` was converted rather than teaching 40 components a second format. |
+| Auth | **Part 2's JWT**, delivered in an httpOnly cookie | Real authentication, but shaped so `credentials: 'include'` keeps working and no token sits in `localStorage`. |
+| RBAC | **Part 1's matrix**, enforced server-side | Part 2's role matrix was a stub. Part 1's is the spec §5 matrix; it now lives in `server/src/platform/rbac/matrix.ts` and is seeded into the database. |
+
+### Duplicates removed
+
+- One `User`, one `Employee`, one `Role`, one `ExpenseCategory`, one payroll model.
+- Part 2's separate `web/` React app is not used; its `App.tsx`, router and
+  design were not merged into the root frontend.
+- `ModulePlaceholder.tsx` deleted — every HRMS route now has a real page.
+- Part 2's stub `platform/permissions.ts`, `platform/rbac.ts`,
+  `platform/dashboard.ts` and `platform/routes.ts` were replaced by the
+  integrated platform layer.
+
+### Naming boundary
+
+Prisma columns are camelCase, the HTTP API is snake_case. Rather than renaming
+one side to match the other, the two vocabularies stay separate and meet in
+exactly one file, `server/src/api/serialize.ts`. No route handler builds a
+response by hand; no React component knows a column name. The same file holds
+the Finance six-field projection (§5‡) and the department-scope projection, so
+those rules are enforced in one readable place rather than scattered.
+
+### Calendar dates vs timestamps
+
+Attendance is keyed `(employee_id, date)` where `date` is an **IST calendar
+day**. Storing that as a timestamp is what makes a 00:30 IST check-in land on
+the previous day and either collide or split. So calendar-date columns
+(attendance date, leave range, effective-from, expiry) are `YYYY-MM-DD`
+strings, and only points in time are `DateTime`.
+
+### Signed URLs are self-authorizing
+
+`/api/documents/:id/download` and `/api/payroll/payslips/:id/pdf` are the only
+routes under `/api` that do not sit behind `authenticate`. That is deliberate:
+the HMAC in the query string binds the resource, the requesting user and an
+expiry, which is what lets a plain browser navigation fetch the file. Issuing a
+link still requires the authenticated `…/download-url` endpoint.
+
+### Mock mode kept
+
+MSW was not removed. `src/data/mock/` implements the same contract as the
+server — including the new Messages and Reports modules — so the frontend can
+be developed with no backend, and the two implementations are a check on each
+other. `VITE_MOCK_MODE` is the only switch.
+
 ## Decisions taken (§16 open items)
 
 Only decisions needed for Part 1 modules are taken here. Payroll-dependent
@@ -69,9 +141,16 @@ starts.
 
 | Decision | Value | Notes |
 |---|---|---|
-| Head-office coordinates | **13.0827, 80.2707** (Chennai, TN) | placeholder; §13 marks as `[DECIDE]`. Change in `seed/workLocations.ts`. |
-| Headcount (this session) | **5** (one per role) | Full 28-employee mix (§13) added when Employees module is fleshed out. |
+| Head-office coordinates | **13.0827, 80.2707** (Chennai, TN) | placeholder; §13 marks as `[DECIDE]`. Change in the seed. |
+| Headcount (seed) | **8** (one per role, plus articled, probation and an exited employee) | Enough to exercise every scope rule and the no-login case. |
 | Probation duration | **6 months** | §3 default. |
+| PF basis under LOP | **Full Basic, not pro-rated** | The spec is silent and both readings are defensible; documented in `server/src/domain/payroll/calc.ts` so it can be changed in one place. |
+| PF wage ceiling | **Applied** (`restrict_to_ceiling` behaviour) | Rate rows carry the ceiling; the engine reads it rather than inlining a number. |
+| Professional Tax realisation | **August and February payrolls** | TN charges half-yearly; realising it in the two months it is due matches practice better than accruing a sixth monthly. |
+| Gratuity | **Accrued and shown, never paid through payroll** | 15/26 of monthly basic per year, surfaced so Finance sees the liability building. |
+| Development database | **SQLite** | Zero-setup local development. PostgreSQL is a two-line change (`provider` + `DATABASE_URL`). |
+| Session transport | **JWT in an httpOnly cookie** | Keeps `credentials: 'include'` working unchanged and keeps the token out of reach of injected scripts. |
+| Dev secrets | **Random per process, with a warning** | No well-known default secret exists in the codebase; production aborts on a missing secret. |
 
 ## Local development
 

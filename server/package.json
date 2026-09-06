@@ -1,0 +1,43 @@
+{
+  "name": "auditos-hrms-server",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "build": "tsc -p tsconfig.json",
+    "start": "node dist/src/index.js",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "prisma:generate": "prisma generate",
+    "prisma:push": "prisma db push --skip-generate",
+    "seed": "tsx prisma/seed.ts",
+    "db:reset": "rm -f prisma/dev.db prisma/dev.db-journal && npm run prisma:push && npm run seed"
+  },
+  "prisma": {
+    "seed": "tsx prisma/seed.ts"
+  },
+  "dependencies": {
+    "@prisma/client": "5.22.0",
+    "bcryptjs": "2.4.3",
+    "cookie-parser": "1.4.7",
+    "cors": "2.8.5",
+    "exceljs": "4.4.0",
+    "express": "4.21.2",
+    "jsonwebtoken": "9.0.2",
+    "pdfkit": "0.15.1",
+    "socket.io": "4.8.1",
+    "zod": "3.23.8"
+  },
+  "devDependencies": {
+    "@types/bcryptjs": "2.4.6",
+    "@types/cookie-parser": "1.4.8",
+    "@types/cors": "2.8.17",
+    "@types/express": "4.17.21",
+    "@types/jsonwebtoken": "9.0.7",
+    "@types/node": "20.17.9",
+    "@types/pdfkit": "0.13.9",
+    "prisma": "5.22.0",
+    "tsx": "4.19.2",
+    "typescript": "5.7.2"
+  }
+}

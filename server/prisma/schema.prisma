@@ -1,0 +1,946 @@
+// AUDIT OS · HRMS — unified Prisma schema (Part 1 core-HR + Part 2 modules).
+//
+// ONE MODEL, ONE SOURCE OF TRUTH. There is exactly one User, one Employee,
+// one Role, one ExpenseCategory and one payroll model in this file. Where
+// Part 1 and Part 2 both described an entity, the Part 1 domain shape wins
+// (it is the shape the shipped React frontend consumes) and the useful Part 2
+// additions are folded into it.
+//
+// NAMING: columns are camelCase (Prisma convention). The HTTP API speaks
+// snake_case (Part 1 §9/§10). The translation happens in exactly one place —
+// src/api/serialize.ts — never inside a route handler or a React component.
+//
+// MONEY: every monetary column is an integer number of PAISE. No floats.
+//
+// DATES: a calendar date that must stay IST-stable (attendance date, leave
+// range, effective-from, expiry) is stored as an ISO 'YYYY-MM-DD' STRING.
+// A point in time is a DateTime stored in UTC. Storing calendar dates as
+// DateTime is what makes attendance rows land on the wrong day across the
+// IST/UTC boundary, so we do not do it.
+//
+// SOFT DELETE: every mutable table carries deletedAt; reads filter it out.
+// AuditLog and LedgerTransaction are append-only and carry no deletedAt.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  // SQLite is the local development database. Switching to PostgreSQL is a
+  // two-line change: provider = "postgresql" and a Postgres DATABASE_URL.
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+// ============================================================
+// PLATFORM PRIMITIVES
+// ============================================================
+
+model Organisation {
+  id                   String @id @default(uuid())
+  name                 String
+  timezone             String @default("Asia/Kolkata")
+  currency             String @default("INR")
+  fiscalYearStartMonth Int    @default(4)
+
+  departments   Department[]
+  designations  Designation[]
+  workLocations WorkLocation[]
+  workSchedules WorkSchedule[]
+  holidays      Holiday[]
+  employees     Employee[]
+  users         User[]
+  leaveTypes    LeaveType[]
+  expenseCategories ExpenseCategory[]
+  statutoryRates    StatutoryRate[]
+  payrollRuns       PayrollRun[]
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  createdBy String?
+  updatedBy String?
+  deletedAt DateTime?
+}
+
+model Role {
+  id          String @id @default(uuid())
+  // employee | dept_manager | hr_admin | finance_admin | md
+  code        String @unique
+  name        String
+  description String?
+
+  permissions RolePermission[]
+  users       User[]
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  createdBy String?
+  updatedBy String?
+  deletedAt DateTime?
+}
+
+model Permission {
+  id          String @id @default(uuid())
+  // '<module>.<action>[.<qualifier>]' — see src/platform/rbac/matrix.ts
+  code        String @unique
+  description String
+
+  roles RolePermission[]
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+}
+
+model RolePermission {
+  id           String @id @default(uuid())
+  roleId       String
+  permissionId String
+  // self | department | organisation — a grant is (permission, scope).
+  scope        String @default("self")
+
+  role       Role       @relation(fields: [roleId], references: [id])
+  permission Permission @relation(fields: [permissionId], references: [id])
+
+  @@unique([roleId, permissionId])
+}
+
+model User {
+  id             String    @id @default(uuid())
+  organisationId String
+  email          String    @unique
+  passwordHash   String
+  roleId         String
+  // Nullable BOTH ways (Part 1 §4.2): automation users have no employee, and
+  // an employee (e.g. an exited one) may have no login.
+  employeeId     String?   @unique
+  isActive       Boolean   @default(true)
+  lastLoginAt    DateTime?
+
+  organisation Organisation @relation(fields: [organisationId], references: [id])
+  role         Role         @relation(fields: [roleId], references: [id])
+  employee     Employee?    @relation(fields: [employeeId], references: [id])
+
+  notifications Notification[]
+  auditLogs     AuditLog[]
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  createdBy String?
+  updatedBy String?
+  deletedAt DateTime?
+}
+
+// ============================================================
+// CONFIGURATION (Settings §8.11)
+// ============================================================
+
+model Department {
+  id             String @id @default(uuid())
+  organisationId String
+  name           String
+  code           String @unique
+
+  organisation Organisation @relation(fields: [organisationId], references: [id])
+  employees    Employee[]
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  createdBy String?
+  updatedBy String?
+  deletedAt DateTime?
+}
+
+model Designation {
+  id             String @id @default(uuid())
+  organisationId String
+  name           String
+
+  organisation Organisation @relation(fields: [organisationId], references: [id])
+  employees    Employee[]
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  createdBy String?
+  updatedBy String?
+  deletedAt DateTime?
+}
+
+model WorkLocation {
+  id             String  @id @default(uuid())
+  organisationId String
+  name           String
+  address        String  @default("")
+  latitude       Float
+  longitude      Float
+  radiusM        Int     @default(150)
+  isActive       Boolean @default(true)
+
+  organisation Organisation @relation(fields: [organisationId], references: [id])
+  employees    Employee[]
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  createdBy String?
+  updatedBy String?
+  deletedAt DateTime?
+}
+
+model WorkSchedule {
+  id                   String @id @default(uuid())
+  organisationId       String
+  name                 String
+  standardStart        String // 'HH:mm'
+  standardEnd          String // 'HH:mm'
+  fullDayHours         Float  @default(8)
+  halfDayHours         Float  @default(4)
+  breakMinutes         Int    @default(60)
+  // JSON array of ISO weekday numbers 1..7 (SQLite has no native Json column).
+  workingDaysJson      String @default("[1,2,3,4,5]")
+  alternateSaturdayOff Boolean @default(false)
+
+  organisation Organisation @relation(fields: [organisationId], references: [id])
+  employees    Employee[]
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  createdBy String?
+  updatedBy String?
+  deletedAt DateTime?
+}
+
+model Holiday {
+  id             String  @id @default(uuid())
+  organisationId String
+  date           String // 'YYYY-MM-DD'
+  name           String
+  isOptional     Boolean @default(false)
+
+  organisation Organisation @relation(fields: [organisationId], references: [id])
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  createdBy String?
+  updatedBy String?
+  deletedAt DateTime?
+
+  @@index([date])
+}
+
+model LeaveType {
+  id                    String  @id @default(uuid())
+  organisationId        String
+  // casual | sick | earned | lop | comp_off
+  code                  String
+  name                  String
+  // null = unlimited (Loss of Pay)
+  annualEntitlement     Float?
+  accrual               String  @default("monthly") // monthly | earned
+  carryForwardMax       Float   @default(0)
+  halfDayAllowed        Boolean @default(false)
+  minNoticeDays         Int     @default(0)
+  accrueDuringProbation Boolean @default(true)
+
+  organisation Organisation   @relation(fields: [organisationId], references: [id])
+  balances     LeaveBalance[]
+  requests     LeaveRequest[]
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  createdBy String?
+  updatedBy String?
+  deletedAt DateTime?
+
+  @@unique([organisationId, code])
+}
+
+model ExpenseCategory {
+  id              String  @id @default(uuid())
+  organisationId  String
+  name            String
+  code            String  @unique
+  isActive        Boolean @default(true)
+  requiresReceipt Boolean @default(true)
+  glAccount       String?
+
+  organisation Organisation @relation(fields: [organisationId], references: [id])
+  expenses     Expense[]
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  createdBy String?
+  updatedBy String?
+  deletedAt DateTime?
+}
+
+// Statutory configuration is DATA, never a literal in code. A row is
+// (code, effectiveFrom, effectiveTo); payroll resolves the row effective on
+// the period start and snapshots it onto the run.
+model StatutoryRate {
+  id             String  @id @default(uuid())
+  organisationId String
+  // 'pf.employee_rate' | 'pf.wage_ceiling' | 'esi.gross_threshold' | 'pt.tn.slab' | …
+  code           String
+  // Stored as a string; the caller parses (rate, ceiling, or a slab JSON array).
+  value          String
+  effectiveFrom  String  // 'YYYY-MM-DD'
+  effectiveTo    String? // 'YYYY-MM-DD'
+  notes          String?
+
+  organisation Organisation @relation(fields: [organisationId], references: [id])
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  createdBy String?
+  updatedBy String?
+  deletedAt DateTime?
+
+  @@index([code, effectiveFrom])
+}
+
+// ============================================================
+// CORE HR
+// ============================================================
+
+model Employee {
+  id             String @id @default(uuid())
+  organisationId String
+  employeeCode   String @unique
+  firstName      String
+  lastName       String
+  fullName       String
+  // partner | manager | executive | articled | support
+  type           String @default("executive")
+  // active | on_leave | probation | notice_period | inactive
+  status         String @default("active")
+
+  designationId String
+  departmentId  String
+  managerId     String? // self-referential, nullable
+  workLocationId String
+  workScheduleId String
+
+  email            String  @unique
+  phone            String  @default("")
+  joiningDate      String  // 'YYYY-MM-DD'
+  exitDate         String?
+  exitReason       String?
+  noticePeriodDays Int     @default(30)
+
+  // RESERVED FOR WORKSTATION — nullable from day one, no UI in this phase.
+  weeklyCapacityHours Float?
+
+  photoUrl               String?
+  address                String?
+  emergencyContactName   String?
+  emergencyContactPhone  String?
+  bankAccountMasked      String?
+
+  organisation Organisation @relation(fields: [organisationId], references: [id])
+  department   Department   @relation(fields: [departmentId], references: [id])
+  designation  Designation  @relation(fields: [designationId], references: [id])
+  workLocation WorkLocation @relation(fields: [workLocationId], references: [id])
+  workSchedule WorkSchedule @relation(fields: [workScheduleId], references: [id])
+  manager      Employee?    @relation("EmployeeManager", fields: [managerId], references: [id])
+  reports      Employee[]   @relation("EmployeeManager")
+
+  user               User?
+  training           ArticledTraining?  @relation("TrainingSubject")
+  principalTrainings ArticledTraining[] @relation("TrainingPrincipal")
+  attendance         Attendance[]
+  corrections        AttendanceCorrection[]
+  leaveBalances      LeaveBalance[]
+  leaveRequests      LeaveRequest[]
+  documents          EmployeeDocument[]
+  salaryStructures   SalaryStructure[]
+  payrollItems       PayrollItem[]
+  payslips           Payslip[]
+  expenses           Expense[]
+  payments           Payment[]
+  ledgerEntries      LedgerTransaction[]
+  chatMemberships    ChatMember[]
+  chatMessages       ChatMessage[]
+  messageReads       MessageRead[]
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  createdBy String?
+  updatedBy String?
+  deletedAt DateTime?
+
+  @@index([departmentId])
+  @@index([managerId])
+}
+
+model ArticledTraining {
+  id                  String @id @default(uuid())
+  employeeId          String @unique
+  icaiRegistrationNo  String
+  principalEmployeeId String
+  trainingStart       String
+  trainingEnd         String
+  currentYear         Int    @default(1)
+  stipendSlab         String @default("")
+  // active | transferred | completed | terminated
+  status              String @default("active")
+
+  employee  Employee @relation("TrainingSubject", fields: [employeeId], references: [id])
+  principal Employee @relation("TrainingPrincipal", fields: [principalEmployeeId], references: [id])
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  createdBy String?
+  updatedBy String?
+  deletedAt DateTime?
+}
+
+model EmployeeDocument {
+  id         String  @id @default(uuid())
+  employeeId String
+  name       String
+  // employment | joining | certificate | hr | tax | bank | company_issued | icai
+  type       String
+  fileKey    String
+  uploadedBy String
+  uploadedAt DateTime @default(now())
+  expiryDate String?
+  // valid | expiring_soon | expired | pending_verification (derived on read
+  // from expiryDate, except the sticky pending_verification state)
+  status     String   @default("valid")
+
+  employee Employee @relation(fields: [employeeId], references: [id])
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  createdBy String?
+  updatedBy String?
+  deletedAt DateTime?
+
+  @@index([employeeId])
+}
+
+// ============================================================
+// ATTENDANCE (§8.2)
+// ============================================================
+
+model Attendance {
+  id         String @id @default(uuid())
+  employeeId String
+  date       String // 'YYYY-MM-DD' IST calendar date
+
+  checkInAt  DateTime?
+  checkOutAt DateTime?
+
+  checkInLat        Float?
+  checkInLong       Float?
+  checkInAccuracyM  Float?
+  checkOutLat       Float?
+  checkOutLong      Float?
+  checkOutAccuracyM Float?
+
+  checkInLocationId  String?
+  checkOutLocationId String?
+  // office | client_site | remote | field
+  locationType       String?
+  offSiteReason      String?
+
+  workedMinutes Int?
+  breakMinutes  Int?
+  // present | late | absent | half_day | wfh | on_leave | missing_check_in | missing_check_out
+  status        String
+  // web_geo | biometric | manual
+  source        String  @default("web_geo")
+  // none | requested | approved | rejected
+  correctionStatus String @default("none")
+  device        String?
+  ip            String?
+
+  // RESERVED FOR WORKSTATION — no FK, there is no Client table yet.
+  clientId String?
+
+  employee Employee @relation(fields: [employeeId], references: [id])
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  createdBy String?
+  updatedBy String?
+  deletedAt DateTime?
+
+  @@unique([employeeId, date])
+  @@index([date])
+}
+
+model AttendanceCorrection {
+  id                   String  @id @default(uuid())
+  attendanceId         String? // null when the correction creates a new day
+  employeeId           String
+  date                 String
+  requestedCheckInAt   DateTime?
+  requestedCheckOutAt  DateTime?
+  reason               String
+  attachmentUrl        String?
+  // pending | approved | rejected
+  status               String  @default("pending")
+  reviewedBy           String?
+  reviewedAt           DateTime?
+  reviewNotes          String?
+
+  employee Employee @relation(fields: [employeeId], references: [id])
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  createdBy String?
+  updatedBy String?
+  deletedAt DateTime?
+
+  @@index([employeeId, status])
+}
+
+// ============================================================
+// LEAVE (§8.3)
+// ============================================================
+
+model LeaveBalance {
+  id              String @id @default(uuid())
+  employeeId      String
+  leaveTypeId     String
+  fiscalYearStart String // 'YYYY-04-01'
+  entitled        Float  @default(0)
+  availed         Float  @default(0)
+  carriedForward  Float  @default(0)
+
+  employee  Employee  @relation(fields: [employeeId], references: [id])
+  leaveType LeaveType @relation(fields: [leaveTypeId], references: [id])
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([employeeId, leaveTypeId, fiscalYearStart])
+}
+
+model LeaveRequest {
+  id                  String  @id @default(uuid())
+  employeeId          String
+  leaveTypeId         String
+  startDate           String
+  endDate             String
+  halfDay             Boolean @default(false)
+  // Server-authoritative: the sandwich rule is applied at write time.
+  computedWorkingDays Float
+  reason              String
+  attachmentUrl       String?
+  // pending | approved | rejected | cancelled
+  status              String  @default("pending")
+  approverId          String? // manager who approved (stage 1)
+  hrApproverId        String? // HR who approved (stage 2, > 5 days)
+  approvedAt          DateTime?
+  rejectionReason     String?
+
+  employee  Employee  @relation(fields: [employeeId], references: [id])
+  leaveType LeaveType @relation(fields: [leaveTypeId], references: [id])
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  createdBy String?
+  updatedBy String?
+  deletedAt DateTime?
+
+  @@index([employeeId, startDate])
+  @@index([status])
+}
+
+// ============================================================
+// PAYROLL (§8.4)
+// ============================================================
+
+model SalaryStructure {
+  id                    String  @id @default(uuid())
+  employeeId            String
+  effectiveFrom         String
+  effectiveTo           String? // null = currently effective
+  monthlyCtcPaise       Int     @default(0)
+  basicPaise            Int     @default(0)
+  hraPaise              Int     @default(0)
+  conveyancePaise       Int     @default(0)
+  specialAllowancePaise Int     @default(0)
+  // JSON array of { code, label, amount_paise, kind: 'earning' | 'deduction' }
+  customComponentsJson  String  @default("[]")
+  notes                 String?
+
+  employee     Employee      @relation(fields: [employeeId], references: [id])
+  payrollItems PayrollItem[]
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  createdBy String?
+  updatedBy String?
+  deletedAt DateTime?
+
+  @@index([employeeId, effectiveFrom])
+}
+
+model PayrollRun {
+  id             String @id @default(uuid())
+  organisationId String
+  periodStart    String
+  periodEnd      String
+  // draft → hr_review → finance_review → approved → processed
+  stage          String @default("draft")
+  isCalculating  Boolean @default(false)
+  // Snapshot of the StatutoryRate table at calculate time. A rate change
+  // afterwards must NOT alter a processed run's numbers.
+  statutorySnapshotJson String?
+
+  headcount            Int @default(0)
+  grossTotalPaise      Int @default(0)
+  deductionsTotalPaise Int @default(0)
+  netTotalPaise        Int @default(0)
+
+  reviewedBy  String?
+  approvedBy  String?
+  processedBy String?
+  processedAt DateTime?
+  notes       String?
+
+  organisation Organisation  @relation(fields: [organisationId], references: [id])
+  items        PayrollItem[]
+  payslips     Payslip[]
+  payments     Payment[]
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  createdBy String?
+  updatedBy String?
+  deletedAt DateTime?
+
+  @@unique([periodStart, periodEnd])
+}
+
+model PayrollItem {
+  id                String @id @default(uuid())
+  payrollRunId      String
+  employeeId        String
+  salaryStructureId String
+
+  payableDays Float
+  presentDays Float
+  onLeaveDays Float
+  absentDays  Float
+  lopDays     Float
+
+  // "Show the working": full component-by-component breakdown, in the exact
+  // PayrollEarnings / PayrollDeductions shape the payslip renders.
+  earningsJson   String
+  deductionsJson String
+
+  grossPaise           Int
+  totalDeductionsPaise Int
+  netPaise             Int
+  gratuityAccrualPaise Int @default(0)
+  notes                String?
+
+  payrollRun      PayrollRun      @relation(fields: [payrollRunId], references: [id])
+  employee        Employee        @relation(fields: [employeeId], references: [id])
+  salaryStructure SalaryStructure @relation(fields: [salaryStructureId], references: [id])
+  payslip         Payslip?
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  createdBy String?
+  updatedBy String?
+  deletedAt DateTime?
+
+  @@unique([payrollRunId, employeeId])
+  @@index([employeeId])
+}
+
+model Payslip {
+  id            String   @id @default(uuid())
+  payrollRunId  String
+  payrollItemId String   @unique
+  employeeId    String
+  payslipNo     String   @unique
+  publishedAt   DateTime
+  fileKey       String
+  // published | revoked
+  status        String   @default("published")
+
+  payrollRun  PayrollRun  @relation(fields: [payrollRunId], references: [id])
+  payrollItem PayrollItem @relation(fields: [payrollItemId], references: [id])
+  employee    Employee    @relation(fields: [employeeId], references: [id])
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  createdBy String?
+  updatedBy String?
+  deletedAt DateTime?
+
+  @@index([employeeId])
+}
+
+// ============================================================
+// EXPENSES (§8.5)
+// ============================================================
+
+model Expense {
+  id           String @id @default(uuid())
+  expenseNo    String @unique
+  employeeId   String
+  categoryId   String
+  title        String
+  amountPaise  Int
+  expenseDate  String
+  description  String @default("")
+  // cash | card | upi | bank_transfer | other
+  paymentMethod String @default("card")
+  receiptFileKey String?
+  notes        String?
+  // draft → pending_manager → pending_finance → approved → paid | rejected
+  stage        String @default("draft")
+
+  submittedAt        DateTime?
+  managerApprovedBy  String?
+  managerApprovedAt  DateTime?
+  financeApprovedBy  String?
+  financeApprovedAt  DateTime?
+  paidAt             DateTime?
+  paymentId          String?
+  rejectionReason    String?
+  rejectedBy         String?
+  rejectedAt         DateTime?
+
+  // RESERVED FOR WORKSTATION — nullable, no UI, no FK.
+  clientId String?
+
+  employee  Employee        @relation(fields: [employeeId], references: [id])
+  category  ExpenseCategory @relation(fields: [categoryId], references: [id])
+  approvals ExpenseApproval[]
+  payments  Payment[]
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  createdBy String?
+  updatedBy String?
+  deletedAt DateTime?
+
+  @@index([employeeId, stage])
+  @@index([stage])
+}
+
+/// Append-only stage-transition trail. No update, no delete.
+model ExpenseApproval {
+  id          String @id @default(uuid())
+  expenseId   String
+  actorUserId String
+  fromStage   String
+  toStage     String
+  notes       String?
+
+  expense Expense @relation(fields: [expenseId], references: [id])
+
+  createdAt DateTime @default(now())
+
+  @@index([expenseId])
+}
+
+// ============================================================
+// ACCOUNTS & PAYMENTS (§8.6)
+// ============================================================
+
+model Payment {
+  id           String  @id @default(uuid())
+  paymentNo    String  @unique
+  employeeId   String
+  payrollRunId String?
+  expenseId    String?
+  amountPaise  Int
+  // bank_transfer | cash | cheque | mock
+  method       String  @default("mock")
+  reference    String  @unique
+  // pending | processing | completed | failed
+  status       String  @default("pending")
+  paidAt       DateTime?
+
+  employee      Employee            @relation(fields: [employeeId], references: [id])
+  payrollRun    PayrollRun?         @relation(fields: [payrollRunId], references: [id])
+  expense       Expense?            @relation(fields: [expenseId], references: [id])
+  ledgerEntries LedgerTransaction[]
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  createdBy String?
+  updatedBy String?
+  deletedAt DateTime?
+
+  @@index([employeeId, status])
+}
+
+/// APPEND-ONLY. There is no update and no delete path to this table anywhere
+/// in the application — a correction is a contra entry that points back at the
+/// row it reverses via reversesId. `namespace` is the hard boundary that keeps
+/// client accounting out of Audit OS's own books (§8.6).
+model LedgerTransaction {
+  id             String @id @default(uuid())
+  transactionRef String @unique
+  namespace      String @default("INTERNAL")
+  // Monotonic, assigned inside the posting transaction.
+  sequence       Int    @unique
+  date           String
+  // Payroll | Expense Reimbursement | Office Expense | Employee Advance |
+  // Advance Recovery | Payment
+  type           String
+  description    String
+  employeeId     String?
+  category       String?
+  debitPaise     Int    @default(0)
+  creditPaise    Int    @default(0)
+  runningBalancePaise Int
+  referenceId    String
+  referenceType  String
+  // posted | reversed  (`reversed` means "a contra entry exists for me")
+  status         String @default("posted")
+
+  paymentId  String?
+  reversesId String?
+
+  employee Employee? @relation(fields: [employeeId], references: [id])
+  payment  Payment?  @relation(fields: [paymentId], references: [id])
+
+  createdAt DateTime @default(now())
+  createdBy String?
+
+  @@index([date])
+  @@index([type])
+}
+
+// ============================================================
+// MESSAGES (§8.7)
+// ============================================================
+
+model Chat {
+  id          String  @id @default(uuid())
+  // GROUP | DIRECT
+  type        String
+  name        String?
+  description String?
+  isSystem    Boolean @default(false)
+
+  // RESERVED FOR WORKSTATION — nullable, no UI in this phase.
+  subjectType String?
+  subjectId   String?
+
+  members  ChatMember[]
+  messages ChatMessage[]
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  createdBy String?
+  updatedBy String?
+  deletedAt DateTime?
+}
+
+model ChatMember {
+  id         String    @id @default(uuid())
+  chatId     String
+  employeeId String
+  // OWNER | MEMBER
+  role       String    @default("MEMBER")
+  lastReadAt DateTime?
+
+  chat     Chat     @relation(fields: [chatId], references: [id])
+  employee Employee @relation(fields: [employeeId], references: [id])
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  createdBy String?
+  updatedBy String?
+  deletedAt DateTime?
+
+  @@unique([chatId, employeeId])
+}
+
+model ChatMessage {
+  id               String @id @default(uuid())
+  chatId           String
+  senderEmployeeId String
+  body             String
+  replyToId        String?
+  attachmentPath   String?
+  attachmentName   String?
+  reactionsJson    String @default("{}")
+  mentionsJson     String @default("[]")
+
+  chat     Chat          @relation(fields: [chatId], references: [id])
+  sender   Employee      @relation(fields: [senderEmployeeId], references: [id])
+  replyTo  ChatMessage?  @relation("MessageReply", fields: [replyToId], references: [id])
+  replies  ChatMessage[] @relation("MessageReply")
+  reads    MessageRead[]
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  createdBy String?
+  updatedBy String?
+  // Soft delete — messages are retained for audit.
+  deletedAt DateTime?
+
+  @@index([chatId, createdAt])
+}
+
+model MessageRead {
+  id         String   @id @default(uuid())
+  messageId  String
+  employeeId String
+  readAt     DateTime @default(now())
+
+  message  ChatMessage @relation(fields: [messageId], references: [id])
+  employee Employee    @relation(fields: [employeeId], references: [id])
+
+  createdAt DateTime @default(now())
+
+  @@unique([messageId, employeeId])
+}
+
+// ============================================================
+// NOTIFICATIONS + AUDIT (§8.9, §10)
+// ============================================================
+
+model Notification {
+  id         String  @id @default(uuid())
+  userId     String
+  type       String
+  // attendance | leave | payroll | expense | message | document | system
+  module     String
+  entityType String?
+  entityId   String?
+  title      String
+  body       String
+  actionUrl  String?
+  isRead     Boolean @default(false)
+
+  user User @relation(fields: [userId], references: [id])
+
+  createdAt DateTime @default(now())
+
+  @@index([userId, isRead])
+}
+
+/// Append-only. There is no update shape and no delete.
+model AuditLog {
+  id          String  @id @default(uuid())
+  actorUserId String?
+  action      String
+  entityType  String
+  entityId    String
+  beforeJson  String?
+  afterJson   String?
+  ip          String?
+  userAgent   String?
+
+  actor User? @relation(fields: [actorUserId], references: [id])
+
+  createdAt DateTime @default(now())
+
+  @@index([entityType, entityId])
+  @@index([action])
+  @@index([createdAt])
+}

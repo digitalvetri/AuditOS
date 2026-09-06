@@ -11,3 +11,4 @@ import './dashboard/widgets';
 import './payroll/widgets';
 import './expenses/widgets';
 import './accounts/widgets';
+import './messages/widgets';

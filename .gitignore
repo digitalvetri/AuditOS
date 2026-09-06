@@ -1,9 +1,18 @@
 node_modules
 dist
 dist-ssr
+
+# Secrets — never commit. The .example files are the committed templates.
 .env
-.env.local
-.env.*.local
+.env.*
+!.env.example
+
+# Local databases — SQLite dev files live under server/prisma/.
+*.db
+*.db-journal
+*.sqlite
+*.sqlite3
+
 *.log
 .vite
 .DS_Store

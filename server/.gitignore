@@ -1,0 +1,19 @@
+node_modules/
+dist/
+
+# Secrets — never commit.
+.env
+.env.*
+!.env.example
+
+# Local development databases.
+*.db
+*.db-journal
+*.sqlite
+*.sqlite3
+
+# Uploads written at runtime.
+uploads/
+
+*.log
+*.tsbuildinfo

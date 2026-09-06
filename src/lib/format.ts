@@ -58,3 +58,14 @@ export function fmtDuration(minutes: number): string {
   const mm = String(m).padStart(2, '0');
   return `${hh}h ${mm}m`;
 }
+
+const MONTHS = [
+  'January', 'February', 'March', 'April', 'May', 'June',
+  'July', 'August', 'September', 'October', 'November', 'December',
+];
+
+/** 'August 2026' — the payroll period label used in tables and payslips. */
+export function monthLabel(isoDate: string): string {
+  const [y, m] = isoDate.split('-').map(Number);
+  return `${MONTHS[m - 1]} ${y}`;
+}

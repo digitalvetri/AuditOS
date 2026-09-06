@@ -5,9 +5,16 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "dev:api": "npm --prefix server run dev",
+    "dev:full": "concurrently -n web,api -c blue,magenta \"npm run dev\" \"npm run dev:api\"",
     "build": "tsc -b && vite build",
+    "build:api": "npm --prefix server run build",
     "preview": "vite preview",
-    "type-check": "tsc -p tsconfig.json --noEmit"
+    "type-check": "tsc -p tsconfig.json --noEmit",
+    "type-check:api": "npm --prefix server run typecheck",
+    "db:setup": "npm --prefix server run prisma:generate && npm --prefix server run prisma:push && npm --prefix server run seed",
+    "db:reset": "npm --prefix server run db:reset",
+    "setup": "npm install && npm --prefix server install && npm run db:setup"
   },
   "dependencies": {
     "@tanstack/react-query": "^5.59.0",
@@ -22,6 +29,7 @@
     "@types/react-dom": "^18.3.1",
     "@vitejs/plugin-react": "^4.3.3",
     "autoprefixer": "^10.4.20",
+    "concurrently": "^9.1.0",
     "msw": "^2.6.4",
     "postcss": "^8.4.49",
     "tailwindcss": "^3.4.14",

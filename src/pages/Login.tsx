@@ -6,6 +6,13 @@ import { Input } from '@/components/Input';
 import { demoCredentials } from '@/data/seed';
 
 const MOCK_MODE = import.meta.env.VITE_MOCK_MODE === 'true';
+/**
+ * The demo list is on by default in mock mode. Against the real backend it is
+ * off unless explicitly enabled, so a deployed build never advertises the
+ * development logins.
+ */
+const SHOW_DEMO_LOGINS =
+  MOCK_MODE || import.meta.env.VITE_SHOW_DEMO_LOGINS === 'true';
 
 export function LoginPage() {
   const { login, loading, error, session } = useAuth();
@@ -68,7 +75,7 @@ export function LoginPage() {
 
       {/* Right: demo credentials — only in mock mode (§11) */}
       <div className="hidden md:flex bg-neutral-50 border-l border-neutral-200 items-center justify-center p-6">
-        {MOCK_MODE ? <DemoCredentials onPick={(e, p) => { setEmail(e); setPassword(p); }} /> : null}
+        {SHOW_DEMO_LOGINS ? <DemoCredentials onPick={(e, p) => { setEmail(e); setPassword(p); }} /> : null}
       </div>
     </div>
   );
@@ -78,7 +85,7 @@ function DemoCredentials({ onPick }: { onPick: (email: string, password: string)
   return (
     <div className="w-full max-w-[360px]">
       <div className="text-11 uppercase tracking-[0.06em] text-neutral-500 mb-2">
-        Demo logins (mock mode)
+        Demo logins ({MOCK_MODE ? 'mock mode' : 'seeded development backend'})
       </div>
       <div className="bg-white border border-neutral-200 rounded">
         {demoCredentials.map((c, i) => (
@@ -100,7 +107,9 @@ function DemoCredentials({ onPick }: { onPick: (email: string, password: string)
         ))}
       </div>
       <p className="text-11 text-neutral-500 mt-3">
-        Shown only when <code className="text-neutral-700">VITE_MOCK_MODE=true</code>.
+        Shown when <code className="text-neutral-700">VITE_MOCK_MODE=true</code> or
+        {' '}<code className="text-neutral-700">VITE_SHOW_DEMO_LOGINS=true</code>. These are
+        development credentials from the seed — never enable this on a real deployment.
       </p>
     </div>
   );
