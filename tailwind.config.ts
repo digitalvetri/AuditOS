@@ -39,11 +39,14 @@ const config: Config = {
       },
 
       // ── Shell / dashboard palette (UI-BUILD-PROMPT §1) ─────────────────
-      sidebar:       '#4F6B52', // deep sage green — sidebar background
-      sidebarHover:  '#5C7A5F',
-      sidebarActive: '#6B8A6E', // filled active pill
-      sidebarText:   '#EAF0EA',
-      sidebarMuted:  '#B8CCBA',
+      // Target ref (WhatsApp 7.43.23 PM) — LIGHT medium sage with DARK text,
+      // active state is a subtle whiter chip, not a darker fill. Muted tone
+      // for section headers stays green but lower contrast.
+      sidebar:       '#A0B7A4', // medium sage — sidebar background
+      sidebarHover:  '#94AC98',
+      sidebarActive: '#B8C9BC', // whiter chip for active pill
+      sidebarText:   '#243528', // dark forest green — nav labels
+      sidebarMuted:  '#4E6350', // section headers, secondary text
 
       canvas:        '#F7F6F2', // page background, warm off-white
       surface:       '#FFFFFF',

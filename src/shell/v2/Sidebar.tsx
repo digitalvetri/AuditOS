@@ -158,20 +158,21 @@ export function Sidebar({ mobileOpen, onMobileClose }: Props) {
 }
 
 function Brand({ collapsed }: { collapsed: boolean }) {
-  // Filled circular badge with a stylised "A" — matches the target visual.
+  // Circular white chip with an aperture mark inside — matches the target's
+  // brand cluster in the top-left of the sidebar.
   return (
-    <div className="h-16 flex items-center px-5 shrink-0">
+    <div className="h-16 flex items-center px-6 shrink-0">
       <span
-        className="inline-flex items-center justify-center w-9 h-9 rounded-full bg-sidebarActive text-sidebarText shrink-0 shadow-inner"
+        className="inline-flex items-center justify-center w-9 h-9 rounded-full bg-white text-sidebarText shrink-0"
         aria-hidden
       >
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-          <path d="M12 3l9 18H3z" />
-          <path d="M8 17h8" />
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
+          <circle cx="12" cy="12" r="8" />
+          <path d="M12 4v4M20 12h-4M12 20v-4M4 12h4" />
         </svg>
       </span>
       {!collapsed ? (
-        <span className="ml-3 text-16 font-semibold text-sidebarText">Audit OS</span>
+        <span className="ml-3 text-16 font-semibold text-sidebarText tracking-tight">Audit OS</span>
       ) : null}
     </div>
   );
@@ -179,15 +180,15 @@ function Brand({ collapsed }: { collapsed: boolean }) {
 
 function Section({ group, collapsed }: { group: NavGroup; collapsed: boolean }) {
   return (
-    <div className="mb-2">
+    <div className="mb-1">
       {group.label && !collapsed ? (
         <div
-          className="px-5 pt-4 pb-1 text-11 font-semibold uppercase tracking-[0.08em] text-sidebarMuted"
+          className="px-6 pt-5 pb-2 text-11 font-semibold uppercase tracking-[0.1em] text-sidebarMuted"
         >
           {group.label}
         </div>
       ) : null}
-      <ul className="px-2 space-y-0.5">
+      <ul className={collapsed ? 'px-2 space-y-1' : 'px-3 space-y-0.5'}>
         {group.items.map((it) => (
           <li key={it.to}>
             <NavItemRow item={it} collapsed={collapsed} />
@@ -205,10 +206,10 @@ function NavItemRow({ item, collapsed }: { item: NavItem; collapsed: boolean }) 
       to={item.to}
       end={item.end}
       className={({ isActive }) => {
-        const base = 'flex items-center h-10 rounded-md text-14 transition-colors';
+        const base = 'flex items-center h-11 rounded-lg text-14 font-medium transition-colors';
         const spacing = collapsed ? 'justify-center px-0' : 'px-3';
         const state = isActive
-          ? 'bg-sidebarActive text-sidebarText font-medium'
+          ? 'bg-sidebarActive text-sidebarText shadow-card'
           : 'text-sidebarText hover:bg-sidebarHover';
         return `${base} ${spacing} ${state}`;
       }}
@@ -222,25 +223,19 @@ function NavItemRow({ item, collapsed }: { item: NavItem; collapsed: boolean }) 
 
 function BrandPanel({ collapsed }: { collapsed: boolean }) {
   if (collapsed) return null;
-  // Real brand asset lives at /brand/audit-panel.jpg (copied from the
-  // reference art). Overlaid tagline sits at the bottom so it stays legible
-  // regardless of image content.
+  // Reference art already contains the AUDIT wordmark and the "Smarter
+  // Audits, Better Tomorrow" tagline — no overlay needed. Rendered clean at
+  // the bottom of the rail, sized to match the target proportions.
   return (
-    <div className="mx-3 mb-2 rounded-md overflow-hidden relative" style={{ height: 180 }}>
+    <div className="mx-3 mb-3 rounded-lg overflow-hidden" style={{ height: 200 }}>
       <img
         src="/brand/audit-panel.jpg"
         alt=""
-        className="absolute inset-0 w-full h-full object-cover"
+        className="w-full h-full object-cover"
         onError={(e) => {
-          const img = e.currentTarget;
-          img.style.display = 'none';
+          e.currentTarget.style.display = 'none';
         }}
       />
-      <div className="absolute inset-x-0 bottom-0 h-14 bg-black/45" aria-hidden />
-      <div className="absolute inset-x-0 bottom-2 text-center">
-        <div className="text-18 font-semibold text-sidebarText tracking-wide">AUDIT</div>
-        <div className="text-10 text-sidebarMuted">Smarter Audits, Better Tomorrow</div>
-      </div>
     </div>
   );
 }
@@ -252,8 +247,8 @@ function Collapse({ collapsed, onToggle }: { collapsed: boolean; onToggle: () =>
       type="button"
       onClick={onToggle}
       className={
-        'h-11 flex items-center text-sidebarMuted hover:bg-sidebarHover text-12 font-medium uppercase tracking-[0.06em] ' +
-        (collapsed ? 'justify-center' : 'px-5')
+        'h-12 flex items-center text-sidebarMuted hover:bg-sidebarHover text-12 font-semibold uppercase tracking-[0.08em] ' +
+        (collapsed ? 'justify-center' : 'px-6')
       }
       aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
     >
