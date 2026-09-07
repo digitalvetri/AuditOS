@@ -28,6 +28,27 @@ export type PermissionCode =
   | 'reports.hr' | 'reports.finance' | 'reports.all'
   | 'audit.read.hr' | 'audit.read.finance' | 'audit.read.all'
   | 'settings.manage'
+  // ── Workstation (AUDIT_OS_WORKSTATION.md §6) ─────────────────────────
+  // Namespaced: `workstation.document.read` is CLIENT documents, never
+  // EmployeeDocument. No Workstation code collides with an HRMS code.
+  | 'workstation.access'
+  | 'workstation.lead.read'
+  | 'workstation.lead.manage'
+  | 'workstation.lead.convert'
+  | 'workstation.client.read'
+  | 'workstation.client.manage'
+  | 'workstation.service.read'
+  | 'workstation.service.manage'
+  | 'workstation.followup.read'
+  | 'workstation.followup.manage'
+  | 'workstation.document.read'
+  | 'workstation.document.manage'
+  | 'workstation.document.verify'
+  | 'workstation.gst.read'
+  | 'workstation.gst.manage'
+  | 'workstation.eway.read'
+  | 'workstation.eway.generate'
+  | 'workstation.eway.cancel'
 
 export interface Grant {
   permission: PermissionCode
@@ -49,6 +70,22 @@ export const MATRIX: Record<RoleCode, Grant[]> = {
     { permission: 'document.read', scope: 'self' },
     { permission: 'chat.participate', scope: 'organisation' },
     { permission: 'reports.hr', scope: 'self' },
+    // Workstation: assignment-scoped. `self` here means "rows assigned
+    // to me" — resolved by assignedClientIds(), never a post-fetch filter.
+    { permission: 'workstation.access', scope: 'self' },
+    { permission: 'workstation.lead.read', scope: 'self' },
+    { permission: 'workstation.lead.manage', scope: 'self' },
+    { permission: 'workstation.client.read', scope: 'self' },
+    { permission: 'workstation.service.read', scope: 'self' },
+    { permission: 'workstation.service.manage', scope: 'self' },
+    { permission: 'workstation.followup.read', scope: 'self' },
+    { permission: 'workstation.followup.manage', scope: 'self' },
+    { permission: 'workstation.document.read', scope: 'self' },
+    { permission: 'workstation.document.manage', scope: 'self' },
+    { permission: 'workstation.gst.read', scope: 'self' },
+    { permission: 'workstation.gst.manage', scope: 'self' },
+    { permission: 'workstation.eway.read', scope: 'self' },
+    { permission: 'workstation.eway.generate', scope: 'self' },
   ],
   dept_manager: [
     { permission: 'profile.read', scope: 'self' },
@@ -67,6 +104,25 @@ export const MATRIX: Record<RoleCode, Grant[]> = {
     { permission: 'document.read', scope: 'department' },
     { permission: 'chat.participate', scope: 'organisation' },
     { permission: 'reports.hr', scope: 'department' },
+    // Workstation: full operational access (§14 Operations Manager / MD).
+    { permission: 'workstation.access', scope: 'organisation' },
+    { permission: 'workstation.lead.read', scope: 'organisation' },
+    { permission: 'workstation.lead.manage', scope: 'organisation' },
+    { permission: 'workstation.lead.convert', scope: 'organisation' },
+    { permission: 'workstation.client.read', scope: 'organisation' },
+    { permission: 'workstation.client.manage', scope: 'organisation' },
+    { permission: 'workstation.service.read', scope: 'organisation' },
+    { permission: 'workstation.service.manage', scope: 'organisation' },
+    { permission: 'workstation.followup.read', scope: 'organisation' },
+    { permission: 'workstation.followup.manage', scope: 'organisation' },
+    { permission: 'workstation.document.read', scope: 'organisation' },
+    { permission: 'workstation.document.manage', scope: 'organisation' },
+    { permission: 'workstation.document.verify', scope: 'organisation' },
+    { permission: 'workstation.gst.read', scope: 'organisation' },
+    { permission: 'workstation.gst.manage', scope: 'organisation' },
+    { permission: 'workstation.eway.read', scope: 'organisation' },
+    { permission: 'workstation.eway.generate', scope: 'organisation' },
+    { permission: 'workstation.eway.cancel', scope: 'organisation' },
   ],
   hr_admin: [
     { permission: 'profile.read', scope: 'self' },
@@ -141,6 +197,25 @@ export const MATRIX: Record<RoleCode, Grant[]> = {
     { permission: 'reports.all', scope: 'organisation' },
     { permission: 'audit.read.all', scope: 'organisation' },
     { permission: 'settings.manage', scope: 'organisation' },
+    // Workstation: full operational access (§14 Operations Manager / MD).
+    { permission: 'workstation.access', scope: 'organisation' },
+    { permission: 'workstation.lead.read', scope: 'organisation' },
+    { permission: 'workstation.lead.manage', scope: 'organisation' },
+    { permission: 'workstation.lead.convert', scope: 'organisation' },
+    { permission: 'workstation.client.read', scope: 'organisation' },
+    { permission: 'workstation.client.manage', scope: 'organisation' },
+    { permission: 'workstation.service.read', scope: 'organisation' },
+    { permission: 'workstation.service.manage', scope: 'organisation' },
+    { permission: 'workstation.followup.read', scope: 'organisation' },
+    { permission: 'workstation.followup.manage', scope: 'organisation' },
+    { permission: 'workstation.document.read', scope: 'organisation' },
+    { permission: 'workstation.document.manage', scope: 'organisation' },
+    { permission: 'workstation.document.verify', scope: 'organisation' },
+    { permission: 'workstation.gst.read', scope: 'organisation' },
+    { permission: 'workstation.gst.manage', scope: 'organisation' },
+    { permission: 'workstation.eway.read', scope: 'organisation' },
+    { permission: 'workstation.eway.generate', scope: 'organisation' },
+    { permission: 'workstation.eway.cancel', scope: 'organisation' },
   ],
 }
 
@@ -200,4 +275,22 @@ export const PERMISSION_DESCRIPTIONS: Record<string, string> = {
   'audit.read.finance': 'Read the finance audit log',
   'audit.read.all': 'Read the full audit log',
   'settings.manage': 'Manage organisation configuration',
+  'workstation.access': 'Open the Workstation module',
+  'workstation.lead.read': 'View leads',
+  'workstation.lead.manage': 'Create and edit leads',
+  'workstation.lead.convert': 'Convert a won lead into a client',
+  'workstation.client.read': 'View clients',
+  'workstation.client.manage': 'Create and edit clients',
+  'workstation.service.read': 'View client services',
+  'workstation.service.manage': 'Assign and progress client services',
+  'workstation.followup.read': 'View follow-ups',
+  'workstation.followup.manage': 'Create, reschedule and complete follow-ups',
+  'workstation.document.read': 'View client documents',
+  'workstation.document.manage': 'Request and upload client documents',
+  'workstation.document.verify': 'Verify or reject a client document',
+  'workstation.gst.read': 'View GST profiles and filings',
+  'workstation.gst.manage': 'Update GST filing status',
+  'workstation.eway.read': 'View e-way bills',
+  'workstation.eway.generate': 'Generate a (simulated) e-way bill',
+  'workstation.eway.cancel': 'Cancel a (simulated) e-way bill',
 }

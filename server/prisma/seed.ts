@@ -15,6 +15,7 @@ import { computeCheckOutStatus } from '../src/domain/attendanceStatus.js'
 import { calculatePayrollItem } from '../src/domain/payroll/calc.js'
 import { snapshotAt } from '../src/domain/payroll/statutory.js'
 import { ALL_PERMISSION_CODES, MATRIX, PERMISSION_DESCRIPTIONS, type RoleCode } from '../src/platform/rbac/matrix.js'
+import { seedWorkstation } from './seed-workstation.js'
 
 const prisma = new PrismaClient()
 
@@ -909,6 +910,11 @@ async function main() {
     }
   }
 
+  // ── Workstation (AUDIT_OS_WORKSTATION.md §10) ───────────────────────────
+  // Lives in its own module so this file stays a core-HR seed. It references
+  // the employees seeded above by id; it creates no new person.
+  const workstation = await seedWorkstation(prisma, org.id)
+
   const counts = {
     employees: await prisma.employee.count(),
     users: await prisma.user.count(),
@@ -920,6 +926,7 @@ async function main() {
     chats: await prisma.chat.count(),
   }
   console.log('Seed complete:', counts)
+  console.log('Workstation:', workstation)
   console.log('Demo logins: ravi@auditos.local/md · priya@auditos.local/hr · anitha@auditos.local/fin · vikram@auditos.local/mgr · meera@auditos.local/emp · karthik@auditos.local/art')
 }
 

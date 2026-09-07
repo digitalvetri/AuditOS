@@ -953,3 +953,434 @@ model AuditLog {
   @@index([action])
   @@index([createdAt])
 }
+
+// ============================================================
+// WORKSTATION (AUDIT_OS_WORKSTATION.md §5)
+// ============================================================
+//
+// ONE CENTRAL CLIENT RECORD. Leads, Services, Follow-ups, Documents, GST,
+// E-way Bills, Tasks and Activity all reference `Client.id`. Nothing in this
+// section creates a second client row, and nothing creates a second employee
+// table — every assignment is a scalar `…EmployeeId` resolved against the
+// HRMS `Employee` at read time, exactly like `EmployeeDocument.uploadedBy`
+// and `Expense.managerApprovedBy` already do. That is deliberate: declaring
+// Prisma relations here would force back-relation fields onto `Employee` and
+// `Organisation`, and those models must stay untouched.
+
+/// Configurable service catalog. A ClientService and a Lead both point here.
+model Service {
+  id             String  @id @default(uuid())
+  organisationId String
+  code           String  @unique
+  name           String
+  isActive       Boolean @default(true)
+  sortOrder      Int     @default(0)
+
+  leads          Lead[]
+  clientServices ClientService[]
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  createdBy String?
+  updatedBy String?
+  deletedAt DateTime?
+}
+
+/// A prospect, BEFORE it becomes a client. Never deleted once converted.
+model Lead {
+  id             String @id @default(uuid())
+  organisationId String
+  /// Human-readable 'LD-1001'. Allocated server-side inside a transaction.
+  leadCode       String @unique
+
+  name             String
+  contactNumber    String
+  email            String?
+  serviceId        String
+  priceQuotedPaise Int    @default(0)
+  /// HRMS Employee id. No FK by design — see the section header.
+  assignedEmployeeId String
+  /// new | contacted | requirement_identified | quote_sent | negotiation | won | lost
+  status           String @default("new")
+  notes            String?
+  lostReason       String?
+
+  /// Set once, by conversion. @unique is what makes a second client from one
+  /// lead impossible at the database level rather than only in a handler.
+  convertedClientId String?   @unique
+  convertedAt       DateTime?
+
+  service   Service    @relation(fields: [serviceId], references: [id])
+  followUps FollowUp[]
+
+  /// System-generated (§5.2). Never accepted from a request body.
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  createdBy String?
+  updatedBy String?
+  deletedAt DateTime?
+
+  @@index([status])
+  @@index([assignedEmployeeId])
+}
+
+/// THE ONE CENTRAL CLIENT RECORD.
+model Client {
+  id             String @id @default(uuid())
+  organisationId String
+  /// Human-readable 'CLI-1001'.
+  clientCode     String @unique
+
+  companyName   String
+  legalName     String?
+  businessType  String?
+  contactPerson String
+  contactNumber String
+  email         String?
+  address       String?
+
+  gstin String?
+  pan   String?
+  tan   String?
+
+  accountManagerId String
+  assignedTeam     String?
+  /// active | onboarding | pending_documents | service_due | inactive
+  status           String  @default("onboarding")
+  onboardingDate   String
+  notes            String?
+
+  /// Back-link to the lead this client came from. @unique mirrors
+  /// Lead.convertedClientId so the 1:1 holds from both directions.
+  sourceLeadId String? @unique
+
+  /// RESERVED FOR THE CLIENT PORTAL (§56). Modelled, no client-facing screen.
+  portalEnabled     Boolean @default(false)
+  portalInviteEmail String?
+
+  contacts  ClientContact[]
+  services  ClientService[]
+  followUps FollowUp[]
+  documents ClientDocument[]
+  tasks     Task[]
+  ewayBills EwayBill[]
+  gstProfile GstProfile?
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  createdBy String?
+  updatedBy String?
+  deletedAt DateTime?
+
+  @@index([status])
+  @@index([accountManagerId])
+}
+
+model ClientContact {
+  id           String  @id @default(uuid())
+  clientId     String
+  name         String
+  designation  String?
+  phone        String
+  email        String?
+  isPrimary    Boolean @default(false)
+
+  client Client @relation(fields: [clientId], references: [id])
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  createdBy String?
+  updatedBy String?
+  deletedAt DateTime?
+
+  @@index([clientId])
+}
+
+/// A service sold to a client. The join between Client and the catalog.
+model ClientService {
+  id        String @id @default(uuid())
+  clientId  String
+  serviceId String
+
+  assignedEmployeeId String
+  managerId          String?
+  /// 'YYYY-MM-DD' — a calendar date, so it cannot drift across the IST/UTC edge.
+  dueDate            String?
+  /// not_started | documents_pending | in_progress | under_review | ready |
+  /// submitted | completed | failed | on_hold
+  status             String  @default("not_started")
+  startedAt          DateTime?
+  completedAt        DateTime?
+  notes              String?
+
+  client  Client  @relation(fields: [clientId], references: [id])
+  service Service @relation(fields: [serviceId], references: [id])
+  tasks   Task[]
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  createdBy String?
+  updatedBy String?
+  deletedAt DateTime?
+
+  @@index([clientId])
+  @@index([assignedEmployeeId])
+  @@index([status])
+}
+
+model Task {
+  id              String  @id @default(uuid())
+  clientId        String
+  clientServiceId String?
+  title           String
+  description     String?
+  assignedEmployeeId String
+  dueDate         String?
+  /// open | in_progress | blocked | done
+  status          String  @default("open")
+
+  client        Client         @relation(fields: [clientId], references: [id])
+  clientService ClientService? @relation(fields: [clientServiceId], references: [id])
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  createdBy String?
+  updatedBy String?
+  deletedAt DateTime?
+
+  @@index([clientId])
+  @@index([assignedEmployeeId])
+}
+
+/// ONE follow-up entity for BOTH leads and clients (§3). Exactly one of
+/// leadId / clientId is set; the service layer enforces the XOR on write.
+model FollowUp {
+  id             String  @id @default(uuid())
+  organisationId String
+  leadId         String?
+  clientId       String?
+  clientServiceId String?
+
+  title       String
+  /// call | whatsapp | email | meeting | document_request | payment_followup |
+  /// service_followup | other
+  type        String  @default("call")
+  /// A point in time — the follow-up's date AND time.
+  scheduledAt DateTime
+  assignedEmployeeId String
+  /// pending | completed | rescheduled | cancelled | missed
+  status      String  @default("pending")
+  notes       String?
+  reminderMinutesBefore Int?
+
+  completedByEmployeeId String?
+  completedAt           DateTime?
+  completionNotes       String?
+
+  lead   Lead?   @relation(fields: [leadId], references: [id])
+  client Client? @relation(fields: [clientId], references: [id])
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  createdBy String?
+  updatedBy String?
+  deletedAt DateTime?
+
+  @@index([scheduledAt])
+  @@index([assignedEmployeeId, status])
+  @@index([clientId])
+  @@index([leadId])
+}
+
+model DocumentCategory {
+  id             String @id @default(uuid())
+  organisationId String
+  /// gst | it_filing | basic | other
+  code           String @unique
+  name           String
+  description    String?
+  sortOrder      Int    @default(0)
+
+  documents ClientDocument[]
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  createdBy String?
+  updatedBy String?
+  deletedAt DateTime?
+}
+
+/// CLIENT-CENTRIC (§10.7). clientId is REQUIRED; clientServiceId is only a
+/// tag. There is deliberately no per-service document store.
+///
+/// Named ClientDocument rather than §17's bare `Document` because
+/// `EmployeeDocument` already exists for HRMS and the two must never be
+/// confused at a call site.
+model ClientDocument {
+  id         String @id @default(uuid())
+  clientId   String
+  categoryId String
+  /// Optional tag only — a document belongs to the CLIENT, not the service.
+  clientServiceId String?
+
+  name          String
+  financialYear String?
+  /// requested | pending | uploaded | under_review | verified | rejected | expired
+  status        String  @default("requested")
+  /// Points at the highest ClientDocumentVersion.version. 0 = nothing uploaded yet.
+  currentVersion Int    @default(0)
+
+  requestedByEmployeeId String?
+  requestedAt           DateTime?
+  verifiedByEmployeeId  String?
+  verifiedAt            DateTime?
+  rejectionReason       String?
+  expiryDate            String?
+
+  client   Client           @relation(fields: [clientId], references: [id])
+  category DocumentCategory @relation(fields: [categoryId], references: [id])
+  versions ClientDocumentVersion[]
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  createdBy String?
+  updatedBy String?
+  deletedAt DateTime?
+
+  @@index([clientId])
+  @@index([categoryId])
+  @@index([status])
+}
+
+/// Never overwrite (§10.6). An upload appends v1 → v2 → v3, each with its own
+/// fileKey and therefore its own signed download URL.
+model ClientDocumentVersion {
+  id         String @id @default(uuid())
+  documentId String
+  version    Int
+  fileKey    String
+  /// An HRMS employee id, or the literal 'portal' when the future Client
+  /// Portal delivered it. Seeded both ways so the receiving path is exercised.
+  uploadedBy String
+  uploadedAt DateTime @default(now())
+  sizeBytes  Int      @default(0)
+  notes      String?
+  previousVersionId String?
+
+  document ClientDocument @relation(fields: [documentId], references: [id])
+
+  createdAt DateTime @default(now())
+
+  @@unique([documentId, version])
+  @@index([documentId])
+}
+
+model GstProfile {
+  id       String @id @default(uuid())
+  clientId String @unique
+  gstin    String
+
+  /// active | cancelled | suspended | not_registered
+  registrationStatus String @default("active")
+  /// monthly | quarterly
+  filingFrequency    String @default("monthly")
+  registrationDate   String?
+  assignedEmployeeId String
+  /// Mirrors the GST service status values (§7.7).
+  serviceStatus      String @default("not_started")
+  lastFiledAt        DateTime?
+  nextDueDate        String?
+
+  client  Client      @relation(fields: [clientId], references: [id])
+  filings GstFiling[]
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  createdBy String?
+  updatedBy String?
+  deletedAt DateTime?
+}
+
+model GstFiling {
+  id           String @id @default(uuid())
+  gstProfileId String
+  /// 'YYYY-MM' — the return period, e.g. '2026-08'.
+  period       String
+  /// GSTR-1 | GSTR-3B | GSTR-9
+  returnType   String
+  /// not_started | documents_pending | data_preparation | under_review |
+  /// ready_to_file | filed | failed | completed
+  status       String @default("not_started")
+  filedAt      DateTime?
+  dueDate      String?
+  assignedEmployeeId String
+  arn          String?
+  remarks      String?
+
+  gstProfile GstProfile @relation(fields: [gstProfileId], references: [id])
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  createdBy String?
+  updatedBy String?
+  deletedAt DateTime?
+
+  @@unique([gstProfileId, period, returnType])
+  @@index([status])
+}
+
+/// SIMULATED (§7.3 / §15). `isSimulated` defaults true and every response and
+/// screen says so. Audit OS has no government e-way bill connectivity.
+model EwayBill {
+  id       String @id @default(uuid())
+  clientId String
+  ewbNo    String @unique
+
+  documentNo   String
+  documentDate String
+  fromGstin    String?
+  toGstin      String?
+  toPartyName  String?
+  valuePaise   Int    @default(0)
+  /// generated | active | cancelled | expired
+  status       String @default("generated")
+  generatedAt  DateTime @default(now())
+  validUntil   String?
+  cancelledAt  DateTime?
+  cancelReason String?
+  generatedByEmployeeId String
+  isSimulated  Boolean @default(true)
+
+  client Client @relation(fields: [clientId], references: [id])
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  createdBy String?
+  updatedBy String?
+  deletedAt DateTime?
+
+  @@index([clientId])
+}
+
+/// The user-visible timeline (§11) — distinct from AuditLog, which is the
+/// security trail. Append-only, so no deletedAt, like AuditLog.
+model Activity {
+  id             String @id @default(uuid())
+  organisationId String
+  /// lead | client
+  subjectType    String
+  subjectId      String
+
+  /// 'lead.created', 'lead.status_changed', 'client.service_assigned', …
+  action      String
+  description String
+  actorUserId String?
+  actorEmployeeId String?
+  entityType  String?
+  entityId    String?
+  metaJson    String?
+
+  createdAt DateTime @default(now())
+
+  @@index([subjectType, subjectId, createdAt])
+}

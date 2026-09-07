@@ -13,21 +13,33 @@ import { messagesApi } from '@/modules/messages/api';
  * counters. Wired but non-functional in this session; module handlers land
  * in later sessions.
  */
-export function TopBar() {
+export function TopBar({ onOpenMobileNav }: { onOpenMobileNav?: () => void }) {
   const { session, logout } = useAuth();
   const location = useLocation();
   const navigate = useNavigate();
   const [menuOpen, setMenuOpen] = useState(false);
 
   return (
-    <header className="h-14 shrink-0 bg-white border-b border-neutral-200 flex items-center px-4 gap-4">
+    <header className="h-14 shrink-0 bg-white border-b border-neutral-200 flex items-center px-3 lg:px-4 gap-2 lg:gap-4">
+      {/* Drawer trigger — the only way to reach navigation below `lg`. */}
+      <button
+        type="button"
+        onClick={onOpenMobileNav}
+        className="lg:hidden h-8 w-8 shrink-0 flex items-center justify-center text-neutral-700 border border-neutral-200 rounded hover:text-neutral-900 hover:border-neutral-300"
+        aria-label="Open navigation"
+      >
+        <MenuIcon />
+      </button>
+
       <Breadcrumb path={location.pathname} />
 
       <div className="flex-1" />
 
+      {/* A ⌘K hint is meaningless on a touch device, and the button is the
+          widest thing in the bar — it goes first when space runs out. */}
       <button
         type="button"
-        className="h-8 px-3 text-13 text-neutral-500 border border-neutral-200 rounded hover:text-neutral-900 hover:border-neutral-300"
+        className="hidden md:inline-block h-8 px-3 text-13 text-neutral-500 border border-neutral-200 rounded hover:text-neutral-900 hover:border-neutral-300"
         aria-label="Global search"
         onClick={() => {/* global search opens later */}}
       >
@@ -41,7 +53,7 @@ export function TopBar() {
       <div className="relative">
         <button
           type="button"
-          className="h-8 pl-2 pr-3 text-13 text-neutral-900 border border-neutral-200 rounded hover:border-neutral-300 flex items-center gap-2"
+          className="h-8 shrink-0 pl-2 pr-2 md:pr-3 text-13 text-neutral-900 border border-neutral-200 rounded hover:border-neutral-300 flex items-center gap-2"
           onClick={() => setMenuOpen((v) => !v)}
           aria-haspopup="menu"
           aria-expanded={menuOpen}
@@ -89,7 +101,12 @@ function Breadcrumb({ path }: { path: string }) {
   const segments = path.split('/').filter(Boolean);
   if (segments.length === 0) return <span className="text-13 text-neutral-500">Dashboard</span>;
   return (
-    <nav aria-label="Breadcrumb" className="text-13 text-neutral-500 flex items-center gap-2">
+    // `min-w-0` + `truncate`: a deep path must give way rather than push the
+    // bell and profile menu off a narrow screen.
+    <nav
+      aria-label="Breadcrumb"
+      className="text-13 text-neutral-500 flex items-center gap-2 min-w-0 truncate"
+    >
       {segments.map((s, i) => {
         const isLast = i === segments.length - 1;
         return (
@@ -105,9 +122,22 @@ function Breadcrumb({ path }: { path: string }) {
 
 function titleCase(s: string): string {
   // Small special-case for well-known acronyms so the breadcrumb reads right.
-  const acronyms: Record<string, string> = { hrms: 'HRMS' };
+  const acronyms: Record<string, string> = {
+    hrms: 'HRMS',
+    gst: 'GST',
+    eway: 'E-way Bills',
+    'follow-ups': 'Follow-ups',
+  };
   if (acronyms[s.toLowerCase()]) return acronyms[s.toLowerCase()];
   return s.charAt(0).toUpperCase() + s.slice(1).replace(/-/g, ' ');
+}
+
+function MenuIcon() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" aria-hidden>
+      <path d="M2 4h12M2 8h12M2 12h12" />
+    </svg>
+  );
 }
 
 function MessagesIcon() {

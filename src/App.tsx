@@ -5,7 +5,15 @@ import { ProtectedRoute } from '@/platform/auth/ProtectedRoute';
 import { AppShell } from '@/shell/AppShell';
 import { LoginPage } from '@/pages/Login';
 import { DashboardPage } from '@/pages/Dashboard';
-import { WorkstationPage } from '@/pages/reserved/Workstation';
+// Workstation (AUDIT_OS_WORKSTATION.md §4) — replaces the reserved screen.
+import { WorkstationDashboardPage } from '@/pages/workstation/Dashboard';
+import { LeadsPage } from '@/pages/workstation/Leads';
+import { LeadDetailPage } from '@/pages/workstation/LeadDetail';
+import { ClientsPage } from '@/pages/workstation/Clients';
+import { ClientWorkspacePage } from '@/pages/workstation/ClientWorkspace';
+import { ServicesPage } from '@/pages/workstation/Services';
+import { FollowUpsPage } from '@/pages/workstation/FollowUps';
+import { DocumentsPage as WorkstationDocumentsPage } from '@/pages/workstation/Documents';
 import { ToolsPage } from '@/pages/reserved/Tools';
 import { AttendancePage } from '@/pages/hrms/Attendance';
 import { LeavePage } from '@/pages/hrms/Leave';
@@ -84,7 +92,18 @@ export default function App() {
 
               <Route path="notifications" element={<NotificationsPage />} />
 
-              <Route path="workstation" element={<WorkstationPage />} />
+              {/* Workstation — the operational workspace. The Client
+                  Workspace's tabs are nested route segments so each tab is
+                  deep-linkable and the breadcrumb reads correctly. */}
+              <Route path="workstation" element={<WorkstationDashboardPage />} />
+              <Route path="workstation/leads" element={<LeadsPage />} />
+              <Route path="workstation/leads/:id" element={<LeadDetailPage />} />
+              <Route path="workstation/clients" element={<ClientsPage />} />
+              <Route path="workstation/clients/:id" element={<ClientWorkspacePage />} />
+              <Route path="workstation/clients/:id/:tab" element={<ClientWorkspacePage />} />
+              <Route path="workstation/services" element={<ServicesPage />} />
+              <Route path="workstation/follow-ups" element={<FollowUpsPage />} />
+              <Route path="workstation/documents" element={<WorkstationDocumentsPage />} />
               <Route path="tools" element={<ToolsPage />} />
 
               <Route path="*" element={<NotFoundPage />} />

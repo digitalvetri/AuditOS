@@ -17,6 +17,17 @@ import { accountsRouter, paymentsRouter } from './modules/accounts/routes.js'
 import { chatsRouter } from './modules/messages/routes.js'
 import { reportsRouter } from './modules/reports/routes.js'
 import { signedRouter } from './modules/signed.routes.js'
+// Workstation (AUDIT_OS_WORKSTATION.md §8) — the operational workspace.
+import { leadsRouter } from './modules/workstation/leads.routes.js'
+import { clientsRouter } from './modules/workstation/clients.routes.js'
+import { servicesRouter, serviceCatalogRouter } from './modules/workstation/services.routes.js'
+import { followUpsRouter } from './modules/workstation/followups.routes.js'
+import {
+  documentsRouter as wsDocumentsRouter,
+  documentCategoriesRouter,
+  workstationSignedRouter,
+} from './modules/workstation/documents.routes.js'
+import { workstationRouter } from './modules/workstation/workstation.routes.js'
 
 /**
  * The HTTP surface. Every route below /api answers in the Part 1 envelope
@@ -54,6 +65,10 @@ export function createApp() {
   // Public: signed-URL downloads. The HMAC in the query string IS the
   // authorization, which is what lets a browser navigation fetch the file.
   app.use('/api', signedRouter)
+  // Workstation document downloads authorise via the HMAC in the query
+  // string, so they mount alongside the other signed routes — before
+  // `authenticate`, which a browser navigation cannot satisfy.
+  app.use('/api', workstationSignedRouter)
 
   // Everything else requires a session.
   app.use('/api', authenticate)
@@ -74,6 +89,25 @@ export function createApp() {
   app.use('/api/payments', paymentsRouter)
   app.use('/api/chats', chatsRouter)
   app.use('/api/reports', reportsRouter)
+
+  // ── Workstation ────────────────────────────────────────────────────────
+  // Every route below runs authenticate → authorize(workstation.*, scope) →
+  // validate → handle → activity/audit. A caller without a workstation grant
+  // (hr_admin, finance_admin) gets 403 here, not an empty list.
+  app.use('/api/workstation', workstationRouter)
+  app.use('/api/leads', leadsRouter)
+  app.use('/api/clients', clientsRouter)
+  app.use('/api/services', servicesRouter)
+  app.use('/api/service-catalog', serviceCatalogRouter)
+  app.use('/api/follow-ups', followUpsRouter)
+  // NOT '/api/documents': that path already belongs to the HRMS
+  // EmployeeDocument router mounted above, and Express matches the first
+  // mount — so mounting here would shadow the Workstation list and silently
+  // serve employee documents instead. §16 of the build prompt named
+  // /api/documents/:id; the platform owns it, so client documents are
+  // namespaced. /api/clients/:id/documents is unchanged and unambiguous.
+  app.use('/api/client-documents', wsDocumentsRouter)
+  app.use('/api/document-categories', documentCategoriesRouter)
 
   app.use('/api', (_req, res) => {
     res.status(404).json({ error: { code: 'not_found', message: 'No such endpoint.' } })
