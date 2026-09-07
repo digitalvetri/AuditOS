@@ -39,14 +39,14 @@ const config: Config = {
       },
 
       // ── Shell / dashboard palette (UI-BUILD-PROMPT §1) ─────────────────
-      // Target ref (WhatsApp 7.43.23 PM) — LIGHT medium sage with DARK text.
-      // Slightly warmer / more saturated than the first pass so icons and
-      // labels read cleanly against the bg.
-      sidebar:       '#9DB49F', // medium sage — sidebar background
-      sidebarHover:  '#8FA791',
-      sidebarActive: '#FFFFFF', // active pill is pure white for max contrast
+      // Target ref (Screenshot 214422) — LIGHT mint sage, DARKER sage
+      // filled pill for the active row (not white). Section headers stay
+      // as dark forest at reduced weight rather than muted grey-green.
+      sidebar:       '#B8CDBA', // light mint sage — sidebar background
+      sidebarHover:  '#A6BDA9',
+      sidebarActive: '#8CA790', // filled darker sage pill for active row
       sidebarText:   '#1F2E22', // near-black forest — nav labels
-      sidebarMuted:  '#516956', // section headers, secondary text
+      sidebarMuted:  '#3E5240', // section headers — dark, not muted
 
       canvas:        '#F7F6F2', // page background, warm off-white
       surface:       '#FFFFFF',

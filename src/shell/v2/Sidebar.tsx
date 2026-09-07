@@ -186,13 +186,14 @@ export function Sidebar({ mobileOpen, onMobileClose }: Props) {
 
 function Brand({ collapsed }: { collapsed: boolean }) {
   // Same height as TopBar (h-24) so brand chip and search bar sit on one line.
+  // Chip is a darker sage circle with an aperture glyph, on the light mint bg.
   return (
-    <div className={'h-24 flex items-center shrink-0 border-b border-white/10 ' + (collapsed ? 'justify-center px-0' : 'px-5')}>
+    <div className={'h-24 flex items-center shrink-0 ' + (collapsed ? 'justify-center px-0' : 'px-5')}>
       <span
-        className="inline-flex items-center justify-center w-9 h-9 rounded-full bg-white text-sidebarText shrink-0"
+        className="inline-flex items-center justify-center w-10 h-10 rounded-full bg-sidebarActive text-sidebarText shrink-0"
         aria-hidden
       >
-        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
           <circle cx="12" cy="12" r="8" />
           <path d="M12 4v4M20 12h-4M12 20v-4M4 12h4" />
         </svg>
@@ -209,13 +210,13 @@ function Section({ group, collapsed, first }: { group: NavGroup; collapsed: bool
     <div>
       {group.label && !collapsed ? (
         <div className={
-          'pl-5 pr-4 pb-2 text-11 font-semibold uppercase tracking-[0.1em] text-sidebarMuted ' +
-          (first ? 'pt-3' : 'pt-5')
+          'pl-5 pr-4 pb-2 text-11 font-bold uppercase tracking-[0.12em] text-sidebarMuted ' +
+          (first ? 'pt-4' : 'pt-6')
         }>
           {group.label}
         </div>
       ) : null}
-      <ul className={collapsed ? 'px-2 space-y-1' : 'px-2 space-y-px'}>
+      <ul className={collapsed ? 'px-2 space-y-1' : 'px-2 space-y-1'}>
         {group.items.map((it) => (
           <li key={it.to}>
             <NavItemRow item={it} collapsed={collapsed} />
@@ -233,10 +234,10 @@ function NavItemRow({ item, collapsed }: { item: NavItem; collapsed: boolean }) 
       to={item.to}
       end={item.end}
       className={({ isActive }) => {
-        const base = 'flex items-center gap-3 h-11 rounded-lg text-15 transition-colors';
+        const base = 'flex items-center gap-4 h-12 rounded-lg text-15 transition-colors';
         const spacing = collapsed ? 'justify-center px-0' : 'px-3';
         const state = isActive
-          ? 'bg-sidebarActive text-ink font-semibold shadow-card'
+          ? 'bg-sidebarActive text-sidebarText font-semibold'
           : 'text-sidebarText font-medium hover:bg-sidebarHover';
         return `${base} ${spacing} ${state}`;
       }}
