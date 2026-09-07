@@ -144,26 +144,11 @@ export function Sidebar({ mobileOpen, onMobileClose }: Props) {
       >
         <Brand collapsed={collapsed} />
 
-        {/*
-          One scrollable stack: nav + brand panel + COLLAPSE. The brand
-          image docks right below the last section instead of being pushed
-          to the viewport bottom by a flex-1 spacer, so the visual block
-          reads as one aligned column.
-
-          On short sidebars (few nav items on a tall screen) an empty sage
-          area appears at the bottom — that's a plain background colour, not
-          an alignment issue.
-        */}
-        <div className="flex-1 min-h-0 overflow-y-auto pt-1 pb-2">
-          <nav>
-            {nav.map((group, i) => (
-              <Section key={i} group={group} collapsed={collapsed} first={i === 0} />
-            ))}
-          </nav>
-          <div className="mt-4">
-            <BrandPanel collapsed={collapsed} />
-          </div>
-        </div>
+        <nav className="flex-1 min-h-0 overflow-y-auto pt-1 pb-2">
+          {nav.map((group, i) => (
+            <Section key={i} group={group} collapsed={collapsed} first={i === 0} />
+          ))}
+        </nav>
         <Collapse collapsed={collapsed} onToggle={() => setCollapsed((c) => !c)} />
       </aside>
     </>
@@ -247,25 +232,6 @@ function NavItemRow({ item, collapsed }: { item: NavItem; collapsed: boolean }) 
       <Icon size={20} strokeWidth={2} className="shrink-0" />
       {!collapsed ? <span className="truncate">{item.label}</span> : null}
     </NavLink>
-  );
-}
-
-function BrandPanel({ collapsed }: { collapsed: boolean }) {
-  if (collapsed) return null;
-  // Reference art already contains the AUDIT wordmark and the "Smarter
-  // Audits, Better Tomorrow" tagline — no overlay needed. Rendered clean at
-  // the bottom of the rail, sized to match the target proportions.
-  return (
-    <div className="mx-3 mb-3 rounded-lg overflow-hidden" style={{ height: 200 }}>
-      <img
-        src="/brand/audit-panel.jpg"
-        alt=""
-        className="w-full h-full object-cover"
-        onError={(e) => {
-          e.currentTarget.style.display = 'none';
-        }}
-      />
-    </div>
   );
 }
 
