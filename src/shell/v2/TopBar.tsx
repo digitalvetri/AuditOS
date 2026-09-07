@@ -44,7 +44,7 @@ export function TopBar({ onOpenMobileNav }: Props) {
   // name is read inline from the session inside the trigger button below.
 
   return (
-    <header className="sticky top-0 z-30 h-24 bg-surface border-b border-border flex items-center px-8 gap-8">
+    <header className="sticky top-0 z-30 h-20 bg-surface border-b border-border flex items-center px-8 gap-8">
       {/* Mobile hamburger */}
       <button
         type="button"
