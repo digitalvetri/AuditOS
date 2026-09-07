@@ -113,19 +113,37 @@ const config: Config = {
       semibold: '600',
     },
 
-    // Spacing scale: 4 / 8 / 12 / 16 / 20 / 24 / 32 / 48.
+    // Spacing scale — 4px grid. Includes the sizes used by the shell
+    // (chips 32/36/40/44, rows 32/40/44/48, header 80/96, sidebar 264).
+    // Anything outside this list is a mistake; use `text-N` / `p-N`
+    // exactly from here so alignment stays predictable.
     spacing: {
-      0: '0',
-      px: '1px',
-      0.5: '2px',
-      1: '4px',
-      2: '8px',
-      3: '12px',
-      4: '16px',
-      5: '20px',   // added for the shell (24 gutter, 20 grid gap, 20 padding)
-      6: '24px',
-      8: '32px',
-      12: '48px',
+      0:    '0',
+      px:   '1px',
+      0.5:  '2px',
+      1:    '4px',
+      2:    '8px',
+      3:    '12px',
+      4:    '16px',
+      5:    '20px',
+      6:    '24px',
+      7:    '28px',
+      8:    '32px',
+      9:    '36px',
+      10:   '40px',
+      11:   '44px',
+      12:   '48px',
+      14:   '56px',
+      16:   '64px',
+      18:   '72px',
+      20:   '80px',
+      24:   '96px',
+      28:   '112px',
+      32:   '128px',
+      40:   '160px',
+      48:   '192px',
+      56:   '224px',
+      64:   '256px',
     },
 
     extend: {
