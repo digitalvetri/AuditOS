@@ -44,7 +44,7 @@ export function TopBar({ onOpenMobileNav }: Props) {
   // name is read inline from the session inside the trigger button below.
 
   return (
-    <header className="sticky top-0 z-30 h-20 bg-surface border-b border-border flex items-center px-6 gap-6">
+    <header className="sticky top-0 z-30 h-24 bg-surface border-b border-border flex items-center px-8 gap-8">
       {/* Mobile hamburger */}
       <button
         type="button"
@@ -58,13 +58,13 @@ export function TopBar({ onOpenMobileNav }: Props) {
       {/* Search input, flex-1, pill-shaped to match target UI */}
       <div className="flex-1 max-w-[940px]">
         <label className="relative block">
-          <span className="absolute inset-y-0 left-4 flex items-center text-inkMuted">
-            <Search size={16} strokeWidth={1.75} />
+          <span className="absolute inset-y-0 left-5 flex items-center text-inkMuted">
+            <Search size={18} strokeWidth={1.75} />
           </span>
           <input
             type="search"
             placeholder="Search..."
-            className="w-full h-11 pl-11 pr-4 text-14 bg-canvas text-ink placeholder:text-inkFaint border border-border rounded-full focus:outline-none focus:border-gold focus:bg-surface"
+            className="w-full h-12 pl-12 pr-5 text-15 bg-canvas text-ink placeholder:text-inkFaint border border-border rounded-full focus:outline-none focus:border-gold focus:bg-surface"
             aria-label="Global search"
           />
         </label>

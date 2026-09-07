@@ -185,9 +185,9 @@ export function Sidebar({ mobileOpen, onMobileClose }: Props) {
 // cluster reads as a header, not another nav row.
 
 function Brand({ collapsed }: { collapsed: boolean }) {
-  // Same height as TopBar (h-20) so brand chip and search bar sit on one line.
+  // Same height as TopBar (h-24) so brand chip and search bar sit on one line.
   return (
-    <div className={'h-20 flex items-center shrink-0 border-b border-white/10 ' + (collapsed ? 'justify-center px-0' : 'px-5')}>
+    <div className={'h-24 flex items-center shrink-0 border-b border-white/10 ' + (collapsed ? 'justify-center px-0' : 'px-5')}>
       <span
         className="inline-flex items-center justify-center w-9 h-9 rounded-full bg-white text-sidebarText shrink-0"
         aria-hidden
