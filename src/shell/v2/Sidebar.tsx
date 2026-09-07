@@ -144,9 +144,9 @@ export function Sidebar({ mobileOpen, onMobileClose }: Props) {
       >
         <Brand collapsed={collapsed} />
 
-        <nav className="flex-1 min-h-0 overflow-y-auto py-2">
+        <nav className="flex-1 min-h-0 overflow-y-auto pt-1 pb-3">
           {nav.map((group, i) => (
-            <Section key={i} group={group} collapsed={collapsed} />
+            <Section key={i} group={group} collapsed={collapsed} first={i === 0} />
           ))}
         </nav>
 
@@ -157,16 +157,28 @@ export function Sidebar({ mobileOpen, onMobileClose }: Props) {
   );
 }
 
+// ── Alignment grid ────────────────────────────────────────────────────────
+//
+// One left rail. Every icon (brand chip, nav row, section header text,
+// COLLAPSE glyph) starts its content at x=20 from the aside edge.
+//
+//   aside padding (via ul px-3 + a px-2)  = 20
+//   nav icon 18 → icon-right              = 38
+//   gap-3                                 = 12  → label starts at x=50
+//   brand chip 32 → chip-right            = 52
+//   brand gap-3                           = 12  → text starts at x=64
+//
+// Brand text ends up 14px to the right of nav labels — accepted; a brand
+// cluster reads as a header, not another nav row.
+
 function Brand({ collapsed }: { collapsed: boolean }) {
-  // Circular white chip with an aperture mark inside — matches the target's
-  // brand cluster in the top-left of the sidebar.
   return (
-    <div className="h-16 flex items-center px-6 shrink-0">
+    <div className={'h-16 flex items-center shrink-0 ' + (collapsed ? 'justify-center px-0' : 'px-5')}>
       <span
-        className="inline-flex items-center justify-center w-9 h-9 rounded-full bg-white text-sidebarText shrink-0"
+        className="inline-flex items-center justify-center w-8 h-8 rounded-full bg-white text-sidebarText shrink-0"
         aria-hidden
       >
-        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
           <circle cx="12" cy="12" r="8" />
           <path d="M12 4v4M20 12h-4M12 20v-4M4 12h4" />
         </svg>
@@ -178,17 +190,18 @@ function Brand({ collapsed }: { collapsed: boolean }) {
   );
 }
 
-function Section({ group, collapsed }: { group: NavGroup; collapsed: boolean }) {
+function Section({ group, collapsed, first }: { group: NavGroup; collapsed: boolean; first: boolean }) {
   return (
-    <div className="mb-1">
+    <div>
       {group.label && !collapsed ? (
-        <div
-          className="px-6 pt-5 pb-2 text-11 font-semibold uppercase tracking-[0.1em] text-sidebarMuted"
-        >
+        <div className={
+          'pl-5 pr-4 pb-2 text-11 font-semibold uppercase tracking-[0.1em] text-sidebarMuted ' +
+          (first ? 'pt-3' : 'pt-5')
+        }>
           {group.label}
         </div>
       ) : null}
-      <ul className={collapsed ? 'px-2 space-y-1' : 'px-3 space-y-0.5'}>
+      <ul className={collapsed ? 'px-2 space-y-1' : 'px-3 space-y-px'}>
         {group.items.map((it) => (
           <li key={it.to}>
             <NavItemRow item={it} collapsed={collapsed} />
@@ -206,17 +219,17 @@ function NavItemRow({ item, collapsed }: { item: NavItem; collapsed: boolean }) 
       to={item.to}
       end={item.end}
       className={({ isActive }) => {
-        const base = 'flex items-center h-11 rounded-lg text-14 font-medium transition-colors';
-        const spacing = collapsed ? 'justify-center px-0' : 'px-3';
+        const base = 'flex items-center gap-3 h-10 rounded-lg text-14 transition-colors';
+        const spacing = collapsed ? 'justify-center px-0' : 'px-2';
         const state = isActive
-          ? 'bg-sidebarActive text-sidebarText shadow-card'
-          : 'text-sidebarText hover:bg-sidebarHover';
+          ? 'bg-white text-ink font-semibold shadow-card'
+          : 'text-sidebarText font-medium hover:bg-sidebarHover';
         return `${base} ${spacing} ${state}`;
       }}
       title={collapsed ? item.label : undefined}
     >
       <Icon size={18} strokeWidth={1.75} className="shrink-0" />
-      {!collapsed ? <span className="ml-3 truncate">{item.label}</span> : null}
+      {!collapsed ? <span className="truncate">{item.label}</span> : null}
     </NavLink>
   );
 }
@@ -247,13 +260,13 @@ function Collapse({ collapsed, onToggle }: { collapsed: boolean; onToggle: () =>
       type="button"
       onClick={onToggle}
       className={
-        'h-12 flex items-center text-sidebarMuted hover:bg-sidebarHover text-12 font-semibold uppercase tracking-[0.08em] ' +
-        (collapsed ? 'justify-center' : 'px-6')
+        'h-11 flex items-center gap-2 text-sidebarMuted hover:text-ink text-11 font-semibold uppercase tracking-[0.1em] ' +
+        (collapsed ? 'justify-center px-0' : 'pl-5 pr-4')
       }
       aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
     >
       <Icon size={16} strokeWidth={1.75} />
-      {!collapsed ? <span className="ml-2">COLLAPSE</span> : null}
+      {!collapsed ? <span>COLLAPSE</span> : null}
     </button>
   );
 }
