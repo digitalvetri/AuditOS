@@ -15,6 +15,7 @@ import {
   BarChart3,
   BookOpen,
   CalendarDays,
+  ChevronDown,
   ChevronsLeft,
   ChevronsRight,
   Clock,
@@ -32,6 +33,7 @@ import { useAuth } from '@/platform/auth/AuthContext';
 import { can } from '@/platform/rbac/can';
 
 const COLLAPSED_KEY = 'audit-os:sidebar-collapsed';
+const SECTIONS_COLLAPSED_KEY = 'audit-os:sidebar-sections-collapsed';
 
 interface NavItem {
   to: string;
@@ -88,6 +90,28 @@ export function Sidebar({ mobileOpen, onMobileClose }: Props) {
     if (typeof localStorage === 'undefined') return;
     localStorage.setItem(COLLAPSED_KEY, collapsed ? '1' : '0');
   }, [collapsed]);
+
+  // Per-section collapse — keyed by section label (AUDIT, WORKSTATION).
+  // Dashboard has no label so it's never collapsible. Persisted in
+  // localStorage so a user's fold state survives reload.
+  const [sectionsCollapsed, setSectionsCollapsed] = useState<Set<string>>(() => {
+    if (typeof localStorage === 'undefined') return new Set();
+    try {
+      const raw = localStorage.getItem(SECTIONS_COLLAPSED_KEY);
+      return new Set(raw ? (JSON.parse(raw) as string[]) : []);
+    } catch { return new Set(); }
+  });
+  useEffect(() => {
+    if (typeof localStorage === 'undefined') return;
+    localStorage.setItem(SECTIONS_COLLAPSED_KEY, JSON.stringify([...sectionsCollapsed]));
+  }, [sectionsCollapsed]);
+  const toggleSection = (label: string) => {
+    setSectionsCollapsed((prev) => {
+      const next = new Set(prev);
+      if (next.has(label)) next.delete(label); else next.add(label);
+      return next;
+    });
+  };
 
   const location = useLocation();
   // Close the mobile drawer on route change — same pattern the shipped app uses.
@@ -146,7 +170,14 @@ export function Sidebar({ mobileOpen, onMobileClose }: Props) {
 
         <nav className="flex-1 min-h-0 overflow-y-auto pt-1 pb-2">
           {nav.map((group, i) => (
-            <Section key={i} group={group} collapsed={collapsed} first={i === 0} />
+            <Section
+              key={i}
+              group={group}
+              collapsed={collapsed}
+              first={i === 0}
+              folded={group.label ? sectionsCollapsed.has(group.label) : false}
+              onToggle={group.label ? () => toggleSection(group.label!) : undefined}
+            />
           ))}
         </nav>
         <Collapse collapsed={collapsed} onToggle={() => setCollapsed((c) => !c)} />
@@ -191,24 +222,47 @@ function Brand({ collapsed }: { collapsed: boolean }) {
   );
 }
 
-function Section({ group, collapsed, first }: { group: NavGroup; collapsed: boolean; first: boolean }) {
+interface SectionProps {
+  group: NavGroup;
+  collapsed: boolean;   // rail collapsed (icon-only mode)
+  first: boolean;
+  folded: boolean;      // this section's items hidden
+  onToggle?: () => void;
+}
+function Section({ group, collapsed, first, folded, onToggle }: SectionProps) {
+  // A group without a label (Dashboard) is never foldable — always renders
+  // its lone row. Labeled groups (AUDIT, WORKSTATION) get a chevron button.
+  const showHeader = group.label && !collapsed;
   return (
     <div>
-      {group.label && !collapsed ? (
-        <div className={
-          'pl-6 pr-4 pb-1 text-11 font-bold uppercase tracking-[0.12em] text-sidebarMuted ' +
-          (first ? 'pt-3' : 'pt-4')
-        }>
-          {group.label}
-        </div>
+      {showHeader ? (
+        <button
+          type="button"
+          onClick={onToggle}
+          aria-expanded={!folded}
+          className={
+            'flex items-center gap-2 w-full pl-6 pr-4 pb-1 text-11 font-bold uppercase ' +
+            'tracking-[0.12em] text-sidebarMuted hover:text-sidebarText transition-colors ' +
+            (first ? 'pt-3' : 'pt-4')
+          }
+        >
+          <span>{group.label}</span>
+          <ChevronDown
+            size={12}
+            strokeWidth={2.5}
+            className={'transition-transform ' + (folded ? '-rotate-90' : '')}
+          />
+        </button>
       ) : null}
-      <ul className={collapsed ? 'px-2 space-y-1' : 'px-2 space-y-px'}>
-        {group.items.map((it) => (
-          <li key={it.to}>
-            <NavItemRow item={it} collapsed={collapsed} />
-          </li>
-        ))}
-      </ul>
+      {!folded || !group.label ? (
+        <ul className={collapsed ? 'px-2 space-y-1' : 'px-2 space-y-px'}>
+          {group.items.map((it) => (
+            <li key={it.to}>
+              <NavItemRow item={it} collapsed={collapsed} />
+            </li>
+          ))}
+        </ul>
+      ) : null}
     </div>
   );
 }
