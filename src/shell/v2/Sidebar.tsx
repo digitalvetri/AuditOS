@@ -10,7 +10,7 @@
  *   WORKSTATION — Tools
  */
 import { NavLink, useLocation } from 'react-router-dom';
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import {
   Aperture,
   BarChart3,
@@ -29,6 +29,8 @@ import {
   Wrench,
   type LucideIcon,
 } from 'lucide-react';
+import { useAuth } from '@/platform/auth/AuthContext';
+import { can } from '@/platform/rbac/can';
 
 const COLLAPSED_KEY = 'audit-os:sidebar-collapsed';
 
@@ -37,37 +39,12 @@ interface NavItem {
   label: string;
   icon: LucideIcon;
   end?: boolean;
+  visible: boolean;
 }
 interface NavGroup {
   label: string | null; // null = no section header (Dashboard row)
   items: NavItem[];
 }
-
-const NAV: NavGroup[] = [
-  {
-    label: null,
-    items: [{ to: '/', label: 'Dashboard', icon: LayoutDashboard, end: true }],
-  },
-  {
-    label: 'AUDIT',
-    items: [
-      { to: '/hrms/employees',  label: 'Employees',  icon: Users },
-      { to: '/hrms/attendance', label: 'Attendance', icon: Clock },
-      { to: '/hrms/leave',      label: 'Leave',      icon: CalendarDays },
-      { to: '/hrms/payroll',    label: 'Payroll',    icon: IndianRupee },
-      { to: '/hrms/expenses',   label: 'Expenses',   icon: ReceiptIndianRupee },
-      { to: '/hrms/accounts',   label: 'Accounts',   icon: BookOpen },
-      { to: '/hrms/messages',   label: 'Messages',   icon: MessageSquare },
-      { to: '/hrms/documents',  label: 'Documents',  icon: FileText },
-      { to: '/hrms/reports',    label: 'Reports',    icon: BarChart3 },
-      { to: '/hrms/settings',   label: 'Settings',   icon: Settings },
-    ],
-  },
-  {
-    label: 'WORKSTATION',
-    items: [{ to: '/tools', label: 'Tools', icon: Wrench }],
-  },
-];
 
 interface Props {
   mobileOpen: boolean;
@@ -75,6 +52,35 @@ interface Props {
 }
 
 export function Sidebar({ mobileOpen, onMobileClose }: Props) {
+  const { session } = useAuth();
+  const role = session?.role.code;
+
+  // Role-scoped nav (§6.1). `can()` here is menu-rendering only — the API
+  // is what actually enforces access. Employee: no Employees / Accounts /
+  // Reports / Settings; no Tools if `workstation.access` is not granted.
+  const nav = useMemo<NavGroup[]>(() => {
+    const auditItems: NavItem[] = [
+      { to: '/hrms/employees',  label: 'Employees',  icon: Users,                visible: can(role, 'employee.read', 'department') },
+      { to: '/hrms/attendance', label: 'Attendance', icon: Clock,                visible: can(role, 'attendance.read', 'self') },
+      { to: '/hrms/leave',      label: 'Leave',      icon: CalendarDays,         visible: can(role, 'leave.read', 'self') },
+      { to: '/hrms/payroll',    label: 'Payroll',    icon: IndianRupee,          visible: can(role, 'payroll.view.own', 'self') || can(role, 'payroll.view', 'organisation') },
+      { to: '/hrms/expenses',   label: 'Expenses',   icon: ReceiptIndianRupee,   visible: can(role, 'expense.submit', 'self') || can(role, 'expense.approve', 'department') },
+      { to: '/hrms/accounts',   label: 'Accounts',   icon: BookOpen,             visible: can(role, 'accounts.read', 'organisation') || can(role, 'accounts.manage', 'organisation') },
+      { to: '/hrms/messages',   label: 'Messages',   icon: MessageSquare,        visible: can(role, 'chat.participate', 'organisation') },
+      { to: '/hrms/documents',  label: 'Documents',  icon: FileText,             visible: can(role, 'document.read', 'self') },
+      { to: '/hrms/reports',    label: 'Reports',    icon: BarChart3,            visible: can(role, 'reports.hr', 'department') || can(role, 'reports.finance', 'organisation') || can(role, 'reports.all', 'organisation') },
+      { to: '/hrms/settings',   label: 'Settings',   icon: Settings,             visible: can(role, 'settings.manage', 'organisation') },
+    ];
+    const workstationItems: NavItem[] = [
+      { to: '/tools', label: 'Tools', icon: Wrench, visible: can(role, 'workstation.access', 'self') },
+    ];
+    return [
+      { label: null, items: [{ to: '/', label: 'Dashboard', icon: LayoutDashboard, end: true, visible: true }] },
+      { label: 'AUDIT', items: auditItems.filter((i) => i.visible) },
+      { label: 'WORKSTATION', items: workstationItems.filter((i) => i.visible) },
+    ].filter((g) => g.items.length > 0);
+  }, [role]);
+
   const [collapsed, setCollapsed] = useState<boolean>(() => {
     if (typeof localStorage === 'undefined') return false;
     return localStorage.getItem(COLLAPSED_KEY) === '1';
@@ -97,7 +103,21 @@ export function Sidebar({ mobileOpen, onMobileClose }: Props) {
     return () => window.removeEventListener('keydown', onKey);
   }, [mobileOpen, onMobileClose]);
 
-  const width = collapsed ? 'lg:w-16' : 'lg:w-[246px]';
+  // Track desktop breakpoint so we can drive width via inline style. This
+  // avoids the Tailwind class-order trap where a base `w-[246px]` for the
+  // mobile drawer competes with `lg:w-16` at equal specificity — the fight
+  // depends on source order in the emitted CSS and can flip silently.
+  const [isDesktop, setIsDesktop] = useState(() =>
+    typeof window !== 'undefined' ? window.matchMedia('(min-width: 1024px)').matches : true,
+  );
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const mq = window.matchMedia('(min-width: 1024px)');
+    const onChange = (e: MediaQueryListEvent) => setIsDesktop(e.matches);
+    mq.addEventListener('change', onChange);
+    return () => mq.removeEventListener('change', onChange);
+  }, []);
+  const asideWidth = isDesktop ? (collapsed ? 64 : 246) : 246;
   const drawer = mobileOpen ? 'translate-x-0' : '-translate-x-full invisible lg:visible';
 
   return (
@@ -115,17 +135,18 @@ export function Sidebar({ mobileOpen, onMobileClose }: Props) {
       <aside
         className={
           'flex flex-col bg-sidebar text-sidebarText ' +
-          'fixed inset-y-0 left-0 z-50 w-[246px] max-w-[82vw] ' +
+          'fixed inset-y-0 left-0 z-50 max-w-[82vw] ' +
           `${drawer} ` +
-          `lg:static lg:z-auto lg:h-full lg:translate-x-0 lg:visible ${width} ` +
+          'lg:static lg:z-auto lg:h-full lg:translate-x-0 lg:visible ' +
           'transition-[transform,width,visibility] shrink-0'
         }
+        style={{ width: asideWidth }}
         aria-label="Primary navigation"
       >
         <Brand collapsed={collapsed} />
 
         <nav className="flex-1 min-h-0 overflow-y-auto py-2">
-          {NAV.map((group, i) => (
+          {nav.map((group, i) => (
             <Section key={i} group={group} collapsed={collapsed} />
           ))}
         </nav>
