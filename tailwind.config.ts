@@ -92,13 +92,14 @@ const config: Config = {
       drawer:  '0 4px 16px rgba(0,0,0,0.08)',  // legacy — kept for existing modals
     },
 
-    // Type scale: 11 / 12 / 13 / 14 / 16 / 20 / 28 / 34. Nothing else.
+    // Type scale: 11 / 12 / 13 / 14 / 16 / 18 / 20 / 28 / 34. Nothing else.
     fontSize: {
       '11': ['11px', { lineHeight: '16px' }],
       '12': ['12px', { lineHeight: '16px' }],
       '13': ['13px', { lineHeight: '20px' }],
       '14': ['14px', { lineHeight: '20px' }],
       '16': ['16px', { lineHeight: '24px' }],
+      '18': ['18px', { lineHeight: '26px' }], // brand wordmark, module titles
       '20': ['20px', { lineHeight: '28px' }],
       '28': ['28px', { lineHeight: '36px' }],
       '34': ['34px', { lineHeight: '42px' }], // hero ledger figure (§5)

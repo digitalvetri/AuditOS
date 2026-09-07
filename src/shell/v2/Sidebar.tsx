@@ -172,19 +172,20 @@ export function Sidebar({ mobileOpen, onMobileClose }: Props) {
 // cluster reads as a header, not another nav row.
 
 function Brand({ collapsed }: { collapsed: boolean }) {
+  // Same height as TopBar (h-20) so brand chip and search bar sit on one line.
   return (
-    <div className={'h-16 flex items-center shrink-0 ' + (collapsed ? 'justify-center px-0' : 'px-5')}>
+    <div className={'h-20 flex items-center shrink-0 border-b border-white/10 ' + (collapsed ? 'justify-center px-0' : 'px-5')}>
       <span
-        className="inline-flex items-center justify-center w-8 h-8 rounded-full bg-white text-sidebarText shrink-0"
+        className="inline-flex items-center justify-center w-9 h-9 rounded-full bg-white text-sidebarText shrink-0"
         aria-hidden
       >
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
           <circle cx="12" cy="12" r="8" />
           <path d="M12 4v4M20 12h-4M12 20v-4M4 12h4" />
         </svg>
       </span>
       {!collapsed ? (
-        <span className="ml-3 text-16 font-semibold text-sidebarText tracking-tight">Audit OS</span>
+        <span className="ml-3 text-18 font-semibold text-sidebarText tracking-tight">Audit OS</span>
       ) : null}
     </div>
   );

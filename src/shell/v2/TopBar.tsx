@@ -48,7 +48,7 @@ export function TopBar({ onOpenMobileNav }: Props) {
     .toUpperCase() ?? '?';
 
   return (
-    <header className="sticky top-0 z-30 h-16 bg-surface border-b border-border flex items-center px-5 gap-5">
+    <header className="sticky top-0 z-30 h-20 bg-surface border-b border-border flex items-center px-6 gap-6">
       {/* Mobile hamburger */}
       <button
         type="button"
@@ -68,7 +68,7 @@ export function TopBar({ onOpenMobileNav }: Props) {
           <input
             type="search"
             placeholder="Search..."
-            className="w-full h-10 pl-11 pr-4 text-14 bg-canvas text-ink placeholder:text-inkFaint border border-border rounded-full focus:outline-none focus:border-gold focus:bg-surface"
+            className="w-full h-11 pl-11 pr-4 text-14 bg-canvas text-ink placeholder:text-inkFaint border border-border rounded-full focus:outline-none focus:border-gold focus:bg-surface"
             aria-label="Global search"
           />
         </label>
