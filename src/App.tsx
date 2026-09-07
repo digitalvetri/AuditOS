@@ -2,9 +2,12 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { BrowserRouter, Route, Routes, Navigate } from 'react-router-dom';
 import { AuthProvider } from '@/platform/auth/AuthContext';
 import { ProtectedRoute } from '@/platform/auth/ProtectedRoute';
-import { AppShell } from '@/shell/AppShell';
+// New shell + dashboard per UI-BUILD-PROMPT.md. The v1 shell/dashboard still
+// live at @/shell/AppShell and @/pages/Dashboard — kept for now so the diff
+// is a swap, not a delete, and old modules render inside the new frame.
+import { AppShellV2 as AppShell } from '@/shell/v2/AppShell';
 import { LoginPage } from '@/pages/Login';
-import { DashboardPage } from '@/pages/Dashboard';
+import { DashboardV2Page as DashboardPage } from '@/pages/DashboardV2';
 // Workstation (AUDIT_OS_WORKSTATION.md §4) — replaces the reserved screen.
 import { WorkstationDashboardPage } from '@/pages/workstation/Dashboard';
 import { LeadsPage } from '@/pages/workstation/Leads';
