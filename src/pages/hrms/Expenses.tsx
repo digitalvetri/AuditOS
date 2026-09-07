@@ -30,7 +30,7 @@ export function ExpensesPage() {
   };
 
   return (
-    <div className="max-w-[1200px] mx-auto space-y-6">
+    <div className="space-y-6">
       <header className="flex items-baseline justify-between gap-4 flex-wrap">
         <div>
           <div className="text-11 uppercase tracking-[0.06em] text-neutral-500">HRMS</div>

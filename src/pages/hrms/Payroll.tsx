@@ -40,7 +40,7 @@ export function PayrollPage() {
   }
 
   return (
-    <div className="max-w-[1200px] mx-auto space-y-6">
+    <div className="space-y-6">
       <header className="flex items-baseline justify-between gap-4 flex-wrap">
         <div>
           <div className="text-11 uppercase tracking-[0.06em] text-neutral-500">HRMS</div>
@@ -204,7 +204,7 @@ export function PayrollRunDetailPage() {
   });
   void mutate;
 
-  if (q.isLoading) return <div className="h-40 bg-neutral-100 max-w-[1200px] mx-auto" />;
+  if (q.isLoading) return <div className="h-40 bg-neutral-100 " />;
   if (q.isError || !q.data) {
     return (
       <div className="max-w-[720px] mx-auto bg-white border border-neutral-200 rounded p-6">
@@ -217,7 +217,7 @@ export function PayrollRunDetailPage() {
   const s = stageStyle(run.stage);
 
   return (
-    <div className="max-w-[1200px] mx-auto space-y-6">
+    <div className="space-y-6">
       <div>
         <Link to="/hrms/payroll" className="text-13 text-neutral-500 hover:text-neutral-900">← Payroll</Link>
       </div>

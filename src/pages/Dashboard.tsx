@@ -27,7 +27,7 @@ export function DashboardPage() {
   const hasHero = slotsWithWidgets.some((s) => s.slot === 'hero');
 
   return (
-    <div className="max-w-[1200px] mx-auto space-y-6">
+    <div className="space-y-6">
       {!hasHero ? (
         <header>
           <div className="text-11 uppercase tracking-[0.06em] text-neutral-500 tabular-nums">

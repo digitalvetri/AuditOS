@@ -50,7 +50,7 @@ export function ClientWorkspacePage() {
     can(role, t.perm as Parameters<typeof can>[1], 'self'));
 
   return (
-    <div className="max-w-[1200px] mx-auto">
+    <div className="">
       <QueryState query={query}>
         {(client: ClientDetail) => (
           <>

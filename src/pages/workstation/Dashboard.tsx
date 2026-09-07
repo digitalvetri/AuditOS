@@ -24,7 +24,7 @@ export function WorkstationDashboardPage() {
   });
 
   return (
-    <div className="max-w-[1200px] mx-auto">
+    <div className="">
       <PageHeader
         title="Workstation"
         subtitle="Leads, clients, services, follow-ups and documents for the firm's own clients."
