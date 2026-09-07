@@ -185,21 +185,22 @@ export function Sidebar({ mobileOpen, onMobileClose }: Props) {
 // cluster reads as a header, not another nav row.
 
 function Brand({ collapsed }: { collapsed: boolean }) {
-  // Same height as TopBar (h-24) so brand chip and search bar sit on one line.
-  // Chip is a darker sage circle with an aperture glyph, on the light mint bg.
+  // Same height as TopBar (h-24) so brand chip and search bar sit on one
+  // line. Bigger chip + text + generous left padding so the brand feels
+  // like a proper header, not a cramped icon.
   return (
-    <div className={'h-24 flex items-center shrink-0 ' + (collapsed ? 'justify-center px-0' : 'px-5')}>
+    <div className={'h-24 flex items-center shrink-0 ' + (collapsed ? 'justify-center px-0' : 'pl-6 pr-4')}>
       <span
-        className="inline-flex items-center justify-center w-10 h-10 rounded-full bg-sidebarActive text-sidebarText shrink-0"
+        className="inline-flex items-center justify-center w-11 h-11 rounded-full bg-sidebarActive text-sidebarText shrink-0"
         aria-hidden
       >
-        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
           <circle cx="12" cy="12" r="8" />
           <path d="M12 4v4M20 12h-4M12 20v-4M4 12h4" />
         </svg>
       </span>
       {!collapsed ? (
-        <span className="ml-3 text-18 font-semibold text-sidebarText tracking-tight">Audit OS</span>
+        <span className="ml-4 text-20 font-semibold text-sidebarText tracking-tight">Audit OS</span>
       ) : null}
     </div>
   );
@@ -210,13 +211,13 @@ function Section({ group, collapsed, first }: { group: NavGroup; collapsed: bool
     <div>
       {group.label && !collapsed ? (
         <div className={
-          'pl-5 pr-4 pb-2 text-11 font-bold uppercase tracking-[0.12em] text-sidebarMuted ' +
-          (first ? 'pt-4' : 'pt-6')
+          'pl-6 pr-4 pb-1 text-11 font-bold uppercase tracking-[0.12em] text-sidebarMuted ' +
+          (first ? 'pt-3' : 'pt-4')
         }>
           {group.label}
         </div>
       ) : null}
-      <ul className={collapsed ? 'px-2 space-y-1' : 'px-2 space-y-1'}>
+      <ul className={collapsed ? 'px-2 space-y-1' : 'px-2 space-y-px'}>
         {group.items.map((it) => (
           <li key={it.to}>
             <NavItemRow item={it} collapsed={collapsed} />
@@ -234,7 +235,7 @@ function NavItemRow({ item, collapsed }: { item: NavItem; collapsed: boolean }) 
       to={item.to}
       end={item.end}
       className={({ isActive }) => {
-        const base = 'flex items-center gap-4 h-12 rounded-lg text-15 transition-colors';
+        const base = 'flex items-center gap-3 h-11 rounded-lg text-15 transition-colors';
         const spacing = collapsed ? 'justify-center px-0' : 'px-3';
         const state = isActive
           ? 'bg-sidebarActive text-sidebarText font-semibold'
