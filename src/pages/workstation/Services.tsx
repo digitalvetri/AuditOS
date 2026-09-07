@@ -37,7 +37,7 @@ export function ServicesPage() {
   const today = new Date().toISOString().slice(0, 10);
 
   return (
-    <div className="max-w-[1400px] mx-auto">
+    <div className="">
       <PageHeader
         title="Services"
         subtitle="The work Audit OS is doing for its clients."

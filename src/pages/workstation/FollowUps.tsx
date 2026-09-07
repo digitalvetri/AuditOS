@@ -58,7 +58,7 @@ export function FollowUpsPage() {
   const now = Date.now();
 
   return (
-    <div className="max-w-[1400px] mx-auto">
+    <div className="">
       <PageHeader
         title="Follow-ups"
         subtitle="One list for leads and clients alike."

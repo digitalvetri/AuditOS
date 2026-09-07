@@ -35,7 +35,7 @@ export function ClientsPage() {
   const employees = useQuery({ queryKey: ['workstation', 'employees'], queryFn: workstationApi.assignableEmployees });
 
   return (
-    <div className="max-w-[1400px] mx-auto">
+    <div className="">
       <PageHeader
         title="Clients"
         subtitle="One record per company. Everything else references it."

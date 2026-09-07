@@ -39,7 +39,7 @@ export function LeadDetailPage() {
   const query = useQuery({ queryKey: ['workstation', 'lead', id], queryFn: () => workstationApi.getLead(id) });
 
   return (
-    <div className="max-w-[1000px] mx-auto">
+    <div className="">
       <QueryState query={query}>{(lead: Lead) => <LeadBody lead={lead} />}</QueryState>
     </div>
   );

@@ -42,7 +42,7 @@ export function LeadsPage() {
   const canManage = can(session?.role.code, 'workstation.lead.manage', 'self');
 
   return (
-    <div className="max-w-[1400px] mx-auto">
+    <div className="">
       <PageHeader
         title="Leads"
         subtitle="Potential customers, before they become clients."

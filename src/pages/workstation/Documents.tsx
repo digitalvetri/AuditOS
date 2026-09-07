@@ -40,7 +40,7 @@ export function DocumentsPage() {
   const clients = useQuery({ queryKey: ['workstation', 'clients', 'picker'], queryFn: () => workstationApi.listClients() });
 
   return (
-    <div className="max-w-[1400px] mx-auto">
+    <div className="">
       <PageHeader
         title="Documents"
         subtitle="One document store per client, organised by category."
