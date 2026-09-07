@@ -10,7 +10,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
-import { Bell, ChevronDown, Menu, PanelRight, Search, Sun } from 'lucide-react';
+import { Bell, ChevronDown, Menu, PanelRight, Search, Sun, User } from 'lucide-react';
 import { useAuth } from '@/platform/auth/AuthContext';
 import { notificationsApi } from '@/platform/notifications/api';
 
@@ -40,12 +40,8 @@ export function TopBar({ onOpenMobileNav }: Props) {
   });
   const hasUnread = (unreadQ.data?.unread ?? 0) > 0;
 
-  const initials = session?.employee?.full_name
-    ?.split(' ')
-    .map((s) => s[0])
-    .join('')
-    .slice(0, 2)
-    .toUpperCase() ?? '?';
+  // Target reference uses a plain silhouette in a grey chip; the display
+  // name is read inline from the session inside the trigger button below.
 
   return (
     <header className="sticky top-0 z-30 h-20 bg-surface border-b border-border flex items-center px-6 gap-6">
@@ -107,8 +103,8 @@ export function TopBar({ onOpenMobileNav }: Props) {
             aria-haspopup="menu"
             aria-expanded={menuOpen}
           >
-            <span className="w-9 h-9 rounded-full bg-sidebar text-sidebarText inline-flex items-center justify-center text-13 font-medium">
-              {initials}
+            <span className="w-9 h-9 rounded-full bg-canvas border border-border text-inkMuted inline-flex items-center justify-center">
+              <User size={20} strokeWidth={1.75} />
             </span>
             <span className="hidden md:inline text-14 font-medium text-ink">
               {session?.employee?.full_name ?? session?.user.email ?? ''}

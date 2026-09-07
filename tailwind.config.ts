@@ -39,14 +39,14 @@ const config: Config = {
       },
 
       // ── Shell / dashboard palette (UI-BUILD-PROMPT §1) ─────────────────
-      // Target ref (WhatsApp 7.43.23 PM) — LIGHT medium sage with DARK text,
-      // active state is a subtle whiter chip, not a darker fill. Muted tone
-      // for section headers stays green but lower contrast.
-      sidebar:       '#A0B7A4', // medium sage — sidebar background
-      sidebarHover:  '#94AC98',
-      sidebarActive: '#B8C9BC', // whiter chip for active pill
-      sidebarText:   '#243528', // dark forest green — nav labels
-      sidebarMuted:  '#4E6350', // section headers, secondary text
+      // Target ref (WhatsApp 7.43.23 PM) — LIGHT medium sage with DARK text.
+      // Slightly warmer / more saturated than the first pass so icons and
+      // labels read cleanly against the bg.
+      sidebar:       '#9DB49F', // medium sage — sidebar background
+      sidebarHover:  '#8FA791',
+      sidebarActive: '#FFFFFF', // active pill is pure white for max contrast
+      sidebarText:   '#1F2E22', // near-black forest — nav labels
+      sidebarMuted:  '#516956', // section headers, secondary text
 
       canvas:        '#F7F6F2', // page background, warm off-white
       surface:       '#FFFFFF',
@@ -92,12 +92,13 @@ const config: Config = {
       drawer:  '0 4px 16px rgba(0,0,0,0.08)',  // legacy — kept for existing modals
     },
 
-    // Type scale: 11 / 12 / 13 / 14 / 16 / 18 / 20 / 28 / 34. Nothing else.
+    // Type scale: 11 / 12 / 13 / 14 / 15 / 16 / 18 / 20 / 28 / 34. Nothing else.
     fontSize: {
       '11': ['11px', { lineHeight: '16px' }],
       '12': ['12px', { lineHeight: '16px' }],
       '13': ['13px', { lineHeight: '20px' }],
       '14': ['14px', { lineHeight: '20px' }],
+      '15': ['15px', { lineHeight: '22px' }], // sidebar nav labels
       '16': ['16px', { lineHeight: '24px' }],
       '18': ['18px', { lineHeight: '26px' }], // brand wordmark, module titles
       '20': ['20px', { lineHeight: '28px' }],

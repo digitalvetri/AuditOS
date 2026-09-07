@@ -116,7 +116,7 @@ export function Sidebar({ mobileOpen, onMobileClose }: Props) {
     mq.addEventListener('change', onChange);
     return () => mq.removeEventListener('change', onChange);
   }, []);
-  const asideWidth = isDesktop ? (collapsed ? 64 : 246) : 246;
+  const asideWidth = isDesktop ? (collapsed ? 72 : 264) : 264;
   const drawer = mobileOpen ? 'translate-x-0' : '-translate-x-full invisible lg:visible';
 
   return (
@@ -162,13 +162,13 @@ export function Sidebar({ mobileOpen, onMobileClose }: Props) {
 // One left rail. Every icon (brand chip, nav row, section header text,
 // COLLAPSE glyph) starts its content at x=20 from the aside edge.
 //
-//   aside padding (via ul px-3 + a px-2)  = 20
-//   nav icon 18 → icon-right              = 38
-//   gap-3                                 = 12  → label starts at x=50
-//   brand chip 32 → chip-right            = 52
-//   brand gap-3                           = 12  → text starts at x=64
+//   aside padding (via ul px-2 + a px-3)  = 20
+//   nav icon 20 → icon-right              = 40
+//   gap-3                                 = 12  → label starts at x=52
+//   brand chip 36 → chip-right            = 56
+//   brand gap-3                           = 12  → text starts at x=68
 //
-// Brand text ends up 14px to the right of nav labels — accepted; a brand
+// Brand text ends up 16px to the right of nav labels — accepted; a brand
 // cluster reads as a header, not another nav row.
 
 function Brand({ collapsed }: { collapsed: boolean }) {
@@ -202,7 +202,7 @@ function Section({ group, collapsed, first }: { group: NavGroup; collapsed: bool
           {group.label}
         </div>
       ) : null}
-      <ul className={collapsed ? 'px-2 space-y-1' : 'px-3 space-y-px'}>
+      <ul className={collapsed ? 'px-2 space-y-1' : 'px-2 space-y-px'}>
         {group.items.map((it) => (
           <li key={it.to}>
             <NavItemRow item={it} collapsed={collapsed} />
@@ -220,16 +220,16 @@ function NavItemRow({ item, collapsed }: { item: NavItem; collapsed: boolean }) 
       to={item.to}
       end={item.end}
       className={({ isActive }) => {
-        const base = 'flex items-center gap-3 h-10 rounded-lg text-14 transition-colors';
-        const spacing = collapsed ? 'justify-center px-0' : 'px-2';
+        const base = 'flex items-center gap-3 h-11 rounded-lg text-15 transition-colors';
+        const spacing = collapsed ? 'justify-center px-0' : 'px-3';
         const state = isActive
-          ? 'bg-white text-ink font-semibold shadow-card'
+          ? 'bg-sidebarActive text-ink font-semibold shadow-card'
           : 'text-sidebarText font-medium hover:bg-sidebarHover';
         return `${base} ${spacing} ${state}`;
       }}
       title={collapsed ? item.label : undefined}
     >
-      <Icon size={18} strokeWidth={1.75} className="shrink-0" />
+      <Icon size={20} strokeWidth={2} className="shrink-0" />
       {!collapsed ? <span className="truncate">{item.label}</span> : null}
     </NavLink>
   );
