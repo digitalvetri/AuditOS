@@ -241,14 +241,14 @@ function Section({ group, collapsed, first, folded, onToggle }: SectionProps) {
           onClick={onToggle}
           aria-expanded={!folded}
           className={
-            'flex items-center gap-2 w-full pl-6 pr-4 pb-1 text-11 font-bold uppercase ' +
-            'tracking-[0.12em] text-sidebarMuted hover:text-sidebarText transition-colors ' +
-            (first ? 'pt-3' : 'pt-4')
+            'flex items-center gap-2 w-full pl-6 pr-4 pb-2 text-13 font-bold uppercase ' +
+            'tracking-[0.14em] text-sidebarText hover:text-ink transition-colors ' +
+            (first ? 'pt-4' : 'pt-5')
           }
         >
           <span>{group.label}</span>
           <ChevronDown
-            size={12}
+            size={14}
             strokeWidth={2.5}
             className={'transition-transform ' + (folded ? '-rotate-90' : '')}
           />
