@@ -59,16 +59,16 @@ export function TopBar({ onOpenMobileNav }: Props) {
         <Menu size={20} strokeWidth={1.75} />
       </button>
 
-      {/* Search input, flex-1, capped */}
+      {/* Search input, flex-1, pill-shaped to match target UI */}
       <div className="flex-1 max-w-[940px]">
         <label className="relative block">
-          <span className="absolute inset-y-0 left-3 flex items-center text-inkMuted">
+          <span className="absolute inset-y-0 left-4 flex items-center text-inkMuted">
             <Search size={16} strokeWidth={1.75} />
           </span>
           <input
             type="search"
-            placeholder="Search…"
-            className="w-full h-10 pl-9 pr-3 text-14 bg-surface text-ink placeholder:text-inkFaint border border-border rounded-md focus:outline-none focus:border-gold"
+            placeholder="Search..."
+            className="w-full h-10 pl-11 pr-4 text-14 bg-canvas text-ink placeholder:text-inkFaint border border-border rounded-full focus:outline-none focus:border-gold focus:bg-surface"
             aria-label="Global search"
           />
         </label>
@@ -107,7 +107,7 @@ export function TopBar({ onOpenMobileNav }: Props) {
             aria-haspopup="menu"
             aria-expanded={menuOpen}
           >
-            <span className="w-8 h-8 rounded-md bg-sidebar text-sidebarText inline-flex items-center justify-center text-13 font-medium">
+            <span className="w-9 h-9 rounded-full bg-sidebar text-sidebarText inline-flex items-center justify-center text-13 font-medium">
               {initials}
             </span>
             <span className="hidden md:inline text-14 font-medium text-ink">

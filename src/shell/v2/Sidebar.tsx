@@ -12,7 +12,6 @@
 import { NavLink, useLocation } from 'react-router-dom';
 import { useEffect, useMemo, useState } from 'react';
 import {
-  Aperture,
   BarChart3,
   BookOpen,
   CalendarDays,
@@ -20,8 +19,8 @@ import {
   ChevronsRight,
   Clock,
   FileText,
+  Home,
   IndianRupee,
-  LayoutDashboard,
   MessageSquare,
   ReceiptIndianRupee,
   Settings,
@@ -75,7 +74,7 @@ export function Sidebar({ mobileOpen, onMobileClose }: Props) {
       { to: '/tools', label: 'Tools', icon: Wrench, visible: can(role, 'workstation.access', 'self') },
     ];
     return [
-      { label: null, items: [{ to: '/', label: 'Dashboard', icon: LayoutDashboard, end: true, visible: true }] },
+      { label: null, items: [{ to: '/', label: 'Dashboard', icon: Home, end: true, visible: true }] },
       { label: 'AUDIT', items: auditItems.filter((i) => i.visible) },
       { label: 'WORKSTATION', items: workstationItems.filter((i) => i.visible) },
     ].filter((g) => g.items.length > 0);
@@ -159,13 +158,17 @@ export function Sidebar({ mobileOpen, onMobileClose }: Props) {
 }
 
 function Brand({ collapsed }: { collapsed: boolean }) {
+  // Filled circular badge with a stylised "A" — matches the target visual.
   return (
     <div className="h-16 flex items-center px-5 shrink-0">
       <span
-        className="inline-flex items-center justify-center w-8 h-8 rounded border border-gold text-gold shrink-0"
+        className="inline-flex items-center justify-center w-9 h-9 rounded-full bg-sidebarActive text-sidebarText shrink-0 shadow-inner"
         aria-hidden
       >
-        <Aperture size={18} strokeWidth={1.75} />
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M12 3l9 18H3z" />
+          <path d="M8 17h8" />
+        </svg>
       </span>
       {!collapsed ? (
         <span className="ml-3 text-16 font-semibold text-sidebarText">Audit OS</span>
@@ -219,31 +222,25 @@ function NavItemRow({ item, collapsed }: { item: NavItem; collapsed: boolean }) 
 
 function BrandPanel({ collapsed }: { collapsed: boolean }) {
   if (collapsed) return null;
+  // Real brand asset lives at /brand/audit-panel.jpg (copied from the
+  // reference art). Overlaid tagline sits at the bottom so it stays legible
+  // regardless of image content.
   return (
-    <div className="mx-4 mb-2 rounded-md overflow-hidden bg-sidebarHover" style={{ height: 150 }}>
-      {/*
-        Real brand asset when present, otherwise a designed fallback so the
-        panel never renders as a blank block. onError swaps to the fallback
-        without a network round-trip.
-      */}
+    <div className="mx-3 mb-2 rounded-md overflow-hidden relative" style={{ height: 180 }}>
       <img
-        src="/brand/audit-panel.png"
+        src="/brand/audit-panel.jpg"
         alt=""
-        className="w-full h-full object-cover"
+        className="absolute inset-0 w-full h-full object-cover"
         onError={(e) => {
           const img = e.currentTarget;
           img.style.display = 'none';
-          img.parentElement?.classList.add('flex', 'flex-col', 'items-center', 'justify-center', 'text-center');
-          if (!img.parentElement?.querySelector('[data-brand-fallback]')) {
-            const wrap = document.createElement('div');
-            wrap.setAttribute('data-brand-fallback', 'true');
-            wrap.innerHTML =
-              '<div style="font-size:20px;font-weight:600;color:#EAF0EA">AUDIT</div>' +
-              '<div style="font-size:11px;color:#B8CCBA;margin-top:4px">Smarter Audits, Better Tomorrow</div>';
-            img.parentElement?.appendChild(wrap);
-          }
         }}
       />
+      <div className="absolute inset-x-0 bottom-0 h-14 bg-black/45" aria-hidden />
+      <div className="absolute inset-x-0 bottom-2 text-center">
+        <div className="text-18 font-semibold text-sidebarText tracking-wide">AUDIT</div>
+        <div className="text-10 text-sidebarMuted">Smarter Audits, Better Tomorrow</div>
+      </div>
     </div>
   );
 }
