@@ -35,8 +35,6 @@ import { useAuth } from '@/platform/auth/AuthContext';
 import { NotFoundPage } from '@/pages/NotFound';
 import { NotificationsPage } from '@/pages/Notifications';
 import { ToastProvider } from '@/components/Toast';
-// Side-effect import — triggers module widget registration at boot.
-import '@/modules';
 
 const queryClient = new QueryClient({
   defaultOptions: {
