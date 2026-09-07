@@ -144,13 +144,26 @@ export function Sidebar({ mobileOpen, onMobileClose }: Props) {
       >
         <Brand collapsed={collapsed} />
 
-        <nav className="flex-1 min-h-0 overflow-y-auto pt-1 pb-3">
-          {nav.map((group, i) => (
-            <Section key={i} group={group} collapsed={collapsed} first={i === 0} />
-          ))}
-        </nav>
+        {/*
+          One scrollable stack: nav + brand panel + COLLAPSE. The brand
+          image docks right below the last section instead of being pushed
+          to the viewport bottom by a flex-1 spacer, so the visual block
+          reads as one aligned column.
 
-        <BrandPanel collapsed={collapsed} />
+          On short sidebars (few nav items on a tall screen) an empty sage
+          area appears at the bottom — that's a plain background colour, not
+          an alignment issue.
+        */}
+        <div className="flex-1 min-h-0 overflow-y-auto pt-1 pb-2">
+          <nav>
+            {nav.map((group, i) => (
+              <Section key={i} group={group} collapsed={collapsed} first={i === 0} />
+            ))}
+          </nav>
+          <div className="mt-4">
+            <BrandPanel collapsed={collapsed} />
+          </div>
+        </div>
         <Collapse collapsed={collapsed} onToggle={() => setCollapsed((c) => !c)} />
       </aside>
     </>
