@@ -14,15 +14,20 @@ import { useEffect, useMemo, useState } from 'react';
 import {
   BarChart3,
   BookOpen,
+  Briefcase,
   CalendarDays,
   ChevronDown,
   ChevronsLeft,
   ChevronsRight,
   Clock,
   FileText,
+  FolderKanban,
+  Handshake,
   Home,
   IndianRupee,
+  LayoutGrid,
   MessageSquare,
+  PhoneCall,
   ReceiptIndianRupee,
   Settings,
   Users,
@@ -72,8 +77,17 @@ export function Sidebar({ mobileOpen, onMobileClose }: Props) {
       { to: '/hrms/reports',    label: 'Reports',    icon: BarChart3,            visible: can(role, 'reports.hr', 'department') || can(role, 'reports.finance', 'organisation') || can(role, 'reports.all', 'organisation') },
       { to: '/hrms/settings',   label: 'Settings',   icon: Settings,             visible: can(role, 'settings.manage', 'organisation') },
     ];
+    // Workstation (teammate's module, per AUDIT_OS_WORKSTATION.md §4).
+    // Sub-items follow the same can(role, ...) pattern; roles without a
+    // workstation.access grant see nothing here.
     const workstationItems: NavItem[] = [
-      { to: '/tools', label: 'Tools', icon: Wrench, visible: can(role, 'workstation.access', 'self') },
+      { to: '/workstation',             label: 'Overview',   icon: LayoutGrid,    end: true, visible: can(role, 'workstation.access', 'self') },
+      { to: '/workstation/leads',       label: 'Leads',      icon: PhoneCall,     visible: can(role, 'workstation.lead.read', 'self') },
+      { to: '/workstation/clients',     label: 'Clients',    icon: Handshake,     visible: can(role, 'workstation.client.read', 'self') },
+      { to: '/workstation/follow-ups',  label: 'Follow-ups', icon: Clock,         visible: can(role, 'workstation.followup.read', 'self') },
+      { to: '/workstation/services',    label: 'Services',   icon: Briefcase,     visible: can(role, 'workstation.service.read', 'self') },
+      { to: '/workstation/documents',   label: 'Documents',  icon: FolderKanban,  visible: can(role, 'workstation.document.read', 'self') },
+      { to: '/tools',                   label: 'Tools',      icon: Wrench,        visible: can(role, 'workstation.access', 'self') },
     ];
     return [
       { label: null, items: [{ to: '/', label: 'Dashboard', icon: Home, end: true, visible: true }] },
