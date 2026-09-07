@@ -62,7 +62,7 @@ export function SettingsPage() {
   const groups = Array.from(new Set(SECTIONS.map((s) => s.group)));
 
   return (
-    <div className="max-w-[1200px] mx-auto">
+    <div className="">
       <header>
         <div className="text-11 uppercase tracking-[0.06em] text-neutral-500">HRMS</div>
         <h1 className="text-20 font-semibold text-neutral-900 mt-1">Settings</h1>

@@ -1,30 +1,41 @@
 import type { ButtonHTMLAttributes, ReactNode } from 'react';
 
-type Variant = 'primary' | 'secondary' | 'ghost';
+type Variant = 'primary' | 'secondary' | 'ghost' | 'danger';
+type Size = 'sm' | 'md';
 
 interface Props extends ButtonHTMLAttributes<HTMLButtonElement> {
   variant?: Variant;
+  size?: Size;
   children: ReactNode;
 }
 
 /**
- * §7: primary action is the gold button (max one per screen — that's a design
- * discipline, not a code check). Secondary is a bordered neutral. Ghost is
- * unadorned text.
+ * §7 rule: at most one primary (gold) button per screen — that stays a
+ * design discipline, not a lint. Sizes match the shell: `md` (default) is a
+ * 40px pill that lines up with the topbar controls; `sm` is the 32px chip
+ * used inside dense tables.
  */
-export function Button({ variant = 'secondary', className = '', children, ...rest }: Props) {
+export function Button({
+  variant = 'secondary', size = 'md', className = '', children, ...rest
+}: Props) {
+  const sizing = size === 'md'
+    ? 'h-10 px-5 text-14 rounded-md'
+    : 'h-8 px-3 text-13 rounded';
   const base =
-    'inline-flex items-center justify-center h-8 px-3 text-13 font-medium rounded transition ' +
+    'inline-flex items-center justify-center font-medium transition-colors ' +
     'disabled:cursor-not-allowed disabled:opacity-50';
   const styles: Record<Variant, string> = {
     primary:
-      'bg-gold text-white hover:bg-gold-hover',
+      'bg-gold text-white hover:bg-gold-hover shadow-card',
     secondary:
-      'bg-white text-neutral-900 border border-neutral-300 hover:bg-neutral-50',
-    ghost: 'text-neutral-700 hover:text-neutral-900',
+      'bg-surface text-ink border border-border hover:bg-canvas',
+    ghost:
+      'text-inkMuted hover:text-ink hover:bg-canvas',
+    danger:
+      'bg-surface text-danger border border-border hover:bg-canvas',
   };
   return (
-    <button className={`${base} ${styles[variant]} ${className}`} {...rest}>
+    <button className={`${base} ${sizing} ${styles[variant]} ${className}`} {...rest}>
       {children}
     </button>
   );

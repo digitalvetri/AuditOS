@@ -1,10 +1,10 @@
 /**
  * §7 status encoding — 2px LEFT border on the row plus text weight.
  *
- *   Overdue / Rejected / Absent   2px warm-red, label weight 500
- *   Pending / Late / Missing      2px amber, label weight 500
- *   Awaiting action               2px neutral-400, label weight 400
- *   Approved / Present / Paid     no border, neutral-500, weight 400
+ *   Overdue / Rejected / Absent   2px danger, label weight 500
+ *   Pending / Late / Missing      2px warning, label weight 500
+ *   Awaiting action               2px inkFaint, label weight 400
+ *   Approved / Present / Paid     no border, inkMuted, weight 400
  *
  * Never filled pill badges. Never coloured backgrounds.
  */
@@ -22,18 +22,18 @@ interface StatusRowProps {
 
 const BORDER: Record<StatusVariant, string> = {
   ok: 'border-transparent',
-  pending: 'border-amber',
-  attention: 'border-amber',
-  problem: 'border-red',
-  awaiting: 'border-neutral-400',
+  pending: 'border-warning',
+  attention: 'border-warning',
+  problem: 'border-danger',
+  awaiting: 'border-inkFaint',
 };
 
 const LABEL: Record<StatusVariant, string> = {
-  ok: 'text-neutral-500 font-normal',
-  pending: 'text-neutral-900 font-medium',
-  attention: 'text-neutral-900 font-medium',
-  problem: 'text-neutral-900 font-medium',
-  awaiting: 'text-neutral-700 font-normal',
+  ok: 'text-inkMuted font-normal',
+  pending: 'text-ink font-medium',
+  attention: 'text-ink font-medium',
+  problem: 'text-ink font-medium',
+  awaiting: 'text-ink font-normal',
 };
 
 /** Inline status text (for use inside a cell). */

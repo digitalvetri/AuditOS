@@ -1,23 +1,30 @@
 import type { Config } from 'tailwindcss';
 
 /**
- * Design tokens per HRMSPart1.md §7.
+ * Design tokens.
+ *
+ *   Base palette (HRMSPart1.md §7): warm neutral ramp + single gold, radius 4,
+ *   flat elevation. Existing HRMS/Workstation modules render against these.
+ *
+ *   New shell + dashboard palette (UI-BUILD-PROMPT.md §1): sage green sidebar,
+ *   canvas off-white surface, gold accent, filled-pill active state, radius
+ *   10 on cards. Additive to the base — old modules keep working.
  *
  * We REPLACE (not extend) `colors`, `borderRadius`, and `boxShadow` so that
  * illegal utilities (`bg-purple-500`, `rounded-xl`, `shadow-lg`, …) don't
- * exist. A violation produces an invalid class rather than rendering wrong,
- * and the §14 grep test passes by omission.
+ * exist. A violation produces an invalid class rather than rendering wrong.
  */
 const config: Config = {
   content: ['./index.html', './src/**/*.{ts,tsx}'],
   theme: {
-    // Full replacement — no purple/indigo/violet, no blue-grey neutral.
+    // Full replacement — no purple/indigo/violet.
     colors: {
       transparent: 'transparent',
       current: 'currentColor',
       white: '#ffffff',
       black: '#000000',
-      // Warm neutral ramp, 9 steps (not blue-grey).
+
+      // ── Base (§7) ──────────────────────────────────────────────────────
       neutral: {
         50: '#faf9f7',
         100: '#f3f1ed',
@@ -30,57 +37,115 @@ const config: Config = {
         800: '#28251f',
         900: '#171512',
       },
-      // Single gold accent. Two shades: base + a hover.
+
+      // ── Shell / dashboard palette (UI-BUILD-PROMPT §1) ─────────────────
+      // Target ref (Screenshot 214422) — LIGHT mint sage, DARKER sage
+      // filled pill for the active row (not white). Section headers stay
+      // as dark forest at reduced weight rather than muted grey-green.
+      sidebar:       '#B8CDBA', // light mint sage — sidebar background
+      sidebarHover:  '#A6BDA9',
+      sidebarActive: '#8CA790', // filled darker sage pill for active row
+      sidebarText:   '#1F2E22', // near-black forest — nav labels
+      sidebarMuted:  '#3E5240', // section headers — dark, not muted
+
+      canvas:        '#F7F6F2', // page background, warm off-white
+      surface:       '#FFFFFF',
+      border:        '#E8E6DF',
+
+      ink:           '#1A1A18',
+      inkMuted:      '#6B6B63',
+      inkFaint:      '#9A9A90',
+
+      // Semantic. `warning` and `success` intentionally alias to gold+sage
+      // per the prompt so the palette stays lean.
+      danger:        '#B33A2B',
+      warning:       '#C8952E',
+      success:       '#4F6B52',
+
+      // Gold accent — used across BOTH palettes.
       gold: {
-        DEFAULT: '#b8892b',
-        hover: '#9c721f',
+        DEFAULT: '#C8952E',
+        hover:   '#B0821F',
       },
-      // Status encoding uses a 2px left border (see components/StatusRow).
-      // One red for Overdue/Rejected/Absent; one amber for Pending/Late/Missing.
-      red: '#a8321a',
-      amber: '#c07a1a',
+
+      // Legacy §7 status colours — kept for existing modules' left-border
+      // encoding. Aliased to danger/warning for consistency.
+      red:   '#B33A2B',
+      amber: '#C8952E',
     },
-    // Radius: 0 for table cells, 4px for buttons/inputs/cards/drawers. Nothing else.
+
+    // Radius: 4px for base components, 8px for shell inputs/buttons/nav pills,
+    // 10px for cards. Nothing else.
     borderRadius: {
       none: '0',
       DEFAULT: '4px',
       sm: '4px',
-      md: '4px',
+      md: '8px',
+      lg: '10px',
     },
-    // Only two elevation levels: flat (none), and drawer/modal.
+
+    // Elevation levels.
     boxShadow: {
       none: 'none',
-      drawer: '0 4px 16px rgba(0,0,0,0.08)',
+      card:    '0 1px 2px rgba(0,0,0,0.04)',
+      raised:  '0 2px 8px rgba(0,0,0,0.06)',   // dropdowns/modals only
+      drawer:  '0 4px 16px rgba(0,0,0,0.08)',  // legacy — kept for existing modals
     },
-    // Type scale: 11 / 12 / 13 / 14 / 16 / 20 / 28. Nothing else.
+
+    // Type scale: 11 / 12 / 13 / 14 / 15 / 16 / 18 / 20 / 28 / 34. Nothing else.
     fontSize: {
       '11': ['11px', { lineHeight: '16px' }],
       '12': ['12px', { lineHeight: '16px' }],
       '13': ['13px', { lineHeight: '20px' }],
       '14': ['14px', { lineHeight: '20px' }],
+      '15': ['15px', { lineHeight: '22px' }], // sidebar nav labels
       '16': ['16px', { lineHeight: '24px' }],
+      '18': ['18px', { lineHeight: '26px' }], // brand wordmark, module titles
       '20': ['20px', { lineHeight: '28px' }],
       '28': ['28px', { lineHeight: '36px' }],
+      '34': ['34px', { lineHeight: '42px' }], // hero ledger figure (§5)
     },
+
     // Weights: 400 / 500 / 600. Never 700, never italic.
     fontWeight: {
       normal: '400',
       medium: '500',
       semibold: '600',
     },
-    // Spacing scale: 4 / 8 / 12 / 16 / 24 / 32 / 48. (Keep pixel identifiers.)
+
+    // Spacing scale — 4px grid. Includes the sizes used by the shell
+    // (chips 32/36/40/44, rows 32/40/44/48, header 80/96, sidebar 264).
+    // Anything outside this list is a mistake; use `text-N` / `p-N`
+    // exactly from here so alignment stays predictable.
     spacing: {
-      0: '0',
-      px: '1px',
-      0.5: '2px',
-      1: '4px',
-      2: '8px',
-      3: '12px',
-      4: '16px',
-      6: '24px',
-      8: '32px',
-      12: '48px',
+      0:    '0',
+      px:   '1px',
+      0.5:  '2px',
+      1:    '4px',
+      2:    '8px',
+      3:    '12px',
+      4:    '16px',
+      5:    '20px',
+      6:    '24px',
+      7:    '28px',
+      8:    '32px',
+      9:    '36px',
+      10:   '40px',
+      11:   '44px',
+      12:   '48px',
+      14:   '56px',
+      16:   '64px',
+      18:   '72px',
+      20:   '80px',
+      24:   '96px',
+      28:   '112px',
+      32:   '128px',
+      40:   '160px',
+      48:   '192px',
+      56:   '224px',
+      64:   '256px',
     },
+
     extend: {
       fontFamily: {
         sans: [

@@ -50,7 +50,7 @@ export function EmployeeDetailPage({ fixedId }: Props) {
   });
 
   if (q.isLoading) {
-    return <div className="h-40 bg-neutral-100 max-w-[1200px] mx-auto" aria-label="Loading" />;
+    return <div className="h-40 bg-neutral-100 " aria-label="Loading" />;
   }
   if (q.isError) {
     const status = (q.error as { status?: number }).status;
@@ -94,7 +94,7 @@ export function EmployeeDetailPage({ fixedId }: Props) {
   ];
 
   return (
-    <div className="max-w-[1200px] mx-auto space-y-6">
+    <div className="space-y-6">
       <div>
         <Link to="/hrms/employees" className="text-13 text-neutral-500 hover:text-neutral-900">
           ← Employees
