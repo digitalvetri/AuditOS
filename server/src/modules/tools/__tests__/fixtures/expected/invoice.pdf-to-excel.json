@@ -1,0 +1,12 @@
+{
+  "_note": "Ground truth for PDF to Excel on invoice.pdf (rendered from invoice.xlsx). Drop the firm's paid-tool export here in the same shape to compare against it instead. Numbers are numbers, codes and dates stay text.",
+  "sheet": "P1",
+  "rows": [
+    ["Invoice No", "Date", "Party", "GSTIN", "Taxable", "GST", "Total"],
+    ["INV-0001", "01/04/2026", "Sharma Traders", "33AAACS1234A1Z5", 125000, 22500, 147500],
+    ["INV-0002", "03/04/2026", "Lakshmi Textiles Pvt Ltd", "33AABCL5678B1Z2", 48200.5, 8676.09, 56876.59],
+    ["INV-0003", "07/04/2026", "Murugan & Co", "33AADFM9012C1Z9", 9800, 1764, 11564],
+    ["INV-0004", "12/04/2026", "Coimbatore Engineering Works", "33AAECC3456D1Z1", 310000, 55800, 365800],
+    ["INV-0005", "18/04/2026", "Nila Foods", "33AAFCN7890E1Z7", 15250.75, 2745.14, 17995.89]
+  ]
+}

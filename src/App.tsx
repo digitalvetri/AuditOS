@@ -17,7 +17,11 @@ import { ClientWorkspacePage } from '@/pages/workstation/ClientWorkspace';
 import { ServicesPage } from '@/pages/workstation/Services';
 import { FollowUpsPage } from '@/pages/workstation/FollowUps';
 import { DocumentsPage as WorkstationDocumentsPage } from '@/pages/workstation/Documents';
-import { ToolsPage } from '@/pages/reserved/Tools';
+// Tools (Converters & Utilities) — registry-driven; /tools/:toolId is one
+// shared workspace and /tools/documents the output history.
+import { ToolsPage } from '@/pages/tools/Tools';
+import { ToolWorkspacePage } from '@/pages/tools/ToolWorkspace';
+import { ToolDocumentsPage } from '@/pages/tools/ToolDocuments';
 import { AttendancePage } from '@/pages/hrms/Attendance';
 import { LeavePage } from '@/pages/hrms/Leave';
 import { EmployeesPage } from '@/pages/hrms/Employees';
@@ -106,6 +110,8 @@ export default function App() {
               <Route path="workstation/follow-ups" element={<FollowUpsPage />} />
               <Route path="workstation/documents" element={<WorkstationDocumentsPage />} />
               <Route path="tools" element={<ToolsPage />} />
+              <Route path="tools/documents" element={<ToolDocumentsPage />} />
+              <Route path="tools/:toolId" element={<ToolWorkspacePage />} />
 
               <Route path="*" element={<NotFoundPage />} />
             </Route>

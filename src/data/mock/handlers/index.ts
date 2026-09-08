@@ -12,6 +12,7 @@ import { expenseHandlers } from './expenses';
 import { accountsHandlers } from './accounts';
 import { chatHandlers } from './chats';
 import { reportsHandlers } from './reports';
+import { toolsHandlers } from './tools';
 
 /**
  * MSW handler registry. New modules append their handler arrays here.
@@ -35,4 +36,5 @@ export const handlers = [
   ...accountsHandlers,
   ...chatHandlers,
   ...reportsHandlers,
+  ...toolsHandlers,
 ];

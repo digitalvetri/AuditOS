@@ -28,6 +28,8 @@ import {
   workstationSignedRouter,
 } from './modules/workstation/documents.routes.js'
 import { workstationRouter } from './modules/workstation/workstation.routes.js'
+// Tools (Converters & Utilities) — registry-driven file conversions.
+import { toolsRouter, toolJobsRouter, toolDocumentsRouter, toolsSignedRouter } from './modules/tools/routes.js'
 
 /**
  * The HTTP surface. Every route below /api answers in the Part 1 envelope
@@ -69,6 +71,9 @@ export function createApp() {
   // string, so they mount alongside the other signed routes — before
   // `authenticate`, which a browser navigation cannot satisfy.
   app.use('/api', workstationSignedRouter)
+  // Tool outputs download the same way: the HMAC in the query string is the
+  // authorization, so a plain browser navigation can fetch the bytes.
+  app.use('/api', toolsSignedRouter)
 
   // Everything else requires a session.
   app.use('/api', authenticate)
@@ -108,6 +113,11 @@ export function createApp() {
   // namespaced. /api/clients/:id/documents is unchanged and unambiguous.
   app.use('/api/client-documents', wsDocumentsRouter)
   app.use('/api/document-categories', documentCategoriesRouter)
+
+  // ── Tools ──────────────────────────────────────────────────────────────
+  app.use('/api/tools', toolsRouter)
+  app.use('/api/tool-jobs', toolJobsRouter)
+  app.use('/api/tool-documents', toolDocumentsRouter)
 
   app.use('/api', (_req, res) => {
     res.status(404).json({ error: { code: 'not_found', message: 'No such endpoint.' } })

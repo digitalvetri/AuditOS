@@ -50,6 +50,32 @@ export type PermissionCode =
   | 'workstation.eway.generate'
   | 'workstation.eway.cancel'
 
+  // ── Tools (Converters & Utilities) ────────────────────────────────────
+  // One code per tool (registry `permission`), plus module access and the
+  // Documents view. Compliance converters carry a code already so flipping
+  // a tool to `active` later never touches the matrix.
+  | 'tools.access'
+  | 'tools.documents.read'
+  | 'tools.documents.manage'
+  | 'tools.pdf_to_excel'
+  | 'tools.excel_to_pdf'
+  | 'tools.pdf_to_word'
+  | 'tools.word_to_pdf'
+  | 'tools.image_to_pdf'
+  | 'tools.csv_to_excel'
+  | 'tools.merge_pdf'
+  | 'tools.split_pdf'
+  | 'tools.compress_pdf'
+  | 'tools.unlock_pdf'
+  | 'tools.esign_pdf'
+  | 'tools.ocr_scan'
+  | 'tools.gst_json_excel'
+  | 'tools.bank_statement_to_excel'
+  | 'tools.form_26as_to_excel'
+  | 'tools.excel_to_tally_xml'
+  | 'tools.tds_fvu_generator'
+  | 'tools.invoice_to_einvoice_json'
+
 export interface Grant {
   permission: PermissionCode
   scope: Scope
@@ -86,6 +112,28 @@ export const MATRIX: Record<RoleCode, Grant[]> = {
     { permission: 'workstation.gst.manage', scope: 'self' },
     { permission: 'workstation.eway.read', scope: 'self' },
     { permission: 'workstation.eway.generate', scope: 'self' },
+    // Tools: own documents only.
+    { permission: 'tools.access', scope: 'self' },
+    { permission: 'tools.documents.read', scope: 'self' },
+    { permission: 'tools.documents.manage', scope: 'self' },
+    { permission: 'tools.pdf_to_excel', scope: 'self' },
+    { permission: 'tools.excel_to_pdf', scope: 'self' },
+    { permission: 'tools.pdf_to_word', scope: 'self' },
+    { permission: 'tools.word_to_pdf', scope: 'self' },
+    { permission: 'tools.image_to_pdf', scope: 'self' },
+    { permission: 'tools.csv_to_excel', scope: 'self' },
+    { permission: 'tools.merge_pdf', scope: 'self' },
+    { permission: 'tools.split_pdf', scope: 'self' },
+    { permission: 'tools.compress_pdf', scope: 'self' },
+    { permission: 'tools.unlock_pdf', scope: 'self' },
+    { permission: 'tools.esign_pdf', scope: 'self' },
+    { permission: 'tools.ocr_scan', scope: 'self' },
+    { permission: 'tools.gst_json_excel', scope: 'self' },
+    { permission: 'tools.bank_statement_to_excel', scope: 'self' },
+    { permission: 'tools.form_26as_to_excel', scope: 'self' },
+    { permission: 'tools.excel_to_tally_xml', scope: 'self' },
+    { permission: 'tools.tds_fvu_generator', scope: 'self' },
+    { permission: 'tools.invoice_to_einvoice_json', scope: 'self' },
   ],
   dept_manager: [
     { permission: 'profile.read', scope: 'self' },
@@ -123,6 +171,28 @@ export const MATRIX: Record<RoleCode, Grant[]> = {
     { permission: 'workstation.eway.read', scope: 'organisation' },
     { permission: 'workstation.eway.generate', scope: 'organisation' },
     { permission: 'workstation.eway.cancel', scope: 'organisation' },
+    // Tools: every document in the firm.
+    { permission: 'tools.access', scope: 'organisation' },
+    { permission: 'tools.documents.read', scope: 'organisation' },
+    { permission: 'tools.documents.manage', scope: 'organisation' },
+    { permission: 'tools.pdf_to_excel', scope: 'organisation' },
+    { permission: 'tools.excel_to_pdf', scope: 'organisation' },
+    { permission: 'tools.pdf_to_word', scope: 'organisation' },
+    { permission: 'tools.word_to_pdf', scope: 'organisation' },
+    { permission: 'tools.image_to_pdf', scope: 'organisation' },
+    { permission: 'tools.csv_to_excel', scope: 'organisation' },
+    { permission: 'tools.merge_pdf', scope: 'organisation' },
+    { permission: 'tools.split_pdf', scope: 'organisation' },
+    { permission: 'tools.compress_pdf', scope: 'organisation' },
+    { permission: 'tools.unlock_pdf', scope: 'organisation' },
+    { permission: 'tools.esign_pdf', scope: 'organisation' },
+    { permission: 'tools.ocr_scan', scope: 'organisation' },
+    { permission: 'tools.gst_json_excel', scope: 'organisation' },
+    { permission: 'tools.bank_statement_to_excel', scope: 'organisation' },
+    { permission: 'tools.form_26as_to_excel', scope: 'organisation' },
+    { permission: 'tools.excel_to_tally_xml', scope: 'organisation' },
+    { permission: 'tools.tds_fvu_generator', scope: 'organisation' },
+    { permission: 'tools.invoice_to_einvoice_json', scope: 'organisation' },
   ],
   hr_admin: [
     { permission: 'profile.read', scope: 'self' },
@@ -216,6 +286,28 @@ export const MATRIX: Record<RoleCode, Grant[]> = {
     { permission: 'workstation.eway.read', scope: 'organisation' },
     { permission: 'workstation.eway.generate', scope: 'organisation' },
     { permission: 'workstation.eway.cancel', scope: 'organisation' },
+    // Tools: every document in the firm.
+    { permission: 'tools.access', scope: 'organisation' },
+    { permission: 'tools.documents.read', scope: 'organisation' },
+    { permission: 'tools.documents.manage', scope: 'organisation' },
+    { permission: 'tools.pdf_to_excel', scope: 'organisation' },
+    { permission: 'tools.excel_to_pdf', scope: 'organisation' },
+    { permission: 'tools.pdf_to_word', scope: 'organisation' },
+    { permission: 'tools.word_to_pdf', scope: 'organisation' },
+    { permission: 'tools.image_to_pdf', scope: 'organisation' },
+    { permission: 'tools.csv_to_excel', scope: 'organisation' },
+    { permission: 'tools.merge_pdf', scope: 'organisation' },
+    { permission: 'tools.split_pdf', scope: 'organisation' },
+    { permission: 'tools.compress_pdf', scope: 'organisation' },
+    { permission: 'tools.unlock_pdf', scope: 'organisation' },
+    { permission: 'tools.esign_pdf', scope: 'organisation' },
+    { permission: 'tools.ocr_scan', scope: 'organisation' },
+    { permission: 'tools.gst_json_excel', scope: 'organisation' },
+    { permission: 'tools.bank_statement_to_excel', scope: 'organisation' },
+    { permission: 'tools.form_26as_to_excel', scope: 'organisation' },
+    { permission: 'tools.excel_to_tally_xml', scope: 'organisation' },
+    { permission: 'tools.tds_fvu_generator', scope: 'organisation' },
+    { permission: 'tools.invoice_to_einvoice_json', scope: 'organisation' },
   ],
 }
 
@@ -293,4 +385,25 @@ export const PERMISSION_DESCRIPTIONS: Record<string, string> = {
   'workstation.eway.read': 'View e-way bills',
   'workstation.eway.generate': 'Generate a (simulated) e-way bill',
   'workstation.eway.cancel': 'Cancel a (simulated) e-way bill',
+  'tools.access': 'Open the Tools module',
+  'tools.documents.read': 'View converted documents',
+  'tools.documents.manage': 'Delete converted documents',
+  'tools.pdf_to_excel': 'Use the PDF to Excel tool',
+  'tools.excel_to_pdf': 'Use the Excel to PDF tool',
+  'tools.pdf_to_word': 'Use the PDF to Word tool',
+  'tools.word_to_pdf': 'Use the Word to PDF tool',
+  'tools.image_to_pdf': 'Use the Image to PDF tool',
+  'tools.csv_to_excel': 'Use the CSV to Excel tool',
+  'tools.merge_pdf': 'Use the Merge PDF tool',
+  'tools.split_pdf': 'Use the Split PDF tool',
+  'tools.compress_pdf': 'Use the Compress PDF tool',
+  'tools.unlock_pdf': 'Use the Unlock PDF tool',
+  'tools.esign_pdf': 'Use the e-Sign PDF tool',
+  'tools.ocr_scan': 'Use the OCR Scan tool',
+  'tools.gst_json_excel': 'Use the GST JSON ⇄ Excel tool',
+  'tools.bank_statement_to_excel': 'Use the Bank Statement to Excel tool',
+  'tools.form_26as_to_excel': 'Use the Form 26AS to Excel tool',
+  'tools.excel_to_tally_xml': 'Use the Excel to Tally XML tool',
+  'tools.tds_fvu_generator': 'Use the TDS Text/FVU Generator tool',
+  'tools.invoice_to_einvoice_json': 'Use the Invoice to e-Invoice JSON tool',
 }
