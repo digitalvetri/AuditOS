@@ -7,7 +7,8 @@
  * Order (top → bottom):
  *   Dashboard (no section label)
  *   AUDIT      — 10 items
- *   WORKSTATION — Tools
+ *   WORKSTATION — 6 items
+ *   Tools (top-level row, no section label — a sibling of Workstation)
  */
 import { NavLink, useLocation } from 'react-router-dom';
 import { useEffect, useMemo, useState } from 'react';
@@ -63,7 +64,7 @@ export function Sidebar({ mobileOpen, onMobileClose }: Props) {
 
   // Role-scoped nav (§6.1). `can()` here is menu-rendering only — the API
   // is what actually enforces access. Employee: no Employees / Accounts /
-  // Reports / Settings; no Tools if `workstation.access` is not granted.
+  // Reports / Settings; no Tools if `tools.access` is not granted.
   const nav = useMemo<NavGroup[]>(() => {
     const auditItems: NavItem[] = [
       { to: '/hrms/employees',  label: 'Employees',  icon: Users,                visible: can(role, 'employee.read', 'department') },
@@ -87,12 +88,18 @@ export function Sidebar({ mobileOpen, onMobileClose }: Props) {
       { to: '/workstation/follow-ups',  label: 'Follow-ups', icon: Clock,         visible: can(role, 'workstation.followup.read', 'self') },
       { to: '/workstation/services',    label: 'Services',   icon: Briefcase,     visible: can(role, 'workstation.service.read', 'self') },
       { to: '/workstation/documents',   label: 'Documents',  icon: FolderKanban,  visible: can(role, 'workstation.document.read', 'self') },
-      { to: '/tools',                   label: 'Tools',      icon: Wrench,        visible: can(role, 'workstation.access', 'self') },
+    ];
+    // Tools is its own top-level module — a sibling of Dashboard and
+    // Workstation, never a Workstation child. Label-less like Dashboard, so
+    // it renders as a plain row outside any fold state.
+    const toolsItems: NavItem[] = [
+      { to: '/tools', label: 'Tools', icon: Wrench, visible: can(role, 'tools.access', 'self') },
     ];
     return [
       { label: null, items: [{ to: '/', label: 'Dashboard', icon: Home, end: true, visible: true }] },
       { label: 'AUDIT', items: auditItems.filter((i) => i.visible) },
       { label: 'WORKSTATION', items: workstationItems.filter((i) => i.visible) },
+      { label: null, items: toolsItems.filter((i) => i.visible) },
     ].filter((g) => g.items.length > 0);
   }, [role]);
 
@@ -269,7 +276,7 @@ function Section({ group, collapsed, first, folded, onToggle }: SectionProps) {
         </button>
       ) : null}
       {!folded || !group.label ? (
-        <ul className={collapsed ? 'px-2 space-y-1' : 'px-2 space-y-px'}>
+        <ul className={(collapsed ? 'px-2 space-y-1' : 'px-2 space-y-px') + (!group.label && !first ? ' pt-5' : '')}>
           {group.items.map((it) => (
             <li key={it.to}>
               <NavItemRow item={it} collapsed={collapsed} />
