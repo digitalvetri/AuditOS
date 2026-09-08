@@ -17,6 +17,7 @@ import { snapshotAt } from '../src/domain/payroll/statutory.js'
 import { ALL_PERMISSION_CODES, MATRIX, PERMISSION_DESCRIPTIONS, type RoleCode } from '../src/platform/rbac/matrix.js'
 import { seedWorkstation } from './seed-workstation.js'
 import { seedTools } from './seed-tools.js'
+import { seedBooks } from './seed-books.js'
 
 const prisma = new PrismaClient()
 
@@ -916,6 +917,7 @@ async function main() {
   // the employees seeded above by id; it creates no new person.
   const workstation = await seedWorkstation(prisma, org.id)
   await seedTools(prisma)
+  await seedBooks(prisma, org.id)
 
   const counts = {
     employees: await prisma.employee.count(),

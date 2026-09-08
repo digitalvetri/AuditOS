@@ -13,5 +13,5 @@
     "forceConsistentCasingInFileNames": true,
     "noUncheckedIndexedAccess": false
   },
-  "include": ["src/**/*.ts", "prisma/**/*.ts"]
+  "include": ["src/**/*.ts", "prisma/**/*.ts", "vitest.config.ts"]
 }
