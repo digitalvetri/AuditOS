@@ -8,7 +8,7 @@
  *   Dashboard (no section label)
  *   AUDIT      — 10 items
  *   WORKSTATION — 6 items
- *   Tools (top-level row, no section label — a sibling of Workstation)
+ *   TOOLS       — 1 item (its own section, a sibling of Workstation)
  */
 import { NavLink, useLocation } from 'react-router-dom';
 import { useEffect, useMemo, useState } from 'react';
@@ -89,9 +89,8 @@ export function Sidebar({ mobileOpen, onMobileClose }: Props) {
       { to: '/workstation/services',    label: 'Services',   icon: Briefcase,     visible: can(role, 'workstation.service.read', 'self') },
       { to: '/workstation/documents',   label: 'Documents',  icon: FolderKanban,  visible: can(role, 'workstation.document.read', 'self') },
     ];
-    // Tools is its own top-level module — a sibling of Dashboard and
-    // Workstation, never a Workstation child. Label-less like Dashboard, so
-    // it renders as a plain row outside any fold state.
+    // Tools is its own top-level module — a sibling of Workstation, never a
+    // Workstation child. Its own labelled section, so it folds independently.
     const toolsItems: NavItem[] = [
       { to: '/tools', label: 'Tools', icon: Wrench, visible: can(role, 'tools.access', 'self') },
     ];
@@ -99,7 +98,7 @@ export function Sidebar({ mobileOpen, onMobileClose }: Props) {
       { label: null, items: [{ to: '/', label: 'Dashboard', icon: Home, end: true, visible: true }] },
       { label: 'AUDIT', items: auditItems.filter((i) => i.visible) },
       { label: 'WORKSTATION', items: workstationItems.filter((i) => i.visible) },
-      { label: null, items: toolsItems.filter((i) => i.visible) },
+      { label: 'TOOLS', items: toolsItems.filter((i) => i.visible) },
     ].filter((g) => g.items.length > 0);
   }, [role]);
 
@@ -112,7 +111,7 @@ export function Sidebar({ mobileOpen, onMobileClose }: Props) {
     localStorage.setItem(COLLAPSED_KEY, collapsed ? '1' : '0');
   }, [collapsed]);
 
-  // Per-section collapse — keyed by section label (AUDIT, WORKSTATION).
+  // Per-section collapse — keyed by section label (AUDIT, WORKSTATION, TOOLS).
   // Dashboard has no label so it's never collapsible. Persisted in
   // localStorage so a user's fold state survives reload.
   const [sectionsCollapsed, setSectionsCollapsed] = useState<Set<string>>(() => {
@@ -276,7 +275,7 @@ function Section({ group, collapsed, first, folded, onToggle }: SectionProps) {
         </button>
       ) : null}
       {!folded || !group.label ? (
-        <ul className={(collapsed ? 'px-2 space-y-1' : 'px-2 space-y-px') + (!group.label && !first ? ' pt-5' : '')}>
+        <ul className={collapsed ? 'px-2 space-y-1' : 'px-2 space-y-px'}>
           {group.items.map((it) => (
             <li key={it.to}>
               <NavItemRow item={it} collapsed={collapsed} />

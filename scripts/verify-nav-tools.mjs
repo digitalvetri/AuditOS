@@ -50,13 +50,14 @@ try {
   const flat = s.map((g) => `${g.section ?? '(top)'}: ${g.items.map((i) => i.label).join(', ')}`);
   flat.forEach((l) => console.log(`    ${l}`));
   const top = s.filter((g) => g.section === null).flatMap((g) => g.items.map((i) => i.label));
+  const tools = s.find((g) => g.section === 'TOOLS');
   const ws = s.find((g) => g.section === 'WORKSTATION');
   check(top.includes('Dashboard'), 'Dashboard is top-level');
   check(Boolean(ws), 'Workstation is top-level');
-  check(top.includes('Tools'), 'Tools is top-level');
+  check(Boolean(tools) && tools.items.map((i) => i.label).join() === 'Tools', 'Tools is top-level: a TOOLS section with the Tools row');
   check(ws && !ws.items.some((i) => i.label === 'Tools'), 'Tools is NOT inside Workstation');
   check(ws && JSON.stringify(ws.items.map((i) => i.label)) === JSON.stringify(['Overview', 'Leads', 'Clients', 'Follow-ups', 'Services', 'Documents']), 'Workstation contains only its own six modules');
-  check(s[s.length - 1].section === null && s[s.length - 1].items.map((i) => i.label).join() === 'Tools', 'Tools sits after Workstation as its own row');
+  check(s[s.length - 1].section === 'TOOLS', 'TOOLS section sits after WORKSTATION');
   await shot(page, '01-sidebar-dashboard', { x: 0, y: 0, width: 264, height: 900 });
 
   console.log('Navigation + active state');
@@ -88,7 +89,7 @@ try {
   await sleep(300);
   st = await structure(page);
   const wsFolded = st.find((g) => g.section === 'WORKSTATION');
-  check(wsFolded && wsFolded.items.length === 0 && st.some((g) => g.section === null && g.items.some((i) => i.label === 'Tools')), 'folding Workstation hides its items but not Tools');
+  check(wsFolded && wsFolded.items.length === 0 && st.some((g) => g.section === 'TOOLS' && g.items.some((i) => i.label === 'Tools')), 'folding Workstation hides its items but not Tools');
   await shot(page, '05-sidebar-workstation-folded', { x: 0, y: 0, width: 264, height: 900 });
   await page.evaluate(() => [...document.querySelectorAll('aside button')].find((b) => b.textContent.trim().startsWith('WORKSTATION'))?.click());
 
