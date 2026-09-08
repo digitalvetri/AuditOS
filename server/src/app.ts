@@ -37,6 +37,8 @@ import { auditAutomationRouter } from './modules/audit-automation/routes.js'
 import { gstRouter } from './modules/audit-automation/gst.routes.js'
 // Audit Automation · TDS reconciliation (Form 26AS vs Books TDS register).
 import { tdsRouter } from './modules/audit-automation/tds.routes.js'
+// Tally — native double-entry accounting module (foundation slice).
+import { tallyRouter } from './modules/tally/routes.js'
 
 /**
  * The HTTP surface. Every route below /api answers in the Part 1 envelope
@@ -133,6 +135,9 @@ export function createApp() {
   app.use('/api/audit-automation/gst', gstRouter)
   app.use('/api/audit-automation/tds', tdsRouter)
   app.use('/api/audit-automation', auditAutomationRouter)
+
+  // ── Tally (native double-entry accounting) ─────────────────────────────
+  app.use('/api/tally', tallyRouter)
 
   app.use('/api', (_req, res) => {
     res.status(404).json({ error: { code: 'not_found', message: 'No such endpoint.' } })

@@ -35,6 +35,12 @@ import { GstReconDetailPage } from '@/pages/tools/GstReconDetail';
 import { TdsJobsListPage } from '@/pages/tools/TdsJobsList';
 import { TdsNewReconPage } from '@/pages/tools/TdsNewRecon';
 import { TdsReconDetailPage } from '@/pages/tools/TdsReconDetail';
+// Tally — native double-entry accounting (Preview, Slice 1: Foundation).
+import { TallyHome } from '@/pages/tools/tally/TallyHome';
+import { TallyCompanies } from '@/pages/tools/tally/TallyCompanies';
+import { TallyWorkspace } from '@/pages/tools/tally/TallyWorkspace';
+import { TallyGroups } from '@/pages/tools/tally/TallyGroups';
+import { TallyLedgers } from '@/pages/tools/tally/TallyLedgers';
 import { AttendancePage } from '@/pages/hrms/Attendance';
 import { LeavePage } from '@/pages/hrms/Leave';
 import { EmployeesPage } from '@/pages/hrms/Employees';
@@ -137,6 +143,12 @@ export default function App() {
               <Route path="audit-automation/tds" element={<TdsJobsListPage />} />
               <Route path="audit-automation/tds/new" element={<TdsNewReconPage />} />
               <Route path="audit-automation/tds/jobs/:jobId" element={<TdsReconDetailPage />} />
+              <Route path="audit-automation/tally" element={<TallyHome />} />
+              <Route path="audit-automation/tally/companies" element={<TallyCompanies />} />
+              <Route path="audit-automation/tally/companies/:companyId" element={<TallyWorkspace />}>
+                <Route path="masters/groups" element={<TallyGroups />} />
+                <Route path="masters/ledgers" element={<TallyLedgers />} />
+              </Route>
 
               <Route path="*" element={<NotFoundPage />} />
             </Route>

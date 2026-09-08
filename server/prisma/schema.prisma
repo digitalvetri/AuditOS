@@ -66,6 +66,7 @@ model Organisation {
   aaTds26AS         AaTds26AS[]
   aaTdsBooks        AaTdsBooks[]
   aaTdsReconJobs    AaTdsReconJob[]
+  tallyCompanies    TallyCompany[]
 
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt
@@ -2072,4 +2073,141 @@ model AaTdsReconRow {
   @@index([jobId, matchStatus])
   @@index([filing26ASEntryId])
   @@index([booksEntryId])
+}
+
+// ============================================================
+// TALLY — native double-entry accounting module (AUDITOSTALLYMODULEPROMPT.md)
+// Foundation slice: companies, financial years, groups, ledgers.
+// Every table carries tallyCompanyId; every service enforces strict
+// (organisationId, tallyCompanyId) isolation. Money in paise (Int).
+// ============================================================
+
+/// One accounting company (Tally-equivalent). A user's Organisation
+/// may hold many companies; each is fully isolated from the others.
+model TallyCompany {
+  id                   String  @id @default(uuid())
+  organisationId       String
+  name                 String
+  mailingName          String?
+  address              String?
+  country              String  @default("India")
+  state                String?
+  pin                  String?
+  phone                String?
+  email                String?
+  website              String?
+  baseCurrency         String  @default("INR")
+  /// regular | composition | unregistered | sez | overseas
+  gstRegistrationType  String  @default("regular")
+  gstin                String?
+  pan                  String?
+  tan                  String?
+  /// Month the financial year begins (Indian FY = 4 / April).
+  fyBeginMonth         Int     @default(4)
+  /// Calendar date books opened (YYYY-MM-DD, IST-stable).
+  booksBeginFrom       String
+  active               Boolean @default(true)
+
+  organisation Organisation          @relation(fields: [organisationId], references: [id])
+  financialYears TallyFinancialYear[]
+  groups         TallyGroup[]
+  ledgers        TallyLedger[]
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  @@index([organisationId])
+  @@unique([organisationId, name])
+}
+
+/// Financial year for a Tally company. Every future voucher will
+/// belong to exactly one FY; posting into a closed FY is rejected.
+model TallyFinancialYear {
+  id             String  @id @default(uuid())
+  tallyCompanyId String
+  /// Human label, e.g. "2026-27".
+  label          String
+  startDate      String
+  endDate        String
+  closed         Boolean @default(false)
+
+  company TallyCompany  @relation(fields: [tallyCompanyId], references: [id])
+  ledgersOpening TallyLedger[] @relation("LedgerOpeningInFY")
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([tallyCompanyId, label])
+  @@index([tallyCompanyId])
+}
+
+/// Group of ledgers — the top of the account tree. Seeded with 17
+/// primary groups per company at creation time (Capital, Sundry
+/// Debtors, etc.). Sub-groups reference `parentGroupId`.
+model TallyGroup {
+  id             String  @id @default(uuid())
+  tallyCompanyId String
+  name           String
+  parentGroupId  String?
+  /// assets | liabilities | income | expenses
+  nature         String
+  /// Whether balances under this group hit P&L (vs Balance Sheet only).
+  affectsPL      Boolean @default(false)
+  /// Primary groups are seeded and cannot be deleted.
+  isPrimary      Boolean @default(false)
+
+  company     TallyCompany  @relation(fields: [tallyCompanyId], references: [id])
+  parentGroup TallyGroup?   @relation("TallyGroupParent", fields: [parentGroupId], references: [id])
+  children    TallyGroup[]  @relation("TallyGroupParent")
+  ledgers     TallyLedger[]
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  @@unique([tallyCompanyId, name])
+  @@index([tallyCompanyId])
+  @@index([parentGroupId])
+}
+
+/// A ledger — the leaves of the account tree. Opening balances land
+/// here; posted voucher lines (Slice 2+) reference these.
+model TallyLedger {
+  id                       String  @id @default(uuid())
+  tallyCompanyId           String
+  name                     String
+  groupId                  String
+  /// Amount in PAISE — never floats.
+  openingBalancePaise      Int     @default(0)
+  /// dr | cr — which side the opening balance sits on.
+  openingBalanceType       String  @default("dr")
+  /// FY the opening balance applies to.
+  openingBalanceAsOfFyId   String?
+  address                  String?
+  contact                  String?
+  gstin                    String?
+  pan                      String?
+  state                    String?
+  /// regular | composition | unregistered | sez | overseas
+  gstRegistrationType      String?
+  creditPeriodDays         Int?
+  bankAccountName          String?
+  bankAccountNumber        String?
+  bankIfsc                 String?
+  /// JSON blob for default tax config (rate, HSN, etc.).
+  taxConfigJson            String?
+  active                   Boolean @default(true)
+
+  company             TallyCompany        @relation(fields: [tallyCompanyId], references: [id])
+  group               TallyGroup          @relation(fields: [groupId], references: [id])
+  openingBalanceAsOf  TallyFinancialYear? @relation("LedgerOpeningInFY", fields: [openingBalanceAsOfFyId], references: [id])
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  @@unique([tallyCompanyId, name])
+  @@index([tallyCompanyId])
+  @@index([groupId])
 }

@@ -126,7 +126,11 @@ export type PermissionCode =
   | 'tools.audit_automation.gst.upload'
   | 'tools.audit_automation.gst.view'
   | 'tools.audit_automation.tds.upload'
-  | 'tools.audit_automation.tds.view';
+  | 'tools.audit_automation.tds.view'
+  | 'tools.audit_automation.tally.access'
+  | 'tools.audit_automation.tally.company.manage'
+  | 'tools.audit_automation.tally.master.read'
+  | 'tools.audit_automation.tally.master.manage';
 
 export interface Grant {
   permission: PermissionCode;
@@ -203,6 +207,10 @@ export const MATRIX: Record<RoleCode, Grant[]> = {
     { permission: 'tools.audit_automation.gst.view', scope: 'self' },
     { permission: 'tools.audit_automation.tds.upload', scope: 'self' },
     { permission: 'tools.audit_automation.tds.view', scope: 'self' },
+    { permission: 'tools.audit_automation.tally.access', scope: 'self' },
+    { permission: 'tools.audit_automation.tally.company.manage', scope: 'self' },
+    { permission: 'tools.audit_automation.tally.master.read', scope: 'self' },
+    { permission: 'tools.audit_automation.tally.master.manage', scope: 'self' },
   ],
   dept_manager: [
     { permission: 'profile.read', scope: 'self' },
@@ -269,6 +277,10 @@ export const MATRIX: Record<RoleCode, Grant[]> = {
     { permission: 'tools.audit_automation.gst.view', scope: 'organisation' },
     { permission: 'tools.audit_automation.tds.upload', scope: 'organisation' },
     { permission: 'tools.audit_automation.tds.view', scope: 'organisation' },
+    { permission: 'tools.audit_automation.tally.access', scope: 'organisation' },
+    { permission: 'tools.audit_automation.tally.company.manage', scope: 'organisation' },
+    { permission: 'tools.audit_automation.tally.master.read', scope: 'organisation' },
+    { permission: 'tools.audit_automation.tally.master.manage', scope: 'organisation' },
   ],
   hr_admin: [
     { permission: 'profile.read', scope: 'self' },
@@ -394,6 +406,10 @@ export const MATRIX: Record<RoleCode, Grant[]> = {
     { permission: 'tools.audit_automation.gst.view', scope: 'organisation' },
     { permission: 'tools.audit_automation.tds.upload', scope: 'organisation' },
     { permission: 'tools.audit_automation.tds.view', scope: 'organisation' },
+    { permission: 'tools.audit_automation.tally.access', scope: 'organisation' },
+    { permission: 'tools.audit_automation.tally.company.manage', scope: 'organisation' },
+    { permission: 'tools.audit_automation.tally.master.read', scope: 'organisation' },
+    { permission: 'tools.audit_automation.tally.master.manage', scope: 'organisation' },
   ],
 };
 
