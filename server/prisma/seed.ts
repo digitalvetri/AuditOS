@@ -8,6 +8,9 @@
  *
  * Idempotent — safe to re-run. `npm run db:reset` drops the file first.
  */
+// Load .env before Prisma initialises. env.ts autoloads server/.env into
+// process.env on first import; the side-effect is the whole point here.
+import '../src/lib/env.js'
 import { PrismaClient } from '@prisma/client'
 import bcrypt from 'bcryptjs'
 import { addDays, istToday } from '../src/lib/dates.js'
@@ -17,6 +20,7 @@ import { snapshotAt } from '../src/domain/payroll/statutory.js'
 import { ALL_PERMISSION_CODES, MATRIX, PERMISSION_DESCRIPTIONS, type RoleCode } from '../src/platform/rbac/matrix.js'
 import { seedWorkstation } from './seed-workstation.js'
 import { seedTools } from './seed-tools.js'
+import { seedAuditAutomation } from './seed-audit-automation.js'
 
 const prisma = new PrismaClient()
 
@@ -916,6 +920,7 @@ async function main() {
   // the employees seeded above by id; it creates no new person.
   const workstation = await seedWorkstation(prisma, org.id)
   await seedTools(prisma)
+  await seedAuditAutomation(prisma)
 
   const counts = {
     employees: await prisma.employee.count(),

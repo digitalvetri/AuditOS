@@ -26,6 +26,7 @@ import {
   Handshake,
   Home,
   IndianRupee,
+  Landmark,
   LayoutGrid,
   MessageSquare,
   PhoneCall,
@@ -94,11 +95,19 @@ export function Sidebar({ mobileOpen, onMobileClose }: Props) {
     const toolsItems: NavItem[] = [
       { to: '/tools', label: 'Tools', icon: Wrench, visible: can(role, 'tools.access', 'self') },
     ];
+    // Audit Automation is its own top-level module too — AMENDMENT-02 puts
+    // the bank-statement pipeline (and future GST / TDS pipelines) at the
+    // same level as Tools, not inside it.
+    const auditAutomationItems: NavItem[] = [
+      { to: '/audit-automation', label: 'Repotic', icon: Landmark,
+        visible: can(role, 'tools.audit_automation.access', 'self') },
+    ];
     return [
       { label: null, items: [{ to: '/', label: 'Dashboard', icon: Home, end: true, visible: true }] },
       { label: 'AUDIT', items: auditItems.filter((i) => i.visible) },
       { label: 'WORKSTATION', items: workstationItems.filter((i) => i.visible) },
       { label: 'TOOLS', items: toolsItems.filter((i) => i.visible) },
+      { label: 'AUDIT AUTOMATION', items: auditAutomationItems.filter((i) => i.visible) },
     ].filter((g) => g.items.length > 0);
   }, [role]);
 

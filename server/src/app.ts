@@ -30,6 +30,13 @@ import {
 import { workstationRouter } from './modules/workstation/workstation.routes.js'
 // Tools (Converters & Utilities) — registry-driven file conversions.
 import { toolsRouter, toolJobsRouter, toolDocumentsRouter, toolsSignedRouter } from './modules/tools/routes.js'
+// Audit Automation (AMENDMENT-02-REPOTIC-GAPS.md) — bank-statement pipeline
+// with password support, scanned-document rejection, per-client dedupe.
+import { auditAutomationRouter } from './modules/audit-automation/routes.js'
+// Audit Automation · GST reconciliation (GSTR-2B vs Purchase Register).
+import { gstRouter } from './modules/audit-automation/gst.routes.js'
+// Audit Automation · TDS reconciliation (Form 26AS vs Books TDS register).
+import { tdsRouter } from './modules/audit-automation/tds.routes.js'
 
 /**
  * The HTTP surface. Every route below /api answers in the Part 1 envelope
@@ -118,6 +125,14 @@ export function createApp() {
   app.use('/api/tools', toolsRouter)
   app.use('/api/tool-jobs', toolJobsRouter)
   app.use('/api/tool-documents', toolDocumentsRouter)
+
+  // ── Audit Automation (submodule of Tools) ──────────────────────────────
+  // Mount more-specific paths first so Express's prefix matching lands on
+  // the right router — auditAutomationRouter has no /gst or /tds routes
+  // but its prefix would still consume the path.
+  app.use('/api/audit-automation/gst', gstRouter)
+  app.use('/api/audit-automation/tds', tdsRouter)
+  app.use('/api/audit-automation', auditAutomationRouter)
 
   app.use('/api', (_req, res) => {
     res.status(404).json({ error: { code: 'not_found', message: 'No such endpoint.' } })

@@ -117,7 +117,16 @@ export type PermissionCode =
   | 'tools.form_26as_to_excel'
   | 'tools.excel_to_tally_xml'
   | 'tools.tds_fvu_generator'
-  | 'tools.invoice_to_einvoice_json';
+  | 'tools.invoice_to_einvoice_json'
+  // ── Audit Automation (AMENDMENT-02-REPOTIC-GAPS.md) ─────────────────
+  // Submodule of Tools; bank-statement ingestion pipeline.
+  | 'tools.audit_automation.access'
+  | 'tools.audit_automation.bank.upload'
+  | 'tools.audit_automation.bank.view'
+  | 'tools.audit_automation.gst.upload'
+  | 'tools.audit_automation.gst.view'
+  | 'tools.audit_automation.tds.upload'
+  | 'tools.audit_automation.tds.view';
 
 export interface Grant {
   permission: PermissionCode;
@@ -187,6 +196,13 @@ export const MATRIX: Record<RoleCode, Grant[]> = {
     { permission: 'tools.excel_to_tally_xml', scope: 'self' },
     { permission: 'tools.tds_fvu_generator', scope: 'self' },
     { permission: 'tools.invoice_to_einvoice_json', scope: 'self' },
+    { permission: 'tools.audit_automation.access', scope: 'self' },
+    { permission: 'tools.audit_automation.bank.upload', scope: 'self' },
+    { permission: 'tools.audit_automation.bank.view', scope: 'self' },
+    { permission: 'tools.audit_automation.gst.upload', scope: 'self' },
+    { permission: 'tools.audit_automation.gst.view', scope: 'self' },
+    { permission: 'tools.audit_automation.tds.upload', scope: 'self' },
+    { permission: 'tools.audit_automation.tds.view', scope: 'self' },
   ],
   dept_manager: [
     { permission: 'profile.read', scope: 'self' },
@@ -246,6 +262,13 @@ export const MATRIX: Record<RoleCode, Grant[]> = {
     { permission: 'tools.excel_to_tally_xml', scope: 'organisation' },
     { permission: 'tools.tds_fvu_generator', scope: 'organisation' },
     { permission: 'tools.invoice_to_einvoice_json', scope: 'organisation' },
+    { permission: 'tools.audit_automation.access', scope: 'organisation' },
+    { permission: 'tools.audit_automation.bank.upload', scope: 'organisation' },
+    { permission: 'tools.audit_automation.bank.view', scope: 'organisation' },
+    { permission: 'tools.audit_automation.gst.upload', scope: 'organisation' },
+    { permission: 'tools.audit_automation.gst.view', scope: 'organisation' },
+    { permission: 'tools.audit_automation.tds.upload', scope: 'organisation' },
+    { permission: 'tools.audit_automation.tds.view', scope: 'organisation' },
   ],
   hr_admin: [
     { permission: 'profile.read', scope: 'self' },
@@ -364,6 +387,13 @@ export const MATRIX: Record<RoleCode, Grant[]> = {
     { permission: 'tools.excel_to_tally_xml', scope: 'organisation' },
     { permission: 'tools.tds_fvu_generator', scope: 'organisation' },
     { permission: 'tools.invoice_to_einvoice_json', scope: 'organisation' },
+    { permission: 'tools.audit_automation.access', scope: 'organisation' },
+    { permission: 'tools.audit_automation.bank.upload', scope: 'organisation' },
+    { permission: 'tools.audit_automation.bank.view', scope: 'organisation' },
+    { permission: 'tools.audit_automation.gst.upload', scope: 'organisation' },
+    { permission: 'tools.audit_automation.gst.view', scope: 'organisation' },
+    { permission: 'tools.audit_automation.tds.upload', scope: 'organisation' },
+    { permission: 'tools.audit_automation.tds.view', scope: 'organisation' },
   ],
 };
 

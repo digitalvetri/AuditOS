@@ -75,6 +75,15 @@ export type PermissionCode =
   | 'tools.excel_to_tally_xml'
   | 'tools.tds_fvu_generator'
   | 'tools.invoice_to_einvoice_json'
+  // ── Audit Automation (AMENDMENT-02-REPOTIC-GAPS.md) ───────────────────
+  // Submodule of Tools with its own pipeline (bank statement ingestion).
+  | 'tools.audit_automation.access'
+  | 'tools.audit_automation.bank.upload'
+  | 'tools.audit_automation.bank.view'
+  | 'tools.audit_automation.gst.upload'
+  | 'tools.audit_automation.gst.view'
+  | 'tools.audit_automation.tds.upload'
+  | 'tools.audit_automation.tds.view'
 
 export interface Grant {
   permission: PermissionCode
@@ -134,6 +143,13 @@ export const MATRIX: Record<RoleCode, Grant[]> = {
     { permission: 'tools.excel_to_tally_xml', scope: 'self' },
     { permission: 'tools.tds_fvu_generator', scope: 'self' },
     { permission: 'tools.invoice_to_einvoice_json', scope: 'self' },
+    { permission: 'tools.audit_automation.access', scope: 'self' },
+    { permission: 'tools.audit_automation.bank.upload', scope: 'self' },
+    { permission: 'tools.audit_automation.bank.view', scope: 'self' },
+    { permission: 'tools.audit_automation.gst.upload', scope: 'self' },
+    { permission: 'tools.audit_automation.gst.view', scope: 'self' },
+    { permission: 'tools.audit_automation.tds.upload', scope: 'self' },
+    { permission: 'tools.audit_automation.tds.view', scope: 'self' },
   ],
   dept_manager: [
     { permission: 'profile.read', scope: 'self' },
@@ -193,6 +209,13 @@ export const MATRIX: Record<RoleCode, Grant[]> = {
     { permission: 'tools.excel_to_tally_xml', scope: 'organisation' },
     { permission: 'tools.tds_fvu_generator', scope: 'organisation' },
     { permission: 'tools.invoice_to_einvoice_json', scope: 'organisation' },
+    { permission: 'tools.audit_automation.access', scope: 'organisation' },
+    { permission: 'tools.audit_automation.bank.upload', scope: 'organisation' },
+    { permission: 'tools.audit_automation.bank.view', scope: 'organisation' },
+    { permission: 'tools.audit_automation.gst.upload', scope: 'organisation' },
+    { permission: 'tools.audit_automation.gst.view', scope: 'organisation' },
+    { permission: 'tools.audit_automation.tds.upload', scope: 'organisation' },
+    { permission: 'tools.audit_automation.tds.view', scope: 'organisation' },
   ],
   hr_admin: [
     { permission: 'profile.read', scope: 'self' },
@@ -308,6 +331,13 @@ export const MATRIX: Record<RoleCode, Grant[]> = {
     { permission: 'tools.excel_to_tally_xml', scope: 'organisation' },
     { permission: 'tools.tds_fvu_generator', scope: 'organisation' },
     { permission: 'tools.invoice_to_einvoice_json', scope: 'organisation' },
+    { permission: 'tools.audit_automation.access', scope: 'organisation' },
+    { permission: 'tools.audit_automation.bank.upload', scope: 'organisation' },
+    { permission: 'tools.audit_automation.bank.view', scope: 'organisation' },
+    { permission: 'tools.audit_automation.gst.upload', scope: 'organisation' },
+    { permission: 'tools.audit_automation.gst.view', scope: 'organisation' },
+    { permission: 'tools.audit_automation.tds.upload', scope: 'organisation' },
+    { permission: 'tools.audit_automation.tds.view', scope: 'organisation' },
   ],
 }
 
@@ -406,4 +436,11 @@ export const PERMISSION_DESCRIPTIONS: Record<string, string> = {
   'tools.excel_to_tally_xml': 'Use the Excel to Tally XML tool',
   'tools.tds_fvu_generator': 'Use the TDS Text/FVU Generator tool',
   'tools.invoice_to_einvoice_json': 'Use the Invoice to e-Invoice JSON tool',
+  'tools.audit_automation.access': 'Open the Audit Automation submodule',
+  'tools.audit_automation.bank.upload': 'Upload a bank statement for automated processing',
+  'tools.audit_automation.bank.view': 'View bank-statement processing jobs',
+  'tools.audit_automation.gst.upload': 'Upload GSTR-2B or Purchase Register and run reconciliation',
+  'tools.audit_automation.gst.view': 'View GST reconciliation jobs and results',
+  'tools.audit_automation.tds.upload': 'Upload Form 26AS or TDS books and run reconciliation',
+  'tools.audit_automation.tds.view': 'View TDS reconciliation jobs and results',
 }
