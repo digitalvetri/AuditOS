@@ -30,6 +30,8 @@ import {
 import { workstationRouter } from './modules/workstation/workstation.routes.js'
 // Tools (Converters & Utilities) — registry-driven file conversions.
 import { toolsRouter, toolJobsRouter, toolDocumentsRouter, toolsSignedRouter } from './modules/tools/routes.js'
+// Books — native bookkeeping, one set of books per client (docs/accounting-module).
+import { booksRouter } from './modules/books/routes.js'
 
 /**
  * The HTTP surface. Every route below /api answers in the Part 1 envelope
@@ -118,6 +120,9 @@ export function createApp() {
   app.use('/api/tools', toolsRouter)
   app.use('/api/tool-jobs', toolJobsRouter)
   app.use('/api/tool-documents', toolDocumentsRouter)
+
+  // ── Books ──────────────────────────────────────────────────────────────
+  app.use('/api/books', booksRouter)
 
   app.use('/api', (_req, res) => {
     res.status(404).json({ error: { code: 'not_found', message: 'No such endpoint.' } })

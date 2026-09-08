@@ -9,6 +9,7 @@
  *   AUDIT      — 10 items
  *   WORKSTATION — 6 items
  *   TOOLS       — 1 item (its own section, a sibling of Workstation)
+ *   BOOKS       — 1 item (native bookkeeping)
  */
 import { NavLink, useLocation } from 'react-router-dom';
 import { useEffect, useMemo, useState } from 'react';
@@ -32,6 +33,7 @@ import {
   ReceiptIndianRupee,
   Settings,
   Users,
+  Wallet,
   Wrench,
   type LucideIcon,
 } from 'lucide-react';
@@ -94,11 +96,17 @@ export function Sidebar({ mobileOpen, onMobileClose }: Props) {
     const toolsItems: NavItem[] = [
       { to: '/tools', label: 'Tools', icon: Wrench, visible: can(role, 'tools.access', 'self') },
     ];
+    // Books — native bookkeeping, one set of books per client. Its own
+    // top-level section, like Tools.
+    const booksItems: NavItem[] = [
+      { to: '/books', label: 'Books', icon: Wallet, visible: can(role, 'books.access', 'self') },
+    ];
     return [
       { label: null, items: [{ to: '/', label: 'Dashboard', icon: Home, end: true, visible: true }] },
       { label: 'AUDIT', items: auditItems.filter((i) => i.visible) },
       { label: 'WORKSTATION', items: workstationItems.filter((i) => i.visible) },
       { label: 'TOOLS', items: toolsItems.filter((i) => i.visible) },
+      { label: 'BOOKS', items: booksItems.filter((i) => i.visible) },
     ].filter((g) => g.items.length > 0);
   }, [role]);
 

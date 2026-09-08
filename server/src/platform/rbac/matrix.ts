@@ -76,6 +76,18 @@ export type PermissionCode =
   | 'tools.tds_fvu_generator'
   | 'tools.invoice_to_einvoice_json'
 
+  // ── Books (docs/accounting-module/README.md) ──────────────────────────
+  // books.access opens the module; scope self = only books the user is a
+  // member of, organisation = every set of books the firm keeps.
+  // books.manage creates books and memberships; settings / reports /
+  // accountant gate those areas inside a set of books (membership role
+  // narrows further: a `staff` member never gets them).
+  | 'books.access'
+  | 'books.manage'
+  | 'books.settings'
+  | 'books.reports'
+  | 'books.accountant'
+
 export interface Grant {
   permission: PermissionCode
   scope: Scope
@@ -134,6 +146,10 @@ export const MATRIX: Record<RoleCode, Grant[]> = {
     { permission: 'tools.excel_to_tally_xml', scope: 'self' },
     { permission: 'tools.tds_fvu_generator', scope: 'self' },
     { permission: 'tools.invoice_to_einvoice_json', scope: 'self' },
+    // Books: only the sets of books this person is assigned to.
+    { permission: 'books.access', scope: 'self' },
+    { permission: 'books.reports', scope: 'self' },
+    { permission: 'books.accountant', scope: 'self' },
   ],
   dept_manager: [
     { permission: 'profile.read', scope: 'self' },
@@ -193,6 +209,12 @@ export const MATRIX: Record<RoleCode, Grant[]> = {
     { permission: 'tools.excel_to_tally_xml', scope: 'organisation' },
     { permission: 'tools.tds_fvu_generator', scope: 'organisation' },
     { permission: 'tools.invoice_to_einvoice_json', scope: 'organisation' },
+    // Books: every set of books the firm keeps.
+    { permission: 'books.access', scope: 'organisation' },
+    { permission: 'books.manage', scope: 'organisation' },
+    { permission: 'books.settings', scope: 'organisation' },
+    { permission: 'books.reports', scope: 'organisation' },
+    { permission: 'books.accountant', scope: 'organisation' },
   ],
   hr_admin: [
     { permission: 'profile.read', scope: 'self' },
@@ -235,6 +257,12 @@ export const MATRIX: Record<RoleCode, Grant[]> = {
     { permission: 'chat.participate', scope: 'organisation' },
     { permission: 'reports.finance', scope: 'organisation' },
     { permission: 'audit.read.finance', scope: 'organisation' },
+    // Books: the firm's accountants keep every client's books.
+    { permission: 'books.access', scope: 'organisation' },
+    { permission: 'books.manage', scope: 'organisation' },
+    { permission: 'books.settings', scope: 'organisation' },
+    { permission: 'books.reports', scope: 'organisation' },
+    { permission: 'books.accountant', scope: 'organisation' },
   ],
   md: [
     { permission: 'profile.read', scope: 'self' },
@@ -308,6 +336,12 @@ export const MATRIX: Record<RoleCode, Grant[]> = {
     { permission: 'tools.excel_to_tally_xml', scope: 'organisation' },
     { permission: 'tools.tds_fvu_generator', scope: 'organisation' },
     { permission: 'tools.invoice_to_einvoice_json', scope: 'organisation' },
+    // Books: every set of books the firm keeps.
+    { permission: 'books.access', scope: 'organisation' },
+    { permission: 'books.manage', scope: 'organisation' },
+    { permission: 'books.settings', scope: 'organisation' },
+    { permission: 'books.reports', scope: 'organisation' },
+    { permission: 'books.accountant', scope: 'organisation' },
   ],
 }
 
@@ -406,4 +440,9 @@ export const PERMISSION_DESCRIPTIONS: Record<string, string> = {
   'tools.excel_to_tally_xml': 'Use the Excel to Tally XML tool',
   'tools.tds_fvu_generator': 'Use the TDS Text/FVU Generator tool',
   'tools.invoice_to_einvoice_json': 'Use the Invoice to e-Invoice JSON tool',
+  'books.access': 'Open the Books module',
+  'books.manage': 'Create sets of books and assign staff',
+  'books.settings': 'Change a set of books\' settings, taxes and chart of accounts',
+  'books.reports': 'Run financial reports',
+  'books.accountant': 'Manual journals, revaluation, reconciliation',
 }

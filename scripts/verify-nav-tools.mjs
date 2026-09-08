@@ -57,7 +57,8 @@ try {
   check(Boolean(tools) && tools.items.map((i) => i.label).join() === 'Tools', 'Tools is top-level: a TOOLS section with the Tools row');
   check(ws && !ws.items.some((i) => i.label === 'Tools'), 'Tools is NOT inside Workstation');
   check(ws && JSON.stringify(ws.items.map((i) => i.label)) === JSON.stringify(['Overview', 'Leads', 'Clients', 'Follow-ups', 'Services', 'Documents']), 'Workstation contains only its own six modules');
-  check(s[s.length - 1].section === 'TOOLS', 'TOOLS section sits after WORKSTATION');
+  const order = s.map((g) => g.section);
+  check(order.indexOf('TOOLS') > order.indexOf('WORKSTATION'), `TOOLS section sits after WORKSTATION (${order.filter(Boolean).join(' → ')})`);
   await shot(page, '01-sidebar-dashboard', { x: 0, y: 0, width: 264, height: 900 });
 
   console.log('Navigation + active state');
