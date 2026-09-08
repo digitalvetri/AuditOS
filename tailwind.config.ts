@@ -10,6 +10,10 @@ import type { Config } from 'tailwindcss';
  *   canvas off-white surface, gold accent, filled-pill active state, radius
  *   10 on cards. Additive to the base — old modules keep working.
  *
+ * Every colour is an `rgb(var(--c-…) / <alpha-value>)` reference; the light
+ * and dark triplets live in src/design/globals.css so a theme switch is one
+ * attribute on <html> and zero component edits.
+ *
  * We REPLACE (not extend) `colors`, `borderRadius`, and `boxShadow` so that
  * illegal utilities (`bg-purple-500`, `rounded-xl`, `shadow-lg`, …) don't
  * exist. A violation produces an invalid class rather than rendering wrong.
@@ -21,57 +25,57 @@ const config: Config = {
     colors: {
       transparent: 'transparent',
       current: 'currentColor',
-      white: '#ffffff',
-      black: '#000000',
+      white: 'rgb(var(--c-white) / <alpha-value>)',
+      black: 'rgb(var(--c-black) / <alpha-value>)',
 
       // ── Base (§7) ──────────────────────────────────────────────────────
       neutral: {
-        50: '#faf9f7',
-        100: '#f3f1ed',
-        200: '#e6e2db',
-        300: '#d0cabf',
-        400: '#a8a196',
-        500: '#7a736a',
-        600: '#585249',
-        700: '#3f3a33',
-        800: '#28251f',
-        900: '#171512',
+        50: 'rgb(var(--c-neutral-50) / <alpha-value>)',
+        100: 'rgb(var(--c-neutral-100) / <alpha-value>)',
+        200: 'rgb(var(--c-neutral-200) / <alpha-value>)',
+        300: 'rgb(var(--c-neutral-300) / <alpha-value>)',
+        400: 'rgb(var(--c-neutral-400) / <alpha-value>)',
+        500: 'rgb(var(--c-neutral-500) / <alpha-value>)',
+        600: 'rgb(var(--c-neutral-600) / <alpha-value>)',
+        700: 'rgb(var(--c-neutral-700) / <alpha-value>)',
+        800: 'rgb(var(--c-neutral-800) / <alpha-value>)',
+        900: 'rgb(var(--c-neutral-900) / <alpha-value>)',
       },
 
       // ── Shell / dashboard palette (UI-BUILD-PROMPT §1) ─────────────────
       // Target ref (Screenshot 214422) — LIGHT mint sage, DARKER sage
       // filled pill for the active row (not white). Section headers stay
       // as dark forest at reduced weight rather than muted grey-green.
-      sidebar:       '#B8CDBA', // light mint sage — sidebar background
-      sidebarHover:  '#A6BDA9',
-      sidebarActive: '#8CA790', // filled darker sage pill for active row
-      sidebarText:   '#1F2E22', // near-black forest — nav labels
-      sidebarMuted:  '#3E5240', // section headers — dark, not muted
+      sidebar:       'rgb(var(--c-sidebar) / <alpha-value>)', // light mint sage — sidebar background
+      sidebarHover:  'rgb(var(--c-sidebarHover) / <alpha-value>)',
+      sidebarActive: 'rgb(var(--c-sidebarActive) / <alpha-value>)', // filled darker sage pill for active row
+      sidebarText:   'rgb(var(--c-sidebarText) / <alpha-value>)', // near-black forest — nav labels
+      sidebarMuted:  'rgb(var(--c-sidebarMuted) / <alpha-value>)', // section headers — dark, not muted
 
-      canvas:        '#F7F6F2', // page background, warm off-white
-      surface:       '#FFFFFF',
-      border:        '#E8E6DF',
+      canvas:        'rgb(var(--c-canvas) / <alpha-value>)', // page background, warm off-white
+      surface:       'rgb(var(--c-surface) / <alpha-value>)',
+      border:        'rgb(var(--c-border) / <alpha-value>)',
 
-      ink:           '#1A1A18',
-      inkMuted:      '#6B6B63',
-      inkFaint:      '#9A9A90',
+      ink:           'rgb(var(--c-ink) / <alpha-value>)',
+      inkMuted:      'rgb(var(--c-inkMuted) / <alpha-value>)',
+      inkFaint:      'rgb(var(--c-inkFaint) / <alpha-value>)',
 
       // Semantic. `warning` and `success` intentionally alias to gold+sage
       // per the prompt so the palette stays lean.
-      danger:        '#B33A2B',
-      warning:       '#C8952E',
-      success:       '#4F6B52',
+      danger:        'rgb(var(--c-danger) / <alpha-value>)',
+      warning:       'rgb(var(--c-warning) / <alpha-value>)',
+      success:       'rgb(var(--c-success) / <alpha-value>)',
 
       // Gold accent — used across BOTH palettes.
       gold: {
-        DEFAULT: '#C8952E',
-        hover:   '#B0821F',
+        DEFAULT: 'rgb(var(--c-gold) / <alpha-value>)',
+        hover:   'rgb(var(--c-gold-hover) / <alpha-value>)',
       },
 
       // Legacy §7 status colours — kept for existing modules' left-border
       // encoding. Aliased to danger/warning for consistency.
-      red:   '#B33A2B',
-      amber: '#C8952E',
+      red:   'rgb(var(--c-red) / <alpha-value>)',
+      amber: 'rgb(var(--c-amber) / <alpha-value>)',
     },
 
     // Radius: 4px for base components, 8px for shell inputs/buttons/nav pills,

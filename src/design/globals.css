@@ -12,6 +12,78 @@
     color-scheme: light;
   }
 
+  /*
+   * Palette triplets consumed by tailwind.config.ts as rgb(var(--c-x) / a).
+   * Light is the design-system default; dark swaps every token in one place.
+   * The theme is an attribute on <html>, set before first paint by index.html
+   * and toggled by src/platform/theme/theme.ts.
+   */
+  :root {
+    --c-white: 255 255 255;
+    --c-black: 0 0 0;
+    --c-sidebar: 184 205 186;
+    --c-sidebarHover: 166 189 169;
+    --c-sidebarActive: 140 167 144;
+    --c-sidebarText: 31 46 34;
+    --c-sidebarMuted: 62 82 64;
+    --c-canvas: 247 246 242;
+    --c-surface: 255 255 255;
+    --c-border: 232 230 223;
+    --c-ink: 26 26 24;
+    --c-inkMuted: 107 107 99;
+    --c-inkFaint: 154 154 144;
+    --c-danger: 179 58 43;
+    --c-warning: 200 149 46;
+    --c-success: 79 107 82;
+    --c-red: 179 58 43;
+    --c-amber: 200 149 46;
+    --c-neutral-50: 250 249 247;
+    --c-neutral-100: 243 241 237;
+    --c-neutral-200: 230 226 219;
+    --c-neutral-300: 208 202 191;
+    --c-neutral-400: 168 161 150;
+    --c-neutral-500: 122 115 106;
+    --c-neutral-600: 88 82 73;
+    --c-neutral-700: 63 58 51;
+    --c-neutral-800: 40 37 31;
+    --c-neutral-900: 23 21 18;
+    --c-gold: 200 149 46;
+    --c-gold-hover: 176 130 31;
+  }
+  :root[data-theme="dark"] {
+    --c-white: 31 30 27;
+    --c-black: 0 0 0;
+    --c-neutral-50: 27 26 23;
+    --c-neutral-100: 36 35 32;
+    --c-neutral-200: 52 50 45;
+    --c-neutral-300: 74 71 63;
+    --c-neutral-400: 122 117 106;
+    --c-neutral-500: 162 156 144;
+    --c-neutral-600: 196 191 180;
+    --c-neutral-700: 218 214 205;
+    --c-neutral-800: 234 231 224;
+    --c-neutral-900: 243 241 236;
+    --c-sidebar: 38 51 42;
+    --c-sidebarHover: 51 68 58;
+    --c-sidebarActive: 74 99 80;
+    --c-sidebarText: 227 235 228;
+    --c-sidebarMuted: 183 198 186;
+    --c-canvas: 21 20 18;
+    --c-surface: 31 30 27;
+    --c-border: 53 51 46;
+    --c-ink: 237 235 229;
+    --c-inkMuted: 168 163 153;
+    --c-inkFaint: 124 119 110;
+    --c-danger: 224 104 90;
+    --c-warning: 217 166 74;
+    --c-success: 127 163 131;
+    --c-gold: 212 161 63;
+    --c-gold-hover: 226 180 87;
+    --c-red: 224 104 90;
+    --c-amber: 217 166 74;
+    color-scheme: dark;
+  }
+
   html {
     font-family:
       'Inter', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
@@ -19,8 +91,8 @@
   }
 
   body {
-    background-color: #faf9f7; /* neutral-50 */
-    color: #171512;            /* neutral-900 */
+    background-color: rgb(var(--c-neutral-50));
+    color: rgb(var(--c-neutral-900));
     font-size: 13px;
     line-height: 20px;
     font-weight: 400;
@@ -31,12 +103,12 @@
 
   /* Never let a browser default push text below neutral-400. */
   ::placeholder {
-    color: #a8a196;
+    color: rgb(var(--c-neutral-400));
   }
 
   /* Focus ring — one gold, single style. */
   :focus-visible {
-    outline: 2px solid #b8892b;
+    outline: 2px solid rgb(var(--c-gold));
     outline-offset: 1px;
   }
 
