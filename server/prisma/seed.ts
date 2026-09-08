@@ -16,6 +16,7 @@ import { calculatePayrollItem } from '../src/domain/payroll/calc.js'
 import { snapshotAt } from '../src/domain/payroll/statutory.js'
 import { ALL_PERMISSION_CODES, MATRIX, PERMISSION_DESCRIPTIONS, type RoleCode } from '../src/platform/rbac/matrix.js'
 import { seedWorkstation } from './seed-workstation.js'
+import { seedTools } from './seed-tools.js'
 
 const prisma = new PrismaClient()
 
@@ -914,6 +915,7 @@ async function main() {
   // Lives in its own module so this file stays a core-HR seed. It references
   // the employees seeded above by id; it creates no new person.
   const workstation = await seedWorkstation(prisma, org.id)
+  await seedTools(prisma)
 
   const counts = {
     employees: await prisma.employee.count(),

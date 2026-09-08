@@ -7,7 +7,8 @@
  * Order (top → bottom):
  *   Dashboard (no section label)
  *   AUDIT      — 10 items
- *   WORKSTATION — Tools
+ *   WORKSTATION — 6 items
+ *   TOOLS       — 1 item (its own section, a sibling of Workstation)
  */
 import { NavLink, useLocation } from 'react-router-dom';
 import { useEffect, useMemo, useState } from 'react';
@@ -63,7 +64,7 @@ export function Sidebar({ mobileOpen, onMobileClose }: Props) {
 
   // Role-scoped nav (§6.1). `can()` here is menu-rendering only — the API
   // is what actually enforces access. Employee: no Employees / Accounts /
-  // Reports / Settings; no Tools if `workstation.access` is not granted.
+  // Reports / Settings; no Tools if `tools.access` is not granted.
   const nav = useMemo<NavGroup[]>(() => {
     const auditItems: NavItem[] = [
       { to: '/hrms/employees',  label: 'Employees',  icon: Users,                visible: can(role, 'employee.read', 'department') },
@@ -87,12 +88,17 @@ export function Sidebar({ mobileOpen, onMobileClose }: Props) {
       { to: '/workstation/follow-ups',  label: 'Follow-ups', icon: Clock,         visible: can(role, 'workstation.followup.read', 'self') },
       { to: '/workstation/services',    label: 'Services',   icon: Briefcase,     visible: can(role, 'workstation.service.read', 'self') },
       { to: '/workstation/documents',   label: 'Documents',  icon: FolderKanban,  visible: can(role, 'workstation.document.read', 'self') },
-      { to: '/tools',                   label: 'Tools',      icon: Wrench,        visible: can(role, 'workstation.access', 'self') },
+    ];
+    // Tools is its own top-level module — a sibling of Workstation, never a
+    // Workstation child. Its own labelled section, so it folds independently.
+    const toolsItems: NavItem[] = [
+      { to: '/tools', label: 'Tools', icon: Wrench, visible: can(role, 'tools.access', 'self') },
     ];
     return [
       { label: null, items: [{ to: '/', label: 'Dashboard', icon: Home, end: true, visible: true }] },
       { label: 'AUDIT', items: auditItems.filter((i) => i.visible) },
       { label: 'WORKSTATION', items: workstationItems.filter((i) => i.visible) },
+      { label: 'TOOLS', items: toolsItems.filter((i) => i.visible) },
     ].filter((g) => g.items.length > 0);
   }, [role]);
 
@@ -105,7 +111,7 @@ export function Sidebar({ mobileOpen, onMobileClose }: Props) {
     localStorage.setItem(COLLAPSED_KEY, collapsed ? '1' : '0');
   }, [collapsed]);
 
-  // Per-section collapse — keyed by section label (AUDIT, WORKSTATION).
+  // Per-section collapse — keyed by section label (AUDIT, WORKSTATION, TOOLS).
   // Dashboard has no label so it's never collapsible. Persisted in
   // localStorage so a user's fold state survives reload.
   const [sectionsCollapsed, setSectionsCollapsed] = useState<Set<string>>(() => {

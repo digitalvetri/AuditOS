@@ -1,0 +1,5 @@
+Voucher No,Date,Party,GSTIN,PIN,Debit,Credit,Narration
+0001,01/04/2026,Sharma Traders,33AAACS1234A1Z5,600001,"1,25,000.00",,Opening
+0002,02/04/2026,"Lakshmi Textiles, Pvt Ltd",33AABCL5678B1Z2,641001,,"48,200.50","Payment ""on account"""
+0003,05/04/2026,Murugan & Co,33AADFM9012C1Z9,620001,(9800),,Reversal
+0004,2026-04-07,Nila Foods,33AAFCN7890E1Z7,000123,15250.75,,

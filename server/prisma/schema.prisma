@@ -55,6 +55,8 @@ model Organisation {
   statutoryRates    StatutoryRate[]
   payrollRuns       PayrollRun[]
   chats             Chat[]
+  toolDocuments     ToolDocument[]
+  toolJobs          ToolJob[]
 
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt
@@ -124,6 +126,8 @@ model User {
 
   notifications Notification[]
   auditLogs     AuditLog[]
+  toolDocuments ToolDocument[]
+  toolJobs      ToolJob[]
 
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt
@@ -1383,4 +1387,147 @@ model Activity {
   createdAt DateTime @default(now())
 
   @@index([subjectType, subjectId, createdAt])
+}
+
+// ============================================================
+// TOOLS MODULE (Converters & Utilities)
+// ============================================================
+//
+// One document model for every tool — no per-tool tables. The registry that
+// drives the Tools page lives in code (src/modules/tools/registry.ts on both
+// sides); these three catalogue tables are synced FROM it by the seed so a
+// job row can reference a stable tool id and reporting can join on it.
+
+model ToolCategory {
+  id     String @id
+  key    String @unique
+  label  String
+  order  Int
+  /// active | coming_soon
+  status String @default("active")
+
+  groups ToolGroup[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model ToolGroup {
+  id         String @id
+  key        String @unique
+  label      String
+  categoryId String
+  order      Int
+
+  category ToolCategory @relation(fields: [categoryId], references: [id])
+  tools    Tool[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model Tool {
+  id            String @id
+  key           String @unique
+  name          String
+  description   String
+  groupId       String
+  /// pdf | xlsx | docx | csv | txt | zip
+  outputType    String
+  permissionKey String
+  /// active | coming_soon
+  status        String @default("active")
+
+  group ToolGroup @relation(fields: [groupId], references: [id])
+  jobs  ToolJob[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+/// A file the Tools module holds: either something a user uploaded as input
+/// (`kind = input`) or something a tool generated (`kind = output`).
+model ToolDocument {
+  id               String  @id @default(uuid())
+  organisationId   String
+  userId           String
+  /// input | output
+  kind             String  @default("output")
+  originalFilename String
+  storedFilename   String
+  mimeType         String
+  fileSize         Int
+  /// Key understood by the StorageAdapter — never a client-supplied path.
+  storagePath      String
+  /// Registry tool id that produced this document (null for raw uploads).
+  sourceTool       String?
+  parentDocumentId String?
+  /// processing | completed | failed
+  status           String  @default("completed")
+  errorMessage     String?
+  /// Free-form JSON — page count, table count, OCR confidence, signer info…
+  metaJson         String?
+
+  organisation Organisation @relation(fields: [organisationId], references: [id])
+  user         User         @relation(fields: [userId], references: [id])
+  versions     ToolDocumentVersion[]
+  inputJobs    ToolJob[]    @relation("ToolJobInput")
+  outputJobs   ToolJob[]    @relation("ToolJobOutput")
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  @@index([organisationId, userId])
+  @@index([sourceTool])
+  @@index([status])
+  @@index([createdAt])
+}
+
+model ToolDocumentVersion {
+  id          String @id @default(uuid())
+  documentId  String
+  version     Int
+  storagePath String
+  fileSize    Int
+
+  document ToolDocument @relation(fields: [documentId], references: [id])
+
+  createdAt DateTime @default(now())
+
+  @@unique([documentId, version])
+}
+
+/// Every tool run — queued, processing, completed or failed — is one row here,
+/// so the Documents detail drawer can show timing and the outcome uniformly.
+model ToolJob {
+  id               String  @id @default(uuid())
+  toolId           String
+  userId           String
+  organisationId   String
+  inputDocumentId  String?
+  outputDocumentId String?
+  /// queued | processing | completed | failed
+  status           String  @default("queued")
+  /// 0–100, reported by the service where it can be determinate.
+  progress         Int     @default(0)
+  errorMessage     String?
+  /// Tool options + per-run facts (all input ids, page counts, warnings…).
+  metaJson         String?
+  startedAt        DateTime?
+  completedAt      DateTime?
+
+  tool           Tool          @relation(fields: [toolId], references: [id])
+  user           User          @relation(fields: [userId], references: [id])
+  organisation   Organisation  @relation(fields: [organisationId], references: [id])
+  inputDocument  ToolDocument? @relation("ToolJobInput", fields: [inputDocumentId], references: [id])
+  outputDocument ToolDocument? @relation("ToolJobOutput", fields: [outputDocumentId], references: [id])
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([organisationId, userId])
+  @@index([toolId])
+  @@index([status])
+  @@index([createdAt])
 }

@@ -1,18 +1,19 @@
 /**
  * UI-BUILD-PROMPT §4 TopBar.
  *
- * 64px sticky. Left: search input flex-1 max-width 940px. Right: 4 lucide icons
- * (Search, Sun, Bell, PanelRight), 1px divider, avatar + name + ChevronDown as
+ * 64px sticky. Left: global search flex-1 max-width 940px. Right: 4 lucide
+ * icons (Search = focus the box / ⌘K, Sun|Moon = theme, Bell = notifications
+ * menu, PanelRight = quick panel), 1px divider, avatar + name + ChevronDown as
  * dropdown trigger.
- *
- * The Bell shows a small danger dot when there are unread notifications.
  */
 import { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { useQuery } from '@tanstack/react-query';
-import { Bell, ChevronDown, Menu, PanelRight, Search, Sun, User } from 'lucide-react';
+import { ChevronDown, Menu, Moon, PanelRight, Search, Sun, User } from 'lucide-react';
 import { useAuth } from '@/platform/auth/AuthContext';
-import { notificationsApi } from '@/platform/notifications/api';
+import { useTheme } from '@/platform/theme/theme';
+import { GlobalSearch, type GlobalSearchHandle } from './GlobalSearch';
+import { NotificationsMenu } from './NotificationsMenu';
+import { RightPanel } from './RightPanel';
 
 interface Props {
   onOpenMobileNav: () => void;
@@ -22,7 +23,10 @@ export function TopBar({ onOpenMobileNav }: Props) {
   const { session, logout } = useAuth();
   const navigate = useNavigate();
   const [menuOpen, setMenuOpen] = useState(false);
+  const [panelOpen, setPanelOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement | null>(null);
+  const searchRef = useRef<GlobalSearchHandle | null>(null);
+  const { theme, toggle: toggleTheme } = useTheme();
 
   useEffect(() => {
     if (!menuOpen) return;
@@ -32,13 +36,6 @@ export function TopBar({ onOpenMobileNav }: Props) {
     document.addEventListener('mousedown', onClick);
     return () => document.removeEventListener('mousedown', onClick);
   }, [menuOpen]);
-
-  const unreadQ = useQuery({
-    queryKey: ['notifications', 'list'],
-    queryFn: () => notificationsApi.list(1),
-    refetchInterval: 30_000,
-  });
-  const hasUnread = (unreadQ.data?.unread ?? 0) > 0;
 
   // Target reference uses a plain silhouette in a grey chip; the display
   // name is read inline from the session inside the trigger button below.
@@ -55,42 +52,28 @@ export function TopBar({ onOpenMobileNav }: Props) {
         <Menu size={20} strokeWidth={1.75} />
       </button>
 
-      {/* Search input, flex-1, pill-shaped to match target UI */}
+      {/* Global search, flex-1, pill-shaped to match target UI */}
       <div className="flex-1 max-w-[940px]">
-        <label className="relative block">
-          <span className="absolute inset-y-0 left-5 flex items-center text-inkMuted">
-            <Search size={18} strokeWidth={1.75} />
-          </span>
-          <input
-            type="search"
-            placeholder="Search..."
-            className="w-full h-12 pl-12 pr-5 text-15 bg-canvas text-ink placeholder:text-inkFaint border border-border rounded-full focus:outline-none focus:border-gold focus:bg-surface"
-            aria-label="Global search"
-          />
-        </label>
+        <GlobalSearch ref={searchRef} />
       </div>
 
       {/* Right cluster */}
       <div className="flex items-center gap-5">
-        <IconBtn label="Search commands (⌘K)"><Search size={20} strokeWidth={1.75} /></IconBtn>
-        <IconBtn label="Toggle theme"><Sun size={20} strokeWidth={1.75} /></IconBtn>
-        <IconBtn
-          label={hasUnread ? 'Notifications (unread)' : 'Notifications'}
-          onClick={() => navigate('/notifications')}
-          data-testid="topbar-bell"
-        >
-          <span className="relative inline-flex">
-            <Bell size={20} strokeWidth={1.75} />
-            {hasUnread ? (
-              <span
-                className="absolute -top-0.5 -right-0.5 w-2 h-2 rounded-sm bg-danger"
-                aria-hidden
-                data-testid="topbar-unread-dot"
-              />
-            ) : null}
-          </span>
+        <IconBtn label="Search (⌘K)" onClick={() => searchRef.current?.focus()} data-testid="topbar-search">
+          <Search size={20} strokeWidth={1.75} />
         </IconBtn>
-        <IconBtn label="Toggle right panel"><PanelRight size={20} strokeWidth={1.75} /></IconBtn>
+        <IconBtn
+          label={theme === 'dark' ? 'Switch to light theme' : 'Switch to dark theme'}
+          onClick={toggleTheme}
+          data-testid="topbar-theme"
+          aria-pressed={theme === 'dark'}
+        >
+          {theme === 'dark' ? <Moon size={20} strokeWidth={1.75} /> : <Sun size={20} strokeWidth={1.75} />}
+        </IconBtn>
+        <NotificationsMenu />
+        <IconBtn label={panelOpen ? 'Close quick panel' : 'Open quick panel'} onClick={() => setPanelOpen((v) => !v)} data-testid="topbar-panel" aria-pressed={panelOpen}>
+          <PanelRight size={20} strokeWidth={1.75} />
+        </IconBtn>
 
         <span className="h-6 w-px bg-border" aria-hidden />
 
@@ -131,6 +114,7 @@ export function TopBar({ onOpenMobileNav }: Props) {
           ) : null}
         </div>
       </div>
+      <RightPanel open={panelOpen} onClose={() => setPanelOpen(false)} />
     </header>
   );
 }

@@ -11,6 +11,7 @@ import { useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { employeeApi, isFullEmployee, type EmployeeFilters, type EmployeeRow } from '@/modules/employees/api';
+import { EmployeeCreateModal } from '@/modules/employees/EmployeeCreateModal';
 import { fmtDate } from '@/lib/format';
 import { StatusLabel, type StatusVariant } from '@/components/StatusRow';
 import { Button } from '@/components/Button';
@@ -24,6 +25,7 @@ export function EmployeesPage() {
   const navigate = useNavigate();
 
   const [filters, setFilters] = useState<EmployeeFilters>({ q: '' });
+  const [creating, setCreating] = useState(false);
   const query = useQuery({
     queryKey: ['employees', 'list', filters],
     queryFn: () => employeeApi.list(filters),
@@ -67,7 +69,7 @@ export function EmployeesPage() {
             Export CSV
           </Button>
           {canManage ? (
-            <Button variant="primary" onClick={() => navigate('/hrms/employees/new')}>
+            <Button variant="primary" onClick={() => setCreating(true)} data-testid="employees-add">
               Add employee
             </Button>
           ) : null}
@@ -75,6 +77,11 @@ export function EmployeesPage() {
       </header>
 
       <FiltersBar filters={filters} onChange={setFilters} canManage={canManage} />
+      <EmployeeCreateModal
+        open={creating}
+        onClose={() => setCreating(false)}
+        onCreated={(id) => { setCreating(false); navigate(`/hrms/employees/${id}`); }}
+      />
 
       <div className="bg-white border border-neutral-200 rounded overflow-hidden" data-testid="employees-list">
         {query.isLoading ? (

@@ -35,6 +35,19 @@ export interface EmployeeListResponse {
   scope: 'self' | 'department' | 'organisation' | 'finance';
 }
 
+export interface EmployeeCreateInput {
+  first_name: string;
+  last_name: string;
+  email: string;
+  department_id: string;
+  designation_id: string;
+  type?: Employee['type'];
+  status?: Employee['status'];
+  manager_id?: string | null;
+  phone?: string;
+  joining_date?: string;
+}
+
 export interface EmployeeDetailResponse {
   employee: EmployeeRow;
   refs: {
@@ -56,6 +69,9 @@ export const employeeApi = {
   },
 
   get: (id: string) => api.get<EmployeeDetailResponse>(`/api/employees/${id}`),
+
+  /** POST /api/employees — HR/MD only; the server allocates the employee code. */
+  create: (body: EmployeeCreateInput) => api.post<{ employee: Employee }>('/api/employees', body),
 
   patch: (id: string, body: Partial<Employee>) =>
     api.patch<{ employee: Employee }>(`/api/employees/${id}`, body),

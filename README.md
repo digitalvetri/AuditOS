@@ -203,10 +203,34 @@ build shows nothing.
 | **Documents** | `/hrms/documents` | `/api/documents` | Signed-URL downloads, expiry derivation |
 | **Notifications** | `/notifications` | `/api/notifications` | Platform primitive every module emits into |
 | **Settings** | `/hrms/settings` | `/api/settings` | Departments, designations, locations, holidays, leave types, expense categories, statutory rates, role matrix |
+| **Tools** | `/tools` | `/api/tools`, `/api/tool-jobs`, `/api/tool-documents` | Registry-driven converters (12 live, 6 compliance cards "coming soon"), one shared workspace, every output saved to `/tools/documents` with an audit trail |
 
-Reserved, deliberately not built: **Workstation** and **Tools**. Their routes,
-navigation entries and the nullable columns they will need (`client_id`,
-`weekly_capacity_hours`, `Chat.subjectType`) already exist.
+### Tools (Converters & Utilities)
+
+The Tools page, its search, the `/tools/:toolId` workspace routes and the
+permission checks all render from one registry
+(`src/modules/tools/registry.ts`, mirrored for enforcement in
+`server/src/modules/tools/registry.ts`). Turning a compliance converter on
+later is `status: 'active'` in both files plus its implementation in
+`server/src/modules/tools/runner.ts`.
+
+Conversions run on the server and lean on three system tools that must be
+on `PATH`: **LibreOffice** (`soffice` — Excel/Word ⇄ PDF), **Ghostscript**
+(`gs` — compress, decrypt) and **poppler** (`pdftoppm` — thumbnails, OCR
+rasters). OCR uses tesseract.js; English language data is downloaded once
+and cached under `server/uploads/ocr-cache/`. Files live under
+`server/uploads/tools/` through `StorageAdapter` (swap in S3/Supabase there).
+
+```bash
+npm --prefix server run seed:tools   # sync the tool catalogue tables from the registry
+node scripts/verify-tools.mjs        # headless end-to-end run of all 12 tools + Documents
+npx tsx server/src/modules/tools/__tests__/smoke.ts   # service-level checks on the fixtures
+```
+
+Notes for the firm: **e-Sign PDF** applies a visible approval mark and is
+not a DSC signature (a `SignatureProvider` seam exists for a real provider);
+**Unlock PDF** only removes a password the user supplies and records the
+user's authorisation confirmation in the audit log.
 
 ### Messages
 
@@ -321,6 +345,7 @@ node scripts/verify-settings.mjs      # CRUD, statutory supersede
 node scripts/verify-payroll.mjs       # stage machine, snapshot, immutability
 node scripts/verify-expenses.mjs      # Draft→Paid, contra-ledger
 node scripts/verify-accounts.mjs      # append-only ledger, reverse
+node scripts/verify-tools.mjs         # all 12 tools, search, Documents, scope
 ```
 
 Screenshots land in `scripts/shots/` (git-ignored).
