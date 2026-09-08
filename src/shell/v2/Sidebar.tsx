@@ -185,7 +185,7 @@ export function Sidebar({ mobileOpen, onMobileClose }: Props) {
 
       <aside
         className={
-          'flex flex-col bg-sidebar text-sidebarText ' +
+          'flex flex-col bg-sidebar text-sidebarText lg:border-r lg:border-border ' +
           'fixed inset-y-0 left-0 z-50 max-w-[82vw] ' +
           `${drawer} ` +
           'lg:static lg:z-auto lg:h-full lg:translate-x-0 lg:visible ' +
