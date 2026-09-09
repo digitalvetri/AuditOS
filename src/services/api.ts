@@ -24,20 +24,39 @@ function makeError(status: number, code: string, message: string, details?: unkn
 }
 
 async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
-  const res = await fetch(path, {
-    ...init,
-    credentials: 'include',
-    headers: {
-      'Content-Type': 'application/json',
-      Accept: 'application/json',
-      ...(init.headers ?? {}),
-    },
-  });
+  let res: Response;
+  try {
+    res = await fetch(path, {
+      ...init,
+      credentials: 'include',
+      headers: {
+        'Content-Type': 'application/json',
+        Accept: 'application/json',
+        ...(init.headers ?? {}),
+      },
+    });
+  } catch {
+    // fetch only rejects for transport failures — the backend is down, the
+    // proxy has nothing to talk to, or CORS blocked the response. There is
+    // no HTTP status here, so status 0 marks "never reached the server" and
+    // pages can tell it apart from a real 4xx.
+    throw makeError(0, 'network_error',
+      `Could not reach the API (${path}). Is the backend running? In mock mode this path may have no MSW handler.`);
+  }
 
   if (res.status === 204) return undefined as T;
 
   const text = await res.text();
-  const json = text ? JSON.parse(text) : {};
+  let json: { data?: unknown; error?: { code: string; message: string; details?: unknown } };
+  try {
+    json = text ? JSON.parse(text) : {};
+  } catch {
+    // Not JSON — usually Vite's proxy error page or an HTML 502 from a
+    // backend that is not up. Report the status we actually got rather
+    // than a bare "Unexpected token <".
+    throw makeError(res.status, 'bad_response',
+      `The API returned a non-JSON response (HTTP ${res.status}) for ${path}.`);
+  }
 
   if (!res.ok) {
     const e = json.error ?? { code: 'unknown', message: res.statusText };

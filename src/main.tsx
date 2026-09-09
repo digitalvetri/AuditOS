@@ -12,7 +12,12 @@ async function boot() {
   if (MOCK_MODE) {
     const { worker } = await import('@/data/mock/browser');
     await worker.start({
-      onUnhandledRequest: 'bypass',
+      // 'warn', not 'bypass': an unmocked /api/* call still passes through
+      // to the proxy, but it says so in the console. Books and Workstation
+      // have no handlers, so in mock mode they fall through and fail with a
+      // bare "Could not load …" — the warning is what makes that legible
+      // instead of looking like a broken page.
+      onUnhandledRequest: 'warn',
       quiet: true,
     });
   }
