@@ -50,6 +50,9 @@ interface NavItem {
   icon: LucideIcon;
   end?: boolean;
   visible: boolean;
+  /** Service categories nested under Workstation → Services. Names only —
+      each row deep-links to the Services page scoped by its slug. */
+  children?: { to: string; label: string }[];
 }
 interface NavGroup {
   label: string | null; // null = no section header (Dashboard row)
@@ -89,7 +92,15 @@ export function Sidebar({ mobileOpen, onMobileClose }: Props) {
       { to: '/workstation/leads',       label: 'Leads',      icon: PhoneCall,     visible: can(role, 'workstation.lead.read', 'self') },
       { to: '/workstation/clients',     label: 'Clients',    icon: Handshake,     visible: can(role, 'workstation.client.read', 'self') },
       { to: '/workstation/follow-ups',  label: 'Follow-ups', icon: Clock,         visible: can(role, 'workstation.followup.read', 'self') },
-      { to: '/workstation/services',    label: 'Services',   icon: Briefcase,     visible: can(role, 'workstation.service.read', 'self') },
+      { to: '/workstation/services',    label: 'Services',   icon: Briefcase,     end: true, visible: can(role, 'workstation.service.read', 'self'),
+        children: [
+          { to: '/workstation/services/gst',           label: 'GST' },
+          { to: '/workstation/services/tds',           label: 'TDS' },
+          { to: '/workstation/services/e-way-bill',    label: 'E-Way Bill' },
+          { to: '/workstation/services/bookkeeping',   label: 'Bookkeeping' },
+          { to: '/workstation/services/incorporation', label: 'Incorporation' },
+          { to: '/workstation/services/e-invoice',     label: 'E-Invoice' },
+        ] },
       { to: '/workstation/documents',   label: 'Documents',  icon: FolderKanban,  visible: can(role, 'workstation.document.read', 'self') },
     ];
     // TOOLS is one labelled section — a sibling of Workstation — holding the
@@ -300,23 +311,74 @@ function Section({ group, collapsed, first, folded, onToggle }: SectionProps) {
 
 function NavItemRow({ item, collapsed }: { item: NavItem; collapsed: boolean }) {
   const Icon = item.icon;
-  return (
+  const location = useLocation();
+  const hasChildren = !collapsed && !!item.children?.length;
+  // Open whenever the user is anywhere under the parent (e.g. a service
+  // category), so a deep link lands with its row already revealed.
+  const onBranch = location.pathname.startsWith(item.to);
+  const [open, setOpen] = useState(onBranch);
+  useEffect(() => { if (onBranch) setOpen(true); }, [onBranch]);
+
+  const row = (
     <NavLink
       to={item.to}
       end={item.end}
       className={({ isActive }) => {
         const base = 'flex items-center gap-3 h-11 rounded-lg text-15 transition-colors';
         const spacing = collapsed ? 'justify-center px-0' : 'px-3';
+        const grow = hasChildren ? ' flex-1 min-w-0' : '';
         const state = isActive
           ? 'bg-sidebarActive text-sidebarText font-semibold'
           : 'text-sidebarText font-medium hover:bg-sidebarHover';
-        return `${base} ${spacing} ${state}`;
+        return `${base} ${spacing} ${state}${grow}`;
       }}
       title={collapsed ? item.label : undefined}
     >
       <Icon size={20} strokeWidth={2} className="shrink-0" />
       {!collapsed ? <span className="truncate">{item.label}</span> : null}
     </NavLink>
+  );
+
+  if (!hasChildren) return row;
+
+  return (
+    <>
+      <div className="flex items-center">
+        {row}
+        <button
+          type="button"
+          onClick={() => setOpen((o) => !o)}
+          aria-expanded={open}
+          aria-label={(open ? 'Collapse' : 'Expand') + ' ' + item.label}
+          className="shrink-0 h-11 w-7 flex items-center justify-center rounded-lg text-sidebarText hover:bg-sidebarHover transition-colors"
+        >
+          <ChevronDown
+            size={14}
+            strokeWidth={2.5}
+            className={'transition-transform ' + (open ? '' : '-rotate-90')}
+          />
+        </button>
+      </div>
+      {open ? (
+        <ul className="mt-px space-y-px">
+          {item.children!.map((child) => (
+            <li key={child.to}>
+              <NavLink
+                to={child.to}
+                className={({ isActive }) =>
+                  'flex items-center h-9 pl-11 pr-3 rounded-lg text-14 transition-colors ' +
+                  (isActive
+                    ? 'bg-sidebarActive text-sidebarText font-semibold'
+                    : 'text-sidebarText font-medium hover:bg-sidebarHover')
+                }
+              >
+                <span className="truncate">{child.label}</span>
+              </NavLink>
+            </li>
+          ))}
+        </ul>
+      ) : null}
+    </>
   );
 }
 
