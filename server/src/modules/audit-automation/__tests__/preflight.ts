@@ -218,7 +218,7 @@ async function main() {
   //   type _NoPassword = keyof Prisma.AaSourceDocumentCreateInput & 'password'
   // Runtime-side, confirm the DB metadata has no such column.
   const cols = await prisma.$queryRawUnsafe<Array<{ name: string }>>(
-    "PRAGMA table_info('AaSourceDocument')",
+    "SELECT column_name AS name FROM information_schema.columns WHERE table_name = 'AaSourceDocument'",
   )
   const badCol = cols.find((c) => /password/i.test(c.name))
   if (badCol) fail('no password column', `found column ${badCol.name}`)
