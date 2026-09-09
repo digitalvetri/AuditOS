@@ -30,7 +30,7 @@ React 18 + Vite  (src/ — the primary application)
                                 │
                           Prisma ORM
                                 │
-                          SQLite (dev) / PostgreSQL (prod)
+                          PostgreSQL 16 (Docker in dev, hosted in prod)
 ```
 
 Both backends answer in the **same envelope** and the **same field casing**, so
@@ -77,7 +77,9 @@ The permission matrix is server-side canonical in
 ## Quick start
 
 ```bash
-npm run setup          # installs both projects, creates the dev DB, seeds it
+cp .env.docker.example .env.docker    # dev credentials for the DB container
+docker compose up -d                  # Postgres 16 on :55432, Adminer on :58080
+npm run setup                         # installs both projects, pushes schema, seeds
 ```
 
 Then either mode:
@@ -110,8 +112,8 @@ run them separately if you prefer two terminals.
 Backend-only equivalents live in `server/package.json`
 (`npm --prefix server run …`).
 
-> Restart the API after `db:reset` — the running process holds an open handle
-> to the SQLite file that the reset replaces.
+> `db:reset` drops and rebuilds the Postgres schema (`prisma db push
+> --force-reset`) then re-runs the seed. The running API auto-reconnects.
 
 ---
 
@@ -152,7 +154,8 @@ cases, and no component changes its URL.
 
 | Variable | Required | Notes |
 |---|---|---|
-| `DATABASE_URL` | yes | `file:./dev.db` for SQLite. For PostgreSQL also change `provider` in `server/prisma/schema.prisma`. |
+| `DATABASE_URL` | yes | `postgresql://…` — points at the Docker Postgres (default `localhost:55432`). See `.env.example`. |
+| `TEST_DATABASE_URL` | yes for tests | Separate Postgres DB used by `npm test` (default `auditos_test` on the same container). |
 | `JWT_SECRET` | in production | Session signing key. Generate: `node -e "console.log(require('crypto').randomBytes(48).toString('hex'))"` |
 | `SIGNED_URL_SECRET` | in production | Signs short-lived document / payslip download links. |
 | `SIGNED_URL_TTL_SECONDS` | no | Default 300. |
@@ -327,8 +330,26 @@ Conventions the schema enforces:
 - **Nullable both ways** for User ↔ Employee: automation users have no
   employee, and an exited employee keeps their records without a login.
 
-SQLite is the local development database. Moving to PostgreSQL is a two-line
-change: `provider = "postgresql"` and a Postgres `DATABASE_URL`.
+The active provider is **PostgreSQL 16** in both development and production;
+locally it runs in Docker (see `docker-compose.yml` and the Docker section
+below). The Books invariants layer (`server/src/modules/books/db/invariants.ts`)
+dispatches to the matching SQL file, so schema-level rules stay in one place.
+
+### Docker
+
+One Compose file at the repo root brings up Postgres and Adminer:
+
+| Service | Host port | Container port | Notes |
+|---|---|---|---|
+| `postgres` | `55432` | `5432` | Postgres 16. Volume `auditos-pg-data` survives `down`; wipe with `docker compose down -v`. |
+| `adminer` | `58080` | `8080` | Browser SQL client at `http://localhost:58080` — server `postgres`, user/password from `.env.docker`. |
+
+Ports are 55432 / 58080 rather than 5432 / 8080 to avoid clashing with a
+native Postgres install or an existing Adminer. Override with e.g.
+`POSTGRES_HOST_PORT=5432 docker compose up -d`.
+
+Two databases are created on first start: `auditos` (dev) and `auditos_test`
+(vitest). The test suite requires the container to be up.
 
 ---
 

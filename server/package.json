@@ -18,7 +18,7 @@
     "seed:tools": "tsx prisma/seed-tools.ts",
     "seed:books": "tsx prisma/seed-books.ts",
     "books:reset": "tsx prisma/reset-books.ts",
-    "db:reset": "rm -f prisma/dev.db prisma/dev.db-journal && npm run prisma:push && npm run seed"
+    "db:reset": "prisma db push --force-reset --accept-data-loss --skip-generate && npm run seed"
   },
   "prisma": {
     "seed": "tsx prisma/seed.ts"

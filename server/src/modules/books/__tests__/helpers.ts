@@ -3,8 +3,8 @@ import type { BooksContext } from '../engine/context.js'
 import { createBooksOrganisation, systemLedger } from '../engine/organisation.js'
 import type { SystemKey } from '../engine/chart.js'
 
-/** One client per test file; the global setup already pushed the schema. */
-export const prisma = new PrismaClient({ datasources: { db: { url: 'file:./books-test.db' } } })
+/** Shared client across the books test files; setup.env.ts set DATABASE_URL. */
+export const prisma = new PrismaClient()
 
 let seq = 0
 export function uid(prefix = 'id') { return `${prefix}-${Date.now().toString(36)}-${++seq}` }

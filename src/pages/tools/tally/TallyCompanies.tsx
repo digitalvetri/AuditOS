@@ -8,7 +8,7 @@ import { tallyApi, type TallyCompany, type CreateTallyCompanyInput } from '@/mod
 import type { ApiError } from '@/services/api';
 
 /**
- * /audit-automation/tally/companies — company list + "New company" modal.
+ * /tally/companies — company list + "New company" modal.
  * Creating a company seeds its own primary groups + first FY on the
  * server; nothing to do on the client after create.
  */
@@ -24,7 +24,7 @@ export function TallyCompanies() {
   return (
     <div className="max-w-[1200px] mx-auto" data-testid="tally-companies">
       <div className="mb-4">
-        <Link to="/audit-automation/tally" className="inline-flex items-center gap-1 text-13 text-neutral-500 hover:text-neutral-900">
+        <Link to="/tally" className="inline-flex items-center gap-1 text-13 text-neutral-500 hover:text-neutral-900">
           <ArrowLeft size={14} strokeWidth={1.75} /> Tally
         </Link>
       </div>
@@ -97,7 +97,7 @@ function CompaniesTable({ companies }: { companies: TallyCompany[] }) {
                 )}
               </td>
               <td className="px-3 py-2 text-right">
-                <Link to={`/audit-automation/tally/companies/${c.id}/masters/ledgers`} className="text-12 text-gold font-medium">
+                <Link to={`/tally/companies/${c.id}/masters/ledgers`} className="text-12 text-gold font-medium">
                   Open →
                 </Link>
               </td>

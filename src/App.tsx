@@ -157,9 +157,12 @@ export default function App() {
               <Route path="audit-automation/tds" element={<TdsJobsListPage />} />
               <Route path="audit-automation/tds/new" element={<TdsNewReconPage />} />
               <Route path="audit-automation/tds/jobs/:jobId" element={<TdsReconDetailPage />} />
-              <Route path="audit-automation/tally" element={<TallyHome />} />
-              <Route path="audit-automation/tally/companies" element={<TallyCompanies />} />
-              <Route path="audit-automation/tally/companies/:companyId" element={<TallyWorkspace />}>
+
+              {/* Tally — native double-entry accounting. Sits alongside
+                  Tools, Repotic and Books in the TOOLS sidebar section. */}
+              <Route path="tally" element={<TallyHome />} />
+              <Route path="tally/companies" element={<TallyCompanies />} />
+              <Route path="tally/companies/:companyId" element={<TallyWorkspace />}>
                 <Route path="masters/groups" element={<TallyGroups />} />
                 <Route path="masters/ledgers" element={<TallyLedgers />} />
               </Route>

@@ -8,7 +8,7 @@ import { tallyApi, type TallyGroup, type TallyLedger, type CreateTallyLedgerInpu
 import type { ApiError } from '@/services/api';
 
 /**
- * /audit-automation/tally/companies/:companyId/masters/ledgers
+ * /tally/companies/:companyId/masters/ledgers
  * — ledger list with search + New ledger modal.
  */
 export function TallyLedgers() {

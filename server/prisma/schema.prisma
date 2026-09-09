@@ -26,9 +26,10 @@ generator client {
 }
 
 datasource db {
-  // SQLite is the local development database. Switching to PostgreSQL is a
-  // two-line change: provider = "postgresql" and a Postgres DATABASE_URL.
-  provider = "sqlite"
+  // PostgreSQL running in Docker (see docker-compose.yml at repo root).
+  // The invariants layer (src/modules/books/db/invariants.ts) already
+  // detects the active provider and loads the matching SQL file.
+  provider = "postgresql"
   url      = env("DATABASE_URL")
 }
 
