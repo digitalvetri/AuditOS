@@ -8,7 +8,7 @@ import { tallyApi, type TallyGroupTreeNode } from '@/modules/tools/audit-automat
 import type { ApiError } from '@/services/api';
 
 /**
- * /audit-automation/tally/companies/:companyId/masters/groups
+ * /tally/companies/:companyId/masters/groups
  * — expandable group tree, seeded with 17 primaries per company.
  * Primary groups can't be renamed or deleted.
  */

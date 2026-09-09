@@ -1,13 +1,13 @@
 import { Link } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
-import { ArrowLeft, Plus, Landmark, Info } from 'lucide-react';
+import { Plus, Landmark, Info } from 'lucide-react';
 import { Button } from '@/components/Button';
 import { tallyApi } from '@/modules/tools/audit-automation/tally';
 
 /**
- * /audit-automation/tally — module home. If the org has no companies
- * yet: show the create-first-company CTA. Otherwise: pipeline picker
- * (companies + a placeholder "recent activity" panel).
+ * /tally — module home. If the org has no companies yet: show the
+ * create-first-company CTA. Otherwise: pipeline picker (companies +
+ * a placeholder "recent activity" panel).
  *
  * Preview status: this is a REVIEWABLE PREVIEW. Slice 1 delivers
  * companies + FY + groups + ledgers. Vouchers / inventory / reports
@@ -21,12 +21,6 @@ export function TallyHome() {
 
   return (
     <div className="max-w-[1200px] mx-auto" data-testid="tally-home">
-      <div className="mb-4">
-        <Link to="/audit-automation" className="inline-flex items-center gap-1 text-13 text-neutral-500 hover:text-neutral-900">
-          <ArrowLeft size={14} strokeWidth={1.75} /> Repotic
-        </Link>
-      </div>
-
       <header className="flex items-start justify-between gap-4 mb-5">
         <div>
           <div className="flex items-center gap-2">
@@ -37,7 +31,7 @@ export function TallyHome() {
             Native double-entry accounting — companies, ledgers, vouchers, inventory, GST/TDS, reports.
           </p>
         </div>
-        <Link to="/audit-automation/tally/companies">
+        <Link to="/tally/companies">
           <Button variant="secondary" size="sm">Manage companies</Button>
         </Link>
       </header>
@@ -75,7 +69,7 @@ function EmptyState() {
         company to get started — primary groups and the current financial year
         are set up automatically.
       </p>
-      <Link to="/audit-automation/tally/companies">
+      <Link to="/tally/companies">
         <Button variant="primary" size="sm">
           <Plus size={14} strokeWidth={1.75} className="mr-1" /> Create company
         </Button>
@@ -90,7 +84,7 @@ function CompanyGrid({ companies }: { companies: { id: string; name: string; sta
       {companies.map((c) => (
         <Link
           key={c.id}
-          to={`/audit-automation/tally/companies/${c.id}/masters/ledgers`}
+          to={`/tally/companies/${c.id}/masters/ledgers`}
           className="bg-white border border-neutral-200 rounded p-4 hover:border-gold transition-colors"
           data-testid={`tally-company-card-${c.id}`}
         >

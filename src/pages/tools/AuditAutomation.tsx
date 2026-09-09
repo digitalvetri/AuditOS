@@ -49,12 +49,6 @@ export function AuditAutomationLandingPage() {
             description="Form 26AS vs client books — verified, variance and chase-deductor buckets"
             status="active"
           />
-          <PipelineCard
-            to="/audit-automation/tally"
-            title="Tally (Preview)"
-            description="Native double-entry accounting — companies, ledgers, vouchers, GST/TDS, reports"
-            status="active"
-          />
         </div>
       )}
 
