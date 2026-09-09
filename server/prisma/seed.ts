@@ -21,6 +21,7 @@ import { ALL_PERMISSION_CODES, MATRIX, PERMISSION_DESCRIPTIONS, type RoleCode } 
 import { seedWorkstation } from './seed-workstation.js'
 import { seedTools } from './seed-tools.js'
 import { seedAuditAutomation } from './seed-audit-automation.js'
+import { seedBooks } from './seed-books.js'
 
 const prisma = new PrismaClient()
 
@@ -921,6 +922,7 @@ async function main() {
   const workstation = await seedWorkstation(prisma, org.id)
   await seedTools(prisma)
   await seedAuditAutomation(prisma)
+  await seedBooks(prisma, org.id)
 
   const counts = {
     employees: await prisma.employee.count(),

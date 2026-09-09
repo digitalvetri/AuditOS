@@ -41,6 +41,16 @@ import { TallyCompanies } from '@/pages/tools/tally/TallyCompanies';
 import { TallyWorkspace } from '@/pages/tools/tally/TallyWorkspace';
 import { TallyGroups } from '@/pages/tools/tally/TallyGroups';
 import { TallyLedgers } from '@/pages/tools/tally/TallyLedgers';
+// Books — native bookkeeping, one set of books per client.
+import { BooksListPage } from '@/pages/books/BooksList';
+import { BooksShell } from '@/pages/books/BooksShell';
+import { BooksOverviewPage } from '@/pages/books/BooksOverview';
+import { BooksDocumentsPage } from '@/pages/books/BooksDocuments';
+import { BooksContactsPage } from '@/pages/books/BooksContacts';
+import { BooksJournalsPage } from '@/pages/books/BooksJournals';
+import { BooksBankingPage } from '@/pages/books/BooksBanking';
+import { BooksReportsPage } from '@/pages/books/BooksReports';
+import { BooksSettingsPage } from '@/pages/books/BooksSettings';
 import { AttendancePage } from '@/pages/hrms/Attendance';
 import { LeavePage } from '@/pages/hrms/Leave';
 import { EmployeesPage } from '@/pages/hrms/Employees';
@@ -148,6 +158,20 @@ export default function App() {
               <Route path="audit-automation/tally/companies/:companyId" element={<TallyWorkspace />}>
                 <Route path="masters/groups" element={<TallyGroups />} />
                 <Route path="masters/ledgers" element={<TallyLedgers />} />
+              </Route>
+
+              {/* Books — the client list, then one shell per set of books
+                  whose tabs are nested routes so each is deep-linkable. */}
+              <Route path="books" element={<BooksListPage />} />
+              <Route path="books/:orgId" element={<BooksShell />}>
+                <Route index element={<BooksOverviewPage />} />
+                <Route path="sales" element={<BooksDocumentsPage side="sales" />} />
+                <Route path="purchases" element={<BooksDocumentsPage side="purchases" />} />
+                <Route path="contacts" element={<BooksContactsPage />} />
+                <Route path="banking" element={<BooksBankingPage />} />
+                <Route path="journals" element={<BooksJournalsPage />} />
+                <Route path="reports" element={<BooksReportsPage />} />
+                <Route path="settings" element={<BooksSettingsPage />} />
               </Route>
 
               <Route path="*" element={<NotFoundPage />} />

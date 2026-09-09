@@ -39,6 +39,8 @@ import { gstRouter } from './modules/audit-automation/gst.routes.js'
 import { tdsRouter } from './modules/audit-automation/tds.routes.js'
 // Tally — native double-entry accounting module (foundation slice).
 import { tallyRouter } from './modules/tally/routes.js'
+// Books — native bookkeeping, one set of books per client (docs/accounting-module).
+import { booksRouter } from './modules/books/routes.js'
 
 /**
  * The HTTP surface. Every route below /api answers in the Part 1 envelope
@@ -138,6 +140,9 @@ export function createApp() {
 
   // ── Tally (native double-entry accounting) ─────────────────────────────
   app.use('/api/tally', tallyRouter)
+
+  // ── Books ──────────────────────────────────────────────────────────────
+  app.use('/api/books', booksRouter)
 
   app.use('/api', (_req, res) => {
     res.status(404).json({ error: { code: 'not_found', message: 'No such endpoint.' } })

@@ -9,6 +9,7 @@
  *   AUDIT      — 10 items
  *   WORKSTATION — 6 items
  *   TOOLS       — 1 item (its own section, a sibling of Workstation)
+ *   BOOKS       — 1 item (native bookkeeping)
  */
 import { NavLink, useLocation } from 'react-router-dom';
 import { useEffect, useMemo, useState } from 'react';
@@ -33,6 +34,7 @@ import {
   ReceiptIndianRupee,
   Settings,
   Users,
+  Wallet,
   Wrench,
   type LucideIcon,
 } from 'lucide-react';
@@ -102,12 +104,18 @@ export function Sidebar({ mobileOpen, onMobileClose }: Props) {
       { to: '/audit-automation', label: 'Repotic', icon: Landmark,
         visible: can(role, 'tools.audit_automation.access', 'self') },
     ];
+    // Books — native bookkeeping, one set of books per client. Its own
+    // top-level section, like Tools.
+    const booksItems: NavItem[] = [
+      { to: '/books', label: 'Books', icon: Wallet, visible: can(role, 'books.access', 'self') },
+    ];
     return [
       { label: null, items: [{ to: '/', label: 'Dashboard', icon: Home, end: true, visible: true }] },
       { label: 'AUDIT', items: auditItems.filter((i) => i.visible) },
       { label: 'WORKSTATION', items: workstationItems.filter((i) => i.visible) },
       { label: 'TOOLS', items: toolsItems.filter((i) => i.visible) },
       { label: 'AUDIT AUTOMATION', items: auditAutomationItems.filter((i) => i.visible) },
+      { label: 'BOOKS', items: booksItems.filter((i) => i.visible) },
     ].filter((g) => g.items.length > 0);
   }, [role]);
 
@@ -186,7 +194,7 @@ export function Sidebar({ mobileOpen, onMobileClose }: Props) {
 
       <aside
         className={
-          'flex flex-col bg-sidebar text-sidebarText ' +
+          'flex flex-col bg-sidebar text-sidebarText lg:border-r lg:border-border ' +
           'fixed inset-y-0 left-0 z-50 max-w-[82vw] ' +
           `${drawer} ` +
           'lg:static lg:z-auto lg:h-full lg:translate-x-0 lg:visible ' +

@@ -130,7 +130,18 @@ export type PermissionCode =
   | 'tools.audit_automation.tally.access'
   | 'tools.audit_automation.tally.company.manage'
   | 'tools.audit_automation.tally.master.read'
-  | 'tools.audit_automation.tally.master.manage';
+  | 'tools.audit_automation.tally.master.manage'
+  // ── Books (docs/accounting-module/README.md) ──────────────────────────
+  // books.access opens the module; scope self = only books the user is a
+  // member of, organisation = every set of books the firm keeps.
+  // books.manage creates books and memberships; settings / reports /
+  // accountant gate those areas inside a set of books (membership role
+  // narrows further: a `staff` member never gets them).
+  | 'books.access'
+  | 'books.manage'
+  | 'books.settings'
+  | 'books.reports'
+  | 'books.accountant';
 
 export interface Grant {
   permission: PermissionCode;
@@ -211,6 +222,10 @@ export const MATRIX: Record<RoleCode, Grant[]> = {
     { permission: 'tools.audit_automation.tally.company.manage', scope: 'self' },
     { permission: 'tools.audit_automation.tally.master.read', scope: 'self' },
     { permission: 'tools.audit_automation.tally.master.manage', scope: 'self' },
+    // Books: only the sets of books this person is assigned to.
+    { permission: 'books.access', scope: 'self' },
+    { permission: 'books.reports', scope: 'self' },
+    { permission: 'books.accountant', scope: 'self' },
   ],
   dept_manager: [
     { permission: 'profile.read', scope: 'self' },
@@ -281,6 +296,12 @@ export const MATRIX: Record<RoleCode, Grant[]> = {
     { permission: 'tools.audit_automation.tally.company.manage', scope: 'organisation' },
     { permission: 'tools.audit_automation.tally.master.read', scope: 'organisation' },
     { permission: 'tools.audit_automation.tally.master.manage', scope: 'organisation' },
+    // Books: every set of books the firm keeps.
+    { permission: 'books.access', scope: 'organisation' },
+    { permission: 'books.manage', scope: 'organisation' },
+    { permission: 'books.settings', scope: 'organisation' },
+    { permission: 'books.reports', scope: 'organisation' },
+    { permission: 'books.accountant', scope: 'organisation' },
   ],
   hr_admin: [
     { permission: 'profile.read', scope: 'self' },
@@ -325,6 +346,12 @@ export const MATRIX: Record<RoleCode, Grant[]> = {
     { permission: 'chat.participate', scope: 'organisation' },
     { permission: 'reports.finance', scope: 'organisation' },
     { permission: 'audit.read.finance', scope: 'organisation' },
+    // Books: the firm's accountants keep every client's books.
+    { permission: 'books.access', scope: 'organisation' },
+    { permission: 'books.manage', scope: 'organisation' },
+    { permission: 'books.settings', scope: 'organisation' },
+    { permission: 'books.reports', scope: 'organisation' },
+    { permission: 'books.accountant', scope: 'organisation' },
   ],
   md: [
     { permission: 'profile.read', scope: 'self' },
@@ -410,6 +437,12 @@ export const MATRIX: Record<RoleCode, Grant[]> = {
     { permission: 'tools.audit_automation.tally.company.manage', scope: 'organisation' },
     { permission: 'tools.audit_automation.tally.master.read', scope: 'organisation' },
     { permission: 'tools.audit_automation.tally.master.manage', scope: 'organisation' },
+    // Books: every set of books the firm keeps.
+    { permission: 'books.access', scope: 'organisation' },
+    { permission: 'books.manage', scope: 'organisation' },
+    { permission: 'books.settings', scope: 'organisation' },
+    { permission: 'books.reports', scope: 'organisation' },
+    { permission: 'books.accountant', scope: 'organisation' },
   ],
 };
 

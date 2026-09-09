@@ -204,6 +204,29 @@ build shows nothing.
 | **Notifications** | `/notifications` | `/api/notifications` | Platform primitive every module emits into |
 | **Settings** | `/hrms/settings` | `/api/settings` | Departments, designations, locations, holidays, leave types, expense categories, statutory rates, role matrix |
 | **Tools** | `/tools` | `/api/tools`, `/api/tool-jobs`, `/api/tool-documents` | Registry-driven converters (12 live, 6 compliance cards "coming soon"), one shared workspace, every output saved to `/tools/documents` with an audit trail |
+| **Books** | `/books` | `/api/books` | Native bookkeeping, one set of books per client: double-entry ledger with database-enforced invariants, sales and purchase chains, GST/TDS, multi-currency, reports |
+
+### Books (accounting)
+
+Our own equivalent of Zoho Books, built into the platform — no Zoho API, no
+SDK, no dependency on their service. One `BooksOrganisation` per end client,
+firm staff assigned per set of books, and hard separation between them.
+
+Every financial record is a journal; invoices, bills, payments and credits
+are wrappers over one posting function. The balance invariant, the
+immutability of posted entries and the append-only audit trail are enforced
+by **database triggers**, not only by service code
+(`server/prisma/sql/books-invariants.*.sql`).
+
+```bash
+npm --prefix server run seed:books    # demo books for two clients
+npm --prefix server run books:reset   # wipe and re-seed (development only)
+npm --prefix server test              # 41 unit, golden-dataset and API tests
+node scripts/verify-books.mjs         # browser verification
+```
+
+Full documentation: `docs/accounting-module/README.md`, with the stack
+decision and the list of open questions beside it.
 
 ### Tools (Converters & Utilities)
 
@@ -346,6 +369,7 @@ node scripts/verify-payroll.mjs       # stage machine, snapshot, immutability
 node scripts/verify-expenses.mjs      # Draft→Paid, contra-ledger
 node scripts/verify-accounts.mjs      # append-only ledger, reverse
 node scripts/verify-tools.mjs         # all 12 tools, search, Documents, scope
+node scripts/verify-books.mjs         # Books: posting, reports, scoping
 ```
 
 Screenshots land in `scripts/shots/` (git-ignored).

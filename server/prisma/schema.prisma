@@ -2211,3 +2211,607 @@ model TallyLedger {
   @@index([tallyCompanyId])
   @@index([groupId])
 }
+// ============================================================
+// BOOKS — native bookkeeping (docs/accounting-module/README.md)
+// ============================================================
+//
+// One BooksOrganisation per end client of the firm. Every table below carries
+// booksOrgId and every read folds it into the where clause. Money is BigInt
+// minor units (paise); a foreign-currency line stores both the transaction
+// amount (fxAmount, fxCurrency) and the base amount (amount) with the rate.
+//
+// The ONE writer of financial state is BooksJournal + BooksJournalLine, via
+// engine/posting.ts. Invoices, bills, payments, credit notes and transfers are
+// wrappers that produce journals. Triggers in prisma/sql/books-invariants.*
+// make an unbalanced posted journal, an edit to a posted journal, or an
+// edit/delete of an audit event impossible at the database.
+
+model BooksOrganisation {
+  id             String  @id @default(uuid())
+  organisationId String
+  /// Optional link to the Workstation client this set of books belongs to.
+  clientId       String?
+  name           String
+  legalName      String?
+  gstin          String?
+  pan            String?
+  /// Two-letter GST state code, e.g. '33' for Tamil Nadu — place-of-supply anchor.
+  stateCode      String?
+  stateName      String?
+  addressLine1   String?
+  addressLine2   String?
+  city           String?
+  pincode        String?
+  baseCurrency   String  @default("INR")
+  fiscalYearStartMonth Int @default(4)
+  /// Enable TDS deduction on purchases.
+  tdsEnabled     Boolean @default(true)
+  isActive       Boolean @default(true)
+
+  memberships BooksMembership[]
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  createdBy String?
+  updatedBy String?
+  deletedAt DateTime?
+
+  @@index([organisationId])
+  @@index([clientId])
+}
+
+/// Firm staff assigned to a set of books. role: admin | staff | viewer.
+model BooksMembership {
+  id         String @id @default(uuid())
+  booksOrgId String
+  userId     String
+  role       String @default("staff")
+
+  booksOrg BooksOrganisation @relation(fields: [booksOrgId], references: [id])
+
+  createdAt DateTime @default(now())
+  createdBy String?
+
+  @@unique([booksOrgId, userId])
+  @@index([userId])
+}
+
+/// Account groups. rootCategory: asset | liability | equity | income | expense.
+/// tallyGroup mirrors Tally's primary group names for a later export.
+model BooksAccountGroup {
+  id            String  @id @default(uuid())
+  booksOrgId    String
+  name          String
+  rootCategory  String
+  tallyGroup    String
+  parentGroupId String?
+  isSystem      Boolean @default(false)
+  sortOrder     Int     @default(0)
+
+  ledgers BooksLedger[]
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  @@unique([booksOrgId, name])
+  @@index([booksOrgId, rootCategory])
+}
+
+/// A ledger account. systemKey names the accounts the engine posts to
+/// (accounts_receivable, cgst_output, round_off, …) so posting never
+/// depends on a user-editable name.
+model BooksLedger {
+  id                 String  @id @default(uuid())
+  booksOrgId         String
+  groupId            String
+  name               String
+  alias              String?
+  code               String?
+  rootCategory       String
+  tallyGroup         String
+  systemKey          String?
+  /// Party ledgers point at their contact.
+  contactId          String?
+  openingBalance     BigInt  @default(0)
+  /// debit | credit
+  openingBalanceType String  @default("debit")
+  openingDate        String?
+  currency           String  @default("INR")
+  billWise           Boolean @default(false)
+  gstin              String?
+  stateCode          String?
+  /// TDS nature of payment / section for expense ledgers, e.g. '194C'.
+  tdsSection         String?
+  bankName           String?
+  bankAccountNo      String?
+  bankIfsc           String?
+  isBank             Boolean @default(false)
+  isCash             Boolean @default(false)
+  isSystem           Boolean @default(false)
+  isActive           Boolean @default(true)
+  description        String?
+
+  group BooksAccountGroup @relation(fields: [groupId], references: [id])
+  lines BooksJournalLine[]
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  createdBy String?
+  updatedBy String?
+  deletedAt DateTime?
+
+  @@unique([booksOrgId, name])
+  @@index([booksOrgId, systemKey])
+  @@index([booksOrgId, rootCategory])
+  @@index([contactId])
+}
+
+/// THE financial record. status: draft | posted | void.
+/// voucherType: journal | opening | invoice | credit_note | payment_in |
+///   bill | vendor_credit | payment_out | transfer | revaluation | retainer_apply
+model BooksJournal {
+  id            String  @id @default(uuid())
+  booksOrgId    String
+  date          String  // 'YYYY-MM-DD'
+  number        String
+  voucherType   String
+  sourceModule  String?
+  sourceId      String?
+  narration     String?
+  status        String  @default("draft")
+  /// Set on the reversing journal that voids another.
+  reversesJournalId String?
+  /// Set on a voided journal, pointing at its reversal.
+  voidedByJournalId String?
+  currency      String  @default("INR")
+  exchangeRate  Float   @default(1)
+  totalDebit    BigInt  @default(0)
+  totalCredit   BigInt  @default(0)
+  postedAt      DateTime?
+  postedBy      String?
+
+  lines       BooksJournalLine[]
+  allocations BooksBillAllocation[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  createdBy String?
+  updatedBy String?
+
+  @@unique([booksOrgId, number])
+  @@index([booksOrgId, date])
+  @@index([booksOrgId, status])
+  @@index([sourceModule, sourceId])
+}
+
+model BooksJournalLine {
+  id            String  @id @default(uuid())
+  journalId     String
+  booksOrgId    String
+  lineNo        Int
+  ledgerId      String
+  /// debit | credit
+  side          String
+  /// Base-currency minor units, always positive.
+  amount        BigInt
+  fxCurrency    String  @default("INR")
+  fxAmount      BigInt
+  exchangeRate  Float   @default(1)
+  partyLedgerId String?
+  taxRateId     String?
+  description   String?
+  /// Bank reconciliation: statement line this entry was matched to.
+  reconciledStatementLineId String?
+  reconciledAt  DateTime?
+
+  journal BooksJournal @relation(fields: [journalId], references: [id])
+  ledger  BooksLedger  @relation(fields: [ledgerId], references: [id])
+
+  @@index([booksOrgId, ledgerId])
+  @@index([journalId])
+}
+
+/// An open item on a bill-wise ledger: one per invoice / bill / advance.
+/// side: debit (receivable) | credit (payable). balance falls as allocations
+/// are posted; status closes at zero.
+model BooksBill {
+  id          String  @id @default(uuid())
+  booksOrgId  String
+  ledgerId    String
+  contactId   String?
+  billNo      String
+  /// new_ref | advance | on_account
+  billType    String  @default("new_ref")
+  sourceType  String
+  sourceId    String
+  date        String
+  dueDate     String?
+  side        String
+  currency    String  @default("INR")
+  fxAmount    BigInt
+  amount      BigInt
+  fxBalance   BigInt
+  balance     BigInt
+  status      String  @default("open")
+
+  allocations BooksBillAllocation[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([booksOrgId, sourceType, sourceId])
+  @@index([booksOrgId, ledgerId, status])
+  @@index([contactId])
+}
+
+/// A journal's effect on an open item. type: new_ref | against_ref | advance | on_account.
+model BooksBillAllocation {
+  id         String @id @default(uuid())
+  booksOrgId String
+  journalId  String
+  billId     String
+  type       String
+  currency   String @default("INR")
+  fxAmount   BigInt
+  amount     BigInt
+
+  journal BooksJournal @relation(fields: [journalId], references: [id])
+  bill    BooksBill    @relation(fields: [billId], references: [id])
+
+  createdAt DateTime @default(now())
+
+  @@index([booksOrgId, billId])
+  @@index([journalId])
+}
+
+/// customer | vendor | both. gstTreatment: business_gst | business_none | overseas | consumer.
+model BooksContact {
+  id                 String  @id @default(uuid())
+  booksOrgId         String
+  type               String
+  displayName        String
+  companyName        String?
+  email              String?
+  phone              String?
+  gstin              String?
+  gstTreatment       String  @default("business_gst")
+  pan                String?
+  placeOfSupplyState String?
+  currency           String  @default("INR")
+  paymentTermsDays   Int     @default(30)
+  creditLimit        BigInt  @default(0)
+  /// TDS section applied to this vendor's bills, e.g. '194J'.
+  tdsSection         String?
+  receivableLedgerId String?
+  payableLedgerId    String?
+  notes              String?
+  isActive           Boolean @default(true)
+
+  persons   BooksContactPerson[]
+  addresses BooksAddress[]
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  createdBy String?
+  updatedBy String?
+  deletedAt DateTime?
+
+  @@index([booksOrgId, type])
+  @@index([booksOrgId, displayName])
+}
+
+model BooksContactPerson {
+  id        String  @id @default(uuid())
+  contactId String
+  name      String
+  email     String?
+  phone     String?
+  designation String?
+  isPrimary Boolean @default(false)
+
+  contact BooksContact @relation(fields: [contactId], references: [id])
+
+  @@index([contactId])
+}
+
+/// kind: billing | shipping
+model BooksAddress {
+  id        String  @id @default(uuid())
+  contactId String
+  kind      String
+  line1     String?
+  line2     String?
+  city      String?
+  stateCode String?
+  stateName String?
+  pincode   String?
+  country   String  @default("IN")
+
+  contact BooksContact @relation(fields: [contactId], references: [id])
+
+  @@index([contactId])
+}
+
+/// itemType: inventory | sales | purchases | sales_and_purchases; productType: goods | service
+model BooksItem {
+  id                String  @id @default(uuid())
+  booksOrgId        String
+  name              String
+  sku               String?
+  unit              String  @default("nos")
+  itemType          String  @default("sales_and_purchases")
+  productType       String  @default("service")
+  sellRate          BigInt  @default(0)
+  purchaseRate      BigInt  @default(0)
+  taxRateId         String?
+  hsnSac            String?
+  salesLedgerId     String?
+  purchaseLedgerId  String?
+  description       String?
+  isActive          Boolean @default(true)
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  @@unique([booksOrgId, name])
+}
+
+/// type: gst | tds | tcs | other. percentage in basis points (1800 = 18%).
+model BooksTaxRate {
+  id          String  @id @default(uuid())
+  booksOrgId  String
+  name        String
+  type        String
+  percentageBp Int
+  /// For TDS: the flat rate when the vendor has no PAN (bp).
+  noPanPercentageBp Int?
+  /// TDS/TCS section code, e.g. '194C'.
+  section     String?
+  isCompound  Boolean @default(false)
+  isActive    Boolean @default(true)
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  @@unique([booksOrgId, name])
+  @@index([booksOrgId, type])
+}
+
+/// One table for every transaction document.
+/// kind: estimate | sales_order | invoice | retainer_invoice | credit_note |
+///       purchase_order | bill | vendor_credit
+/// status: draft | sent | accepted | declined | posted | partially_paid | paid |
+///         closed | void | expired
+model BooksDocument {
+  id             String  @id @default(uuid())
+  booksOrgId     String
+  kind           String
+  number         String
+  contactId      String
+  date           String
+  dueDate        String?
+  expiryDate     String?
+  referenceNo    String?
+  status         String  @default("draft")
+  currency       String  @default("INR")
+  exchangeRate   Float   @default(1)
+  placeOfSupply  String?
+  isInterState   Boolean @default(false)
+  taxInclusive   Boolean @default(false)
+  /// Document-level discount, applied before tax. bp of subtotal or a fixed amount.
+  discountPercentBp Int   @default(0)
+  discountAmount BigInt  @default(0)
+  subtotal       BigInt  @default(0)
+  discountTotal  BigInt  @default(0)
+  taxableTotal   BigInt  @default(0)
+  cgstTotal      BigInt  @default(0)
+  sgstTotal      BigInt  @default(0)
+  igstTotal      BigInt  @default(0)
+  taxTotal       BigInt  @default(0)
+  tdsRateId      String?
+  tdsTotal       BigInt  @default(0)
+  roundOff       BigInt  @default(0)
+  total          BigInt  @default(0)
+  /// Base-currency total (== total when currency is the base).
+  baseTotal      BigInt  @default(0)
+  balanceDue     BigInt  @default(0)
+  /// Remaining unapplied credit on a credit note / vendor credit.
+  creditsRemaining BigInt @default(0)
+  journalId      String?
+  /// The document this one was created from (SO → invoice, PO → bill, …).
+  sourceDocumentId String?
+  recurringProfileId String?
+  notes          String?
+  terms          String?
+  voidReason     String?
+
+  lines BooksDocumentLine[]
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  createdBy String?
+  updatedBy String?
+
+  @@unique([booksOrgId, kind, number])
+  @@index([booksOrgId, kind, status])
+  @@index([booksOrgId, contactId])
+  @@index([booksOrgId, date])
+}
+
+model BooksDocumentLine {
+  id           String  @id @default(uuid())
+  documentId   String
+  booksOrgId   String
+  lineNo       Int
+  itemId       String?
+  description  String
+  hsnSac       String?
+  quantity     Float   @default(1)
+  /// Unit rate in transaction-currency minor units.
+  rate         BigInt
+  discountPercentBp Int @default(0)
+  discountAmount BigInt @default(0)
+  taxRateId    String?
+  taxPercentBp Int     @default(0)
+  taxable      BigInt  @default(0)
+  cgst         BigInt  @default(0)
+  sgst         BigInt  @default(0)
+  igst         BigInt  @default(0)
+  tax          BigInt  @default(0)
+  lineTotal    BigInt  @default(0)
+  /// Income / expense / asset ledger this line posts to.
+  ledgerId     String
+
+  document BooksDocument @relation(fields: [documentId], references: [id])
+
+  @@index([documentId])
+}
+
+/// kind: invoice | bill. frequency: weekly | monthly | quarterly | yearly.
+model BooksRecurringProfile {
+  id           String  @id @default(uuid())
+  booksOrgId   String
+  kind         String
+  name         String
+  contactId    String
+  frequency    String
+  startDate    String
+  endDate      String?
+  nextRunDate  String
+  lastRunDate  String?
+  /// Serialised document input (lines, terms, currency …) used for each run.
+  templateJson String
+  status       String  @default("active")
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  createdBy String?
+
+  @@index([booksOrgId, status, nextRunDate])
+}
+
+/// kind: received | made. Allocations live on the journal (BooksBillAllocation).
+model BooksPayment {
+  id              String  @id @default(uuid())
+  booksOrgId      String
+  kind            String
+  number          String
+  contactId       String
+  date            String
+  currency        String  @default("INR")
+  exchangeRate    Float   @default(1)
+  fxAmount        BigInt
+  amount          BigInt
+  depositLedgerId String
+  bankCharges     BigInt  @default(0)
+  tdsAmount       BigInt  @default(0)
+  mode            String  @default("bank_transfer")
+  reference       String?
+  notes           String?
+  journalId       String?
+  status          String  @default("posted")
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  createdBy String?
+
+  @@unique([booksOrgId, kind, number])
+  @@index([booksOrgId, contactId])
+}
+
+model BooksBankTransfer {
+  id           String @id @default(uuid())
+  booksOrgId   String
+  date         String
+  number       String
+  fromLedgerId String
+  toLedgerId   String
+  amount       BigInt
+  reference    String?
+  notes        String?
+  journalId    String?
+  status       String @default("posted")
+
+  createdAt DateTime @default(now())
+  createdBy String?
+
+  @@unique([booksOrgId, number])
+}
+
+/// A manually entered bank statement line, matched to a journal line.
+model BooksBankStatementLine {
+  id          String  @id @default(uuid())
+  booksOrgId  String
+  ledgerId    String
+  date        String
+  description String
+  /// Signed minor units: positive = money in.
+  amount      BigInt
+  reference   String?
+  matchedJournalLineId String?
+  matchedAt   DateTime?
+
+  createdAt DateTime @default(now())
+  createdBy String?
+
+  @@index([booksOrgId, ledgerId, date])
+}
+
+model BooksExchangeRate {
+  id         String @id @default(uuid())
+  booksOrgId String
+  currency   String
+  date       String
+  rate       Float
+
+  createdAt DateTime @default(now())
+
+  @@unique([booksOrgId, currency, date])
+}
+
+model BooksRevaluation {
+  id         String @id @default(uuid())
+  booksOrgId String
+  date       String
+  currency   String
+  rate       Float
+  /// Signed base-currency delta booked to the FX gain/loss ledger.
+  delta      BigInt
+  journalId  String?
+  detailJson String
+
+  createdAt DateTime @default(now())
+  createdBy String?
+
+  @@index([booksOrgId, date])
+}
+
+model BooksNumberSequence {
+  id         String @id @default(uuid())
+  booksOrgId String
+  kind       String
+  prefix     String
+  next       Int    @default(1)
+
+  @@unique([booksOrgId, kind])
+}
+
+/// Append-only. Triggers forbid UPDATE and DELETE.
+model BooksAuditEvent {
+  id          String  @id @default(uuid())
+  booksOrgId  String
+  actorUserId String?
+  entityType  String
+  entityId    String
+  action      String
+  beforeJson  String?
+  afterJson   String?
+  ip          String?
+  createdAt   DateTime @default(now())
+
+  @@index([booksOrgId, entityType, entityId])
+  @@index([booksOrgId, createdAt])
+}

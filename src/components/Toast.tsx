@@ -31,7 +31,9 @@ export function ToastProvider({ children }: { children: ReactNode }) {
   return (
     <Ctx.Provider value={{ push }}>
       {children}
-      <div className="fixed right-4 bottom-4 z-50 flex flex-col gap-2">
+      {/* Click-through: a toast is text with no controls, and drawer footers
+          sit in this same corner — it must never swallow their clicks. */}
+      <div className="fixed right-4 bottom-4 z-50 flex flex-col gap-2 pointer-events-none">
         {toasts.map((t) => (
           <div
             key={t.id}

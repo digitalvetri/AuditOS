@@ -8,10 +8,13 @@
     "build": "tsc -p tsconfig.json",
     "start": "node dist/src/index.js",
     "typecheck": "tsc --noEmit -p tsconfig.json",
+    "test": "vitest run",
     "prisma:generate": "prisma generate",
     "prisma:push": "prisma db push --skip-generate",
     "seed": "tsx prisma/seed.ts",
     "seed:tools": "tsx prisma/seed-tools.ts",
+    "seed:books": "tsx prisma/seed-books.ts",
+    "books:reset": "tsx prisma/reset-books.ts",
     "db:reset": "rm -f prisma/dev.db prisma/dev.db-journal && npm run prisma:push && npm run seed"
   },
   "prisma": {
@@ -48,6 +51,7 @@
     "@types/pdfkit": "0.13.9",
     "prisma": "5.22.0",
     "tsx": "4.19.2",
-    "typescript": "5.7.2"
+    "typescript": "5.7.2",
+    "vitest": "2.1.9"
   }
 }
