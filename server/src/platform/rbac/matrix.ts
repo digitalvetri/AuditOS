@@ -1,5 +1,5 @@
-/**
- * PERMISSION MATRIX — the canonical, server-side source (§5).
+﻿/**
+ * PERMISSION MATRIX â€” the canonical, server-side source (Â§5).
  *
  * The React client carries an identical copy at src/platform/rbac/matrix.ts,
  * but that copy exists only to decide what to render. This file is the
@@ -28,7 +28,7 @@ export type PermissionCode =
   | 'reports.hr' | 'reports.finance' | 'reports.all'
   | 'audit.read.hr' | 'audit.read.finance' | 'audit.read.all'
   | 'settings.manage'
-  // ── Workstation (AUDIT_OS_WORKSTATION.md §6) ─────────────────────────
+  // â”€â”€ Workstation (AUDIT_OS_WORKSTATION.md Â§6) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   // Namespaced: `workstation.document.read` is CLIENT documents, never
   // EmployeeDocument. No Workstation code collides with an HRMS code.
   | 'workstation.access'
@@ -50,7 +50,7 @@ export type PermissionCode =
   | 'workstation.eway.generate'
   | 'workstation.eway.cancel'
 
-  // ── Tools (Converters & Utilities) ────────────────────────────────────
+  // â”€â”€ Tools (Converters & Utilities) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   // One code per tool (registry `permission`), plus module access and the
   // Documents view. Compliance converters carry a code already so flipping
   // a tool to `active` later never touches the matrix.
@@ -75,8 +75,21 @@ export type PermissionCode =
   | 'tools.excel_to_tally_xml'
   | 'tools.tds_fvu_generator'
   | 'tools.invoice_to_einvoice_json'
+  // â”€â”€ Audit Automation (AMENDMENT-02-REPOTIC-GAPS.md) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // Submodule of Tools with its own pipeline (bank statement ingestion).
+  | 'tools.audit_automation.access'
+  | 'tools.audit_automation.bank.upload'
+  | 'tools.audit_automation.bank.view'
+  | 'tools.audit_automation.gst.upload'
+  | 'tools.audit_automation.gst.view'
+  | 'tools.audit_automation.tds.upload'
+  | 'tools.audit_automation.tds.view'
+  | 'tools.audit_automation.tally.access'
+  | 'tools.audit_automation.tally.company.manage'
+  | 'tools.audit_automation.tally.master.read'
+  | 'tools.audit_automation.tally.master.manage'
 
-  // ── Books (docs/accounting-module/README.md) ──────────────────────────
+  // â”€â”€ Books (docs/accounting-module/README.md) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   // books.access opens the module; scope self = only books the user is a
   // member of, organisation = every set of books the firm keeps.
   // books.manage creates books and memberships; settings / reports /
@@ -109,7 +122,7 @@ export const MATRIX: Record<RoleCode, Grant[]> = {
     { permission: 'chat.participate', scope: 'organisation' },
     { permission: 'reports.hr', scope: 'self' },
     // Workstation: assignment-scoped. `self` here means "rows assigned
-    // to me" — resolved by assignedClientIds(), never a post-fetch filter.
+    // to me" â€” resolved by assignedClientIds(), never a post-fetch filter.
     { permission: 'workstation.access', scope: 'self' },
     { permission: 'workstation.lead.read', scope: 'self' },
     { permission: 'workstation.lead.manage', scope: 'self' },
@@ -146,6 +159,17 @@ export const MATRIX: Record<RoleCode, Grant[]> = {
     { permission: 'tools.excel_to_tally_xml', scope: 'self' },
     { permission: 'tools.tds_fvu_generator', scope: 'self' },
     { permission: 'tools.invoice_to_einvoice_json', scope: 'self' },
+    { permission: 'tools.audit_automation.access', scope: 'self' },
+    { permission: 'tools.audit_automation.bank.upload', scope: 'self' },
+    { permission: 'tools.audit_automation.bank.view', scope: 'self' },
+    { permission: 'tools.audit_automation.gst.upload', scope: 'self' },
+    { permission: 'tools.audit_automation.gst.view', scope: 'self' },
+    { permission: 'tools.audit_automation.tds.upload', scope: 'self' },
+    { permission: 'tools.audit_automation.tds.view', scope: 'self' },
+    { permission: 'tools.audit_automation.tally.access', scope: 'self' },
+    { permission: 'tools.audit_automation.tally.company.manage', scope: 'self' },
+    { permission: 'tools.audit_automation.tally.master.read', scope: 'self' },
+    { permission: 'tools.audit_automation.tally.master.manage', scope: 'self' },
     // Books: only the sets of books this person is assigned to.
     { permission: 'books.access', scope: 'self' },
     { permission: 'books.reports', scope: 'self' },
@@ -168,7 +192,7 @@ export const MATRIX: Record<RoleCode, Grant[]> = {
     { permission: 'document.read', scope: 'department' },
     { permission: 'chat.participate', scope: 'organisation' },
     { permission: 'reports.hr', scope: 'department' },
-    // Workstation: full operational access (§14 Operations Manager / MD).
+    // Workstation: full operational access (Â§14 Operations Manager / MD).
     { permission: 'workstation.access', scope: 'organisation' },
     { permission: 'workstation.lead.read', scope: 'organisation' },
     { permission: 'workstation.lead.manage', scope: 'organisation' },
@@ -209,6 +233,17 @@ export const MATRIX: Record<RoleCode, Grant[]> = {
     { permission: 'tools.excel_to_tally_xml', scope: 'organisation' },
     { permission: 'tools.tds_fvu_generator', scope: 'organisation' },
     { permission: 'tools.invoice_to_einvoice_json', scope: 'organisation' },
+    { permission: 'tools.audit_automation.access', scope: 'organisation' },
+    { permission: 'tools.audit_automation.bank.upload', scope: 'organisation' },
+    { permission: 'tools.audit_automation.bank.view', scope: 'organisation' },
+    { permission: 'tools.audit_automation.gst.upload', scope: 'organisation' },
+    { permission: 'tools.audit_automation.gst.view', scope: 'organisation' },
+    { permission: 'tools.audit_automation.tds.upload', scope: 'organisation' },
+    { permission: 'tools.audit_automation.tds.view', scope: 'organisation' },
+    { permission: 'tools.audit_automation.tally.access', scope: 'organisation' },
+    { permission: 'tools.audit_automation.tally.company.manage', scope: 'organisation' },
+    { permission: 'tools.audit_automation.tally.master.read', scope: 'organisation' },
+    { permission: 'tools.audit_automation.tally.master.manage', scope: 'organisation' },
     // Books: every set of books the firm keeps.
     { permission: 'books.access', scope: 'organisation' },
     { permission: 'books.manage', scope: 'organisation' },
@@ -229,7 +264,7 @@ export const MATRIX: Record<RoleCode, Grant[]> = {
     { permission: 'leave.manage', scope: 'organisation' },
     { permission: 'leave.approve', scope: 'organisation' },
     { permission: 'salary.manage', scope: 'organisation' },
-    // §5 makes payroll.view separately grantable and off by default. The demo
+    // Â§5 makes payroll.view separately grantable and off by default. The demo
     // seed grants it so HR can drive a run end to end; revoke it in Settings
     // to see the spec default.
     { permission: 'payroll.view', scope: 'organisation' },
@@ -245,7 +280,7 @@ export const MATRIX: Record<RoleCode, Grant[]> = {
   finance_admin: [
     { permission: 'profile.read', scope: 'self' },
     { permission: 'profile.write.contact', scope: 'self' },
-    // §5‡ — the restricted six-field projection, never a full employee read.
+    // Â§5â€¡ â€” the restricted six-field projection, never a full employee read.
     { permission: 'employee.read.restricted', scope: 'organisation' },
     { permission: 'payroll.approve', scope: 'organisation' },
     { permission: 'payroll.process', scope: 'organisation' },
@@ -295,7 +330,7 @@ export const MATRIX: Record<RoleCode, Grant[]> = {
     { permission: 'reports.all', scope: 'organisation' },
     { permission: 'audit.read.all', scope: 'organisation' },
     { permission: 'settings.manage', scope: 'organisation' },
-    // Workstation: full operational access (§14 Operations Manager / MD).
+    // Workstation: full operational access (Â§14 Operations Manager / MD).
     { permission: 'workstation.access', scope: 'organisation' },
     { permission: 'workstation.lead.read', scope: 'organisation' },
     { permission: 'workstation.lead.manage', scope: 'organisation' },
@@ -336,6 +371,17 @@ export const MATRIX: Record<RoleCode, Grant[]> = {
     { permission: 'tools.excel_to_tally_xml', scope: 'organisation' },
     { permission: 'tools.tds_fvu_generator', scope: 'organisation' },
     { permission: 'tools.invoice_to_einvoice_json', scope: 'organisation' },
+    { permission: 'tools.audit_automation.access', scope: 'organisation' },
+    { permission: 'tools.audit_automation.bank.upload', scope: 'organisation' },
+    { permission: 'tools.audit_automation.bank.view', scope: 'organisation' },
+    { permission: 'tools.audit_automation.gst.upload', scope: 'organisation' },
+    { permission: 'tools.audit_automation.gst.view', scope: 'organisation' },
+    { permission: 'tools.audit_automation.tds.upload', scope: 'organisation' },
+    { permission: 'tools.audit_automation.tds.view', scope: 'organisation' },
+    { permission: 'tools.audit_automation.tally.access', scope: 'organisation' },
+    { permission: 'tools.audit_automation.tally.company.manage', scope: 'organisation' },
+    { permission: 'tools.audit_automation.tally.master.read', scope: 'organisation' },
+    { permission: 'tools.audit_automation.tally.master.manage', scope: 'organisation' },
     // Books: every set of books the firm keeps.
     { permission: 'books.access', scope: 'organisation' },
     { permission: 'books.manage', scope: 'organisation' },
@@ -434,12 +480,23 @@ export const PERMISSION_DESCRIPTIONS: Record<string, string> = {
   'tools.unlock_pdf': 'Use the Unlock PDF tool',
   'tools.esign_pdf': 'Use the e-Sign PDF tool',
   'tools.ocr_scan': 'Use the OCR Scan tool',
-  'tools.gst_json_excel': 'Use the GST JSON ⇄ Excel tool',
+  'tools.gst_json_excel': 'Use the GST JSON â‡„ Excel tool',
   'tools.bank_statement_to_excel': 'Use the Bank Statement to Excel tool',
   'tools.form_26as_to_excel': 'Use the Form 26AS to Excel tool',
   'tools.excel_to_tally_xml': 'Use the Excel to Tally XML tool',
   'tools.tds_fvu_generator': 'Use the TDS Text/FVU Generator tool',
   'tools.invoice_to_einvoice_json': 'Use the Invoice to e-Invoice JSON tool',
+  'tools.audit_automation.access': 'Open the Audit Automation submodule',
+  'tools.audit_automation.bank.upload': 'Upload a bank statement for automated processing',
+  'tools.audit_automation.bank.view': 'View bank-statement processing jobs',
+  'tools.audit_automation.gst.upload': 'Upload GSTR-2B or Purchase Register and run reconciliation',
+  'tools.audit_automation.gst.view': 'View GST reconciliation jobs and results',
+  'tools.audit_automation.tds.upload': 'Upload Form 26AS or TDS books and run reconciliation',
+  'tools.audit_automation.tds.view': 'View TDS reconciliation jobs and results',
+  'tools.audit_automation.tally.access': 'Open the Tally accounting module',
+  'tools.audit_automation.tally.company.manage': 'Create and edit Tally companies and financial years',
+  'tools.audit_automation.tally.master.read': 'View Tally groups and ledgers',
+  'tools.audit_automation.tally.master.manage': 'Create, edit and delete Tally groups and ledgers',
   'books.access': 'Open the Books module',
   'books.manage': 'Create sets of books and assign staff',
   'books.settings': 'Change a set of books\' settings, taxes and chart of accounts',

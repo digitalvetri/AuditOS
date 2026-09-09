@@ -118,6 +118,19 @@ export type PermissionCode =
   | 'tools.excel_to_tally_xml'
   | 'tools.tds_fvu_generator'
   | 'tools.invoice_to_einvoice_json'
+  // ── Audit Automation (AMENDMENT-02-REPOTIC-GAPS.md) ─────────────────
+  // Submodule of Tools; bank-statement ingestion pipeline.
+  | 'tools.audit_automation.access'
+  | 'tools.audit_automation.bank.upload'
+  | 'tools.audit_automation.bank.view'
+  | 'tools.audit_automation.gst.upload'
+  | 'tools.audit_automation.gst.view'
+  | 'tools.audit_automation.tds.upload'
+  | 'tools.audit_automation.tds.view'
+  | 'tools.audit_automation.tally.access'
+  | 'tools.audit_automation.tally.company.manage'
+  | 'tools.audit_automation.tally.master.read'
+  | 'tools.audit_automation.tally.master.manage'
   // ── Books (docs/accounting-module/README.md) ──────────────────────────
   // books.access opens the module; scope self = only books the user is a
   // member of, organisation = every set of books the firm keeps.
@@ -198,6 +211,17 @@ export const MATRIX: Record<RoleCode, Grant[]> = {
     { permission: 'tools.excel_to_tally_xml', scope: 'self' },
     { permission: 'tools.tds_fvu_generator', scope: 'self' },
     { permission: 'tools.invoice_to_einvoice_json', scope: 'self' },
+    { permission: 'tools.audit_automation.access', scope: 'self' },
+    { permission: 'tools.audit_automation.bank.upload', scope: 'self' },
+    { permission: 'tools.audit_automation.bank.view', scope: 'self' },
+    { permission: 'tools.audit_automation.gst.upload', scope: 'self' },
+    { permission: 'tools.audit_automation.gst.view', scope: 'self' },
+    { permission: 'tools.audit_automation.tds.upload', scope: 'self' },
+    { permission: 'tools.audit_automation.tds.view', scope: 'self' },
+    { permission: 'tools.audit_automation.tally.access', scope: 'self' },
+    { permission: 'tools.audit_automation.tally.company.manage', scope: 'self' },
+    { permission: 'tools.audit_automation.tally.master.read', scope: 'self' },
+    { permission: 'tools.audit_automation.tally.master.manage', scope: 'self' },
     // Books: only the sets of books this person is assigned to.
     { permission: 'books.access', scope: 'self' },
     { permission: 'books.reports', scope: 'self' },
@@ -261,6 +285,17 @@ export const MATRIX: Record<RoleCode, Grant[]> = {
     { permission: 'tools.excel_to_tally_xml', scope: 'organisation' },
     { permission: 'tools.tds_fvu_generator', scope: 'organisation' },
     { permission: 'tools.invoice_to_einvoice_json', scope: 'organisation' },
+    { permission: 'tools.audit_automation.access', scope: 'organisation' },
+    { permission: 'tools.audit_automation.bank.upload', scope: 'organisation' },
+    { permission: 'tools.audit_automation.bank.view', scope: 'organisation' },
+    { permission: 'tools.audit_automation.gst.upload', scope: 'organisation' },
+    { permission: 'tools.audit_automation.gst.view', scope: 'organisation' },
+    { permission: 'tools.audit_automation.tds.upload', scope: 'organisation' },
+    { permission: 'tools.audit_automation.tds.view', scope: 'organisation' },
+    { permission: 'tools.audit_automation.tally.access', scope: 'organisation' },
+    { permission: 'tools.audit_automation.tally.company.manage', scope: 'organisation' },
+    { permission: 'tools.audit_automation.tally.master.read', scope: 'organisation' },
+    { permission: 'tools.audit_automation.tally.master.manage', scope: 'organisation' },
     // Books: every set of books the firm keeps.
     { permission: 'books.access', scope: 'organisation' },
     { permission: 'books.manage', scope: 'organisation' },
@@ -391,6 +426,17 @@ export const MATRIX: Record<RoleCode, Grant[]> = {
     { permission: 'tools.excel_to_tally_xml', scope: 'organisation' },
     { permission: 'tools.tds_fvu_generator', scope: 'organisation' },
     { permission: 'tools.invoice_to_einvoice_json', scope: 'organisation' },
+    { permission: 'tools.audit_automation.access', scope: 'organisation' },
+    { permission: 'tools.audit_automation.bank.upload', scope: 'organisation' },
+    { permission: 'tools.audit_automation.bank.view', scope: 'organisation' },
+    { permission: 'tools.audit_automation.gst.upload', scope: 'organisation' },
+    { permission: 'tools.audit_automation.gst.view', scope: 'organisation' },
+    { permission: 'tools.audit_automation.tds.upload', scope: 'organisation' },
+    { permission: 'tools.audit_automation.tds.view', scope: 'organisation' },
+    { permission: 'tools.audit_automation.tally.access', scope: 'organisation' },
+    { permission: 'tools.audit_automation.tally.company.manage', scope: 'organisation' },
+    { permission: 'tools.audit_automation.tally.master.read', scope: 'organisation' },
+    { permission: 'tools.audit_automation.tally.master.manage', scope: 'organisation' },
     // Books: every set of books the firm keeps.
     { permission: 'books.access', scope: 'organisation' },
     { permission: 'books.manage', scope: 'organisation' },

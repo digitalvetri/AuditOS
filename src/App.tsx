@@ -22,6 +22,25 @@ import { DocumentsPage as WorkstationDocumentsPage } from '@/pages/workstation/D
 import { ToolsPage } from '@/pages/tools/Tools';
 import { ToolWorkspacePage } from '@/pages/tools/ToolWorkspace';
 import { ToolDocumentsPage } from '@/pages/tools/ToolDocuments';
+// Audit Automation submodule (AMENDMENT-02-REPOTIC-GAPS.md).
+import { AuditAutomationLandingPage } from '@/pages/tools/AuditAutomation';
+import { BankJobsListPage } from '@/pages/tools/BankJobsList';
+import { BankNewUploadPage } from '@/pages/tools/BankNewUpload';
+import { BankJobDetailPage } from '@/pages/tools/BankJobDetail';
+// GST reconciliation pipeline.
+import { GstJobsListPage } from '@/pages/tools/GstJobsList';
+import { GstNewReconPage } from '@/pages/tools/GstNewRecon';
+import { GstReconDetailPage } from '@/pages/tools/GstReconDetail';
+// TDS reconciliation pipeline.
+import { TdsJobsListPage } from '@/pages/tools/TdsJobsList';
+import { TdsNewReconPage } from '@/pages/tools/TdsNewRecon';
+import { TdsReconDetailPage } from '@/pages/tools/TdsReconDetail';
+// Tally — native double-entry accounting (Preview, Slice 1: Foundation).
+import { TallyHome } from '@/pages/tools/tally/TallyHome';
+import { TallyCompanies } from '@/pages/tools/tally/TallyCompanies';
+import { TallyWorkspace } from '@/pages/tools/tally/TallyWorkspace';
+import { TallyGroups } from '@/pages/tools/tally/TallyGroups';
+import { TallyLedgers } from '@/pages/tools/tally/TallyLedgers';
 // Books — native bookkeeping, one set of books per client.
 import { BooksListPage } from '@/pages/books/BooksList';
 import { BooksShell } from '@/pages/books/BooksShell';
@@ -122,6 +141,24 @@ export default function App() {
               <Route path="tools" element={<ToolsPage />} />
               <Route path="tools/documents" element={<ToolDocumentsPage />} />
               <Route path="tools/:toolId" element={<ToolWorkspacePage />} />
+
+              {/* Audit Automation — top-level module, sibling of Tools. */}
+              <Route path="audit-automation" element={<AuditAutomationLandingPage />} />
+              <Route path="audit-automation/bank" element={<BankJobsListPage />} />
+              <Route path="audit-automation/bank/new" element={<BankNewUploadPage />} />
+              <Route path="audit-automation/bank/jobs/:jobId" element={<BankJobDetailPage />} />
+              <Route path="audit-automation/gst" element={<GstJobsListPage />} />
+              <Route path="audit-automation/gst/new" element={<GstNewReconPage />} />
+              <Route path="audit-automation/gst/jobs/:jobId" element={<GstReconDetailPage />} />
+              <Route path="audit-automation/tds" element={<TdsJobsListPage />} />
+              <Route path="audit-automation/tds/new" element={<TdsNewReconPage />} />
+              <Route path="audit-automation/tds/jobs/:jobId" element={<TdsReconDetailPage />} />
+              <Route path="audit-automation/tally" element={<TallyHome />} />
+              <Route path="audit-automation/tally/companies" element={<TallyCompanies />} />
+              <Route path="audit-automation/tally/companies/:companyId" element={<TallyWorkspace />}>
+                <Route path="masters/groups" element={<TallyGroups />} />
+                <Route path="masters/ledgers" element={<TallyLedgers />} />
+              </Route>
 
               {/* Books — the client list, then one shell per set of books
                   whose tabs are nested routes so each is deep-linkable. */}

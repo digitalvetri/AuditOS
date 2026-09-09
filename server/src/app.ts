@@ -30,6 +30,15 @@ import {
 import { workstationRouter } from './modules/workstation/workstation.routes.js'
 // Tools (Converters & Utilities) — registry-driven file conversions.
 import { toolsRouter, toolJobsRouter, toolDocumentsRouter, toolsSignedRouter } from './modules/tools/routes.js'
+// Audit Automation (AMENDMENT-02-REPOTIC-GAPS.md) — bank-statement pipeline
+// with password support, scanned-document rejection, per-client dedupe.
+import { auditAutomationRouter } from './modules/audit-automation/routes.js'
+// Audit Automation · GST reconciliation (GSTR-2B vs Purchase Register).
+import { gstRouter } from './modules/audit-automation/gst.routes.js'
+// Audit Automation · TDS reconciliation (Form 26AS vs Books TDS register).
+import { tdsRouter } from './modules/audit-automation/tds.routes.js'
+// Tally — native double-entry accounting module (foundation slice).
+import { tallyRouter } from './modules/tally/routes.js'
 // Books — native bookkeeping, one set of books per client (docs/accounting-module).
 import { booksRouter } from './modules/books/routes.js'
 
@@ -120,6 +129,17 @@ export function createApp() {
   app.use('/api/tools', toolsRouter)
   app.use('/api/tool-jobs', toolJobsRouter)
   app.use('/api/tool-documents', toolDocumentsRouter)
+
+  // ── Audit Automation (submodule of Tools) ──────────────────────────────
+  // Mount more-specific paths first so Express's prefix matching lands on
+  // the right router — auditAutomationRouter has no /gst or /tds routes
+  // but its prefix would still consume the path.
+  app.use('/api/audit-automation/gst', gstRouter)
+  app.use('/api/audit-automation/tds', tdsRouter)
+  app.use('/api/audit-automation', auditAutomationRouter)
+
+  // ── Tally (native double-entry accounting) ─────────────────────────────
+  app.use('/api/tally', tallyRouter)
 
   // ── Books ──────────────────────────────────────────────────────────────
   app.use('/api/books', booksRouter)
