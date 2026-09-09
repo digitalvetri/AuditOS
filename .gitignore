@@ -6,6 +6,7 @@ dist-ssr
 .env
 .env.*
 !.env.example
+!.env.docker.example
 
 # Local databases — SQLite dev files live under server/prisma/.
 *.db
