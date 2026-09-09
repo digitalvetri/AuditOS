@@ -2,7 +2,8 @@ import cors from 'cors'
 import cookieParser from 'cookie-parser'
 import express from 'express'
 import { env } from './lib/env.js'
-import { errorMiddleware, ok } from './lib/http.js'
+import { ApiError, errorMiddleware, ok } from './lib/http.js'
+import { isAllowedOrigin } from './lib/origin.js'
 import { authenticate } from './platform/auth.js'
 import { authRouter } from './modules/auth.routes.js'
 import { employeesRouter } from './modules/employees.routes.js'
@@ -56,13 +57,21 @@ export function createApp() {
   app.disable('x-powered-by')
   app.set('trust proxy', 1)
 
-  // Credentialed CORS: an explicit origin allow-list, never '*'. In the
-  // default dev setup Vite proxies /api, so this only matters when the
-  // frontend is served from a different origin.
+  // Credentialed CORS: an explicit origin allow-list, never '*'. Note that
+  // this applies to proxied dev traffic too — Vite forwards the browser's
+  // Origin header verbatim (changeOrigin: false), so /api through the proxy
+  // is NOT same-origin as far as this server is concerned. Outside
+  // production any loopback/private-LAN origin is accepted as well, so a
+  // changed machine IP does not silently break login (see lib/origin.ts).
   app.use(cors({
     origin(origin, callback) {
-      if (!origin || env.webOrigins.includes(origin)) return callback(null, true)
-      callback(new Error('Origin not allowed'))
+      if (!origin || isAllowedOrigin(origin, env.webOrigins, !env.isProduction)) {
+        return callback(null, true)
+      }
+      // A named 403, not an opaque 500: the browser still blocks the
+      // response, but the status and body say exactly what to fix.
+      callback(new ApiError(403, 'origin_not_allowed',
+        `Origin ${origin} is not allowed. Add it to WEB_ORIGIN.`))
     },
     credentials: true,
   }))

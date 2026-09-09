@@ -6,10 +6,10 @@
  *
  * Order (top → bottom):
  *   Dashboard (no section label)
- *   AUDIT      — 10 items
+ *   HRMS        — 10 items
  *   WORKSTATION — 6 items
- *   TOOLS       — 1 item (its own section, a sibling of Workstation)
- *   BOOKS       — 1 item (native bookkeeping)
+ *   TOOLS       — 3 items: Tools (converters), Repotic (bank/GST/TDS),
+ *                 Books (native bookkeeping). One section, three siblings.
  */
 import { NavLink, useLocation } from 'react-router-dom';
 import { useEffect, useMemo, useState } from 'react';
@@ -92,30 +92,24 @@ export function Sidebar({ mobileOpen, onMobileClose }: Props) {
       { to: '/workstation/services',    label: 'Services',   icon: Briefcase,     visible: can(role, 'workstation.service.read', 'self') },
       { to: '/workstation/documents',   label: 'Documents',  icon: FolderKanban,  visible: can(role, 'workstation.document.read', 'self') },
     ];
-    // Tools is its own top-level module — a sibling of Workstation, never a
-    // Workstation child. Its own labelled section, so it folds independently.
+    // TOOLS is one labelled section — a sibling of Workstation — holding the
+    // three tool modules as siblings inside it: Tools (converters), Repotic
+    // (bank / GST / TDS pipelines) and Books (native bookkeeping). They fold
+    // together under the single TOOLS header. Each row keeps its own grant,
+    // so a role with only one of the three still sees just that row.
     const toolsItems: NavItem[] = [
-      { to: '/tools', label: 'Tools', icon: Wrench, visible: can(role, 'tools.access', 'self') },
-    ];
-    // Audit Automation is its own top-level module too — AMENDMENT-02 puts
-    // the bank-statement pipeline (and future GST / TDS pipelines) at the
-    // same level as Tools, not inside it.
-    const auditAutomationItems: NavItem[] = [
+      { to: '/tools', label: 'Tools', icon: Wrench,
+        visible: can(role, 'tools.access', 'self') },
       { to: '/audit-automation', label: 'Repotic', icon: Landmark,
         visible: can(role, 'tools.audit_automation.access', 'self') },
-    ];
-    // Books — native bookkeeping, one set of books per client. Its own
-    // top-level section, like Tools.
-    const booksItems: NavItem[] = [
-      { to: '/books', label: 'Books', icon: Wallet, visible: can(role, 'books.access', 'self') },
+      { to: '/books', label: 'Books', icon: Wallet,
+        visible: can(role, 'books.access', 'self') },
     ];
     return [
       { label: null, items: [{ to: '/', label: 'Dashboard', icon: Home, end: true, visible: true }] },
-      { label: 'AUDIT', items: auditItems.filter((i) => i.visible) },
+      { label: 'HRMS', items: auditItems.filter((i) => i.visible) },
       { label: 'WORKSTATION', items: workstationItems.filter((i) => i.visible) },
       { label: 'TOOLS', items: toolsItems.filter((i) => i.visible) },
-      { label: 'AUDIT AUTOMATION', items: auditAutomationItems.filter((i) => i.visible) },
-      { label: 'BOOKS', items: booksItems.filter((i) => i.visible) },
     ].filter((g) => g.items.length > 0);
   }, [role]);
 
