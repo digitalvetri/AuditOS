@@ -6,7 +6,7 @@ import type { LucideIcon } from 'lucide-react';
 
 /**
  * Tally company workspace — secondary left nav for a single company.
- * Wraps every /audit-automation/tally/companies/:companyId/* route.
+ * Wraps every /tally/companies/:companyId/* route.
  *
  * Slice 1 lights up: Masters → Groups and Masters → Ledgers.
  * Other nav rows show a "coming next" pill and link to a placeholder.
@@ -22,7 +22,7 @@ export function TallyWorkspace() {
   return (
     <div className="max-w-[1600px] mx-auto" data-testid="tally-workspace">
       <div className="mb-4 flex items-center gap-3">
-        <Link to="/audit-automation/tally/companies" className="inline-flex items-center gap-1 text-13 text-neutral-500 hover:text-neutral-900">
+        <Link to="/tally/companies" className="inline-flex items-center gap-1 text-13 text-neutral-500 hover:text-neutral-900">
           <ArrowLeft size={14} strokeWidth={1.75} /> Companies
         </Link>
       </div>
@@ -57,7 +57,7 @@ interface NavRow {
 }
 
 function SecondaryNav({ companyId }: { companyId: string }) {
-  const base = `/audit-automation/tally/companies/${companyId}`;
+  const base = `/tally/companies/${companyId}`;
   const rows: NavRow[] = [
     { to: `${base}`, label: 'Dashboard', icon: LayoutDashboard, comingSoon: true, end: true },
     { to: `${base}/masters/groups`, label: 'Groups', icon: FolderTree },
