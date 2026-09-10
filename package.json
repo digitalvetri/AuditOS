@@ -14,7 +14,13 @@
     "type-check:api": "npm --prefix server run typecheck",
     "db:setup": "npm --prefix server run prisma:generate && npm --prefix server run prisma:push && npm --prefix server run seed",
     "db:reset": "npm --prefix server run db:reset",
-    "setup": "npm install && npm --prefix server install && npm run db:setup"
+    "setup": "npm install && npm --prefix server install && npm run db:setup",
+    "docker:up": "docker compose up -d --build",
+    "docker:down": "docker compose down",
+    "docker:logs": "docker compose logs -f api web",
+    "docker:ps": "docker compose ps",
+    "docker:seed": "docker compose run --rm migrate",
+    "docker:reset": "docker compose down -v && docker compose up -d --build"
   },
   "dependencies": {
     "@tanstack/react-query": "^5.59.0",

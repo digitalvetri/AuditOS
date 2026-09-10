@@ -5,7 +5,9 @@
   "type": "module",
   "scripts": {
     "dev": "tsx watch src/index.ts",
-    "build": "tsc -p tsconfig.json",
+    "build": "tsc -p tsconfig.json && npm run build:copy-sql",
+    "_comment_build_copy_sql": "tsc emits prisma/*.ts to dist/prisma/, and the Books invariants loader resolves its .sql beside the compiled output — but tsc does not copy non-TS files, so the compiled server would boot without its ledger triggers. node -e rather than cp so the script is not shell-specific.",
+    "build:copy-sql": "node -e \"require('node:fs').cpSync('prisma/sql', 'dist/prisma/sql', { recursive: true })\"",
     "start": "node dist/src/index.js",
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "test": "vitest run",
