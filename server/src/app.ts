@@ -22,6 +22,7 @@ import { signedRouter } from './modules/signed.routes.js'
 import { leadsRouter } from './modules/workstation/leads.routes.js'
 import { clientsRouter } from './modules/workstation/clients.routes.js'
 import { servicesRouter, serviceCatalogRouter } from './modules/workstation/services.routes.js'
+import { bookkeepingRouter } from './modules/bookkeeping/routes.js'
 import { followUpsRouter } from './modules/workstation/followups.routes.js'
 import {
   documentsRouter as wsDocumentsRouter,
@@ -125,6 +126,8 @@ export function createApp() {
   app.use('/api/services', servicesRouter)
   app.use('/api/service-catalog', serviceCatalogRouter)
   app.use('/api/follow-ups', followUpsRouter)
+  // Bookkeeping Service — the service-management layer over Books.
+  app.use('/api/bookkeeping', bookkeepingRouter)
   // NOT '/api/documents': that path already belongs to the HRMS
   // EmployeeDocument router mounted above, and Express matches the first
   // mount — so mounting here would shadow the Workstation list and silently

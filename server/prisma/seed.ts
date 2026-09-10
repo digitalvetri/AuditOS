@@ -22,6 +22,7 @@ import { seedWorkstation } from './seed-workstation.js'
 import { seedTools } from './seed-tools.js'
 import { seedAuditAutomation } from './seed-audit-automation.js'
 import { seedBooks } from './seed-books.js'
+import { seedBookkeeping } from './seed-bookkeeping.js'
 
 const prisma = new PrismaClient()
 
@@ -923,6 +924,7 @@ async function main() {
   await seedTools(prisma)
   await seedAuditAutomation(prisma)
   await seedBooks(prisma, org.id)
+  const bookkeeping = await seedBookkeeping(prisma, org.id)
 
   const counts = {
     employees: await prisma.employee.count(),
@@ -936,6 +938,7 @@ async function main() {
   }
   console.log('Seed complete:', counts)
   console.log('Workstation:', workstation)
+  console.log('Bookkeeping:', bookkeeping)
   console.log('Demo logins: ravi@auditos.local/md · priya@auditos.local/hr · anitha@auditos.local/fin · vikram@auditos.local/mgr · meera@auditos.local/emp · karthik@auditos.local/art')
 }
 

@@ -41,6 +41,17 @@ import { TallyCompanies } from '@/pages/tools/tally/TallyCompanies';
 import { TallyWorkspace } from '@/pages/tools/tally/TallyWorkspace';
 import { TallyGroups } from '@/pages/tools/tally/TallyGroups';
 import { TallyLedgers } from '@/pages/tools/tally/TallyLedgers';
+// Bookkeeping Service — Workstation → Services → Bookkeeping. Manages the
+// service workflow; all accounting stays in Books.
+import { BookkeepingShell } from '@/pages/workstation/bookkeeping/BookkeepingShell';
+import { BookkeepingOverviewPage } from '@/pages/workstation/bookkeeping/Overview';
+import { BookkeepingClientsPage, BookkeepingClientDetailPage } from '@/pages/workstation/bookkeeping/Clients';
+import { BookkeepingMonthlyWorkPage, BookkeepingPeriodDetailPage } from '@/pages/workstation/bookkeeping/MonthlyWork';
+import {
+  BookkeepingTasksPage, BookkeepingPendingItemsPage, BookkeepingDocumentsPage,
+  BookkeepingDeliverablesPage, BookkeepingRemindersPage, BookkeepingSettingsPage,
+} from '@/pages/workstation/bookkeeping/Lists';
+
 // Books — native bookkeeping, one set of books per client.
 import { BooksListPage } from '@/pages/books/BooksList';
 import { BooksShell } from '@/pages/books/BooksShell';
@@ -136,6 +147,22 @@ export default function App() {
               <Route path="workstation/clients/:id" element={<ClientWorkspacePage />} />
               <Route path="workstation/clients/:id/:tab" element={<ClientWorkspacePage />} />
               <Route path="workstation/services" element={<ServicesPage />} />
+              {/* Bookkeeping Service — a real module, so it is declared
+                  BEFORE the :category catch-all below that renders every
+                  other service slug as the placeholder Services page. */}
+              <Route path="workstation/services/bookkeeping" element={<BookkeepingShell />}>
+                <Route index element={<BookkeepingOverviewPage />} />
+                <Route path="clients" element={<BookkeepingClientsPage />} />
+                <Route path="clients/:clientId" element={<BookkeepingClientDetailPage />} />
+                <Route path="monthly-work" element={<BookkeepingMonthlyWorkPage />} />
+                <Route path="monthly-work/:periodId" element={<BookkeepingPeriodDetailPage />} />
+                <Route path="tasks" element={<BookkeepingTasksPage />} />
+                <Route path="pending-items" element={<BookkeepingPendingItemsPage />} />
+                <Route path="documents" element={<BookkeepingDocumentsPage />} />
+                <Route path="deliverables" element={<BookkeepingDeliverablesPage />} />
+                <Route path="reminders" element={<BookkeepingRemindersPage />} />
+                <Route path="settings" element={<BookkeepingSettingsPage />} />
+              </Route>
               {/* Service categories (GST, TDS, E-Way Bill, Bookkeeping,
                   Incorporation, E-Invoice) — nav structure only for now, so
                   every slug resolves to the same Services page. */}
