@@ -35,3 +35,23 @@ export async function nextClientCode(tx: Tx): Promise<string> {
   const rows = await tx.client.findMany({ select: { clientCode: true } })
   return nextFrom(rows.map((r) => r.clientCode), 'CLI-')
 }
+
+/**
+ * 'INC-2026-0001' — per-YEAR sequence, so a case code carries the year it was
+ * opened. Same rule as the two above: read the maximum inside the creating
+ * transaction, soft-deleted rows included, because a retired code must never
+ * be handed out twice and `caseCode` is @unique.
+ */
+export async function nextIncorporationCaseCode(tx: Tx, year: number): Promise<string> {
+  const prefix = `INC-${year}-`
+  const rows = await tx.incorporationCase.findMany({
+    where: { caseCode: { startsWith: prefix } },
+    select: { caseCode: true },
+  })
+  let max = 0
+  for (const r of rows) {
+    const n = Number(r.caseCode.slice(prefix.length))
+    if (Number.isFinite(n) && n > max) max = n
+  }
+  return `${prefix}${String(max + 1).padStart(4, '0')}`
+}

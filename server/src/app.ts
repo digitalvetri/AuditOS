@@ -23,6 +23,7 @@ import { leadsRouter } from './modules/workstation/leads.routes.js'
 import { clientsRouter } from './modules/workstation/clients.routes.js'
 import { servicesRouter, serviceCatalogRouter } from './modules/workstation/services.routes.js'
 import { bookkeepingRouter } from './modules/bookkeeping/routes.js'
+import { incorporationRouter } from './modules/incorporation/routes.js'
 import { followUpsRouter } from './modules/workstation/followups.routes.js'
 import {
   documentsRouter as wsDocumentsRouter,
@@ -130,6 +131,10 @@ export function createApp() {
   app.use('/api/follow-ups', followUpsRouter)
   // Bookkeeping Service — the service-management layer over Books.
   app.use('/api/bookkeeping', bookkeepingRouter)
+  // Incorporation Service — case management for company/LLP/firm formation.
+  // Calls no external portal: every government fact it holds was recorded by
+  // an employee and is attributed to them.
+  app.use('/api/incorporation', incorporationRouter)
   // NOT '/api/documents': that path already belongs to the HRMS
   // EmployeeDocument router mounted above, and Express matches the first
   // mount — so mounting here would shadow the Workstation list and silently

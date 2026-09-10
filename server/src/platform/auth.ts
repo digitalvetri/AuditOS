@@ -51,7 +51,7 @@ export function sessionCookie(token: string): [string, string, Record<string, un
     {
       httpOnly: true,
       sameSite: 'lax' as const,
-      secure: env.isProduction,
+      secure: env.cookieSecure,
       maxAge: env.sessionTtlSeconds * 1000,
       path: '/',
     },

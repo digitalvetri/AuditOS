@@ -51,6 +51,17 @@ import {
   BookkeepingTasksPage, BookkeepingPendingItemsPage, BookkeepingDocumentsPage,
   BookkeepingDeliverablesPage, BookkeepingRemindersPage, BookkeepingSettingsPage,
 } from '@/pages/workstation/bookkeeping/Lists';
+// Incorporation Service — Workstation → Services → Incorporation. Case
+// management for company/LLP/firm formation; contacts no external portal.
+import { IncorporationShell } from '@/pages/workstation/incorporation/IncorporationShell';
+import { IncorporationOverviewPage } from '@/pages/workstation/incorporation/Overview';
+import { IncorporationCasesPage } from '@/pages/workstation/incorporation/Cases';
+import { IncorporationCreateCasePage } from '@/pages/workstation/incorporation/CreateCase';
+import { IncorporationCaseDetailPage } from '@/pages/workstation/incorporation/CaseDetail';
+import {
+  IncorporationTasksPage, IncorporationPendingItemsPage,
+  IncorporationDeliverablesPage, IncorporationSettingsPage,
+} from '@/pages/workstation/incorporation/Lists';
 
 // Books — native bookkeeping, one set of books per client.
 import { BooksListPage } from '@/pages/books/BooksList';
@@ -163,9 +174,21 @@ export default function App() {
                 <Route path="reminders" element={<BookkeepingRemindersPage />} />
                 <Route path="settings" element={<BookkeepingSettingsPage />} />
               </Route>
-              {/* Service categories (GST, TDS, E-Way Bill, Bookkeeping,
-                  Incorporation, E-Invoice) — nav structure only for now, so
-                  every slug resolves to the same Services page. */}
+              {/* Incorporation Service — a real module, so it too is
+                  declared BEFORE the :category catch-all below. */}
+              <Route path="workstation/services/incorporation" element={<IncorporationShell />}>
+                <Route index element={<IncorporationOverviewPage />} />
+                <Route path="cases" element={<IncorporationCasesPage />} />
+                <Route path="cases/new" element={<IncorporationCreateCasePage />} />
+                <Route path="cases/:caseId" element={<IncorporationCaseDetailPage />} />
+                <Route path="tasks" element={<IncorporationTasksPage />} />
+                <Route path="pending-items" element={<IncorporationPendingItemsPage />} />
+                <Route path="deliverables" element={<IncorporationDeliverablesPage />} />
+                <Route path="settings" element={<IncorporationSettingsPage />} />
+              </Route>
+              {/* Service categories (GST, TDS, E-Way Bill, E-Invoice) — nav
+                  structure only for now, so every remaining slug resolves to
+                  the same Services page. */}
               <Route path="workstation/services/:category" element={<ServicesPage />} />
               <Route path="workstation/follow-ups" element={<FollowUpsPage />} />
               <Route path="workstation/documents" element={<WorkstationDocumentsPage />} />

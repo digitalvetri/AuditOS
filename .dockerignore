@@ -1,0 +1,17 @@
+node_modules
+server
+dist
+dist-ssr
+# docker/nginx IS needed — the web image copies its config in.
+docker/postgres
+.git
+.github
+scripts/shots
+scripts/shots-v2
+scripts/snap
+.env
+.env.*
+!.env.example
+*.log
+*.tsbuildinfo
+.vite

@@ -1,0 +1,11 @@
+node_modules
+dist
+uploads
+prisma/*.db
+prisma/*.db-journal
+.env
+.env.*
+!.env.example
+*.log
+*.tsbuildinfo
+src/modules/tools/__tests__/fixtures/out

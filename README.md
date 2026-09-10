@@ -76,9 +76,28 @@ The permission matrix is server-side canonical in
 
 ## Quick start
 
+Two ways to run Audit OS. Pick one.
+
+### A · Everything in Docker
+
+The whole stack — database, API and the built frontend behind nginx. Nothing
+to install but Docker.
+
+```bash
+cp .env.docker.example .env.docker    # then set the two secrets and WEB_ORIGIN
+npm run docker:up                     # or: docker compose up -d --build
+```
+
+Open **http://localhost:8080**. First build takes a few minutes; after that
+it is seconds. See [Docker](#docker) for what each service does.
+
+### B · Native, with only the database in Docker
+
+The development workflow: hot reload on both sides.
+
 ```bash
 cp .env.docker.example .env.docker    # dev credentials for the DB container
-docker compose up -d                  # Postgres 16 on :55432, Adminer on :58080
+docker compose up -d postgres adminer # Postgres 16 on :55432, Adminer on :58080
 npm run setup                         # installs both projects, pushes schema, seeds
 ```
 
@@ -108,6 +127,11 @@ run them separately if you prefer two terminals.
 | `npm run type-check` / `type-check:api` | TypeScript, no emit |
 | `npm run db:setup` | Generate client, push schema, seed |
 | `npm run db:reset` | Drop the dev database and rebuild it from the seed |
+| `npm run docker:up` | Build and start the full stack (db + api + web + adminer) |
+| `npm run docker:down` | Stop the stack, keeping the data volumes |
+| `npm run docker:logs` | Follow the API and web logs |
+| `npm run docker:seed` | Re-run schema push + seed against the container database |
+| `npm run docker:reset` | **Destructive** — drop the volumes and rebuild from scratch |
 
 Backend-only equivalents live in `server/package.json`
 (`npm --prefix server run …`).
@@ -337,19 +361,60 @@ dispatches to the matching SQL file, so schema-level rules stay in one place.
 
 ### Docker
 
-One Compose file at the repo root brings up Postgres and Adminer:
+One Compose file at the repo root runs the whole application.
 
-| Service | Host port | Container port | Notes |
-|---|---|---|---|
-| `postgres` | `55432` | `5432` | Postgres 16. Volume `auditos-pg-data` survives `down`; wipe with `docker compose down -v`. |
-| `adminer` | `58080` | `8080` | Browser SQL client at `http://localhost:58080` — server `postgres`, user/password from `.env.docker`. |
+| Service | Host port | Notes |
+|---|---|---|
+| `web` | `8080` | nginx: the built Vite bundle, plus a proxy for `/api` and `/socket.io`. **This is the only port a browser needs.** |
+| `api` | — | Express, `NODE_ENV=production`. Not published: the browser reaches it through `web`, which keeps everything on one origin. |
+| `migrate` | — | One-shot. Runs `prisma db push` then the seed, exits 0. Both steps are idempotent, so it is safe on every `up`. |
+| `postgres` | `55432` | Postgres 16. Volume `auditos-pg-data` survives `down`; wipe with `docker compose down -v`. |
+| `adminer` | `58080` | Browser SQL client at `http://localhost:58080` — server `postgres`, user/password from `.env.docker`. |
+
+Startup order is enforced, not hoped for: `postgres` must pass its
+healthcheck before `migrate` runs, `migrate` must exit 0 before `api` starts,
+and `api` must pass `/api/health` before `web` starts. The API never races an
+empty database.
+
+Uploaded files (client documents, tool outputs, chat attachments) live in the
+`auditos-uploads` volume, so they survive `down` alongside the database.
 
 Ports are 55432 / 58080 rather than 5432 / 8080 to avoid clashing with a
-native Postgres install or an existing Adminer. Override with e.g.
-`POSTGRES_HOST_PORT=5432 docker compose up -d`.
+native Postgres install or an existing Adminer. Every host port is
+overridable from `.env.docker` (`WEB_HOST_PORT`, `POSTGRES_HOST_PORT`,
+`ADMINER_HOST_PORT`).
+
+Postgres keeps its host port in the full-stack setup too, so the native
+workflow (`npm run dev:full`) can run against the same database at the same
+time.
 
 Two databases are created on first start: `auditos` (dev) and `auditos_test`
 (vitest). The test suite requires the container to be up.
+
+#### Three settings that will bite you if you skip them
+
+`.env.docker` is git-ignored and has no working defaults for these:
+
+- **`JWT_SECRET` / `SIGNED_URL_SECRET`** — the API runs with
+  `NODE_ENV=production` and refuses to boot if either is missing or under 16
+  characters. Generate them: `openssl rand -hex 32`.
+- **`WEB_ORIGIN`** — credentialed CORS never uses `*`, and in production only
+  this list is accepted; the development fallback that waves through any LAN
+  address does not apply. Include every origin a browser will use, e.g.
+  `http://localhost:8080,http://192.168.1.60:8080`. The API prints the
+  accepted list on boot — `docker compose logs api`.
+- **`COOKIE_SECURE=false`** — this stack serves plain HTTP, and a browser
+  silently drops a `Secure` cookie on an `http://` origin: login appears to
+  succeed and every following request returns 401. Set it to `true` the
+  moment TLS is in front.
+
+#### Rebuilding after a change
+
+```bash
+npm run docker:up        # rebuilds changed layers and restarts
+npm run docker:seed      # re-apply the schema and seed only
+npm run docker:reset     # DESTRUCTIVE: drops the volumes, rebuilds from scratch
+```
 
 ---
 

@@ -1,17 +1,21 @@
-# Local Postgres + Adminer for AUDIT OS.
+# AUDIT OS — the whole stack.
 #
-# Usage:
-#   cp .env.docker.example .env.docker
-#   docker compose up -d
-#   npm --prefix server run prisma:generate
-#   npm --prefix server run prisma:push
-#   npm --prefix server run seed
+#   cp .env.docker.example .env.docker      # then edit WEB_ORIGIN + the secrets
+#   docker compose up -d --build
+#   open http://localhost:8080
 #
-# The primary database is `auditos`; `auditos_test` is created for the
-# server test suite. Both share one Postgres container.
+# Order of events on a cold start: postgres comes up and passes its
+# healthcheck → `migrate` pushes the Prisma schema and runs the seed, then
+# exits → `api` starts → `web` starts. `api` never races an empty database,
+# because compose waits for `migrate` to complete successfully.
 #
-# Data lives in the named volume `auditos-pg-data` and survives `down`.
-# To wipe: `docker compose down -v` (removes the volume too).
+# Data lives in the named volumes `auditos-pg-data` (database) and
+# `auditos-uploads` (client documents, tool outputs, chat attachments) and
+# survives `docker compose down`. To wipe everything: `docker compose down -v`.
+#
+# Postgres and Adminer keep their host ports so the NATIVE dev workflow
+# (npm run dev:full against localhost:55432) still works unchanged alongside
+# this stack — the two share the database on purpose.
 
 services:
   postgres:
@@ -33,6 +37,58 @@ services:
       timeout: 5s
       retries: 10
 
+  # One-shot. Applies the schema and seeds, then exits 0.
+  # Both steps are idempotent, so it is safe on every `up`.
+  migrate:
+    build:
+      context: ./server
+      target: toolchain
+    container_name: auditos-migrate
+    env_file: .env.docker
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-auditos}:${POSTGRES_PASSWORD:-auditos_dev_pw}@postgres:5432/${POSTGRES_DB:-auditos}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: "no"
+
+  api:
+    build:
+      context: ./server
+      target: runtime
+    container_name: auditos-api
+    restart: unless-stopped
+    env_file: .env.docker
+    environment:
+      # Inside the network Postgres is `postgres:5432`, never the host's 55432.
+      DATABASE_URL: postgresql://${POSTGRES_USER:-auditos}:${POSTGRES_PASSWORD:-auditos_dev_pw}@postgres:5432/${POSTGRES_DB:-auditos}
+      NODE_ENV: production
+      PORT: "4000"
+    volumes:
+      - auditos-uploads:/app/uploads
+    depends_on:
+      postgres:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    # Not published on the host: the browser reaches the API through `web`,
+    # which keeps everything on one origin. Add a ports entry only if you
+    # need to curl the API directly.
+    expose:
+      - "4000"
+
+  web:
+    build:
+      context: .
+      target: runtime
+    container_name: auditos-web
+    restart: unless-stopped
+    ports:
+      - "${WEB_HOST_PORT:-8080}:80"
+    depends_on:
+      api:
+        condition: service_healthy
+
   adminer:
     image: adminer:4
     container_name: auditos-adminer
@@ -48,3 +104,5 @@ services:
 volumes:
   auditos-pg-data:
     name: auditos-pg-data
+  auditos-uploads:
+    name: auditos-uploads

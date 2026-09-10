@@ -59,4 +59,17 @@ export const env = {
     .map((s) => s.trim())
     .filter(Boolean),
   cookieName: process.env.SESSION_COOKIE_NAME ?? 'ao_access',
+  /**
+   * Whether the session cookie carries the `Secure` flag.
+   *
+   * Defaults to "on in production", which is right for a real deployment
+   * behind TLS. It is overridable because the compose stack runs the
+   * PRODUCTION build over plain HTTP on a LAN: a browser silently DROPS a
+   * Secure cookie on an http:// origin, so login would appear to succeed and
+   * then every subsequent request would come back 401. Set COOKIE_SECURE=false
+   * for such a deployment — and set it back to true the moment TLS is in front.
+   */
+  cookieSecure: process.env.COOKIE_SECURE
+    ? process.env.COOKIE_SECURE === 'true'
+    : isProduction,
 }
