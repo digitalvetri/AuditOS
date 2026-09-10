@@ -136,6 +136,10 @@ export default function App() {
               <Route path="workstation/clients/:id" element={<ClientWorkspacePage />} />
               <Route path="workstation/clients/:id/:tab" element={<ClientWorkspacePage />} />
               <Route path="workstation/services" element={<ServicesPage />} />
+              {/* Service categories (GST, TDS, E-Way Bill, Bookkeeping,
+                  Incorporation, E-Invoice) — nav structure only for now, so
+                  every slug resolves to the same Services page. */}
+              <Route path="workstation/services/:category" element={<ServicesPage />} />
               <Route path="workstation/follow-ups" element={<FollowUpsPage />} />
               <Route path="workstation/documents" element={<WorkstationDocumentsPage />} />
               <Route path="tools" element={<ToolsPage />} />
