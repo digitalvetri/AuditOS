@@ -15,7 +15,7 @@ import { auditRouter, dashboardRouter, notificationsRouter } from './modules/pla
 import { payrollRouter, salaryRouter } from './modules/payroll/routes.js'
 import { expensesRouter } from './modules/expenses/routes.js'
 import { accountsRouter, paymentsRouter } from './modules/accounts/routes.js'
-import { chatsRouter } from './modules/messages/routes.js'
+import { chatsRouter, chatAttachmentsRouter } from './modules/messages/routes.js'
 import { reportsRouter } from './modules/reports/routes.js'
 import { signedRouter } from './modules/signed.routes.js'
 // Workstation (AUDIT_OS_WORKSTATION.md §8) — the operational workspace.
@@ -114,6 +114,8 @@ export function createApp() {
   app.use('/api/accounts', accountsRouter)
   app.use('/api/payments', paymentsRouter)
   app.use('/api/chats', chatsRouter)
+  // Chat image bytes — its own mount so it is not shadowed by /:id/… above.
+  app.use('/api/chat-attachments', chatAttachmentsRouter)
   app.use('/api/reports', reportsRouter)
 
   // ── Workstation ────────────────────────────────────────────────────────

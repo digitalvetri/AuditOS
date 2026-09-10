@@ -509,12 +509,28 @@ export interface ChatMessage {
   id: ID;
   chat_id: ID;
   author_employee_id: ID;
+  /** Empty for an image-only message — an attachment is content by itself. */
   body: string;
   parent_id: ID | null;  // reply-to
   mentions: ID[];        // reserved for @mentions; empty in scaffold
   created_at: ISODateTime;
   updated_at: ISODateTime;
   deleted_at: ISODateTime | null;
+}
+
+/**
+ * An image sent in a chat. In mock mode the bytes are a data: URL held in the
+ * in-memory db; against the real backend `url` is the membership-checked
+ * /api/chat-attachments/:id route and the bytes live in the storage adapter.
+ */
+export interface ChatAttachment {
+  id: ID;
+  message_id: ID;
+  filename: string;
+  mime_type: string;
+  file_size: number;
+  url: string;
+  created_at: ISODateTime;
 }
 
 export interface MessageRead {

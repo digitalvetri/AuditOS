@@ -897,17 +897,20 @@ model ChatMessage {
   id               String  @id @default(uuid())
   chatId           String
   authorEmployeeId String
-  body             String
+  /// Empty for an image-only message — an attachment is content in its own
+  /// right, so the caption is optional. Never null, so readers need no guard.
+  body             String  @default("")
   /// Reply-to. A thread is one level deep by design.
   parentId         String?
   /// JSON array of employee ids. Reserved for @mentions; empty in this phase.
   mentionsJson     String  @default("[]")
 
-  chat    Chat          @relation(fields: [chatId], references: [id])
-  author  Employee      @relation(fields: [authorEmployeeId], references: [id])
-  parent  ChatMessage?  @relation("MessageReply", fields: [parentId], references: [id])
-  replies ChatMessage[] @relation("MessageReply")
-  reads   MessageRead[]
+  chat        Chat             @relation(fields: [chatId], references: [id])
+  author      Employee         @relation(fields: [authorEmployeeId], references: [id])
+  parent      ChatMessage?     @relation("MessageReply", fields: [parentId], references: [id])
+  replies     ChatMessage[]    @relation("MessageReply")
+  reads       MessageRead[]
+  attachments ChatAttachment[]
 
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt
@@ -915,6 +918,28 @@ model ChatMessage {
   deletedAt DateTime?
 
   @@index([chatId, createdAt])
+}
+
+/// An image sent in a chat. Bytes live in the storage adapter, never in the
+/// database and never on a publicly guessable path: `storagePath` is a
+/// server-generated key, and the only way to read it back is the membership-
+/// checked GET /api/chat-attachments/:id route.
+model ChatAttachment {
+  id        String @id @default(uuid())
+  messageId String
+  /// Key understood by the StorageAdapter — never a client-supplied path.
+  storagePath      String
+  /// What the sender called it, sanitized. Shown on hover and on download.
+  originalFilename String
+  /// Sniffed from the magic bytes, not taken from the upload's own header.
+  mimeType         String
+  fileSize         Int
+
+  message ChatMessage @relation(fields: [messageId], references: [id])
+
+  createdAt DateTime @default(now())
+
+  @@index([messageId])
 }
 
 model MessageRead {

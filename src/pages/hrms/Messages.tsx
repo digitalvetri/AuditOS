@@ -2,15 +2,17 @@
  * /hrms/messages — two-pane messaging per §8.7.
  *
  * Scope cuts for this scaffold (documented in module handoff):
- *   Skipped: attachments, reactions, @mentions, in-conversation search.
- *   Included: text, reply-to, read receipts, unread counts, DM creation.
+ *   Skipped: reactions, @mentions, in-conversation search.
+ *   Included: text, image attachments, reply-to, read receipts, unread counts,
+ *             DM creation.
  */
-import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
+import { useEffect, useMemo, useRef, useState, type ChangeEvent, type ClipboardEvent, type FormEvent } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { messagesApi, type ChatListItem, type ChatMessageWithAuthor } from '@/modules/messages/api';
-import { fmtDateTime, fmtTime } from '@/lib/format';
+import { messagesApi, type ChatAttachment, type ChatListItem, type ChatMessageWithAuthor } from '@/modules/messages/api';
+import { fmtTime } from '@/lib/format';
 import { useAuth } from '@/platform/auth/AuthContext';
+import { Image as ImageIcon } from 'lucide-react';
 import { Button } from '@/components/Button';
 import { useToast } from '@/components/Toast';
 
@@ -151,8 +153,8 @@ function ConversationPane({ chatId }: { chatId: string | null }) {
   }, [messages.length, chatId]);
 
   const send = useMutation({
-    mutationFn: (body: string) =>
-      chatId ? messagesApi.send(chatId, body, replyTo?.id) : Promise.reject(new Error('No chat')),
+    mutationFn: ({ body, images }: { body: string; images: File[] }) =>
+      chatId ? messagesApi.send(chatId, body, replyTo?.id, images) : Promise.reject(new Error('No chat')),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['chats', 'messages', chatId] });
       qc.invalidateQueries({ queryKey: ['chats', 'list'] });
@@ -193,8 +195,10 @@ function ConversationPane({ chatId }: { chatId: string | null }) {
       <Composer
         replyTo={replyTo}
         onClearReply={() => setReplyTo(null)}
-        onSend={(text) => send.mutate(text)}
+        onSend={(text, images) => send.mutate({ body: text, images })}
+        onReject={(reason) => toast.push('error', reason)}
         busy={send.isPending}
+        sent={send.isSuccess}
       />
     </section>
   );
@@ -224,7 +228,13 @@ function MessageRow({
             (own ? 'bg-neutral-50 border-neutral-200 text-neutral-900' : 'bg-white border-neutral-200 text-neutral-900')
           }
         >
-          {message.body}
+          {message.attachments.length > 0 ? (
+            <AttachmentGrid attachments={message.attachments} />
+          ) : null}
+          {/* An image-only message has no caption — don't leave an empty line. */}
+          {message.body ? (
+            <div className={message.attachments.length > 0 ? 'mt-2' : ''}>{message.body}</div>
+          ) : null}
         </div>
         <div className="mt-1">
           <button
@@ -241,17 +251,119 @@ function MessageRow({
   );
 }
 
+/**
+ * Images in a received message. One image fills the bubble; several tile, so a
+ * burst of screenshots stays one readable unit rather than a tall column.
+ */
+function AttachmentGrid({ attachments }: { attachments: ChatAttachment[] }) {
+  return (
+    <div className={'grid gap-1 ' + (attachments.length === 1 ? 'grid-cols-1' : 'grid-cols-2')}>
+      {attachments.map((a) => (
+        <a
+          key={a.id}
+          href={a.url}
+          target="_blank"
+          rel="noreferrer"
+          title={`${a.filename} · ${fmtFileSize(a.file_size)}`}
+          className="block overflow-hidden rounded border border-neutral-200 bg-neutral-50"
+          data-testid={`attachment-${a.id}`}
+        >
+          <img
+            src={a.url}
+            alt={a.filename}
+            loading="lazy"
+            className="block w-full max-h-[260px] object-cover"
+          />
+        </a>
+      ))}
+    </div>
+  );
+}
+
+function fmtFileSize(n: number): string {
+  if (n < 1024) return `${n} B`;
+  if (n < 1024 * 1024) return `${Math.round(n / 1024)} KB`;
+  return `${(n / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+/** Mirrors the server's accepted list — SVG is deliberately excluded. */
+const ACCEPTED_IMAGES = 'image/png,image/jpeg,image/webp,image/gif';
+const MAX_IMAGES = 6;
+const MAX_IMAGE_MB = 10;
+
 function Composer({
-  replyTo, onClearReply, onSend, busy,
-}: { replyTo: ChatMessageWithAuthor | null; onClearReply: () => void; onSend: (body: string) => void; busy: boolean }) {
+  replyTo, onClearReply, onSend, onReject, busy, sent,
+}: {
+  replyTo: ChatMessageWithAuthor | null; onClearReply: () => void;
+  onSend: (body: string, images: File[]) => void; onReject: (reason: string) => void;
+  busy: boolean; sent: boolean;
+}) {
   const [text, setText] = useState('');
+  const [images, setImages] = useState<File[]>([]);
+  const fileRef = useRef<HTMLInputElement | null>(null);
+
+  // Object URLs are revoked on change, so a long session does not leak a blob
+  // per preview. The effect owns the whole list rather than one entry.
+  const [previews, setPreviews] = useState<string[]>([]);
+  useEffect(() => {
+    const urls = images.map((f) => URL.createObjectURL(f));
+    setPreviews(urls);
+    return () => urls.forEach((u) => URL.revokeObjectURL(u));
+  }, [images]);
+
+  // Clear the tray only once the send actually succeeded — a failed upload
+  // must not silently discard the images the user picked.
+  useEffect(() => {
+    if (sent) { setText(''); setImages([]); }
+  }, [sent]);
+
+  /** Shared by the file picker and paste: same limits, same messages. */
+  const accept = (incoming: File[]) => {
+    const picked = incoming.filter((f) => {
+      if (!ACCEPTED_IMAGES.includes(f.type)) {
+        onReject(`"${f.name}" is not a PNG, JPEG, WebP or GIF image.`);
+        return false;
+      }
+      if (f.size > MAX_IMAGE_MB * 1024 * 1024) {
+        onReject(`"${f.name}" is larger than ${MAX_IMAGE_MB} MB.`);
+        return false;
+      }
+      return true;
+    });
+    if (picked.length === 0) return;
+    setImages((prev) => {
+      const room = MAX_IMAGES - prev.length;
+      if (room <= 0) {
+        onReject(`A message carries at most ${MAX_IMAGES} images.`);
+        return prev;
+      }
+      if (picked.length > room) onReject(`Only ${room} more image${room === 1 ? '' : 's'} fit on this message.`);
+      return [...prev, ...picked.slice(0, room)];
+    });
+  };
+
+  const onPick = (e: ChangeEvent<HTMLInputElement>) => {
+    accept(Array.from(e.target.files ?? []));
+    // Reset so picking the same file twice in a row still fires a change.
+    e.target.value = '';
+  };
+
+  // Pasting a screenshot straight into the composer is how people actually
+  // send one, so the clipboard is a first-class input here.
+  const onPaste = (e: ClipboardEvent<HTMLInputElement>) => {
+    const files = Array.from(e.clipboardData.files);
+    if (files.length === 0) return;
+    e.preventDefault();
+    accept(files);
+  };
+
+  const canSend = !busy && (text.trim().length > 0 || images.length > 0);
   const submit = (e: FormEvent) => {
     e.preventDefault();
-    const t = text.trim();
-    if (!t) return;
-    onSend(t);
-    setText('');
+    if (!canSend) return;
+    onSend(text.trim(), images);
   };
+
   return (
     <form onSubmit={submit} className="border-t border-neutral-200 p-3 space-y-2">
       {replyTo ? (
@@ -260,22 +372,65 @@ function Composer({
           <button type="button" onClick={onClearReply} className="text-neutral-500 hover:text-neutral-900">Clear</button>
         </div>
       ) : null}
+
+      {images.length > 0 ? (
+        <ul className="flex flex-wrap gap-2" data-testid="composer-tray">
+          {images.map((f, i) => (
+            <li key={`${f.name}-${i}`} className="relative">
+              <img
+                src={previews[i]}
+                alt={f.name}
+                className="h-16 w-16 object-cover rounded border border-neutral-200"
+              />
+              <button
+                type="button"
+                onClick={() => setImages((prev) => prev.filter((_, j) => j !== i))}
+                aria-label={`Remove ${f.name}`}
+                className="absolute -top-1.5 -right-1.5 h-5 w-5 text-11 leading-none bg-neutral-900 text-white rounded-full hover:bg-neutral-700"
+              >
+                ✕
+              </button>
+            </li>
+          ))}
+        </ul>
+      ) : null}
+
       <div className="flex gap-2">
+        <input
+          ref={fileRef}
+          type="file"
+          accept={ACCEPTED_IMAGES}
+          multiple
+          onChange={onPick}
+          className="hidden"
+          data-testid="composer-file"
+        />
+        <button
+          type="button"
+          onClick={() => fileRef.current?.click()}
+          disabled={images.length >= MAX_IMAGES}
+          title={images.length >= MAX_IMAGES ? `At most ${MAX_IMAGES} images per message` : 'Attach an image'}
+          aria-label="Attach an image"
+          className="h-9 w-9 shrink-0 text-13 border border-neutral-300 rounded hover:bg-neutral-50 disabled:opacity-50"
+          data-testid="composer-attach"
+        >
+          <ImageIcon className="h-4 w-4 mx-auto text-neutral-600" />
+        </button>
         <input
           type="text"
           value={text}
           onChange={(e) => setText(e.target.value)}
-          placeholder="Type a message…"
+          onPaste={onPaste}
+          placeholder={images.length > 0 ? 'Add a caption…' : 'Type a message…'}
           className="flex-1 h-9 px-3 text-13 bg-white border border-neutral-300 rounded focus:outline-none focus:border-gold"
           data-testid="composer-input"
         />
-        <Button variant="primary" type="submit" disabled={busy || !text.trim()} data-testid="composer-send">
-          Send
+        <Button variant="primary" type="submit" disabled={!canSend} data-testid="composer-send">
+          {busy ? 'Sending…' : 'Send'}
         </Button>
       </div>
       <p className="text-11 text-neutral-500">
-        {fmtDateTime(new Date().toISOString()).replace(fmtTime(new Date().toISOString()), '')}
-        Scaffold: attachments, reactions, mentions and search are not built in this session.
+        PNG, JPEG, WebP or GIF · up to {MAX_IMAGE_MB} MB each, {MAX_IMAGES} per message · paste a screenshot to attach it.
       </p>
     </form>
   );

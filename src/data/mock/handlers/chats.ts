@@ -14,12 +14,34 @@
  */
 
 import { http } from 'msw';
-import type { Chat, ChatMessage, Employee, MessageRead, RoleCode } from '@/data/models';
+import type { Chat, ChatAttachment, ChatMessage, Employee, MessageRead, RoleCode } from '@/data/models';
 import { db } from '../db';
 import { audit, err, ok, withAuth } from '../middleware';
 import { hasPermission } from '@/platform/rbac/matrix';
 
 const nowISO = () => new Date().toISOString();
+
+const attachmentsFor = (messageId: string): ChatAttachment[] =>
+  db.read().chatAttachments.filter((a) => a.message_id === messageId);
+
+/** Mirrors the server: an image-only message previews as "Photo". */
+function previewText(body: string, attachmentCount: number): string {
+  const text = body.length > 80 ? `${body.slice(0, 80)}…` : body;
+  if (text) return text;
+  return attachmentCount === 1 ? 'Photo' : `${attachmentCount} photos`;
+}
+
+/** Mirrors the server's accepted list — SVG is deliberately excluded. */
+const ACCEPTED_IMAGES = ['image/png', 'image/jpeg', 'image/webp', 'image/gif'];
+const MAX_IMAGES_PER_MESSAGE = 6;
+
+const readAsDataUrl = (file: File): Promise<string> =>
+  new Promise((resolve, reject) => {
+    const r = new FileReader();
+    r.onload = () => resolve(String(r.result));
+    r.onerror = () => reject(new Error('Could not read the image.'));
+    r.readAsDataURL(file);
+  });
 
 function roleOf(userId: string): RoleCode | null {
   const u = db.read().users.find((x) => x.id === userId);
@@ -111,7 +133,13 @@ export const chatHandlers = [
           ...c,
           display_name: dmDisplayName(c, employee.id),
           last_message: lastMsg
-            ? { id: lastMsg.id, body: lastMsg.body, created_at: lastMsg.created_at, author_id: lastMsg.author_employee_id }
+            ? {
+                id: lastMsg.id,
+                body: previewText(lastMsg.body, attachmentsFor(lastMsg.id).length),
+                created_at: lastMsg.created_at,
+                author_id: lastMsg.author_employee_id,
+                attachment_count: attachmentsFor(lastMsg.id).length,
+              }
             : null,
           unread: memberChatIds.has(c.id) ? unreadForChat(c.id, employee.id) : 0,
           member_count: memberCount,
@@ -269,7 +297,9 @@ export const chatHandlers = [
             const pAuthor = db.read().employees.find((e) => e.id === p.author_employee_id);
             parent_preview = {
               id: p.id,
-              body: p.deleted_at ? '(deleted message)' : p.body.length > 80 ? p.body.slice(0, 80) + '…' : p.body,
+              body: p.deleted_at
+                ? '(deleted message)'
+                : previewText(p.body, attachmentsFor(p.id).length),
               author_full_name: pAuthor?.full_name ?? null,
             };
           }
@@ -281,6 +311,7 @@ export const chatHandlers = [
             : null,
           parent_preview,
           read_by_me: readIds.has(m.id),
+          attachments: attachmentsFor(m.id),
         };
       });
       return ok({ chat: { ...chat, display_name: dmDisplayName(chat, employee.id) }, items });
@@ -300,12 +331,34 @@ export const chatHandlers = [
         // impersonate group presence. Read-only override only.
         return err(403, 'forbidden', 'You are not a member of this chat.');
       }
-      const body = (await request.json().catch(() => ({}))) as { body?: string; parent_id?: string };
-      const text = body.body?.trim();
-      if (!text) return err(400, 'validation', 'Message body is required.');
+      // Images arrive as multipart; a text-only send stays on the JSON path.
+      // Both shapes collapse to the same { text, parentId, files } here.
+      let text = '';
+      let parentId: string | null = null;
+      let files: File[] = [];
+      if (request.headers.get('content-type')?.includes('multipart/form-data')) {
+        const form = await request.formData();
+        text = String(form.get('body') ?? '').trim();
+        parentId = (form.get('parent_id') as string | null) || null;
+        files = form.getAll('images').filter((v): v is File => v instanceof File);
+      } else {
+        const body = (await request.json().catch(() => ({}))) as { body?: string; parent_id?: string };
+        text = body.body?.trim() ?? '';
+        parentId = body.parent_id ?? null;
+      }
+
+      if (files.length > MAX_IMAGES_PER_MESSAGE) {
+        return err(422, 'too_many_images', `A message carries at most ${MAX_IMAGES_PER_MESSAGE} images.`);
+      }
+      const badImage = files.find((f) => !ACCEPTED_IMAGES.includes(f.type));
+      if (badImage) {
+        return err(422, 'unsupported_image', `"${badImage.name}" is not a PNG, JPEG, WebP or GIF image.`);
+      }
+      // An image is content in its own right, so the caption is optional.
+      if (!text && files.length === 0) return err(400, 'validation', 'Type a message or attach an image.');
       if (text.length > 4000) return err(422, 'too_long', 'Message exceeds 4000 characters.');
-      if (body.parent_id) {
-        const parent = db.read().chatMessages.find((m) => m.id === body.parent_id && m.chat_id === chatId);
+      if (parentId) {
+        const parent = db.read().chatMessages.find((m) => m.id === parentId && m.chat_id === chatId);
         if (!parent) return err(422, 'invalid_parent', 'Parent message not in this chat.');
       }
 
@@ -315,14 +368,29 @@ export const chatHandlers = [
         chat_id: chatId,
         author_employee_id: employee.id,
         body: text,
-        parent_id: body.parent_id ?? null,
+        parent_id: parentId,
         mentions: [],
         created_at: now,
         updated_at: now,
         deleted_at: null,
       };
+      // No storage adapter in mock mode — the bytes become data: URLs, which
+      // render in an <img> exactly as the real byte route's response does.
+      const attachments: ChatAttachment[] = [];
+      for (const f of files) {
+        attachments.push({
+          id: `att-${crypto.randomUUID()}`,
+          message_id: msg.id,
+          filename: f.name,
+          mime_type: f.type,
+          file_size: f.size,
+          url: await readAsDataUrl(f),
+          created_at: now,
+        });
+      }
       db.write((d) => {
         d.chatMessages.push(msg);
+        d.chatAttachments.push(...attachments);
         // Author reads their own message immediately.
         d.messageReads.push({
           id: `mr-${msg.id}-${employee.id}`,
@@ -346,7 +414,7 @@ export const chatHandlers = [
             notify(otherUser.id, {
               type: 'chat.dm_new',
               title: `New message from ${employee.full_name}`,
-              body: text.length > 80 ? text.slice(0, 80) + '…' : text,
+              body: previewText(text, attachments.length),
               entity_id: msg.id,
               action_url: `/hrms/messages?chat=${chatId}`,
             });
@@ -359,7 +427,7 @@ export const chatHandlers = [
         action: 'chat.message_sent',
         entity_type: 'ChatMessage',
         entity_id: msg.id,
-        after_json: { chat_id: chatId, has_parent: !!msg.parent_id },
+        after_json: { chat_id: chatId, has_parent: !!msg.parent_id, images: attachments.length },
         request,
       });
       const author = db.read().employees.find((e) => e.id === employee.id);
@@ -371,6 +439,7 @@ export const chatHandlers = [
             : null,
           parent_preview: null,
           read_by_me: true,
+          attachments,
         },
       });
     }),

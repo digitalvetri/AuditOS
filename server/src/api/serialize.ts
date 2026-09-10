@@ -579,18 +579,33 @@ export function chatToApi(c: Chat) {
 
 export interface ChatListItem extends ReturnType<typeof chatToApi> {
   display_name: string
-  last_message: { id: string; body: string; created_at: string; author_id: string } | null
+  last_message: {
+    id: string; body: string; created_at: string; author_id: string
+    /** How many images the last message carried, for the sidebar preview. */
+    attachment_count: number
+  } | null
   unread: number
   member_count: number
 }
 
 export type ChatMessageWithAuthor = ReturnType<typeof chatMessageToApi>
 
+/** What a reply preview shows for a message whose only content is images. */
+function previewText(body: string, attachmentCount: number): string {
+  const text = body.length > 80 ? `${body.slice(0, 80)}…` : body
+  if (text) return text
+  return attachmentCount === 1 ? 'Photo' : `${attachmentCount} photos`
+}
+
 /** Reply previews are inlined and truncated so the thread renders in one pass. */
 export function chatMessageToApi(m: ChatMessage & {
   author: Pick<Employee, 'id' | 'fullName' | 'employeeCode'> | null
-  parent?: (Pick<ChatMessage, 'id' | 'body' | 'deletedAt'> & { author: Pick<Employee, 'fullName'> | null }) | null
+  parent?: (Pick<ChatMessage, 'id' | 'body' | 'deletedAt'> & {
+    author: Pick<Employee, 'fullName'> | null
+    attachments?: { id: string }[]
+  }) | null
   reads?: { id: string }[]
+  attachments?: { id: string; originalFilename: string; mimeType: string; fileSize: number }[]
 }) {
   return {
     id: m.id,
@@ -610,10 +625,21 @@ export function chatMessageToApi(m: ChatMessage & {
           id: m.parent.id,
           body: m.parent.deletedAt
             ? '(deleted message)'
-            : m.parent.body.length > 80 ? `${m.parent.body.slice(0, 80)}…` : m.parent.body,
+            : previewText(m.parent.body, m.parent.attachments?.length ?? 0),
           author_full_name: m.parent.author?.fullName ?? null,
         }
       : null,
     read_by_me: (m.reads?.length ?? 0) > 0,
+    // `url` is an application path, not a storage path: it resolves to the
+    // membership-checked download route, which is the only reader of the bytes.
+    attachments: (m.attachments ?? []).map((a) => ({
+      id: a.id,
+      filename: a.originalFilename,
+      mime_type: a.mimeType,
+      file_size: a.fileSize,
+      url: `/api/chat-attachments/${a.id}`,
+    })),
   }
 }
+
+export { previewText as chatPreviewText }
