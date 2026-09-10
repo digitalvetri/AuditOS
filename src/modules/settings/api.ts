@@ -12,7 +12,7 @@ import type {
   WorkLocation,
   WorkSchedule,
 } from '@/data/models';
-import type { Grant } from '@/platform/rbac/matrix';
+import type { Grant, Scope } from '@/platform/rbac/matrix';
 
 export const settingsApi = {
   departments: {
@@ -59,5 +59,11 @@ export const settingsApi = {
       permissions: Permission[];
       matrix: Record<RoleCode, Grant[]>;
     }>('/api/settings/roles'),
+    /** null scope revokes the grant. Any other scope grants or upserts it. */
+    setGrant: (roleId: string, permissionCode: string, scope: Scope | null) =>
+      api.put<{ role: Role; grant: Grant | null }>(
+        `/api/settings/roles/${roleId}/permissions/${encodeURIComponent(permissionCode)}`,
+        { scope },
+      ),
   },
 };
