@@ -897,17 +897,20 @@ model ChatMessage {
   id               String  @id @default(uuid())
   chatId           String
   authorEmployeeId String
-  body             String
+  /// Empty for an image-only message — an attachment is content in its own
+  /// right, so the caption is optional. Never null, so readers need no guard.
+  body             String  @default("")
   /// Reply-to. A thread is one level deep by design.
   parentId         String?
   /// JSON array of employee ids. Reserved for @mentions; empty in this phase.
   mentionsJson     String  @default("[]")
 
-  chat    Chat          @relation(fields: [chatId], references: [id])
-  author  Employee      @relation(fields: [authorEmployeeId], references: [id])
-  parent  ChatMessage?  @relation("MessageReply", fields: [parentId], references: [id])
-  replies ChatMessage[] @relation("MessageReply")
-  reads   MessageRead[]
+  chat        Chat             @relation(fields: [chatId], references: [id])
+  author      Employee         @relation(fields: [authorEmployeeId], references: [id])
+  parent      ChatMessage?     @relation("MessageReply", fields: [parentId], references: [id])
+  replies     ChatMessage[]    @relation("MessageReply")
+  reads       MessageRead[]
+  attachments ChatAttachment[]
 
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt
@@ -915,6 +918,28 @@ model ChatMessage {
   deletedAt DateTime?
 
   @@index([chatId, createdAt])
+}
+
+/// An image sent in a chat. Bytes live in the storage adapter, never in the
+/// database and never on a publicly guessable path: `storagePath` is a
+/// server-generated key, and the only way to read it back is the membership-
+/// checked GET /api/chat-attachments/:id route.
+model ChatAttachment {
+  id        String @id @default(uuid())
+  messageId String
+  /// Key understood by the StorageAdapter — never a client-supplied path.
+  storagePath      String
+  /// What the sender called it, sanitized. Shown on hover and on download.
+  originalFilename String
+  /// Sniffed from the magic bytes, not taken from the upload's own header.
+  mimeType         String
+  fileSize         Int
+
+  message ChatMessage @relation(fields: [messageId], references: [id])
+
+  createdAt DateTime @default(now())
+
+  @@index([messageId])
 }
 
 model MessageRead {
@@ -1088,6 +1113,12 @@ model Client {
   tasks             Task[]
   ewayBills         EwayBill[]
   gstProfile        GstProfile?
+  bkEngagement       BookkeepingEngagement?
+  bkTasks            BookkeepingTask[]
+  bkPendingItems     BookkeepingPendingItem[]
+  bkDocumentRequests BookkeepingDocumentRequest[]
+  bkDeliverables     BookkeepingDeliverable[]
+  bkActivities       BookkeepingActivity[]
   aaBankAccounts     AaBankAccount[]
   aaSourceDocuments  AaSourceDocument[]
   aaJobs             AaJob[]
@@ -1272,6 +1303,8 @@ model ClientDocument {
   client   Client                  @relation(fields: [clientId], references: [id])
   category DocumentCategory        @relation(fields: [categoryId], references: [id])
   versions ClientDocumentVersion[]
+  bkDocumentRequests BookkeepingDocumentRequest[]
+  bkDeliverables     BookkeepingDeliverable[]
 
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt
@@ -2815,4 +2848,262 @@ model BooksAuditEvent {
 
   @@index([booksOrgId, entityType, entityId])
   @@index([booksOrgId, createdAt])
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// BOOKKEEPING SERVICE
+//
+// The SERVICE-MANAGEMENT layer over the Books accounting engine. It tracks
+// the work the bookkeeping team does for a client — engagements, monthly
+// periods, checklists, tasks, chased documents, deliverables — and links out
+// to Books via BooksOrganisation.clientId. It holds NO financial balances:
+// Books stays the single source of truth for every ledger figure.
+//
+// Employee and user ids are plain Strings resolved through employeeMap(),
+// exactly as ClientService and Task do, so Employee gains no back-relations.
+// ─────────────────────────────────────────────────────────────────────────
+
+/// One bookkeeping engagement per client — the standing agreement to keep
+/// their books. @unique on clientId enforces "one per client".
+model BookkeepingEngagement {
+  id       String @id @default(uuid())
+  clientId String @unique
+
+  /// active | on_hold | completed | cancelled
+  status             String  @default("active")
+  /// 'YYYY-MM-DD' — a calendar date, so it cannot drift across the IST/UTC edge.
+  serviceStartDate   String
+  assignedEmployeeId String
+  /// monthly | quarterly | annual
+  billingFrequency   String  @default("monthly")
+  nextDueDate        String?
+  notes              String?
+
+  client  Client                @relation(fields: [clientId], references: [id])
+  periods BookkeepingPeriod[]
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  createdBy String?
+  updatedBy String?
+  deletedAt DateTime?
+
+  @@index([status])
+  @@index([assignedEmployeeId])
+}
+
+/// One month of bookkeeping work. The unique constraint is what stops a
+/// second "May 2026" being opened for the same engagement.
+model BookkeepingPeriod {
+  id           String @id @default(uuid())
+  engagementId String
+  year         Int
+  month        Int
+
+  /// not_started | in_progress | awaiting_documents | under_review | completed | blocked
+  status             String    @default("not_started")
+  dueDate            String?
+  completedDate      DateTime?
+  assignedEmployeeId String?
+  notes              String?
+
+  engagement       BookkeepingEngagement        @relation(fields: [engagementId], references: [id])
+  checklistItems   BookkeepingChecklistItem[]
+  tasks            BookkeepingTask[]
+  pendingItems     BookkeepingPendingItem[]
+  documentRequests BookkeepingDocumentRequest[]
+  deliverables     BookkeepingDeliverable[]
+  activities       BookkeepingActivity[]
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  createdBy String?
+  updatedBy String?
+  deletedAt DateTime?
+
+  @@unique([engagementId, year, month])
+  @@index([status])
+  @@index([dueDate])
+}
+
+/// A line on the month's standard checklist, seeded from CHECKLIST_TEMPLATE
+/// when the period is created. State lives here, never in React.
+model BookkeepingChecklistItem {
+  id       String @id @default(uuid())
+  periodId String
+
+  label     String
+  /// pending | in_progress | completed | blocked | not_applicable
+  status    String  @default("pending")
+  sortOrder Int     @default(0)
+  notes     String?
+
+  completedAt           DateTime?
+  completedByEmployeeId String?
+
+  period BookkeepingPeriod @relation(fields: [periodId], references: [id])
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([periodId, sortOrder])
+}
+
+model BookkeepingTask {
+  id       String  @id @default(uuid())
+  periodId String?
+  clientId String
+
+  title       String
+  description String?
+  /// data_collection | sales | purchases | expenses | banking | reconciliation |
+  /// review | client_communication | reporting | other
+  category    String  @default("other")
+  /// low | medium | high | critical
+  priority    String  @default("medium")
+  /// pending | in_progress | completed | blocked | cancelled
+  status      String  @default("pending")
+
+  assignedEmployeeId String
+  dueDate            String?
+  completedAt        DateTime?
+  createdById        String?
+  notes              String?
+
+  period BookkeepingPeriod? @relation(fields: [periodId], references: [id])
+  client Client             @relation(fields: [clientId], references: [id])
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  @@index([clientId])
+  @@index([periodId])
+  @@index([status])
+  @@index([assignedEmployeeId, status])
+  @@index([dueDate])
+}
+
+/// Something the firm is waiting on from the client.
+model BookkeepingPendingItem {
+  id       String  @id @default(uuid())
+  periodId String?
+  clientId String
+
+  title       String
+  description String?
+  /// bank_statement | sales_data | purchase_bills | expense_documents |
+  /// payment_details | other
+  category    String  @default("other")
+  /// low | medium | high | critical
+  priority    String  @default("medium")
+  /// requested | partially_received | received | under_review | resolved | overdue
+  status      String  @default("requested")
+
+  requestedDate      String
+  dueDate            String?
+  resolvedDate       DateTime?
+  assignedEmployeeId String?
+  createdById        String?
+  notes              String?
+
+  period BookkeepingPeriod? @relation(fields: [periodId], references: [id])
+  client Client             @relation(fields: [clientId], references: [id])
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  @@index([clientId])
+  @@index([periodId])
+  @@index([status])
+  @@index([dueDate])
+}
+
+/// A request for a file. Storage stays in ClientDocument — this row is the
+/// ASK, and clientDocumentId is the FK to the delivered file.
+model BookkeepingDocumentRequest {
+  id       String  @id @default(uuid())
+  periodId String?
+  clientId String
+
+  /// bank_statement | purchase_bills | sales_register | expense_documents |
+  /// payment_proof | other
+  documentType String
+  description  String?
+  /// requested | received | under_review | accepted | rejected
+  status       String  @default("requested")
+
+  requestedById String?
+  requestedAt   DateTime  @default(now())
+  dueDate       String?
+  receivedAt    DateTime?
+
+  clientDocumentId String?
+
+  period         BookkeepingPeriod? @relation(fields: [periodId], references: [id])
+  client         Client             @relation(fields: [clientId], references: [id])
+  clientDocument ClientDocument?    @relation(fields: [clientDocumentId], references: [id])
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  @@index([clientId])
+  @@index([periodId])
+  @@index([status])
+}
+
+/// Tracking only. The actual numbers on a trial balance or P&L are produced
+/// by Books at read time; this row records that one was prepared and sent.
+model BookkeepingDeliverable {
+  id       String  @id @default(uuid())
+  periodId String?
+  clientId String
+
+  /// monthly_books | financial_report | bank_reconciliation | ledger |
+  /// trial_balance | profit_and_loss | balance_sheet | other
+  type   String
+  /// draft | in_review | approved | delivered
+  status String @default("draft")
+
+  preparedByEmployeeId String?
+  reviewedByEmployeeId String?
+  clientDocumentId     String?
+
+  approvedAt  DateTime?
+  deliveredAt DateTime?
+  notes       String?
+
+  period         BookkeepingPeriod? @relation(fields: [periodId], references: [id])
+  client         Client             @relation(fields: [clientId], references: [id])
+  clientDocument ClientDocument?    @relation(fields: [clientDocumentId], references: [id])
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  @@index([clientId])
+  @@index([periodId])
+  @@index([status])
+}
+
+/// Append-only per-period trail. AuditLog still records every mutation for
+/// compliance; this is the human-readable story shown on the Activity tab.
+model BookkeepingActivity {
+  id       String  @id @default(uuid())
+  periodId String?
+  clientId String
+
+  actorUserId String?
+  action      String
+  detail      String?
+
+  period BookkeepingPeriod? @relation(fields: [periodId], references: [id])
+  client Client             @relation(fields: [clientId], references: [id])
+
+  createdAt DateTime @default(now())
+
+  @@index([clientId, createdAt])
+  @@index([periodId, createdAt])
 }

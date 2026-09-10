@@ -15,13 +15,14 @@ import { auditRouter, dashboardRouter, notificationsRouter } from './modules/pla
 import { payrollRouter, salaryRouter } from './modules/payroll/routes.js'
 import { expensesRouter } from './modules/expenses/routes.js'
 import { accountsRouter, paymentsRouter } from './modules/accounts/routes.js'
-import { chatsRouter } from './modules/messages/routes.js'
+import { chatsRouter, chatAttachmentsRouter } from './modules/messages/routes.js'
 import { reportsRouter } from './modules/reports/routes.js'
 import { signedRouter } from './modules/signed.routes.js'
 // Workstation (AUDIT_OS_WORKSTATION.md §8) — the operational workspace.
 import { leadsRouter } from './modules/workstation/leads.routes.js'
 import { clientsRouter } from './modules/workstation/clients.routes.js'
 import { servicesRouter, serviceCatalogRouter } from './modules/workstation/services.routes.js'
+import { bookkeepingRouter } from './modules/bookkeeping/routes.js'
 import { followUpsRouter } from './modules/workstation/followups.routes.js'
 import {
   documentsRouter as wsDocumentsRouter,
@@ -113,6 +114,8 @@ export function createApp() {
   app.use('/api/accounts', accountsRouter)
   app.use('/api/payments', paymentsRouter)
   app.use('/api/chats', chatsRouter)
+  // Chat image bytes — its own mount so it is not shadowed by /:id/… above.
+  app.use('/api/chat-attachments', chatAttachmentsRouter)
   app.use('/api/reports', reportsRouter)
 
   // ── Workstation ────────────────────────────────────────────────────────
@@ -125,6 +128,8 @@ export function createApp() {
   app.use('/api/services', servicesRouter)
   app.use('/api/service-catalog', serviceCatalogRouter)
   app.use('/api/follow-ups', followUpsRouter)
+  // Bookkeeping Service — the service-management layer over Books.
+  app.use('/api/bookkeeping', bookkeepingRouter)
   // NOT '/api/documents': that path already belongs to the HRMS
   // EmployeeDocument router mounted above, and Express matches the first
   // mount — so mounting here would shadow the Workstation list and silently

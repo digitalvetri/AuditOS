@@ -31,6 +31,7 @@ import type {
   AuditLog,
   Chat,
   ChatMember,
+  ChatAttachment,
   ChatMessage,
   Department,
   Designation,
@@ -96,6 +97,7 @@ export interface MockDB {
   chats: Chat[];
   chatMembers: ChatMember[];
   chatMessages: ChatMessage[];
+  chatAttachments: ChatAttachment[];
   messageReads: MessageRead[];
   notifications: Notification[];
   auditLog: AuditLog[];
@@ -134,6 +136,8 @@ function freshDb(): MockDB {
     chats: chatSeed,
     chatMembers: chatMemberSeed,
     chatMessages: chatMessageSeed,
+    // Seeded empty: chat images only exist once someone sends one.
+    chatAttachments: [],
     messageReads: messageReadSeed,
     notifications: [],
     auditLog: [],

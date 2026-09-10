@@ -4,9 +4,14 @@ import { writeAudit } from '../../platform/audit.js'
 import { notifyEmployee } from '../../platform/notify.js'
 import { can, type Session } from '../../platform/auth.js'
 import {
-  chatToApi, chatMessageToApi, type ChatListItem, type ChatMessageWithAuthor,
+  chatToApi, chatMessageToApi, chatPreviewText,
+  type ChatListItem, type ChatMessageWithAuthor,
 } from '../../api/serialize.js'
 import { publishChatEvent } from './events.js'
+import { sanitizeFilename } from '../tools/lib/files.js'
+import {
+  chatStorage, sniffImage, storageKeyFor, MAX_IMAGES_PER_MESSAGE, type ImageMime,
+} from './attachments.js'
 
 /**
  * MESSAGES (§8.7).
@@ -90,6 +95,7 @@ export async function listChats(session: Session): Promise<{ items: ChatListItem
         where: { deletedAt: null },
         orderBy: { createdAt: 'desc' },
         take: 1,
+        include: { attachments: { select: { id: true } } },
       },
       _count: { select: { members: true } },
     },
@@ -104,9 +110,12 @@ export async function listChats(session: Session): Promise<{ items: ChatListItem
       last_message: last
         ? {
             id: last.id,
-            body: last.body,
+            // An image-only message has no body; the preview says "Photo"
+            // rather than rendering an empty row in the sidebar.
+            body: chatPreviewText(last.body, last.attachments.length),
             created_at: last.createdAt.toISOString(),
             author_id: last.authorEmployeeId,
+            attachment_count: last.attachments.length,
           }
         : null,
       // A chat visible only through the MD override has no unread for you.
@@ -220,6 +229,25 @@ export async function createChat(
   return { chat: chatToApi(chat), created: true }
 }
 
+/**
+ * The include shape every message read shares, so the thread, the optimistic
+ * POST response and the realtime payload can never disagree about a message.
+ */
+const MESSAGE_INCLUDE = (employeeId: string) => ({
+  author: { select: { id: true, fullName: true, employeeCode: true } },
+  parent: {
+    include: {
+      author: { select: { fullName: true } },
+      attachments: { select: { id: true } },
+    },
+  },
+  reads: { where: { employeeId }, select: { id: true } },
+  attachments: {
+    select: { id: true, originalFilename: true, mimeType: true, fileSize: true },
+    orderBy: { createdAt: 'asc' },
+  },
+}) as const
+
 export async function listMessages(chatId: string, session: Session) {
   const employeeId = requireEmployee(session)
   const chat = await prisma.chat.findFirst({ where: { id: chatId, deletedAt: null } })
@@ -230,11 +258,7 @@ export async function listMessages(chatId: string, session: Session) {
 
   const rows = await prisma.chatMessage.findMany({
     where: { chatId, deletedAt: null },
-    include: {
-      author: { select: { id: true, fullName: true, employeeCode: true } },
-      parent: { include: { author: { select: { fullName: true } } } },
-      reads: { where: { employeeId }, select: { id: true } },
-    },
+    include: MESSAGE_INCLUDE(employeeId),
     orderBy: { createdAt: 'asc' },
   })
 
@@ -244,8 +268,39 @@ export async function listMessages(chatId: string, session: Session) {
   }
 }
 
+/** One uploaded file as multer hands it over, before any of it is trusted. */
+export interface IncomingImage {
+  originalname: string
+  buffer: Buffer
+}
+
+/**
+ * Validate every upload before a byte is written: the magic bytes decide the
+ * type, so a .png extension on a PDF (or an SVG full of script) is rejected
+ * here rather than being served back to the chat later.
+ */
+function validateImages(images: IncomingImage[]): { bytes: Buffer; mime: ImageMime; filename: string }[] {
+  if (images.length > MAX_IMAGES_PER_MESSAGE) {
+    throw ApiError.unprocessable(
+      'too_many_images',
+      `A message carries at most ${MAX_IMAGES_PER_MESSAGE} images.`,
+    )
+  }
+  return images.map((f) => {
+    const mime = sniffImage(f.buffer)
+    if (!mime) {
+      throw ApiError.unprocessable(
+        'unsupported_image',
+        `"${f.originalname}" is not a PNG, JPEG, WebP or GIF image.`,
+      )
+    }
+    return { bytes: f.buffer, mime, filename: sanitizeFilename(f.originalname, 'image') }
+  })
+}
+
 export async function postMessage(
-  chatId: string, session: Session, input: { body?: string; parent_id?: string },
+  chatId: string, session: Session,
+  input: { body?: string; parent_id?: string; images?: IncomingImage[] },
 ) {
   const employeeId = requireEmployee(session)
   const chat = await prisma.chat.findFirst({
@@ -258,8 +313,13 @@ export async function postMessage(
     throw ApiError.forbidden('You are not a member of this chat.')
   }
 
-  const text = input.body?.trim()
-  if (!text) throw ApiError.badRequest('Message body is required.')
+  const text = input.body?.trim() ?? ''
+  const validated = validateImages(input.images ?? [])
+  // An image is content in its own right, so a caption is optional — but a
+  // message with neither text nor an image is not a message.
+  if (!text && validated.length === 0) {
+    throw ApiError.badRequest('Type a message or attach an image.')
+  }
   if (text.length > 4000) throw ApiError.unprocessable('too_long', 'Message exceeds 4000 characters.')
   if (input.parent_id) {
     const parent = await prisma.chatMessage.findFirst({
@@ -268,26 +328,52 @@ export async function postMessage(
     if (!parent) throw ApiError.unprocessable('invalid_parent', 'Parent message not in this chat.')
   }
 
+  // Bytes are written before the row, because a storage failure must not leave
+  // a message pointing at an image that does not exist. The reverse — an
+  // orphaned object with no row — is harmless and swept up below.
+  const stored: { key: string; mime: ImageMime; filename: string; size: number }[] = []
+  try {
+    for (const v of validated) {
+      const key = storageKeyFor(chatId, v.mime)
+      const { size } = await chatStorage.put(key, v.bytes)
+      stored.push({ key, mime: v.mime, filename: v.filename, size })
+    }
+  } catch (err) {
+    await Promise.all(stored.map((o) => chatStorage.delete(o.key).catch(() => {})))
+    throw err
+  }
+
   const now = new Date()
-  const message = await prisma.$transaction(async (tx) => {
-    const created = await tx.chatMessage.create({
-      data: {
-        chatId,
-        authorEmployeeId: employeeId,
-        body: text,
-        parentId: input.parent_id ?? null,
-        // The author has read their own message by definition.
-        reads: { create: { chatId, employeeId, readAt: now } },
-      },
-      include: {
-        author: { select: { id: true, fullName: true, employeeCode: true } },
-        parent: { include: { author: { select: { fullName: true } } } },
-        reads: { where: { employeeId }, select: { id: true } },
-      },
+  let message
+  try {
+    message = await prisma.$transaction(async (tx) => {
+      const created = await tx.chatMessage.create({
+        data: {
+          chatId,
+          authorEmployeeId: employeeId,
+          body: text,
+          parentId: input.parent_id ?? null,
+          // The author has read their own message by definition.
+          reads: { create: { chatId, employeeId, readAt: now } },
+          attachments: {
+            create: stored.map((o) => ({
+              storagePath: o.key,
+              originalFilename: o.filename,
+              mimeType: o.mime,
+              fileSize: o.size,
+            })),
+          },
+        },
+        include: MESSAGE_INCLUDE(employeeId),
+      })
+      await tx.chat.update({ where: { id: chatId }, data: { lastMessageAt: now } })
+      return created
     })
-    await tx.chat.update({ where: { id: chatId }, data: { lastMessageAt: now } })
-    return created
-  })
+  } catch (err) {
+    // No row means nothing will ever read these objects — do not leave them.
+    await Promise.all(stored.map((o) => chatStorage.delete(o.key).catch(() => {})))
+    throw err
+  }
 
   const serialized = chatMessageToApi(message)
   publishChatEvent({
@@ -306,7 +392,8 @@ export async function postMessage(
       await notifyEmployee(m.employeeId, {
         type: 'chat.dm_new', module: 'message',
         title: `New message from ${author}`,
-        body: text.length > 80 ? `${text.slice(0, 80)}…` : text,
+        // An image-only message still needs a readable notification line.
+        body: chatPreviewText(text, stored.length),
         entityType: 'ChatMessage', entityId: message.id,
         actionUrl: `/hrms/messages?chat=${chatId}`,
       })
@@ -316,9 +403,37 @@ export async function postMessage(
   await writeAudit({
     actorUserId: session.userId, action: 'chat.message_sent',
     entityType: 'ChatMessage', entityId: message.id,
-    after: { chat_id: chatId, has_parent: !!message.parentId },
+    after: { chat_id: chatId, has_parent: !!message.parentId, images: stored.length },
   })
   return serialized
+}
+
+/**
+ * Read one attachment's bytes for a viewer.
+ *
+ * Membership is re-checked here rather than trusted from the URL: an
+ * attachment id is a uuid, but an unguessable id is not an access control, and
+ * ids travel (a forwarded link, a screenshot of the network tab). The MD read
+ * override applies, exactly as it does to the thread the image sits in.
+ */
+export async function readAttachment(attachmentId: string, session: Session) {
+  const employeeId = requireEmployee(session)
+  const row = await prisma.chatAttachment.findUnique({
+    where: { id: attachmentId },
+    include: { message: { select: { chatId: true, deletedAt: true } } },
+  })
+  if (!row || row.message.deletedAt) throw ApiError.notFound('Attachment not found.')
+  if (!(await isMember(row.message.chatId, employeeId)) && !canManageChats(session)) {
+    throw ApiError.forbidden('You are not a member of this chat.')
+  }
+  if (!(await chatStorage.exists(row.storagePath))) {
+    throw ApiError.notFound('Attachment bytes are no longer stored.')
+  }
+  return {
+    bytes: await chatStorage.get(row.storagePath),
+    mimeType: row.mimeType,
+    filename: row.originalFilename,
+  }
 }
 
 /** Mark everything up to `message_id` (or now) read. High frequency: no audit. */
