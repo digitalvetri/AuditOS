@@ -1119,6 +1119,10 @@ model Client {
   bkDocumentRequests BookkeepingDocumentRequest[]
   bkDeliverables     BookkeepingDeliverable[]
   bkActivities       BookkeepingActivity[]
+  incCases            IncorporationCase[]
+  incDocumentRequests IncorporationDocumentRequest[]
+  incDeliverables     IncorporationDeliverable[]
+  incFees             IncorporationFee[]
   aaBankAccounts     AaBankAccount[]
   aaSourceDocuments  AaSourceDocument[]
   aaJobs             AaJob[]
@@ -1148,7 +1152,8 @@ model ClientContact {
   email       String?
   isPrimary   Boolean @default(false)
 
-  client Client @relation(fields: [clientId], references: [id])
+  client     Client               @relation(fields: [clientId], references: [id])
+  incParties IncorporationParty[]
 
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt
@@ -1176,9 +1181,11 @@ model ClientService {
   completedAt        DateTime?
   notes              String?
 
-  client  Client  @relation(fields: [clientId], references: [id])
-  service Service @relation(fields: [serviceId], references: [id])
-  tasks   Task[]
+  client   Client              @relation(fields: [clientId], references: [id])
+  service  Service             @relation(fields: [serviceId], references: [id])
+  tasks    Task[]
+  incCases IncorporationCase[]
+  incFees  IncorporationFee[]
 
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt
@@ -1195,6 +1202,10 @@ model Task {
   id                 String  @id @default(uuid())
   clientId           String
   clientServiceId    String?
+  /// Set when the task was raised from an Incorporation case. Nullable, so
+  /// every existing Task row is untouched — this EXTENDS the one task engine
+  /// rather than standing a second one up beside it.
+  incorporationCaseId String?
   title              String
   description        String?
   assignedEmployeeId String
@@ -1202,8 +1213,9 @@ model Task {
   /// open | in_progress | blocked | done
   status             String  @default("open")
 
-  client        Client         @relation(fields: [clientId], references: [id])
-  clientService ClientService? @relation(fields: [clientServiceId], references: [id])
+  client            Client             @relation(fields: [clientId], references: [id])
+  clientService     ClientService?     @relation(fields: [clientServiceId], references: [id])
+  incorporationCase IncorporationCase? @relation(fields: [incorporationCaseId], references: [id], onDelete: SetNull)
 
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt
@@ -1213,6 +1225,7 @@ model Task {
 
   @@index([clientId])
   @@index([assignedEmployeeId])
+  @@index([incorporationCaseId])
 }
 
 /// ONE follow-up entity for BOTH leads and clients (§3). Exactly one of
@@ -1305,6 +1318,10 @@ model ClientDocument {
   versions ClientDocumentVersion[]
   bkDocumentRequests BookkeepingDocumentRequest[]
   bkDeliverables     BookkeepingDeliverable[]
+  incDocumentRequests IncorporationDocumentRequest[]
+  incFilings          IncorporationFiling[]
+  incQueries          IncorporationQuery[]
+  incDeliverables     IncorporationDeliverable[]
 
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt
@@ -3106,4 +3123,565 @@ model BookkeepingActivity {
 
   @@index([clientId, createdAt])
   @@index([periodId, createdAt])
+}
+
+// ============================================================
+// INCORPORATION SERVICE (Workstation → Services → Incorporation)
+// ============================================================
+//
+// TRUTH OF DATA. Every value in this section that describes something a
+// government portal did or said was TYPED IN BY AN EMPLOYEE. Nothing here
+// calls MCA or any other portal, and nothing here may claim that it did.
+// That is why every row carrying an externally-sourced fact also carries the
+// provenance triple — `source` (always 'manual_entry' today),
+// `recordedByEmployeeId`, `recordedAt` — and why the UI prints
+// "Recorded by <employee> · <date>" beside each of those values. There is no
+// "verified", no "synced" and no "last checked with the portal" anywhere.
+//
+// `externalRef` / `syncedAt` shapes are DELIBERATELY ABSENT rather than
+// stubbed: a nullable column no code path writes is dead integration code.
+// The reference numbers below are employee-recorded strings, which is what a
+// future integration would reconcile against anyway.
+//
+// Employee ids are scalars, never Prisma relations — declaring a relation
+// here would force back-relation fields onto Employee, and that model stays
+// untouched (see the Workstation section header). They resolve through
+// `employeeMap()` at read time, exactly like every other Workstation module.
+//
+// Status vocabularies are Strings with the allowed values in the doc comment,
+// matching ClientService / Task / FollowUp / Bookkeeping. The authoritative
+// list is `server/src/modules/incorporation/validate.ts`, which is what the
+// `oneOf()` validators check on every write.
+
+/// Configurable entity type. Party roles, checklist templates and document
+/// requirements hang off THIS ROW, not off an `if` in a component — adding
+/// "Section 8 Company" is a Settings edit, not a code change.
+model IncorporationEntityType {
+  id             String  @id @default(uuid())
+  organisationId String
+  /// 'PVT_LTD' | 'OPC' | 'LLP' | 'PARTNERSHIP' | 'PROPRIETORSHIP' | 'OTHER'
+  code           String  @unique
+  name           String
+  description    String?
+
+  /// The party roles this entity type actually uses, as a JSON array of role
+  /// codes. Data, so an LLP asks for designated partners and a proprietorship
+  /// does not.
+  partyRolesJson String @default("[]")
+  minParties     Int    @default(1)
+  maxParties     Int?
+
+  /// Applied when a case of this type is created.
+  defaultTargetDays         Int     @default(30)
+  defaultAssignedEmployeeId String?
+
+  isActive  Boolean @default(true)
+  sortOrder Int     @default(0)
+
+  cases              IncorporationCase[]
+  checklistTemplates IncorporationChecklistTemplate[]
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  createdBy String?
+  updatedBy String?
+  deletedAt DateTime?
+
+  @@index([isActive, sortOrder])
+}
+
+/// A checklist line DEFINITION. `entityTypeId = null` is the baseline
+/// template every entity type inherits; a row with an entityTypeId either
+/// adds to or overrides the baseline for that type.
+model IncorporationChecklistTemplate {
+  id             String  @id @default(uuid())
+  organisationId String
+  entityTypeId   String?
+
+  /// client | people | documents | dsc | name | filing | government | completion
+  category         String
+  label            String
+  sortOrder        Int     @default(0)
+  /// The case stage this item belongs to, so Case Detail can show what the
+  /// current stage still needs. Null = not tied to one stage.
+  stage            String?
+  /// For a `documents` item, the document category to request.
+  documentCategory String?
+  isActive         Boolean @default(true)
+
+  entityType IncorporationEntityType?     @relation(fields: [entityTypeId], references: [id], onDelete: Cascade)
+  items      IncorporationChecklistItem[]
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  createdBy String?
+  updatedBy String?
+  deletedAt DateTime?
+
+  @@index([entityTypeId, sortOrder])
+  @@index([category])
+}
+
+/// THE CASE — the aggregate root. One incorporation engagement for one client.
+model IncorporationCase {
+  id             String @id @default(uuid())
+  organisationId String
+  /// Human-readable 'INC-2026-0001'. Allocated SERVER-SIDE inside the
+  /// transaction that creates the case, by reading the current maximum for
+  /// the year. Never client-side, never random.
+  caseCode       String @unique
+
+  clientId        String
+  entityTypeId    String
+  /// Optional link to the ClientService row this case is delivered under, so
+  /// the Services list and the case agree.
+  clientServiceId String?
+
+  proposedName           String
+  alternateName          String?
+  businessActivity       String?
+  businessCategory       String?
+  state                  String?
+  city                   String?
+  registeredOfficeInfo   String?
+  incorporationObjective String?
+
+  /// The stage machine. See INCORPORATION_STAGES / STAGE_TRANSITIONS in
+  /// modules/incorporation/validate.ts — the server is what enforces it.
+  stage         String  @default("new")
+  /// The stage a hold was taken from, so ON_HOLD returns to where it paused.
+  heldFromStage String?
+  /// active | on_hold | completed | cancelled
+  status        String  @default("active")
+  /// low | medium | high | critical — the platform priority vocabulary,
+  /// reused rather than re-declared.
+  priority      String  @default("medium")
+
+  assignedEmployeeId String
+  targetDate         String?
+  internalNotes      String?
+  completedAt        DateTime?
+  cancelledReason    String?
+
+  /// Seeded sample data. A real case is always false, and the UI marks a
+  /// true one so a sample reference number can never be mistaken for a real
+  /// government reference.
+  isDemo Boolean @default(false)
+
+  client           Client                         @relation(fields: [clientId], references: [id])
+  entityType       IncorporationEntityType        @relation(fields: [entityTypeId], references: [id])
+  clientService    ClientService?                 @relation(fields: [clientServiceId], references: [id])
+  parties          IncorporationParty[]
+  checklistItems   IncorporationChecklistItem[]
+  documentRequests IncorporationDocumentRequest[]
+  dscRecords       IncorporationDsc[]
+  names            IncorporationName[]
+  filings          IncorporationFiling[]
+  queries          IncorporationQuery[]
+  deliverables     IncorporationDeliverable[]
+  fees             IncorporationFee[]
+  activities       IncorporationActivity[]
+  tasks            Task[]
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  createdBy String?
+  updatedBy String?
+  deletedAt DateTime?
+
+  @@index([clientId])
+  @@index([stage])
+  @@index([status])
+  @@index([entityTypeId])
+  @@index([priority])
+  @@index([targetDate])
+  @@index([assignedEmployeeId, status])
+  @@index([updatedAt])
+}
+
+/// A promoter / director / partner / designated partner / authorised person.
+/// Links to the existing ClientContact where the person is already on file,
+/// so nobody re-keys a director who is already a client contact.
+model IncorporationParty {
+  id     String @id @default(uuid())
+  caseId String
+
+  /// One of the entity type's partyRolesJson codes. Checked on write against
+  /// THAT list, so an LLP cannot acquire a "director".
+  role            String
+  name            String
+  contactNumber   String?
+  email           String?
+  address         String?
+  clientContactId String?
+
+  dscRequired Boolean @default(true)
+  sortOrder   Int     @default(0)
+  notes       String?
+
+  case          IncorporationCase  @relation(fields: [caseId], references: [id], onDelete: Cascade)
+  clientContact ClientContact?     @relation(fields: [clientContactId], references: [id])
+  dscRecords    IncorporationDsc[]
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  createdBy String?
+  updatedBy String?
+  deletedAt DateTime?
+
+  @@index([caseId, sortOrder])
+  @@index([clientContactId])
+}
+
+/// An instantiated checklist row ON a case, copied from the templates that
+/// apply to the case's entity type at creation time, in one transaction.
+model IncorporationChecklistItem {
+  id         String  @id @default(uuid())
+  caseId     String
+  templateId String?
+
+  category  String
+  label     String
+  /// pending | in_progress | completed | blocked | not_applicable
+  status    String  @default("pending")
+  sortOrder Int     @default(0)
+  stage     String?
+
+  assignedEmployeeId String?
+  dueDate            String?
+  remarks            String?
+
+  completedAt           DateTime?
+  completedByEmployeeId String?
+
+  case     IncorporationCase               @relation(fields: [caseId], references: [id], onDelete: Cascade)
+  template IncorporationChecklistTemplate? @relation(fields: [templateId], references: [id], onDelete: SetNull)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([caseId, sortOrder])
+  @@index([status])
+}
+
+/// The ASK for a file. Storage stays in ClientDocument — this row records
+/// that we asked, and clientDocumentId is the FK to the delivered file.
+model IncorporationDocumentRequest {
+  id       String  @id @default(uuid())
+  caseId   String
+  clientId String
+  /// Set when the document belongs to one party (a director's KYC).
+  partyId  String?
+
+  /// identity_kyc | address_proof | registered_office | party | dsc |
+  /// name_application | government_filing | government_query | certificate |
+  /// pan_tan | other
+  category     String  @default("other")
+  documentType String
+  description  String?
+  /// required | requested | received | under_review | approved | rejected |
+  /// not_applicable
+  status       String  @default("required")
+
+  requestedByEmployeeId String?
+  requestedAt           DateTime?
+  dueDate               String?
+  receivedAt            DateTime?
+  reviewedByEmployeeId  String?
+  rejectionReason       String?
+
+  clientDocumentId String?
+
+  case           IncorporationCase @relation(fields: [caseId], references: [id], onDelete: Cascade)
+  client         Client            @relation(fields: [clientId], references: [id])
+  clientDocument ClientDocument?   @relation(fields: [clientDocumentId], references: [id], onDelete: SetNull)
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  createdBy String?
+  updatedBy String?
+  deletedAt DateTime?
+
+  @@index([caseId])
+  @@index([clientId])
+  @@index([status])
+  @@index([category])
+}
+
+/// DSC TRACKING ONLY. This module performs no DSC operation of any kind — it
+/// records what an employee did with a token outside the system.
+///
+/// `status = 'verified'` means AN EMPLOYEE PHYSICALLY VERIFIED THE TOKEN. It
+/// never means an API confirmed anything, and the UI labels it
+/// "Verified by employee" for exactly that reason.
+model IncorporationDsc {
+  id      String @id @default(uuid())
+  caseId  String
+  partyId String
+
+  required    Boolean @default(true)
+  /// not_required | pending | requested | received | verified | expired | issue
+  status      String  @default("pending")
+  provider    String?
+  /// The reference an employee noted from the provider's paperwork.
+  referenceNo String?
+
+  requestDate  String?
+  receivedDate String?
+  expiryDate   String?
+  remarks      String?
+
+  /// PROVENANCE (§1.4).
+  source               String   @default("manual_entry")
+  recordedByEmployeeId String?
+  recordedAt           DateTime @default(now())
+
+  case  IncorporationCase  @relation(fields: [caseId], references: [id], onDelete: Cascade)
+  party IncorporationParty @relation(fields: [partyId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  createdBy String?
+  updatedBy String?
+  deletedAt DateTime?
+
+  /// One DSC record per party per case.
+  @@unique([caseId, partyId])
+  @@index([caseId])
+  @@index([status])
+  @@index([expiryDate])
+}
+
+/// A proposed name option. `priority` is the preference order submitted to
+/// the portal; it is unique per case so two names cannot both be "first".
+model IncorporationName {
+  id     String @id @default(uuid())
+  caseId String
+
+  proposedName String
+  priority     Int    @default(1)
+  /// draft | ready | submitted | approved | rejected | rework | other
+  status       String @default("draft")
+
+  submissionDate String?
+  /// The application reference an employee noted from the portal.
+  applicationRef String?
+  responseDate   String?
+  remarks        String?
+
+  /// PROVENANCE (§1.4) — the status below is what an employee SAW, recorded.
+  source               String   @default("manual_entry")
+  recordedByEmployeeId String?
+  recordedAt           DateTime @default(now())
+
+  case IncorporationCase @relation(fields: [caseId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  createdBy String?
+  updatedBy String?
+  deletedAt DateTime?
+
+  @@unique([caseId, priority])
+  @@index([caseId])
+  @@index([status])
+}
+
+/// A filing an employee prepared and submitted, and the references they noted
+/// back from the portal.
+model IncorporationFiling {
+  id     String @id @default(uuid())
+  caseId String
+
+  /// spice_plus_part_a | spice_plus_part_b | agile_pro | inc_9 | fillip |
+  /// run_llp | llp_agreement | pan_tan | other
+  filingType String
+  /// The portal an employee used, as they named it. Free text on purpose:
+  /// we are recording what a person did, not selecting an integration.
+  portal     String?
+
+  applicationRef     String?
+  acknowledgementRef String?
+  preparedDate       String?
+  submittedDate      String?
+  /// not_started | preparing | ready_for_review | submitted | processing |
+  /// query | resubmission | approved | rejected | closed
+  status             String  @default("not_started")
+
+  assignedEmployeeId String?
+  remarks            String?
+  clientDocumentId   String?
+
+  /// PROVENANCE (§1.4).
+  source               String   @default("manual_entry")
+  recordedByEmployeeId String?
+  recordedAt           DateTime @default(now())
+
+  case           IncorporationCase    @relation(fields: [caseId], references: [id], onDelete: Cascade)
+  clientDocument ClientDocument?      @relation(fields: [clientDocumentId], references: [id], onDelete: SetNull)
+  queries        IncorporationQuery[]
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  createdBy String?
+  updatedBy String?
+  deletedAt DateTime?
+
+  @@index([caseId])
+  @@index([status])
+  @@index([submittedDate])
+}
+
+/// A government query and the response cycle it starts.
+///
+/// OVERDUE IS NOT STORED. It is `responseDueDate < today && status != 'resolved'`,
+/// computed at read time, so a row cannot sit in the database claiming to be
+/// on time a week after it stopped being on time.
+model IncorporationQuery {
+  id       String  @id @default(uuid())
+  caseId   String
+  filingId String?
+
+  queryDate   String
+  /// The authority or portal, as the employee recorded it.
+  authority   String?
+  description String
+
+  clientDocumentId   String?
+  assignedEmployeeId String?
+  responseDueDate    String?
+
+  response              String?
+  responseSubmittedDate String?
+  resubmissionRef       String?
+  resolution            String?
+  remarks               String?
+  /// new | assigned | preparing_response | ready | submitted | resolved | escalated
+  status                String  @default("new")
+
+  /// PROVENANCE (§1.4).
+  source               String   @default("manual_entry")
+  recordedByEmployeeId String?
+  recordedAt           DateTime @default(now())
+
+  case           IncorporationCase    @relation(fields: [caseId], references: [id], onDelete: Cascade)
+  filing         IncorporationFiling? @relation(fields: [filingId], references: [id], onDelete: SetNull)
+  clientDocument ClientDocument?      @relation(fields: [clientDocumentId], references: [id], onDelete: SetNull)
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  createdBy String?
+  updatedBy String?
+  deletedAt DateTime?
+
+  @@index([caseId])
+  @@index([filingId])
+  @@index([status])
+  @@index([responseDueDate])
+}
+
+/// A final output — certificate, PAN, TAN, acknowledgement. Tracking and a
+/// link to the file in ClientDocument; the bytes never live here.
+model IncorporationDeliverable {
+  id       String @id @default(uuid())
+  caseId   String
+  clientId String
+
+  name   String
+  /// certificate_of_incorporation | pan | tan | din | moa | aoa |
+  /// llp_agreement | acknowledgement | other
+  type   String @default("other")
+  /// pending | prepared | delivered
+  status String @default("pending")
+
+  clientDocumentId      String?
+  preparedDate          String?
+  deliveredDate         String?
+  deliveredByEmployeeId String?
+  /// The number an employee read off the certificate.
+  referenceNo           String?
+  notes                 String?
+
+  /// PROVENANCE (§1.4).
+  source               String   @default("manual_entry")
+  recordedByEmployeeId String?
+  recordedAt           DateTime @default(now())
+
+  case           IncorporationCase @relation(fields: [caseId], references: [id], onDelete: Cascade)
+  client         Client            @relation(fields: [clientId], references: [id])
+  clientDocument ClientDocument?   @relation(fields: [clientDocumentId], references: [id], onDelete: SetNull)
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  createdBy String?
+  updatedBy String?
+  deletedAt DateTime?
+
+  @@index([caseId])
+  @@index([clientId])
+  @@index([status])
+}
+
+/// SERVICE FEE TRACKING.
+///
+/// Created rather than reused after checking every candidate: `Payment` is
+/// HRMS payroll/expense money moving TO AN EMPLOYEE; `BooksDocument` lives
+/// under a BooksOrganisation, which is THE CLIENT'S OWN SET OF BOOKS, so the
+/// firm's fee posted there would become the client's revenue; `ClientService`
+/// carries no amount and `Lead.priceQuotedPaise` dies at conversion. Money is
+/// integer PAISE here like everywhere else in this schema.
+model IncorporationFee {
+  id       String @id @default(uuid())
+  caseId   String
+  clientId String
+
+  /// professional_fee | government_fee | dsc_fee | stamp_duty | other
+  category    String  @default("professional_fee")
+  description String?
+  amountPaise Int     @default(0)
+  /// pending | invoiced | partly_paid | paid | waived
+  status      String  @default("pending")
+
+  /// Optional link to the ClientService this was billed under, and to the
+  /// firm's own invoice reference where one exists.
+  clientServiceId String?
+  invoiceRef      String?
+
+  dueDate         String?
+  paidDate        String?
+  paidAmountPaise Int     @default(0)
+  notes           String?
+
+  recordedByEmployeeId String?
+
+  case          IncorporationCase @relation(fields: [caseId], references: [id], onDelete: Cascade)
+  client        Client            @relation(fields: [clientId], references: [id])
+  clientService ClientService?    @relation(fields: [clientServiceId], references: [id], onDelete: SetNull)
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  createdBy String?
+  updatedBy String?
+  deletedAt DateTime?
+
+  @@index([caseId])
+  @@index([clientId])
+  @@index([status])
+}
+
+/// Append-only per-case trail — the human-readable story on the Timeline tab.
+/// AuditLog remains the compliance record for every mutation (§8).
+model IncorporationActivity {
+  id     String @id @default(uuid())
+  caseId String
+
+  actorUserId String?
+  action      String
+  detail      String?
+
+  case IncorporationCase @relation(fields: [caseId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+
+  @@index([caseId, createdAt])
 }
