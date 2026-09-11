@@ -33,8 +33,30 @@ export function ReportsPage() {
   const canExpenseOwn = can(session?.role.code, 'expense.submit', 'self') || canFinance;
 
   const [params, setParams] = useSearchParams();
-  const initialType = (params.get('type') as ReportType | null) ?? 'attendance';
-  const [type, setType] = useState<ReportType>(initialType);
+
+  // Which reports this caller may actually run. Declared BEFORE the initial
+  // type is chosen: a role without `reports.hr` (Finance, for one) must not
+  // land on Attendance and fire a request the API answers with 403.
+  const availableTypes: { id: ReportType; label: string; group: string; visible: boolean }[] = [
+    { id: 'attendance', label: 'Attendance', group: 'People', visible: canHrSelf },
+    { id: 'leave', label: 'Leave utilisation', group: 'People', visible: canHrSelf },
+    { id: 'payroll', label: 'Payroll summary', group: 'Finance', visible: canPayrollOwn },
+    { id: 'expenses', label: 'Expenses', group: 'Finance', visible: canExpenseOwn },
+  ];
+  const visibleTypes = availableTypes.filter((t) => t.visible);
+  const groups = Array.from(new Set(visibleTypes.map((t) => t.group)));
+
+  // A ?type= the caller cannot see is ignored rather than honoured, so a
+  // shared link opens the first report they do have instead of an error.
+  // null = this role has no reports at all; the panel says so and asks for
+  // nothing. ProtectedRoute guarantees a session here, so these grants are
+  // already settled on first render.
+  const requestedType = params.get('type') as ReportType | null;
+  const [type, setType] = useState<ReportType | null>(() =>
+    requestedType && visibleTypes.some((t) => t.id === requestedType)
+      ? requestedType
+      : visibleTypes[0]?.id ?? null,
+  );
 
   const today = istToday();
   const [filters, setFilters] = useState<FilterState>({
@@ -50,14 +72,6 @@ export function ReportsPage() {
     setParams({ type: t }, { replace: true });
   };
 
-  const availableTypes: { id: ReportType; label: string; group: string; visible: boolean }[] = [
-    { id: 'attendance', label: 'Attendance', group: 'People', visible: canHrSelf },
-    { id: 'leave', label: 'Leave utilisation', group: 'People', visible: canHrSelf },
-    { id: 'payroll', label: 'Payroll summary', group: 'Finance', visible: canPayrollOwn },
-    { id: 'expenses', label: 'Expenses', group: 'Finance', visible: canExpenseOwn },
-  ];
-  const groups = Array.from(new Set(availableTypes.filter((t) => t.visible).map((t) => t.group)));
-
   return (
     <div className="">
       <header>
@@ -72,7 +86,7 @@ export function ReportsPage() {
           {groups.map((g) => (
             <div key={g} className="mb-4">
               <div className="text-11 uppercase tracking-[0.06em] text-neutral-500 px-3 mb-1">{g}</div>
-              {availableTypes.filter((t) => t.group === g && t.visible).map((t) => (
+              {visibleTypes.filter((t) => t.group === g).map((t) => (
                 <button
                   key={t.id}
                   type="button"
@@ -91,12 +105,20 @@ export function ReportsPage() {
             </div>
           ))}
         </aside>
-        <main data-testid={`reports-panel-${type}`}>
-          <FiltersBar type={type} filters={filters} onChange={setFilters} />
-          {type === 'attendance' ? <AttendanceReportView filters={filters} /> : null}
-          {type === 'leave' ? <LeaveReportView filters={filters} /> : null}
-          {type === 'payroll' ? <PayrollReportView filters={filters} /> : null}
-          {type === 'expenses' ? <ExpensesReportView filters={filters} /> : null}
+        <main data-testid={type ? `reports-panel-${type}` : 'reports-panel-none'}>
+          {type === null ? (
+            <div className="bg-white border border-neutral-200 rounded p-6 text-13 text-neutral-500">
+              No reports are available to your role.
+            </div>
+          ) : (
+            <>
+              <FiltersBar type={type} filters={filters} onChange={setFilters} />
+              {type === 'attendance' ? <AttendanceReportView filters={filters} /> : null}
+              {type === 'leave' ? <LeaveReportView filters={filters} /> : null}
+              {type === 'payroll' ? <PayrollReportView filters={filters} /> : null}
+              {type === 'expenses' ? <ExpensesReportView filters={filters} /> : null}
+            </>
+          )}
         </main>
       </div>
     </div>
