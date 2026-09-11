@@ -41,10 +41,22 @@ import {
 } from 'lucide-react';
 import { useAuth } from '@/platform/auth/AuthContext';
 import { can } from '@/platform/rbac/can';
+// The rail lists the registrations from the same catalogue the pages
+// render, so a service can never exist in one place and not the other.
+import { REGISTRATION_SERVICES } from '@/pages/workstation/registration/services';
 
 const COLLAPSED_KEY = 'audit-os:sidebar-collapsed';
 const SECTIONS_COLLAPSED_KEY = 'audit-os:sidebar-sections-collapsed';
 
+/**
+ * A row below the icon level. A child may carry its own children — Services →
+ * Registration → the ten registrations — so the rail nests three deep.
+ */
+interface NavChild {
+  to: string;
+  label: string;
+  children?: { to: string; label: string }[];
+}
 interface NavItem {
   to: string;
   label: string;
@@ -53,7 +65,7 @@ interface NavItem {
   visible: boolean;
   /** Service categories nested under Workstation → Services. Names only —
       each row deep-links to the Services page scoped by its slug. */
-  children?: { to: string; label: string }[];
+  children?: NavChild[];
 }
 interface NavGroup {
   label: string | null; // null = no section header (Dashboard row)
@@ -100,6 +112,11 @@ export function Sidebar({ mobileOpen, onMobileClose }: Props) {
           { to: '/workstation/services/e-way-bill',    label: 'E-Way Bill' },
           { to: '/workstation/services/bookkeeping',   label: 'Bookkeeping' },
           { to: '/workstation/services/incorporation', label: 'Incorporation' },
+          { to: '/workstation/services/registration',  label: 'Registration',
+            children: REGISTRATION_SERVICES.map((r) => ({
+              to: `/workstation/services/registration/${r.slug}`,
+              label: r.name,
+            })) },
           { to: '/workstation/services/e-invoice',     label: 'E-Invoice' },
         ] },
       { to: '/workstation/documents',   label: 'Documents',  icon: FolderKanban,  visible: can(role, 'workstation.document.read', 'self') },
@@ -379,16 +396,80 @@ function NavItemRow({ item, collapsed }: { item: NavItem; collapsed: boolean }) 
         <ul className="mt-px space-y-px">
           {item.children!.map((child) => (
             <li key={child.to}>
+              <NavChildRow child={child} />
+            </li>
+          ))}
+        </ul>
+      ) : null}
+    </>
+  );
+}
+
+/**
+ * A second-level row. With grandchildren it gets its own chevron and a third
+ * level indented under it; without, it is the plain link it always was.
+ */
+function NavChildRow({ child }: { child: NavChild }) {
+  const location = useLocation();
+  const hasKids = !!child.children?.length;
+  const onBranch = location.pathname.startsWith(child.to);
+  const [open, setOpen] = useState(onBranch);
+  useEffect(() => { if (onBranch) setOpen(true); }, [onBranch]);
+
+  const link = (
+    <NavLink
+      to={child.to}
+      end={hasKids}
+      className={({ isActive }) =>
+        'flex items-center h-9 pl-11 pr-3 rounded-lg text-14 transition-colors ' +
+        (hasKids ? 'flex-1 min-w-0 ' : '') +
+        (isActive
+          ? 'bg-sidebarActive text-sidebarText font-semibold'
+          : 'text-sidebarText font-medium hover:bg-sidebarHover')
+      }
+    >
+      <span className="truncate">{child.label}</span>
+    </NavLink>
+  );
+
+  if (!hasKids) return link;
+
+  return (
+    <>
+      <div className="flex items-center">
+        {link}
+        <button
+          type="button"
+          onClick={() => setOpen((o) => !o)}
+          aria-expanded={open}
+          aria-label={(open ? 'Collapse' : 'Expand') + ' ' + child.label}
+          className="shrink-0 h-9 w-7 flex items-center justify-center rounded-lg text-sidebarText hover:bg-sidebarHover transition-colors"
+        >
+          <ChevronDown
+            size={12}
+            strokeWidth={2.5}
+            className={'transition-transform ' + (open ? '' : '-rotate-90')}
+          />
+        </button>
+      </div>
+      {open ? (
+        <ul className="mt-px space-y-px">
+          {child.children!.map((leaf) => (
+            <li key={leaf.to}>
               <NavLink
-                to={child.to}
+                to={leaf.to}
+                /* Third level: indented past the child text, and titled —
+                   "Private Limited Company Registration" cannot fit a 264px
+                   rail, so the full name lives in the tooltip. */
+                title={leaf.label}
                 className={({ isActive }) =>
-                  'flex items-center h-9 pl-11 pr-3 rounded-lg text-14 transition-colors ' +
+                  'flex items-center h-8 pl-[68px] pr-3 rounded-lg text-13 transition-colors ' +
                   (isActive
                     ? 'bg-sidebarActive text-sidebarText font-semibold'
-                    : 'text-sidebarText font-medium hover:bg-sidebarHover')
+                    : 'text-sidebarMuted font-medium hover:bg-sidebarHover hover:text-sidebarText')
                 }
               >
-                <span className="truncate">{child.label}</span>
+                <span className="truncate">{leaf.label}</span>
               </NavLink>
             </li>
           ))}
