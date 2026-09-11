@@ -67,6 +67,10 @@ import {
 // shape-based workspace dispatcher (recurring period board / project case
 // pipeline) + weekly notice-check discovery workflow.
 // See docs/gst-services/README.md.
+// Registration — Workstation → Services → Registration. Nav structure and
+// reference only; nothing files a registration yet.
+import { RegistrationServicesLanding } from '@/pages/workstation/registration/RegistrationServicesLanding';
+import { RegistrationServiceDetail } from '@/pages/workstation/registration/RegistrationServiceDetail';
 import { GstServicesLanding } from '@/pages/workstation/gst/GstServicesLanding';
 import { GstServiceHandoff } from '@/pages/workstation/gst/GstServiceHandoff';
 import { GstWorkspace } from '@/pages/workstation/gst/GstWorkspace';
@@ -207,6 +211,10 @@ export default function App() {
               {/* Service categories (TDS, E-Way Bill, E-Invoice) — nav
                   structure only for now, so every remaining slug resolves to
                   the same Services page. */}
+              {/* Registration category — declared BEFORE the :category
+                  catch-all below, or that would swallow the slug. */}
+              <Route path="workstation/services/registration" element={<RegistrationServicesLanding />} />
+              <Route path="workstation/services/registration/:slug" element={<RegistrationServiceDetail />} />
               <Route path="workstation/services/:category" element={<ServicesPage />} />
               <Route path="workstation/follow-ups" element={<FollowUpsPage />} />
               <Route path="workstation/documents" element={<WorkstationDocumentsPage />} />
