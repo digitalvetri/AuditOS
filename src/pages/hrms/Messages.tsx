@@ -1,21 +1,80 @@
 /**
- * /hrms/messages — two-pane messaging per §8.7.
+ * /hrms/messages — messenger-style chat per §8.7.
+ *
+ * Reads as a messenger rather than a record screen: conversations on the left,
+ * one conversation on the right, tailed bubbles on a tinted wallpaper, day
+ * separators, and a composer pinned to the bottom. Desktop shows both panes;
+ * a phone shows the list *or* the thread, since neither fits beside the other
+ * at 320px.
  *
  * Scope cuts for this scaffold (documented in module handoff):
  *   Skipped: reactions, @mentions, in-conversation search.
  *   Included: text, image attachments, reply-to, read receipts, unread counts,
  *             DM creation.
  */
-import { useEffect, useMemo, useRef, useState, type ChangeEvent, type ClipboardEvent, type FormEvent } from 'react';
+import {
+  useEffect, useMemo, useRef, useState,
+  type ChangeEvent, type ClipboardEvent, type FormEvent,
+} from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { messagesApi, type ChatAttachment, type ChatListItem, type ChatMessageWithAuthor } from '@/modules/messages/api';
+import {
+  messagesApi,
+  type ChatAttachment, type ChatListItem, type ChatMessageWithAuthor,
+} from '@/modules/messages/api';
 import { fmtTime } from '@/lib/format';
 import { useAuth } from '@/platform/auth/AuthContext';
-import { ChevronLeft, Image as ImageIcon, Search as SearchIcon } from 'lucide-react';
-import { Button } from '@/components/Button';
+import {
+  Check, CheckCheck, ChevronLeft, Image as ImageIcon,
+  Search as SearchIcon, SendHorizontal, Users, X,
+} from 'lucide-react';
 import { useToast } from '@/components/Toast';
 import { useIsMobile } from '@/lib/useIsMobile';
+
+// ── Identity chips ────────────────────────────────────────────────────────
+
+/** Up to two initials: "Finance Team" -> FT, "Priya Nair" -> PN. */
+function initials(name: string): string {
+  const words = name.trim().split(/\s+/).filter(Boolean);
+  if (words.length === 0) return '?';
+  if (words.length === 1) return words[0].slice(0, 2).toUpperCase();
+  return (words[0][0] + words[words.length - 1][0]).toUpperCase();
+}
+
+/**
+ * A stable tone per conversation. The same name always lands on the same
+ * swatch, so a chat keeps its colour between sessions and across devices
+ * without anything being stored. Every swatch is a platform palette value.
+ */
+const TONES = [
+  'rgb(15,34,73)', 'rgb(42,71,137)', 'rgb(38,100,231)', 'rgb(79,107,82)',
+  'rgb(179,58,43)', 'rgb(166,124,38)', 'rgb(88,82,73)', 'rgb(26,48,96)',
+];
+function toneFor(seed: string): string {
+  let h = 0;
+  for (let i = 0; i < seed.length; i++) h = (h * 31 + seed.charCodeAt(i)) >>> 0;
+  return TONES[h % TONES.length];
+}
+
+function Avatar({
+  name, size = 40, group = false,
+}: { name: string; size?: number; group?: boolean }) {
+  return (
+    <span
+      className="inline-flex items-center justify-center rounded-full text-white font-semibold shrink-0"
+      style={{
+        width: size, height: size,
+        fontSize: Math.round(size * 0.36),
+        backgroundColor: toneFor(name),
+      }}
+      aria-hidden
+    >
+      {group ? <Users size={Math.round(size * 0.46)} strokeWidth={2} /> : initials(name)}
+    </span>
+  );
+}
+
+// ── Page ──────────────────────────────────────────────────────────────────
 
 export function MessagesPage() {
   const [params, setParams] = useSearchParams();
@@ -30,31 +89,35 @@ export function MessagesPage() {
 
   const chats = chatsQ.data?.items ?? [];
   // Desktop shows both panes, so falling back to the first chat fills the
-  // right-hand pane. A phone shows one or the other, so the same fallback
-  // would drop the user straight into a conversation they never chose — the
-  // list is the landing view there, and only an explicit ?chat= opens a thread.
+  // right-hand one. A phone shows one or the other, so the same fallback
+  // would drop the user into a conversation they never chose — there the
+  // list is the landing view and only an explicit ?chat= opens a thread.
   const activeChat = isMobile
     ? chats.find((c) => c.id === activeChatId) ?? null
     : chats.find((c) => c.id === activeChatId) ?? chats[0] ?? null;
 
   useEffect(() => {
-    // If no ?chat= and we have chats, deep-link to the first for shareability.
     if (isMobile) return;
     if (!activeChatId && activeChat) setParams({ chat: activeChat.id }, { replace: true });
   }, [isMobile, activeChatId, activeChat, setParams]);
 
+  const open = (id: string) => setParams({ chat: id }, { replace: true });
+
   if (isMobile) {
     return activeChat ? (
-      <MobileThread
-        chat={activeChat}
-        onBack={() => setParams({}, { replace: true })}
-      />
+      <div className="m-thread">
+        <ThreadView chat={activeChat} onBack={() => setParams({}, { replace: true })} mobile />
+      </div>
     ) : (
-      <MobileChatList
-        chats={chats}
-        loading={chatsQ.isLoading}
-        onPick={(id) => setParams({ chat: id }, { replace: true })}
-      />
+      <div className="m-page">
+        <header>
+          <div className="text-11 uppercase tracking-[0.06em] text-neutral-500">HRMS</div>
+          <h1 className="text-20 font-semibold text-neutral-900 mt-1">Messages</h1>
+        </header>
+        <div className="m-card flex flex-col" data-testid="chat-sidebar" style={{ minHeight: 320 }}>
+          <ChatList chats={chats} activeId={null} onPick={open} loading={chatsQ.isLoading} mobile />
+        </div>
+      </div>
     );
   }
 
@@ -65,31 +128,39 @@ export function MessagesPage() {
         <h1 className="text-20 font-semibold text-neutral-900 mt-1">Messages</h1>
       </header>
 
+      {/* One bordered frame holding both panes, so the divider between them is
+          the frame's own rule rather than a gap between two cards. */}
       <div
-        className="grid gap-4"
-        style={{ gridTemplateColumns: '280px 1fr', minHeight: '520px' }}
+        className="grid bg-surface border border-border rounded overflow-hidden"
+        style={{
+          gridTemplateColumns: 'minmax(260px, 340px) 1fr',
+          height: 'calc(100dvh - 220px)',
+          minHeight: 520,
+        }}
       >
-        <ChatSidebar
-          chats={chats}
-          activeId={activeChat?.id ?? null}
-          onPick={(id) => setParams({ chat: id }, { replace: true })}
-          loading={chatsQ.isLoading}
-        />
-        <ConversationPane chatId={activeChat?.id ?? null} />
+        <aside className="flex flex-col border-r border-border min-w-0" data-testid="chat-sidebar">
+          <ChatList chats={chats} activeId={activeChat?.id ?? null} onPick={open} loading={chatsQ.isLoading} />
+        </aside>
+        {activeChat ? (
+          <ThreadView chat={activeChat} />
+        ) : (
+          <section className="chat-wallpaper grid place-items-center p-6 text-13 text-inkMuted">
+            Pick a conversation to start.
+          </section>
+        )}
       </div>
     </div>
   );
 }
 
-// ── Mobile: conversation list ────────────────────────────────────────────
-/**
- * Header → search → list. Each row is a 44px+ target and separates the three
- * facts the spec asks to keep apart: who it is from, what it says, and when /
- * whether it is unread.
- */
-function MobileChatList({
-  chats, loading, onPick,
-}: { chats: ChatListItem[]; loading: boolean; onPick: (id: string) => void }) {
+// ── Conversation list ─────────────────────────────────────────────────────
+
+function ChatList({
+  chats, activeId, onPick, loading, mobile = false,
+}: {
+  chats: ChatListItem[]; activeId: string | null;
+  onPick: (id: string) => void; loading: boolean; mobile?: boolean;
+}) {
   const [q, setQ] = useState('');
   const needle = q.trim().toLowerCase();
   const shown = needle
@@ -99,218 +170,163 @@ function MobileChatList({
     : chats;
 
   return (
-    <div className="m-page">
-      <header>
-        <div className="text-11 uppercase tracking-[0.06em] text-neutral-500">HRMS</div>
-        <h1 className="text-20 font-semibold text-neutral-900 mt-1">Messages</h1>
-      </header>
-
-      <div className="relative m-form">
-        <SearchIcon
-          size={16}
-          strokeWidth={1.75}
-          className="absolute left-3 top-1/2 -translate-y-1/2 text-neutral-500 pointer-events-none"
-          aria-hidden
-        />
-        <input
-          type="search"
-          value={q}
-          onChange={(e) => setQ(e.target.value)}
-          placeholder="Search conversations"
-          aria-label="Search conversations"
-          className="w-full pl-9 pr-3 bg-white border border-neutral-300 rounded text-13 text-neutral-900 focus:outline-none focus:border-gold"
-        />
-      </div>
-
-      <section className="m-section">
-        <div className="m-section-title">
-          {shown.length} conversation{shown.length === 1 ? '' : 's'}
-        </div>
-        <div className="m-card">
-          {loading ? (
-            <div className="h-24 bg-neutral-100" />
-          ) : shown.length === 0 ? (
-            <div className="p-4 text-13 text-neutral-500">
-              {needle ? 'No conversations match that search.' : 'No chats yet.'}
-            </div>
-          ) : (
-            <ul>
-              {shown.map((c) => (
-                <li key={c.id}>
-                  <button
-                    type="button"
-                    onClick={() => onPick(c.id)}
-                    data-testid={`chat-item-${c.id}`}
-                    className={
-                      'w-full text-left px-3 py-3 min-h-[44px] flex items-start gap-3 ' +
-                      'border-b border-neutral-200 last:border-b-0 border-l-2 ' +
-                      (c.unread > 0 ? 'border-l-amber' : 'border-l-transparent')
-                    }
-                  >
-                    <span className="min-w-0 flex-1">
-                      <span className="flex items-baseline gap-2">
-                        <span
-                          className={
-                            'text-14 truncate flex-1 ' +
-                            (c.unread > 0 ? 'text-neutral-900 font-semibold' : 'text-neutral-900')
-                          }
-                        >
-                          {c.display_name}
-                        </span>
-                        {c.last_message ? (
-                          <span className="text-11 text-neutral-500 tabular-nums shrink-0">
-                            {fmtTime(c.last_message.created_at)}
-                          </span>
-                        ) : null}
-                      </span>
-                      <span className="block text-12 text-neutral-500 truncate mt-0.5">
-                        {c.last_message?.body || (c.type === 'group' ? `${c.member_count} members` : 'Direct message')}
-                      </span>
-                    </span>
-                    {c.unread > 0 ? (
-                      <span className="shrink-0 mt-1 text-11 tabular-nums text-white bg-gold rounded px-1.5 min-w-[20px] text-center">
-                        {c.unread > 9 ? '9+' : c.unread}
-                      </span>
-                    ) : null}
-                  </button>
-                </li>
-              ))}
-            </ul>
-          )}
-        </div>
-      </section>
-    </div>
-  );
-}
-
-// ── Mobile: one thread ───────────────────────────────────────────────────
-/**
- * A fixed-height column: back header, scrolling messages, pinned composer.
- * The composer is deliberately outside the scroll region — on a phone it has
- * to be reachable without hunting for the bottom of the conversation.
- */
-function MobileThread({ chat, onBack }: { chat: ChatListItem; onBack: () => void }) {
-  return (
-    <div className="m-thread">
-      <div className="flex items-center gap-1 pb-2 border-b border-neutral-200 shrink-0">
-        <button
-          type="button"
-          onClick={onBack}
-          aria-label="Back to conversations"
-          className="inline-flex items-center justify-center w-11 h-11 -ml-2 rounded text-neutral-600 hover:text-neutral-900"
-        >
-          <ChevronLeft size={22} strokeWidth={1.75} />
-        </button>
-        <div className="min-w-0 flex-1">
-          <div className="text-14 font-semibold text-neutral-900 truncate">{chat.display_name}</div>
-          <div className="text-11 text-neutral-500 truncate">
-            {chat.type === 'group' ? `${chat.member_count} members` : 'Direct message'}
-          </div>
+    <>
+      <div className="shrink-0 border-b border-border p-3">
+        <div className="relative">
+          <SearchIcon
+            size={16}
+            strokeWidth={1.75}
+            className="absolute left-3 top-1/2 -translate-y-1/2 text-inkFaint pointer-events-none"
+            aria-hidden
+          />
+          <input
+            type="search"
+            value={q}
+            onChange={(e) => setQ(e.target.value)}
+            placeholder="Search conversations"
+            aria-label="Search conversations"
+            className={
+              'w-full pl-9 pr-3 bg-canvas text-ink border border-border rounded-full ' +
+              'focus:outline-none focus:border-primary ' +
+              (mobile ? 'h-11 text-14' : 'h-9 text-13')
+            }
+          />
         </div>
       </div>
-      <ConversationPane chatId={chat.id} mobile />
-    </div>
-  );
-}
 
-// ── Sidebar ──────────────────────────────────────────────────────────────
-function ChatSidebar({
-  chats, activeId, onPick, loading,
-}: { chats: ChatListItem[]; activeId: string | null; onPick: (id: string) => void; loading: boolean }) {
-  return (
-    <aside className="bg-white border border-neutral-200 rounded overflow-hidden flex flex-col" data-testid="chat-sidebar">
-      <div className="h-10 px-3 flex items-center border-b border-neutral-200 text-11 uppercase tracking-[0.06em] text-neutral-500">
-        Conversations
-      </div>
-      <div className="flex-1 overflow-y-auto">
+      <div className="flex-1 min-h-0 overflow-y-auto">
         {loading ? (
-          <div className="h-24 bg-neutral-100" />
-        ) : chats.length === 0 ? (
-          <div className="p-4 text-13 text-neutral-500">No chats yet.</div>
+          <div className="h-24 bg-canvas" />
+        ) : shown.length === 0 ? (
+          <div className="p-4 text-13 text-inkMuted">
+            {needle ? 'No conversations match that search.' : 'No chats yet.'}
+          </div>
         ) : (
           <ul>
-            {chats.map((c) => {
-              const active = c.id === activeId;
-              return (
-                <li key={c.id}>
-                  <button
-                    type="button"
-                    onClick={() => onPick(c.id)}
-                    data-testid={`chat-item-${c.id}`}
-                    className={
-                      'w-full text-left px-3 py-2 border-b border-neutral-200 border-l-2 ' +
-                      (active
-                        ? 'border-l-gold bg-neutral-50'
-                        : c.unread > 0
-                          ? 'border-l-amber hover:bg-neutral-50'
-                          : 'border-l-transparent hover:bg-neutral-50')
-                    }
-                  >
-                    <div className="flex items-baseline justify-between gap-2">
-                      <div className={'text-13 truncate ' + (c.unread > 0 ? 'text-neutral-900 font-medium' : 'text-neutral-900')}>
-                        {c.display_name}
-                      </div>
-                      {c.unread > 0 ? (
-                        <span className="text-11 tabular-nums text-white bg-gold rounded px-1 min-w-[16px] text-center">
-                          {c.unread > 9 ? '9+' : c.unread}
-                        </span>
-                      ) : null}
-                    </div>
-                    <div className="text-11 text-neutral-500 truncate mt-0.5">
-                      {c.type === 'group' ? `${c.member_count} members` : 'Direct message'}
-                      {c.last_message ? ` · ${c.last_message.body.slice(0, 40)}` : ''}
-                    </div>
-                  </button>
-                </li>
-              );
-            })}
+            {shown.map((c) => (
+              <li key={c.id}>
+                <ChatRow
+                  chat={c}
+                  active={c.id === activeId}
+                  onClick={() => onPick(c.id)}
+                  mobile={mobile}
+                />
+              </li>
+            ))}
           </ul>
         )}
       </div>
-    </aside>
+    </>
   );
 }
 
-// ── Conversation pane ────────────────────────────────────────────────────
-function ConversationPane({ chatId, mobile = false }: { chatId: string | null; mobile?: boolean }) {
+function ChatRow({
+  chat, active, onClick, mobile,
+}: { chat: ChatListItem; active: boolean; onClick: () => void; mobile: boolean }) {
+  const unread = chat.unread > 0;
+  const preview = chat.last_message?.body
+    || (chat.last_message
+      ? 'Photo'
+      : chat.type === 'group' ? `${chat.member_count} members` : 'Direct message');
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      data-testid={`chat-item-${chat.id}`}
+      className={
+        'w-full text-left flex items-center gap-3 px-3 border-b border-border transition-colors ' +
+        (mobile ? 'py-3 min-h-[44px] ' : 'py-2.5 ') +
+        (active ? 'bg-canvas ' : 'hover:bg-canvas ')
+      }
+    >
+      <Avatar name={chat.display_name} size={mobile ? 44 : 40} group={chat.type === 'group'} />
+      <span className="min-w-0 flex-1">
+        <span className="flex items-baseline gap-2">
+          <span className={'truncate flex-1 text-14 text-ink ' + (unread ? 'font-semibold' : 'font-medium')}>
+            {chat.display_name}
+          </span>
+          {chat.last_message ? (
+            <span
+              className={
+                'text-11 tabular-nums shrink-0 ' +
+                (unread ? 'text-primary font-semibold' : 'text-inkFaint')
+              }
+            >
+              {fmtTime(chat.last_message.created_at)}
+            </span>
+          ) : null}
+        </span>
+        <span className="flex items-center gap-2 mt-0.5">
+          <span className={'truncate flex-1 text-12 ' + (unread ? 'text-ink' : 'text-inkMuted')}>
+            {preview}
+          </span>
+          {unread ? (
+            <span className="shrink-0 text-11 tabular-nums text-white bg-primary rounded-full px-1.5 min-w-[20px] text-center">
+              {chat.unread > 9 ? '9+' : chat.unread}
+            </span>
+          ) : null}
+        </span>
+      </span>
+    </button>
+  );
+}
+
+// ── One conversation ──────────────────────────────────────────────────────
+
+interface Row {
+  type: 'day' | 'msg';
+  key: string;
+  label?: string;
+  m?: ChatMessageWithAuthor;
+  own?: boolean;
+  head?: boolean;
+}
+
+function ThreadView({
+  chat, onBack, mobile = false,
+}: { chat: ChatListItem; onBack?: () => void; mobile?: boolean }) {
   const { session } = useAuth();
   const qc = useQueryClient();
   const toast = useToast();
   const [replyTo, setReplyTo] = useState<ChatMessageWithAuthor | null>(null);
   const scrollRef = useRef<HTMLDivElement | null>(null);
+  const chatId = chat.id;
 
   const q = useQuery({
     queryKey: ['chats', 'messages', chatId],
-    queryFn: () => (chatId ? messagesApi.messages(chatId) : Promise.resolve(null as never)),
-    enabled: !!chatId,
+    queryFn: () => messagesApi.messages(chatId),
     refetchInterval: 5_000,
   });
 
-  const messages = q.data?.items ?? [];
-  const lastMessageId = useMemo(() => (messages.length ? messages[messages.length - 1].id : null), [messages]);
+  const messages = useMemo(() => q.data?.items ?? [], [q.data]);
+  const lastMessageId = messages.length ? messages[messages.length - 1].id : null;
 
-  // Mark all read whenever the view mounts / the newest message id changes.
   const markRead = useMutation({
-    mutationFn: () => (chatId && lastMessageId ? messagesApi.read(chatId, lastMessageId) : Promise.resolve({ marked: 0 })),
+    mutationFn: () =>
+      lastMessageId ? messagesApi.read(chatId, lastMessageId) : Promise.resolve({ marked: 0 }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['chats', 'list'] });
       qc.invalidateQueries({ queryKey: ['chats', 'messages', chatId] });
       qc.invalidateQueries({ queryKey: ['notifications'] });
     },
   });
+  // Only mark read when there is something to mark. Besides saving a pointless
+  // write, this is what keeps the screen quiet for a chat the caller can read
+  // but is not a member of: the API lists and serves those (an MD sees the
+  // firm's chats) yet answers POST /read with 403. Such a chat always reports
+  // unread 0, so the guard covers it exactly.
   useEffect(() => {
-    if (chatId && lastMessageId) markRead.mutate();
+    if (lastMessageId && chat.unread > 0) markRead.mutate();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [chatId, lastMessageId]);
+  }, [chatId, lastMessageId, chat.unread]);
 
-  // Auto-scroll to bottom when messages change.
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight });
   }, [messages.length, chatId]);
 
   const send = useMutation({
     mutationFn: ({ body, images }: { body: string; images: File[] }) =>
-      chatId ? messagesApi.send(chatId, body, replyTo?.id, images) : Promise.reject(new Error('No chat')),
+      messagesApi.send(chatId, body, replyTo?.id, images),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['chats', 'messages', chatId] });
       qc.invalidateQueries({ queryKey: ['chats', 'list'] });
@@ -319,72 +335,82 @@ function ConversationPane({ chatId, mobile = false }: { chatId: string | null; m
     onError: (e: Error) => toast.push('error', e.message),
   });
 
-  if (!chatId) {
-    return (
-      <section className="bg-white border border-neutral-200 rounded p-6 text-13 text-neutral-500">
-        Pick a conversation to start.
-      </section>
-    );
-  }
+  const ownId = session?.employee?.id ?? '';
 
-  // On mobile the surrounding MobileThread already supplies the header and
-  // the fixed-height frame, so this renders bare: scroll region + composer.
-  if (mobile) {
-    return (
-      <>
-        <div className="m-thread-scroll py-3 space-y-3" ref={scrollRef} data-testid="conversation">
-          {q.isLoading ? (
-            <div className="h-24 bg-neutral-100" />
-          ) : messages.length === 0 ? (
-            <div className="text-13 text-neutral-500">No messages yet.</div>
-          ) : (
-            messages.map((m) => (
-              <MessageRow
-                key={m.id}
-                message={m}
-                ownEmployeeId={session?.employee?.id ?? ''}
-                onReply={() => setReplyTo(m)}
-                mobile
-              />
-            ))
-          )}
-        </div>
-        <div className="m-composer">
-          <Composer
-            replyTo={replyTo}
-            onClearReply={() => setReplyTo(null)}
-            onSend={(text, images) => send.mutate({ body: text, images })}
-            onReject={(reason) => toast.push('error', reason)}
-            busy={send.isPending}
-            sent={send.isSuccess}
-            mobile
-          />
-        </div>
-      </>
-    );
-  }
+  // Group by day, and mark the first message of each same-author run: only it
+  // draws a tail and a name, so a burst from one person reads as one block.
+  const rows = useMemo<Row[]>(() => {
+    const out: Row[] = [];
+    let lastDay = '';
+    let lastAuthor = '';
+    for (const m of messages) {
+      const day = new Date(m.created_at).toDateString();
+      if (day !== lastDay) {
+        out.push({ type: 'day', key: `d-${day}`, label: dayLabel(m.created_at) });
+        lastDay = day;
+        lastAuthor = '';
+      }
+      const author = m.author?.id ?? '—';
+      out.push({ type: 'msg', key: m.id, m, own: author === ownId, head: author !== lastAuthor });
+      lastAuthor = author;
+    }
+    return out;
+  }, [messages, ownId]);
 
   return (
-    <section className="bg-white border border-neutral-200 rounded flex flex-col" data-testid="conversation">
-      <div className="h-10 px-3 flex items-center border-b border-neutral-200 text-13 text-neutral-900 font-medium">
-        {q.data?.chat.display_name ?? '…'}
+    <section className="flex flex-col min-w-0 min-h-0 h-full" data-testid="conversation">
+      <div
+        className={
+          'flex items-center gap-3 shrink-0 border-b border-border bg-surface ' +
+          (mobile ? 'pb-2' : 'px-4 py-2.5')
+        }
+      >
+        {onBack ? (
+          <button
+            type="button"
+            onClick={onBack}
+            aria-label="Back to conversations"
+            className="inline-flex items-center justify-center w-11 h-11 -ml-2 rounded text-inkMuted hover:text-ink"
+          >
+            <ChevronLeft size={22} strokeWidth={1.75} />
+          </button>
+        ) : null}
+        <Avatar name={chat.display_name} size={mobile ? 36 : 38} group={chat.type === 'group'} />
+        <div className="min-w-0 flex-1">
+          <div className="text-14 font-semibold text-ink truncate">{chat.display_name}</div>
+          <div className="text-11 text-inkMuted truncate">
+            {chat.type === 'group' ? `${chat.member_count} members` : 'Direct message'}
+          </div>
+        </div>
       </div>
-      <div className="flex-1 overflow-y-auto p-3 space-y-2" ref={scrollRef}>
+
+      <div className="chat-scroll chat-wallpaper px-3 py-3" ref={scrollRef}>
         {q.isLoading ? (
-          <div className="h-24 bg-neutral-100" />
+          <div className="h-24 bg-canvas rounded" />
         ) : messages.length === 0 ? (
-          <div className="text-13 text-neutral-500">No messages yet.</div>
+          <div className="grid place-items-center h-full text-13 text-inkMuted">No messages yet.</div>
         ) : (
-          messages.map((m) => (
-            <MessageRow
-              key={m.id}
-              message={m}
-              ownEmployeeId={session?.employee?.id ?? ''}
-              onReply={() => setReplyTo(m)}
-            />
-          ))
+          <div className="flex flex-col gap-1">
+            {rows.map((row) =>
+              row.type === 'day' ? (
+                <div key={row.key} className="flex justify-center my-2">
+                  <span className="chat-daymark">{row.label}</span>
+                </div>
+              ) : (
+                <Bubble
+                  key={row.key}
+                  message={row.m!}
+                  own={!!row.own}
+                  head={!!row.head}
+                  group={chat.type === 'group'}
+                  onReply={() => setReplyTo(row.m!)}
+                />
+              ),
+            )}
+          </div>
         )}
       </div>
+
       <Composer
         replyTo={replyTo}
         onClearReply={() => setReplyTo(null)}
@@ -392,57 +418,90 @@ function ConversationPane({ chatId, mobile = false }: { chatId: string | null; m
         onReject={(reason) => toast.push('error', reason)}
         busy={send.isPending}
         sent={send.isSuccess}
+        mobile={mobile}
       />
     </section>
   );
 }
 
-function MessageRow({
-  message, ownEmployeeId, onReply, mobile = false,
-}: { message: ChatMessageWithAuthor; ownEmployeeId: string; onReply: () => void; mobile?: boolean }) {
-  const own = message.author?.id === ownEmployeeId;
+/** "Today" / "Yesterday" / a plain date, the way a messenger marks a day. */
+function dayLabel(iso: string): string {
+  const d = new Date(iso);
+  const today = new Date();
+  const yesterday = new Date(today);
+  yesterday.setDate(today.getDate() - 1);
+  if (d.toDateString() === today.toDateString()) return 'Today';
+  if (d.toDateString() === yesterday.toDateString()) return 'Yesterday';
+  return d.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' });
+}
+
+function Bubble({
+  message, own, head, group, onReply,
+}: {
+  message: ChatMessageWithAuthor; own: boolean; head: boolean;
+  group: boolean; onReply: () => void;
+}) {
+  const hasImages = message.attachments.length > 0;
   return (
     <div
-      className={'flex ' + (own ? 'justify-end' : 'justify-start')}
+      className={'flex w-full ' + (own ? 'justify-end' : 'justify-start') + (head ? ' mt-2' : '')}
       data-testid={`msg-${message.id}`}
     >
-      <div className={(mobile ? 'm-bubble ' : 'max-w-[70%] ') + (own ? 'items-end' : 'items-start')}>
-        {message.parent_preview ? (
-          <div className={'text-11 text-neutral-500 border-l-2 border-neutral-300 pl-2 mb-1 ' + (own ? 'text-right pr-2 border-l-0 border-r-2 pl-0' : '')}>
-            ↳ {message.parent_preview.author_full_name ?? '—'}: {message.parent_preview.body}
+      <div
+        className={
+          'chat-bubble group/bubble px-2.5 py-1.5 ' +
+          (own ? 'chat-bubble--own ' : 'chat-bubble--them ') +
+          (head ? 'chat-bubble--tail ' : '')
+        }
+      >
+        {/* In a group, who is speaking matters; in a DM it is noise. */}
+        {!own && group && head ? (
+          <div className="text-12 font-semibold mb-0.5" style={{ color: toneFor(message.author?.full_name ?? '—') }}>
+            {message.author?.full_name ?? '—'}
           </div>
         ) : null}
-        <div className={'text-11 text-neutral-500 tabular-nums ' + (own ? 'text-right' : '')}>
-          {own ? 'You' : message.author?.full_name ?? '—'} · {fmtTime(message.created_at)}
-        </div>
-        <div
-          className={
-            'mt-1 px-3 py-2 text-13 rounded border ' +
-            (own ? 'bg-neutral-50 border-neutral-200 text-neutral-900' : 'bg-white border-neutral-200 text-neutral-900')
-          }
-        >
-          {message.attachments.length > 0 ? (
-            <AttachmentGrid attachments={message.attachments} />
-          ) : null}
-          {/* An image-only message has no caption — don't leave an empty line. */}
-          {message.body ? (
-            <div className={message.attachments.length > 0 ? 'mt-2' : ''}>{message.body}</div>
-          ) : null}
-        </div>
-        <div className={mobile ? 'mt-0.5 flex' : 'mt-1'}>
+
+        {message.parent_preview ? (
+          <div className="mb-1 rounded border-l-2 border-primary bg-canvas px-2 py-1">
+            <div className="text-11 font-medium text-ink truncate">
+              {message.parent_preview.author_full_name ?? '—'}
+            </div>
+            <div className="text-11 text-inkMuted truncate">{message.parent_preview.body}</div>
+          </div>
+        ) : null}
+
+        {hasImages ? <AttachmentGrid attachments={message.attachments} /> : null}
+
+        {/* An image-only message has no caption — don't leave an empty line. */}
+        {message.body ? (
+          <div className={'text-13 text-ink whitespace-pre-wrap break-words ' + (hasImages ? 'mt-1.5' : '')}>
+            {message.body}
+          </div>
+        ) : null}
+
+        {/* Time and receipt ride the bottom-right of the bubble. Reply is
+            revealed on hover where there is a pointer, and stays put on touch
+            where there is not. */}
+        <div className="flex items-center gap-1 mt-0.5 -mb-0.5">
           <button
             type="button"
             onClick={onReply}
-            className={
-              mobile
-                ? 'inline-flex items-center min-h-[44px] px-2 -mx-2 text-12 text-neutral-500 ' +
-                  (own ? 'ml-auto' : '')
-                : 'text-11 text-neutral-500 hover:text-gold ' + (own ? 'float-right' : '')
-            }
             data-testid={`msg-reply-${message.id}`}
+            className={
+              'text-11 text-inkFaint hover:text-primary mr-auto pr-3 ' +
+              'md:opacity-0 md:group-hover/bubble:opacity-100 md:transition-opacity'
+            }
           >
             Reply
           </button>
+          <span className="text-11 tabular-nums text-inkFaint">{fmtTime(message.created_at)}</span>
+          {own ? (
+            message.read_by_me ? (
+              <CheckCheck size={13} strokeWidth={2.25} className="text-primary" aria-label="Read" />
+            ) : (
+              <Check size={13} strokeWidth={2.25} className="text-inkFaint" aria-label="Sent" />
+            )
+          ) : null}
         </div>
       </div>
     </div>
@@ -450,8 +509,8 @@ function MessageRow({
 }
 
 /**
- * Images in a received message. One image fills the bubble; several tile, so a
- * burst of screenshots stays one readable unit rather than a tall column.
+ * Images in a message. One fills the bubble; several tile, so a burst of
+ * screenshots stays one readable unit rather than a tall column.
  */
 function AttachmentGrid({ attachments }: { attachments: ChatAttachment[] }) {
   return (
@@ -463,7 +522,7 @@ function AttachmentGrid({ attachments }: { attachments: ChatAttachment[] }) {
           target="_blank"
           rel="noreferrer"
           title={`${a.filename} · ${fmtFileSize(a.file_size)}`}
-          className="block overflow-hidden rounded border border-neutral-200 bg-neutral-50"
+          className="block overflow-hidden rounded border border-border bg-canvas"
           data-testid={`attachment-${a.id}`}
         >
           <img
@@ -484,17 +543,19 @@ function fmtFileSize(n: number): string {
   return `${(n / (1024 * 1024)).toFixed(1)} MB`;
 }
 
+// ── Composer ──────────────────────────────────────────────────────────────
+
 /** Mirrors the server's accepted list — SVG is deliberately excluded. */
 const ACCEPTED_IMAGES = 'image/png,image/jpeg,image/webp,image/gif';
 const MAX_IMAGES = 6;
 const MAX_IMAGE_MB = 10;
 
 function Composer({
-  replyTo, onClearReply, onSend, onReject, busy, sent, mobile = false,
+  replyTo, onClearReply, onSend, onReject, busy, sent, mobile,
 }: {
   replyTo: ChatMessageWithAuthor | null; onClearReply: () => void;
   onSend: (body: string, images: File[]) => void; onReject: (reason: string) => void;
-  busy: boolean; sent: boolean; mobile?: boolean;
+  busy: boolean; sent: boolean; mobile: boolean;
 }) {
   const [text, setText] = useState('');
   const [images, setImages] = useState<File[]>([]);
@@ -565,31 +626,41 @@ function Composer({
   return (
     <form
       onSubmit={submit}
-      className={
-        'border-t border-neutral-200 space-y-2 ' + (mobile ? 'pt-3 pb-1' : 'p-3')
-      }
+      className={'shrink-0 border-t border-border bg-surface ' + (mobile ? 'pt-2 pb-1' : 'p-3')}
     >
       {replyTo ? (
-        <div className="flex items-start justify-between gap-2 text-11 text-neutral-500 border-l-2 border-amber pl-2">
-          <div>Replying to {replyTo.author?.full_name ?? '—'}: {replyTo.body.slice(0, 100)}</div>
-          <button type="button" onClick={onClearReply} className="text-neutral-500 hover:text-neutral-900">Clear</button>
+        <div className="flex items-start justify-between gap-2 mb-2 rounded border-l-2 border-primary bg-canvas px-2 py-1.5">
+          <div className="min-w-0">
+            <div className="text-11 font-medium text-ink">
+              Replying to {replyTo.author?.full_name ?? '—'}
+            </div>
+            <div className="text-11 text-inkMuted truncate">{replyTo.body.slice(0, 120)}</div>
+          </div>
+          <button
+            type="button"
+            onClick={onClearReply}
+            aria-label="Cancel reply"
+            className="shrink-0 text-inkMuted hover:text-ink"
+          >
+            <X size={16} strokeWidth={2} />
+          </button>
         </div>
       ) : null}
 
       {images.length > 0 ? (
-        <ul className="flex flex-wrap gap-2" data-testid="composer-tray">
+        <ul className="flex flex-wrap gap-2 mb-2" data-testid="composer-tray">
           {images.map((f, i) => (
             <li key={`${f.name}-${i}`} className="relative">
               <img
                 src={previews[i]}
                 alt={f.name}
-                className="h-16 w-16 object-cover rounded border border-neutral-200"
+                className="h-16 w-16 object-cover rounded border border-border"
               />
               <button
                 type="button"
                 onClick={() => setImages((prev) => prev.filter((_, j) => j !== i))}
                 aria-label={`Remove ${f.name}`}
-                className="absolute -top-1.5 -right-1.5 h-5 w-5 text-11 leading-none bg-neutral-900 text-white rounded-full hover:bg-neutral-700"
+                className="absolute -top-1.5 -right-1.5 h-5 w-5 text-11 leading-none bg-ink text-white rounded-full"
               >
                 ✕
               </button>
@@ -598,7 +669,7 @@ function Composer({
         </ul>
       ) : null}
 
-      <div className="flex gap-2">
+      <div className="flex items-center gap-2">
         <input
           ref={fileRef}
           type="file"
@@ -614,35 +685,34 @@ function Composer({
           disabled={images.length >= MAX_IMAGES}
           title={images.length >= MAX_IMAGES ? `At most ${MAX_IMAGES} images per message` : 'Attach an image'}
           aria-label="Attach an image"
-          className={
-            'shrink-0 text-13 border border-neutral-300 rounded hover:bg-neutral-50 disabled:opacity-50 ' +
-            (mobile ? 'h-11 w-11' : 'h-9 w-9')
-          }
+          className="inline-flex items-center justify-center w-10 h-10 shrink-0 rounded-full text-inkMuted hover:text-ink hover:bg-canvas disabled:opacity-50"
           data-testid="composer-attach"
         >
-          <ImageIcon className="h-4 w-4 mx-auto text-neutral-600" />
+          <ImageIcon size={20} strokeWidth={1.75} />
         </button>
         <input
           type="text"
           value={text}
           onChange={(e) => setText(e.target.value)}
           onPaste={onPaste}
-          placeholder={images.length > 0 ? 'Add a caption…' : 'Type a message…'}
+          placeholder={images.length > 0 ? 'Add a caption…' : 'Type a message'}
           className={
-            'flex-1 min-w-0 px-3 bg-white border border-neutral-300 rounded focus:outline-none focus:border-gold ' +
-            (mobile ? 'h-11 text-14' : 'h-9 text-13')
+            'flex-1 min-w-0 px-4 bg-canvas text-ink border border-border rounded-full ' +
+            'focus:outline-none focus:border-primary ' +
+            (mobile ? 'h-11 text-14' : 'h-10 text-14')
           }
           data-testid="composer-input"
         />
-        <Button variant="primary" type="submit" disabled={!canSend} data-testid="composer-send">
-          {busy ? 'Sending…' : 'Send'}
-        </Button>
+        <button
+          type="submit"
+          disabled={!canSend}
+          className="chat-send"
+          aria-label="Send message"
+          data-testid="composer-send"
+        >
+          <SendHorizontal size={18} strokeWidth={2} />
+        </button>
       </div>
-      {mobile ? null : (
-        <p className="text-11 text-neutral-500">
-          PNG, JPEG, WebP or GIF · up to {MAX_IMAGE_MB} MB each, {MAX_IMAGES} per message · paste a screenshot to attach it.
-        </p>
-      )}
     </form>
   );
 }

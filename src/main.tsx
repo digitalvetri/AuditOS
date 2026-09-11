@@ -5,6 +5,8 @@ import '@/design/globals.css';
 // Mobile-only layer (≤767px). Imported after globals so its media-scoped
 // rules win at phone widths; contributes nothing at 768px and up.
 import '@/design/mobile.css';
+// Chat surface: wallpaper, bubbles, day marks. Scoped to the messages screen.
+import '@/design/chat.css';
 
 const MOCK_MODE = import.meta.env.VITE_MOCK_MODE === 'true';
 

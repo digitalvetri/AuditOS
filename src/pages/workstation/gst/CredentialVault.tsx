@@ -137,7 +137,7 @@ export function CredentialVault({ client }: { client: VaultClient | null }) {
             onClick={reveal}
             disabled={!client}
             title={client ? 'Reveal client credentials' : 'Pick a client first'}
-            className="inline-flex items-center gap-1 h-8 px-3 text-12 font-medium text-white bg-gold hover:bg-gold-hover rounded-md disabled:opacity-50 disabled:cursor-not-allowed"
+            className="inline-flex items-center gap-1 h-8 px-3 text-12 font-medium text-white bg-primary hover:bg-primaryHover rounded-md disabled:opacity-50 disabled:cursor-not-allowed"
           >
             <Eye size={14} strokeWidth={2} />
             Reveal
