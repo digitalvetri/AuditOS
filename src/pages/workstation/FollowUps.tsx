@@ -233,7 +233,7 @@ function NewFollowUpModal({ open, onClose }: { open: boolean; onClose: () => voi
         <textarea className={textareaClass} rows={3} value={form.notes} onChange={(ev) => set('notes', ev.target.value)} />
       </Field>
       <SimulatedNotice>
-        Reminders appear in Audit OS notifications only. No SMS, WhatsApp or email is sent.
+        Reminders appear in JNS Accounting Solutions notifications only. No SMS, WhatsApp or email is sent.
       </SimulatedNotice>
     </Modal>
   );

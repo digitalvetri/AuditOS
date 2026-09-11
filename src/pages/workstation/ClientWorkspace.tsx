@@ -342,7 +342,7 @@ function GstTab({ client }: { client: ClientDetail }) {
     <QueryState query={gst}>
       {(profile: GstProfile | null) =>
         !profile ? (
-          <Card><div className="px-4 py-6 text-13 text-neutral-500">This client is not GST-registered in Audit OS.</div></Card>
+          <Card><div className="px-4 py-6 text-13 text-neutral-500">This client is not GST-registered in JNS Accounting Solutions.</div></Card>
         ) : (
           <div className="space-y-6">
             <Card title="GST profile">
@@ -377,7 +377,7 @@ function GstTab({ client }: { client: ClientDetail }) {
             </Card>
 
             <SimulatedNotice>
-              Filing status is recorded manually in Audit OS. There is no GSTN connection —
+              Filing status is recorded manually in JNS Accounting Solutions. There is no GSTN connection —
               nothing here is filed with the government by this system.
             </SimulatedNotice>
           </div>
@@ -652,7 +652,7 @@ function RequestDocumentModal({
       </Field>
       {/* The Client Portal handoff is MODELLED, not built (§7.6). */}
       <SimulatedNotice>
-        Client Portal is not yet available. This request is recorded in Audit OS; no
+        Client Portal is not yet available. This request is recorded in JNS Accounting Solutions; no
         message is sent to the client.
       </SimulatedNotice>
     </Modal>

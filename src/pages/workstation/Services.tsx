@@ -40,7 +40,7 @@ export function ServicesPage() {
     <div className="">
       <PageHeader
         title="Services"
-        subtitle="The work Audit OS is doing for its clients."
+        subtitle="The work JNS Accounting Solutions is doing for its clients."
       />
 
       <FilterBar>

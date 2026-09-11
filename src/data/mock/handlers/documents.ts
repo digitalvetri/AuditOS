@@ -274,7 +274,7 @@ export const documentHandlers = [
     if (!doc) return HttpResponse.json({ error: { code: 'not_found', message: 'Document not found.' } }, { status: 404 });
 
     // Mock file bytes — a small text payload derived from the metadata.
-    const body = `Audit OS — Mock document payload\n\nid: ${doc.id}\nname: ${doc.name}\ntype: ${doc.type}\nemployee: ${doc.employee_id}\nfile_key: ${doc.file_key}\nissued_to_user: ${rec.userId}\n`;
+    const body = `JNS Accounting Solutions — Mock document payload\n\nid: ${doc.id}\nname: ${doc.name}\ntype: ${doc.type}\nemployee: ${doc.employee_id}\nfile_key: ${doc.file_key}\nissued_to_user: ${rec.userId}\n`;
     return new HttpResponse(body, {
       status: 200,
       headers: {

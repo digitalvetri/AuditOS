@@ -21,13 +21,15 @@
   :root {
     --c-white: 255 255 255;
     --c-black: 0 0 0;
-    /* White rail. It sits on the off-white canvas, so the aside carries a
-       right border to hold the edge. */
-    --c-sidebar: 255 255 255;
-    --c-sidebarHover: 243 241 237;
-    --c-sidebarActive: 233 229 221;
-    --c-sidebarText: 26 26 24;
-    --c-sidebarMuted: 122 115 106;
+    /* Navy rail per practice-overview mockup. Active row uses a lighter
+       navy pill; text stays white throughout so the existing Sidebar.tsx
+       markup (which uses text-sidebarText for both active and idle rows)
+       still reads correctly on both states. */
+    --c-sidebar: 15 34 73;
+    --c-sidebarHover: 26 48 96;
+    --c-sidebarActive: 42 71 137;
+    --c-sidebarText: 255 255 255;
+    --c-sidebarMuted: 148 163 196;
     --c-canvas: 247 246 242;
     --c-surface: 255 255 255;
     --c-border: 232 230 223;
@@ -49,8 +51,8 @@
     --c-neutral-700: 63 58 51;
     --c-neutral-800: 40 37 31;
     --c-neutral-900: 23 21 18;
-    --c-gold: 200 149 46;
-    --c-gold-hover: 176 130 31;
+    --c-gold: 38 100 231;
+    --c-gold-hover: 29 84 199;
   }
   :root[data-theme="dark"] {
     --c-white: 31 30 27;
@@ -65,13 +67,13 @@
     --c-neutral-700: 218 214 205;
     --c-neutral-800: 234 231 224;
     --c-neutral-900: 243 241 236;
-    /* Dark theme can't go white; the rail drops the green tint and reads as
-       a neutral surface a shade above the canvas. */
-    --c-sidebar: 26 25 22;
-    --c-sidebarHover: 38 36 32;
-    --c-sidebarActive: 55 52 46;
+    /* Dark theme keeps the navy rail identity; nudged a shade darker so it
+       still reads as the surface just above the canvas. */
+    --c-sidebar: 12 26 55;
+    --c-sidebarHover: 22 40 78;
+    --c-sidebarActive: 36 62 121;
     --c-sidebarText: 237 235 229;
-    --c-sidebarMuted: 162 156 144;
+    --c-sidebarMuted: 148 163 196;
     --c-canvas: 21 20 18;
     --c-surface: 31 30 27;
     --c-border: 53 51 46;
@@ -81,8 +83,8 @@
     --c-danger: 224 104 90;
     --c-warning: 217 166 74;
     --c-success: 127 163 131;
-    --c-gold: 212 161 63;
-    --c-gold-hover: 226 180 87;
+    --c-gold: 66 133 244;
+    --c-gold-hover: 96 156 255;
     --c-red: 224 104 90;
     --c-amber: 217 166 74;
     color-scheme: dark;

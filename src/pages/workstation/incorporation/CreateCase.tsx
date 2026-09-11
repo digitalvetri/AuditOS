@@ -204,7 +204,7 @@ export function IncorporationCreateCasePage() {
           {step === 0 ? (
             <>
               <p className="text-13 text-neutral-500 mb-3">
-                Pick an existing Audit OS client. Clients are created in Workstation → Clients,
+                Pick an existing JNS Accounting Solutions client. Clients are created in Workstation → Clients,
                 not here — one central client record, always.
               </p>
               <Field label="Find a client" error={errors.client_id}>

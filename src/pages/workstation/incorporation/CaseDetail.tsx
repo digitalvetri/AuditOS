@@ -647,7 +647,7 @@ function DscTab({ caseId }: { caseId: string }) {
     <>
       <TabHeader
         title="DSC"
-        note="Tracking only — Audit OS performs no DSC operation of any kind."
+        note="Tracking only — JNS Accounting Solutions performs no DSC operation of any kind."
         action={<Button onClick={() => setOpen(true)}>Add a DSC record</Button>}
       />
       <div className="mb-3"><ManualEntryNote>

@@ -49,8 +49,15 @@ export function PayslipDetailPage() {
       </div>
 
       <div className="bg-white border border-neutral-200 rounded p-6">
-        <div className="text-11 uppercase tracking-[0.06em] text-neutral-500">Audit OS · Payslip</div>
-        <h1 className="text-20 font-semibold text-neutral-900 mt-1">
+        <div className="flex items-center gap-3">
+          <img
+            src="/jns-logo-tight.png"
+            alt="JNS Accounting Solutions"
+            className="h-10 w-auto"
+          />
+          <div className="text-11 uppercase tracking-[0.06em] text-neutral-500">Payslip</div>
+        </div>
+        <h1 className="text-20 font-semibold text-neutral-900 mt-3">
           {run?.period_start} → {run?.period_end}
         </h1>
 

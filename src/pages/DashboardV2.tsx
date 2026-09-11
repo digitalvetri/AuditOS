@@ -9,9 +9,11 @@
  * Every figure comes from the dashboard service — never a literal.
  */
 import { useEffect, useMemo, useState, type FormEvent } from 'react';
+import { Link } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Cell, Pie, PieChart, ResponsiveContainer } from 'recharts';
-import { X } from 'lucide-react';
+import { ArrowDownRight, ArrowUpRight, ChevronRight, X } from 'lucide-react';
+import { useAuth } from '@/platform/auth/AuthContext';
 import { Card } from '@/modules/dashboardV2/Card';
 import {
   fetchDashboard, checkIn, checkOut,
@@ -25,7 +27,7 @@ export function DashboardV2Page() {
 
   return (
     <div className="space-y-5">
-      <TimestampLine />
+      <GreetingLine />
 
       {q.isLoading ? (
         <Card title="Today"><span /></Card>
@@ -35,54 +37,80 @@ export function DashboardV2Page() {
         <TodayCard today={q.data.today} />
       )}
 
-      <div className="grid gap-5 grid-cols-1 lg:grid-cols-2">
-        <Card title="Today's attendance" loading={q.isLoading} error={q.error ? String(q.error) : null}>
-          {q.data ? <AttendanceRow counts={q.data.attendance} /> : null}
-        </Card>
-        <Card
-          title="Expenses to action"
-          action={{ label: 'Open Queue', href: '/hrms/expenses' }}
-          loading={q.isLoading} error={q.error ? String(q.error) : null}
-        >
-          {q.data ? <ExpensesRow expenses={q.data.expenses} /> : null}
-        </Card>
+      {/* Attendance stat pills — inline strip, no card wrapper. */}
+      {q.data ? (
+        <section className="bg-surface border border-border rounded-lg shadow-card px-5 py-4">
+          <AttendanceRow counts={q.data.attendance} />
+        </section>
+      ) : null}
 
-        <Card title="Attendance breakdown" loading={q.isLoading} error={q.error ? String(q.error) : null}>
-          {q.data ? <AttendanceBreakdown counts={q.data.attendance} /> : null}
-        </Card>
-        <Card
-          title="Ledger"
-          action={{ label: 'Open', href: '/hrms/accounts' }}
-          loading={q.isLoading} error={q.error ? String(q.error) : null}
-        >
-          {q.data ? <LedgerBlock ledger={q.data.ledger} /> : null}
-        </Card>
-
-        <Card title="Departments" loading={q.isLoading} error={q.error ? String(q.error) : null}>
-          {q.data ? <DepartmentsTable rows={q.data.departments} /> : null}
-        </Card>
-        <Card
-          title="Payroll"
-          action={{ label: 'Open', href: '/hrms/payroll' }}
-          loading={q.isLoading} error={q.error ? String(q.error) : null}
-        >
-          {q.data ? <PayrollBlock payroll={q.data.payroll} /> : null}
-        </Card>
+      {/* Team overview (left, 2/3) + Ledger & Expenses (right, 1/3). */}
+      <div className="grid gap-5 grid-cols-1 lg:grid-cols-3">
+        <div className="space-y-5 lg:col-span-2">
+          <Card title="Team overview · Attendance breakdown" loading={q.isLoading} error={q.error ? String(q.error) : null}>
+            {q.data ? <AttendanceBreakdown counts={q.data.attendance} /> : null}
+          </Card>
+          <Card title="Departments" loading={q.isLoading} error={q.error ? String(q.error) : null}>
+            {q.data ? <DepartmentsTable rows={q.data.departments} /> : null}
+          </Card>
+        </div>
+        <div className="space-y-5">
+          <LedgerCard ledger={q.data?.ledger ?? null} loading={q.isLoading} error={q.error ? String(q.error) : null} />
+          <Card
+            title="Expenses to action"
+            action={{ label: 'View queue', href: '/hrms/expenses' }}
+            loading={q.isLoading} error={q.error ? String(q.error) : null}
+          >
+            {q.data ? <ExpensesRow expenses={q.data.expenses} /> : null}
+          </Card>
+        </div>
       </div>
+
+      {/* Payroll — full-width at the bottom. */}
+      <Card
+        title="Payroll"
+        action={{ label: 'Open payroll', href: '/hrms/payroll' }}
+        loading={q.isLoading} error={q.error ? String(q.error) : null}
+      >
+        {q.data ? <PayrollBlock payroll={q.data.payroll} /> : null}
+      </Card>
     </div>
   );
 }
 
-// ── Timestamp line ──────────────────────────────────────────────────────
-function TimestampLine() {
+// ── Greeting + timestamp line ───────────────────────────────────────────
+function GreetingLine() {
   const [now, setNow] = useState(() => new Date());
   useEffect(() => {
     const id = setInterval(() => setNow(new Date()), 60_000);
     return () => clearInterval(id);
   }, []);
+  const { session } = useAuth();
+  const firstName = useMemo(() => {
+    const full = session?.employee?.full_name?.trim();
+    return full ? full.split(/\s+/)[0] : null;
+  }, [session]);
+  const partOfDay = useMemo(() => {
+    const h = now.getHours();
+    if (h < 12) return 'Good morning';
+    if (h < 17) return 'Good afternoon';
+    return 'Good evening';
+  }, [now]);
   return (
-    <div className="text-12 uppercase tracking-[0.06em] text-inkFaint tabular-nums" data-testid="timestamp">
-      {formatDate(now).toUpperCase()} · {formatTime(now)}
+    <div className="flex items-start justify-between gap-4 flex-wrap" data-testid="timestamp">
+      <div>
+        <div className="text-20 font-semibold text-ink">
+          {partOfDay}{firstName ? `, ${firstName}` : ''}
+        </div>
+        <div className="text-13 text-inkMuted mt-1">
+          {formatDate(now)} · {formatTime(now)}
+        </div>
+      </div>
+      <nav className="text-12 text-inkFaint" aria-label="Breadcrumb">
+        <span className="text-inkMuted">Dashboard</span>
+        <span className="mx-1">/</span>
+        <span className="text-ink font-medium">Overview</span>
+      </nav>
     </div>
   );
 }
@@ -350,16 +378,64 @@ function AttendanceBreakdown({ counts }: { counts: AttendanceCounts }) {
   );
 }
 
-// ── Ledger ────────────────────────────────────────────────────────────
-function LedgerBlock({ ledger }: { ledger: LedgerSnapshot }) {
+// ── Ledger (navy accent card) ─────────────────────────────────────────
+function LedgerCard({
+  ledger, loading, error,
+}: { ledger: LedgerSnapshot | null; loading: boolean; error: string | null }) {
   return (
-    <div data-testid="ledger-block">
-      <div className="text-34 font-semibold tabular-nums text-ink">
-        {formatINR(ledger.balance)}
+    <section
+      className="rounded-lg shadow-card p-5 text-white bg-sidebar border border-sidebar"
+      data-testid="ledger-block"
+    >
+      <header className="flex items-baseline justify-between mb-4">
+        <h2 className="text-13 font-semibold uppercase tracking-[0.06em] text-white">Ledger balance</h2>
+        <Link
+          to="/hrms/accounts"
+          className="inline-flex items-center gap-1 text-12 font-medium text-white/80 hover:text-white"
+        >
+          View ledger
+          <ChevronRight size={14} strokeWidth={1.75} />
+        </Link>
+      </header>
+      {loading ? (
+        <div className="h-16 rounded-md bg-white/10" aria-label="Loading" />
+      ) : error || !ledger ? (
+        <div className="text-13 text-white/80" role="alert">
+          Could not load ledger.
+        </div>
+      ) : (
+        <>
+          <div className="text-34 font-semibold tabular-nums leading-none">
+            {formatINR(ledger.balance)}
+          </div>
+          <div className="grid grid-cols-2 gap-3 mt-5">
+            <LedgerSubTile
+              label="This month debit"
+              value={ledger.monthDebit}
+              icon={<ArrowDownRight size={16} strokeWidth={2} />}
+            />
+            <LedgerSubTile
+              label="This month credit"
+              value={ledger.monthCredit}
+              icon={<ArrowUpRight size={16} strokeWidth={2} />}
+            />
+          </div>
+        </>
+      )}
+    </section>
+  );
+}
+
+function LedgerSubTile({ label, value, icon }: { label: string; value: number; icon: React.ReactNode }) {
+  return (
+    <div className="rounded-md bg-white/10 p-3">
+      <div className="flex items-center gap-2 text-12 text-white/80">
+        <span className="inline-flex items-center justify-center w-6 h-6 rounded bg-white/15" aria-hidden>
+          {icon}
+        </span>
+        {label}
       </div>
-      <div className="text-13 text-inkMuted mt-1 tabular-nums">
-        This month : debit {formatINR(ledger.monthDebit)} · credit {formatINR(ledger.monthCredit)}
-      </div>
+      <div className="text-16 font-semibold tabular-nums mt-2">{formatINR(value)}</div>
     </div>
   );
 }
