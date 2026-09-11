@@ -24,6 +24,7 @@ import { clientsRouter } from './modules/workstation/clients.routes.js'
 import { servicesRouter, serviceCatalogRouter } from './modules/workstation/services.routes.js'
 import { bookkeepingRouter } from './modules/bookkeeping/routes.js'
 import { incorporationRouter } from './modules/incorporation/routes.js'
+import { registrationsRouter } from './modules/registration/routes.js'
 import { followUpsRouter } from './modules/workstation/followups.routes.js'
 import {
   documentsRouter as wsDocumentsRouter,
@@ -135,6 +136,10 @@ export function createApp() {
   // Calls no external portal: every government fact it holds was recorded by
   // an employee and is attributed to them.
   app.use('/api/incorporation', incorporationRouter)
+  // Registration Service — the ten registrations the firm files for clients.
+  // Calls no portal: every government fact it holds was recorded by an
+  // employee and is attributed to them.
+  app.use('/api/registrations', registrationsRouter)
   // NOT '/api/documents': that path already belongs to the HRMS
   // EmployeeDocument router mounted above, and Express matches the first
   // mount — so mounting here would shadow the Workstation list and silently

@@ -1119,6 +1119,7 @@ model Client {
   bkDocumentRequests BookkeepingDocumentRequest[]
   bkDeliverables     BookkeepingDeliverable[]
   bkActivities       BookkeepingActivity[]
+  registrations       ClientRegistration[]
   incCases            IncorporationCase[]
   incDocumentRequests IncorporationDocumentRequest[]
   incDeliverables     IncorporationDeliverable[]
@@ -3684,4 +3685,136 @@ model IncorporationActivity {
   createdAt DateTime @default(now())
 
   @@index([caseId, createdAt])
+}
+
+// ============================================================
+// REGISTRATION SERVICE
+// ============================================================
+// Workstation → Services → Registration. The ten registrations the firm
+// files for clients (GST, incorporation, UDYAM, IEC, PF, ESI, …).
+//
+// IT CALLS NOTHING. There is no GST/MCA/DGFT client here and no portal
+// scrape. Every government fact below was typed in by an employee and is
+// stamped with who typed it and when, exactly as Incorporation does it.
+
+/// The catalogue, seeded from the ten registrations. The frontend keeps its
+/// own copy for icons and long-form copy; THIS is the source of truth for
+/// what exists, so a registration cannot be filed against a type the server
+/// does not know.
+model RegistrationType {
+  id             String @id @default(uuid())
+  organisationId String
+  /// Matches the frontend slug: 'gst', 'private-limited', 'msme-udyam', …
+  code           String @unique
+  name           String
+  shortName      String
+  /// tax | entity | licence | labour
+  kind           String
+  authority      String
+  /// What the client ends up holding, e.g. 'REG-01 → GSTIN'.
+  form           String
+
+  /// india | tamil-nadu | none
+  portalScope    String
+  /// Null where no registry exists. Deep links are deliberate — several of
+  /// these point at the form itself, not a site root.
+  portalUrl      String?
+  portalLabel    String
+  /// The ClientDocument name a completed registration produces.
+  outputDocument String
+
+  /// Months between renewals; null = does not renew. IEC is 12 (the annual
+  /// April–June confirmation), Shops & Establishment follows the state cycle.
+  renewalMonths  Int?
+
+  isActive  Boolean @default(true)
+  sortOrder Int     @default(0)
+
+  registrations ClientRegistration[]
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  createdBy String?
+  updatedBy String?
+  deletedAt DateTime?
+
+  @@index([isActive, sortOrder])
+}
+
+/// One registration for one client — the aggregate root of this module.
+///
+/// NO DB-LEVEL UNIQUE on (clientId, typeId): every table here soft-deletes,
+/// and a unique index counts soft-deleted rows, so deleting a registration
+/// would permanently block re-registering that client. The "one of each per
+/// client" rule is enforced in the route against `deletedAt: null` instead.
+model ClientRegistration {
+  id               String @id @default(uuid())
+  organisationId   String
+  /// 'REG-2026-0001' — allocated server-side inside the creating transaction.
+  registrationCode String @unique
+
+  clientId        String
+  typeId          String
+  /// Optional link to the ClientService row this is delivered under.
+  clientServiceId String?
+
+  /// not_started | in_progress | filed | registered | rejected | expired
+  status String @default("not_started")
+
+  /// The portal's acknowledgement — ARN (GST), SRN (MCA), TRN. Employee-typed.
+  applicationRef     String?
+  /// What the client ends up holding — GSTIN, CIN, UDYAM number, IEC.
+  registrationNumber String?
+
+  /// Calendar dates as 'YYYY-MM-DD' strings so they cannot drift across IST.
+  appliedOn     String?
+  registeredOn  String?
+  validTill     String?
+  /// Derived from renewalMonths on registration, and the thing the board
+  /// sorts renewals by. Null when the registration does not renew.
+  nextRenewalOn String?
+
+  assignedEmployeeId String?
+  /// The certificate, once it exists, as a ClientDocument. Optional: the
+  /// registration is real before the document is recorded.
+  certificateDocumentId String?
+  notes                 String?
+
+  /// PROVENANCE — printed beside every government fact this row holds.
+  source               String   @default("employee")
+  recordedByEmployeeId String?
+  recordedAt           DateTime @default(now())
+
+  client   Client           @relation(fields: [clientId], references: [id])
+  type     RegistrationType @relation(fields: [typeId], references: [id])
+  events   RegistrationEvent[]
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  createdBy String?
+  updatedBy String?
+  deletedAt DateTime?
+
+  @@index([clientId])
+  @@index([typeId])
+  @@index([status])
+  @@index([nextRenewalOn])
+}
+
+/// Append-only trail for one registration — the human-readable story.
+/// AuditLog remains the compliance record for every mutation.
+model RegistrationEvent {
+  id             String @id @default(uuid())
+  registrationId String
+
+  actorUserId     String?
+  actorEmployeeId String?
+  action          String
+  detail          String?
+
+  registration ClientRegistration @relation(fields: [registrationId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+
+  @@index([registrationId, createdAt])
 }
