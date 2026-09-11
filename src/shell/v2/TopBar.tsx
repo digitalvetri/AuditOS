@@ -58,8 +58,15 @@ export function TopBar({ onOpenMobileNav }: Props) {
       <div className="hidden md:block flex-1 max-w-[940px]">
         <GlobalSearch ref={searchRef} />
       </div>
-      <span className="md:hidden flex-1 min-w-0 truncate text-15 font-semibold text-ink">
-        Audit OS
+      {/* The brand at phone widths, where the search field is hidden. The
+          sidebar's plate is off-screen here, so this is the only mark on the
+          page — it uses the same asset rather than a text stand-in. */}
+      <span className="md:hidden flex-1 min-w-0 flex items-center">
+        <img
+          src="/jns-mark.png"
+          alt="JNS Accounting Solutions"
+          className="block h-7 w-auto max-w-full object-contain object-left"
+        />
       </span>
 
       {/* Right cluster */}
