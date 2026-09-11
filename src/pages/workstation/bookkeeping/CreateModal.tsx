@@ -29,7 +29,7 @@ export function CreateModal({
           </button>
           <button
             onClick={onSubmit} disabled={pending}
-            className="h-8 px-3 text-13 bg-neutral-900 text-white rounded hover:bg-neutral-800 disabled:opacity-50"
+            className="h-8 px-3 text-13 bg-primary text-white rounded hover:bg-primaryHover disabled:opacity-50"
           >
             {pending ? 'Saving…' : submitLabel}
           </button>

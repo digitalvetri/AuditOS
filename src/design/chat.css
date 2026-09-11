@@ -1,0 +1,133 @@
+/*
+ * CHAT SURFACE.
+ *
+ * The messaging screen is the one place in the product that is a conversation
+ * rather than a record, so it gets the affordances people expect from a
+ * messenger: a tinted wallpaper, tailed bubbles, and a clear sent/received
+ * split. Everything is still drawn from the platform tokens — the own-bubble
+ * tint is the brand navy at low opacity, not a new colour.
+ */
+
+:root {
+  /* Wallpaper behind the message list. Warm neutral in light, near-black in
+     dark; both a step away from the card surface so bubbles read as raised. */
+  --c-chat-bg: 240 238 232;
+  /* Received bubble = surface. Own bubble = a pale wash of the brand navy. */
+  --c-bubble-own: 218 229 248;
+  --c-bubble-own-border: 196 213 242;
+}
+
+:root[data-theme='dark'] {
+  --c-chat-bg: 16 15 14;
+  --c-bubble-own: 34 55 102;
+  --c-bubble-own-border: 45 71 128;
+}
+
+/* ── Wallpaper ────────────────────────────────────────────────────────────
+   A faint dot lattice. Two radial gradients at low alpha — no image asset,
+   no network request, and it tiles cleanly at any size. */
+.chat-wallpaper {
+  background-color: rgb(var(--c-chat-bg));
+  background-image:
+    radial-gradient(rgb(var(--c-ink) / 0.045) 1px, transparent 1px),
+    radial-gradient(rgb(var(--c-ink) / 0.03) 1px, transparent 1px);
+  background-size: 28px 28px, 28px 28px;
+  background-position: 0 0, 14px 14px;
+}
+
+/* ── Bubbles ──────────────────────────────────────────────────────────────
+   The tail is a CSS triangle on a pseudo-element rather than a border-radius
+   trick, so it keeps its shape when the bubble grows to several lines. Only
+   the first bubble in a run carries one; a run of messages from the same
+   author reads as one block. */
+.chat-bubble {
+  position: relative;
+  border-radius: 10px;
+  max-width: min(78%, 560px);
+}
+
+.chat-bubble--own {
+  background-color: rgb(var(--c-bubble-own));
+  border: 1px solid rgb(var(--c-bubble-own-border));
+  border-top-right-radius: 4px;
+}
+
+.chat-bubble--them {
+  background-color: rgb(var(--c-surface));
+  border: 1px solid rgb(var(--c-border));
+  border-top-left-radius: 4px;
+}
+
+/* Tail: a small square rotated behind the bubble corner, masked by the
+   bubble's own background. Simpler than a triangle and it inherits the
+   border on exactly the two visible edges. */
+.chat-bubble--tail::after {
+  content: '';
+  position: absolute;
+  top: -1px;
+  width: 10px;
+  height: 10px;
+  clip-path: polygon(0 0, 100% 0, 100% 100%);
+}
+
+.chat-bubble--own.chat-bubble--tail::after {
+  right: -6px;
+  background-color: rgb(var(--c-bubble-own));
+  border-top: 1px solid rgb(var(--c-bubble-own-border));
+  border-right: 1px solid rgb(var(--c-bubble-own-border));
+}
+
+.chat-bubble--them.chat-bubble--tail::after {
+  left: -6px;
+  transform: scaleX(-1);
+  background-color: rgb(var(--c-surface));
+  border-top: 1px solid rgb(var(--c-border));
+  border-right: 1px solid rgb(var(--c-border));
+}
+
+/* ── Date separator ───────────────────────────────────────────────────────
+   A centred pill on the wallpaper, the way every messenger marks a day. */
+.chat-daymark {
+  display: inline-flex;
+  align-items: center;
+  height: 22px;
+  padding: 0 10px;
+  border-radius: 999px;
+  background-color: rgb(var(--c-surface));
+  border: 1px solid rgb(var(--c-border));
+  font-size: 11px;
+  line-height: 16px;
+  font-weight: 500;
+  color: rgb(var(--c-inkMuted));
+}
+
+/* ── Composer ─────────────────────────────────────────────────────────────
+   A pill field with a round send key, so the primary action is a target you
+   aim at rather than a word you read. */
+.chat-send {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  border-radius: 999px;
+  background-color: rgb(var(--c-primary));
+  color: rgb(var(--c-white));
+  flex: 0 0 auto;
+  transition: background-color 0.12s ease;
+}
+.chat-send:hover:not(:disabled) {
+  background-color: rgb(var(--c-primary-hover));
+}
+.chat-send:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+/* The message list owns its scroll; the header and composer never move. */
+.chat-scroll {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior-y: contain;
+}

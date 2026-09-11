@@ -244,7 +244,7 @@ function ServiceCard({ service }: { service: GstService }) {
         <div className="flex gap-2">
           <Link
             to={`/workstation/services/gst/${service.slug}`}
-            className="flex-1 inline-flex items-center justify-center h-9 px-3 text-13 font-medium text-white bg-gold hover:bg-gold-hover rounded-md"
+            className="flex-1 inline-flex items-center justify-center h-9 px-3 text-13 font-medium text-white bg-primary hover:bg-primaryHover rounded-md"
           >
             Open guided handoff
           </Link>

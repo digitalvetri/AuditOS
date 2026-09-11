@@ -33,8 +33,30 @@ export function ReportsPage() {
   const canExpenseOwn = can(session?.role.code, 'expense.submit', 'self') || canFinance;
 
   const [params, setParams] = useSearchParams();
-  const initialType = (params.get('type') as ReportType | null) ?? 'attendance';
-  const [type, setType] = useState<ReportType>(initialType);
+
+  // Which reports this caller may actually run. Declared BEFORE the initial
+  // type is chosen: a role without `reports.hr` (Finance, for one) must not
+  // land on Attendance and fire a request the API answers with 403.
+  const availableTypes: { id: ReportType; label: string; group: string; visible: boolean }[] = [
+    { id: 'attendance', label: 'Attendance', group: 'People', visible: canHrSelf },
+    { id: 'leave', label: 'Leave utilisation', group: 'People', visible: canHrSelf },
+    { id: 'payroll', label: 'Payroll summary', group: 'Finance', visible: canPayrollOwn },
+    { id: 'expenses', label: 'Expenses', group: 'Finance', visible: canExpenseOwn },
+  ];
+  const visibleTypes = availableTypes.filter((t) => t.visible);
+  const groups = Array.from(new Set(visibleTypes.map((t) => t.group)));
+
+  // A ?type= the caller cannot see is ignored rather than honoured, so a
+  // shared link opens the first report they do have instead of an error.
+  // null = this role has no reports at all; the panel says so and asks for
+  // nothing. ProtectedRoute guarantees a session here, so these grants are
+  // already settled on first render.
+  const requestedType = params.get('type') as ReportType | null;
+  const [type, setType] = useState<ReportType | null>(() =>
+    requestedType && visibleTypes.some((t) => t.id === requestedType)
+      ? requestedType
+      : visibleTypes[0]?.id ?? null,
+  );
 
   const today = istToday();
   const [filters, setFilters] = useState<FilterState>({
@@ -50,16 +72,8 @@ export function ReportsPage() {
     setParams({ type: t }, { replace: true });
   };
 
-  const availableTypes: { id: ReportType; label: string; group: string; visible: boolean }[] = [
-    { id: 'attendance', label: 'Attendance', group: 'People', visible: canHrSelf },
-    { id: 'leave', label: 'Leave utilisation', group: 'People', visible: canHrSelf },
-    { id: 'payroll', label: 'Payroll summary', group: 'Finance', visible: canPayrollOwn },
-    { id: 'expenses', label: 'Expenses', group: 'Finance', visible: canExpenseOwn },
-  ];
-  const groups = Array.from(new Set(availableTypes.filter((t) => t.visible).map((t) => t.group)));
-
   return (
-    <div className="">
+    <div className="m-page">
       <header>
         <div className="text-11 uppercase tracking-[0.06em] text-neutral-500">HRMS</div>
         <h1 className="text-20 font-semibold text-neutral-900 mt-1">Reports</h1>
@@ -67,12 +81,31 @@ export function ReportsPage() {
           Every report is scoped at query time to what you're allowed to see.
         </p>
       </header>
-      <div className="mt-6 grid grid-cols-1 md:grid-cols-[220px_1fr] gap-6">
-        <aside data-testid="reports-nav">
+      {/* Mobile: one scrolling rail of every report the caller may run. The
+          desktop rail below is untouched and simply hidden here. */}
+      <div className="md:hidden m-rail" data-testid="reports-nav-mobile" role="tablist">
+        {visibleTypes.map((t) => (
+          <button
+            key={t.id}
+            type="button"
+            role="tab"
+            onClick={() => setActive(t.id)}
+            data-testid={`reports-nav-m-${t.id}`}
+            data-active={t.id === type}
+            aria-selected={t.id === type}
+            className="m-chip"
+          >
+            {t.label}
+          </button>
+        ))}
+      </div>
+
+      <div className="mt-0 md:mt-6 grid grid-cols-1 md:grid-cols-[220px_1fr] gap-6">
+        <aside data-testid="reports-nav" className="hidden md:block">
           {groups.map((g) => (
             <div key={g} className="mb-4">
               <div className="text-11 uppercase tracking-[0.06em] text-neutral-500 px-3 mb-1">{g}</div>
-              {availableTypes.filter((t) => t.group === g && t.visible).map((t) => (
+              {visibleTypes.filter((t) => t.group === g).map((t) => (
                 <button
                   key={t.id}
                   type="button"
@@ -91,12 +124,20 @@ export function ReportsPage() {
             </div>
           ))}
         </aside>
-        <main data-testid={`reports-panel-${type}`}>
-          <FiltersBar type={type} filters={filters} onChange={setFilters} />
-          {type === 'attendance' ? <AttendanceReportView filters={filters} /> : null}
-          {type === 'leave' ? <LeaveReportView filters={filters} /> : null}
-          {type === 'payroll' ? <PayrollReportView filters={filters} /> : null}
-          {type === 'expenses' ? <ExpensesReportView filters={filters} /> : null}
+        <main data-testid={type ? `reports-panel-${type}` : 'reports-panel-none'}>
+          {type === null ? (
+            <div className="bg-white border border-neutral-200 rounded p-6 text-13 text-neutral-500">
+              No reports are available to your role.
+            </div>
+          ) : (
+            <>
+              <FiltersBar type={type} filters={filters} onChange={setFilters} />
+              {type === 'attendance' ? <AttendanceReportView filters={filters} /> : null}
+              {type === 'leave' ? <LeaveReportView filters={filters} /> : null}
+              {type === 'payroll' ? <PayrollReportView filters={filters} /> : null}
+              {type === 'expenses' ? <ExpensesReportView filters={filters} /> : null}
+            </>
+          )}
         </main>
       </div>
     </div>
@@ -107,7 +148,7 @@ function FiltersBar({ type, filters, onChange }: { type: ReportType; filters: Fi
   const showDateRange = type === 'attendance' || type === 'expenses';
   const showRunId = type === 'payroll';
   return (
-    <div className="mb-4 flex items-end gap-3 flex-wrap">
+    <div className="m-form mb-4 grid grid-cols-1 md:flex md:items-end gap-3 md:flex-wrap">
       {showDateRange ? (
         <>
           <Input label="From" type="date" value={filters.from} onChange={(e) => onChange({ ...filters, from: e.target.value })} data-testid="report-from" />
@@ -173,7 +214,7 @@ function LeaveReportView({ filters }: { filters: FilterState }) {
             <div key={r.employee_id} className="bg-white border border-neutral-200 rounded p-4">
               <div className="text-13 text-neutral-900 font-medium">{r.full_name}</div>
               <div className="text-11 text-neutral-500 mb-3">{r.employee_code} · {r.department_id}</div>
-              <table className="w-full border-collapse tabular-nums">
+              <table className="m-cards w-full border-collapse tabular-nums">
                 <thead>
                   <tr>
                     {['Type', 'Entitled', 'Availed', 'Pending', 'Available'].map((c) => (
@@ -184,11 +225,11 @@ function LeaveReportView({ filters }: { filters: FilterState }) {
                 <tbody>
                   {r.by_type.map((bt) => (
                     <tr key={bt.type_code} className="border-b border-neutral-200 last:border-b-0">
-                      <td className="py-1 text-13 text-neutral-900">{bt.type_name}</td>
-                      <td className="py-1 text-13 text-neutral-900">{bt.entitled}</td>
-                      <td className="py-1 text-13 text-neutral-900">{bt.availed}</td>
-                      <td className={'py-1 text-13 ' + (bt.pending > 0 ? 'text-amber font-medium' : 'text-neutral-500')}>{bt.pending}</td>
-                      <td className="py-1 text-13 text-neutral-900 font-medium">{bt.available}</td>
+                      <td data-label="Type" className="py-1 text-13 text-neutral-900">{bt.type_name}</td>
+                      <td data-label="Entitled" className="py-1 text-13 text-neutral-900">{bt.entitled}</td>
+                      <td data-label="Availed" className="py-1 text-13 text-neutral-900">{bt.availed}</td>
+                      <td data-label="Pending" className={'py-1 text-13 ' + (bt.pending > 0 ? 'text-amber font-medium' : 'text-neutral-500')}>{bt.pending}</td>
+                      <td data-label="Available" className="py-1 text-13 text-neutral-900 font-medium">{bt.available}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -224,8 +265,8 @@ function PayrollReportView({ filters }: { filters: FilterState }) {
     })), ['employee_code', 'full_name', 'payable_days', 'lop_days', 'basic', 'hra', 'gross', 'pf', 'esi', 'pt', 'tds', 'lop', 'total_deductions', 'net'])}>
       {(data: PayrollReport) => (
         <div className="space-y-4">
-          <div className="bg-white border border-neutral-200 rounded p-4 flex items-baseline gap-6 flex-wrap tabular-nums">
-            <div>
+          <div className="bg-white border border-neutral-200 rounded p-4 grid grid-cols-2 gap-4 md:flex md:items-baseline md:gap-6 md:flex-wrap tabular-nums">
+            <div className="col-span-2 md:col-auto">
               <div className="text-11 uppercase tracking-[0.06em] text-neutral-500">Run</div>
               <div className="text-13 text-neutral-900 mt-1">{data.run.id}</div>
               <div className="text-11 text-neutral-500">{data.run.period_start} → {data.run.period_end}</div>
@@ -277,7 +318,7 @@ function ExpensesReportView({ filters }: { filters: FilterState }) {
     })), ['employee_code', 'full_name', 'count', 'drafts', 'claimed', 'reimbursed'])}>
       {(data: ExpenseReport) => (
         <div className="space-y-4">
-          <div className="bg-white border border-neutral-200 rounded p-4 flex items-baseline gap-6 flex-wrap tabular-nums">
+          <div className="bg-white border border-neutral-200 rounded p-4 grid grid-cols-2 gap-4 md:flex md:items-baseline md:gap-6 md:flex-wrap tabular-nums">
             <div>
               <div className="text-11 uppercase tracking-[0.06em] text-neutral-500">Count</div>
               <div className="text-16 text-neutral-900 mt-1">{data.totals.expense_count}</div>
@@ -339,8 +380,13 @@ function Wrapper<T>({ q, children, onExport }: {
   if (!q.data) return null;
   return (
     <div className="space-y-3" data-testid="report-body">
-      <div className="flex justify-end">
-        <Button variant="secondary" onClick={() => onExport(q.data as T)} data-testid="report-export">
+      <div className="flex justify-stretch md:justify-end">
+        <Button
+          variant="secondary"
+          onClick={() => onExport(q.data as T)}
+          data-testid="report-export"
+          className="w-full min-h-[44px] md:w-auto md:min-h-0"
+        >
           Export CSV
         </Button>
       </div>
@@ -354,7 +400,13 @@ function Table({ columns, rows, testId }: { columns: string[]; rows: (string | n
     return <div className="bg-white border border-neutral-200 rounded p-6 text-13 text-neutral-500">No rows.</div>;
   }
   return (
-    <div className="bg-white border border-neutral-200 rounded overflow-x-auto" data-testid={testId}>
+    // `m-cards` (≤767px) flips this same table to a stack of labelled rows —
+    // a 14-column payroll table cannot be made to fit 320px by scrolling
+    // alone. Above 768px the class is inert and the table renders as before.
+    <div
+      className="m-cards bg-white md:border md:border-neutral-200 md:rounded md:overflow-x-auto border-0"
+      data-testid={testId}
+    >
       <table className="w-full border-collapse tabular-nums">
         <thead>
           <tr>
@@ -369,7 +421,7 @@ function Table({ columns, rows, testId }: { columns: string[]; rows: (string | n
           {rows.map((row, i) => (
             <tr key={i} className="border-b border-neutral-200 last:border-b-0">
               {row.map((cell, j) => (
-                <td key={j} className="px-3 py-2 text-13 text-neutral-900">{cell}</td>
+                <td key={j} data-label={columns[j] ?? ''} className="px-3 py-2 text-13 text-neutral-900">{cell}</td>
               ))}
             </tr>
           ))}

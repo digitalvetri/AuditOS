@@ -1,4 +1,7 @@
-import { useEffect, type ReactNode } from 'react';
+import {
+  Children, cloneElement, createContext, isValidElement, useContext, useEffect,
+  type ReactElement, type ReactNode,
+} from 'react';
 import type { UseQueryResult } from '@tanstack/react-query';
 import type { ApiError } from '@/services/api';
 import { StatusLabel, type StatusVariant } from '@/components/StatusRow';
@@ -188,10 +191,20 @@ export function QueryState<T>({
  * 40px rows, hairline separators, no zebra. Wide tables scroll inside their
  * own container so the page body never scrolls sideways.
  */
+/**
+ * The column headings, published to the Cells beneath them. Below 768px the
+ * `m-cards` rule turns each row into a stack and prints `data-label` as the
+ * name of the value — so a Cell has to know which column it is in. Reading it
+ * from context keeps every existing `<Cell>` call site unchanged.
+ */
+const HeadContext = createContext<string[]>([]);
+
 export function Table({ head, children }: { head: string[]; children: ReactNode }) {
   return (
-    <div className="overflow-x-auto">
-      <table className="w-full min-w-[720px] border-collapse">
+    // `m-cards` is inert above 767px, so the desktop table — including its
+    // 720px minimum and its own horizontal scroller — is untouched.
+    <div className="m-cards md:overflow-x-auto">
+      <table className="w-full md:min-w-[720px] border-collapse">
         <thead>
           <tr className="border-b border-neutral-200">
             {head.map((h) => (
@@ -204,7 +217,9 @@ export function Table({ head, children }: { head: string[]; children: ReactNode 
             ))}
           </tr>
         </thead>
-        <tbody>{children}</tbody>
+        <tbody>
+          <HeadContext.Provider value={head}>{children}</HeadContext.Provider>
+        </tbody>
       </table>
     </div>
   );
@@ -213,24 +228,37 @@ export function Table({ head, children }: { head: string[]; children: ReactNode 
 export function Row({
   onClick, status, children,
 }: { onClick?: () => void; status?: string; children: ReactNode }) {
+  const head = useContext(HeadContext);
+  // Hand each Cell its column name by position. Children are the Cells of one
+  // row, so the index is the column index.
+  const labelled = Children.map(children, (child, i) =>
+    isValidElement(child)
+      ? cloneElement(child as ReactElement<{ label?: string }>, { label: head[i] ?? '' })
+      : child,
+  );
   return (
     <tr
       onClick={onClick}
       className={
-        `h-10 border-b border-neutral-200 ${status ? statusBorder(status) : ''} ` +
+        `h-10 md:h-10 border-b border-neutral-200 ${status ? statusBorder(status) : ''} ` +
         (onClick ? 'cursor-pointer hover:bg-neutral-50' : '')
       }
     >
-      {children}
+      {labelled}
     </tr>
   );
 }
 
-export function Cell({ children, className = '', muted = false }: {
+export function Cell({ children, className = '', muted = false, label = '' }: {
   children: ReactNode; className?: string; muted?: boolean;
+  /** Injected by Row from the Table head — not set at call sites. */
+  label?: string;
 }) {
   return (
-    <td className={`px-3 text-13 ${muted ? 'text-neutral-500' : 'text-neutral-900'} ${className}`}>
+    <td
+      data-label={label}
+      className={`px-3 text-13 ${muted ? 'text-neutral-500' : 'text-neutral-900'} ${className}`}
+    >
       {children}
     </td>
   );

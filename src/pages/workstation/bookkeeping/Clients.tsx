@@ -69,7 +69,7 @@ export function BookkeepingClientsPage() {
         action={
           <button
             onClick={() => setOpen(true)}
-            className="h-8 px-3 text-13 bg-neutral-900 text-white rounded hover:bg-neutral-800"
+            className="h-8 px-3 text-13 bg-primary text-white rounded hover:bg-primaryHover"
           >
             Add client
           </button>
@@ -217,7 +217,7 @@ export function BookkeepingClientDetailPage() {
               data.books_org_id ? (
                 <button
                   onClick={() => navigate(`/books/${data.books_org_id}`)}
-                  className="h-8 px-3 text-13 bg-neutral-900 text-white rounded hover:bg-neutral-800"
+                  className="h-8 px-3 text-13 bg-primary text-white rounded hover:bg-primaryHover"
                 >
                   Open Books
                 </button>

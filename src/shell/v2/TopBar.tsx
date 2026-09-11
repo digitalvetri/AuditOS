@@ -41,25 +41,37 @@ export function TopBar({ onOpenMobileNav }: Props) {
   // name is read inline from the session inside the trigger button below.
 
   return (
-    <header className="sticky top-0 z-30 h-20 bg-surface border-b border-border flex items-center px-8 gap-8">
+    <header className="sticky top-0 z-30 h-14 md:h-20 bg-surface border-b border-border flex items-center px-3 md:px-8 gap-2 md:gap-8">
       {/* Mobile hamburger */}
       <button
         type="button"
         onClick={onOpenMobileNav}
-        className="lg:hidden inline-flex items-center justify-center w-9 h-9 rounded-md text-inkMuted hover:text-ink hover:bg-canvas"
+        className="lg:hidden inline-flex items-center justify-center w-11 h-11 md:w-9 md:h-9 shrink-0 rounded-md text-inkMuted hover:text-ink hover:bg-canvas"
         aria-label="Open navigation"
       >
         <Menu size={20} strokeWidth={1.75} />
       </button>
 
-      {/* Global search, flex-1, pill-shaped to match target UI */}
-      <div className="flex-1 max-w-[940px]">
+      {/* Global search, flex-1, pill-shaped to match target UI. Hidden below
+          `md`: at 320px the input cannot coexist with the icon cluster, so
+          the wordmark takes the space and the magnifier still opens search. */}
+      <div className="hidden md:block flex-1 max-w-[940px]">
         <GlobalSearch ref={searchRef} />
       </div>
+      {/* The brand at phone widths, where the search field is hidden. The
+          sidebar's plate is off-screen here, so this is the only mark on the
+          page — it uses the same asset rather than a text stand-in. */}
+      <span className="md:hidden flex-1 min-w-0 flex items-center">
+        <img
+          src="/jns-mark.png"
+          alt="JNS Accounting Solutions"
+          className="block h-7 w-auto max-w-full object-contain object-left"
+        />
+      </span>
 
       {/* Right cluster */}
-      <div className="flex items-center gap-5">
-        <IconBtn label="Search (⌘K)" onClick={() => searchRef.current?.focus()} data-testid="topbar-search">
+      <div className="flex items-center gap-0.5 md:gap-5 shrink-0">
+        <IconBtn className="hidden md:inline-flex" label="Search (⌘K)" onClick={() => searchRef.current?.focus()} data-testid="topbar-search">
           <Search size={20} strokeWidth={1.75} />
         </IconBtn>
         <IconBtn
@@ -71,18 +83,18 @@ export function TopBar({ onOpenMobileNav }: Props) {
           {theme === 'dark' ? <Moon size={20} strokeWidth={1.75} /> : <Sun size={20} strokeWidth={1.75} />}
         </IconBtn>
         <NotificationsMenu />
-        <IconBtn label={panelOpen ? 'Close quick panel' : 'Open quick panel'} onClick={() => setPanelOpen((v) => !v)} data-testid="topbar-panel" aria-pressed={panelOpen}>
+        <IconBtn className="hidden md:inline-flex" label={panelOpen ? 'Close quick panel' : 'Open quick panel'} onClick={() => setPanelOpen((v) => !v)} data-testid="topbar-panel" aria-pressed={panelOpen}>
           <PanelRight size={20} strokeWidth={1.75} />
         </IconBtn>
 
-        <span className="h-6 w-px bg-border" aria-hidden />
+        <span className="hidden md:block h-6 w-px bg-border" aria-hidden />
 
         {/* Avatar dropdown trigger */}
         <div className="relative" ref={menuRef}>
           <button
             type="button"
             onClick={() => setMenuOpen((v) => !v)}
-            className="flex items-center gap-2 h-10 pr-1 pl-1 rounded-md hover:bg-canvas"
+            className="flex items-center gap-2 h-11 md:h-10 pr-1 pl-1 rounded-md hover:bg-canvas"
             aria-haspopup="menu"
             aria-expanded={menuOpen}
           >
@@ -123,17 +135,23 @@ function IconBtn({
   children,
   label,
   onClick,
+  className = '',
   ...rest
 }: {
   children: React.ReactNode;
   label: string;
   onClick?: () => void;
+  className?: string;
 } & Record<string, unknown>) {
   return (
     <button
       type="button"
       onClick={onClick}
-      className="inline-flex items-center justify-center w-9 h-9 rounded-md text-inkMuted hover:text-ink hover:bg-canvas"
+      className={
+        'inline-flex items-center justify-center w-11 h-11 md:w-9 md:h-9 shrink-0 ' +
+        'rounded-md text-inkMuted hover:text-ink hover:bg-canvas ' +
+        className
+      }
       aria-label={label}
       title={label}
       {...(rest as Record<string, string>)}

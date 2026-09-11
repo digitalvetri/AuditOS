@@ -153,7 +153,7 @@ export function GstServiceHandoff() {
           </div>
           <Link
             to={`/workstation/services/gst/${service.slug}/workspace`}
-            className="inline-flex items-center gap-2 h-9 px-4 text-13 font-medium text-white bg-gold hover:bg-gold-hover rounded-md"
+            className="inline-flex items-center gap-2 h-9 px-4 text-13 font-medium text-white bg-primary hover:bg-primaryHover rounded-md"
           >
             {service.shape === 'recurring' ? 'Open period board' : 'Open case pipeline'}
           </Link>
@@ -182,7 +182,7 @@ export function GstServiceHandoff() {
           href={service.portalUrl}
           target="_blank"
           rel="noopener noreferrer"
-          className="inline-flex items-center gap-2 h-10 px-4 text-14 font-medium text-white bg-gold hover:bg-gold-hover rounded-md"
+          className="inline-flex items-center gap-2 h-10 px-4 text-14 font-medium text-white bg-primary hover:bg-primaryHover rounded-md"
         >
           <ExternalLink size={16} strokeWidth={2} />
           {service.portalLabel}
@@ -381,7 +381,7 @@ function CopyAllButton({
           ? `Copy ${fields.length} field${fields.length === 1 ? '' : 's'} (${resolvableCount} resolved) to the clipboard`
           : 'Sheet has no fields yet — pick a client to resolve values'
       }
-      className="inline-flex items-center gap-1 h-8 px-3 text-12 font-medium text-white bg-gold hover:bg-gold-hover rounded-md disabled:opacity-50 disabled:cursor-not-allowed"
+      className="inline-flex items-center gap-1 h-8 px-3 text-12 font-medium text-white bg-primary hover:bg-primaryHover rounded-md disabled:opacity-50 disabled:cursor-not-allowed"
     >
       {copied ? <Check size={14} strokeWidth={2.25} /> : <ClipboardCopy size={14} strokeWidth={2} />}
       {copied ? 'Copied' : `Copy full sheet${resolvableCount ? ` (${resolvableCount}/${fields.length})` : ''}`}

@@ -255,14 +255,19 @@ function Brand({ collapsed }: { collapsed: boolean }) {
     <div className={'h-20 flex items-center gap-3 shrink-0 border-b border-sidebarHover ' + (collapsed ? 'justify-center px-0' : 'pl-4 pr-3')}>
       <span
         className="inline-flex items-center justify-center bg-white rounded-md shadow-card shrink-0"
-        style={{ height: 52, width: collapsed ? 52 : 68, padding: 8 }}
+        /* Proportioned to the mark. The lockup is ~2.5:1, so a squarer plate
+           left it width-bound and floating in vertical slack; at 84x44 the
+           mark fills its box instead of swimming in it. */
+        style={{ height: 44, width: collapsed ? 52 : 84, padding: 6 }}
         aria-label="JNS Accounting Solutions"
       >
         <img
           src="/jns-mark.png"
           alt=""
           aria-hidden="true"
-          className="block max-h-full max-w-full object-contain"
+          /* The swoosh climbs above the cap height on the right, so the
+             letterform mass reads low. A 1px lift optically centres it. */
+          className="block max-h-full max-w-full object-contain -translate-y-px"
         />
       </span>
       {!collapsed ? (

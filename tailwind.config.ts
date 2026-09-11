@@ -46,6 +46,9 @@ const config: Config = {
       // Target ref (Screenshot 214422) — LIGHT mint sage, DARKER sage
       // filled pill for the active row (not white). Section headers stay
       // as dark forest at reduced weight rather than muted grey-green.
+      // Primary action surface — same navy as the sidebar rail.
+      primary:       'rgb(var(--c-primary) / <alpha-value>)',
+      primaryHover:  'rgb(var(--c-primary-hover) / <alpha-value>)',
       sidebar:       'rgb(var(--c-sidebar) / <alpha-value>)', // light mint sage — sidebar background
       sidebarHover:  'rgb(var(--c-sidebarHover) / <alpha-value>)',
       sidebarActive: 'rgb(var(--c-sidebarActive) / <alpha-value>)', // filled darker sage pill for active row
@@ -86,6 +89,12 @@ const config: Config = {
       sm: '4px',
       md: '8px',
       lg: '10px',
+      // Pills and circles: avatars, the search field, unread counts, progress
+      // tracks. Thirteen call sites across the app already wrote
+      // `rounded-full` — with the scale closed it silently resolved to
+      // nothing and they rendered square. This is a named token, not a hole:
+      // the scale still refuses `rounded-xl` and friends.
+      full: '9999px',
     },
 
     // Elevation levels.
