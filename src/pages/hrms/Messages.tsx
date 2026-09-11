@@ -12,13 +12,15 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { messagesApi, type ChatAttachment, type ChatListItem, type ChatMessageWithAuthor } from '@/modules/messages/api';
 import { fmtTime } from '@/lib/format';
 import { useAuth } from '@/platform/auth/AuthContext';
-import { Image as ImageIcon } from 'lucide-react';
+import { ChevronLeft, Image as ImageIcon, Search as SearchIcon } from 'lucide-react';
 import { Button } from '@/components/Button';
 import { useToast } from '@/components/Toast';
+import { useIsMobile } from '@/lib/useIsMobile';
 
 export function MessagesPage() {
   const [params, setParams] = useSearchParams();
   const activeChatId = params.get('chat');
+  const isMobile = useIsMobile();
 
   const chatsQ = useQuery({
     queryKey: ['chats', 'list'],
@@ -27,12 +29,34 @@ export function MessagesPage() {
   });
 
   const chats = chatsQ.data?.items ?? [];
-  const activeChat = chats.find((c) => c.id === activeChatId) ?? chats[0] ?? null;
+  // Desktop shows both panes, so falling back to the first chat fills the
+  // right-hand pane. A phone shows one or the other, so the same fallback
+  // would drop the user straight into a conversation they never chose — the
+  // list is the landing view there, and only an explicit ?chat= opens a thread.
+  const activeChat = isMobile
+    ? chats.find((c) => c.id === activeChatId) ?? null
+    : chats.find((c) => c.id === activeChatId) ?? chats[0] ?? null;
 
   useEffect(() => {
     // If no ?chat= and we have chats, deep-link to the first for shareability.
+    if (isMobile) return;
     if (!activeChatId && activeChat) setParams({ chat: activeChat.id }, { replace: true });
-  }, [activeChatId, activeChat, setParams]);
+  }, [isMobile, activeChatId, activeChat, setParams]);
+
+  if (isMobile) {
+    return activeChat ? (
+      <MobileThread
+        chat={activeChat}
+        onBack={() => setParams({}, { replace: true })}
+      />
+    ) : (
+      <MobileChatList
+        chats={chats}
+        loading={chatsQ.isLoading}
+        onPick={(id) => setParams({ chat: id }, { replace: true })}
+      />
+    );
+  }
 
   return (
     <div className="space-y-4">
@@ -53,6 +77,138 @@ export function MessagesPage() {
         />
         <ConversationPane chatId={activeChat?.id ?? null} />
       </div>
+    </div>
+  );
+}
+
+// ── Mobile: conversation list ────────────────────────────────────────────
+/**
+ * Header → search → list. Each row is a 44px+ target and separates the three
+ * facts the spec asks to keep apart: who it is from, what it says, and when /
+ * whether it is unread.
+ */
+function MobileChatList({
+  chats, loading, onPick,
+}: { chats: ChatListItem[]; loading: boolean; onPick: (id: string) => void }) {
+  const [q, setQ] = useState('');
+  const needle = q.trim().toLowerCase();
+  const shown = needle
+    ? chats.filter((c) =>
+        c.display_name.toLowerCase().includes(needle) ||
+        (c.last_message?.body ?? '').toLowerCase().includes(needle))
+    : chats;
+
+  return (
+    <div className="m-page">
+      <header>
+        <div className="text-11 uppercase tracking-[0.06em] text-neutral-500">HRMS</div>
+        <h1 className="text-20 font-semibold text-neutral-900 mt-1">Messages</h1>
+      </header>
+
+      <div className="relative m-form">
+        <SearchIcon
+          size={16}
+          strokeWidth={1.75}
+          className="absolute left-3 top-1/2 -translate-y-1/2 text-neutral-500 pointer-events-none"
+          aria-hidden
+        />
+        <input
+          type="search"
+          value={q}
+          onChange={(e) => setQ(e.target.value)}
+          placeholder="Search conversations"
+          aria-label="Search conversations"
+          className="w-full pl-9 pr-3 bg-white border border-neutral-300 rounded text-13 text-neutral-900 focus:outline-none focus:border-gold"
+        />
+      </div>
+
+      <section className="m-section">
+        <div className="m-section-title">
+          {shown.length} conversation{shown.length === 1 ? '' : 's'}
+        </div>
+        <div className="m-card">
+          {loading ? (
+            <div className="h-24 bg-neutral-100" />
+          ) : shown.length === 0 ? (
+            <div className="p-4 text-13 text-neutral-500">
+              {needle ? 'No conversations match that search.' : 'No chats yet.'}
+            </div>
+          ) : (
+            <ul>
+              {shown.map((c) => (
+                <li key={c.id}>
+                  <button
+                    type="button"
+                    onClick={() => onPick(c.id)}
+                    data-testid={`chat-item-${c.id}`}
+                    className={
+                      'w-full text-left px-3 py-3 min-h-[44px] flex items-start gap-3 ' +
+                      'border-b border-neutral-200 last:border-b-0 border-l-2 ' +
+                      (c.unread > 0 ? 'border-l-amber' : 'border-l-transparent')
+                    }
+                  >
+                    <span className="min-w-0 flex-1">
+                      <span className="flex items-baseline gap-2">
+                        <span
+                          className={
+                            'text-14 truncate flex-1 ' +
+                            (c.unread > 0 ? 'text-neutral-900 font-semibold' : 'text-neutral-900')
+                          }
+                        >
+                          {c.display_name}
+                        </span>
+                        {c.last_message ? (
+                          <span className="text-11 text-neutral-500 tabular-nums shrink-0">
+                            {fmtTime(c.last_message.created_at)}
+                          </span>
+                        ) : null}
+                      </span>
+                      <span className="block text-12 text-neutral-500 truncate mt-0.5">
+                        {c.last_message?.body || (c.type === 'group' ? `${c.member_count} members` : 'Direct message')}
+                      </span>
+                    </span>
+                    {c.unread > 0 ? (
+                      <span className="shrink-0 mt-1 text-11 tabular-nums text-white bg-gold rounded px-1.5 min-w-[20px] text-center">
+                        {c.unread > 9 ? '9+' : c.unread}
+                      </span>
+                    ) : null}
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      </section>
+    </div>
+  );
+}
+
+// ── Mobile: one thread ───────────────────────────────────────────────────
+/**
+ * A fixed-height column: back header, scrolling messages, pinned composer.
+ * The composer is deliberately outside the scroll region — on a phone it has
+ * to be reachable without hunting for the bottom of the conversation.
+ */
+function MobileThread({ chat, onBack }: { chat: ChatListItem; onBack: () => void }) {
+  return (
+    <div className="m-thread">
+      <div className="flex items-center gap-1 pb-2 border-b border-neutral-200 shrink-0">
+        <button
+          type="button"
+          onClick={onBack}
+          aria-label="Back to conversations"
+          className="inline-flex items-center justify-center w-11 h-11 -ml-2 rounded text-neutral-600 hover:text-neutral-900"
+        >
+          <ChevronLeft size={22} strokeWidth={1.75} />
+        </button>
+        <div className="min-w-0 flex-1">
+          <div className="text-14 font-semibold text-neutral-900 truncate">{chat.display_name}</div>
+          <div className="text-11 text-neutral-500 truncate">
+            {chat.type === 'group' ? `${chat.member_count} members` : 'Direct message'}
+          </div>
+        </div>
+      </div>
+      <ConversationPane chatId={chat.id} mobile />
     </div>
   );
 }
@@ -116,7 +272,7 @@ function ChatSidebar({
 }
 
 // ── Conversation pane ────────────────────────────────────────────────────
-function ConversationPane({ chatId }: { chatId: string | null }) {
+function ConversationPane({ chatId, mobile = false }: { chatId: string | null; mobile?: boolean }) {
   const { session } = useAuth();
   const qc = useQueryClient();
   const toast = useToast();
@@ -171,6 +327,43 @@ function ConversationPane({ chatId }: { chatId: string | null }) {
     );
   }
 
+  // On mobile the surrounding MobileThread already supplies the header and
+  // the fixed-height frame, so this renders bare: scroll region + composer.
+  if (mobile) {
+    return (
+      <>
+        <div className="m-thread-scroll py-3 space-y-3" ref={scrollRef} data-testid="conversation">
+          {q.isLoading ? (
+            <div className="h-24 bg-neutral-100" />
+          ) : messages.length === 0 ? (
+            <div className="text-13 text-neutral-500">No messages yet.</div>
+          ) : (
+            messages.map((m) => (
+              <MessageRow
+                key={m.id}
+                message={m}
+                ownEmployeeId={session?.employee?.id ?? ''}
+                onReply={() => setReplyTo(m)}
+                mobile
+              />
+            ))
+          )}
+        </div>
+        <div className="m-composer">
+          <Composer
+            replyTo={replyTo}
+            onClearReply={() => setReplyTo(null)}
+            onSend={(text, images) => send.mutate({ body: text, images })}
+            onReject={(reason) => toast.push('error', reason)}
+            busy={send.isPending}
+            sent={send.isSuccess}
+            mobile
+          />
+        </div>
+      </>
+    );
+  }
+
   return (
     <section className="bg-white border border-neutral-200 rounded flex flex-col" data-testid="conversation">
       <div className="h-10 px-3 flex items-center border-b border-neutral-200 text-13 text-neutral-900 font-medium">
@@ -205,15 +398,15 @@ function ConversationPane({ chatId }: { chatId: string | null }) {
 }
 
 function MessageRow({
-  message, ownEmployeeId, onReply,
-}: { message: ChatMessageWithAuthor; ownEmployeeId: string; onReply: () => void }) {
+  message, ownEmployeeId, onReply, mobile = false,
+}: { message: ChatMessageWithAuthor; ownEmployeeId: string; onReply: () => void; mobile?: boolean }) {
   const own = message.author?.id === ownEmployeeId;
   return (
     <div
       className={'flex ' + (own ? 'justify-end' : 'justify-start')}
       data-testid={`msg-${message.id}`}
     >
-      <div className={'max-w-[70%] ' + (own ? 'items-end' : 'items-start')}>
+      <div className={(mobile ? 'm-bubble ' : 'max-w-[70%] ') + (own ? 'items-end' : 'items-start')}>
         {message.parent_preview ? (
           <div className={'text-11 text-neutral-500 border-l-2 border-neutral-300 pl-2 mb-1 ' + (own ? 'text-right pr-2 border-l-0 border-r-2 pl-0' : '')}>
             ↳ {message.parent_preview.author_full_name ?? '—'}: {message.parent_preview.body}
@@ -236,11 +429,16 @@ function MessageRow({
             <div className={message.attachments.length > 0 ? 'mt-2' : ''}>{message.body}</div>
           ) : null}
         </div>
-        <div className="mt-1">
+        <div className={mobile ? 'mt-0.5 flex' : 'mt-1'}>
           <button
             type="button"
             onClick={onReply}
-            className={'text-11 text-neutral-500 hover:text-gold ' + (own ? 'float-right' : '')}
+            className={
+              mobile
+                ? 'inline-flex items-center min-h-[44px] px-2 -mx-2 text-12 text-neutral-500 ' +
+                  (own ? 'ml-auto' : '')
+                : 'text-11 text-neutral-500 hover:text-gold ' + (own ? 'float-right' : '')
+            }
             data-testid={`msg-reply-${message.id}`}
           >
             Reply
@@ -292,11 +490,11 @@ const MAX_IMAGES = 6;
 const MAX_IMAGE_MB = 10;
 
 function Composer({
-  replyTo, onClearReply, onSend, onReject, busy, sent,
+  replyTo, onClearReply, onSend, onReject, busy, sent, mobile = false,
 }: {
   replyTo: ChatMessageWithAuthor | null; onClearReply: () => void;
   onSend: (body: string, images: File[]) => void; onReject: (reason: string) => void;
-  busy: boolean; sent: boolean;
+  busy: boolean; sent: boolean; mobile?: boolean;
 }) {
   const [text, setText] = useState('');
   const [images, setImages] = useState<File[]>([]);
@@ -365,7 +563,12 @@ function Composer({
   };
 
   return (
-    <form onSubmit={submit} className="border-t border-neutral-200 p-3 space-y-2">
+    <form
+      onSubmit={submit}
+      className={
+        'border-t border-neutral-200 space-y-2 ' + (mobile ? 'pt-3 pb-1' : 'p-3')
+      }
+    >
       {replyTo ? (
         <div className="flex items-start justify-between gap-2 text-11 text-neutral-500 border-l-2 border-amber pl-2">
           <div>Replying to {replyTo.author?.full_name ?? '—'}: {replyTo.body.slice(0, 100)}</div>
@@ -411,7 +614,10 @@ function Composer({
           disabled={images.length >= MAX_IMAGES}
           title={images.length >= MAX_IMAGES ? `At most ${MAX_IMAGES} images per message` : 'Attach an image'}
           aria-label="Attach an image"
-          className="h-9 w-9 shrink-0 text-13 border border-neutral-300 rounded hover:bg-neutral-50 disabled:opacity-50"
+          className={
+            'shrink-0 text-13 border border-neutral-300 rounded hover:bg-neutral-50 disabled:opacity-50 ' +
+            (mobile ? 'h-11 w-11' : 'h-9 w-9')
+          }
           data-testid="composer-attach"
         >
           <ImageIcon className="h-4 w-4 mx-auto text-neutral-600" />
@@ -422,16 +628,21 @@ function Composer({
           onChange={(e) => setText(e.target.value)}
           onPaste={onPaste}
           placeholder={images.length > 0 ? 'Add a caption…' : 'Type a message…'}
-          className="flex-1 h-9 px-3 text-13 bg-white border border-neutral-300 rounded focus:outline-none focus:border-gold"
+          className={
+            'flex-1 min-w-0 px-3 bg-white border border-neutral-300 rounded focus:outline-none focus:border-gold ' +
+            (mobile ? 'h-11 text-14' : 'h-9 text-13')
+          }
           data-testid="composer-input"
         />
         <Button variant="primary" type="submit" disabled={!canSend} data-testid="composer-send">
           {busy ? 'Sending…' : 'Send'}
         </Button>
       </div>
-      <p className="text-11 text-neutral-500">
-        PNG, JPEG, WebP or GIF · up to {MAX_IMAGE_MB} MB each, {MAX_IMAGES} per message · paste a screenshot to attach it.
-      </p>
+      {mobile ? null : (
+        <p className="text-11 text-neutral-500">
+          PNG, JPEG, WebP or GIF · up to {MAX_IMAGE_MB} MB each, {MAX_IMAGES} per message · paste a screenshot to attach it.
+        </p>
+      )}
     </form>
   );
 }

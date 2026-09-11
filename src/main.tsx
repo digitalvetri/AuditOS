@@ -2,6 +2,9 @@ import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 import App from './App';
 import '@/design/globals.css';
+// Mobile-only layer (≤767px). Imported after globals so its media-scoped
+// rules win at phone widths; contributes nothing at 768px and up.
+import '@/design/mobile.css';
 
 const MOCK_MODE = import.meta.env.VITE_MOCK_MODE === 'true';
 
