@@ -5,7 +5,7 @@ import { prisma } from '../lib/prisma.js'
 import { addDays } from '../lib/dates.js'
 import { can, requireSession, type Session } from '../platform/auth.js'
 import { writeAudit } from '../platform/audit.js'
-import { MATRIX } from '../platform/rbac/matrix.js'
+import type { Scope } from '../platform/rbac/matrix.js'
 import {
   departmentToApi, designationToApi, expenseCategoryToApi, holidayToApi,
   leaveTypeToApi, permissionToApi, roleToApi, statutoryRateToApi,
@@ -484,17 +484,128 @@ settingsRouter.post('/statutory-rates', handler(async (req, res) => {
   ok(res, { rate: statutoryRateToApi(row) })
 }))
 
-// ── Roles + permission matrix (read-only this phase) ─────────────────────
+// ── Roles + permission matrix ────────────────────────────────────────────
+// The matrix is derived from RolePermission rows, not from the hard-coded
+// MATRIX constant, so what a caller reads here is what `can()` enforces on
+// the next request. MATRIX is only the seed source for these rows.
+
+const SCOPES = ['self', 'department', 'organisation'] as const
+const scopeSchema = z.enum(SCOPES)
+
+async function loadMatrixFromDb(): Promise<Record<string, { permission: string; scope: Scope }[]>> {
+  const grants = await prisma.rolePermission.findMany({
+    include: { role: true, permission: true },
+  })
+  const matrix: Record<string, { permission: string; scope: Scope }[]> = {}
+  for (const g of grants) {
+    if (g.role.deletedAt || g.permission.deletedAt) continue
+    const list = matrix[g.role.code] ?? []
+    list.push({ permission: g.permission.code, scope: g.scope as Scope })
+    matrix[g.role.code] = list
+  }
+  for (const code of Object.keys(matrix)) {
+    matrix[code].sort((a, b) => a.permission.localeCompare(b.permission))
+  }
+  return matrix
+}
+
 settingsRouter.get('/roles', handler(async (req, res) => {
   const session = requireSession(req)
   requireManage(session)
-  const [roles, permissions] = await Promise.all([
+  const [roles, permissions, matrix] = await Promise.all([
     prisma.role.findMany({ where: { deletedAt: null }, orderBy: { code: 'asc' } }),
     prisma.permission.findMany({ where: { deletedAt: null }, orderBy: { code: 'asc' } }),
+    loadMatrixFromDb(),
   ])
   ok(res, {
     roles: roles.map(roleToApi),
     permissions: permissions.map(permissionToApi),
-    matrix: MATRIX,
+    matrix,
+  })
+}))
+
+/**
+ * Grant or revoke a single (role, permission) pair. A missing row means the
+ * role does not hold the permission; `scope: null` in the body means "remove
+ * the row." Any other body sets or upserts the scope.
+ *
+ * Lockout guards, both non-negotiable:
+ *   - The caller cannot remove `settings.manage` from their own role — one
+ *     click would strip their ability to undo the click.
+ *   - The last role holding `settings.manage` cannot lose it — the firm must
+ *     always have someone who can reach Settings.
+ */
+settingsRouter.put('/roles/:roleId/permissions/:permissionCode', handler(async (req, res) => {
+  const session = requireSession(req)
+  requireManage(session)
+
+  const body = z.object({ scope: scopeSchema.nullable() }).safeParse(req.body ?? {})
+  if (!body.success) {
+    throw ApiError.badRequest('scope must be self, department, organisation, or null.')
+  }
+  const nextScope = body.data.scope
+
+  const [role, permission] = await Promise.all([
+    prisma.role.findUnique({ where: { id: req.params.roleId } }),
+    prisma.permission.findUnique({ where: { code: req.params.permissionCode } }),
+  ])
+  if (!role || role.deletedAt) throw ApiError.notFound('Role not found.')
+  if (!permission || permission.deletedAt) throw ApiError.notFound('Permission not found.')
+
+  const before = await prisma.rolePermission.findUnique({
+    where: { roleId_permissionId: { roleId: role.id, permissionId: permission.id } },
+  })
+
+  const isRevoke = nextScope === null
+  if (isRevoke && permission.code === 'settings.manage') {
+    if (role.id === session.roleId) {
+      throw ApiError.conflict(
+        'self_lockout',
+        'You cannot remove settings.manage from your own role.',
+      )
+    }
+    const otherHolders = await prisma.rolePermission.count({
+      where: {
+        permissionId: permission.id,
+        roleId: { not: role.id },
+        role: { deletedAt: null },
+      },
+    })
+    if (otherHolders === 0) {
+      throw ApiError.conflict(
+        'last_admin',
+        'At least one role must keep settings.manage.',
+      )
+    }
+  }
+
+  let after: { permission: string; scope: Scope } | null
+  if (isRevoke) {
+    if (before) {
+      await prisma.rolePermission.delete({ where: { id: before.id } })
+    }
+    after = null
+  } else {
+    await prisma.rolePermission.upsert({
+      where: { roleId_permissionId: { roleId: role.id, permissionId: permission.id } },
+      update: { scope: nextScope },
+      create: { roleId: role.id, permissionId: permission.id, scope: nextScope },
+    })
+    after = { permission: permission.code, scope: nextScope }
+  }
+
+  await writeAudit({
+    actorUserId: session.userId,
+    action: isRevoke ? 'role_permission.revoked' : 'role_permission.granted',
+    entityType: 'RolePermission',
+    entityId: `${role.id}:${permission.id}`,
+    before: before ? { permission: permission.code, scope: before.scope as Scope } : null,
+    after,
+    req,
+  })
+
+  ok(res, {
+    role: roleToApi(role),
+    grant: after,
   })
 }))

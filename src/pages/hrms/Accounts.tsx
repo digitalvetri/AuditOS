@@ -43,7 +43,7 @@ export function AccountsPage() {
           Accounts is Finance / MD only.
         </h1>
         <p className="text-13 text-neutral-500 mt-2">
-          §8.6: internal Audit OS finance. Client accounting never appears here.
+          §8.6: internal JNS Accounting Solutions finance. Client accounting never appears here.
         </p>
       </div>
     );
@@ -56,7 +56,7 @@ export function AccountsPage() {
           <div className="text-11 uppercase tracking-[0.06em] text-neutral-500">HRMS</div>
           <h1 className="text-20 font-semibold text-neutral-900 mt-1">Accounts</h1>
           <p className="text-13 text-neutral-500 mt-1">
-            Internal Audit OS finance. Append-only ledger — corrections are contra entries.
+            Internal JNS Accounting Solutions finance. Append-only ledger — corrections are contra entries.
           </p>
         </div>
         {canManage && tab === 'payments' ? (

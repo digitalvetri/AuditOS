@@ -63,6 +63,15 @@ import {
   IncorporationDeliverablesPage, IncorporationSettingsPage,
 } from '@/pages/workstation/incorporation/Lists';
 
+// GST — dedicated landing page + per-service AssistedHandoff detail +
+// shape-based workspace dispatcher (recurring period board / project case
+// pipeline) + weekly notice-check discovery workflow.
+// See docs/gst-services/README.md.
+import { GstServicesLanding } from '@/pages/workstation/gst/GstServicesLanding';
+import { GstServiceHandoff } from '@/pages/workstation/gst/GstServiceHandoff';
+import { GstWorkspace } from '@/pages/workstation/gst/GstWorkspace';
+import { GstNoticeCheck } from '@/pages/workstation/gst/NoticeCheck';
+
 // Books — native bookkeeping, one set of books per client.
 import { BooksListPage } from '@/pages/books/BooksList';
 import { BooksShell } from '@/pages/books/BooksShell';
@@ -186,7 +195,16 @@ export default function App() {
                 <Route path="deliverables" element={<IncorporationDeliverablesPage />} />
                 <Route path="settings" element={<IncorporationSettingsPage />} />
               </Route>
-              {/* Service categories (GST, TDS, E-Way Bill, E-Invoice) — nav
+              {/* GST module landing + per-service AssistedHandoff detail —
+                  see docs/gst-services/README.md. Declared BEFORE the
+                  :category catch-all so they win. */}
+              <Route path="workstation/services/gst" element={<GstServicesLanding />} />
+              {/* Weekly notice-check comes BEFORE the /:slug catch to avoid
+                  being treated as a service slug. */}
+              <Route path="workstation/services/gst/notice-check" element={<GstNoticeCheck />} />
+              <Route path="workstation/services/gst/:slug" element={<GstServiceHandoff />} />
+              <Route path="workstation/services/gst/:slug/workspace" element={<GstWorkspace />} />
+              {/* Service categories (TDS, E-Way Bill, E-Invoice) — nav
                   structure only for now, so every remaining slug resolves to
                   the same Services page. */}
               <Route path="workstation/services/:category" element={<ServicesPage />} />

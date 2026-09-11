@@ -48,7 +48,7 @@ interface SeedGroup {
 const seedGroups: SeedGroup[] = [
   {
     id: 'chat-general',
-    name: 'Audit OS General',
+    name: 'JNS Accounting Solutions General',
     description: 'Firm-wide announcements and general chatter.',
     memberFilter: (all) => all,
     admin: ['emp-md'],
@@ -169,7 +169,7 @@ for (const d of seedDMs) {
 // A handful of messages in each so the UI has something on first load.
 const seedConversations: [string, [string, string][]][] = [
   ['chat-general', [
-    ['emp-md', 'Welcome to Audit OS. New quarter starts Monday.'],
+    ['emp-md', 'Welcome to JNS Accounting Solutions. New quarter starts Monday.'],
     ['emp-hr', 'Reminder: holiday calendar for the year is now live in Settings.'],
     ['emp-mgr', 'Sundar & Co audit closing this Friday — great work team.'],
   ]],

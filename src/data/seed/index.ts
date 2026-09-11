@@ -37,7 +37,7 @@ const auditable = (createdBy: string | null = null) => ({
 // ── Organisation ─────────────────────────────────────────────────────────
 export const organisation: Organisation = {
   id: 'org-audit-os',
-  name: 'Audit OS',
+  name: 'JNS Accounting Solutions',
   timezone: 'Asia/Kolkata',
   currency: 'INR',
   fiscal_year_start_month: 4,
