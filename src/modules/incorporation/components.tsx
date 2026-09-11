@@ -130,7 +130,7 @@ export function ManualEntryNote({ children }: { children?: ReactNode }) {
       {children ?? (
         <>
           Everything on this tab is <strong className="font-medium">entered by an employee</strong> from
-          what they saw on the portal or on paper. Audit OS does not contact any government
+          what they saw on the portal or on paper. JNS Accounting Solutions does not contact any government
           system, and nothing here has been checked against one.
         </>
       )}

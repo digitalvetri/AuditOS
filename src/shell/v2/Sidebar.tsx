@@ -246,22 +246,30 @@ export function Sidebar({ mobileOpen, onMobileClose }: Props) {
 // cluster reads as a header, not another nav row.
 
 function Brand({ collapsed }: { collapsed: boolean }) {
-  // Same height as TopBar (h-20) so brand chip and search bar sit on one
+  // Same height as TopBar (h-20) so the brand plate and search bar sit on one
   // line. Divider on the bottom lines up with the TopBar's border so the
-  // header reads as one continuous strip across the shell.
+  // header reads as one continuous strip across the shell. The brand mark is
+  // the full lockup on a white plate — the logo already carries the wordmark,
+  // so no separate text is rendered beside it.
   return (
-    <div className={'h-20 flex items-center shrink-0 border-b border-sidebarHover ' + (collapsed ? 'justify-center px-0' : 'pl-6 pr-4')}>
+    <div className={'h-20 flex items-center gap-3 shrink-0 border-b border-sidebarHover ' + (collapsed ? 'justify-center px-0' : 'pl-4 pr-3')}>
       <span
-        className="inline-flex items-center justify-center w-11 h-11 rounded-full bg-sidebarActive text-sidebarText shrink-0"
-        aria-hidden
+        className="inline-flex items-center justify-center bg-white rounded-md shadow-card shrink-0"
+        style={{ height: 52, width: collapsed ? 52 : 68, padding: 8 }}
+        aria-label="JNS Accounting Solutions"
       >
-        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
-          <circle cx="12" cy="12" r="8" />
-          <path d="M12 4v4M20 12h-4M12 20v-4M4 12h4" />
-        </svg>
+        <img
+          src="/jns-mark.png"
+          alt=""
+          aria-hidden="true"
+          className="block max-h-full max-w-full object-contain"
+        />
       </span>
       {!collapsed ? (
-        <span className="ml-4 text-20 font-semibold text-sidebarText tracking-tight">Audit OS</span>
+        <div className="flex flex-col justify-center min-w-0">
+          <span className="text-15 font-semibold text-sidebarText tracking-tight leading-tight truncate">JNS Accounting</span>
+          <span className="text-12 font-medium text-sidebarText/75 leading-tight mt-0.5 truncate">Solutions</span>
+        </div>
       ) : null}
     </div>
   );
