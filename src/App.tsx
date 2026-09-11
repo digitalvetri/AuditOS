@@ -72,6 +72,12 @@ import { GstServiceHandoff } from '@/pages/workstation/gst/GstServiceHandoff';
 import { GstWorkspace } from '@/pages/workstation/gst/GstWorkspace';
 import { GstNoticeCheck } from '@/pages/workstation/gst/NoticeCheck';
 
+// TDS — copied from the GST page structure per TDS-PAGE-PROMPT.md.
+// Client + FY + TAN scope in the URL; six sub-services (Registration,
+// Challan Payment, Return Filing, Correction, Form 16/16A, Notices).
+import { TdsServicesLanding } from '@/pages/workstation/tds/TdsServicesLanding';
+import { TdsServiceHandoff } from '@/pages/workstation/tds/TdsServiceHandoff';
+
 // Books — native bookkeeping, one set of books per client.
 import { BooksListPage } from '@/pages/books/BooksList';
 import { BooksShell } from '@/pages/books/BooksShell';
@@ -195,6 +201,10 @@ export default function App() {
                 <Route path="deliverables" element={<IncorporationDeliverablesPage />} />
                 <Route path="settings" element={<IncorporationSettingsPage />} />
               </Route>
+              {/* TDS module — copied from GST structure, wins over the
+                  :category catch-all below. */}
+              <Route path="workstation/services/tds" element={<TdsServicesLanding />} />
+              <Route path="workstation/services/tds/:slug" element={<TdsServiceHandoff />} />
               {/* GST module landing + per-service AssistedHandoff detail —
                   see docs/gst-services/README.md. Declared BEFORE the
                   :category catch-all so they win. */}
