@@ -147,7 +147,7 @@ export function GstRecurringWorkspace({ service }: { service: GstService }) {
             <button
               type="button"
               onClick={() => setPeriodOffset(0)}
-              className="text-12 text-gold hover:text-gold-hover font-medium"
+              className="text-12 text-primary hover:text-primaryHover font-medium"
             >
               Jump to current
             </button>
@@ -281,7 +281,7 @@ function ObligationRow({ row, service }: { row: Obligation; service: GstService 
       <td className="px-4 py-2 text-right">
         <Link
           to={`/workstation/services/gst/${service.slug}?client=${row.clientId}`}
-          className="text-12 font-medium text-gold hover:text-gold-hover whitespace-nowrap"
+          className="text-12 font-medium text-primary hover:text-primaryHover whitespace-nowrap"
         >
           Open →
         </Link>

@@ -139,7 +139,7 @@ export function GstProjectWorkspace({ service }: { service: GstService }) {
               type="button"
               disabled
               title="Case creation wires up once the project engine ships"
-              className="inline-flex items-center gap-2 h-9 px-4 text-13 font-medium text-white bg-gold rounded-md disabled:opacity-60 disabled:cursor-not-allowed"
+              className="inline-flex items-center gap-2 h-9 px-4 text-13 font-medium text-white bg-primary hover:bg-primaryHover rounded-md disabled:opacity-60 disabled:cursor-not-allowed"
             >
               <Plus size={14} strokeWidth={2} />
               New case
@@ -284,7 +284,7 @@ function CaseRow({
       <td className="px-4 py-2 text-right">
         <Link
           to={`/workstation/services/gst/${service.slug}?client=${row.clientId}`}
-          className="text-12 font-medium text-gold hover:text-gold-hover whitespace-nowrap"
+          className="text-12 font-medium text-primary hover:text-primaryHover whitespace-nowrap"
         >
           Open →
         </Link>

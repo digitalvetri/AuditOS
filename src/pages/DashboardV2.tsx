@@ -193,7 +193,7 @@ function PrimaryBtn({ children, ...rest }: React.ButtonHTMLAttributes<HTMLButton
   return (
     <button
       type="button"
-      className="inline-flex items-center justify-center h-10 px-5 text-14 font-medium text-white bg-gold hover:bg-gold-hover rounded-md disabled:opacity-50 disabled:cursor-not-allowed"
+      className="inline-flex items-center justify-center h-10 px-5 text-14 font-medium text-white bg-primary hover:bg-primaryHover rounded-md disabled:opacity-50 disabled:cursor-not-allowed"
       {...rest}
     >
       {children}

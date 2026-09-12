@@ -52,7 +52,7 @@ export function NotificationsMenu() {
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}
-        className="inline-flex items-center justify-center w-9 h-9 rounded-md text-inkMuted hover:text-ink hover:bg-canvas"
+        className="inline-flex items-center justify-center w-11 h-11 md:w-9 md:h-9 shrink-0 rounded-md text-inkMuted hover:text-ink hover:bg-canvas"
         aria-label={unread ? `Notifications (${unread} unread)` : 'Notifications'}
         title="Notifications"
         aria-haspopup="menu"

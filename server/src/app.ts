@@ -24,6 +24,7 @@ import { clientsRouter } from './modules/workstation/clients.routes.js'
 import { servicesRouter, serviceCatalogRouter } from './modules/workstation/services.routes.js'
 import { bookkeepingRouter } from './modules/bookkeeping/routes.js'
 import { incorporationRouter } from './modules/incorporation/routes.js'
+import { registrationsRouter } from './modules/registration/routes.js'
 import { followUpsRouter } from './modules/workstation/followups.routes.js'
 import {
   documentsRouter as wsDocumentsRouter,
@@ -31,6 +32,7 @@ import {
   workstationSignedRouter,
 } from './modules/workstation/documents.routes.js'
 import { workstationRouter } from './modules/workstation/workstation.routes.js'
+import { einvoiceEwbRouter } from './modules/workstation/einvoice-ewb/routes.js'
 // Tools (Converters & Utilities) — registry-driven file conversions.
 import { toolsRouter, toolJobsRouter, toolDocumentsRouter, toolsSignedRouter } from './modules/tools/routes.js'
 // Audit Automation (AMENDMENT-02-REPOTIC-GAPS.md) — bank-statement pipeline
@@ -126,6 +128,10 @@ export function createApp() {
   app.use('/api/workstation', workstationRouter)
   app.use('/api/leads', leadsRouter)
   app.use('/api/clients', clientsRouter)
+  // E-Invoice & E-Way Bill monitoring (E-INVOICE-EWAYBILL.md). Mounts on
+  // /api/clients so the client-scoped paths (/:id/einvoice-ewb) sit next
+  // to the sibling GST and EWB routes on clientsRouter.
+  app.use('/api/clients', einvoiceEwbRouter)
   app.use('/api/services', servicesRouter)
   app.use('/api/service-catalog', serviceCatalogRouter)
   app.use('/api/follow-ups', followUpsRouter)
@@ -135,6 +141,10 @@ export function createApp() {
   // Calls no external portal: every government fact it holds was recorded by
   // an employee and is attributed to them.
   app.use('/api/incorporation', incorporationRouter)
+  // Registration Service — the ten registrations the firm files for clients.
+  // Calls no portal: every government fact it holds was recorded by an
+  // employee and is attributed to them.
+  app.use('/api/registrations', registrationsRouter)
   // NOT '/api/documents': that path already belongs to the HRMS
   // EmployeeDocument router mounted above, and Express matches the first
   // mount — so mounting here would shadow the Workstation list and silently

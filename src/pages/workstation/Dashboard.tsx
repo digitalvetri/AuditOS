@@ -24,7 +24,7 @@ export function WorkstationDashboardPage() {
   });
 
   return (
-    <div className="">
+    <div className="m-page">
       <PageHeader
         title="Workstation"
         subtitle="Leads, clients, services, follow-ups and documents for the firm's own clients."
@@ -64,12 +64,12 @@ function DashboardBody({ data }: { data: DashboardResponse }) {
             key={kpi.label}
             to={kpi.to}
             className={
-              'bg-white border border-neutral-200 rounded p-3 hover:bg-neutral-50 transition-colors ' +
+              'bg-white border border-neutral-200 rounded p-3 min-h-[44px] hover:bg-neutral-50 transition-colors ' +
               (kpi.attention ? 'border-l-2 border-l-amber' : '')
             }
           >
             <div className="text-11 uppercase tracking-[0.06em] text-neutral-500">{kpi.label}</div>
-            <div className="text-20 font-semibold text-neutral-900 mt-1">{kpi.value}</div>
+            <div className="text-20 font-semibold text-neutral-900 mt-1 tabular-nums">{kpi.value}</div>
           </Link>
         ))}
       </div>
@@ -82,12 +82,24 @@ function DashboardBody({ data }: { data: DashboardResponse }) {
             <Link
               key={stage.status}
               to={`/workstation/leads?status=${stage.status}`}
-              className="flex items-center gap-3 h-8 hover:bg-neutral-50"
+              className={
+                'hover:bg-neutral-50 ' +
+                // Phone: label + count on one line, bar beneath, 44px tall.
+                'flex flex-col justify-center gap-1 min-h-[44px] py-1 ' +
+                // Desktop: the original single 32px row, unchanged.
+                'md:flex-row md:items-center md:gap-3 md:h-8 md:min-h-0 md:py-0'
+              }
             >
-              <span className="text-13 text-neutral-700 w-[200px] shrink-0">{stage.label}</span>
-              <span className="text-13 font-medium text-neutral-900 w-8 shrink-0">{stage.count}</span>
+              <span className="flex items-baseline gap-2 md:contents">
+                <span className="text-13 text-neutral-700 flex-1 min-w-0 md:w-[200px] md:flex-none md:shrink-0">
+                  {stage.label}
+                </span>
+                <span className="text-13 font-medium text-neutral-900 tabular-nums shrink-0 md:w-8">
+                  {stage.count}
+                </span>
+              </span>
               {/* A bar, not a chart: one measure, no axis needed. */}
-              <span className="flex-1 h-2 bg-neutral-100 rounded overflow-hidden">
+              <span className="block w-full md:flex-1 h-2 bg-neutral-100 rounded overflow-hidden">
                 <span
                   className="block h-full bg-neutral-400"
                   style={{ width: `${Math.round((stage.count / maxStage) * 100)}%` }}
@@ -103,7 +115,7 @@ function DashboardBody({ data }: { data: DashboardResponse }) {
         <Card
           title="Today's follow-ups"
           right={
-            <Link to="/workstation/follow-ups?range=today" className="text-12 text-neutral-500 hover:text-neutral-900">
+            <Link to="/workstation/follow-ups?range=today" className="inline-flex items-center min-h-[44px] md:min-h-0 px-2 -mr-2 text-12 text-neutral-500 hover:text-neutral-900">
               View all
             </Link>
           }
@@ -142,7 +154,7 @@ function DashboardBody({ data }: { data: DashboardResponse }) {
         <Card
           title="Client summary"
           right={
-            <Link to="/workstation/clients" className="text-12 text-neutral-500 hover:text-neutral-900">
+            <Link to="/workstation/clients" className="inline-flex items-center min-h-[44px] md:min-h-0 px-2 -mr-2 text-12 text-neutral-500 hover:text-neutral-900">
               View all
             </Link>
           }
@@ -180,9 +192,9 @@ function DashboardBody({ data }: { data: DashboardResponse }) {
 
 function Summary({ label, value }: { label: string; value: number }) {
   return (
-    <div>
+    <div className="min-w-0">
       <div className="text-11 uppercase tracking-[0.06em] text-neutral-500">{label}</div>
-      <div className="text-16 font-medium text-neutral-900 mt-1">{value}</div>
+      <div className="text-16 font-medium text-neutral-900 mt-1 tabular-nums">{value}</div>
     </div>
   );
 }
