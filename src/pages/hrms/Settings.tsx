@@ -46,7 +46,7 @@ export function SettingsPage() {
 
   if (!canManage) {
     return (
-      <div className="max-w-[720px] mx-auto bg-white border border-neutral-200 rounded p-6">
+      <div className="w-full max-w-[720px] mx-auto bg-white border border-neutral-200 rounded p-4 md:p-6">
         <div className="text-11 uppercase tracking-[0.06em] text-neutral-500">Access denied</div>
         <h1 className="text-20 font-semibold text-neutral-900 mt-1">
           Settings are HR/MD only.
@@ -62,13 +62,36 @@ export function SettingsPage() {
   const groups = Array.from(new Set(SECTIONS.map((s) => s.group)));
 
   return (
-    <div className="">
+    <div className="m-page">
       <header>
         <div className="text-11 uppercase tracking-[0.06em] text-neutral-500">HRMS</div>
         <h1 className="text-20 font-semibold text-neutral-900 mt-1">Settings</h1>
       </header>
-      <div className="mt-6 grid grid-cols-1 md:grid-cols-[220px_1fr] gap-6">
-        <aside data-testid="settings-nav">
+
+      {/* Mobile category nav. A <select> rather than a chip rail: there are
+          eight sections in four groups, and the optgroup keeps the grouping
+          the desktop rail shows in its headers. One tap, no sideways hunting. */}
+      <div className="md:hidden m-form" data-testid="settings-nav-mobile">
+        <label className="block">
+          <span className="m-section-title block mb-1">Section</span>
+          <select
+            value={section}
+            onChange={(e) => setSection(e.target.value as Section)}
+            className="w-full px-3 bg-white text-neutral-900 border border-neutral-300 rounded focus:outline-none focus:border-gold"
+          >
+            {groups.map((g) => (
+              <optgroup key={g} label={g}>
+                {SECTIONS.filter((x) => x.group === g).map((x) => (
+                  <option key={x.id} value={x.id}>{x.label}</option>
+                ))}
+              </optgroup>
+            ))}
+          </select>
+        </label>
+      </div>
+
+      <div className="mt-0 md:mt-6 grid grid-cols-1 md:grid-cols-[220px_1fr] gap-6">
+        <aside data-testid="settings-nav" className="hidden md:block">
           {groups.map((g) => (
             <div key={g} className="mb-4">
               <div className="text-11 uppercase tracking-[0.06em] text-neutral-500 px-3 mb-1">{g}</div>
@@ -94,7 +117,7 @@ export function SettingsPage() {
             </div>
           ))}
         </aside>
-        <main data-testid={`settings-section-${section}`}>
+        <main data-testid={`settings-section-${section}`} className="m-form min-w-0">
           {section === 'departments' ? <DepartmentsSection /> : null}
           {section === 'designations' ? <DesignationsSection /> : null}
           {section === 'work-locations' ? <WorkLocationsSection /> : null}

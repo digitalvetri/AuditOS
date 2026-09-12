@@ -55,3 +55,23 @@ export async function nextIncorporationCaseCode(tx: Tx, year: number): Promise<s
   }
   return `${prefix}${String(max + 1).padStart(4, '0')}`
 }
+
+/**
+ * 'REG-2026-0001' — per-YEAR sequence, same rule as the incorporation case
+ * code above: read the maximum inside the creating transaction, soft-deleted
+ * rows included, because `registrationCode` is @unique and a retired code
+ * must never be handed out twice.
+ */
+export async function nextRegistrationCode(tx: Tx, year: number): Promise<string> {
+  const prefix = `REG-${year}-`
+  const rows = await tx.clientRegistration.findMany({
+    where: { registrationCode: { startsWith: prefix } },
+    select: { registrationCode: true },
+  })
+  let max = 0
+  for (const r of rows) {
+    const n = Number(r.registrationCode.slice(prefix.length))
+    if (Number.isFinite(n) && n > max) max = n
+  }
+  return `${prefix}${String(max + 1).padStart(4, '0')}`
+}

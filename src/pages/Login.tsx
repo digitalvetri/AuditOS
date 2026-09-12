@@ -15,10 +15,16 @@ const SHOW_DEMO_LOGINS =
 // Login-page brand blues. Scoped to this file — the rest of the app keeps
 // the sage+gold system from tailwind.config.ts, so we use arbitrary values
 // rather than adding tokens that would leak into other screens.
+/**
+ * Read from the platform tokens rather than literals, so the sign-in button
+ * is the same navy as the sidebar rail and every other primary action, and a
+ * palette change reaches this screen like it reaches the rest of the app.
+ * These are inline styles, so they carry the `rgb(var(--x))` form.
+ */
 const BRAND = {
-  panel: '#0d1b3d',      // deep navy behind the hero artwork
-  primary: '#1d4ed8',    // sign-in button + link blue
-  primaryHover: '#1e40af',
+  panel: 'rgb(var(--c-sidebar))',        // deep navy behind the hero artwork
+  primary: 'rgb(var(--c-primary))',      // sign-in button + link
+  primaryHover: 'rgb(var(--c-primary-hover))',
 };
 
 export function LoginPage() {

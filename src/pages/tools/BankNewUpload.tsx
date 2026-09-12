@@ -171,7 +171,7 @@ export function BankNewUploadPage() {
                 className={
                   'h-8 px-3 text-13 rounded border transition-colors ' +
                   (bankKey === b.key
-                    ? 'border-gold bg-gold text-white'
+                    ? 'border-primary bg-primary text-white'
                     : b.key === 'generic'
                       ? 'border-dashed border-neutral-300 text-neutral-600 hover:border-neutral-500'
                       : 'border-neutral-300 bg-white text-neutral-900 hover:border-neutral-400')

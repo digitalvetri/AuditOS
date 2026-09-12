@@ -71,7 +71,7 @@ export function BookkeepingTasksPage() {
       <PageHeader
         title="Tasks" subtitle="Bookkeeping work assigned to the team."
         action={
-          <button onClick={() => setOpen(true)} className="h-8 px-3 text-13 bg-neutral-900 text-white rounded hover:bg-neutral-800">
+          <button onClick={() => setOpen(true)} className="h-8 px-3 text-13 bg-primary text-white rounded hover:bg-primaryHover">
             New task
           </button>
         }
@@ -186,7 +186,7 @@ export function BookkeepingPendingItemsPage() {
     <div>
       <PageHeader
         title="Pending Items" subtitle="What the firm is still waiting on from clients."
-        action={<button onClick={() => setOpen(true)} className="h-8 px-3 text-13 bg-neutral-900 text-white rounded hover:bg-neutral-800">New item</button>}
+        action={<button onClick={() => setOpen(true)} className="h-8 px-3 text-13 bg-primary text-white rounded hover:bg-primaryHover">New item</button>}
       />
       <FilterBar>
         <SearchInput value={filters.q} onChange={(v) => set('q', v)} placeholder="Item title" />
@@ -293,7 +293,7 @@ export function BookkeepingDocumentsPage() {
       <PageHeader
         title="Documents"
         subtitle="Document requests. Files themselves live in the Workstation Documents module."
-        action={<button onClick={() => setOpen(true)} className="h-8 px-3 text-13 bg-neutral-900 text-white rounded hover:bg-neutral-800">Request document</button>}
+        action={<button onClick={() => setOpen(true)} className="h-8 px-3 text-13 bg-primary text-white rounded hover:bg-primaryHover">Request document</button>}
       />
       <FilterBar>
         <SearchInput value={filters.q} onChange={(v) => set('q', v)} placeholder="Description" />
@@ -388,7 +388,7 @@ export function BookkeepingDeliverablesPage() {
       <PageHeader
         title="Deliverables"
         subtitle="What was prepared and sent. The figures themselves are produced by Books."
-        action={<button onClick={() => setOpen(true)} className="h-8 px-3 text-13 bg-neutral-900 text-white rounded hover:bg-neutral-800">New deliverable</button>}
+        action={<button onClick={() => setOpen(true)} className="h-8 px-3 text-13 bg-primary text-white rounded hover:bg-primaryHover">New deliverable</button>}
       />
       <FilterBar>
         <Select label="Client" value={filters.client_id} onChange={(v) => set('client_id', v)}
@@ -478,7 +478,7 @@ export function BookkeepingRemindersPage() {
       <PageHeader
         title="Reminders"
         subtitle="Follow-ups for bookkeeping clients — the same Follow-ups the rest of Workstation uses."
-        action={<button onClick={() => setOpen(true)} className="h-8 px-3 text-13 bg-neutral-900 text-white rounded hover:bg-neutral-800">New reminder</button>}
+        action={<button onClick={() => setOpen(true)} className="h-8 px-3 text-13 bg-primary text-white rounded hover:bg-primaryHover">New reminder</button>}
       />
       <FilterBar>
         <Select label="Client" value={filters.client_id} onChange={(v) => set('client_id', v)}

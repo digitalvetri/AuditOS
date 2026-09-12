@@ -319,12 +319,136 @@ export async function seedWorkstation(prisma: PrismaClient, orgId: string) {
         fromGstin: client.gstin, toGstin: '33RECIP1234Z1Z9', toPartyName: 'Consignee Enterprises',
         valuePaise: rupees(value), status,
         generatedAt: at(off, 9, 45), validUntil: d(off + 15),
+        expiresAt: at(off + 15, 23, 59),
+        originalEwbNo: ewbNo,
+        extensionCount: 0,
         cancelledAt: status === 'cancelled' ? at(off + 1, 10) : null,
         cancelReason: status === 'cancelled' ? 'Consignment cancelled by the buyer.' : null,
         generatedByEmployeeId: GST,
         isSimulated: true,
       },
     })
+  }
+
+  // ── E-Way Bill demo rows that FIRE the monitoring alerts ────────────────
+  // Two active EWBs where the expiry lands in the next 24 hours (the
+  // "expiring within 24 hours" bucket), and one whose original generation
+  // is a few days shy of the 360-day extension cap (the "approaching cap"
+  // bucket). All flagged isSimulated: true.
+  const ALERT_EWB = [
+    // ewbNo, status, valuePaise, generatedOffset, expiryOffsetHours, originalOffsetDays, extensions
+    ['EWB-200001', 'active', rupees(215_000),  -14,   +18,   -14,  0], // expires in ~18h
+    ['EWB-200002', 'active', rupees(48_000),   -6,    +6,    -6,   0], // expires in ~6h
+    ['EWB-200003', 'active', rupees(180_000),  -8,    +72,   -352, 3], // 8 days short of 360-day cap
+  ] as const
+  for (const [ewbNo, status, valuePaise, genOff, expiryHours, origOff, exts] of ALERT_EWB) {
+    const client = CLIENTS.find((c) => c.id === 'cli-1001')!
+    await prisma.ewayBill.upsert({
+      where: { ewbNo },
+      update: {},
+      create: {
+        id: `ewb-${ewbNo}`, clientId: client.id, ewbNo,
+        documentNo: `INV-${ewbNo.slice(-4)}`, documentDate: d(origOff),
+        fromGstin: client.gstin, toGstin: '33RECIP9999Z1Z9', toPartyName: 'Kovai Warehouses',
+        valuePaise, status,
+        generatedAt: at(genOff, 10, 15),
+        validUntil: d(genOff + Math.ceil(expiryHours / 24)),
+        expiresAt: new Date(now.getTime() + expiryHours * 3_600_000),
+        originalEwbNo: exts > 0 ? `EWB-ORIG-${ewbNo.slice(-4)}` : ewbNo,
+        originalGeneratedAt: at(origOff, 10, 15),
+        extensionCount: exts,
+        generatedByEmployeeId: GST,
+        isSimulated: true,
+      },
+    })
+  }
+
+  // ── E-Invoice & E-Way Bill profile (spec §1) — cli-1001 is the demo. ────
+  // Kovai Textiles crosses the ₹5 Cr threshold and stays crossed. The
+  // ₹10 Cr AATO in FY 2024-25 makes the 30-day reporting rule apply too.
+  await prisma.eInvoiceEwbProfile.upsert({
+    where: { clientId: 'cli-1001' },
+    update: {},
+    create: {
+      clientId: 'cli-1001',
+      aatoByYearJson: JSON.stringify([
+        { fy: '2020-21', aatoPaise: '32000000000' },   // ₹3.2 Cr
+        { fy: '2021-22', aatoPaise: '48000000000' },   // ₹4.8 Cr
+        { fy: '2022-23', aatoPaise: '61000000000' },   // ₹6.1 Cr — first crossing
+        { fy: '2023-24', aatoPaise: '92000000000' },   // ₹9.2 Cr
+        { fy: '2024-25', aatoPaise: '184000000000' },  // ₹18.4 Cr — 30-day rule applies
+      ]),
+      irp: 'einvoice1',
+      irpRegisteredOn: '2023-08-04',
+      einvoiceApiRoute: 'gsp',
+      ewbApiEnabled: true,
+      ewbApiUsername: 'kovai_gsp_1',
+      ewbGsp: 'ClearGSP',
+      ewbVerifiedAt: d(-9),
+      mfaActive: true,
+      reconciledThrough: period(1),
+    },
+  })
+
+  // ── IRNs — three PENDING documents inside the 30-day countdown window ──
+  // and a batch of already-REPORTED IRNs so the reference counters have a
+  // non-zero 'reported this month'.
+  const IRN_ROWS = [
+    // documentNo, offsetDays, valueRupees, status, buyerGstin
+    ['INV-8811', -27, 245_000, 'pending', '33ABCDE1234F1Z1'], // 3 days left
+    ['INV-8812', -26, 68_000,  'pending', '29BUYER0001Z1Z0'], // 4 days left
+    ['INV-8813', -25, 132_000, 'pending', '07BUYER0002Z1Z0'], // 5 days left
+    ['INV-8814', -14, 189_000, 'reported', '33ABCDE1234F1Z1'],
+    ['INV-8815', -10, 47_500,  'reported', '29BUYER0001Z1Z0'],
+    ['INV-8816', -8,  91_000,  'reported', '07BUYER0002Z1Z0'],
+    ['INV-8817', -7,  156_000, 'reported', '33ABCDE1234F1Z1'],
+    ['INV-8818', -5,  22_500,  'reported', '29BUYER0001Z1Z0'],
+    ['INV-8819', -3,  310_000, 'reported', '07BUYER0002Z1Z0'],
+    ['INV-8820', -2,  71_000,  'reported', '33ABCDE1234F1Z1'],
+    ['INV-8821', -1,  84_500,  'reported', '29BUYER0001Z1Z0'],
+    ['INV-8822', -35, 55_000,  'cancelled', '07BUYER0002Z1Z0'], // outside window, cancelled
+  ] as const
+  let irnSeq = 0
+  for (const [docNo, off, val, status, buyerGstin] of IRN_ROWS) {
+    irnSeq += 1
+    const reported = status !== 'pending'
+    await prisma.eInvoiceIrn.upsert({
+      where: { clientId_documentNo: { clientId: 'cli-1001', documentNo: docNo } },
+      update: {},
+      create: {
+        clientId: 'cli-1001',
+        documentNo: docNo, documentDate: d(off), documentType: 'INV',
+        buyerGstin, buyerName: 'B2B Buyer',
+        placeOfSupply: 'TN',
+        totalValuePaise: rupees(val),
+        status,
+        irn: reported ? `IRN-${String(3800000 + irnSeq).padStart(10, '0')}` : null,
+        reportedAt: reported ? at(off + 1, 11) : null,
+        cancelledAt: status === 'cancelled' ? at(off + 1, 14) : null,
+        cancelReason: status === 'cancelled' ? 'Wrong tax rate applied.' : null,
+        isSimulated: true,
+      },
+    })
+  }
+
+  // ── Pull runs — 12 monthly rows per kind, so a 7-month-old month is
+  // present in our store (spec acceptance). Both 'einvoice' and 'ewb'.
+  for (const kind of ['einvoice', 'ewb'] as const) {
+    for (let monthsAgo = 0; monthsAgo < 12; monthsAgo += 1) {
+      const periodMonth = period(monthsAgo)
+      const existing = await prisma.eInvoiceEwbPullRun.findFirst({
+        where: { clientId: 'cli-1001', kind, periodMonth, source: 'scheduled' },
+      })
+      if (existing) continue
+      await prisma.eInvoiceEwbPullRun.create({
+        data: {
+          clientId: 'cli-1001', kind, periodMonth,
+          source: 'scheduled', status: 'ok',
+          recordCount: monthsAgo < 3 ? 20 + monthsAgo * 4 : 30 + monthsAgo * 2,
+          notes: 'Seed pull row (simulated).',
+        },
+      })
+    }
   }
 
   // ── Documents (§10) — client-centric, versioned, mixed statuses ────────

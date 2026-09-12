@@ -339,7 +339,7 @@ function NoticeRow({
               target="_blank"
               rel="noopener noreferrer"
               title={`After login, follow: ${NOTICE_PATH.join(' › ')}`}
-              className="inline-flex items-center gap-1 h-7 px-2 text-11 font-medium text-white bg-gold hover:bg-gold-hover rounded-md"
+              className="inline-flex items-center gap-1 h-7 px-2 text-11 font-medium text-white bg-primary hover:bg-primaryHover rounded-md"
             >
               <ExternalLink size={12} strokeWidth={2} />
               Check

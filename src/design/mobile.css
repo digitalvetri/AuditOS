@@ -1,0 +1,377 @@
+/*
+ * MOBILE-ONLY LAYER (≤767px).
+ *
+ * Every rule in this file lives inside `@media (max-width: 767px)`. Nothing
+ * here can reach desktop or tablet: at 768px and up the file contributes
+ * zero declarations, so the shipped desktop shell renders byte-for-byte as
+ * it did before this layer existed.
+ *
+ * 767px is deliberate — it is one pixel below Tailwind's `md` breakpoint, so
+ * a `md:` utility and a rule here can never both apply to the same viewport.
+ *
+ * Colour, radius and type all come from the existing tokens. This layer adds
+ * no new visual language; it only restructures.
+ */
+
+@media (max-width: 767px) {
+  /* ── Safe areas ────────────────────────────────────────────────────────
+     Read once into variables so every fixed element offsets consistently.
+     env() resolves to 0px on hardware without a notch or gesture bar, which
+     is why these are safe to use unconditionally. */
+  :root {
+    --safe-t: env(safe-area-inset-top, 0px);
+    --safe-r: env(safe-area-inset-right, 0px);
+    --safe-b: env(safe-area-inset-bottom, 0px);
+    --safe-l: env(safe-area-inset-left, 0px);
+    /* Bar height excludes the inset; the inset is added as padding so the
+       touch targets stay 56px tall above the home indicator. */
+    --m-nav-h: 56px;
+    --m-nav-total: calc(var(--m-nav-h) + var(--safe-b));
+  }
+
+  /* Nothing on a phone may scroll sideways. This is the backstop; the page
+     rules below are what actually keep content inside the viewport. */
+  html, body {
+    max-width: 100%;
+    overflow-x: hidden;
+  }
+
+  /* ── App frame ─────────────────────────────────────────────────────────
+     The shell uses `h-dvh`, which already tracks the collapsing URL bar on
+     mobile Safari and Chrome. We only add the nav clearance. */
+  .m-main {
+    padding-bottom: calc(var(--m-nav-total) + 8px);
+    padding-left: max(12px, var(--safe-l));
+    padding-right: max(12px, var(--safe-r));
+    /* Momentum scrolling without rubber-banding the whole page. */
+    overscroll-behavior-y: contain;
+  }
+
+  /* ── Bottom navigation ─────────────────────────────────────────────────
+     One pattern, every page. Fixed to the viewport so it never scrolls with
+     content, and never overlaps it (see .m-main padding above). */
+  .m-nav {
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 45;
+    display: grid;
+    grid-auto-flow: column;
+    grid-auto-columns: 1fr;
+    align-items: stretch;
+    height: var(--m-nav-total);
+    padding-bottom: var(--safe-b);
+    padding-left: var(--safe-l);
+    padding-right: var(--safe-r);
+    background-color: rgb(var(--c-surface));
+    border-top: 1px solid rgb(var(--c-border));
+  }
+
+  .m-nav-item {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 2px;
+    /* ≥44px touch target even on the shortest supported viewport. */
+    min-height: 44px;
+    min-width: 0;
+    padding: 4px 2px;
+    color: rgb(var(--c-inkMuted));
+    text-decoration: none;
+    /* Tap highlight off — the active state below is the feedback. */
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  .m-nav-item[data-active='true'] {
+    color: rgb(var(--c-ink));
+  }
+
+  /* The label is allowed to shrink but never to wrap or collide with the
+     icon: at 320px five items get 64px each, which fits "Workstation"
+     truncated rather than broken across lines. */
+  .m-nav-label {
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: 10px;
+    line-height: 12px;
+    font-weight: 500;
+    letter-spacing: 0.01em;
+  }
+
+  /* Active marker sits on the top edge, inside the 1px border. */
+  .m-nav-item[data-active='true']::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    width: 28px;
+    height: 2px;
+    border-radius: 0 0 2px 2px;
+    background-color: rgb(var(--c-gold));
+  }
+  .m-nav-item {
+    position: relative;
+  }
+
+  /* ── Messages ──────────────────────────────────────────────────────────
+     The thread is a fixed-height column so the composer stays put while the
+     message list scrolls under it — the composer must never be something you
+     scroll to find. dvh (not vh) tracks the collapsing browser chrome, so the
+     composer does not hide behind Safari's toolbar. */
+  .m-thread {
+    display: flex;
+    flex-direction: column;
+    /* viewport − topbar(56) − main padding(20) − bottom nav */
+    height: calc(100dvh - 56px - 20px - var(--m-nav-total));
+    min-height: 260px;
+  }
+  /* Short viewports (a 568px-tall SE in portrait, any phone in landscape)
+     must not squeeze the composer out; let the page scroll instead. */
+  @media (max-height: 520px) {
+    .m-thread {
+      height: auto;
+      min-height: 0;
+    }
+    .m-thread-scroll {
+      max-height: 46vh;
+    }
+  }
+
+  .m-thread-scroll {
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow-y: auto;
+    overscroll-behavior-y: contain;
+  }
+
+  .m-composer {
+    flex: 0 0 auto;
+  }
+  .m-composer input[type='text'] {
+    min-height: 44px;
+    /* 16px keeps iOS from zooming the viewport when the field takes focus. */
+    font-size: 16px;
+  }
+  .m-composer button {
+    min-height: 44px;
+    min-width: 44px;
+  }
+
+  /* A bubble may use most of the width on a phone, but must leave enough
+     edge for the conversation to still read as two-sided. */
+  .m-bubble {
+    max-width: 85%;
+  }
+
+  /* ── Section scaffolding ───────────────────────────────────────────────
+     The shared per-page vocabulary: a page title block, a section header and
+     a card. These mirror the desktop kit's tokens exactly — same surface,
+     same border, same radius — so the phone reads as the same product. */
+  .m-page {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+    min-width: 0;
+  }
+
+  .m-section {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    min-width: 0;
+  }
+
+  .m-section-title {
+    font-size: 11px;
+    line-height: 16px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: rgb(var(--c-inkFaint));
+  }
+
+  .m-card {
+    background-color: rgb(var(--c-surface));
+    border: 1px solid rgb(var(--c-border));
+    border-radius: 6px;
+    min-width: 0;
+    overflow: hidden;
+  }
+
+  /* ── Horizontal chip rail ──────────────────────────────────────────────
+     Replaces a left rail of sub-navigation. It scrolls rather than wrapping,
+     so the page content never gets pushed down by a second row of tabs. */
+  .m-rail {
+    display: flex;
+    gap: 6px;
+    overflow-x: auto;
+    scrollbar-width: none;
+    -webkit-overflow-scrolling: touch;
+    scroll-snap-type: x proximity;
+    /* Bleed to the screen edge so the rail reads as scrollable, while the
+       first and last chip still clear the gutter. */
+    margin-inline: calc(-1 * max(12px, var(--safe-l)));
+    padding-inline: max(12px, var(--safe-l));
+    padding-bottom: 2px;
+  }
+  .m-rail::-webkit-scrollbar {
+    display: none;
+  }
+
+  /* A rail scrolls; it never compresses. Without this its children keep the
+     default flex-shrink:1, and because they are also `whitespace-nowrap` the
+     labels overlap each other instead of overflowing into the scroll. */
+  .m-rail > * {
+    flex: 0 0 auto;
+  }
+
+  .m-chip {
+    flex: 0 0 auto;
+    scroll-snap-align: start;
+    display: inline-flex;
+    align-items: center;
+    /* Thumb-sized, not mouse-sized — the desktop rail's 32px rows are the
+       thing this replaces. */
+    min-height: 44px;
+    padding: 0 14px;
+    border: 1px solid rgb(var(--c-border));
+    border-radius: 999px;
+    background-color: rgb(var(--c-surface));
+    color: rgb(var(--c-inkMuted));
+    font-size: 13px;
+    line-height: 20px;
+    font-weight: 500;
+    white-space: nowrap;
+  }
+
+  .m-chip[data-active='true'] {
+    border-color: rgb(var(--c-gold));
+    color: rgb(var(--c-ink));
+    font-weight: 600;
+  }
+
+  /* ── Touch targets ─────────────────────────────────────────────────────
+     The desktop kit uses 32px rows and 36px controls, which are correct for
+     a mouse and too small for a thumb. Raise them here only. */
+  .m-touch {
+    min-height: 44px;
+  }
+
+  /* Any control the design system renders at h-8/h-9 gets lifted to 44px
+     when it is inside a mobile form region, without touching the component. */
+  .m-form input,
+  .m-form select,
+  .m-form textarea,
+  .m-form button {
+    min-height: 44px;
+  }
+  .m-form input,
+  .m-form select,
+  .m-form textarea {
+    width: 100%;
+    /* 16px prevents iOS Safari from zooming the viewport on focus — that
+       zoom is the single most common cause of "the layout broke" on iPhone. */
+    font-size: 16px;
+  }
+  .m-form label {
+    display: block;
+    min-width: 0;
+  }
+
+  /* ── Tables → cards ────────────────────────────────────────────────────
+     A table that cannot fit 320px becomes a stack of labelled rows. The
+     label comes from the cell's own data-label, so no column meaning is
+     lost in the conversion. */
+  .m-cards table,
+  .m-cards thead,
+  .m-cards tbody,
+  .m-cards tr,
+  .m-cards td,
+  .m-cards th {
+    display: block;
+    min-width: 0;
+    width: auto;
+  }
+  .m-cards thead {
+    /* Visually gone, still read by screen readers via the cell labels. */
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    white-space: nowrap;
+  }
+  .m-cards tr {
+    border: 1px solid rgb(var(--c-border));
+    border-radius: 6px;
+    background-color: rgb(var(--c-surface));
+    padding: 4px 12px;
+    margin-bottom: 8px;
+    /* The desktop kit pins rows to a 40px `h-10`. Stacked as a card a row is
+       as tall as its values, so the fixed height has to go — left in place it
+       lets the cells spill out of the card and slide under the bottom nav. */
+    height: auto;
+    min-height: 0;
+  }
+  .m-cards tr:last-child {
+    margin-bottom: 0;
+  }
+  .m-cards td {
+    display: flex;
+    height: auto;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 6px 0;
+    border-bottom: 1px solid rgb(var(--c-border));
+    text-align: right;
+  }
+  .m-cards td:last-child {
+    border-bottom: 0;
+  }
+  .m-cards td::before {
+    content: attr(data-label);
+    flex: 0 0 40%;
+    text-align: left;
+    font-size: 11px;
+    line-height: 16px;
+    font-weight: 500;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: rgb(var(--c-inkFaint));
+  }
+  /* A cell with no label (an action column) spans the full width. */
+  .m-cards td[data-label='']::before {
+    display: none;
+  }
+
+  /* Any table left in scroll mode must still be reachable by thumb and must
+     not widen the page. */
+  .m-scroll-x {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    max-width: 100%;
+  }
+
+  /* ── Overflow discipline ───────────────────────────────────────────────
+     Long unbroken strings — UUIDs, emails, reference numbers — are the usual
+     cause of a phone scrolling sideways. */
+  .m-page :where(h1, h2, h3, p, span, div, td, th, a, button) {
+    overflow-wrap: anywhere;
+  }
+  /* …but never break a number, a date or a currency figure mid-glyph. */
+  .m-page :where(.tabular-nums, [class*='tabular']) {
+    overflow-wrap: normal;
+  }
+
+  /* ── Zoom / text scaling ───────────────────────────────────────────────
+     At 200% zoom the grid collapses to one column rather than overlapping.
+     `min-width: 0` on every flex/grid child is what actually allows a long
+     word to shrink instead of forcing the track wider than the screen. */
+  .m-page * {
+    min-width: 0;
+  }
+}

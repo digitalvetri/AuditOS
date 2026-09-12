@@ -24,6 +24,7 @@ import { seedAuditAutomation } from './seed-audit-automation.js'
 import { seedBooks } from './seed-books.js'
 import { seedBookkeeping } from './seed-bookkeeping.js'
 import { seedIncorporation } from './seed-incorporation.js'
+import { seedRegistration } from './seed-registration.js'
 
 const prisma = new PrismaClient()
 
@@ -427,6 +428,45 @@ async function main() {
         data: {
           organisationId: org.id, code, value,
           effectiveFrom: '2020-04-01', effectiveTo: null, notes,
+        },
+      })
+    }
+  }
+
+  // ── E-Invoice & E-Way Bill config rows (E-INVOICE-EWAYBILL.md) ──────────
+  // Every threshold, day-count and hour-window used by the E-Invoice / E-Way
+  // Bill engine lives here. Grep for numeric literals in the einvoice-ewb
+  // module: there must not be any — the acceptance test is 'no literals'.
+  const einvEwbRates: readonly [code: string, value: string, effectiveFrom: string, notes: string][] = [
+    // E-invoice applicability — ₹5 Cr since 1 Aug 2023, PAN-level.
+    ['einv.aato_threshold_paise',            '50000000000',  '2023-08-01', 'E-invoice applicability threshold (₹5 Cr AATO, PAN-level, from 2017-18)'],
+    ['einv.aato.effective_from',             '2023-08-01',   '2023-08-01', 'Date the ₹5 Cr e-invoice threshold took effect'],
+    ['einv.applicability_scan_from_fy',      '2017-18',      '2017-04-01', 'Earliest FY to scan AATO history for e-invoice applicability'],
+    ['einv.30day.aato_threshold_paise',      '100000000000', '2025-04-01', '30-day reporting rule threshold (₹10 Cr AATO)'],
+    ['einv.30day.effective_from',            '2025-04-01',   '2025-04-01', 'Date the 30-day reporting rule took effect'],
+    ['einv.30day_window_days',               '30',           '2025-04-01', 'Reporting window from document date (days)'],
+    ['einv.30day_alert_at_day',              '25',           '2025-04-01', 'Day at which the 30-day countdown begins alerting'],
+    ['einv.direct_api.aato_threshold_paise', '1000000000000','2023-08-01', 'NIC IRP direct-API registration threshold (₹100 Cr AATO)'],
+    ['einv.cancellation_window_hours',       '24',           '2023-08-01', 'Hours after IRN generation within which cancellation is possible'],
+    // E-way bill — 2025 rules changed materially. See spec §2.3.
+    ['ewb.doc_max_age_days',                 '180',          '2025-01-01', 'Base document max age (days) — Notification 1 Jan 2025'],
+    ['ewb.extension_cap_days',               '360',          '2025-01-01', 'Cap on total extension window from original generation (days)'],
+    ['ewb.rules.effective_from',             '2025-01-01',   '2025-01-01', 'Date the 180-day / 360-day EWB rules took effect'],
+    ['ewb.extension_window_hours_pre',       '8',            '2020-01-01', 'Hours before expiry an extension is permitted'],
+    ['ewb.extension_window_hours_post',      '8',            '2020-01-01', 'Hours after expiry an extension is permitted'],
+    ['ewb.validity_km_per_day',              '200',          '2021-01-01', 'Validity distance per day (Notification 94/2020)'],
+    ['ewb.high_value_alert_paise',           '100000000000', '2025-01-01', 'Portal SMS-alerts the generator above this invoice value (₹10 Cr)'],
+    ['ewb.mfa.effective_from_all',           '2025-04-01',   '2025-04-01', 'MFA mandatory for ALL taxpayers on the e-way bill portal'],
+    ['ewb.cap_alert_before_days',            '30',           '2025-01-01', 'Days before the 360-day cap to raise the alert'],
+    ['ewb.expiry_alert_hours',               '24',           '2020-01-01', 'Hours until expiry to include an EWB in the 24-hour alert bucket'],
+  ]
+  for (const [code, value, effectiveFrom, notes] of einvEwbRates) {
+    const existing = await prisma.statutoryRate.findFirst({ where: { code, deletedAt: null } })
+    if (!existing) {
+      await prisma.statutoryRate.create({
+        data: {
+          organisationId: org.id, code, value,
+          effectiveFrom, effectiveTo: null, notes,
         },
       })
     }
@@ -927,6 +967,7 @@ async function main() {
   await seedBooks(prisma, org.id)
   const bookkeeping = await seedBookkeeping(prisma, org.id)
   const incorporation = await seedIncorporation(prisma, org.id)
+  const registration = await seedRegistration(prisma, org.id)
 
   const counts = {
     employees: await prisma.employee.count(),
@@ -942,6 +983,7 @@ async function main() {
   console.log('Workstation:', workstation)
   console.log('Bookkeeping:', bookkeeping)
   console.log('Incorporation:', incorporation)
+  console.log('Registration:', registration)
   console.log('Demo logins: ravi@auditos.local/md · priya@auditos.local/hr · anitha@auditos.local/fin · vikram@auditos.local/mgr · meera@auditos.local/emp · karthik@auditos.local/art')
 }
 

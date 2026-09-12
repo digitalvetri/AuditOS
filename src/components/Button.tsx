@@ -26,7 +26,7 @@ export function Button({
     'disabled:cursor-not-allowed disabled:opacity-50';
   const styles: Record<Variant, string> = {
     primary:
-      'bg-gold text-white hover:bg-gold-hover shadow-card',
+      'bg-primary text-white hover:bg-primaryHover shadow-card',
     secondary:
       'bg-surface text-ink border border-border hover:bg-canvas',
     ghost:

@@ -104,7 +104,7 @@ export function GstServiceHandoff() {
             href={service.portalUrl}
             target="_blank"
             rel="noopener noreferrer"
-            className="inline-flex items-center gap-2 h-9 px-4 text-13 font-medium text-white bg-gold hover:bg-gold-hover rounded-md"
+            className="inline-flex items-center gap-2 h-9 px-4 text-13 font-medium text-white bg-primary hover:bg-primaryHover rounded-md"
           >
             <ExternalLink size={14} strokeWidth={2} />
             Open portal
@@ -311,7 +311,7 @@ function CopyAllButton({
           ? `Copy ${fields.length} field${fields.length === 1 ? '' : 's'} (${resolvableCount} resolved) to the clipboard`
           : 'Sheet has no fields yet — pick a client to resolve values'
       }
-      className="inline-flex items-center gap-1 h-7 px-2 text-11 font-medium text-white bg-gold hover:bg-gold-hover rounded-md disabled:opacity-50 disabled:cursor-not-allowed"
+      className="inline-flex items-center gap-1 h-7 px-2 text-11 font-medium text-white bg-primary hover:bg-primaryHover rounded-md disabled:opacity-50 disabled:cursor-not-allowed"
     >
       {copied ? <Check size={12} strokeWidth={2.5} /> : <ClipboardCopy size={12} strokeWidth={2} />}
       {copied ? 'Copied' : `Copy full sheet${resolvableCount ? ` (${resolvableCount}/${fields.length})` : ''}`}

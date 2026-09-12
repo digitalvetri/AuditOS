@@ -53,6 +53,11 @@
     --c-neutral-900: 23 21 18;
     --c-gold: 38 100 231;
     --c-gold-hover: 29 84 199;
+    /* Primary ACTION surface — the sidebar navy, so a button and the
+       rail read as the same brand. Hover lifts to --c-sidebarActive
+       rather than darkening, because the base is already near-black. */
+    --c-primary: 15 34 73;
+    --c-primary-hover: 42 71 137;
   }
   :root[data-theme="dark"] {
     --c-white: 31 30 27;
@@ -85,6 +90,10 @@
     --c-success: 127 163 131;
     --c-gold: 66 133 244;
     --c-gold-hover: 96 156 255;
+    /* On a near-black canvas the light theme's #0F2249 would read as
+       a hole, so dark starts at the active shade and lifts. */
+    --c-primary: 42 71 137;
+    --c-primary-hover: 58 94 176;
     --c-red: 224 104 90;
     --c-amber: 217 166 74;
     color-scheme: dark;

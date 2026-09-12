@@ -24,15 +24,17 @@ const TABS: { to: string; label: string; end?: boolean }[] = [
 
 export function IncorporationShell() {
   return (
-    <div>
-      <nav className="flex gap-1 border-b border-neutral-200 mb-4 overflow-x-auto">
+    <div className="m-page">
+      {/* Below 768px the strip keeps scrolling horizontally but its rows grow
+          to a 44px touch target; above it, the 36px desktop strip is unchanged. */}
+      <nav className="m-rail flex gap-1 border-b border-neutral-200 mb-4 overflow-x-auto">
         {TABS.map((t) => (
           <NavLink
             key={t.to}
             to={t.to}
             end={t.end}
             className={({ isActive }) =>
-              'px-3 h-9 flex items-center text-13 whitespace-nowrap border-b-2 -mb-px ' +
+              'px-3 min-h-[44px] md:min-h-0 md:h-9 flex items-center text-13 whitespace-nowrap border-b-2 -mb-px ' +
               (isActive
                 ? 'border-gold text-neutral-900 font-medium'
                 : 'border-transparent text-neutral-500 hover:text-neutral-900')

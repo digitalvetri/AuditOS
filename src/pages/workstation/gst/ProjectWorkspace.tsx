@@ -139,7 +139,7 @@ export function GstProjectWorkspace({ service }: { service: GstService }) {
               type="button"
               disabled
               title="Case creation wires up once the project engine ships"
-              className="inline-flex items-center gap-2 h-9 px-4 text-13 font-medium text-white bg-gold rounded-md disabled:opacity-60 disabled:cursor-not-allowed"
+              className="inline-flex items-center gap-2 h-9 px-4 text-13 font-medium text-white bg-primary hover:bg-primaryHover rounded-md disabled:opacity-60 disabled:cursor-not-allowed"
             >
               <Plus size={14} strokeWidth={2} />
               New case
