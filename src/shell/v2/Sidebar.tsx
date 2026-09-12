@@ -109,6 +109,7 @@ export function Sidebar({ mobileOpen, onMobileClose }: Props) {
         children: [
           { to: '/workstation/services/gst',           label: 'GST' },
           { to: '/workstation/services/tds',           label: 'TDS' },
+          { to: '/workstation/services/e-invoice',     label: 'E-Invoice' },
           { to: '/workstation/services/e-way-bill',    label: 'E-Way Bill' },
           { to: '/workstation/services/bookkeeping',   label: 'Bookkeeping' },
           { to: '/workstation/services/incorporation', label: 'Incorporation' },
@@ -117,7 +118,6 @@ export function Sidebar({ mobileOpen, onMobileClose }: Props) {
               to: `/workstation/services/registration/${r.slug}`,
               label: r.name,
             })) },
-          { to: '/workstation/services/e-invoice',     label: 'E-Invoice' },
         ] },
       { to: '/workstation/documents',   label: 'Documents',  icon: FolderKanban,  visible: can(role, 'workstation.document.read', 'self') },
     ];
