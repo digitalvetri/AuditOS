@@ -32,6 +32,7 @@ import {
   workstationSignedRouter,
 } from './modules/workstation/documents.routes.js'
 import { workstationRouter } from './modules/workstation/workstation.routes.js'
+import { einvoiceEwbRouter } from './modules/workstation/einvoice-ewb/routes.js'
 // Tools (Converters & Utilities) — registry-driven file conversions.
 import { toolsRouter, toolJobsRouter, toolDocumentsRouter, toolsSignedRouter } from './modules/tools/routes.js'
 // Audit Automation (AMENDMENT-02-REPOTIC-GAPS.md) — bank-statement pipeline
@@ -127,6 +128,10 @@ export function createApp() {
   app.use('/api/workstation', workstationRouter)
   app.use('/api/leads', leadsRouter)
   app.use('/api/clients', clientsRouter)
+  // E-Invoice & E-Way Bill monitoring (E-INVOICE-EWAYBILL.md). Mounts on
+  // /api/clients so the client-scoped paths (/:id/einvoice-ewb) sit next
+  // to the sibling GST and EWB routes on clientsRouter.
+  app.use('/api/clients', einvoiceEwbRouter)
   app.use('/api/services', servicesRouter)
   app.use('/api/service-catalog', serviceCatalogRouter)
   app.use('/api/follow-ups', followUpsRouter)

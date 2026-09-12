@@ -73,6 +73,10 @@ import { RegistrationServicesLanding } from '@/pages/workstation/registration/Re
 import { RegistrationServiceDetail } from '@/pages/workstation/registration/RegistrationServiceDetail';
 import { GstServicesLanding } from '@/pages/workstation/gst/GstServicesLanding';
 import { GstServiceHandoff } from '@/pages/workstation/gst/GstServiceHandoff';
+// E-Invoice & E-Way Bill monitoring page (E-INVOICE-EWAYBILL.md). Both
+// sidebar entries route here — the operator cares about one combined view
+// of applicability, alerts, setup and reconciliation.
+import EInvoiceEwbPage from '@/pages/workstation/einvoice-ewb/EInvoiceEwbPage';
 import { GstWorkspace } from '@/pages/workstation/gst/GstWorkspace';
 import { GstNoticeCheck } from '@/pages/workstation/gst/NoticeCheck';
 
@@ -208,9 +212,13 @@ export default function App() {
               <Route path="workstation/services/gst/notice-check" element={<GstNoticeCheck />} />
               <Route path="workstation/services/gst/:slug" element={<GstServiceHandoff />} />
               <Route path="workstation/services/gst/:slug/workspace" element={<GstWorkspace />} />
-              {/* Service categories (TDS, E-Way Bill, E-Invoice) — nav
-                  structure only for now, so every remaining slug resolves to
-                  the same Services page. */}
+              {/* E-Invoice & E-Way Bill — one page for both sidebar entries.
+                  Declared BEFORE the :category catch-all so both slugs resolve
+                  here instead of the generic Services page. */}
+              <Route path="workstation/services/e-invoice" element={<EInvoiceEwbPage />} />
+              <Route path="workstation/services/e-way-bill" element={<EInvoiceEwbPage />} />
+              {/* Service categories (TDS) — nav structure only for now, so
+                  every remaining slug resolves to the same Services page. */}
               {/* Registration category — declared BEFORE the :category
                   catch-all below, or that would swallow the slug. */}
               <Route path="workstation/services/registration" element={<RegistrationServicesLanding />} />
