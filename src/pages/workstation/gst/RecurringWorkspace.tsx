@@ -1,14 +1,10 @@
 /**
- * Recurring workspace v1 — per-period obligation list.
+ * Recurring workspace v2 — compact period-board layout.
  *
- * Spec §4 shape for Return Filing / Annual Return / LUT: period-driven,
- * one obligation per (client, period). This v1 shows a single period at a
- * time — a monthly selector, a summary strip and a client obligation
- * table. Client × month grid is a future iteration; a single-period list
- * is what the spec calls the "period board" reduced to today.
- *
- * All data is static placeholder — the engine still needs designing and
- * the backend model doesn’t exist. This page proves the shape.
+ * Same functionality as v1 (period selector, status filter, obligation
+ * table wired to real workstation clients) — laid out with an inline
+ * stats bar, an inline period pill and a single tighter table. No
+ * separate cards for each strip.
  */
 import { useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
@@ -28,7 +24,7 @@ interface Obligation {
   clientName: string;
   gstin: string;
   assignedTo: string;
-  dueDate: string;   // ISO
+  dueDate: string;
   status: ObligationStatus;
   arn?: string;
 }
@@ -36,7 +32,7 @@ interface Obligation {
 const STATUS_TINT: Record<ObligationStatus, { bg: string; fg: string; label: string }> = {
   not_started: { bg: '#EEF0F3', fg: '#475569', label: 'Not started' },
   in_progress: { bg: '#E6EEFC', fg: '#1D4ED8', label: 'In progress' },
-  ready:       { bg: '#FEF3C7', fg: '#B45309', label: 'Ready to file' },
+  ready:       { bg: '#FEF3C7', fg: '#B45309', label: 'Ready' },
   filed:       { bg: '#E7F5EE', fg: '#166534', label: 'Filed' },
   overdue:     { bg: '#FDE7EA', fg: '#B91C1C', label: 'Overdue' },
 };
@@ -73,10 +69,7 @@ export function GstRecurringWorkspace({ service }: { service: GstService }) {
   const period = useMemo(() => {
     const d = new Date();
     d.setMonth(d.getMonth() + periodOffset);
-    return {
-      key: `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`,
-      label: d.toLocaleDateString('en-IN', { month: 'long', year: 'numeric' }),
-    };
+    return d.toLocaleDateString('en-IN', { month: 'long', year: 'numeric' });
   }, [periodOffset]);
 
   const [statusFilter, setStatusFilter] = useState<ObligationStatus | 'all'>('all');
@@ -88,14 +81,11 @@ export function GstRecurringWorkspace({ service }: { service: GstService }) {
   const clients = clientsQuery.data?.items ?? [];
   const obligations = useMemo(() => generateObligations(clients, service.slug), [clients, service.slug]);
   const summary = summarise(obligations);
-  const rows = statusFilter === 'all'
-    ? obligations
-    : obligations.filter((o) => o.status === statusFilter);
-
+  const rows = statusFilter === 'all' ? obligations : obligations.filter((o) => o.status === statusFilter);
   const tint = SHAPE_TINT[service.shape];
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-4">
       <div>
         <Link
           to={`/workstation/services/gst/${service.slug}`}
@@ -106,13 +96,10 @@ export function GstRecurringWorkspace({ service }: { service: GstService }) {
         </Link>
       </div>
 
-      {/* Header */}
       <header className="flex items-start justify-between gap-4 flex-wrap">
-        <div>
+        <div className="min-w-0">
           <div className="flex items-center gap-2 flex-wrap">
-            <span className="text-11 uppercase tracking-[0.06em] text-neutral-500">
-              Workstation · Services · GST · {service.name}
-            </span>
+            <h1 className="text-18 font-semibold text-neutral-900 truncate">{service.name} · Period board</h1>
             <span
               className="inline-flex items-center h-5 px-2 text-11 font-medium rounded-md"
               style={{ backgroundColor: tint.bg, color: tint.fg }}
@@ -120,116 +107,98 @@ export function GstRecurringWorkspace({ service }: { service: GstService }) {
               {tint.label}
             </span>
           </div>
-          <h1 className="text-20 font-semibold text-neutral-900 mt-1">
-            {service.name} · Period board
-          </h1>
-          <p className="text-13 text-neutral-500 mt-1">
-            One obligation per client per period. Placeholder data — engine and backend to
-            follow.
-          </p>
         </div>
-        <div className="flex items-center gap-2">
-          <a
-            href={service.portalUrl}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="inline-flex items-center gap-2 h-9 px-3 text-13 font-medium border border-neutral-200 rounded-md text-neutral-700 hover:bg-neutral-50"
-          >
-            <ExternalLink size={14} strokeWidth={2} />
-            Open portal
-          </a>
-        </div>
+        <a
+          href={service.portalUrl}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="inline-flex items-center gap-2 h-9 px-3 text-13 font-medium border border-neutral-200 rounded-md text-neutral-700 hover:bg-neutral-50"
+        >
+          <ExternalLink size={14} strokeWidth={2} />
+          Open portal
+        </a>
       </header>
 
-      {/* Period selector */}
-      <section className="bg-white border border-neutral-200 rounded-lg shadow-card p-4 flex items-center justify-between gap-4 flex-wrap">
-        <div className="inline-flex items-center rounded-md border border-neutral-200">
-          <button
-            type="button"
-            onClick={() => setPeriodOffset((n) => n - 1)}
-            className="h-9 w-9 inline-flex items-center justify-center text-neutral-600 hover:bg-neutral-50 border-r border-neutral-200 rounded-l-md"
-            aria-label="Previous period"
-          >
-            <ChevronLeft size={16} strokeWidth={2} />
-          </button>
-          <div className="h-9 px-4 inline-flex items-center text-14 font-medium text-neutral-900 tabular-nums">
-            {period.label}
-          </div>
-          <button
-            type="button"
-            onClick={() => setPeriodOffset((n) => n + 1)}
-            className="h-9 w-9 inline-flex items-center justify-center text-neutral-600 hover:bg-neutral-50 border-l border-neutral-200 rounded-r-md"
-            aria-label="Next period"
-          >
-            <ChevronRight size={16} strokeWidth={2} />
-          </button>
-        </div>
-        {periodOffset !== 0 ? (
-          <button
-            type="button"
-            onClick={() => setPeriodOffset(0)}
-            className="text-13 text-gold hover:text-gold-hover font-medium"
-          >
-            Jump to current period
-          </button>
-        ) : (
-          <span className="text-12 text-neutral-500">Showing current period</span>
-        )}
-      </section>
-
-      {/* Summary strip */}
+      {/* Inline period selector + stats bar */}
       <section className="bg-white border border-neutral-200 rounded-lg shadow-card">
-        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 divide-x divide-neutral-100">
-          <SummaryCell
+        <div className="flex items-center gap-3 px-4 py-3 border-b border-neutral-100 flex-wrap">
+          <div className="inline-flex items-center rounded-md border border-neutral-200">
+            <button
+              type="button"
+              onClick={() => setPeriodOffset((n) => n - 1)}
+              className="h-8 w-8 inline-flex items-center justify-center text-neutral-600 hover:bg-neutral-50 border-r border-neutral-200 rounded-l-md"
+              aria-label="Previous period"
+            >
+              <ChevronLeft size={14} strokeWidth={2} />
+            </button>
+            <div className="h-8 px-3 inline-flex items-center text-13 font-medium text-neutral-900 tabular-nums">
+              {period}
+            </div>
+            <button
+              type="button"
+              onClick={() => setPeriodOffset((n) => n + 1)}
+              className="h-8 w-8 inline-flex items-center justify-center text-neutral-600 hover:bg-neutral-50 border-l border-neutral-200 rounded-r-md"
+              aria-label="Next period"
+            >
+              <ChevronRight size={14} strokeWidth={2} />
+            </button>
+          </div>
+          {periodOffset !== 0 ? (
+            <button
+              type="button"
+              onClick={() => setPeriodOffset(0)}
+              className="text-12 text-primary hover:text-primaryHover font-medium"
+            >
+              Jump to current
+            </button>
+          ) : null}
+          <div className="flex-1" />
+          <StatChip
             label="Total"
             value={obligations.length}
             active={statusFilter === 'all'}
             onClick={() => setStatusFilter('all')}
           />
-          {(['not_started', 'in_progress', 'ready', 'filed', 'overdue'] as ObligationStatus[]).map((s) => (
-            <SummaryCell
+          {(['overdue', 'ready', 'in_progress', 'not_started', 'filed'] as ObligationStatus[]).map((s) => (
+            <StatChip
               key={s}
               label={STATUS_TINT[s].label}
               value={summary[s]}
-              tone={STATUS_TINT[s]}
+              tint={STATUS_TINT[s].fg}
               active={statusFilter === s}
               onClick={() => setStatusFilter((cur) => (cur === s ? 'all' : s))}
             />
           ))}
         </div>
-      </section>
 
-      {/* Obligation rows */}
-      <section className="bg-white border border-neutral-200 rounded-lg shadow-card overflow-hidden">
+        {/* Table */}
         <table className="w-full">
           <thead>
-            <tr className="bg-neutral-50 border-b border-neutral-200">
-              {['Client', 'GSTIN', 'Assigned to', 'Due', 'Status', 'ARN', ''].map((h) => (
-                <th
-                  key={h}
-                  className="text-left text-11 font-semibold uppercase tracking-[0.06em] text-neutral-500 px-4 py-2"
-                >
-                  {h}
-                </th>
-              ))}
+            <tr className="text-11 font-semibold uppercase tracking-[0.06em] text-neutral-500 border-b border-neutral-100">
+              <th className="text-left px-4 py-2">Client</th>
+              <th className="text-left px-4 py-2 hidden md:table-cell">Assigned</th>
+              <th className="text-left px-4 py-2">Due</th>
+              <th className="text-left px-4 py-2">Status</th>
+              <th className="text-left px-4 py-2 hidden lg:table-cell">ARN</th>
+              <th className="text-right px-4 py-2"></th>
             </tr>
           </thead>
           <tbody>
             {clientsQuery.isLoading ? (
               <tr>
-                <td colSpan={7} className="px-4 py-8 text-center text-13 text-neutral-500">
+                <td colSpan={6} className="px-4 py-6 text-center text-13 text-neutral-500">
                   Loading clients…
                 </td>
               </tr>
             ) : clientsQuery.isError ? (
               <tr>
-                <td colSpan={7} className="px-4 py-8 text-center text-13 text-danger">
+                <td colSpan={6} className="px-4 py-6 text-center text-13 text-danger">
                   Could not load clients.
                 </td>
               </tr>
             ) : rows.length === 0 ? (
               <tr>
-                <td colSpan={7} className="px-4 py-8 text-center text-13 text-neutral-500">
+                <td colSpan={6} className="px-4 py-6 text-center text-13 text-neutral-500">
                   {obligations.length === 0
                     ? 'No clients in workstation yet.'
                     : 'No obligations match this filter.'}
@@ -241,12 +210,6 @@ export function GstRecurringWorkspace({ service }: { service: GstService }) {
           </tbody>
         </table>
       </section>
-
-      <p className="text-11 text-neutral-500">
-        Actions on each row are non-functional in v1. Real state changes require the recurring
-        engine (period generation, status transitions, ARN capture) — spec §4, tracked as a
-        follow-up.
-      </p>
     </div>
   );
 }
@@ -259,74 +222,68 @@ function summarise(rows: Obligation[]): Record<ObligationStatus, number> {
   return acc;
 }
 
-function SummaryCell({
-  label, value, tone, active, onClick,
+function StatChip({
+  label, value, tint, active, onClick,
 }: {
   label: string;
   value: number;
-  tone?: { bg: string; fg: string };
+  tint?: string;
   active?: boolean;
-  onClick?: () => void;
+  onClick: () => void;
 }) {
   return (
     <button
       type="button"
       onClick={onClick}
       className={
-        'text-left px-4 py-3 transition-colors ' +
-        (active ? 'bg-neutral-50' : 'hover:bg-neutral-50')
+        'inline-flex items-center gap-1 h-7 px-2 text-12 rounded-md border transition-colors ' +
+        (active
+          ? 'border-neutral-400 bg-neutral-50'
+          : 'border-transparent hover:bg-neutral-50')
       }
     >
-      <div className="flex items-center gap-2">
-        {tone ? (
-          <span
-            className="inline-block w-2 h-2 rounded-sm"
-            style={{ backgroundColor: tone.fg }}
-            aria-hidden
-          />
-        ) : null}
-        <span className="text-11 uppercase tracking-[0.06em] text-neutral-500">{label}</span>
-      </div>
-      <div className="text-20 font-semibold text-neutral-900 tabular-nums mt-1">{value}</div>
+      {tint ? (
+        <span className="inline-block w-1.5 h-1.5 rounded-sm" style={{ backgroundColor: tint }} aria-hidden />
+      ) : null}
+      <span className="text-neutral-700">{label}</span>
+      <span className="text-neutral-900 font-medium tabular-nums">{value}</span>
     </button>
   );
 }
 
-function ObligationRow({
-  row, service,
-}: { row: Obligation; service: GstService }) {
+function ObligationRow({ row, service }: { row: Obligation; service: GstService }) {
   const tint = STATUS_TINT[row.status];
   const now = new Date().toISOString().slice(0, 10);
   const isPast = row.dueDate < now && row.status !== 'filed';
   return (
     <tr className="border-b border-neutral-100 last:border-b-0 hover:bg-neutral-50/50">
-      <td className="px-4 py-3">
-        <div className="text-14 font-medium text-neutral-900">{row.clientName}</div>
+      <td className="px-4 py-2">
+        <div className="text-13 font-medium text-neutral-900">{row.clientName}</div>
+        <div className="text-11 text-neutral-500 font-mono">{row.gstin}</div>
       </td>
-      <td className="px-4 py-3 text-13 text-neutral-700 font-mono">{row.gstin}</td>
-      <td className="px-4 py-3 text-13 text-neutral-700">{row.assignedTo}</td>
-      <td className="px-4 py-3 text-13 tabular-nums">
+      <td className="px-4 py-2 text-13 text-neutral-700 hidden md:table-cell">{row.assignedTo}</td>
+      <td className="px-4 py-2 text-13 tabular-nums">
         <span className={isPast ? 'text-danger font-medium' : 'text-neutral-700'}>
           {new Date(row.dueDate).toLocaleDateString('en-IN', { day: '2-digit', month: 'short' })}
         </span>
       </td>
-      <td className="px-4 py-3">
+      <td className="px-4 py-2">
         <span
-          className="inline-flex items-center h-6 px-2 text-11 font-medium rounded-md whitespace-nowrap"
+          className="inline-flex items-center h-5 px-2 text-11 font-medium rounded-md whitespace-nowrap"
           style={{ backgroundColor: tint.bg, color: tint.fg }}
         >
           {tint.label}
         </span>
       </td>
-      <td className="px-4 py-3 text-13 text-neutral-700 font-mono">
-        {row.arn ?? <span className="text-neutral-400">—</span>}
+      <td className="px-4 py-2 text-12 text-neutral-500 font-mono hidden lg:table-cell">
+        {row.arn ?? '—'}
       </td>
-      <td className="px-4 py-3 text-right">
+      <td className="px-4 py-2 text-right">
         <Link
           to={`/workstation/services/gst/${service.slug}?client=${row.clientId}`}
-          className="text-12 font-medium text-gold hover:text-gold-hover whitespace-nowrap"
+          className="text-12 font-medium text-primary hover:text-primaryHover whitespace-nowrap"
         >
-          Open handoff →
+          Open →
         </Link>
       </td>
     </tr>
