@@ -37,8 +37,16 @@ services:
       timeout: 5s
       retries: 10
 
-  # One-shot. Applies the schema and seeds, then exits 0.
-  # Both steps are idempotent, so it is safe on every `up`.
+  # One-shot. Applies the schema and seeds, then exits 0. Both steps are
+  # idempotent, so it is safe on every `up` — PROVIDED the image is current.
+  #
+  # It builds from ./server, the same source as `api`, but is a SEPARATE image:
+  # `docker compose build api` does not rebuild it. Run an image built before a
+  # schema change and `prisma db push` sees the new tables as ones to DROP —
+  # it refuses (exit 1, "Use the --accept-data-loss flag"), which is the
+  # failure working as intended, not a bug to flag past. The fix is to rebuild,
+  # never to add --accept-data-loss: that flag would carry out the deletion.
+  # Always bring the stack up with `--build`, as the header says.
   migrate:
     build:
       context: ./server
