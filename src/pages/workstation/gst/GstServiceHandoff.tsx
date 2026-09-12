@@ -1,10 +1,12 @@
 /**
- * Per-service AssistedHandoff page (v1).
+ * Per-service AssistedHandoff page — combined single-card layout (v2).
  *
- * Implements the spec §1 pattern: "Open the GST portal and log in as the
- * client" → click-path breadcrumb → copy-ready field sheet → capture the
- * output. Client selection, real field values and the credential vault are
- * deferred to the follow-up engine work — this page is the shape.
+ * All the functionality of the original 4-step layout — client picker,
+ * portal open, credential vault, click-path breadcrumb, field sheet with
+ * Copy-all and per-field copy, capture list — laid out inside one card
+ * separated by subtle dividers. Header carries the service identity, the
+ * shape chip, the workspace shortcut and the primary "Open portal"
+ * action.
  */
 import { useMemo, useState } from 'react';
 import { useParams, useSearchParams, Link, Navigate } from 'react-router-dom';
@@ -16,7 +18,6 @@ import {
   ChevronRight,
   ClipboardCopy,
   ExternalLink,
-  Users,
 } from 'lucide-react';
 import { workstationApi } from '@/modules/workstation/api';
 import { findGstService, SHAPE_TINT } from './services';
@@ -54,7 +55,7 @@ export function GstServiceHandoff() {
   };
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-4">
       <div>
         <Link
           to="/workstation/services/gst"
@@ -65,19 +66,20 @@ export function GstServiceHandoff() {
         </Link>
       </div>
 
-      {/* Header */}
+      {/* Header — identity + primary actions */}
       <header className="flex items-start justify-between gap-4 flex-wrap">
-        <div className="flex items-start gap-3">
+        <div className="flex items-start gap-3 min-w-0">
           <span
-            className="inline-flex items-center justify-center w-12 h-12 rounded-lg shrink-0"
+            className="inline-flex items-center justify-center w-10 h-10 rounded-md shrink-0"
             style={{ backgroundColor: tint.bg, color: tint.fg }}
             aria-hidden
           >
-            <Icon size={22} strokeWidth={1.75} />
+            <Icon size={18} strokeWidth={1.75} />
           </span>
-          <div>
+          <div className="min-w-0">
             <div className="flex items-center gap-2 flex-wrap">
-              <span className="text-11 uppercase tracking-[0.06em] text-neutral-500">Workstation · Services · GST</span>
+              <h1 className="text-18 font-semibold text-neutral-900 truncate">{service.name}</h1>
+              <span className="text-13 text-neutral-500 tabular-nums">{service.form}</span>
               <span
                 className="inline-flex items-center h-5 px-2 text-11 font-medium rounded-md"
                 style={{ backgroundColor: tint.bg, color: tint.fg }}
@@ -85,22 +87,37 @@ export function GstServiceHandoff() {
                 {tint.label}
               </span>
             </div>
-            <h1 className="text-20 font-semibold text-neutral-900 mt-1">
-              {service.name} <span className="text-neutral-500 font-medium text-16 ml-2">{service.form}</span>
-            </h1>
             <p className="text-13 text-neutral-500 mt-1 max-w-[720px]">{service.summary}</p>
           </div>
         </div>
+        <div className="flex items-center gap-2 shrink-0">
+          {service.shape !== 'retainer' ? (
+            <Link
+              to={`/workstation/services/gst/${service.slug}/workspace`}
+              className="inline-flex items-center gap-1 h-9 px-3 text-13 font-medium text-neutral-700 border border-neutral-200 rounded-md hover:bg-neutral-50"
+            >
+              <CalendarRange size={14} strokeWidth={1.75} />
+              {service.shape === 'recurring' ? 'Period board' : 'Case pipeline'}
+            </Link>
+          ) : null}
+          <a
+            href={service.portalUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex items-center gap-2 h-9 px-4 text-13 font-medium text-white bg-primary hover:bg-primaryHover rounded-md"
+          >
+            <ExternalLink size={14} strokeWidth={2} />
+            Open portal
+          </a>
+        </div>
       </header>
 
-      {/* Client picker — drives the credential vault and field sheet. */}
-      <section className="bg-white border border-neutral-200 rounded-lg shadow-card p-5">
-        <div className="flex items-start gap-3 flex-wrap">
-          <span className="inline-flex items-center justify-center w-10 h-10 rounded-md bg-neutral-100 text-neutral-700 shrink-0" aria-hidden>
-            <Users size={18} strokeWidth={1.75} />
-          </span>
-          <div className="flex-1 min-w-[240px]">
-            <label htmlFor="gst-client-picker" className="block text-11 uppercase tracking-[0.06em] text-neutral-500 mb-1">
+      {/* Unified card */}
+      <section className="bg-white border border-neutral-200 rounded-lg shadow-card divide-y divide-neutral-100">
+        {/* Client */}
+        <div className="p-5">
+          <div className="flex items-center gap-3 flex-wrap">
+            <label htmlFor="gst-client-picker" className="text-13 font-medium text-neutral-900 w-20 shrink-0">
               Client
             </label>
             <select
@@ -108,7 +125,7 @@ export function GstServiceHandoff() {
               value={selectedClientId}
               onChange={(e) => setClient(e.target.value)}
               disabled={clientsQuery.isLoading}
-              className="w-full h-10 px-3 text-14 bg-white border border-neutral-300 rounded-md focus:outline-none focus:border-gold"
+              className="flex-1 min-w-[220px] h-9 px-3 text-14 bg-white border border-neutral-300 rounded-md focus:outline-none focus:border-gold"
             >
               <option value="">— Select a client —</option>
               {clients.map((c) => (
@@ -117,174 +134,97 @@ export function GstServiceHandoff() {
                 </option>
               ))}
             </select>
+            {selectedClient?.gstin ? (
+              <span className="text-12 text-neutral-500 font-mono">GSTIN {selectedClient.gstin}</span>
+            ) : null}
           </div>
-          {selectedClient ? (
-            <div className="text-12 text-neutral-500 min-w-[200px]">
-              <div><span className="text-neutral-500">Client:</span> <span className="text-neutral-900 font-medium">{selectedClient.name}</span></div>
-              {selectedClient.gstin ? <div className="font-mono">GSTIN {selectedClient.gstin}</div> : <div>No GSTIN on record</div>}
-            </div>
-          ) : (
-            <div className="text-12 text-neutral-500 min-w-[200px]">
-              Values in the vault and field sheet fill in once a client is selected.
-            </div>
-          )}
         </div>
-      </section>
 
-      {/* Workspace shortcut for services with a workspace shape */}
-      {service.shape !== 'retainer' ? (
-        <section className="bg-white border border-neutral-200 rounded-lg shadow-card p-5 flex items-center justify-between gap-4 flex-wrap">
-          <div className="flex items-start gap-3">
-            <span className="inline-flex items-center justify-center w-10 h-10 rounded-md bg-neutral-100 text-neutral-700" aria-hidden>
-              <CalendarRange size={18} strokeWidth={1.75} />
-            </span>
-            <div>
-              <div className="text-14 font-semibold text-neutral-900">
-                {service.shape === 'recurring' ? 'Period board' : 'Case pipeline'}
-              </div>
-              <div className="text-12 text-neutral-500">
-                {service.shape === 'recurring'
-                  ? 'One obligation per client per period — track status, filing progress and ARNs.'
-                  : service.shape === 'externally-triggered'
-                    ? 'Cases arrive from the weekly notice-discovery task. Track replies and deadlines.'
-                    : 'One case per client, stage-driven. Registration, amendment or cancellation.'}
-              </div>
-            </div>
-          </div>
-          <Link
-            to={`/workstation/services/gst/${service.slug}/workspace`}
-            className="inline-flex items-center gap-2 h-9 px-4 text-13 font-medium text-white bg-primary hover:bg-primaryHover rounded-md"
-          >
-            {service.shape === 'recurring' ? 'Open period board' : 'Open case pipeline'}
-          </Link>
-        </section>
-      ) : null}
-
-      {/* What the firm actually does */}
-      <section className="bg-white border border-neutral-200 rounded-lg shadow-card p-5">
-        <h2 className="text-13 font-semibold uppercase tracking-[0.06em] text-neutral-900">
-          What the firm actually does
-        </h2>
-        <p className="text-13 text-neutral-700 mt-2 leading-relaxed">{service.detail}</p>
-      </section>
-
-      {/* Step 1 — Open portal + log in */}
-      <StepCard
-        n={1}
-        title="Open the GST portal and log in as the client"
-        subtitle={
-          service.preLogin
-            ? 'Deep link — no session required.'
-            : 'This is a post-login page. Log in as the client first; the click path below is the guide from the portal home.'
-        }
-      >
-        <a
-          href={service.portalUrl}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="inline-flex items-center gap-2 h-10 px-4 text-14 font-medium text-white bg-primary hover:bg-primaryHover rounded-md"
-        >
-          <ExternalLink size={16} strokeWidth={2} />
-          {service.portalLabel}
-        </a>
-        <div className="mt-4">
+        {/* Credentials */}
+        <div className="p-5">
           {service.preLogin ? <CredentialsNotNeededNote /> : <CredentialVault client={selectedClient} />}
         </div>
-      </StepCard>
 
-      {/* Step 2 — Click path */}
-      <StepCard
-        n={2}
-        title="Follow the click path inside the portal"
-        subtitle={service.navPath.length ? undefined : 'No portal navigation — the destination is an external IRP or third-party integration.'}
-      >
+        {/* Click path */}
         {service.navPath.length ? (
-          <nav aria-label="Portal click path" className="flex flex-wrap items-center gap-1 text-13">
-            {service.navPath.map((step, i) => (
-              <div key={step} className="flex items-center gap-1">
-                <span className="inline-flex items-center h-8 px-3 rounded-md border border-neutral-200 bg-neutral-50 text-neutral-800 font-medium">
-                  {step}
-                </span>
-                {i < service.navPath.length - 1 ? (
-                  <ChevronRight size={14} strokeWidth={2} className="text-neutral-400" />
-                ) : null}
-              </div>
-            ))}
-          </nav>
-        ) : (
-          <p className="text-13 text-neutral-500">
-            Direct link opens the IRP; no in-portal navigation applies.
-          </p>
-        )}
-      </StepCard>
+          <div className="p-5">
+            <div className="flex items-center gap-3 flex-wrap">
+              <div className="text-13 font-medium text-neutral-900 w-32 shrink-0">Path in portal</div>
+              <nav aria-label="Portal click path" className="flex flex-wrap items-center gap-1 text-13">
+                {service.navPath.map((step, i) => (
+                  <div key={step} className="flex items-center gap-1">
+                    <span className="inline-flex items-center h-7 px-2 rounded-md bg-neutral-50 border border-neutral-200 text-neutral-800">
+                      {step}
+                    </span>
+                    {i < service.navPath.length - 1 ? (
+                      <ChevronRight size={12} strokeWidth={2} className="text-neutral-400" />
+                    ) : null}
+                  </div>
+                ))}
+              </nav>
+            </div>
+          </div>
+        ) : null}
 
-      {/* Step 3 — Field sheet */}
-      {service.fieldSheet?.length ? (
-        <StepCard
-          n={3}
-          title="Copy-ready field sheet"
-          subtitle={
-            selectedClient
-              ? 'Values that can be resolved from the selected client fill in automatically. Others populate once the engine wires per-service data.'
-              : 'Pick a client above to auto-fill values that live on the client record. Others populate with engine follow-up.'
-          }
-          action={
-            <CopyAllButton
-              fields={service.fieldSheet.map((f) => ({
-                label: f.label,
-                value: resolveFieldValue(f.label, selectedClient),
-              }))}
-              serviceName={service.name}
-              clientName={selectedClient?.name}
-            />
-          }
-        >
-          <ul className="divide-y divide-neutral-100">
-            {service.fieldSheet.map((f) => (
-              <FieldSheetRow key={f.label} label={f.label} hint={f.hint} client={selectedClient} />
-            ))}
-          </ul>
-        </StepCard>
-      ) : null}
+        {/* Field sheet */}
+        {service.fieldSheet?.length ? (
+          <div className="p-5">
+            <div className="flex items-center justify-between gap-3 mb-3 flex-wrap">
+              <div className="text-13 font-medium text-neutral-900">Field sheet</div>
+              <CopyAllButton
+                fields={service.fieldSheet.map((f) => ({
+                  label: f.label,
+                  value: resolveFieldValue(f.label, selectedClient),
+                }))}
+                serviceName={service.name}
+                clientName={selectedClient?.name}
+              />
+            </div>
+            <ul className="divide-y divide-neutral-100">
+              {service.fieldSheet.map((f) => (
+                <FieldSheetRow key={f.label} label={f.label} hint={f.hint} client={selectedClient} />
+              ))}
+            </ul>
+          </div>
+        ) : null}
 
-      {/* Step 4 — Capture the output */}
-      {service.capture?.length ? (
-        <StepCard
-          n={service.fieldSheet?.length ? 4 : 3}
-          title="Capture the output"
-          subtitle="Values recorded back into JNS Accounting Solutions after the portal step completes. Persistence is follow-up work."
-        >
-          <ul className="divide-y divide-neutral-100">
-            {service.capture.map((c) => (
-              <li key={c.key} className="flex items-center justify-between gap-4 py-3">
-                <div className="flex items-baseline gap-2">
-                  <span className="text-14 text-neutral-900">{c.label}</span>
-                  {c.required ? (
-                    <span className="text-11 uppercase tracking-[0.06em] text-danger">Required</span>
-                  ) : null}
-                </div>
-                <span className="text-12 text-neutral-500 font-mono">{c.key}</span>
-              </li>
-            ))}
-          </ul>
-        </StepCard>
-      ) : null}
+        {/* Capture */}
+        {service.capture?.length ? (
+          <div className="p-5">
+            <div className="text-13 font-medium text-neutral-900 mb-3">Record back after filing</div>
+            <ul className="flex flex-wrap gap-x-4 gap-y-2">
+              {service.capture.map((c) => (
+                <li key={c.key} className="text-13 text-neutral-700">
+                  {c.label}
+                  {c.required ? <span className="text-11 uppercase tracking-[0.06em] text-danger ml-1">req</span> : null}
+                </li>
+              ))}
+            </ul>
+          </div>
+        ) : null}
+      </section>
+
+      {/* Operational context — kept but demoted */}
+      <details className="bg-white border border-neutral-200 rounded-lg shadow-card">
+        <summary className="cursor-pointer px-5 py-3 text-13 font-medium text-neutral-700 hover:text-neutral-900">
+          What the firm actually does
+        </summary>
+        <div className="px-5 pb-4 text-13 text-neutral-700 leading-relaxed">
+          {service.detail}
+        </div>
+      </details>
     </div>
   );
 }
 
-/**
- * Resolve a field-sheet label to an actual value from the selected client
- * where possible. This is a coarse lookup — good enough for the values
- * that clearly live on the client record (PAN, GSTIN, client name,
- * financial year). Everything else is engine follow-up.
- */
+/** Resolve a field-sheet label to an actual value from the selected client
+ *  where possible. Coarse lookup — good enough for values that live on the
+ *  client record (PAN, GSTIN, client name, financial year). */
 function resolveFieldValue(label: string, client: VaultClient | null): string | null {
   const lc = label.toLowerCase();
   if (lc.includes('financial year')) {
     const now = new Date();
-    const m = now.getMonth(); // 0-based
-    // India FY runs Apr–Mar. Before April, we’re still in the previous FY.
+    const m = now.getMonth();
     const startYear = m >= 3 ? now.getFullYear() : now.getFullYear() - 1;
     const endYear = (startYear + 1) % 100;
     return `${startYear}-${String(endYear).padStart(2, '0')}`;
@@ -295,13 +235,6 @@ function resolveFieldValue(label: string, client: VaultClient | null): string | 
   }
   if (!client) return null;
   if (lc.includes('gstin')) return client.gstin ?? null;
-  if (lc.includes('pan')) {
-    // ClientListItem carries pan; the VaultClient prop only forwards
-    // name+gstin, so pull the label’s hint if it suggests we need it and
-    // otherwise just return null — the caller falls back to the "pending"
-    // state, which is honest.
-    return null;
-  }
   if (lc.includes('client name') || lc.includes('legal name')) return client.name;
   return null;
 }
@@ -311,30 +244,31 @@ function FieldSheetRow({
 }: { label: string; hint?: string; client: VaultClient | null }) {
   const value = resolveFieldValue(label, client);
   const canCopy = !!value;
+  const [copied, setCopied] = useState(false);
   const onCopy = async () => {
     if (!value) return;
     try { await navigator.clipboard.writeText(value); } catch { /* ignore */ }
+    setCopied(true);
+    setTimeout(() => setCopied(false), 1500);
   };
   return (
-    <li className="flex items-start justify-between gap-4 py-3">
-      <div className="min-w-0">
-        <div className="text-14 text-neutral-900">{label}</div>
-        {hint ? <div className="text-12 text-neutral-500 mt-0.5">{hint}</div> : null}
-        {value ? (
-          <div className="mt-1 text-13 font-mono text-neutral-800 break-all">{value}</div>
-        ) : (
-          <div className="mt-1 text-12 text-neutral-400">— pending engine —</div>
-        )}
+    <li className="flex items-center justify-between gap-4 py-2">
+      <div className="min-w-0 flex-1">
+        <div className="text-13 text-neutral-900">{label}</div>
+        {hint ? <div className="text-11 text-neutral-500 mt-0.5">{hint}</div> : null}
+      </div>
+      <div className="text-13 font-mono text-neutral-700 min-w-0 flex-1 truncate text-right">
+        {value ?? <span className="text-neutral-400 italic font-sans">pending</span>}
       </div>
       <button
         type="button"
         onClick={onCopy}
         disabled={!canCopy}
         title={canCopy ? 'Copy to clipboard' : 'Value fills in with the engine'}
-        className="inline-flex items-center gap-1 h-8 px-3 text-12 font-medium text-neutral-700 border border-neutral-200 rounded-md hover:bg-neutral-50 disabled:opacity-50 disabled:cursor-not-allowed"
+        className="inline-flex items-center gap-1 h-7 px-2 text-11 font-medium text-neutral-700 border border-neutral-200 rounded-md hover:bg-neutral-50 disabled:opacity-50 disabled:cursor-not-allowed shrink-0"
       >
-        <ClipboardCopy size={12} strokeWidth={2} />
-        Copy
+        {copied ? <Check size={12} strokeWidth={2.5} /> : <ClipboardCopy size={12} strokeWidth={2} />}
+        {copied ? 'Copied' : 'Copy'}
       </button>
     </li>
   );
@@ -362,11 +296,7 @@ function CopyAllButton({
   };
 
   const onCopy = async () => {
-    try {
-      await navigator.clipboard.writeText(build());
-    } catch {
-      // Clipboard denied — non-fatal.
-    }
+    try { await navigator.clipboard.writeText(build()); } catch { /* ignore */ }
     setCopied(true);
     setTimeout(() => setCopied(false), 1500);
   };
@@ -381,36 +311,10 @@ function CopyAllButton({
           ? `Copy ${fields.length} field${fields.length === 1 ? '' : 's'} (${resolvableCount} resolved) to the clipboard`
           : 'Sheet has no fields yet — pick a client to resolve values'
       }
-      className="inline-flex items-center gap-1 h-8 px-3 text-12 font-medium text-white bg-primary hover:bg-primaryHover rounded-md disabled:opacity-50 disabled:cursor-not-allowed"
+      className="inline-flex items-center gap-1 h-7 px-2 text-11 font-medium text-white bg-primary hover:bg-primaryHover rounded-md disabled:opacity-50 disabled:cursor-not-allowed"
     >
-      {copied ? <Check size={14} strokeWidth={2.25} /> : <ClipboardCopy size={14} strokeWidth={2} />}
+      {copied ? <Check size={12} strokeWidth={2.5} /> : <ClipboardCopy size={12} strokeWidth={2} />}
       {copied ? 'Copied' : `Copy full sheet${resolvableCount ? ` (${resolvableCount}/${fields.length})` : ''}`}
     </button>
-  );
-}
-
-function StepCard({
-  n, title, subtitle, action, children,
-}: {
-  n: number;
-  title: string;
-  subtitle?: string;
-  action?: React.ReactNode;
-  children: React.ReactNode;
-}) {
-  return (
-    <section className="bg-white border border-neutral-200 rounded-lg shadow-card p-5">
-      <header className="flex items-start gap-3 mb-4">
-        <span className="inline-flex items-center justify-center w-8 h-8 rounded-full bg-gold text-white text-13 font-semibold shrink-0">
-          {n}
-        </span>
-        <div className="min-w-0 flex-1">
-          <h2 className="text-15 font-semibold text-neutral-900">{title}</h2>
-          {subtitle ? <p className="text-12 text-neutral-500 mt-0.5">{subtitle}</p> : null}
-        </div>
-        {action ? <div className="shrink-0">{action}</div> : null}
-      </header>
-      {children}
-    </section>
   );
 }
