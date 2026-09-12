@@ -66,7 +66,15 @@ export default function EInvoiceEwbPage() {
       </div>
 
       <QueryState query={dataQuery}>
-        {(data: EinvEwbResponse) => (
+        {(data: EinvEwbResponse | undefined) => !data ? (
+          // Fires when clientsQuery is still loading (so effectiveClientId
+          // is '' and dataQuery is disabled). QueryState considers a
+          // disabled query "not loading", so we have to render the
+          // fallback ourselves.
+          <div className="px-4 py-6 text-13 text-neutral-500">
+            {clientsQuery.isLoading ? 'Loading clients…' : 'Pick a client to see monitors.'}
+          </div>
+        ) : (
           <div className="space-y-3">
             <ApplicabilityHeader data={data} />
 
