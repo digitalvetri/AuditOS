@@ -136,7 +136,7 @@ export function GstNoticeCheck() {
             {service ? (
               <>
                 {' '}Open cases live in{' '}
-                <Link to="/workstation/services/gst/notice-reply/workspace" className="text-gold hover:text-gold-hover font-medium">
+                <Link to="/workstation/services/gst/notice-reply/workspace" className="text-primary hover:text-primaryHover font-medium">
                   Notice Reply
                 </Link>.
               </>

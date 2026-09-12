@@ -284,7 +284,7 @@ function CaseRow({
       <td className="px-4 py-2 text-right">
         <Link
           to={`/workstation/services/gst/${service.slug}?client=${row.clientId}`}
-          className="text-12 font-medium text-gold hover:text-gold-hover whitespace-nowrap"
+          className="text-12 font-medium text-primary hover:text-primaryHover whitespace-nowrap"
         >
           Open →
         </Link>
