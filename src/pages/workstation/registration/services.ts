@@ -23,7 +23,7 @@
  *   labour.tn.gov.in ............ Labour Department, Government of Tamil Nadu
  *   dgft.gov.in ................. "belongs to Directorate General of Foreign
  *                                 Trade, Ministry of Commerce and Industry"
- *   epfindia.gov.in ............. EPFO, Ministry of Labour & Employment
+ *   epfo.gov.in ................. EPFO, Ministry of Labour & Employment
  *   esic.gov.in ................. ESIC, Ministry of Labour & Employment
  *
  * PROPRIETORSHIP still has no registry — India keeps no proprietorship
@@ -149,7 +149,7 @@ export const REGISTRATION_SERVICES: RegistrationService[] = [
     description:
       'A Limited Liability Partnership is incorporated through FiLLiP on the MCA portal, which also allots DPIN to the designated partners. The LLP agreement is filed separately in Form 3 within thirty days of incorporation — miss that window and the LLP carries a default from the day it was formed.',
     portalScope: 'india',
-    portalUrl: 'https://www.mca.gov.in',
+    portalUrl: 'https://www.mca.gov.in/content/mca/global/en/mca/llp-e-filling.html',
     portalLabel: 'MCA Portal · Ministry of Corporate Affairs',
     outputDocument: 'LLP Certificate of Incorporation',
 
@@ -257,7 +257,7 @@ export const REGISTRATION_SERVICES: RegistrationService[] = [
     description:
       'Registers the establishment with the Employees\' Provident Fund Organisation and allots a PF establishment code. Compulsory once twenty or more people are employed, and available voluntarily below that. Registration is made through the EPFO employer portal or the Shram Suvidha common form; a company incorporated through SPICe+ is registered at incorporation and does not need a second application.',
     portalScope: 'india',
-    portalUrl: 'https://www.epfindia.gov.in',
+    portalUrl: 'https://www.epfo.gov.in/',
     portalLabel: 'EPFO · Ministry of Labour & Employment',
     outputDocument: 'PF Establishment Code / Registration Certificate',
 
