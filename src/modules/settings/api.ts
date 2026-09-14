@@ -52,6 +52,9 @@ export const settingsApi = {
   statutoryRates: {
     list: () => api.get<{ items: StatutoryRate[] }>('/api/settings/statutory-rates'),
     supersede: (body: Partial<StatutoryRate>) => api.post<{ rate: StatutoryRate }>('/api/settings/statutory-rates', body),
+    // A correction, not a change of rate — see the PATCH handler's note.
+    correct: (id: string, body: { value?: string; effective_from?: string; notes?: string | null }) =>
+      api.patch<{ rate: StatutoryRate }>(`/api/settings/statutory-rates/${id}`, body),
   },
   roles: {
     get: () => api.get<{

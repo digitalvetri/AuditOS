@@ -2,8 +2,14 @@
  * Statutory rates — append-only w/ effective dating (§3, §10).
  *
  * When a value changes, a NEW row is posted with a fresh `effective_from`.
- * The server automatically caps the prior row's `effective_to`. Rates are
- * never deleted or edited in place; that's how §14's audit story stays honest.
+ * The server automatically caps the prior row's `effective_to`. That is how
+ * §14's audit story stays honest, and it stays the default action.
+ *
+ * Edit is the narrow exception, for the row that was TYPED WRONG. Superseding
+ * a typo would record a rate that never applied and a change that never
+ * happened — a worse lie than the correction. It is safe because a processed
+ * payroll run reads its own snapshot, not this table, and the server audits
+ * the correction with before/after under its own action.
  */
 import { useMemo, useState, type FormEvent } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
@@ -21,9 +27,19 @@ export function StatutoryRatesSection() {
   const toast = useToast();
   const q = useQuery({ queryKey: ['settings', 'statutory-rates'], queryFn: settingsApi.statutoryRates.list });
   const [supersedingCode, setSupersedingCode] = useState<string | null>(null);
+  const [editingId, setEditingId] = useState<string | null>(null);
   const [newValue, setNewValue] = useState('');
   const [effectiveFrom, setEffectiveFrom] = useState(istToday());
   const [notes, setNotes] = useState('');
+
+  const startEdit = (r: StatutoryRate) => {
+    setSupersedingCode(null);
+    setEditingId(r.id);
+    setNewValue(r.value);
+    setEffectiveFrom(r.effective_from);
+    setNotes(r.notes ?? '');
+  };
+  const closeForms = () => { setSupersedingCode(null); setEditingId(null); };
 
   // Group by code so the UI reads as "current + history" per statute.
   const grouped = useMemo(() => {
@@ -59,6 +75,24 @@ export function StatutoryRatesSection() {
     onError: (e: Error) => toast.push('error', e.message),
   });
 
+  const correct = useMutation({
+    mutationFn: () =>
+      settingsApi.statutoryRates.correct(editingId!, {
+        value: newValue,
+        effective_from: effectiveFrom,
+        notes: notes || null,
+      }),
+    onSuccess: () => {
+      toast.push('success', 'Row corrected — the change is in the audit log.');
+      qc.invalidateQueries({ queryKey: ['settings', 'statutory-rates'] });
+      closeForms();
+      setNewValue('');
+      setNotes('');
+      setEffectiveFrom(istToday());
+    },
+    onError: (e: Error) => toast.push('error', e.message),
+  });
+
   return (
     <SectionShell
       title="Statutory rates"
@@ -67,7 +101,8 @@ export function StatutoryRatesSection() {
       <div className="space-y-4">
         {grouped.map(([code, rows]) => {
           const current = rows[0];
-          const isEditing = supersedingCode === code;
+          const isSuperseding = supersedingCode === code;
+          const isCorrecting = editingId === current.id;
           return (
             <div key={code} className="bg-white border border-neutral-200 rounded p-4" data-testid={`rate-${code}`}>
               <div className="flex items-baseline justify-between gap-4">
@@ -82,44 +117,70 @@ export function StatutoryRatesSection() {
                   </div>
                   {current.notes ? <div className="text-11 text-neutral-500 mt-1">{current.notes}</div> : null}
                 </div>
-                {!isEditing ? (
-                  <Button
-                    variant="secondary"
-                    onClick={() => {
-                      setSupersedingCode(code);
-                      setNewValue(current.value);
-                      setNotes('');
-                    }}
-                    data-testid={`rate-supersede-${code}`}
-                  >
-                    Supersede
-                  </Button>
+                {!isSuperseding && !isCorrecting ? (
+                  <div className="flex items-center gap-2 shrink-0">
+                    <Button
+                      variant="secondary"
+                      onClick={() => {
+                        setEditingId(null);
+                        setSupersedingCode(code);
+                        setNewValue(current.value);
+                        setEffectiveFrom(istToday());
+                        setNotes('');
+                      }}
+                      data-testid={`rate-supersede-${code}`}
+                    >
+                      Supersede
+                    </Button>
+                    <Button variant="ghost" onClick={() => startEdit(current)} data-testid={`rate-edit-${code}`}>
+                      Edit
+                    </Button>
+                  </div>
                 ) : null}
               </div>
 
-              {isEditing ? (
+              {isSuperseding || isCorrecting ? (
                 <form
                   onSubmit={(e: FormEvent) => {
                     e.preventDefault();
-                    supersede.mutate();
+                    if (isCorrecting) correct.mutate();
+                    else supersede.mutate();
                   }}
-                  className="mt-3 grid grid-cols-1 md:grid-cols-2 gap-3"
+                  className="mt-3"
                 >
-                  <Input label="New value" value={newValue} onChange={(e) => setNewValue(e.target.value)} required />
-                  <Input
-                    label="Effective from"
-                    type="date"
-                    value={effectiveFrom}
-                    onChange={(e) => setEffectiveFrom(e.target.value)}
-                    required
-                    data-testid={`rate-effective-from-${code}`}
-                  />
-                  <Input label="Notes" value={notes} onChange={(e) => setNotes(e.target.value)} />
-                  <div className="flex items-end gap-2">
-                    <Button variant="primary" type="submit" disabled={supersede.isPending} data-testid={`rate-supersede-submit-${code}`}>
-                      Save new row
-                    </Button>
-                    <Button variant="ghost" type="button" onClick={() => setSupersedingCode(null)}>Cancel</Button>
+                  <div className="text-11 text-neutral-500 mb-2">
+                    {isCorrecting
+                      ? 'Correcting this row in place. Use this only when it was entered wrong — if the rate itself changed, Supersede instead so the history stays true. The change is recorded in the audit log.'
+                      : 'Adding a new row. The current one is capped the day before this takes effect.'}
+                  </div>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                    <Input
+                      label={isCorrecting ? 'Value' : 'New value'}
+                      value={newValue}
+                      onChange={(e) => setNewValue(e.target.value)}
+                      required
+                      data-testid={`rate-value-${code}`}
+                    />
+                    <Input
+                      label="Effective from"
+                      type="date"
+                      value={effectiveFrom}
+                      onChange={(e) => setEffectiveFrom(e.target.value)}
+                      required
+                      data-testid={`rate-effective-from-${code}`}
+                    />
+                    <Input label="Notes" value={notes} onChange={(e) => setNotes(e.target.value)} />
+                    <div className="flex items-end gap-2">
+                      <Button
+                        variant="primary"
+                        type="submit"
+                        disabled={isCorrecting ? correct.isPending : supersede.isPending}
+                        data-testid={isCorrecting ? `rate-edit-submit-${code}` : `rate-supersede-submit-${code}`}
+                      >
+                        {isCorrecting ? 'Save correction' : 'Save new row'}
+                      </Button>
+                      <Button variant="ghost" type="button" onClick={closeForms}>Cancel</Button>
+                    </div>
                   </div>
                 </form>
               ) : null}
@@ -131,11 +192,43 @@ export function StatutoryRatesSection() {
                   </summary>
                   <ul className="mt-2 space-y-1">
                     {rows.slice(1).map((r) => (
-                      <li key={r.id} className="text-11 text-neutral-500 tabular-nums font-mono">
-                        {r.effective_from} → {r.effective_to ?? '…'} · {r.value.length > 40 ? r.value.slice(0, 40) + '…' : r.value}
+                      <li key={r.id} className="flex items-center gap-2 text-11 text-neutral-500">
+                        <span className="tabular-nums font-mono">
+                          {r.effective_from} → {r.effective_to ?? '…'} · {r.value.length > 40 ? r.value.slice(0, 40) + '…' : r.value}
+                        </span>
+                        {/* A superseded row is where a typo usually surfaces —
+                            once a later rate has capped it, the only way to fix
+                            it is in place. */}
+                        <button
+                          type="button"
+                          onClick={() => startEdit(r)}
+                          className="text-11 text-neutral-400 hover:text-gold underline underline-offset-2"
+                          data-testid={`rate-edit-history-${r.id}`}
+                        >
+                          Edit
+                        </button>
                       </li>
                     ))}
                   </ul>
+                  {rows.slice(1).some((r) => r.id === editingId) ? (
+                    <form
+                      onSubmit={(e: FormEvent) => { e.preventDefault(); correct.mutate(); }}
+                      className="mt-3 border-t border-neutral-100 pt-3"
+                    >
+                      <div className="text-11 text-neutral-500 mb-2">
+                        Correcting a superseded row in place. The change is recorded in the audit log.
+                      </div>
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                        <Input label="Value" value={newValue} onChange={(e) => setNewValue(e.target.value)} required />
+                        <Input label="Effective from" type="date" value={effectiveFrom} onChange={(e) => setEffectiveFrom(e.target.value)} required />
+                        <Input label="Notes" value={notes} onChange={(e) => setNotes(e.target.value)} />
+                        <div className="flex items-end gap-2">
+                          <Button variant="primary" type="submit" disabled={correct.isPending}>Save correction</Button>
+                          <Button variant="ghost" type="button" onClick={closeForms}>Cancel</Button>
+                        </div>
+                      </div>
+                    </form>
+                  ) : null}
                 </details>
               ) : null}
             </div>
