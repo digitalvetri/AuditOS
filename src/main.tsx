@@ -1,6 +1,10 @@
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 import App from './App';
+// Self-hosted Inter — bundled with the app so Brave Shields / strict
+// tracking-protection browsers can't strip the CDN and fall back to
+// Segoe UI, which has different metrics and shifts the whole layout.
+import '@fontsource-variable/inter/index.css';
 import '@/design/globals.css';
 // Mobile-only layer (≤767px). Imported after globals so its media-scoped
 // rules win at phone widths; contributes nothing at 768px and up.
