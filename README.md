@@ -260,20 +260,32 @@ decision and the list of open questions beside it.
 The Tools page, its search, the `/tools/:toolId` workspace routes and the
 permission checks all render from one registry
 (`src/modules/tools/registry.ts`, mirrored for enforcement in
-`server/src/modules/tools/registry.ts`). Turning a compliance converter on
-later is `status: 'active'` in both files plus its implementation in
+`server/src/modules/tools/registry.ts`). Adding a tool is `status: 'active'`
+in both files plus its implementation in
 `server/src/modules/tools/runner.ts`.
 
-Conversions run on the server and lean on three system tools that must be
-on `PATH`: **LibreOffice** (`soffice` — Excel/Word ⇄ PDF), **Ghostscript**
-(`gs` — compress, decrypt) and **poppler** (`pdftoppm` — thumbnails, OCR
-rasters). OCR uses tesseract.js; English language data is downloaded once
+All 18 are live. The six **compliance converters** — GST JSON ⇄ Excel, Bank
+Statement to Excel, Form 26AS to Excel, Excel to Tally XML, TDS Text/FVU
+Generator, Invoice to e-Invoice JSON — are in
+`server/src/modules/tools/services/tools/ComplianceService.ts`. They never
+default a missing column to zero, and every row they cannot read is listed
+with its source row number and the reason, on a `Skipped` sheet or in the
+job's warning. Two things they are deliberately not: the FVU tool writes the
+**input text file** NSDL's File Validation Utility consumes, not a validated
+`.fvu`; and Excel to Tally XML posts vouchers, it does not create ledger
+masters.
+
+Conversions run on the server. The document and PDF tools lean on three
+system binaries that must be on `PATH`: **LibreOffice** (`soffice` —
+Excel/Word ⇄ PDF), **Ghostscript** (`gs` — compress, decrypt) and **poppler**
+(`pdftoppm` — thumbnails, OCR rasters). The six compliance converters need
+none of them — they are pure JS and run wherever Node does. OCR uses tesseract.js; English language data is downloaded once
 and cached under `server/uploads/ocr-cache/`. Files live under
 `server/uploads/tools/` through `StorageAdapter` (swap in S3/Supabase there).
 
 ```bash
 npm --prefix server run seed:tools   # sync the tool catalogue tables from the registry
-node scripts/verify-tools.mjs        # headless end-to-end run of all 12 tools + Documents
+node scripts/verify-tools.mjs        # headless end-to-end run of the document + PDF tools
 npx tsx server/src/modules/tools/__tests__/smoke.ts   # service-level checks on the fixtures
 ```
 
@@ -378,6 +390,17 @@ empty database.
 
 Uploaded files (client documents, tool outputs, chat attachments) live in the
 `auditos-uploads` volume, so they survive `down` alongside the database.
+
+**What the API image does and does not carry.** `server/Dockerfile` installs
+`openssl` and `ca-certificates` only. Everything in Tools that is pure JS
+works in the container — including all six compliance converters, which was
+the point of building them without a native dependency. The tools that shell
+out to a binary do **not**: Excel→PDF, Word→PDF, Compress PDF, Unlock PDF and
+page thumbnails need `soffice`, `gs` and `pdftoppm`, none of which are in the
+image, and they fail with `engine_unavailable` in the Docker stack. They work
+in the native workflow (`npm run dev:full`) on a machine that has them. Adding
+LibreOffice to the image costs roughly 500 MB, so whether to do that or run
+those conversions in a sidecar is an open decision — `AUDIT_OS_TOOLS.md` §16.9.
 
 Ports are 55432 / 58080 rather than 5432 / 8080 to avoid clashing with a
 native Postgres install or an existing Adminer. Every host port is

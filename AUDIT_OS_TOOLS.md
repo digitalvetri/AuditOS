@@ -205,7 +205,7 @@ collapsed rail and the mobile drawer.
 `server/src/modules/tools/registry.ts` (server, enforcement subset).
 
 ```ts
-type ToolCategory = { id; label; order; status: 'active' | 'coming_soon' }
+type ToolCategory = { id; label; order; status: 'active' | 'active' }
 type ToolGroup    = { id; label; categoryId; order }
 type ToolDefinition = {
   id            'pdf-to-excel'
@@ -221,7 +221,7 @@ type ToolDefinition = {
   outputType    pdf | xlsx | docx | csv | txt | zip | json | xml
   keywords      search terms beyond name / description / group label
   permission    'tools.pdf_to_excel'
-  status        'active' | 'coming_soon'
+  status        'active' | 'active'
 }
 ```
 
@@ -241,17 +241,20 @@ type ToolDefinition = {
 | | Unlock PDF | lock glyph rose | PDF | PDF | active |
 | | e-Sign PDF | pen glyph rose | PDF | PDF | active |
 | | OCR Scan | `OCR` indigo | PDF, JPG, PNG, WEBP | PDF + TXT | active |
-| Compliance converters | GST JSON ⇄ Excel | `JSON` blue | JSON, XLSX | XLSX | coming_soon |
-| | Bank Statement to Excel | `BANK` green | PDF | XLSX | coming_soon |
-| | Form 26AS to Excel | `26AS` indigo | PDF, TXT | XLSX | coming_soon |
-| | Excel to Tally XML | `TALLY` amber | XLSX | XML | coming_soon |
+| Compliance converters | GST JSON ⇄ Excel | `JSON` blue | JSON, XLSX | XLSX | active |
+| | Bank Statement to Excel | `BANK` green | PDF | XLSX | active |
+| | Form 26AS to Excel | `26AS` indigo | PDF, TXT | XLSX | active |
+| | Excel to Tally XML | `TALLY` amber | XLSX | XML | active |
 | | TDS Text/FVU Generator | `FVU` rose | XLSX | TXT | coming_soon |
 | | Invoice to e-Invoice JSON | `IFF` blue | XLSX | JSON | coming_soon |
 
 Default per-file limit is 25 MB; Image to PDF is 20 MB per image, Compress PDF
 is 50 MB. The upload route has a hard ceiling of 50 MB regardless.
 
-### 4.2 Turning a compliance converter on later
+### 4.2 Turning a compliance converter on
+
+All six are on. The recipe held exactly as written, and is repeated here
+because it is the recipe for the NEXT tool too:
 
 1. `status: 'active'` in both registry files.
 2. Add its implementation to `IMPLEMENTATIONS` in
@@ -260,8 +263,12 @@ is 50 MB. The upload route has a hard ceiling of 50 MB regardless.
 4. `npm --prefix server run seed:tools`.
 
 Nothing on the page, in the workspace framework, the storage layer, the
-Documents view or the permission matrix moves. The permission code already
-exists for all six.
+Documents view or the permission matrix moved. The permission codes already
+existed for all six, so no role grant changed and no migration ran.
+
+The `finance-compliance` CATEGORY also flips to `active` — it was
+`coming_soon` while the group was empty, and a category left behind gates the
+cards inside it.
 
 ### 4.3 Search
 
@@ -449,6 +456,7 @@ server/src/modules/tools/
     tools/ImageService.ts           sharp normalise, imagesToPdf
     tools/OCRService.ts             OCREngine seam; TesseractEngine; searchable PDF
     tools/SignatureProvider.ts      SignatureProvider seam; VisibleMarkProvider
+    tools/ComplianceService.ts      the six compliance converters (§8.3)
 ```
 
 ### 8.1 Accuracy rules that matter to an audit firm
@@ -485,6 +493,57 @@ results. Around it, uniformly: job status, the output document record (or the
 failed record), companion outputs, and audit entries. A thrown `ToolError`
 reaches the user verbatim; anything else becomes "Conversion failed. Please
 try again." and the stack goes to the server log only.
+
+### 8.3 The six compliance converters
+
+One service, `ComplianceService.ts`, one function per tool. They share three
+rules, which are the whole reason the group took a second pass:
+
+- **Never invent a value.** A column the sheet did not supply is left empty,
+  not defaulted to zero. A silent zero in a GST or TDS file is worse than a
+  refusal, because it is accepted and wrong.
+- **Say what was skipped.** Every converter returns the rows it could not read
+  alongside the ones it could. Bad rows land on a `Skipped` sheet (or in the
+  job warning for the text/XML/JSON outputs) with the source row number and
+  the reason. A converted count on its own reads as "all of it".
+- **Headers match loosely** — case, spaces and punctuation ignored — because
+  these sheets are typed by hand at a dozen firms and `Invoice No.`,
+  `invoice_no` and `INVOICE NUMBER` are the same column. A missing REQUIRED
+  column fails with the names it wanted and the names it found.
+
+| Tool | Reads | Writes | Notes |
+|---|---|---|---|
+| GST JSON ⇄ Excel | GSTR-1 offline-utility JSON, or a workbook in the same shape | the other one | Direction follows the input's own type. One sheet per section (B2B, B2CL, B2CS, CDNR, CDNUR, EXP); each invoice repeats down its item rows |
+| Bank Statement to Excel | any bank's PDF statement | XLSX | Read by structure, not by bank: a transaction starts with a date and ends with its amounts |
+| Form 26AS to Excel | TRACES PDF or `^`-delimited TXT | XLSX | Part A entries plus a per-deductor totals sheet |
+| Excel to Tally XML | voucher sheet | Tally import XML | One `TALLYMESSAGE` per row, two ledger entries per voucher |
+| TDS Text/FVU Generator | deductee sheet | NSDL input TXT | `^`-delimited FH / BH / CD / DD records, grouped into challans |
+| Invoice to e-Invoice JSON | invoice sheet | IRP schema 1.1 JSON | One row is one line item; rows sharing an invoice number become one invoice |
+
+Per-converter decisions that are easy to get wrong, and were:
+
+- **B2CS has no invoice wrapper.** Each `b2cs` entry IS a rate line. Wrapping
+  it in `inv` on the way back produces JSON the offline utility rejects, and
+  nothing catches that until upload. It is rebuilt flat, with `sply_ty` read
+  from whether the tax is IGST or split CGST/SGST.
+- **An opening-balance line is not a transaction.** It carries a date and one
+  amount and looks exactly like one. Counted as a transaction it becomes a
+  phantom debit AND leaves the running balance unseeded, which then mis-splits
+  every two-column row after it. Opening / brought-forward and closing /
+  carried-forward lines are matched before the date check.
+- **Tally's sign convention.** A positive `AMOUNT` is a CREDIT, a negative one
+  a DEBIT. `ISDEEMEDPOSITIVE` and the sign must agree or the voucher imports
+  inverted. Without a `Dr/Cr` column the party is debited on a sale or receipt
+  and credited on a purchase or payment.
+- **The FVU tool does not produce a `.fvu`.** Only NSDL's own File Validation
+  Utility can. This writes the input text file that utility consumes, which is
+  the part a firm cannot assemble by hand, and the screen says so rather than
+  implying the file is portal-ready.
+- **e-Invoice totals are summed from the line items**, never read from the
+  sheet, so `ValDtls` always ties to the `ItemList` the IRP sees. A mismatch
+  there is the single most common rejection.
+- **Dates are dd/mm/yyyy.** An ambiguous `03/04/2026` is 3 April, never
+  4 March — every one of these files is Indian.
 
 ---
 
@@ -532,6 +591,9 @@ no_tables · no_text_layer · invalid_range · invalid_options · not_authorised
 
 Added to `server/package.json` (pinned exactly, like the rest of the file):
 
+No package was added for the compliance converters — they reuse `exceljs`,
+`pdfjs-dist` and `pdf-lib`, which were already here for the document tools.
+
 | Package | Used for |
 |---|---|
 | `multer` | multipart uploads in memory |
@@ -555,6 +617,20 @@ No frontend package was added.
 
 All three must be on `PATH` of the API process. LibreOffice runs one
 conversion at a time with a throwaway profile directory per call.
+
+**The six compliance converters need none of them.** They are pure JS —
+`exceljs`, `pdfjs-dist`, `pdf-lib` — so they run wherever Node runs, including
+the API container as it is built today. That is deliberate: it is what let the
+whole group ship without touching the image.
+
+> **Gap, pre-existing:** `server/Dockerfile` installs only `openssl` and
+> `ca-certificates`. `soffice`, `gs` and `pdftoppm` are NOT in the API image,
+> so in the Docker stack the tools that shell out to them — Excel→PDF,
+> Word→PDF, Compress, Unlock, and page thumbnails — fail with
+> `engine_unavailable`. Everything else, the compliance converters included,
+> works. Fixing it means adding LibreOffice to the image (~500 MB) or moving
+> those conversions to a sidecar; both are a separate decision, tracked as
+> §16.9.
 
 ### 10.2 Environment
 
@@ -661,6 +737,20 @@ README.md                                      MODIFIED  Tools section, verify s
 .gitignore                                     MODIFIED  fixtures/out
 ```
 
+Turning the compliance converters on (§8.3) touched only these:
+
+```
+server/src/modules/tools/services/tools/ComplianceService.ts   new       the six converters
+server/src/modules/tools/runner.ts                             MODIFIED  +6 IMPLEMENTATIONS
+server/src/modules/tools/registry.ts                           MODIFIED  6 tools + category → active
+src/modules/tools/registry.ts                                  MODIFIED  same, client copy
+src/modules/tools/tools/compliance.tsx                         new       6 option forms + result notes
+src/modules/tools/tools/index.ts                               MODIFIED  +6 TOOL_UI entries
+```
+
+No schema change, no migration, no new dependency, no permission change, and
+no new route — §9 already covered them.
+
 ---
 
 ## 15. Acceptance criteria
@@ -709,7 +799,7 @@ errors on the committed branch.
 
 | # | Item | Status |
 |---|---|---|
-| 1 | Compliance converters (GST, bank statement, 26AS, Tally, FVU, e-Invoice) | Cards only; implementation per §4.2 when specified |
+| 1 | Compliance converters (GST, bank statement, 26AS, Tally, FVU, e-Invoice) | **Done** — all six active; see §8.3 |
 | 2 | DSC / ASP signing provider | **[DECIDE]** which provider; seam exists in `SignatureProvider` |
 | 3 | Production object storage (S3 / Supabase) | One adapter in `storage/`; not wired |
 | 4 | Paid-tool comparison files | **[VERIFY]** drop the firm's current exports into `fixtures/expected/` |
@@ -717,3 +807,5 @@ errors on the committed branch.
 | 6 | `hr_admin` / `finance_admin` access to Tools | **[DECIDE]** no grant now; the sidebar hides Tools for them |
 | 7 | `src/pages/reserved/Tools.tsx` | Unrouted; delete in a later cleanup commit |
 | 8 | Bundle size warning (recharts + tools > 500 kB) | Pre-existing; route-level code splitting is a separate task |
+| 9 | `soffice` / `gs` / `pdftoppm` missing from the API image | **[DECIDE]** add LibreOffice to `server/Dockerfile` (~500 MB) or run those conversions in a sidecar. Native dev is unaffected; §10.1 |
+| 10 | Real-world converter fixtures | **[VERIFY]** the six were built against synthetic inputs plus the shapes the portals document. Drop the firm's own GSTR-1 JSON, a bank PDF per bank, and a TRACES 26AS into `fixtures/` and re-check |

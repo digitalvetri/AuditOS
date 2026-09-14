@@ -12,6 +12,7 @@ import { WordService } from './services/tools/WordService.js'
 import { ImageService } from './services/tools/ImageService.js'
 import { OCRService } from './services/tools/OCRService.js'
 import { signatureProvider } from './services/tools/SignatureProvider.js'
+import { ComplianceService } from './services/tools/ComplianceService.js'
 import { fmtDateIST } from './lib/dates.js'
 
 /**
@@ -222,6 +223,97 @@ const IMPLEMENTATIONS: Record<string, Implementation> = {
       return { filename: `${stripExtension(doc.originalFilename)}-searchable.pdf`, mime: OUTPUT_MIME.pdf, bytes: r.pdf, meta, warning, extras }
     }
     return { filename: txtName, mime: OUTPUT_MIME.txt, bytes: r.txt, meta, warning }
+  },
+
+  // ── Compliance converters ─────────────────────────────────────────────
+
+  // Bidirectional: the direction is the input's own type, so one card
+  // serves both errands and the output extension follows the input.
+  'gst-json-excel': async ({ inputs, progress }) => {
+    const { doc, bytes } = inputs[0]
+    const toJson = doc.mimeType === OUTPUT_MIME.json || /\.json$/i.test(doc.originalFilename)
+    progress(15)
+    if (toJson) {
+      const r = await ComplianceService.gstJsonToExcel(bytes)
+      progress(90)
+      return {
+        filename: withExtension(doc.originalFilename, 'xlsx'), mime: OUTPUT_MIME.xlsx, bytes: r.bytes,
+        meta: { direction: 'json_to_excel', sections: r.sections, invoices: r.invoices, rows: r.rows },
+      }
+    }
+    const r = await ComplianceService.gstExcelToJson(bytes)
+    progress(90)
+    return {
+      filename: withExtension(doc.originalFilename, 'json'), mime: OUTPUT_MIME.json, bytes: r.bytes,
+      meta: { direction: 'excel_to_json', sections: r.sections, invoices: r.invoices, rows: r.rows },
+    }
+  },
+
+  'bank-statement-to-excel': async ({ inputs, progress }) => {
+    const { doc, bytes } = inputs[0]
+    const r = await ComplianceService.bankStatementToExcel(bytes, progress)
+    const parts: string[] = []
+    if (r.skipped) parts.push(`${r.skipped} dated ${r.skipped === 1 ? 'line' : 'lines'} could not be read and ${r.skipped === 1 ? 'is' : 'are'} listed on the Skipped sheet.`)
+    if (!r.balanced) parts.push('Opening + credits − debits does not tie to the closing balance, so check the statement against the Summary sheet before using it.')
+    return {
+      filename: withExtension(doc.originalFilename, 'xlsx'), mime: OUTPUT_MIME.xlsx, bytes: r.bytes,
+      meta: {
+        transactions: r.transactions, page_count: r.pageCount, skipped: r.skipped,
+        opening: r.opening, closing: r.closing, total_debit: r.totalDebit, total_credit: r.totalCredit, balanced: r.balanced,
+      },
+      warning: parts.length ? parts.join(' ') : undefined,
+    }
+  },
+
+  'form-26as-to-excel': async ({ inputs, progress }) => {
+    const { doc, bytes } = inputs[0]
+    const isText = doc.mimeType === OUTPUT_MIME.txt || /\.txt$/i.test(doc.originalFilename)
+    const r = await ComplianceService.form26asToExcel(bytes, isText, progress)
+    return {
+      filename: withExtension(doc.originalFilename, 'xlsx'), mime: OUTPUT_MIME.xlsx, bytes: r.bytes,
+      meta: { rows: r.rows, deductors: r.deductors, total_credited: r.totalCredited, total_tds: r.totalTds, skipped: r.skipped, source: isText ? 'text' : 'pdf' },
+      warning: r.skipped ? `${r.skipped} dated ${r.skipped === 1 ? 'line' : 'lines'} could not be read and ${r.skipped === 1 ? 'is' : 'are'} listed on the Skipped sheet.` : undefined,
+    }
+  },
+
+  'excel-to-tally-xml': async ({ inputs, options, progress }) => {
+    const { doc, bytes } = inputs[0]
+    progress(20)
+    const r = await ComplianceService.excelToTallyXml(bytes, { companyName: str(options.company_name) })
+    progress(90)
+    return {
+      filename: withExtension(doc.originalFilename, 'xml'), mime: OUTPUT_MIME.xml, bytes: r.bytes,
+      meta: { vouchers: r.vouchers, skipped: r.skipped, total_amount: r.totalAmount, voucher_types: r.voucherTypes },
+      warning: r.warning,
+    }
+  },
+
+  'tds-fvu-generator': async ({ inputs, options, progress }) => {
+    const { doc, bytes } = inputs[0]
+    progress(20)
+    const r = await ComplianceService.tdsTextFile(bytes, {
+      formType: str(options.form_type, '26Q'), quarter: str(options.quarter, 'Q1'),
+      fy: str(options.financial_year), tan: str(options.tan), deductorName: str(options.deductor_name),
+    })
+    progress(90)
+    return {
+      filename: `${stripExtension(doc.originalFilename)}-${str(options.form_type, '26Q')}.txt`,
+      mime: OUTPUT_MIME.txt, bytes: r.bytes,
+      meta: { deductees: r.deductees, challans: r.challans, skipped: r.skipped, total_tds: r.totalTds, form_type: str(options.form_type, '26Q'), quarter: str(options.quarter, 'Q1') },
+      warning: r.warning,
+    }
+  },
+
+  'invoice-to-einvoice-json': async ({ inputs, progress }) => {
+    const { doc, bytes } = inputs[0]
+    progress(20)
+    const r = await ComplianceService.invoiceToEInvoiceJson(bytes)
+    progress(90)
+    return {
+      filename: withExtension(doc.originalFilename, 'json'), mime: OUTPUT_MIME.json, bytes: r.bytes,
+      meta: { invoices: r.invoices, items: r.items, skipped: r.skipped, total_value: r.totalValue },
+      warning: r.warning,
+    }
   },
 }
 
