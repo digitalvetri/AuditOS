@@ -1,5 +1,5 @@
 /**
- * Registration seed — the ten registrations, mirroring the frontend
+ * Registration seed — the twelve registrations, mirroring the frontend
  * catalogue at src/pages/workstation/registration/services.ts.
  *
  * The two must agree: the frontend keeps icons and long-form copy, the
@@ -63,6 +63,21 @@ const TYPES = [
     authority: 'ESIC · ESI Act, 1948', form: 'Form 01 → Code', portalScope: 'india',
     portalUrl: 'https://esic.gov.in/', portalLabel: 'ESIC · Ministry of Labour & Employment',
     outputDocument: 'ESI Registration Certificate (Form C-11)', renewalMonths: null },
+  /* Appended rather than slotted next to GST on purpose: seedRegistration()
+     assigns sortOrder from the array index but deliberately does NOT update it
+     on an existing row, so inserting mid-array would give these two the
+     positions private-limited and llp already hold and leave the /api ordering
+     (routes.ts, orderBy sortOrder asc) tied and arbitrary. */
+  { code: 'e-invoice', name: 'E-Invoice Registration', shortName: 'E-Invoice', kind: 'tax',
+    authority: 'GSTN / NIC · Rule 48(4), CGST Rules', form: 'Enablement → IRP credentials',
+    portalScope: 'india', portalUrl: 'https://einvoice.gst.gov.in/',
+    portalLabel: 'E-Invoice Portal · Goods and Services Tax',
+    outputDocument: 'E-Invoice enablement confirmation / IRP credentials', renewalMonths: null },
+  { code: 'e-way-bill', name: 'E-Way Bill Registration', shortName: 'E-Way Bill', kind: 'tax',
+    authority: 'NIC · Rule 138, CGST Rules', form: 'Registration → EWB login',
+    portalScope: 'india', portalUrl: 'https://ewaybillgst.gov.in/',
+    portalLabel: 'E-Way Bill Portal · Goods and Services Tax',
+    outputDocument: 'E-Way Bill portal credentials / API access confirmation', renewalMonths: null },
 ]
 
 export async function seedRegistration(prisma: PrismaClient, organisationId: string) {

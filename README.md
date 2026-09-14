@@ -229,7 +229,7 @@ build shows nothing.
 | **Reports** | `/hrms/reports` | `/api/reports/:type` | Attendance, leave, payroll and expense reports, query-level scoping, CSV export |
 | **Documents** | `/hrms/documents` | `/api/documents` | Signed-URL downloads, expiry derivation |
 | **Notifications** | `/notifications` | `/api/notifications` | Platform primitive every module emits into |
-| **Settings** | `/hrms/settings` | `/api/settings` | Departments, designations, locations, holidays, leave types, expense categories, statutory rates, role matrix |
+| **Settings** | `/hrms/settings` | `/api/settings` | Departments, designations, locations, holidays, leave types, expense categories, statutory rates (supersede + audited in-place correction), role matrix |
 | **Tools** | `/tools` | `/api/tools`, `/api/tool-jobs`, `/api/tool-documents` | Registry-driven converters (12 live, 6 compliance cards "coming soon"), one shared workspace, every output saved to `/tools/documents` with an audit trail |
 | **Books** | `/books` | `/api/books` | Native bookkeeping, one set of books per client: double-entry ledger with database-enforced invariants, sales and purchase chains, GST/TDS, multi-currency, reports |
 
@@ -260,20 +260,32 @@ decision and the list of open questions beside it.
 The Tools page, its search, the `/tools/:toolId` workspace routes and the
 permission checks all render from one registry
 (`src/modules/tools/registry.ts`, mirrored for enforcement in
-`server/src/modules/tools/registry.ts`). Turning a compliance converter on
-later is `status: 'active'` in both files plus its implementation in
+`server/src/modules/tools/registry.ts`). Adding a tool is `status: 'active'`
+in both files plus its implementation in
 `server/src/modules/tools/runner.ts`.
 
-Conversions run on the server and lean on three system tools that must be
-on `PATH`: **LibreOffice** (`soffice` — Excel/Word ⇄ PDF), **Ghostscript**
-(`gs` — compress, decrypt) and **poppler** (`pdftoppm` — thumbnails, OCR
-rasters). OCR uses tesseract.js; English language data is downloaded once
+All 18 are live. The six **compliance converters** — GST JSON ⇄ Excel, Bank
+Statement to Excel, Form 26AS to Excel, Excel to Tally XML, TDS Text/FVU
+Generator, Invoice to e-Invoice JSON — are in
+`server/src/modules/tools/services/tools/ComplianceService.ts`. They never
+default a missing column to zero, and every row they cannot read is listed
+with its source row number and the reason, on a `Skipped` sheet or in the
+job's warning. Two things they are deliberately not: the FVU tool writes the
+**input text file** NSDL's File Validation Utility consumes, not a validated
+`.fvu`; and Excel to Tally XML posts vouchers, it does not create ledger
+masters.
+
+Conversions run on the server. The document and PDF tools lean on three
+system binaries that must be on `PATH`: **LibreOffice** (`soffice` —
+Excel/Word ⇄ PDF), **Ghostscript** (`gs` — compress, decrypt) and **poppler**
+(`pdftoppm` — thumbnails, OCR rasters). The six compliance converters need
+none of them — they are pure JS and run wherever Node does. OCR uses tesseract.js; English language data is downloaded once
 and cached under `server/uploads/ocr-cache/`. Files live under
 `server/uploads/tools/` through `StorageAdapter` (swap in S3/Supabase there).
 
 ```bash
 npm --prefix server run seed:tools   # sync the tool catalogue tables from the registry
-node scripts/verify-tools.mjs        # headless end-to-end run of all 12 tools + Documents
+node scripts/verify-tools.mjs        # headless end-to-end run of the document + PDF tools
 npx tsx server/src/modules/tools/__tests__/smoke.ts   # service-level checks on the fixtures
 ```
 
@@ -322,6 +334,33 @@ Processing writes payments, ledger rows and payslips in one transaction. A
 processed run refuses every state-change endpoint, and because Calculate
 snapshots the statutory table onto the run, a later rate change cannot alter
 its numbers.
+
+### Statutory rates
+
+The table is effective-dated and append-only. Posting a rate caps the
+currently-effective row at the day before the new one starts, so history stays
+intact and a processed payroll run's snapshot still resolves. Payroll reads
+the row where today falls inside `[effective_from, effective_to]`.
+
+Two actions, and the difference matters:
+
+| | When | What it does |
+|---|---|---|
+| **Supersede** | the rate genuinely **changed** | `POST /api/settings/statutory-rates` — writes a NEW row and caps the previous one. The default, and the only one that keeps the history true. |
+| **Edit** | the row was **typed wrong** | `PATCH /api/settings/statutory-rates/:id` — corrects that row in place. |
+
+Superseding a typo would record a rate that never applied and a change that
+never happened, which is a worse lie than the correction — that is the whole
+reason Edit exists. It is safe because a processed payroll run reads its own
+`statutorySnapshotJson`, not this table, so no completed run moves underneath
+anyone. The correction is audited with **before and after** under its own
+action, `statutory_rate.corrected`, so it is never mistaken for a supersession
+when the log is read. Moving `effective_from` re-caps the neighbouring rows so
+the chain has no gap and no overlap.
+
+Both actions require `settings.manage` at organisation scope. Superseded rows
+in the History list are editable too — that is where a typo usually surfaces,
+once a later rate has already capped it.
 
 ### Expense workflow
 
@@ -378,6 +417,17 @@ empty database.
 
 Uploaded files (client documents, tool outputs, chat attachments) live in the
 `auditos-uploads` volume, so they survive `down` alongside the database.
+
+**What the API image does and does not carry.** `server/Dockerfile` installs
+`openssl` and `ca-certificates` only. Everything in Tools that is pure JS
+works in the container — including all six compliance converters, which was
+the point of building them without a native dependency. The tools that shell
+out to a binary do **not**: Excel→PDF, Word→PDF, Compress PDF, Unlock PDF and
+page thumbnails need `soffice`, `gs` and `pdftoppm`, none of which are in the
+image, and they fail with `engine_unavailable` in the Docker stack. They work
+in the native workflow (`npm run dev:full`) on a machine that has them. Adding
+LibreOffice to the image costs roughly 500 MB, so whether to do that or run
+those conversions in a sidecar is an open decision — `AUDIT_OS_TOOLS.md` §16.9.
 
 Ports are 55432 / 58080 rather than 5432 / 8080 to avoid clashing with a
 native Postgres install or an existing Adminer. Every host port is
@@ -450,7 +500,7 @@ node scripts/verify-leave.mjs         # apply, approval chain
 node scripts/verify-employees.mjs     # list, profile, RBAC probes
 node scripts/verify-dashboard.mjs     # widget registry + notifications
 node scripts/verify-documents.mjs     # upload, signed-URL download
-node scripts/verify-settings.mjs      # CRUD, statutory supersede
+node scripts/verify-settings.mjs      # CRUD, statutory supersede + correction
 node scripts/verify-payroll.mjs       # stage machine, snapshot, immutability
 node scripts/verify-expenses.mjs      # Draft→Paid, contra-ledger
 node scripts/verify-accounts.mjs      # append-only ledger, reverse

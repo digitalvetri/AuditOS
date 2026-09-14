@@ -84,14 +84,20 @@ export interface MissingIrnItem {
   total_value_paise: number;
 }
 
+/**
+ * Monitor counts. Each half is OPTIONAL because `GET ...?mode=` omits the half
+ * that was not asked for — the server skips that query rather than returning a
+ * zero that could not be told apart from a real one. Read a half only after
+ * checking it is there.
+ */
 export interface EinvEwbMonitors {
-  einvoice: {
+  einvoice?: {
     reported_this_month: number;
     cancelled_total: number;
     cancelled_within_window: number;
     reconciled_through: string | null;
   };
-  ewb: {
+  ewb?: {
     generated_this_month: number;
     cancelled_or_rejected: number;
     reconciled_through: string | null;
@@ -99,9 +105,12 @@ export interface EinvEwbMonitors {
 }
 
 export interface EinvEwbSetup {
-  irp_registration: { state: 'ready' | 'pending' | 'attention'; label: string };
-  ewb_api_access:   { state: 'ready' | 'pending' | 'attention'; label: string };
-  mfa:              { state: 'ready' | 'pending' | 'attention'; label: string };
+  /** E-Invoice screen only. */
+  irp_registration?: { state: 'ready' | 'pending' | 'attention'; label: string };
+  /** E-Way Bill screen only. */
+  ewb_api_access?:   { state: 'ready' | 'pending' | 'attention'; label: string };
+  /** Both screens: MFA guards the portal login behind either obligation. */
+  mfa:               { state: 'ready' | 'pending' | 'attention'; label: string };
 }
 
 export interface EinvEwbPullRunItem {
@@ -113,17 +122,23 @@ export interface EinvEwbPullRunItem {
   status: string;
 }
 
+/** Which half the server was asked for, echoed back on the response. */
+export type EinvEwbMode = 'einvoice' | 'ewb' | 'both';
+
 export interface EinvEwbResponse {
+  mode: EinvEwbMode;
   client: EinvEwbClient;
   current_fy: string;
   today: string;
   profile: EinvEwbProfile;
   applicability: EinvEwbApplicability;
+  // Optional for the same reason as the monitors above: only the requested
+  // half's buckets are present.
   alerts: {
-    einvoice_30day_countdown: AlertBucket<IrnAlertItem>;
-    ewb_expiring_24h: AlertBucket<EwbAlertItem>;
-    ewb_approaching_360_cap: AlertBucket<EwbAlertItem>;
-    b2b_invoices_without_irn: AlertBucket<MissingIrnItem>;
+    einvoice_30day_countdown?: AlertBucket<IrnAlertItem>;
+    b2b_invoices_without_irn?: AlertBucket<MissingIrnItem>;
+    ewb_expiring_24h?: AlertBucket<EwbAlertItem>;
+    ewb_approaching_360_cap?: AlertBucket<EwbAlertItem>;
   };
   monitors: EinvEwbMonitors;
   setup: EinvEwbSetup;

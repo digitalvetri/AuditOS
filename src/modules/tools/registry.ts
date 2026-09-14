@@ -68,7 +68,7 @@ export const MIME = {
 
 export const TOOL_CATEGORIES: ToolCategory[] = [
   { id: 'converters-utilities', label: 'Converters & Utilities', order: 1, status: 'active' },
-  { id: 'finance-compliance', label: 'Finance & Compliance', order: 2, status: 'coming_soon' },
+  { id: 'finance-compliance', label: 'Finance & Compliance', order: 2, status: 'active' },
 ];
 
 export const TOOL_GROUPS: ToolGroup[] = [
@@ -137,27 +137,27 @@ export const TOOLS: ToolDefinition[] = [
   { id: 'gst-json-excel', name: 'GST JSON ⇄ Excel', description: 'GSTR-1/3B offline utility format',
     badge: { text: 'JSON', tint: 'blue' }, groupId: 'compliance-converters', route: '/tools/gst-json-excel',
     accepts: [MIME.json, MIME.xlsx], extensions: ['json', 'xlsx'], maxFileSizeMB: 25, multiple: false, outputType: 'xlsx',
-    keywords: ['gst', 'gstr', 'gstr-1', 'gstr-3b', 'json', 'excel', 'offline utility'], permission: 'tools.gst_json_excel', status: 'coming_soon' },
+    keywords: ['gst', 'gstr', 'gstr-1', 'gstr-3b', 'json', 'excel', 'offline utility'], permission: 'tools.gst_json_excel', status: 'active' },
   { id: 'bank-statement-to-excel', name: 'Bank Statement to Excel', description: 'Parse PDF statements to ledger rows',
     badge: { text: 'BANK', tint: 'green' }, groupId: 'compliance-converters', route: '/tools/bank-statement-to-excel',
     ...PDF, maxFileSizeMB: 25, multiple: false, outputType: 'xlsx',
-    keywords: ['bank', 'statement', 'excel', 'ledger', 'pdf'], permission: 'tools.bank_statement_to_excel', status: 'coming_soon' },
+    keywords: ['bank', 'statement', 'excel', 'ledger', 'pdf'], permission: 'tools.bank_statement_to_excel', status: 'active' },
   { id: 'form-26as-to-excel', name: 'Form 26AS to Excel', description: 'TDS reconciliation sheet',
     badge: { text: '26AS', tint: 'indigo' }, groupId: 'compliance-converters', route: '/tools/form-26as-to-excel',
     accepts: [MIME.pdf, MIME.txt], extensions: ['pdf', 'txt'], maxFileSizeMB: 25, multiple: false, outputType: 'xlsx',
-    keywords: ['26as', 'tds', 'excel', 'reconciliation', 'traces'], permission: 'tools.form_26as_to_excel', status: 'coming_soon' },
+    keywords: ['26as', 'tds', 'excel', 'reconciliation', 'traces'], permission: 'tools.form_26as_to_excel', status: 'active' },
   { id: 'excel-to-tally-xml', name: 'Excel to Tally XML', description: 'Import-ready vouchers for Tally',
     badge: { text: 'TALLY', tint: 'amber' }, groupId: 'compliance-converters', route: '/tools/excel-to-tally-xml',
     accepts: [MIME.xlsx], extensions: ['xlsx'], maxFileSizeMB: 25, multiple: false, outputType: 'xml',
-    keywords: ['tally', 'xml', 'excel', 'voucher', 'import'], permission: 'tools.excel_to_tally_xml', status: 'coming_soon' },
+    keywords: ['tally', 'xml', 'excel', 'voucher', 'import'], permission: 'tools.excel_to_tally_xml', status: 'active' },
   { id: 'tds-fvu-generator', name: 'TDS Text/FVU Generator', description: 'Build 24Q/26Q return files',
     badge: { text: 'FVU', tint: 'rose' }, groupId: 'compliance-converters', route: '/tools/tds-fvu-generator',
     accepts: [MIME.xlsx], extensions: ['xlsx'], maxFileSizeMB: 25, multiple: false, outputType: 'txt',
-    keywords: ['tds', 'fvu', '24q', '26q', 'return', 'text'], permission: 'tools.tds_fvu_generator', status: 'coming_soon' },
+    keywords: ['tds', 'fvu', '24q', '26q', 'return', 'text'], permission: 'tools.tds_fvu_generator', status: 'active' },
   { id: 'invoice-to-einvoice-json', name: 'Invoice to e-Invoice JSON', description: 'IRP-ready schema from Excel',
     badge: { text: 'IFF', tint: 'blue' }, groupId: 'compliance-converters', route: '/tools/invoice-to-einvoice-json',
     accepts: [MIME.xlsx], extensions: ['xlsx'], maxFileSizeMB: 25, multiple: false, outputType: 'json',
-    keywords: ['invoice', 'e-invoice', 'einvoice', 'irp', 'json', 'excel'], permission: 'tools.invoice_to_einvoice_json', status: 'coming_soon' },
+    keywords: ['invoice', 'e-invoice', 'einvoice', 'irp', 'json', 'excel'], permission: 'tools.invoice_to_einvoice_json', status: 'active' },
 ];
 
 const BY_ID = new Map(TOOLS.map((t) => [t.id, t]));

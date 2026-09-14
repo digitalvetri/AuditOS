@@ -176,6 +176,19 @@ export function QueryState<T>({
       </div>
     );
   }
+  // No data yet — render the pending state rather than calling `children`,
+  // which is typed to receive T and will dereference it immediately.
+  //
+  // This is not reachable only through `isLoading`: React Query v5 derives
+  // `isLoading` as `isPending && isFetching`, so a DISABLED query (the
+  // `enabled:` guard used by screens that wait on a selection) is neither
+  // loading nor errored and still holds `data === undefined`. Falling through
+  // handed `undefined` to `children`, and the first property access threw —
+  // unmounting the tree and blanking the entire page instead of showing the
+  // one section that was not ready.
+  if (query.data === undefined) {
+    return <div className="px-4 py-6 text-13 text-neutral-500">Loading…</div>;
+  }
   const data = query.data as T;
   const isEmptyList =
     Array.isArray((data as { items?: unknown[] })?.items) &&

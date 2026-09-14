@@ -484,6 +484,83 @@ settingsRouter.post('/statutory-rates', handler(async (req, res) => {
   ok(res, { rate: statutoryRateToApi(row) })
 }))
 
+/**
+ * CORRECT a rate row in place.
+ *
+ * Superseding is still the right move when a rate genuinely CHANGES — that
+ * is what keeps the history true. This is for the other case: the row was
+ * typed wrong. Superseding a typo would record a rate that never applied and
+ * a change that never happened, which is a worse lie than the edit.
+ *
+ * Two things make it safe to allow:
+ *  - A processed payroll run reads `statutorySnapshotJson`, not this table,
+ *    so no completed run moves underneath anyone.
+ *  - The audit entry carries BEFORE and AFTER under its own action, so a
+ *    correction is never mistaken for a supersession when the log is read.
+ *
+ * Moving `effective_from` re-caps the neighbouring rows so the chain has no
+ * gap and no overlap.
+ */
+settingsRouter.patch('/statutory-rates/:id', handler(async (req, res) => {
+  const session = requireSession(req)
+  requireManage(session)
+  const b = z.object({
+    value: z.string().optional(),
+    effective_from: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+    notes: z.string().nullable().optional(),
+  }).safeParse(req.body ?? {})
+  if (!b.success) throw ApiError.badRequest('value, effective_from (YYYY-MM-DD) or notes expected.')
+  if (b.data.value === undefined && b.data.effective_from === undefined && b.data.notes === undefined) {
+    throw ApiError.badRequest('Nothing to change.')
+  }
+
+  const existing = await prisma.statutoryRate.findFirst({
+    where: { id: req.params.id, deletedAt: null },
+  })
+  if (!existing) throw ApiError.notFound()
+  const before = statutoryRateToApi(existing)
+
+  const row = await prisma.$transaction(async (tx) => {
+    const updated = await tx.statutoryRate.update({
+      where: { id: existing.id },
+      data: {
+        ...(b.data.value !== undefined ? { value: b.data.value } : {}),
+        ...(b.data.effective_from !== undefined ? { effectiveFrom: b.data.effective_from } : {}),
+        ...(b.data.notes !== undefined ? { notes: b.data.notes } : {}),
+        updatedBy: session.userId,
+      },
+    })
+    if (b.data.effective_from === undefined) return updated
+
+    // Re-cap around the moved row: the row immediately before it ends the
+    // day before it starts, and this row ends the day before whatever now
+    // follows it (or stays open when nothing does).
+    const siblings = await tx.statutoryRate.findMany({
+      where: { code: updated.code, deletedAt: null, id: { not: updated.id } },
+      orderBy: { effectiveFrom: 'asc' },
+    })
+    const prev = [...siblings].reverse().find((s) => s.effectiveFrom < updated.effectiveFrom)
+    const next = siblings.find((s) => s.effectiveFrom > updated.effectiveFrom)
+    if (prev) {
+      await tx.statutoryRate.update({
+        where: { id: prev.id },
+        data: { effectiveTo: addDays(updated.effectiveFrom, -1), updatedBy: session.userId },
+      })
+    }
+    return tx.statutoryRate.update({
+      where: { id: updated.id },
+      data: { effectiveTo: next ? addDays(next.effectiveFrom, -1) : null, updatedBy: session.userId },
+    })
+  })
+
+  await writeAudit({
+    actorUserId: session.userId, action: 'statutory_rate.corrected',
+    entityType: 'StatutoryRate', entityId: row.id,
+    before, after: statutoryRateToApi(row), req,
+  })
+  ok(res, { rate: statutoryRateToApi(row) })
+}))
+
 // ── Roles + permission matrix ────────────────────────────────────────────
 // The matrix is derived from RolePermission rows, not from the hard-coded
 // MATRIX constant, so what a caller reads here is what `can()` enforces on

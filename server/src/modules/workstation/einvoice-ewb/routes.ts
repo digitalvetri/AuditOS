@@ -27,6 +27,30 @@ import { profileToApi, irnToApi, ewbAlertItemToApi, monitorsSummary, setupSummar
 
 export const einvoiceEwbRouter = Router()
 
+/**
+ * Which half of the module the caller wants.
+ *
+ * E-Invoice and E-Way Bill are two separate screens (two sidebar entries), and
+ * each reads only its own monitors. `mode` lets a screen ask for its half
+ * alone, which skips the IRN or e-way-bill query outright rather than
+ * fetching rows the caller will discard.
+ *
+ * The omitted half is ABSENT from the response, never zero-filled: a
+ * `reported_this_month: 0` produced by a query we deliberately skipped would
+ * be indistinguishable from a real zero, and would eventually be read as one.
+ * `both` stays the default so existing callers are unaffected.
+ */
+const MODES = ['einvoice', 'ewb', 'both'] as const
+type EinvEwbMode = (typeof MODES)[number]
+
+function parseMode(raw: unknown): EinvEwbMode {
+  if (raw === undefined || raw === '') return 'both'
+  if (typeof raw === 'string' && (MODES as readonly string[]).includes(raw)) return raw as EinvEwbMode
+  throw ApiError.badRequest(`mode must be one of: ${MODES.join(', ')}.`, {
+    mode: [`Unknown mode ${JSON.stringify(raw)}.`],
+  })
+}
+
 /** IST today as an ISO date (YYYY-MM-DD). */
 function istToday(): string {
   const ist = new Date(Date.now() + 5.5 * 3_600_000)
@@ -43,19 +67,27 @@ function currentFyString(today = istToday()): string {
 }
 
 /**
- * GET /api/clients/:id/einvoice-ewb
+ * GET /api/clients/:id/einvoice-ewb?mode=einvoice|ewb|both
  *
- * The whole page state, in one call, so the UI is one query:
+ * One screen's state in one call:
  *  - profile (setup + AATO history)
  *  - applicability derivation with the actual thresholds used
- *  - the four alert buckets
+ *  - the alert buckets for the requested half
  *  - the reference monitor counts (reported this month, cancelled, etc.)
- *  - the setup section state
+ *  - the setup rows that belong to the requested half, plus MFA
+ *  - pull runs of the matching kind
+ *
+ * `mode` defaults to `both`. Profile and applicability come back in every
+ * mode: the setup handoffs need them, and they are one row either way.
  */
 einvoiceEwbRouter.get('/:id/einvoice-ewb', handler(async (req, res) => {
   const session = requireSession(req)
   const scope = requireWorkstation(session, 'workstation.eway.read', 'workstation.eway.generate')
   await assertCanSeeClient(session, scope, req.params.id)
+
+  const mode = parseMode(req.query.mode)
+  const wantEinvoice = mode !== 'ewb'
+  const wantEwb = mode !== 'einvoice'
 
   const clientId = req.params.id
   const client = await prisma.client.findFirst({ where: { id: clientId, ...alive } })
@@ -66,10 +98,16 @@ einvoiceEwbRouter.get('/:id/einvoice-ewb', handler(async (req, res) => {
 
   const [profileRow, irns, ewbs, pulls, gstFilings] = await Promise.all([
     prisma.eInvoiceEwbProfile.findFirst({ where: { clientId, ...alive } }),
-    prisma.eInvoiceIrn.findMany({ where: { clientId, ...alive }, orderBy: { documentDate: 'desc' } }),
-    prisma.ewayBill.findMany({ where: { clientId, ...alive }, orderBy: { generatedAt: 'desc' } }),
+    // Skipped entirely for the half that was not asked for.
+    wantEinvoice
+      ? prisma.eInvoiceIrn.findMany({ where: { clientId, ...alive }, orderBy: { documentDate: 'desc' } })
+      : Promise.resolve([]),
+    wantEwb
+      ? prisma.ewayBill.findMany({ where: { clientId, ...alive }, orderBy: { generatedAt: 'desc' } })
+      : Promise.resolve([]),
     prisma.eInvoiceEwbPullRun.findMany({
-      where: { clientId },
+      // One kind per screen: the reconciliation table shows a single column.
+      where: { clientId, ...(mode === 'both' ? {} : { kind: mode }) },
       orderBy: [{ periodMonth: 'desc' }, { runAt: 'desc' }],
       take: 24,
     }),
@@ -119,7 +157,13 @@ einvoiceEwbRouter.get('/:id/einvoice-ewb', handler(async (req, res) => {
     today,
   })
 
+  const monitors = monitorsSummary({ irns, ewbs, today, gstFilings, profile: profileRow })
+  const setup = setupSummary(profileRow)
+
   ok(res, {
+    // Echoed so a caller can assert it got the half it asked for rather than
+    // inferring it from which keys happen to be present.
+    mode,
     client: {
       id: client.id,
       client_code: client.clientCode,
@@ -138,22 +182,35 @@ einvoiceEwbRouter.get('/:id/einvoice-ewb', handler(async (req, res) => {
       thresholds: applicability.thresholds,
     },
     alerts: {
-      einvoice_30day_countdown: {
-        ...alerts.einvoice_30day_countdown,
-        items: alerts.einvoice_30day_countdown.items.map(irnToApi),
-      },
-      ewb_expiring_24h: {
-        ...alerts.ewb_expiring_24h,
-        items: alerts.ewb_expiring_24h.items.map(ewbAlertItemToApi),
-      },
-      ewb_approaching_360_cap: {
-        ...alerts.ewb_approaching_360_cap,
-        items: alerts.ewb_approaching_360_cap.items.map(ewbAlertItemToApi),
-      },
-      b2b_invoices_without_irn: alerts.b2b_invoices_without_irn,
+      ...(wantEinvoice ? {
+        einvoice_30day_countdown: {
+          ...alerts.einvoice_30day_countdown,
+          items: alerts.einvoice_30day_countdown.items.map(irnToApi),
+        },
+        b2b_invoices_without_irn: alerts.b2b_invoices_without_irn,
+      } : {}),
+      ...(wantEwb ? {
+        ewb_expiring_24h: {
+          ...alerts.ewb_expiring_24h,
+          items: alerts.ewb_expiring_24h.items.map(ewbAlertItemToApi),
+        },
+        ewb_approaching_360_cap: {
+          ...alerts.ewb_approaching_360_cap,
+          items: alerts.ewb_approaching_360_cap.items.map(ewbAlertItemToApi),
+        },
+      } : {}),
     },
-    monitors: monitorsSummary({ irns, ewbs, today, gstFilings, profile: profileRow }),
-    setup: setupSummary(profileRow),
+    monitors: {
+      ...(wantEinvoice ? { einvoice: monitors.einvoice } : {}),
+      ...(wantEwb ? { ewb: monitors.ewb } : {}),
+    },
+    setup: {
+      ...(wantEinvoice ? { irp_registration: setup.irp_registration } : {}),
+      ...(wantEwb ? { ewb_api_access: setup.ewb_api_access } : {}),
+      // MFA guards the portal login behind either obligation, so it belongs to
+      // both screens.
+      mfa: setup.mfa,
+    },
     pulls: {
       items: pulls.map((p) => ({
         kind: p.kind,

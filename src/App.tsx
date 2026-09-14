@@ -74,8 +74,8 @@ import { RegistrationServiceDetail } from '@/pages/workstation/registration/Regi
 import { GstServicesLanding } from '@/pages/workstation/gst/GstServicesLanding';
 import { GstServiceHandoff } from '@/pages/workstation/gst/GstServiceHandoff';
 // E-Invoice & E-Way Bill monitoring page (E-INVOICE-EWAYBILL.md). Both
-// sidebar entries route here — the operator cares about one combined view
-// of applicability, alerts, setup and reconciliation.
+// sidebar entries route here, but `mode` splits them: each screen shows only
+// its own monitors, setup row and reconciliation column.
 import EInvoiceEwbPage from '@/pages/workstation/einvoice-ewb/EInvoiceEwbPage';
 import { GstWorkspace } from '@/pages/workstation/gst/GstWorkspace';
 import { GstNoticeCheck } from '@/pages/workstation/gst/NoticeCheck';
@@ -225,8 +225,8 @@ export default function App() {
               {/* E-Invoice & E-Way Bill — one page for both sidebar entries.
                   Declared BEFORE the :category catch-all so both slugs resolve
                   here instead of the generic Services page. */}
-              <Route path="workstation/services/e-invoice" element={<EInvoiceEwbPage />} />
-              <Route path="workstation/services/e-way-bill" element={<EInvoiceEwbPage />} />
+              <Route path="workstation/services/e-invoice" element={<EInvoiceEwbPage mode="einvoice" />} />
+              <Route path="workstation/services/e-way-bill" element={<EInvoiceEwbPage mode="ewb" />} />
               {/* Service categories (TDS) — nav structure only for now, so
                   every remaining slug resolves to the same Services page. */}
               {/* Registration category — declared BEFORE the :category

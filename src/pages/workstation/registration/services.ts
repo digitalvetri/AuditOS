@@ -1,7 +1,7 @@
 /**
  * Registration service catalogue — Workstation → Services → Registration.
  *
- * Single source of truth for the ten registrations the firm files for its
+ * Single source of truth for the twelve registrations the firm files for its
  * clients, mirroring the shape gst/services.ts uses so both categories read
  * and behave the same way.
  *
@@ -25,6 +25,11 @@
  *                                 Trade, Ministry of Commerce and Industry"
  *   epfo.gov.in ................. EPFO, Ministry of Labour & Employment
  *   esic.gov.in ................. ESIC, Ministry of Labour & Employment
+ *   einvoice.gst.gov.in ......... e-invoice portal (enablement status and the
+ *                                 choice of IRP); the six IRPs themselves are
+ *                                 einvoice1..6.gst.gov.in, held separately in
+ *                                 einvoice-ewb/handoffs.ts
+ *   ewaybillgst.gov.in .......... e-way bill portal, NIC
  *
  * PROPRIETORSHIP still has no registry — India keeps no proprietorship
  * register and there is no certificate of proprietorship. Its link points at
@@ -37,8 +42,10 @@ import {
   Handshake,
   HeartPulse,
   Landmark,
+  QrCode,
   ReceiptIndianRupee,
   Ship,
+  Truck,
   Store,
   UserRound,
   Users,
@@ -278,6 +285,40 @@ export const REGISTRATION_SERVICES: RegistrationService[] = [
     portalUrl: 'https://esic.gov.in/',
     portalLabel: 'ESIC · Ministry of Labour & Employment',
     outputDocument: 'ESI Registration Certificate (Form C-11)',
+  },
+  {
+    slug: 'e-invoice',
+    name: 'E-Invoice Registration',
+    shortName: 'E-Invoice',
+    kind: 'tax',
+    icon: QrCode,
+    authority: 'GSTN / NIC · Rule 48(4), CGST Rules',
+    form: 'Enablement → IRP credentials',
+    summary:
+      'Confirms the client is enabled for e-invoicing on the GST e-invoice portal and registers them on an Invoice Registration Portal so their ERP can obtain IRNs.',
+    description:
+      'E-invoicing is not a certificate the client receives once and files away: it is an enablement flag against the GSTIN, plus credentials on whichever Invoice Registration Portal the client reports through. The e-invoice portal is where the enablement status is checked and the IRP is chosen; the six IRPs (einvoice1 through einvoice6) are where the client actually registers and generates IRNs from their own ERP. Audit OS does not generate IRNs — see Workstation → Services → E-Invoice for the monitoring view that watches the 30-day reporting limit once the client is live.',
+    portalScope: 'india',
+    portalUrl: 'https://einvoice.gst.gov.in/',
+    portalLabel: 'E-Invoice Portal · Goods and Services Tax',
+    outputDocument: 'E-Invoice enablement confirmation / IRP credentials',
+  },
+  {
+    slug: 'e-way-bill',
+    name: 'E-Way Bill Registration',
+    shortName: 'E-Way Bill',
+    kind: 'tax',
+    icon: Truck,
+    authority: 'NIC · Rule 138, CGST Rules',
+    form: 'Registration → EWB login',
+    summary:
+      'Registers the client on the e-way bill portal so consignments above the threshold can be covered, and enables API access where the client generates from their own ERP.',
+    description:
+      'A registered person moving goods above the notified consignment value needs an e-way bill, which means a login on the NIC e-way bill portal. Transporters who are not otherwise registered enrol here for a TRANSIN instead. API access is a separate request made from inside the portal once the login exists, and is what lets the client\'s ERP generate e-way bills directly. MFA has been mandatory since 1 April 2025, so the OTP reaches the client, not us. Audit OS does not generate e-way bills — see Workstation → Services → E-Way Bill for the monitoring view.',
+    portalScope: 'india',
+    portalUrl: 'https://ewaybillgst.gov.in/',
+    portalLabel: 'E-Way Bill Portal · Goods and Services Tax',
+    outputDocument: 'E-Way Bill portal credentials / API access confirmation',
 
   },
 ];
