@@ -42,6 +42,8 @@ import { auditAutomationRouter } from './modules/audit-automation/routes.js'
 import { gstRouter } from './modules/audit-automation/gst.routes.js'
 // Audit Automation · TDS reconciliation (Form 26AS vs Books TDS register).
 import { tdsRouter } from './modules/audit-automation/tds.routes.js'
+// GST return composition and filing (GSTR-1 / 3B / 9).
+import { gstReturnsRouter } from './modules/gst/gst-returns.routes.js'
 // Tally — native double-entry accounting module (foundation slice).
 import { tallyRouter } from './modules/tally/routes.js'
 // Books — native bookkeeping, one set of books per client (docs/accounting-module).
@@ -166,6 +168,9 @@ export function createApp() {
   app.use('/api/audit-automation/gst', gstRouter)
   app.use('/api/audit-automation/tds', tdsRouter)
   app.use('/api/audit-automation', auditAutomationRouter)
+
+  // ── GST return composition and filing ──────────────────────────────────
+  app.use('/api/gst', gstReturnsRouter)
 
   // ── Tally (native double-entry accounting) ─────────────────────────────
   app.use('/api/tally', tallyRouter)
