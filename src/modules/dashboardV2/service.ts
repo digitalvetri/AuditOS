@@ -71,27 +71,33 @@ export interface DashboardData {
 }
 
 /**
- * The mock payload from §8 of the prompt — matches the reference screenshot.
- * 6 employees / 6 absent is the seed being thin, not a UI bug.
+ * The mock payload from §8 of the prompt.
+ *
+ * A 16-person firm with 10 in today and 6 out. The three figures have to
+ * agree or the page contradicts itself: `attendance` drives both the stats
+ * row and the Team overview donut, and the `departments` rows are read
+ * straight into the table beneath it with no totals row to reconcile them.
+ * So the department columns must sum to the attendance counts —
+ * headcount 16, present 10, absent 6.
  */
 const MOCK: DashboardData = {
   user: { name: 'Ravi Krishnan', role: 'md' },
   today: { status: 'not_checked_in' },
   attendance: {
-    total: 6, present: 0, late: 0, absent: 6, onLeave: 0, missingCheckout: 0,
+    total: 16, present: 10, late: 0, absent: 6, onLeave: 0, missingCheckout: 0,
   },
   expenses: { awaitingApproval: 2, approvedUnspent: 2, approvedAmount: 12340 },
   ledger: { balance: 1645520, monthDebit: 0, monthCredit: 0 },
   departments: [
-    { id: 'dep-mgmt', name: 'Management', headcount: 1, present: 0, absent: 1 },
-    { id: 'dep-hr',   name: 'HR',         headcount: 1, present: 0, absent: 1 },
-    { id: 'dep-fin',  name: 'Finance',    headcount: 1, present: 0, absent: 1 },
-    { id: 'dep-ops',  name: 'Operations', headcount: 3, present: 0, absent: 3 },
+    { id: 'dep-mgmt', name: 'Management', headcount: 1,  present: 1, absent: 0 },
+    { id: 'dep-hr',   name: 'HR',         headcount: 2,  present: 1, absent: 1 },
+    { id: 'dep-fin',  name: 'Finance',    headcount: 3,  present: 2, absent: 1 },
+    { id: 'dep-ops',  name: 'Operations', headcount: 10, present: 6, absent: 4 },
   ],
   payroll: {
     period: 'September 2026',
     stage: 'Draft',
-    employees: 6,
+    employees: 16,
     grossTotal: 0,
   },
 };
