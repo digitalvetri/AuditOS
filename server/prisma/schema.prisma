@@ -1509,6 +1509,23 @@ model GstReturnDraft {
   /// Set when this draft supersedes an earlier one after re-composition.
   supersedesId String?
 
+  // ── Submission fields (populated by PR 4's submission flow) ──────
+  /// GSTN Acknowledgement Reference Number. 15 chars: state(2) + YY(2)
+  /// + MM(2) + sequence(9). Assigned by the portal on submit; null until
+  /// then. `filed` status implies a non-null arn.
+  arn                String?
+  /// GSTN mode that produced this submission: 'fake' | 'live'. Records
+  /// whether the ARN is a synthetic dev/test one or a real one from the
+  /// portal, so a filed-in-fake row is never mistaken for a real filing.
+  gstnMode           String?
+  /// Wall-clock the portal accepted the submission at.
+  submittedAt        DateTime?
+  /// Wall-clock the return was finalised (post-DSC/EVC). NULL when the
+  /// submission is `submitted` but the file step has not run.
+  filedAt            DateTime?
+  /// Full GSTN response envelope kept verbatim for the audit trail.
+  gstnResponseJson   String?
+
   gstFiling GstFiling             @relation(fields: [gstFilingId], references: [id])
   sections  GstReturnSection[]
   liability GstLiabilitySnapshot?
@@ -1521,6 +1538,7 @@ model GstReturnDraft {
   @@index([gstFilingId])
   @@index([period, returnType])
   @@index([status])
+  @@index([arn])
 }
 
 /// Sectionised row within a return draft. One row per invoice for b2b,

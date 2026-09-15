@@ -33,6 +33,8 @@ import {
   validateStoredDraft,
 } from './services/GstReturnPersistence.js'
 import { searchHsn } from './services/HsnSearchService.js'
+import { createGstnClient } from './services/gstn/index.js'
+import { refreshSubmissionStatus, submitReturn, SubmissionError } from './services/GstReturnSubmission.js'
 
 export const gstReturnsRouter = Router()
 
@@ -250,6 +252,72 @@ gstReturnsRouter.post('/returns/:id/mark-ready', handler(async (req, res) => {
   })
 
   okB(res, { id: updated.id, status: updated.status })
+}))
+
+// ── POST /api/gst/returns/:id/submit ──────────────────────────────────
+// Submits a ready_to_file draft to the GSTN client resolved by the
+// GSTN_MODE env flag (fake by default). The route is mode-agnostic —
+// it never checks whether the client is fake or live.
+
+gstReturnsRouter.post('/returns/:id/submit', handler(async (req, res) => {
+  const session = requireSession(req)
+  requireGstManage(session)
+
+  const client = createGstnClient()
+  let updated
+  try {
+    updated = await submitReturn(prisma, { draftId: req.params.id, userId: session.userId, client })
+  } catch (e) {
+    if (e instanceof SubmissionError) {
+      if (e.code === 'not_found')       throw ApiError.notFound(e.message)
+      if (e.code === 'bad_transition')  throw ApiError.unprocessable('bad_transition', e.message)
+      if (e.code === 'missing_gstin')   throw ApiError.unprocessable('missing_gstin', e.message)
+      if (e.code === 'portal_rejected') throw ApiError.unprocessable('portal_rejected', e.message, e.detail)
+    }
+    throw e
+  }
+
+  await writeAudit({
+    actorUserId: session.userId,
+    action:      'gst.return.submitted',
+    entityType:  'GstReturnDraft',
+    entityId:    updated.id,
+    after:       { arn: updated.arn, mode: updated.gstnMode, status: updated.status },
+    req,
+  })
+
+  okB(res, {
+    id:            updated.id,
+    status:        updated.status,
+    arn:           updated.arn,
+    gstn_mode:     updated.gstnMode,
+    submitted_at:  updated.submittedAt,
+    filed_at:      updated.filedAt,
+  })
+}))
+
+// ── POST /api/gst/returns/:id/refresh-status ──────────────────────────
+// Polls the portal for the current state of a submitted return's ARN.
+// A no-op on the fake client (its status is decided at submit time),
+// necessary on the live client after the operator completes DSC/EVC
+// out-of-band.
+
+gstReturnsRouter.post('/returns/:id/refresh-status', handler(async (req, res) => {
+  const session = requireSession(req)
+  requireGstManage(session)
+
+  const client = createGstnClient()
+  try {
+    const result = await refreshSubmissionStatus(prisma, { draftId: req.params.id, userId: session.userId, client })
+    okB(res, {
+      id:           req.params.id,
+      draft_status: result.draftStatus,
+      portal:       result.portal,
+    })
+  } catch (e) {
+    if (e instanceof SubmissionError && e.code === 'not_found') throw ApiError.notFound(e.message)
+    throw e
+  }
 }))
 
 // ── GET /api/gst/hsn/search ───────────────────────────────────────────
