@@ -101,8 +101,20 @@
 
   html {
     font-family:
-      'Inter', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
+      'Inter Variable', 'Inter', ui-sans-serif, system-ui, -apple-system,
+      'Segoe UI', sans-serif;
     font-feature-settings: 'ss01', 'cv11';
+    /* Anchor 1rem = 16px regardless of the user's browser default text
+       size. Without this, someone who bumped Chrome to 18px default sees
+       a bigger app than someone on Firefox at 16px. */
+    font-size: 16px;
+    /* Reserve the scrollbar gutter permanently so Chrome (overlay
+       scrollbars) and Firefox (classic scrollbars) don't disagree by
+       ~15px on the content width. */
+    scrollbar-gutter: stable;
+    /* Stop iOS Safari from inflating text in landscape. */
+    -webkit-text-size-adjust: 100%;
+    text-size-adjust: 100%;
   }
 
   body {
@@ -114,6 +126,10 @@
     font-variant-numeric: tabular-nums;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
+    /* Match native form controls (checkbox, radio, range) to the brand
+       so Firefox's blue and Safari's dark don't diverge. */
+    accent-color: rgb(var(--c-primary));
+    min-height: 100vh;
   }
 
   /* Never let a browser default push text below neutral-400. */
