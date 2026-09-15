@@ -1403,7 +1403,8 @@ model GstFiling {
   arn                String?
   remarks            String?
 
-  gstProfile GstProfile @relation(fields: [gstProfileId], references: [id])
+  gstProfile GstProfile        @relation(fields: [gstProfileId], references: [id])
+  drafts     GstReturnDraft[]
 
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt
@@ -1413,6 +1414,191 @@ model GstFiling {
 
   @@unique([gstProfileId, period, returnType])
   @@index([status])
+}
+
+// ============================================================
+// GST RETURN COMPOSITION
+// ============================================================
+// The GstFiling row above is the lifecycle record — "we owe a GSTR-1 for
+// August, it's under review, ARN pending". The models below are the
+// DATA of that return: the sectionised rows we would send to GSTN, and
+// the roll-up numbers we'd declare in GSTR-3B.
+//
+// A filing can have several drafts over its life (compose → find an
+// error → re-compose). Only the most recent draft with status
+// 'ready_to_file' or beyond feeds submission; earlier drafts remain for
+// audit. Immutability lands at 'submitted' — after that a fix cuts a
+// new draft that supersedes.
+
+/// GST rate slabs as data. Council changes land as new rows with a later
+/// effectiveFrom; we never mutate an existing slab because past returns
+/// must reproduce byte-for-byte. percentageBp is basis points to match
+/// BooksTaxRate (1800 = 18%, 500 = 5%).
+model GstRateSlab {
+  id            String   @id @default(uuid())
+  /// Rate in basis points: 0 | 500 | 1200 | 1800 | 2800.
+  percentageBp  Int
+  /// Display label like '18%'. UI-only convenience.
+  label         String
+  /// 'YYYY-MM-DD' — the date this slab first applies from.
+  effectiveFrom String
+  isActive      Boolean  @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([percentageBp, effectiveFrom])
+  @@index([isActive])
+}
+
+/// HSN/SAC master. Read-mostly reference table seeded with a starter set
+/// covering the common goods and services categories; users add more
+/// through settings as their book of business grows. Kept small on
+/// purpose — a full 8-digit HSN roster is over 40k rows and only a
+/// fraction is ever used by any one firm.
+model HsnMaster {
+  id            String  @id @default(uuid())
+  /// 4/6/8-digit HSN or 6-digit SAC.
+  code          String  @unique
+  description   String
+  /// goods | services
+  kind          String  @default("goods")
+  /// Default rate slab in bp (1800 = 18%). NULL when the code spans
+  /// several rates and the user must pick per line.
+  defaultRateBp Int?
+  isActive      Boolean @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([kind, isActive])
+}
+
+/// A composed return snapshot owned by a GstFiling row. `payloadJson`
+/// mirrors the GSTN return JSON shape so submission is a pass-through,
+/// but section-level detail also lives in GstReturnSection rows for
+/// query, audit and per-row override without JSON parsing.
+///
+/// Immutable once status reaches 'submitted' — a subsequent re-compose
+/// creates a NEW draft whose `supersedesId` points at the old one, and
+/// flips the old draft's status to 'superseded'. This keeps the audit
+/// trail contiguous even when a return is re-worked.
+model GstReturnDraft {
+  id           String @id @default(uuid())
+  gstFilingId  String
+  /// 'YYYY-MM' — mirrors GstFiling.period.
+  period       String
+  /// GSTR-1 | GSTR-3B | GSTR-9
+  returnType   String
+  /// draft | ready_to_file | submitted | filed | rejected | superseded
+  status       String @default("draft")
+  /// Full return payload in GSTN-JSON shape. Kept as a String so it
+  /// re-serialises byte-identically on read — critical because GSTN
+  /// signs a hash of the exact bytes on submission.
+  payloadJson  String
+
+  /// Roll-up totals in paise. Duplicated out of payloadJson so lists
+  /// can filter and sort without deserialising every draft.
+  totalTaxableValue BigInt @default(0)
+  totalCgst         BigInt @default(0)
+  totalSgst         BigInt @default(0)
+  totalIgst         BigInt @default(0)
+  totalCess         BigInt @default(0)
+  invoiceCount      Int    @default(0)
+
+  /// Set when this draft supersedes an earlier one after re-composition.
+  supersedesId String?
+
+  gstFiling GstFiling             @relation(fields: [gstFilingId], references: [id])
+  sections  GstReturnSection[]
+  liability GstLiabilitySnapshot?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  createdBy String?
+  updatedBy String?
+
+  @@index([gstFilingId])
+  @@index([period, returnType])
+  @@index([status])
+}
+
+/// Sectionised row within a return draft. One row per invoice for b2b,
+/// cdnr, exp; one aggregate row per (rate, place-of-supply) for b2cs;
+/// one row per HSN code for the hsn summary. `sourceDocumentId` refs
+/// the BooksDocument the row was composed from, and is NULL for
+/// aggregate rows and hand-entered adjustments.
+model GstReturnSection {
+  id                String  @id @default(uuid())
+  returnDraftId     String
+  /// b2b | b2cl | b2cs | cdnr | cdnur | exp | at | atadj | nil | hsn | docs
+  section           String
+  /// Deterministic index within the section for stable ordering.
+  ordinal           Int
+  /// Buyer / counterparty GSTIN when applicable.
+  counterpartyGstin String?
+  counterpartyName  String?
+  /// Rate slab in bp — 0, 500, 1200, 1800, 2800.
+  rateBp            Int?
+  hsnCode           String?
+  invoiceNumber     String?
+  /// 'YYYY-MM-DD'
+  invoiceDate       String?
+  /// GSTN state code, '33' = Tamil Nadu.
+  placeOfSupply     String?
+  isInterState      Boolean @default(false)
+  /// All amounts in paise.
+  taxableValue      BigInt  @default(0)
+  cgst              BigInt  @default(0)
+  sgst              BigInt  @default(0)
+  igst              BigInt  @default(0)
+  cess              BigInt  @default(0)
+  /// BooksDocument the row was composed from; NULL for aggregates.
+  sourceDocumentId  String?
+
+  returnDraft GstReturnDraft @relation(fields: [returnDraftId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+
+  @@index([returnDraftId, section])
+  @@index([sourceDocumentId])
+}
+
+/// GSTR-3B liability roll-up — output tax, ITC, cash payable per head.
+/// Derived from the outward return (GSTR-1) plus the ITC input from the
+/// latest 2B reconciliation for the period. One snapshot per draft;
+/// re-composing the draft overwrites it.
+model GstLiabilitySnapshot {
+  id            String @id @default(uuid())
+  returnDraftId String @unique
+
+  /// Output tax collected on outward supplies (paise).
+  outputCgst BigInt @default(0)
+  outputSgst BigInt @default(0)
+  outputIgst BigInt @default(0)
+  outputCess BigInt @default(0)
+
+  /// Input tax credit for the period, taken from the latest AaGstReconJob.
+  itcCgst BigInt @default(0)
+  itcSgst BigInt @default(0)
+  itcIgst BigInt @default(0)
+  itcCess BigInt @default(0)
+
+  /// Net cash payable per head, floored at zero (a credit balance carries
+  /// forward, it does not become a refund on 3B).
+  cashCgst BigInt @default(0)
+  cashSgst BigInt @default(0)
+  cashIgst BigInt @default(0)
+  cashCess BigInt @default(0)
+
+  /// Interest and late fee if filed after the due date.
+  interest BigInt @default(0)
+  lateFee  BigInt @default(0)
+
+  returnDraft GstReturnDraft @relation(fields: [returnDraftId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 }
 
 /// SIMULATED (§7.3 / §15). `isSimulated` defaults true and every response and

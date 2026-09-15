@@ -25,6 +25,7 @@ import { seedBooks } from './seed-books.js'
 import { seedBookkeeping } from './seed-bookkeeping.js'
 import { seedIncorporation } from './seed-incorporation.js'
 import { seedRegistration } from './seed-registration.js'
+import { seedGst } from './seed-gst.js'
 
 const prisma = new PrismaClient()
 
@@ -968,6 +969,7 @@ async function main() {
   const bookkeeping = await seedBookkeeping(prisma, org.id)
   const incorporation = await seedIncorporation(prisma, org.id)
   const registration = await seedRegistration(prisma, org.id)
+  const gst = await seedGst(prisma)
 
   const counts = {
     employees: await prisma.employee.count(),
@@ -984,6 +986,7 @@ async function main() {
   console.log('Bookkeeping:', bookkeeping)
   console.log('Incorporation:', incorporation)
   console.log('Registration:', registration)
+  console.log('GST reference:', gst)
   console.log('Demo logins: ravi@auditos.local/md · priya@auditos.local/hr · anitha@auditos.local/fin · vikram@auditos.local/mgr · meera@auditos.local/emp · karthik@auditos.local/art')
 }
 
