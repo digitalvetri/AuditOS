@@ -120,7 +120,7 @@ export function BookkeepingPeriodDetailPage() {
                 />
                 {data.period.client_id ? (
                   <button
-                    onClick={() => navigate(`../../clients/${data.period.client_id}`)}
+                    onClick={() => navigate(`../clients/${data.period.client_id}`)}
                     className="h-8 px-3 text-13 border border-neutral-300 rounded hover:bg-neutral-50"
                   >
                     Client

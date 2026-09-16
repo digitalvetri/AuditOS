@@ -53,7 +53,7 @@ export function BookkeepingOverviewPage() {
               ) : (
                 <Table head={['Client', 'Period', 'Status', 'Progress', 'Due', 'Assigned to']}>
                   {data.upcoming.map((p) => (
-                    <Row key={p.id} status={p.status} onClick={() => navigate(`../monthly-work/${p.id}`)}>
+                    <Row key={p.id} status={p.status} onClick={() => navigate(`monthly-work/${p.id}`)}>
                       <Cell>{p.client_name ?? '—'}</Cell>
                       <Cell>{p.label}</Cell>
                       <Cell><Status value={p.status} /></Cell>
