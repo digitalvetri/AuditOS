@@ -259,6 +259,36 @@ Known performance item for P19: the stage endpoint tallies its summary from a
 lean projection of the filtered set rather than SQL aggregates. Correct, and
 fine at today's 27 periods, but §46 wants database aggregation at thousands.
 
+## Docker
+
+**No Docker file needed changing, and that was verified rather than assumed.**
+
+The Task module needed care because it reads a `.sql` file at runtime that the
+build script has to copy beside the compiled output. **GST has no
+`readFileSync` and no SQL file** — it is pure Prisma — so `COPY src ./src` and
+`COPY prisma ./prisma` pick it all up, and the compose `migrate` service's
+`prisma db push` creates the seven tables. No new permission code was added,
+so the existing seed covers RBAC.
+
+One gap WAS found and closed. `seed-workstation.ts` seeds GST profiles and
+filings but nothing seeded `GstCompliancePeriod`, so a fresh database — Docker
+included — would have come up with 9 GST clients, 45 filings and **zero
+periods**, rendering every GST screen empty with no hint why. `seed.ts` now
+calls `backfillPeriods()` after `seedWorkstation`, deriving the periods from
+the filings rather than adding a second fixture to keep in step.
+
+Proved end to end on an empty database, which is the path compose takes:
+
+    createdb → prisma db push → tsx prisma/seed.ts
+    → GST periods: { created: 27, linked: 45 }
+    → GstProfile 9 · GstFiling 45 · GstCompliancePeriod 27
+    → all 45 filings linked to a period
+
+The scratch database was dropped afterwards and the dev database untouched.
+`docker compose up` itself was NOT run — the daemon on this machine is
+inactive and needs a sudo password — so this is a verified code path, not a
+verified container.
+
 ## Database changes
 
 Phase 2 as above. `prisma db push`, additive, no reset. Docker needs no
