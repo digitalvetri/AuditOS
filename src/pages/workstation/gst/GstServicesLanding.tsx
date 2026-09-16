@@ -189,10 +189,19 @@ function ServiceRow({ service, first }: { service: GstService; first: boolean })
   const Icon = service.icon;
   const tint = SHAPE_TINT[service.shape];
   return (
-    <li className={first ? '' : 'border-t border-neutral-100'}>
+    // The portal link is a SIBLING of the row link, not a child: an <a> inside
+    // an <a> is invalid HTML and React warns about it. The row link takes
+    // flex-1, which pushes the row-end actions right exactly as the old
+    // spacer did.
+    <li
+      className={
+        (first ? '' : 'border-t border-neutral-100 ') +
+        'flex items-center gap-4 px-4 py-3 hover:bg-neutral-50 transition-colors group'
+      }
+    >
       <Link
         to={`/workstation/services/gst/${service.slug}`}
-        className="flex items-center gap-4 px-4 py-3 hover:bg-neutral-50 transition-colors group"
+        className="flex items-center gap-4 flex-1 min-w-0"
       >
         {/* icon */}
         <span
@@ -219,8 +228,7 @@ function ServiceRow({ service, first }: { service: GstService; first: boolean })
         >
           {tint.label}
         </span>
-        {/* spacer pushes the row-end actions to the right */}
-        <div className="flex-1" />
+      </Link>
         <a
           href={service.portalUrl}
           target="_blank"
@@ -233,7 +241,6 @@ function ServiceRow({ service, first }: { service: GstService; first: boolean })
           <ExternalLink size={14} strokeWidth={2} />
         </a>
         <ChevronRight size={16} strokeWidth={2} className="text-neutral-400 group-hover:text-gold shrink-0" />
-      </Link>
     </li>
   );
 }
