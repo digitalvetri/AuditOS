@@ -41,6 +41,20 @@ import { TallyCompanies } from '@/pages/tools/tally/TallyCompanies';
 import { TallyWorkspace } from '@/pages/tools/tally/TallyWorkspace';
 import { TallyGroups } from '@/pages/tools/tally/TallyGroups';
 import { TallyLedgers } from '@/pages/tools/tally/TallyLedgers';
+import { TallyDashboard } from '@/pages/tools/tally/TallyDashboard';
+import { TallyVouchers } from '@/pages/tools/tally/TallyVouchers';
+import { TallyVoucherEditor } from '@/pages/tools/tally/TallyVoucherEditor';
+import { TallyVoucherDetail } from '@/pages/tools/tally/TallyVoucherDetail';
+import { TallyReports } from '@/pages/tools/tally/TallyReports';
+import { TallyReportPage, TallyRegisterPage, TallyBookPage, TallyLedgerStatement } from '@/pages/tools/tally/TallyReportPage';
+import { TallyInventory, TallyStockItemPage } from '@/pages/tools/tally/TallyInventory';
+import { TallyBanking } from '@/pages/tools/tally/TallyBanking';
+import { TallyGst } from '@/pages/tools/tally/TallyGst';
+import { TallyTrade } from '@/pages/tools/tally/TallyTrade';
+import { TallyPayroll } from '@/pages/tools/tally/TallyPayroll';
+import { TallyAudit } from '@/pages/tools/tally/TallyAudit';
+import { TallyUtilities } from '@/pages/tools/tally/TallyUtilities';
+import { TallySettings } from '@/pages/tools/tally/TallySettings';
 // Bookkeeping Service — Workstation → Services → Bookkeeping. Manages the
 // service workflow; all accounting stays in Books.
 import { BookkeepingShell } from '@/pages/workstation/bookkeeping/BookkeepingShell';
@@ -257,8 +271,28 @@ export default function App() {
               <Route path="tally" element={<TallyHome />} />
               <Route path="tally/companies" element={<TallyCompanies />} />
               <Route path="tally/companies/:companyId" element={<TallyWorkspace />}>
+                <Route index element={<TallyDashboard />} />
                 <Route path="masters/groups" element={<TallyGroups />} />
                 <Route path="masters/ledgers" element={<TallyLedgers />} />
+                <Route path="vouchers" element={<TallyVouchers />} />
+                <Route path="vouchers/new" element={<TallyVoucherEditor />} />
+                <Route path="vouchers/:voucherId" element={<TallyVoucherDetail />} />
+                <Route path="vouchers/:voucherId/edit" element={<TallyVoucherEditor />} />
+                <Route path="sales" element={<TallyTrade mode="sales" />} />
+                <Route path="purchase" element={<TallyTrade mode="purchase" />} />
+                <Route path="inventory" element={<TallyInventory />} />
+                <Route path="inventory/items/:itemId" element={<TallyStockItemPage />} />
+                <Route path="banking" element={<TallyBanking />} />
+                <Route path="gst" element={<TallyGst />} />
+                <Route path="payroll" element={<TallyPayroll />} />
+                <Route path="audit" element={<TallyAudit />} />
+                <Route path="utilities" element={<TallyUtilities />} />
+                <Route path="settings" element={<TallySettings />} />
+                <Route path="reports" element={<TallyReports />} />
+                <Route path="reports/ledger/:ledgerId" element={<TallyLedgerStatement />} />
+                <Route path="reports/register/:typeCode" element={<TallyRegisterPage />} />
+                <Route path="reports/book/:kind" element={<TallyBookPage />} />
+                <Route path="reports/:reportId" element={<TallyReportPage />} />
               </Route>
 
               {/* Books — the client list, then one shell per set of books

@@ -52,6 +52,12 @@ async function loadSession(email: string): Promise<Session> {
 async function cleanup(organisationId: string) {
   const cos = await prisma.tallyCompany.findMany({ where: { organisationId, name: { startsWith: 'FIXTURE-' } } })
   for (const c of cos) {
+    // Scaffolding seeded with every company (voucher types, GST ledgers,
+    // units, the default godown) has to go before the company itself.
+    await prisma.tallyVoucherType.deleteMany({ where: { tallyCompanyId: c.id } })
+    await prisma.tallySetting.deleteMany({ where: { tallyCompanyId: c.id } })
+    await prisma.tallyUnit.deleteMany({ where: { tallyCompanyId: c.id } })
+    await prisma.tallyGodown.deleteMany({ where: { tallyCompanyId: c.id } })
     await prisma.tallyLedger.deleteMany({ where: { tallyCompanyId: c.id } })
     await prisma.tallyGroup.deleteMany({ where: { tallyCompanyId: c.id } })
     await prisma.tallyFinancialYear.deleteMany({ where: { tallyCompanyId: c.id } })
@@ -116,8 +122,11 @@ async function main() {
   pass(`created ledger "Main Cash" in Company A (opening ₹5,00,000 Dr)`)
 
   // ── 5. Isolation: listing Company B ledgers must not include A's ─────
+  // Company B has only its OWN scaffolding (the six GST ledgers seeded
+  // with every company) — none of Company A's ledgers.
   const bLedgers = await TallyLedgerService.list(md, b.id)
-  if (bLedgers.length !== 0) fail('Company B ledger list empty', `got ${bLedgers.length}`)
+  if (bLedgers.some((l) => l.name === 'Main Cash')) fail("Company B must not see Company A's ledgers", 'Main Cash leaked into Company B')
+  if (bLedgers.some((l) => l.id === cash.id)) fail('Company B ledger ids are its own', 'a Company A ledger id appeared')
   const aLedgers = await TallyLedgerService.list(md, a.id)
   if (!aLedgers.some((l) => l.id === cash.id)) fail('Company A ledger visible', 'not in list')
   pass('isolation: Company B does NOT see Company A ledgers, Company A does')

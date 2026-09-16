@@ -2,6 +2,7 @@ import { prisma, alive } from '../../../lib/prisma.js'
 import { ApiError } from '../../../lib/http.js'
 import type { Session } from '../../../platform/auth.js'
 import { PRIMARY_GROUPS } from './primaryGroups.js'
+import { TallyBootstrapService } from './TallyBootstrapService.js'
 
 /**
  * TallyCompanyService — the one place a TallyCompany is created,
@@ -186,6 +187,10 @@ export const TallyCompanyService = {
       })
       return company
     })
+    // Voucher types, GST ledgers, units and the default godown. Kept out
+    // of the transaction above so a scaffolding hiccup never loses the
+    // company — it is idempotent and re-runs lazily on first use.
+    await TallyBootstrapService.ensure(created.id)
     return toApi(created)
   },
 

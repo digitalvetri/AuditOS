@@ -88,6 +88,13 @@ export type PermissionCode =
   | 'tools.audit_automation.tally.company.manage'
   | 'tools.audit_automation.tally.master.read'
   | 'tools.audit_automation.tally.master.manage'
+  | 'tools.audit_automation.tally.voucher.read'
+  | 'tools.audit_automation.tally.voucher.manage'
+  | 'tools.audit_automation.tally.voucher.cancel'
+  | 'tools.audit_automation.tally.report.read'
+  | 'tools.audit_automation.tally.audit.read'
+  | 'tools.audit_automation.tally.settings.manage'
+  | 'tools.audit_automation.tally.data.manage'
 
   // â”€â”€ Books (docs/accounting-module/README.md) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   // books.access opens the module; scope self = only books the user is a
@@ -170,6 +177,13 @@ export const MATRIX: Record<RoleCode, Grant[]> = {
     { permission: 'tools.audit_automation.tally.company.manage', scope: 'self' },
     { permission: 'tools.audit_automation.tally.master.read', scope: 'self' },
     { permission: 'tools.audit_automation.tally.master.manage', scope: 'self' },
+    { permission: 'tools.audit_automation.tally.voucher.read', scope: 'self' },
+    { permission: 'tools.audit_automation.tally.voucher.manage', scope: 'self' },
+    { permission: 'tools.audit_automation.tally.voucher.cancel', scope: 'self' },
+    { permission: 'tools.audit_automation.tally.report.read', scope: 'self' },
+    { permission: 'tools.audit_automation.tally.audit.read', scope: 'self' },
+    { permission: 'tools.audit_automation.tally.settings.manage', scope: 'self' },
+    { permission: 'tools.audit_automation.tally.data.manage', scope: 'self' },
     // Books: only the sets of books this person is assigned to.
     { permission: 'books.access', scope: 'self' },
     { permission: 'books.reports', scope: 'self' },
@@ -244,6 +258,13 @@ export const MATRIX: Record<RoleCode, Grant[]> = {
     { permission: 'tools.audit_automation.tally.company.manage', scope: 'organisation' },
     { permission: 'tools.audit_automation.tally.master.read', scope: 'organisation' },
     { permission: 'tools.audit_automation.tally.master.manage', scope: 'organisation' },
+    { permission: 'tools.audit_automation.tally.voucher.read', scope: 'organisation' },
+    { permission: 'tools.audit_automation.tally.voucher.manage', scope: 'organisation' },
+    { permission: 'tools.audit_automation.tally.voucher.cancel', scope: 'organisation' },
+    { permission: 'tools.audit_automation.tally.report.read', scope: 'organisation' },
+    { permission: 'tools.audit_automation.tally.audit.read', scope: 'organisation' },
+    { permission: 'tools.audit_automation.tally.settings.manage', scope: 'organisation' },
+    { permission: 'tools.audit_automation.tally.data.manage', scope: 'organisation' },
     // Books: every set of books the firm keeps.
     { permission: 'books.access', scope: 'organisation' },
     { permission: 'books.manage', scope: 'organisation' },
@@ -382,6 +403,13 @@ export const MATRIX: Record<RoleCode, Grant[]> = {
     { permission: 'tools.audit_automation.tally.company.manage', scope: 'organisation' },
     { permission: 'tools.audit_automation.tally.master.read', scope: 'organisation' },
     { permission: 'tools.audit_automation.tally.master.manage', scope: 'organisation' },
+    { permission: 'tools.audit_automation.tally.voucher.read', scope: 'organisation' },
+    { permission: 'tools.audit_automation.tally.voucher.manage', scope: 'organisation' },
+    { permission: 'tools.audit_automation.tally.voucher.cancel', scope: 'organisation' },
+    { permission: 'tools.audit_automation.tally.report.read', scope: 'organisation' },
+    { permission: 'tools.audit_automation.tally.audit.read', scope: 'organisation' },
+    { permission: 'tools.audit_automation.tally.settings.manage', scope: 'organisation' },
+    { permission: 'tools.audit_automation.tally.data.manage', scope: 'organisation' },
     // Books: every set of books the firm keeps.
     { permission: 'books.access', scope: 'organisation' },
     { permission: 'books.manage', scope: 'organisation' },

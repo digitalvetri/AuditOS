@@ -1403,7 +1403,7 @@ model GstFiling {
   arn                String?
   remarks            String?
 
-  gstProfile GstProfile        @relation(fields: [gstProfileId], references: [id])
+  gstProfile GstProfile       @relation(fields: [gstProfileId], references: [id])
   drafts     GstReturnDraft[]
 
   createdAt DateTime  @default(now())
@@ -1435,14 +1435,14 @@ model GstFiling {
 /// must reproduce byte-for-byte. percentageBp is basis points to match
 /// BooksTaxRate (1800 = 18%, 500 = 5%).
 model GstRateSlab {
-  id            String   @id @default(uuid())
+  id            String  @id @default(uuid())
   /// Rate in basis points: 0 | 500 | 1200 | 1800 | 2800.
   percentageBp  Int
   /// Display label like '18%'. UI-only convenience.
   label         String
   /// 'YYYY-MM-DD' — the date this slab first applies from.
   effectiveFrom String
-  isActive      Boolean  @default(true)
+  isActive      Boolean @default(true)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -1484,18 +1484,18 @@ model HsnMaster {
 /// flips the old draft's status to 'superseded'. This keeps the audit
 /// trail contiguous even when a return is re-worked.
 model GstReturnDraft {
-  id           String @id @default(uuid())
-  gstFilingId  String
+  id          String @id @default(uuid())
+  gstFilingId String
   /// 'YYYY-MM' — mirrors GstFiling.period.
-  period       String
+  period      String
   /// GSTR-1 | GSTR-3B | GSTR-9
-  returnType   String
+  returnType  String
   /// draft | ready_to_file | submitted | filed | rejected | superseded
-  status       String @default("draft")
+  status      String @default("draft")
   /// Full return payload in GSTN-JSON shape. Kept as a String so it
   /// re-serialises byte-identically on read — critical because GSTN
   /// signs a hash of the exact bytes on submission.
-  payloadJson  String
+  payloadJson String
 
   /// Roll-up totals in paise. Duplicated out of payloadJson so lists
   /// can filter and sort without deserialising every draft.
@@ -2478,6 +2478,22 @@ model TallyCompany {
   groups         TallyGroup[]
   ledgers        TallyLedger[]
 
+  voucherTypes    TallyVoucherType[]
+  vouchers        TallyVoucher[]
+  stockGroups     TallyStockGroup[]
+  stockCategories TallyStockCategory[]
+  units           TallyUnit[]
+  godowns         TallyGodown[]
+  stockItems      TallyStockItem[]
+  statementLines  TallyBankStatementLine[]
+  reconciliations TallyBankReconciliation[]
+  taxRates        TallyTaxRate[]
+  settings        TallySetting[]
+  employees       TallyEmployee[]
+  payHeads        TallyPayHead[]
+  payrollRuns     TallyPayrollRun[]
+  backups         TallyBackup[]
+
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt
   deletedAt DateTime?
@@ -2497,8 +2513,9 @@ model TallyFinancialYear {
   endDate        String
   closed         Boolean @default(false)
 
-  company        TallyCompany  @relation(fields: [tallyCompanyId], references: [id])
-  ledgersOpening TallyLedger[] @relation("LedgerOpeningInFY")
+  company        TallyCompany   @relation(fields: [tallyCompanyId], references: [id])
+  ledgersOpening TallyLedger[]  @relation("LedgerOpeningInFY")
+  vouchers       TallyVoucher[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -2568,6 +2585,13 @@ model TallyLedger {
   group              TallyGroup          @relation(fields: [groupId], references: [id])
   openingBalanceAsOf TallyFinancialYear? @relation("LedgerOpeningInFY", fields: [openingBalanceAsOfFyId], references: [id])
 
+  entries         TallyVoucherEntry[]
+  partyVouchers   TallyVoucher[]            @relation("TallyVoucherParty")
+  allocations     TallyBillAllocation[]
+  statementLines  TallyBankStatementLine[]
+  reconciliations TallyBankReconciliation[]
+  payHeads        TallyPayHead[]
+
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt
   deletedAt DateTime?
@@ -2575,6 +2599,668 @@ model TallyLedger {
   @@unique([tallyCompanyId, name])
   @@index([tallyCompanyId])
   @@index([groupId])
+}
+
+// ============================================================
+// TALLY — accounting engine (Slice 2+): vouchers, inventory,
+// banking, GST, payroll, audit.
+// ============================================================
+//
+// THE ONE WRITER of financial state is TallyVoucher + TallyVoucherEntry,
+// written only through engine/posting.ts inside a Prisma transaction.
+// Every report (trial balance, P&L, balance sheet, outstandings, stock,
+// GST) is DERIVED from those rows plus TallyLedger opening balances —
+// nothing anywhere caches or recomputes a total by hand.
+//
+// MONEY: integer PAISE (matching TallyLedger.openingBalancePaise).
+// QUANTITY: integer MILLI-UNITS (qty x 1000) so 0.001 of a unit is
+// representable without floats.
+// DATES: calendar dates are IST-stable 'YYYY-MM-DD' strings.
+
+/// A voucher type. Seeded per company with the 17 Tally-style defaults;
+/// users may add their own (e.g. "Cash Sales") under a parent type.
+/// Numbering state lives here — `currentNumber` is bumped inside the
+/// same transaction that writes the voucher, so numbers never collide.
+model TallyVoucherType {
+  id              String  @id @default(uuid())
+  tallyCompanyId  String
+  name            String
+  /// payment | receipt | contra | journal | sales | purchase | debit_note |
+  /// credit_note | sales_order | purchase_order | quotation | delivery_note |
+  /// receipt_note | stock_journal | physical_stock | rejections_in |
+  /// rejections_out | payroll
+  code            String
+  /// auto | manual
+  numberingMethod String  @default("auto")
+  prefix          String?
+  suffix          String?
+  startNumber     Int     @default(1)
+  currentNumber   Int     @default(0)
+  /// Does this type post double-entry accounting lines?
+  affectsAccounts Boolean @default(true)
+  /// Does this type move stock?
+  affectsStock    Boolean @default(false)
+  /// Order-type vouchers (SO/PO/Quotation) record commitments only —
+  /// they post neither accounts nor stock until converted.
+  isOrder         Boolean @default(false)
+  isDefault       Boolean @default(false)
+  active          Boolean @default(true)
+
+  company  TallyCompany   @relation(fields: [tallyCompanyId], references: [id])
+  vouchers TallyVoucher[]
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  @@unique([tallyCompanyId, name])
+  @@index([tallyCompanyId, code])
+}
+
+/// A voucher — the transaction header. Accounting lines hang off
+/// TallyVoucherEntry, stock lines off TallyVoucherItem. A voucher whose
+/// type affectsAccounts is rejected at post time unless total debit ==
+/// total credit (integrity rule 1).
+model TallyVoucher {
+  id                String  @id @default(uuid())
+  tallyCompanyId    String
+  financialYearId   String
+  voucherTypeId     String
+  /// Denormalised type code so registers/filters never need the join.
+  voucherTypeCode   String
+  voucherNumber     String
+  /// 'YYYY-MM-DD', IST-stable.
+  date              String
+  referenceNumber   String?
+  referenceDate     String?
+  narration         String?
+  /// Customer / supplier / employee ledger for party-facing vouchers.
+  partyLedgerId     String?
+  /// Two-digit state code of the place of supply (GST).
+  placeOfSupply     String?
+  /// active | cancelled
+  status            String  @default("active")
+  /// Denormalised roll-ups, always written from the lines by the engine.
+  totalDebitPaise   Int     @default(0)
+  totalCreditPaise  Int     @default(0)
+  taxableValuePaise Int     @default(0)
+  cgstPaise         Int     @default(0)
+  sgstPaise         Int     @default(0)
+  igstPaise         Int     @default(0)
+  cessPaise         Int     @default(0)
+  roundOffPaise     Int     @default(0)
+  grandTotalPaise   Int     @default(0)
+  dueDate           String?
+  /// Optimistic-lock / edit counter. Every alteration writes a
+  /// TallyVoucherRevision and bumps this.
+  version           Int     @default(1)
+
+  createdByUserId   String?
+  modifiedByUserId  String?
+  cancelledByUserId String?
+  cancelledAt       DateTime?
+  cancelReason      String?
+
+  company       TallyCompany           @relation(fields: [tallyCompanyId], references: [id])
+  financialYear TallyFinancialYear     @relation(fields: [financialYearId], references: [id])
+  voucherType   TallyVoucherType       @relation(fields: [voucherTypeId], references: [id])
+  partyLedger   TallyLedger?           @relation("TallyVoucherParty", fields: [partyLedgerId], references: [id])
+  entries       TallyVoucherEntry[]
+  items         TallyVoucherItem[]
+  allocations   TallyBillAllocation[]
+  revisions     TallyVoucherRevision[]
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  @@unique([tallyCompanyId, voucherTypeId, voucherNumber])
+  @@index([tallyCompanyId, date])
+  @@index([tallyCompanyId, voucherTypeCode, date])
+  @@index([tallyCompanyId, partyLedgerId])
+  @@index([financialYearId])
+}
+
+/// One debit or credit line of a voucher. The sole source of every
+/// ledger balance in the system.
+model TallyVoucherEntry {
+  id             String  @id @default(uuid())
+  tallyCompanyId String
+  voucherId      String
+  ledgerId       String
+  /// dr | cr
+  entryType      String
+  amountPaise    Int
+  narration      String?
+  position       Int     @default(0)
+  /// Marks the party line so receivable/payable reports can find it.
+  isPartyLedger  Boolean @default(false)
+  costCentre     String?
+
+  /// Bank reconciliation state (only meaningful on bank-ledger lines).
+  bankDate            String?
+  reconciledAt        DateTime?
+  reconciledByUserId  String?
+  bankStatementLineId String?   @unique
+
+  voucher       TallyVoucher            @relation(fields: [voucherId], references: [id], onDelete: Cascade)
+  ledger        TallyLedger             @relation(fields: [ledgerId], references: [id])
+  allocations   TallyBillAllocation[]
+  statementLine TallyBankStatementLine? @relation(fields: [bankStatementLineId], references: [id])
+
+  createdAt DateTime @default(now())
+
+  @@index([tallyCompanyId, ledgerId])
+  @@index([voucherId])
+  @@index([ledgerId])
+}
+
+/// Bill-wise allocation — what an invoice creates and what a payment
+/// settles. Outstanding = sum(new) - sum(against) per bill reference.
+model TallyBillAllocation {
+  id             String  @id @default(uuid())
+  tallyCompanyId String
+  voucherId      String
+  voucherEntryId String
+  ledgerId       String
+  /// The bill reference this row is about (usually the invoice number).
+  billRef        String
+  /// new | against | advance | on_account
+  method         String
+  amountPaise    Int
+  dueDate        String?
+  /// 'YYYY-MM-DD' of the voucher, copied for ageing without a join.
+  date           String
+
+  voucher      TallyVoucher      @relation(fields: [voucherId], references: [id], onDelete: Cascade)
+  voucherEntry TallyVoucherEntry @relation(fields: [voucherEntryId], references: [id], onDelete: Cascade)
+  ledger       TallyLedger       @relation(fields: [ledgerId], references: [id])
+
+  createdAt DateTime @default(now())
+
+  @@index([tallyCompanyId, ledgerId, billRef])
+  @@index([voucherId])
+}
+
+/// A stock line of a voucher: what moved, how much, at what rate, and
+/// the tax that line carried. Stock reports read these (joined to an
+/// active voucher) — quantities are never stored as a running total.
+model TallyVoucherItem {
+  id             String  @id @default(uuid())
+  tallyCompanyId String
+  voucherId      String
+  stockItemId    String
+  godownId       String?
+  batchId        String?
+  /// in | out
+  direction      String
+  qtyMilli       Int
+  ratePaise      Int     @default(0)
+  discountPct    Int     @default(0)
+  discountPaise  Int     @default(0)
+  /// Taxable value of the line after discount.
+  amountPaise    Int     @default(0)
+  hsnCode        String?
+  /// GST rate in basis points (1800 = 18%).
+  gstRateBp      Int     @default(0)
+  cgstPaise      Int     @default(0)
+  sgstPaise      Int     @default(0)
+  igstPaise      Int     @default(0)
+  cessPaise      Int     @default(0)
+  /// Sales / purchase ledger the line's value was posted to.
+  salesLedgerId  String?
+  description    String?
+  position       Int     @default(0)
+
+  voucher   TallyVoucher     @relation(fields: [voucherId], references: [id], onDelete: Cascade)
+  stockItem TallyStockItem   @relation(fields: [stockItemId], references: [id])
+  godown    TallyGodown?     @relation(fields: [godownId], references: [id])
+  batch     TallyStockBatch? @relation(fields: [batchId], references: [id])
+
+  createdAt DateTime @default(now())
+
+  @@index([tallyCompanyId, stockItemId])
+  @@index([voucherId])
+  @@index([godownId])
+}
+
+/// Append-only history of every alteration to a voucher. Lets an
+/// auditor diff old vs new; never rewritten, never deleted from the UI.
+model TallyVoucherRevision {
+  id             String  @id @default(uuid())
+  tallyCompanyId String
+  voucherId      String
+  version        Int
+  /// created | updated | cancelled | restored | deleted
+  action         String
+  beforeJson     String?
+  afterJson      String?
+  actorUserId    String?
+  note           String?
+
+  voucher TallyVoucher @relation(fields: [voucherId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+
+  @@index([tallyCompanyId, createdAt])
+  @@index([voucherId])
+}
+
+// ── Inventory masters ────────────────────────────────────────────────
+
+model TallyStockGroup {
+  id             String  @id @default(uuid())
+  tallyCompanyId String
+  name           String
+  parentId       String?
+
+  company  TallyCompany      @relation(fields: [tallyCompanyId], references: [id])
+  parent   TallyStockGroup?  @relation("TallyStockGroupParent", fields: [parentId], references: [id])
+  children TallyStockGroup[] @relation("TallyStockGroupParent")
+  items    TallyStockItem[]
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  @@unique([tallyCompanyId, name])
+  @@index([tallyCompanyId])
+}
+
+model TallyStockCategory {
+  id             String @id @default(uuid())
+  tallyCompanyId String
+  name           String
+
+  company TallyCompany     @relation(fields: [tallyCompanyId], references: [id])
+  items   TallyStockItem[]
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  @@unique([tallyCompanyId, name])
+}
+
+model TallyUnit {
+  id             String @id @default(uuid())
+  tallyCompanyId String
+  name           String
+  /// Decimal places allowed when entering a quantity in this unit.
+  decimals       Int    @default(0)
+
+  company TallyCompany     @relation(fields: [tallyCompanyId], references: [id])
+  items   TallyStockItem[]
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  @@unique([tallyCompanyId, name])
+}
+
+model TallyGodown {
+  id             String  @id @default(uuid())
+  tallyCompanyId String
+  name           String
+  address        String?
+  parentId       String?
+
+  company  TallyCompany        @relation(fields: [tallyCompanyId], references: [id])
+  parent   TallyGodown?        @relation("TallyGodownParent", fields: [parentId], references: [id])
+  children TallyGodown[]       @relation("TallyGodownParent")
+  items    TallyVoucherItem[]
+  openings TallyStockOpening[]
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  @@unique([tallyCompanyId, name])
+}
+
+model TallyStockItem {
+  id                 String  @id @default(uuid())
+  tallyCompanyId     String
+  name               String
+  stockGroupId       String?
+  categoryId         String?
+  unitId             String?
+  hsnCode            String?
+  /// GST rate in basis points (1800 = 18%).
+  gstRateBp          Int     @default(0)
+  /// Reorder level in milli-units.
+  reorderLevelMilli  Int     @default(0)
+  standardCostPaise  Int     @default(0)
+  standardPricePaise Int     @default(0)
+  /// fifo | avg — valuation method for closing stock.
+  valuationMethod    String  @default("avg")
+  batchTracking      Boolean @default(false)
+  active             Boolean @default(true)
+
+  company      TallyCompany        @relation(fields: [tallyCompanyId], references: [id])
+  stockGroup   TallyStockGroup?    @relation(fields: [stockGroupId], references: [id])
+  category     TallyStockCategory? @relation(fields: [categoryId], references: [id])
+  unit         TallyUnit?          @relation(fields: [unitId], references: [id])
+  batches      TallyStockBatch[]
+  openings     TallyStockOpening[]
+  voucherItems TallyVoucherItem[]
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  @@unique([tallyCompanyId, name])
+  @@index([tallyCompanyId])
+}
+
+/// Opening stock per item (optionally per godown/batch). Kept separate
+/// from the item master so a multi-godown opening is representable and
+/// so closing stock is always opening + movements.
+model TallyStockOpening {
+  id              String  @id @default(uuid())
+  tallyCompanyId  String
+  stockItemId     String
+  godownId        String?
+  batchId         String?
+  financialYearId String?
+  qtyMilli        Int     @default(0)
+  ratePaise       Int     @default(0)
+  valuePaise      Int     @default(0)
+
+  stockItem TallyStockItem   @relation(fields: [stockItemId], references: [id], onDelete: Cascade)
+  godown    TallyGodown?     @relation(fields: [godownId], references: [id])
+  batch     TallyStockBatch? @relation(fields: [batchId], references: [id])
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([tallyCompanyId, stockItemId])
+}
+
+model TallyStockBatch {
+  id             String  @id @default(uuid())
+  tallyCompanyId String
+  stockItemId    String
+  name           String
+  mfgDate        String?
+  expiryDate     String?
+
+  stockItem TallyStockItem      @relation(fields: [stockItemId], references: [id], onDelete: Cascade)
+  items     TallyVoucherItem[]
+  openings  TallyStockOpening[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([stockItemId, name])
+  @@index([tallyCompanyId])
+}
+
+// ── Banking ──────────────────────────────────────────────────────────
+
+/// One line of an imported bank statement. Matching a line to a voucher
+/// entry sets both sides (entry.bankStatementLineId + line.status).
+model TallyBankStatementLine {
+  id              String    @id @default(uuid())
+  tallyCompanyId  String
+  bankLedgerId    String
+  date            String
+  description     String
+  refNumber       String?
+  debitPaise      Int       @default(0)
+  creditPaise     Int       @default(0)
+  balancePaise    Int?
+  importBatch     String?
+  /// unmatched | matched | ignored
+  status          String    @default("unmatched")
+  matchedAt       DateTime?
+  matchedByUserId String?
+
+  company    TallyCompany       @relation(fields: [tallyCompanyId], references: [id])
+  bankLedger TallyLedger        @relation(fields: [bankLedgerId], references: [id])
+  entry      TallyVoucherEntry?
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  @@index([tallyCompanyId, bankLedgerId, date])
+}
+
+/// A saved reconciliation as at a statement date — the evidence an
+/// auditor looks for: book balance, statement balance, difference.
+model TallyBankReconciliation {
+  id                    String  @id @default(uuid())
+  tallyCompanyId        String
+  bankLedgerId          String
+  statementDate         String
+  bookBalancePaise      Int
+  statementBalancePaise Int
+  differencePaise       Int
+  matchedCount          Int     @default(0)
+  unmatchedCount        Int     @default(0)
+  notes                 String?
+  reconciledByUserId    String?
+
+  company    TallyCompany @relation(fields: [tallyCompanyId], references: [id])
+  bankLedger TallyLedger  @relation(fields: [bankLedgerId], references: [id])
+
+  createdAt DateTime @default(now())
+
+  @@index([tallyCompanyId, bankLedgerId, statementDate])
+}
+
+// ── Tax configuration ────────────────────────────────────────────────
+
+/// Data-driven statutory rates. Nothing in the engine hardcodes a rate;
+/// it reads these rows (or the rate carried on the stock item / entry).
+model TallyTaxRate {
+  id             String  @id @default(uuid())
+  tallyCompanyId String
+  /// gst | tds | tcs
+  taxType        String
+  name           String
+  hsnCode        String?
+  sacCode        String?
+  /// Section code for TDS/TCS (e.g. "194J"). Never interpreted, only carried.
+  section        String?
+  /// Rate in basis points (1800 = 18%).
+  rateBp         Int     @default(0)
+  cessBp         Int     @default(0)
+  /// Annual threshold below which TDS is not deducted, in paise.
+  thresholdPaise Int?
+  effectiveFrom  String?
+  active         Boolean @default(true)
+
+  company TallyCompany @relation(fields: [tallyCompanyId], references: [id])
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  @@unique([tallyCompanyId, taxType, name])
+  @@index([tallyCompanyId, taxType])
+}
+
+/// Per-company configuration. One row per key; the value is JSON so a
+/// settings page can grow without a migration.
+model TallySetting {
+  id             String @id @default(uuid())
+  tallyCompanyId String
+  key            String
+  valueJson      String
+
+  company TallyCompany @relation(fields: [tallyCompanyId], references: [id])
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([tallyCompanyId, key])
+}
+
+// ── Payroll ──────────────────────────────────────────────────────────
+
+model TallyEmployee {
+  id                String  @id @default(uuid())
+  tallyCompanyId    String
+  name              String
+  code              String?
+  employeeGroup     String?
+  designation       String?
+  dateOfJoining     String?
+  dateOfLeaving     String?
+  pan               String?
+  bankAccountNumber String?
+  bankIfsc          String?
+  active            Boolean @default(true)
+
+  company        TallyCompany               @relation(fields: [tallyCompanyId], references: [id])
+  structureLines TallySalaryStructureLine[]
+  attendance     TallyAttendanceRecord[]
+  payrollLines   TallyPayrollLine[]
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  @@unique([tallyCompanyId, name])
+  @@index([tallyCompanyId])
+}
+
+/// A pay head — one component of a payslip, mapped to the ledger it
+/// posts to. Statutory heads (PF/ESI/PT) are ordinary rows whose rate
+/// lives in `percentBp`, so a rate change is data, not code.
+model TallyPayHead {
+  id             String  @id @default(uuid())
+  tallyCompanyId String
+  name           String
+  /// earning | deduction | employer_contribution
+  headType       String
+  /// flat | percent_of_basic | attendance
+  calcType       String  @default("flat")
+  valuePaise     Int     @default(0)
+  percentBp      Int     @default(0)
+  /// pf | esi | pt | income_tax | null
+  statutory      String?
+  /// Ledger this head posts to (salary expense, PF payable, ...).
+  ledgerId       String?
+  active         Boolean @default(true)
+
+  company        TallyCompany               @relation(fields: [tallyCompanyId], references: [id])
+  ledger         TallyLedger?               @relation(fields: [ledgerId], references: [id])
+  structureLines TallySalaryStructureLine[]
+  payrollLines   TallyPayrollLine[]
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  @@unique([tallyCompanyId, name])
+}
+
+model TallySalaryStructureLine {
+  id             String  @id @default(uuid())
+  tallyCompanyId String
+  employeeId     String
+  payHeadId      String
+  valuePaise     Int     @default(0)
+  percentBp      Int     @default(0)
+  effectiveFrom  String?
+
+  employee TallyEmployee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  payHead  TallyPayHead  @relation(fields: [payHeadId], references: [id])
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([employeeId, payHeadId])
+  @@index([tallyCompanyId])
+}
+
+model TallyAttendanceRecord {
+  id             String @id @default(uuid())
+  tallyCompanyId String
+  employeeId     String
+  /// 'YYYY-MM'
+  period         String
+  payableDays    Int    @default(0)
+  presentDays    Int    @default(0)
+  lopDays        Int    @default(0)
+
+  employee TallyEmployee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([employeeId, period])
+  @@index([tallyCompanyId, period])
+}
+
+model TallyPayrollRun {
+  id                String  @id @default(uuid())
+  tallyCompanyId    String
+  /// 'YYYY-MM'
+  period            String
+  /// draft | processed | posted
+  status            String  @default("draft")
+  grossPaise        Int     @default(0)
+  deductionsPaise   Int     @default(0)
+  netPaise          Int     @default(0)
+  /// The salary journal this run posted, once posted.
+  voucherId         String?
+  processedByUserId String?
+
+  company TallyCompany       @relation(fields: [tallyCompanyId], references: [id])
+  lines   TallyPayrollLine[]
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  @@unique([tallyCompanyId, period])
+}
+
+model TallyPayrollLine {
+  id             String @id @default(uuid())
+  tallyCompanyId String
+  payrollRunId   String
+  employeeId     String
+  payHeadId      String
+  /// earning | deduction | employer_contribution
+  headType       String
+  amountPaise    Int
+
+  run      TallyPayrollRun @relation(fields: [payrollRunId], references: [id], onDelete: Cascade)
+  employee TallyEmployee   @relation(fields: [employeeId], references: [id])
+  payHead  TallyPayHead    @relation(fields: [payHeadId], references: [id])
+
+  createdAt DateTime @default(now())
+
+  @@index([payrollRunId])
+  @@index([tallyCompanyId, employeeId])
+}
+
+// ── Backup ───────────────────────────────────────────────────────────
+
+/// A point-in-time JSON snapshot of one company's data. Restoring is an
+/// explicit, permissioned action that never runs without confirmation.
+model TallyBackup {
+  id              String  @id @default(uuid())
+  tallyCompanyId  String
+  label           String
+  /// Full JSON payload of the company's masters + vouchers.
+  payloadJson     String
+  sizeBytes       Int     @default(0)
+  voucherCount    Int     @default(0)
+  ledgerCount     Int     @default(0)
+  createdByUserId String?
+
+  company TallyCompany @relation(fields: [tallyCompanyId], references: [id])
+
+  createdAt DateTime @default(now())
+
+  @@index([tallyCompanyId, createdAt])
 }
 
 // ============================================================
