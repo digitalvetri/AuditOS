@@ -12,8 +12,16 @@ import { Card, PageHeader } from '@/modules/workstation/components';
 import { KIND_TINT, registrationBySlug } from './services';
 import { RegistrationRunPanel } from './RegistrationRunPanel';
 
-export function RegistrationServiceDetail() {
-  const { slug } = useParams();
+/**
+ * `slug` and `embedded` are for the GST shell, which mounts this at the
+ * literal path `registration/gst` — there is no `:slug` param to read there,
+ * and the shell already supplies the back link and page padding.
+ */
+export function RegistrationServiceDetail({
+  slug: slugProp, embedded = false,
+}: { slug?: string; embedded?: boolean } = {}) {
+  const { slug: slugParam } = useParams();
+  const slug = slugProp ?? slugParam;
   const service = registrationBySlug(slug);
 
   if (!service) {
@@ -38,14 +46,16 @@ export function RegistrationServiceDetail() {
   const tint = KIND_TINT[service.kind];
 
   return (
-    <div className="m-page space-y-4">
-      <Link
-        to="/workstation/services/registration"
-        className="inline-flex items-center gap-1 min-h-[44px] md:min-h-0 text-13 text-neutral-500 hover:text-neutral-900"
-      >
-        <ChevronLeft size={16} strokeWidth={2} />
-        Registration
-      </Link>
+    <div className={embedded ? 'space-y-4' : 'm-page space-y-4'}>
+      {embedded ? null : (
+        <Link
+          to="/workstation/services/registration"
+          className="inline-flex items-center gap-1 min-h-[44px] md:min-h-0 text-13 text-neutral-500 hover:text-neutral-900"
+        >
+          <ChevronLeft size={16} strokeWidth={2} />
+          Registration
+        </Link>
+      )}
 
       <header className="flex items-start gap-4">
         <span

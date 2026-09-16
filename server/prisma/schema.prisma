@@ -1473,8 +1473,25 @@ model GstProfile {
   lastFiledAt        DateTime?
   nextDueDate        String?
 
+  // ── GST compliance service (§11) ────────────────────────────────────
+  /// Legal name as printed on the certificate, when it differs from the
+  /// client's trading name.
+  legalName          String?
+  pan                String?
+  state              String?
+  /// regular | composition | casual | isd | sez | non_resident
+  registrationType   String  @default("regular")
+  /// The second pair of eyes on this client's returns (§21).
+  reviewerEmployeeId String?
+  contactPerson      String?
+  contactEmail       String?
+  contactPhone       String?
+  address            String?
+  active             Boolean @default(true)
+
   client  Client      @relation(fields: [clientId], references: [id])
   filings GstFiling[]
+  periods GstCompliancePeriod[]
 
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt
@@ -1499,8 +1516,38 @@ model GstFiling {
   arn                String?
   remarks            String?
 
-  gstProfile GstProfile       @relation(fields: [gstProfileId], references: [id])
-  drafts     GstReturnDraft[]
+  // ── GST compliance service ──────────────────────────────────────────
+  /// The period this filing belongs to. NULLABLE because rows written
+  /// before the compliance service have no period row; the service
+  /// backfills one on first touch and never orphans an existing filing.
+  compliancePeriodId String?
+  financialYear      String?
+  reviewerEmployeeId String?
+  preparedAt         DateTime?
+  reviewedAt         DateTime?
+
+  /// Declared figures, paise. GSTR-1 uses the first two; GSTR-3B uses the
+  /// liability trio. All nullable — a filing is a lifecycle row first and
+  /// carries numbers only once prepared.
+  taxableValue  BigInt?
+  taxAmount     BigInt?
+  taxLiability  BigInt?
+  eligibleItc   BigInt?
+  netPayable    BigInt?
+
+  /// §31: filing is RECORDED, never transmitted. Audit OS has no GSTN
+  /// connectivity, so `filedManually` is true for every filed row and the
+  /// screens say so rather than implying an automated submission.
+  filedManually  Boolean @default(true)
+  filedByUserId  String?
+  /// not_applicable | pending | completed
+  paymentStatus  String  @default("not_applicable")
+  paymentDate    String?
+  challanRef     String?
+
+  gstProfile       GstProfile           @relation(fields: [gstProfileId], references: [id])
+  compliancePeriod GstCompliancePeriod? @relation(fields: [compliancePeriodId], references: [id])
+  drafts           GstReturnDraft[]
 
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt
@@ -1510,6 +1557,8 @@ model GstFiling {
 
   @@unique([gstProfileId, period, returnType])
   @@index([status])
+  @@index([compliancePeriodId])
+  @@index([dueDate])
 }
 
 // ============================================================
@@ -1695,6 +1744,302 @@ model GstLiabilitySnapshot {
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+}
+
+// ============================================================
+// GST COMPLIANCE SERVICE
+// ============================================================
+// Workstation → Services → Registration → GST Registration.
+//
+// The spine is GstProfile (one per client, already above) →
+// GstCompliancePeriod (one per financial year + tax period) → the four
+// stages. GSTR-1 and GSTR-3B are NOT new tables: they are the existing
+// GstFiling rows, keyed by returnType, now pointed at their period. A
+// second returns table would have split the firm's filings across two
+// engines, which is the same mistake the Task module avoided.
+//
+// Money is BigInt paise throughout, matching GstLiabilitySnapshot above.
+// Employee ids are plain Strings with no relation, matching GstFiling —
+// this module adds no relation to Employee.
+
+/// One client's compliance obligation for one tax period. Everything a
+/// period needs hangs off this row, so a client/period can never be read
+/// across into another client's numbers.
+model GstCompliancePeriod {
+  id           String @id @default(uuid())
+  gstProfileId String
+  /// '2026-27' — never hardcoded anywhere; derived from the period.
+  financialYear String
+  /// 'YYYY-MM' for monthly, 'YYYY-Q1'..'YYYY-Q4' for quarterly filers.
+  period        String
+  /// monthly | quarterly — copied from the profile at creation so a later
+  /// change of frequency does not silently rewrite closed periods.
+  periodType    String @default("monthly")
+
+  /// DERIVED (§29), recomputed by the engine — never written by a client.
+  /// not_started | in_progress | completed | overdue | exception
+  overallStatus String @default("not_started")
+  /// The earliest unmet stage due date, for calendar and sorting (§30).
+  nextDueDate   String?
+
+  assignedEmployeeId String?
+  reviewerEmployeeId String?
+  managerEmployeeId  String?
+
+  gstProfile     GstProfile           @relation(fields: [gstProfileId], references: [id])
+  filings        GstFiling[]
+  r2b            GstR2BRecord?
+  reconciliation GstReconciliation?
+  exceptions     GstException[]
+  assignments    GstAssignment[]
+  auditLogs      GstAuditLog[]
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  createdBy String?
+  updatedBy String?
+  deletedAt DateTime?
+
+  @@unique([gstProfileId, financialYear, period])
+  @@index([overallStatus])
+  @@index([nextDueDate])
+  @@index([financialYear, period])
+  @@index([assignedEmployeeId])
+  @@index([reviewerEmployeeId])
+}
+
+/// GSTR-2B (§14). NOT a return anyone files — it is the auto-drafted ITC
+/// statement, so its vocabulary is available/downloaded/reconciled and it
+/// has no `filed` state and no ARN. One per compliance period.
+model GstR2BRecord {
+  id                 String @id @default(uuid())
+  compliancePeriodId String @unique
+
+  /// pending | expected | available | downloaded | reconciliation_pending |
+  /// reconciliation_in_progress | reconciliation_completed | exceptions_found
+  status        String @default("pending")
+  availableDate String?
+  downloadDate  String?
+
+  /// ITC in paise, as read from the 2B statement.
+  totalItcCgst BigInt @default(0)
+  totalItcSgst BigInt @default(0)
+  totalItcIgst BigInt @default(0)
+  totalItcCess BigInt @default(0)
+  /// Roll-ups the reconciliation writes back, so a list can show the split
+  /// without joining the item table.
+  matchedItc   BigInt @default(0)
+  mismatchItc  BigInt @default(0)
+
+  missingInvoiceCount   Int @default(0)
+  duplicateInvoiceCount Int @default(0)
+  exceptionCount        Int @default(0)
+
+  /// The Tools-side 2B upload this was read from, when one exists.
+  sourceFiling2BId String?
+  remarks          String?
+
+  compliancePeriod GstCompliancePeriod @relation(fields: [compliancePeriodId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  createdBy String?
+  updatedBy String?
+  deletedAt DateTime?
+
+  @@index([status])
+}
+
+/// Books-vs-2B reconciliation for one period (§15/§16).
+///
+/// The MATCHING ITSELF is not reimplemented here. Tools already owns a
+/// working engine (AaGstReconJob / GstMatchingService / the 2B parsers);
+/// `reconJobId` points at that run and this row is the GST service's
+/// summary of it. Items are copied into GstReconciliationItem as a working
+/// paper so a reviewer's decision has somewhere to live — the accounting
+/// records themselves stay in Books/Tally and are never duplicated.
+model GstReconciliation {
+  id                 String @id @default(uuid())
+  compliancePeriodId String @unique
+
+  /// pending | in_progress | completed | completed_with_exceptions
+  status String @default("pending")
+  /// The Tools-side run this summarises. Null until a run is attached.
+  reconJobId String?
+
+  totalInvoices Int @default(0)
+  matchedCount  Int @default(0)
+  partialCount  Int @default(0)
+  mismatchCount Int @default(0)
+  missingInBooksCount Int @default(0)
+  missingIn2BCount    Int @default(0)
+  duplicateCount      Int @default(0)
+  reviewRequiredCount Int @default(0)
+
+  /// Paise. booksItc − twoBItc is the §16 ITC difference, kept as stored
+  /// columns so the dashboard aggregates in the database, not the browser.
+  booksItc     BigInt @default(0)
+  twoBItc      BigInt @default(0)
+  matchedItc   BigInt @default(0)
+  mismatchItc  BigInt @default(0)
+  missingItc   BigInt @default(0)
+
+  startedAt   DateTime?
+  completedAt DateTime?
+  remarks     String?
+
+  compliancePeriod GstCompliancePeriod       @relation(fields: [compliancePeriodId], references: [id], onDelete: Cascade)
+  items            GstReconciliationItem[]
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  createdBy String?
+  updatedBy String?
+  deletedAt DateTime?
+
+  @@index([status])
+}
+
+/// One invoice line of a reconciliation — the working paper a reviewer
+/// acts on. Both sides are held side by side so a mismatch shows WHAT
+/// differs, not merely that something does.
+model GstReconciliationItem {
+  id               String @id @default(uuid())
+  reconciliationId String
+
+  /// matched | partial_match | mismatch | missing_in_books |
+  /// missing_in_2b | duplicate | review_required
+  matchStatus String
+
+  supplierGstin String?
+  invoiceNumber String?
+  invoiceDate   String?
+
+  /// Books side (paise). Null when the invoice is missing in books.
+  booksTaxable BigInt?
+  booksCgst    BigInt?
+  booksSgst    BigInt?
+  booksIgst    BigInt?
+  booksTotal   BigInt?
+
+  /// GSTR-2B side (paise). Null when the invoice is missing in 2B.
+  twoBTaxable BigInt?
+  twoBCgst    BigInt?
+  twoBSgst    BigInt?
+  twoBIgst    BigInt?
+  twoBTotal   BigInt?
+
+  /// Signed books − 2B on total tax, so a list can sort by worst first.
+  taxDifference BigInt @default(0)
+
+  /// open | accepted | disputed | resolved — the reviewer's decision.
+  reviewStatus   String  @default("open")
+  reviewNote     String?
+  reviewedBy     String?
+  reviewedAt     DateTime?
+
+  reconciliation GstReconciliation @relation(fields: [reconciliationId], references: [id], onDelete: Cascade)
+  exceptions     GstException[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([reconciliationId, matchStatus])
+  @@index([reconciliationId, reviewStatus])
+  @@index([supplierGstin])
+  @@index([invoiceNumber])
+}
+
+/// An exception raised anywhere in the cycle (§25). Optionally points at
+/// the reconciliation line that produced it, so "mismatch ₹12,000" can be
+/// clicked through to the invoice.
+model GstException {
+  id                 String  @id @default(uuid())
+  compliancePeriodId String
+  reconciliationItemId String?
+
+  /// gstr1 | gstr2b | reconciliation | gstr3b | payment
+  stage String
+  /// missing_gstr1_data | gstr2b_unavailable | invoice_mismatch |
+  /// itc_mismatch | missing_invoice | duplicate_invoice | gstin_mismatch |
+  /// tax_calculation_mismatch | gstr3b_pending | payment_pending
+  issueType String
+  /// low | medium | high | critical
+  severity  String @default("medium")
+  title       String
+  description String?
+
+  /// open | under_review | resolved
+  status       String @default("open")
+  assignedToEmployeeId String?
+  dueDate      String?
+  resolution   String?
+  resolvedBy   String?
+  resolvedAt   DateTime?
+
+  compliancePeriod   GstCompliancePeriod    @relation(fields: [compliancePeriodId], references: [id], onDelete: Cascade)
+  reconciliationItem GstReconciliationItem? @relation(fields: [reconciliationItemId], references: [id], onDelete: SetNull)
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  createdBy String?
+  updatedBy String?
+  deletedAt DateTime?
+
+  @@index([compliancePeriodId, status])
+  @@index([status, severity])
+  @@index([assignedToEmployeeId])
+}
+
+/// Every assignment ever made on a period (§21) — append-only, so "who was
+/// on this in September" survives a later reassignment.
+model GstAssignment {
+  id                 String @id @default(uuid())
+  compliancePeriodId String
+
+  /// preparer | reviewer | approver
+  role       String
+  employeeId String
+  /// gstr1 | gstr2b | reconciliation | gstr3b | period — what they own.
+  stage      String @default("period")
+
+  assignedByUserId String?
+  assignedAt       DateTime  @default(now())
+  /// Set when superseded; a null unassignedAt is the assignment in force.
+  unassignedAt     DateTime?
+
+  compliancePeriod GstCompliancePeriod @relation(fields: [compliancePeriodId], references: [id], onDelete: Cascade)
+
+  @@index([compliancePeriodId, role])
+  @@index([employeeId, unassignedAt])
+}
+
+/// Append-only audit trail (§32). No update path and no delete path to
+/// this table exists anywhere in the module.
+model GstAuditLog {
+  id                 String  @id @default(uuid())
+  compliancePeriodId String?
+  gstProfileId       String?
+
+  /// GST_CLIENT_CREATED | GSTR1_FILED | GSTR2B_DOWNLOADED |
+  /// RECONCILIATION_COMPLETED | EXCEPTION_RESOLVED | PAYMENT_RECORDED | …
+  action String
+  /// gstr1 | gstr2b | reconciliation | gstr3b | payment | client | period
+  stage  String?
+
+  performedByUserId     String?
+  performedByEmployeeId String?
+  oldValue String?
+  newValue String?
+  metaJson String?
+
+  compliancePeriod GstCompliancePeriod? @relation(fields: [compliancePeriodId], references: [id], onDelete: Cascade)
+
+  performedAt DateTime @default(now())
+
+  @@index([compliancePeriodId, performedAt])
+  @@index([gstProfileId, performedAt])
+  @@index([action])
 }
 
 /// SIMULATED (§7.3 / §15). `isSimulated` defaults true and every response and
