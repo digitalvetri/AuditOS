@@ -88,6 +88,9 @@ export type PermissionCode =
   | 'workstation.document.read'
   | 'workstation.document.manage'
   | 'workstation.document.verify'
+  | 'workstation.task.read'
+  | 'workstation.task.manage'
+  | 'workstation.task.report'
   | 'workstation.gst.read'
   | 'workstation.gst.manage'
   | 'workstation.eway.read'
@@ -183,6 +186,7 @@ export const MATRIX: Record<RoleCode, Grant[]> = {
     // Workstation: assignment-scoped. `self` here means "rows assigned
     // to me" — resolved by assignedClientIds(), never a post-fetch filter.
     { permission: 'workstation.access', scope: 'self' },
+    { permission: 'workstation.task.read', scope: 'self' },
     { permission: 'workstation.lead.read', scope: 'self' },
     { permission: 'workstation.lead.manage', scope: 'self' },
     { permission: 'workstation.client.read', scope: 'self' },
@@ -260,6 +264,9 @@ export const MATRIX: Record<RoleCode, Grant[]> = {
     { permission: 'reports.hr', scope: 'department' },
     // Workstation: full operational access (§14 Operations Manager / MD).
     { permission: 'workstation.access', scope: 'organisation' },
+    { permission: 'workstation.task.read', scope: 'organisation' },
+    { permission: 'workstation.task.manage', scope: 'organisation' },
+    { permission: 'workstation.task.report', scope: 'organisation' },
     { permission: 'workstation.lead.read', scope: 'organisation' },
     { permission: 'workstation.lead.manage', scope: 'organisation' },
     { permission: 'workstation.lead.convert', scope: 'organisation' },
@@ -408,6 +415,9 @@ export const MATRIX: Record<RoleCode, Grant[]> = {
     { permission: 'settings.manage', scope: 'organisation' },
     // Workstation: full operational access (§14 Operations Manager / MD).
     { permission: 'workstation.access', scope: 'organisation' },
+    { permission: 'workstation.task.read', scope: 'organisation' },
+    { permission: 'workstation.task.manage', scope: 'organisation' },
+    { permission: 'workstation.task.report', scope: 'organisation' },
     { permission: 'workstation.lead.read', scope: 'organisation' },
     { permission: 'workstation.lead.manage', scope: 'organisation' },
     { permission: 'workstation.lead.convert', scope: 'organisation' },

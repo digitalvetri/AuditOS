@@ -44,6 +44,7 @@ import { gstRouter } from './modules/audit-automation/gst.routes.js'
 import { tdsRouter } from './modules/audit-automation/tds.routes.js'
 // Tally — native double-entry accounting module (foundation slice).
 import { tallyRouter } from './modules/tally/routes.js'
+import { tasksRouter } from './modules/task/routes.js'
 // Books — native bookkeeping, one set of books per client (docs/accounting-module).
 import { booksRouter } from './modules/books/routes.js'
 
@@ -169,6 +170,8 @@ export function createApp() {
 
   // ── Tally (native double-entry accounting) ─────────────────────────────
   app.use('/api/tally', tallyRouter)
+  // Workstation → Task: assignment plus server-side work-time tracking.
+  app.use('/api/tasks', tasksRouter)
 
   // ── Books ──────────────────────────────────────────────────────────────
   app.use('/api/books', booksRouter)

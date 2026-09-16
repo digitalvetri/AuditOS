@@ -354,6 +354,11 @@ model Employee {
   // RESERVED FOR WORKSTATION — nullable from day one, no UI in this phase.
   weeklyCapacityHours Float?
 
+  // Task module back-relations (Workstation → Task).
+  assignedTasks Task[]            @relation("TaskAssignee")
+  raisedTasks   Task[]            @relation("TaskAssigner")
+  taskSessions  TaskTimeSession[]
+
   photoUrl              String?
   address               String?
   emergencyContactName  String?
@@ -1204,7 +1209,11 @@ model ClientService {
 
 model Task {
   id                  String  @id @default(uuid())
-  clientId            String
+  /// NULLABLE since the Task module: an internal task ("prepare the
+  /// month-end pack") belongs to an employee, not to a client. Every
+  /// pre-existing row still carries its client.
+  clientId            String?
+  /// The engagement a task belongs to — Workstation's "project".
   clientServiceId     String?
   /// Set when the task was raised from an Incorporation case. Nullable, so
   /// every existing Task row is untouched — this EXTENDS the one task engine
@@ -1214,12 +1223,37 @@ model Task {
   description         String?
   assignedEmployeeId  String
   dueDate             String?
-  /// open | in_progress | blocked | done
+  /// pending | in_progress | paused | completed | cancelled
+  /// Rows written before the Task module carry the legacy vocabulary
+  /// (open | blocked | done); reads normalise it, writes never emit it.
   status              String  @default("open")
 
-  client            Client             @relation(fields: [clientId], references: [id])
+  // ── Task module (work-time tracking) ────────────────────────────────
+  /// low | medium | high | urgent
+  priority          String    @default("medium")
+  /// The employee who raised/assigned it. Null on rows created before this.
+  assignedById      String?
+  estimatedMinutes  Int?
+  /// DERIVED, never user-entered: the sum of closed work sessions.
+  actualMinutes     Int       @default(0)
+  /// DERIVED: elapsed wall-clock time minus actual work time.
+  totalPauseMinutes Int       @default(0)
+  /// Server timestamp of the FIRST start. Not reset by pause/resume.
+  startedAt         DateTime?
+  endedAt           DateTime?
+  completedAt       DateTime?
+  cancelledAt       DateTime?
+  cancelReason      String?
+  notes             String?
+  attachmentUrl     String?
+
+  client            Client?            @relation(fields: [clientId], references: [id])
   clientService     ClientService?     @relation(fields: [clientServiceId], references: [id])
   incorporationCase IncorporationCase? @relation(fields: [incorporationCaseId], references: [id], onDelete: SetNull)
+  assignedEmployee  Employee           @relation("TaskAssignee", fields: [assignedEmployeeId], references: [id])
+  assignedBy        Employee?          @relation("TaskAssigner", fields: [assignedById], references: [id])
+  sessions          TaskTimeSession[]
+  auditLogs         TaskAuditLog[]
 
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt
@@ -1230,6 +1264,68 @@ model Task {
   @@index([clientId])
   @@index([assignedEmployeeId])
   @@index([incorporationCaseId])
+  @@index([status])
+  @@index([dueDate])
+  @@index([assignedEmployeeId, status])
+  @@index([createdAt])
+}
+
+/// One stretch of work on a task. A task accumulates many of these; the
+/// sum of their closed durations IS the task's actual work time, so the
+/// number on screen can always be walked back to the sessions that made it.
+///
+/// An OPEN session (endedAt null) is the one being worked right now. The
+/// partial unique index in prisma/sql/task-invariants.sql makes a second
+/// open session on the same task impossible at the database, which is what
+/// makes a double-clicked Start button harmless.
+model TaskTimeSession {
+  id              String    @id @default(uuid())
+  taskId          String
+  employeeId      String
+  /// Server clock, always. A client-supplied timestamp is never accepted.
+  startedAt       DateTime  @default(now())
+  endedAt         DateTime?
+  /// Whole minutes, written when the session closes. Null while open.
+  durationMinutes Int?
+  /// work — the only kind recorded. Pause is the ABSENCE of an open work
+  /// session, and is derived, so a pause can never be double-counted.
+  sessionType     String    @default("work")
+  /// start | resume — why this session opened.
+  openedBy        String    @default("start")
+  /// pause | complete | cancel — why it closed. Null while open.
+  closedBy        String?
+
+  task     Task     @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  employee Employee @relation(fields: [employeeId], references: [id])
+
+  createdAt DateTime @default(now())
+
+  @@index([taskId])
+  @@index([employeeId, startedAt])
+  @@index([taskId, endedAt])
+}
+
+/// Append-only history of everything that happened to a task. There is no
+/// update path and no delete path to this table anywhere in the module.
+model TaskAuditLog {
+  id                    String  @id @default(uuid())
+  taskId                String
+  /// task_created | task_assigned | task_reassigned | task_edited |
+  /// task_started | task_paused | task_resumed | task_completed |
+  /// task_cancelled | task_reopened
+  action                String
+  performedByUserId     String?
+  performedByEmployeeId String?
+  oldStatus             String?
+  newStatus             String?
+  metaJson              String?
+
+  task Task @relation(fields: [taskId], references: [id], onDelete: Cascade)
+
+  performedAt DateTime @default(now())
+
+  @@index([taskId, performedAt])
+  @@index([performedByEmployeeId])
 }
 
 /// ONE follow-up entity for BOTH leads and clients (§3). Exactly one of

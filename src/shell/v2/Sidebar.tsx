@@ -17,8 +17,8 @@ import {
   BarChart3,
   BookOpen,
   Briefcase,
-  CalendarDays,
   Calculator,
+  CalendarDays,
   ChevronDown,
   ChevronsLeft,
   ChevronsRight,
@@ -30,6 +30,7 @@ import {
   IndianRupee,
   Landmark,
   LayoutGrid,
+  ListChecks,
   MessageSquare,
   PhoneCall,
   ReceiptIndianRupee,
@@ -119,6 +120,7 @@ export function Sidebar({ mobileOpen, onMobileClose }: Props) {
               label: r.name,
             })) },
         ] },
+      { to: '/workstation/tasks',       label: 'Task',       icon: ListChecks,    visible: can(role, 'workstation.task.read', 'self') },
       { to: '/workstation/documents',   label: 'Documents',  icon: FolderKanban,  visible: can(role, 'workstation.document.read', 'self') },
     ];
     // TOOLS is one labelled section — a sibling of Workstation — holding

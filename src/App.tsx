@@ -17,6 +17,9 @@ import { ClientWorkspacePage } from '@/pages/workstation/ClientWorkspace';
 import { ServicesPage } from '@/pages/workstation/Services';
 import { FollowUpsPage } from '@/pages/workstation/FollowUps';
 import { DocumentsPage as WorkstationDocumentsPage } from '@/pages/workstation/Documents';
+import { TaskListPage } from '@/pages/workstation/tasks/TaskList';
+import { TaskDetailPage } from '@/pages/workstation/tasks/TaskDetail';
+import { TaskReportsPage } from '@/pages/workstation/tasks/TaskReports';
 // Tools (Converters & Utilities) — registry-driven; /tools/:toolId is one
 // shared workspace and /tools/documents the output history.
 import { ToolsPage } from '@/pages/tools/Tools';
@@ -250,6 +253,11 @@ export default function App() {
               <Route path="workstation/services/:category" element={<ServicesPage />} />
               <Route path="workstation/follow-ups" element={<FollowUpsPage />} />
               <Route path="workstation/documents" element={<WorkstationDocumentsPage />} />
+
+              {/* Workstation → Task: assignment plus server-tracked work time. */}
+              <Route path="workstation/tasks" element={<TaskListPage />} />
+              <Route path="workstation/tasks/reports" element={<TaskReportsPage />} />
+              <Route path="workstation/tasks/:taskId" element={<TaskDetailPage />} />
               <Route path="tools" element={<ToolsPage />} />
               <Route path="tools/documents" element={<ToolDocumentsPage />} />
               <Route path="tools/:toolId" element={<ToolWorkspacePage />} />
