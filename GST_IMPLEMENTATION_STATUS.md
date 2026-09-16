@@ -12,14 +12,111 @@ Not under Tools. Not under Workstation → Services → GST (the existing
 
 ## Current phase
 
-**Phase 1 (re-run under the revised spec) — old-GST inspection — COMPLETE.**
+**Mobile pass — COMPLETE (§45).**
+
+GST does NOT use the shared table-to-card transform on phones. That transform
+renders every column as a label/value line — eleven of them for GSTR-3B, 369px
+per client, with nothing marking where one client ends and the next begins.
+
+`GstMobileCard.tsx` replaces it below 768px: one bordered card per client with
+a 12px gap between, carrying four things only — the client name as the
+headline, GSTIN + period muted beneath, the stage status and due date on one
+line, and at most three figures that decide what to do next (GSTR-3B shows net
+payable, liability, assignee; GSTR-2B shows ITC and reconciliation state). The
+desktop tables are rendered inside `hidden md:block` and are untouched.
+
+**369px → 137px per client**, verified at 320 and 390px, no horizontal
+overflow, table correctly hidden on mobile and cards correctly hidden above
+768px.
+
+Also fixed in this pass: `sm:` breakpoints replaced with `md:` (this project's
+mobile layer is `max-width: 767px`, so `sm:` was giving a 700px tablet the
+phone layout), and the three dashboard stage cards gained a mobile grid — four
+tiles in 350px had been breaking "Reconciled" into "Reconcile d". Touch
+targets: of 21 elements under 44px only one was GST's, fixed with a `.m-gst`
+scoped rule so other modules' filter bars keep their own metrics.
+
+**Previously: the write layer — COMPLETE.** GST is no longer read-only: every stage can
+be advanced, every figure entered, filings and payments recorded, and people
+assigned. Covers P11 (assignment) and the workflow halves of P6/P7/P9.
+
+### What became editable
+
+`GstPeriodDetail.tsx` at `periods/:periodId` is the §27 client detail and the
+one place work happens — every list row navigates to it. **That route did not
+exist before this pass: the tables navigated to it and hit nothing.**
+
+- **Update** on each stage card: status dropdown in workflow order, plus that
+  stage's figures (GSTR-1 taxable value/tax; GSTR-3B liability/ITC/net
+  payable; GSTR-2B available and download dates, ITC).
+- Choosing **Filed** reveals ARN + filing date, above the line *"Audit OS does
+  not file returns. File on the GST portal, then record the acknowledgement
+  here."* (§42)
+- **Record payment** — date and challan reference.
+- **Edit assignment** — preparer and reviewer, from the real employee list.
+- **Activity** — the §39 audit trail, read-only by construction.
+
+Server (`validate.ts` + write routes on `/api/gst`), all requiring
+`workstation.gst.manage` and re-checking client scope from the session rather
+than trusting the URL (§41). Verified by API probe:
+
+| Attempt | Result |
+|---|---|
+| GSTR-1 `pending → filed` | rejected — "must be reviewed and ready" |
+| `filed` with no ARN | rejected — "An ARN is required" |
+| proper prepare → review → file with ARN | accepted |
+| GSTR-2B → `filed` | rejected — "not a GSTR-2B status" (§15) |
+
+Two vocabularies coexist: the 45 pre-existing `GstFiling` rows carry the older
+words (`not_started`, `data_preparation`, `failed`), normalised on read;
+writes only ever emit the spec's vocabulary. Same approach as the Task module.
+
+Every write appends a `GstAuditLog` row — confirmed in the database after
+driving the UI: `GSTR1_UPDATED pending → data_collection`, `GSTR1_FILED
+under_review → filed`, `GSTR2B_AVAILABLE`.
+
+### Bug fixed
+
+`GstServicesLanding.tsx` nested the portal `<a>` inside the row `<Link>` —
+invalid HTML, and the only console error anywhere in the app. The two are now
+siblings, with the row link taking `flex-1` where the old spacer was. All 12
+service rows and 12 portal links still render. Pre-existing, unrelated to GST
+compliance, fixed because it was the one error present.
+
+**Previously:** Phases 6, 7 and 9 — the GSTR-1 / GSTR-2B / GSTR-3B work sections.
+
+Previously: **Phase 1 (re-run under the revised spec) — old-GST inspection — COMPLETE.**
 Next: **Phase 2 — remove/replace the old GST.** BLOCKED pending the user's
 decision on the removal list below; nothing has been deleted.
 
-Phase numbering follows the revised spec (§47). Work already finished maps to
-it as: **P3 database schema — done**, **P4 client + period management — done**,
-**P5 central dashboard — partially done** (summary cards, central table and
-drill-down exist; Today's Work queues per §8–§10 are not built yet).
+Phase numbering follows the revised spec (§47). Done so far: **P1** inspection,
+**P3** database schema, **P4** client + period management, **P5** central
+dashboard *(partial — the §8–§10 Today's Work queues are still missing)*,
+**P6** GSTR-1, **P7** GSTR-2B, **P9** GSTR-3B.
+
+### P6 / P7 / P9 — the three work sections
+
+`GET /api/gst/stages/:stage` (gstr1 | gstr2b | gstr3b) returns a stage-specific
+summary AND the client list, counted over the whole filtered set rather than
+the current page. One handler serves all three: they differ only in summary
+keys and columns, and three copies would have meant three places to fix a
+due-date rule.
+
+`GstStagePage.tsx` renders them. The summary tiles ARE the filter — clicking
+"Overdue" narrows the list below instead of opening another screen, so a count
+and its names can never disagree (§38 drill-down).
+
+Columns follow the spec exactly: §12 for GSTR-1 (FY, period, due, days, ARN),
+§14 for GSTR-2B (available date, ITC, reconciliation status — **no due date
+column and no ARN**), §19 for GSTR-3B (liability, eligible ITC, net payable,
+payment status).
+
+Verified in a browser: **the string "Filed" appears 0 times on the GSTR-2B
+page** (§15), and all three render with live counts and 25 rows each.
+
+Money columns on GSTR-3B currently show "—" because no liability or ITC has
+been entered yet. That is honest empty state, not a bug: the columns populate
+when Phase 9's data-entry actions are built.
 
 ---
 
@@ -151,11 +248,16 @@ verified after: Client 13, GstProfile 9, GstFiling 45, Task 3 — unchanged.
 
 ## Remaining
 
-Phase 3 client + period management · Phase 4 dashboard · Phase 5 GSTR-1 ·
-Phase 6 GSTR-2B · Phase 7 reconciliation · Phase 8 GSTR-3B · Phase 9
-calendar/due dates · Phase 10 assignment · Phase 11 Task integration ·
-Phase 12 exceptions · Phase 13 reports · Phase 14 audit trail · Phase 15
-search/filters/drill-down · Phase 16 testing · Phase 17 UI + performance.
+**P2 remove the old GST** (blocked on the user's decision) · **P5 finish** —
+the §8–§10 Today's Work queues and today's client list · **P8**
+reconciliation · **P10** compliance calendar · **P11** employee/reviewer
+assignment · **P12** Task integration · **P13** exceptions · **P14** reports ·
+**P15** search/filter refinement · **P16** audit trail · **P17** permissions ·
+**P18** testing · **P19** performance + UI polish.
+
+Known performance item for P19: the stage endpoint tallies its summary from a
+lean projection of the filtered set rather than SQL aggregates. Correct, and
+fine at today's 27 periods, but §46 wants database aggregation at thousands.
 
 ## Database changes
 

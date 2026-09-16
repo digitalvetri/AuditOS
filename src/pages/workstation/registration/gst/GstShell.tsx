@@ -13,9 +13,15 @@ import { NavLink, Outlet } from 'react-router-dom';
  * list from the catalogue, so a fourth level would have to special-case GST.
  */
 const TABS: { to: string; label: string; end?: boolean }[] = [
-  { to: '.', label: 'Registration', end: true },
+  // Order follows the work: today's position first, then the cycle
+  // (GSTR-1 → 2B → 3B), then the client roster, and finally the one-time
+  // REG-01 reference — which is read once per client, not every month.
   { to: 'dashboard', label: 'Dashboard' },
+  { to: 'gstr1', label: 'GSTR-1' },
+  { to: 'gstr2b', label: 'GSTR-2B' },
+  { to: 'gstr3b', label: 'GSTR-3B' },
   { to: 'clients', label: 'Clients' },
+  { to: 'registration', label: 'Registration' },
 ];
 
 export function GstShell() {
