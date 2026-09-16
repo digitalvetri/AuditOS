@@ -23,7 +23,6 @@ import { leadsRouter } from './modules/workstation/leads.routes.js'
 import { clientsRouter } from './modules/workstation/clients.routes.js'
 import { servicesRouter, serviceCatalogRouter } from './modules/workstation/services.routes.js'
 import { bookkeepingRouter } from './modules/bookkeeping/routes.js'
-import { incorporationRouter } from './modules/incorporation/routes.js'
 import { registrationsRouter } from './modules/registration/routes.js'
 import { followUpsRouter } from './modules/workstation/followups.routes.js'
 import {
@@ -143,7 +142,6 @@ export function createApp() {
   // Incorporation Service — case management for company/LLP/firm formation.
   // Calls no external portal: every government fact it holds was recorded by
   // an employee and is attributed to them.
-  app.use('/api/incorporation', incorporationRouter)
   // Registration Service — the ten registrations the firm files for clients.
   // Calls no portal: every government fact it holds was recorded by an
   // employee and is attributed to them.

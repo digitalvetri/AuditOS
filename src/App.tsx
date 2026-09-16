@@ -68,17 +68,6 @@ import {
   BookkeepingTasksPage, BookkeepingPendingItemsPage, BookkeepingDocumentsPage,
   BookkeepingDeliverablesPage, BookkeepingRemindersPage, BookkeepingSettingsPage,
 } from '@/pages/workstation/bookkeeping/Lists';
-// Incorporation Service — Workstation → Services → Incorporation. Case
-// management for company/LLP/firm formation; contacts no external portal.
-import { IncorporationShell } from '@/pages/workstation/incorporation/IncorporationShell';
-import { IncorporationOverviewPage } from '@/pages/workstation/incorporation/Overview';
-import { IncorporationCasesPage } from '@/pages/workstation/incorporation/Cases';
-import { IncorporationCreateCasePage } from '@/pages/workstation/incorporation/CreateCase';
-import { IncorporationCaseDetailPage } from '@/pages/workstation/incorporation/CaseDetail';
-import {
-  IncorporationTasksPage, IncorporationPendingItemsPage,
-  IncorporationDeliverablesPage, IncorporationSettingsPage,
-} from '@/pages/workstation/incorporation/Lists';
 
 // GST — dedicated landing page + per-service AssistedHandoff detail +
 // shape-based workspace dispatcher (recurring period board / project case
@@ -218,18 +207,6 @@ export default function App() {
                 <Route path="deliverables" element={<BookkeepingDeliverablesPage />} />
                 <Route path="reminders" element={<BookkeepingRemindersPage />} />
                 <Route path="settings" element={<BookkeepingSettingsPage />} />
-              </Route>
-              {/* Incorporation Service — a real module, so it too is
-                  declared BEFORE the :category catch-all below. */}
-              <Route path="workstation/services/incorporation" element={<IncorporationShell />}>
-                <Route index element={<IncorporationOverviewPage />} />
-                <Route path="cases" element={<IncorporationCasesPage />} />
-                <Route path="cases/new" element={<IncorporationCreateCasePage />} />
-                <Route path="cases/:caseId" element={<IncorporationCaseDetailPage />} />
-                <Route path="tasks" element={<IncorporationTasksPage />} />
-                <Route path="pending-items" element={<IncorporationPendingItemsPage />} />
-                <Route path="deliverables" element={<IncorporationDeliverablesPage />} />
-                <Route path="settings" element={<IncorporationSettingsPage />} />
               </Route>
               {/* TDS module — copied from GST structure, wins over the
                   :category catch-all below. */}
