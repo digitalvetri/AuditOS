@@ -95,7 +95,7 @@ export function GstDashboard() {
   }, [periods.data]);
 
   return (
-    <div className="space-y-4">
+    <div className="m-gst space-y-4">
       <PageHeader
         title="GST Compliance"
         subtitle="Every client's GSTR-1 → GSTR-2B → reconciliation → GSTR-3B cycle, in one place."
@@ -104,7 +104,7 @@ export function GstDashboard() {
       <QueryState query={overview}>
         {(o) => (
           <div className="space-y-3">
-            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2">
+            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-2">
               <Metric label="GST clients" value={o.total_clients} />
               <Metric label="Periods tracked" value={o.total_periods} />
               <Metric label="Due today" value={o.due_today} tone={o.due_today ? 'warn' : 'plain'}
@@ -127,7 +127,7 @@ export function GstDashboard() {
               {/* §4: GSTR-2B is never "filed" — it is an auto-drafted ITC
                   statement, so its vocabulary is availability and recon. */}
               <Card title="GSTR-2B — auto-drafted, not filed">
-                <div className="grid grid-cols-4 gap-2 p-3">
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-2 p-3">
                   <Metric label="Available" value={o.gstr2b.available} />
                   <Metric label="Pending" value={o.gstr2b.pending} />
                   <Metric label="Recon pending" value={o.gstr2b.reconciliation_pending} />
@@ -135,7 +135,7 @@ export function GstDashboard() {
                 </div>
               </Card>
               <Card title="GSTR-3B">
-                <div className="grid grid-cols-4 gap-2 p-3">
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-2 p-3">
                   <Metric label="Filed" value={o.gstr3b.filed} tone="good" />
                   <Metric label="Pending" value={o.gstr3b.pending} />
                   <Metric label="Payment pending" value={o.gstr3b.payment_pending}

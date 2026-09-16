@@ -81,6 +81,8 @@ import { GstShell } from '@/pages/workstation/registration/gst/GstShell';
 import { GstRegistrationTab } from '@/pages/workstation/registration/gst/GstRegistrationTab';
 import { GstDashboard } from '@/pages/workstation/registration/gst/GstDashboard';
 import { GstClients } from '@/pages/workstation/registration/gst/GstClients';
+import { Gstr1Page, Gstr2bPage, Gstr3bPage } from '@/pages/workstation/registration/gst/GstStagePage';
+import { GstPeriodDetail } from '@/pages/workstation/registration/gst/GstPeriodDetail';
 import { RegistrationServiceDetail } from '@/pages/workstation/registration/RegistrationServiceDetail';
 import { GstServicesLanding } from '@/pages/workstation/gst/GstServicesLanding';
 import { GstServiceHandoff } from '@/pages/workstation/gst/GstServiceHandoff';
@@ -235,9 +237,17 @@ export default function App() {
                   the :slug catch-all below — which would otherwise swallow
                   /registration/gst/dashboard and render "not found". */}
               <Route path="workstation/services/registration/gst" element={<GstShell />}>
-                <Route index element={<GstRegistrationTab />} />
+                {/* Landing on the module goes to today's work, not the
+                    one-time registration reference. */}
+                <Route index element={<Navigate to="dashboard" replace />} />
                 <Route path="dashboard" element={<GstDashboard />} />
+                <Route path="registration" element={<GstRegistrationTab />} />
                 <Route path="clients" element={<GstClients />} />
+                <Route path="gstr1" element={<Gstr1Page />} />
+                <Route path="gstr2b" element={<Gstr2bPage />} />
+                <Route path="gstr3b" element={<Gstr3bPage />} />
+                {/* Every list row navigates here — the one place work is done. */}
+                <Route path="periods/:periodId" element={<GstPeriodDetail />} />
               </Route>
               <Route path="workstation/services/registration/:slug" element={<RegistrationServiceDetail />} />
               <Route path="workstation/services/:category" element={<ServicesPage />} />
