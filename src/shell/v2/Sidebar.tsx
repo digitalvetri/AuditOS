@@ -113,7 +113,6 @@ export function Sidebar({ mobileOpen, onMobileClose }: Props) {
           { to: '/workstation/services/e-invoice',     label: 'E-Invoice' },
           { to: '/workstation/services/e-way-bill',    label: 'E-Way Bill' },
           { to: '/workstation/services/bookkeeping',   label: 'Bookkeeping' },
-          { to: '/workstation/services/incorporation', label: 'Incorporation' },
           { to: '/workstation/services/registration',  label: 'Registration',
             children: REGISTRATION_SERVICES.map((r) => ({
               to: `/workstation/services/registration/${r.slug}`,
