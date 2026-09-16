@@ -87,6 +87,11 @@ import {
 // Registration — Workstation → Services → Registration. Nav structure and
 // reference only; nothing files a registration yet.
 import { RegistrationServicesLanding } from '@/pages/workstation/registration/RegistrationServicesLanding';
+// GST compliance lives inside the GST Registration entry — see GstShell.
+import { GstShell } from '@/pages/workstation/registration/gst/GstShell';
+import { GstRegistrationTab } from '@/pages/workstation/registration/gst/GstRegistrationTab';
+import { GstDashboard } from '@/pages/workstation/registration/gst/GstDashboard';
+import { GstClients } from '@/pages/workstation/registration/gst/GstClients';
 import { RegistrationServiceDetail } from '@/pages/workstation/registration/RegistrationServiceDetail';
 import { GstServicesLanding } from '@/pages/workstation/gst/GstServicesLanding';
 import { GstServiceHandoff } from '@/pages/workstation/gst/GstServiceHandoff';
@@ -249,6 +254,14 @@ export default function App() {
               {/* Registration category — declared BEFORE the :category
                   catch-all below, or that would swallow the slug. */}
               <Route path="workstation/services/registration" element={<RegistrationServicesLanding />} />
+              {/* GST Registration is a real module, so it is declared BEFORE
+                  the :slug catch-all below — which would otherwise swallow
+                  /registration/gst/dashboard and render "not found". */}
+              <Route path="workstation/services/registration/gst" element={<GstShell />}>
+                <Route index element={<GstRegistrationTab />} />
+                <Route path="dashboard" element={<GstDashboard />} />
+                <Route path="clients" element={<GstClients />} />
+              </Route>
               <Route path="workstation/services/registration/:slug" element={<RegistrationServiceDetail />} />
               <Route path="workstation/services/:category" element={<ServicesPage />} />
               <Route path="workstation/follow-ups" element={<FollowUpsPage />} />
