@@ -23,7 +23,6 @@ import { leadsRouter } from './modules/workstation/leads.routes.js'
 import { clientsRouter } from './modules/workstation/clients.routes.js'
 import { servicesRouter, serviceCatalogRouter } from './modules/workstation/services.routes.js'
 import { bookkeepingRouter } from './modules/bookkeeping/routes.js'
-import { incorporationRouter } from './modules/incorporation/routes.js'
 import { registrationsRouter } from './modules/registration/routes.js'
 import { followUpsRouter } from './modules/workstation/followups.routes.js'
 import {
@@ -45,6 +44,8 @@ import { tdsRouter } from './modules/audit-automation/tds.routes.js'
 // Tally — native double-entry accounting module (foundation slice).
 import { tallyRouter } from './modules/tally/routes.js'
 import { tasksRouter } from './modules/task/routes.js'
+// GST compliance — Workstation → Services → Registration → GST Registration.
+import { gstRouter as gstComplianceRouter } from './modules/gst/routes.js'
 // Books — native bookkeeping, one set of books per client (docs/accounting-module).
 import { booksRouter } from './modules/books/routes.js'
 
@@ -141,7 +142,6 @@ export function createApp() {
   // Incorporation Service — case management for company/LLP/firm formation.
   // Calls no external portal: every government fact it holds was recorded by
   // an employee and is attributed to them.
-  app.use('/api/incorporation', incorporationRouter)
   // Registration Service — the ten registrations the firm files for clients.
   // Calls no portal: every government fact it holds was recorded by an
   // employee and is attributed to them.
@@ -172,6 +172,8 @@ export function createApp() {
   app.use('/api/tally', tallyRouter)
   // Workstation → Task: assignment plus server-side work-time tracking.
   app.use('/api/tasks', tasksRouter)
+  // GST compliance service (NOT the Tools reconciliation router above).
+  app.use('/api/gst', gstComplianceRouter)
 
   // ── Books ──────────────────────────────────────────────────────────────
   app.use('/api/books', booksRouter)

@@ -19,11 +19,14 @@ import { calculatePayrollItem } from '../src/domain/payroll/calc.js'
 import { snapshotAt } from '../src/domain/payroll/statutory.js'
 import { ALL_PERMISSION_CODES, MATRIX, PERMISSION_DESCRIPTIONS, type RoleCode } from '../src/platform/rbac/matrix.js'
 import { seedWorkstation } from './seed-workstation.js'
+// GST compliance periods are DERIVED from the filings seeded above rather
+// than seeded as their own fixture — one source of truth, and the same code
+// path an existing database uses.
+import { backfillPeriods } from '../src/modules/gst/service.js'
 import { seedTools } from './seed-tools.js'
 import { seedAuditAutomation } from './seed-audit-automation.js'
 import { seedBooks } from './seed-books.js'
 import { seedBookkeeping } from './seed-bookkeeping.js'
-import { seedIncorporation } from './seed-incorporation.js'
 import { seedRegistration } from './seed-registration.js'
 import { seedGst } from './seed-gst.js'
 
@@ -963,11 +966,13 @@ async function main() {
   // Lives in its own module so this file stays a core-HR seed. It references
   // the employees seeded above by id; it creates no new person.
   const workstation = await seedWorkstation(prisma, org.id)
+  // Without this a fresh database (Docker included) comes up with GST
+  // filings but no compliance periods, so every GST screen renders empty.
+  const gstPeriods = await backfillPeriods()
   await seedTools(prisma)
   await seedAuditAutomation(prisma)
   await seedBooks(prisma, org.id)
   const bookkeeping = await seedBookkeeping(prisma, org.id)
-  const incorporation = await seedIncorporation(prisma, org.id)
   const registration = await seedRegistration(prisma, org.id)
   const gst = await seedGst(prisma)
 
@@ -983,8 +988,8 @@ async function main() {
   }
   console.log('Seed complete:', counts)
   console.log('Workstation:', workstation)
+  console.log('GST periods:', gstPeriods)
   console.log('Bookkeeping:', bookkeeping)
-  console.log('Incorporation:', incorporation)
   console.log('Registration:', registration)
   console.log('GST reference:', gst)
   console.log('Demo logins: ravi@auditos.local/md · priya@auditos.local/hr · anitha@auditos.local/fin · vikram@auditos.local/mgr · meera@auditos.local/emp · karthik@auditos.local/art')

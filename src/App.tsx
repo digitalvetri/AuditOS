@@ -68,17 +68,6 @@ import {
   BookkeepingTasksPage, BookkeepingPendingItemsPage, BookkeepingDocumentsPage,
   BookkeepingDeliverablesPage, BookkeepingRemindersPage, BookkeepingSettingsPage,
 } from '@/pages/workstation/bookkeeping/Lists';
-// Incorporation Service — Workstation → Services → Incorporation. Case
-// management for company/LLP/firm formation; contacts no external portal.
-import { IncorporationShell } from '@/pages/workstation/incorporation/IncorporationShell';
-import { IncorporationOverviewPage } from '@/pages/workstation/incorporation/Overview';
-import { IncorporationCasesPage } from '@/pages/workstation/incorporation/Cases';
-import { IncorporationCreateCasePage } from '@/pages/workstation/incorporation/CreateCase';
-import { IncorporationCaseDetailPage } from '@/pages/workstation/incorporation/CaseDetail';
-import {
-  IncorporationTasksPage, IncorporationPendingItemsPage,
-  IncorporationDeliverablesPage, IncorporationSettingsPage,
-} from '@/pages/workstation/incorporation/Lists';
 
 // GST — dedicated landing page + per-service AssistedHandoff detail +
 // shape-based workspace dispatcher (recurring period board / project case
@@ -87,6 +76,13 @@ import {
 // Registration — Workstation → Services → Registration. Nav structure and
 // reference only; nothing files a registration yet.
 import { RegistrationServicesLanding } from '@/pages/workstation/registration/RegistrationServicesLanding';
+// GST compliance lives inside the GST Registration entry — see GstShell.
+import { GstShell } from '@/pages/workstation/registration/gst/GstShell';
+import { GstRegistrationTab } from '@/pages/workstation/registration/gst/GstRegistrationTab';
+import { GstDashboard } from '@/pages/workstation/registration/gst/GstDashboard';
+import { GstClients } from '@/pages/workstation/registration/gst/GstClients';
+import { Gstr1Page, Gstr2bPage, Gstr3bPage } from '@/pages/workstation/registration/gst/GstStagePage';
+import { GstPeriodDetail } from '@/pages/workstation/registration/gst/GstPeriodDetail';
 import { RegistrationServiceDetail } from '@/pages/workstation/registration/RegistrationServiceDetail';
 import { GstServicesLanding } from '@/pages/workstation/gst/GstServicesLanding';
 import { GstServiceHandoff } from '@/pages/workstation/gst/GstServiceHandoff';
@@ -214,18 +210,6 @@ export default function App() {
                 <Route path="reminders" element={<BookkeepingRemindersPage />} />
                 <Route path="settings" element={<BookkeepingSettingsPage />} />
               </Route>
-              {/* Incorporation Service — a real module, so it too is
-                  declared BEFORE the :category catch-all below. */}
-              <Route path="workstation/services/incorporation" element={<IncorporationShell />}>
-                <Route index element={<IncorporationOverviewPage />} />
-                <Route path="cases" element={<IncorporationCasesPage />} />
-                <Route path="cases/new" element={<IncorporationCreateCasePage />} />
-                <Route path="cases/:caseId" element={<IncorporationCaseDetailPage />} />
-                <Route path="tasks" element={<IncorporationTasksPage />} />
-                <Route path="pending-items" element={<IncorporationPendingItemsPage />} />
-                <Route path="deliverables" element={<IncorporationDeliverablesPage />} />
-                <Route path="settings" element={<IncorporationSettingsPage />} />
-              </Route>
               {/* TDS module — copied from GST structure, wins over the
                   :category catch-all below. */}
               <Route path="workstation/services/tds" element={<TdsServicesLanding />} />
@@ -249,6 +233,22 @@ export default function App() {
               {/* Registration category — declared BEFORE the :category
                   catch-all below, or that would swallow the slug. */}
               <Route path="workstation/services/registration" element={<RegistrationServicesLanding />} />
+              {/* GST Registration is a real module, so it is declared BEFORE
+                  the :slug catch-all below — which would otherwise swallow
+                  /registration/gst/dashboard and render "not found". */}
+              <Route path="workstation/services/registration/gst" element={<GstShell />}>
+                {/* Landing on the module goes to today's work, not the
+                    one-time registration reference. */}
+                <Route index element={<Navigate to="dashboard" replace />} />
+                <Route path="dashboard" element={<GstDashboard />} />
+                <Route path="registration" element={<GstRegistrationTab />} />
+                <Route path="clients" element={<GstClients />} />
+                <Route path="gstr1" element={<Gstr1Page />} />
+                <Route path="gstr2b" element={<Gstr2bPage />} />
+                <Route path="gstr3b" element={<Gstr3bPage />} />
+                {/* Every list row navigates here — the one place work is done. */}
+                <Route path="periods/:periodId" element={<GstPeriodDetail />} />
+              </Route>
               <Route path="workstation/services/registration/:slug" element={<RegistrationServiceDetail />} />
               <Route path="workstation/services/:category" element={<ServicesPage />} />
               <Route path="workstation/follow-ups" element={<FollowUpsPage />} />

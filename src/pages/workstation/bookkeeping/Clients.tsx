@@ -268,7 +268,7 @@ export function BookkeepingClientDetailPage() {
               ) : (
                 <Table head={['Period', 'Status', 'Progress', 'Due', 'Completed', 'Assigned to']}>
                   {data.periods.map((p) => (
-                    <Row key={p.id} status={p.status} onClick={() => navigate(`../../monthly-work/${p.id}`)}>
+                    <Row key={p.id} status={p.status} onClick={() => navigate(`../monthly-work/${p.id}`)}>
                       <Cell>{p.label}</Cell>
                       <Cell><Status value={p.status} /></Cell>
                       <Cell muted>{p.progress ? `${p.progress.percent}%` : '—'}</Cell>

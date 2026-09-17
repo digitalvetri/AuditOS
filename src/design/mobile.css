@@ -14,6 +14,22 @@
  */
 
 @media (max-width: 767px) {
+  /* ── GST compliance (Registration → GST Registration) ────────────────────
+     Scoped to .m-gst so the firm's other filter bars keep their own metrics.
+     The shared Select/SearchInput are 32px, which is fine with a mouse and
+     too small for a thumb; these are the only controls above the fold on a
+     phone, so they get the same 44px the bottom nav already uses. 16px text
+     additionally stops iOS zooming the viewport when the field takes focus. */
+  .m-gst input,
+  .m-gst select {
+    min-height: 44px;
+    font-size: 16px;
+  }
+  /* A summary tile is a filter, so it is a touch target in its own right. */
+  .m-gst button[aria-pressed] {
+    min-height: 60px;
+  }
+
   /* ── Safe areas ────────────────────────────────────────────────────────
      Read once into variables so every fixed element offsets consistently.
      env() resolves to 0px on hardware without a notch or gesture bar, which
