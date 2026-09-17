@@ -12,15 +12,18 @@
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "test": "vitest run",
     "test:audit-automation": "tsx src/modules/audit-automation/__tests__/gst-matching.ts && tsx src/modules/audit-automation/__tests__/tds-matching.ts && tsx src/modules/audit-automation/__tests__/preflight.ts",
-    "test:tally": "tsx src/modules/tally/__tests__/foundation.ts",
-    "test:scripts": "npm run test:audit-automation && npm run test:tally",
+    "test:tally": "tsx src/modules/tally/__tests__/foundation.ts && tsx src/modules/tally/__tests__/accounting.ts",
+    "test:scripts": "npm run test:audit-automation && npm run test:tally && npm run test:tasks",
     "prisma:generate": "prisma generate",
     "prisma:push": "prisma db push --skip-generate",
     "seed": "tsx prisma/seed.ts",
     "seed:tools": "tsx prisma/seed-tools.ts",
     "seed:books": "tsx prisma/seed-books.ts",
     "books:reset": "tsx prisma/reset-books.ts",
-    "db:reset": "prisma db push --force-reset --accept-data-loss --skip-generate && npm run seed"
+    "db:reset": "prisma db push --force-reset --accept-data-loss --skip-generate && npm run seed",
+    "sync:permissions": "tsx prisma/sync-permissions.ts",
+    "test:tasks": "tsx src/modules/task/__tests__/time-tracking.ts",
+    "seed:tasks": "tsx prisma/seed-tasks.ts"
   },
   "prisma": {
     "seed": "tsx prisma/seed.ts"

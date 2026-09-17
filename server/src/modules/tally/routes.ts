@@ -7,6 +7,7 @@ import { TallyCompanyService } from './services/TallyCompanyService.js'
 import { TallyFinancialYearService } from './services/TallyFinancialYearService.js'
 import { TallyGroupService } from './services/TallyGroupService.js'
 import { TallyLedgerService } from './services/TallyLedgerService.js'
+import { registerExtendedTallyRoutes } from './routes.extended.js'
 
 /**
  * Tally HTTP surface (Slice 1: Foundation).
@@ -382,3 +383,9 @@ tallyRouter.delete('/companies/:id/ledgers/:ledgerId', handler(async (req, res) 
   })
   res.status(204).end()
 }))
+
+// ── Slices 2+ ───────────────────────────────────────────────────────────
+// Vouchers, reports, inventory, banking, GST, payroll, audit,
+// import/export, backup, settings, dashboard and search. Registered last
+// so the foundation routes above keep first claim on their paths.
+registerExtendedTallyRoutes(tallyRouter)

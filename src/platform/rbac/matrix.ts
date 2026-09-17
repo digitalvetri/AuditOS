@@ -88,6 +88,9 @@ export type PermissionCode =
   | 'workstation.document.read'
   | 'workstation.document.manage'
   | 'workstation.document.verify'
+  | 'workstation.task.read'
+  | 'workstation.task.manage'
+  | 'workstation.task.report'
   | 'workstation.gst.read'
   | 'workstation.gst.manage'
   | 'workstation.eway.read'
@@ -131,6 +134,13 @@ export type PermissionCode =
   | 'tools.audit_automation.tally.company.manage'
   | 'tools.audit_automation.tally.master.read'
   | 'tools.audit_automation.tally.master.manage'
+  | 'tools.audit_automation.tally.voucher.read'
+  | 'tools.audit_automation.tally.voucher.manage'
+  | 'tools.audit_automation.tally.voucher.cancel'
+  | 'tools.audit_automation.tally.report.read'
+  | 'tools.audit_automation.tally.audit.read'
+  | 'tools.audit_automation.tally.settings.manage'
+  | 'tools.audit_automation.tally.data.manage'
   // ── Books (docs/accounting-module/README.md) ──────────────────────────
   // books.access opens the module; scope self = only books the user is a
   // member of, organisation = every set of books the firm keeps.
@@ -176,6 +186,7 @@ export const MATRIX: Record<RoleCode, Grant[]> = {
     // Workstation: assignment-scoped. `self` here means "rows assigned
     // to me" — resolved by assignedClientIds(), never a post-fetch filter.
     { permission: 'workstation.access', scope: 'self' },
+    { permission: 'workstation.task.read', scope: 'self' },
     { permission: 'workstation.lead.read', scope: 'self' },
     { permission: 'workstation.lead.manage', scope: 'self' },
     { permission: 'workstation.client.read', scope: 'self' },
@@ -222,6 +233,13 @@ export const MATRIX: Record<RoleCode, Grant[]> = {
     { permission: 'tools.audit_automation.tally.company.manage', scope: 'self' },
     { permission: 'tools.audit_automation.tally.master.read', scope: 'self' },
     { permission: 'tools.audit_automation.tally.master.manage', scope: 'self' },
+    { permission: 'tools.audit_automation.tally.voucher.read', scope: 'self' },
+    { permission: 'tools.audit_automation.tally.voucher.manage', scope: 'self' },
+    { permission: 'tools.audit_automation.tally.voucher.cancel', scope: 'self' },
+    { permission: 'tools.audit_automation.tally.report.read', scope: 'self' },
+    { permission: 'tools.audit_automation.tally.audit.read', scope: 'self' },
+    { permission: 'tools.audit_automation.tally.settings.manage', scope: 'self' },
+    { permission: 'tools.audit_automation.tally.data.manage', scope: 'self' },
     // Books: only the sets of books this person is assigned to.
     { permission: 'books.access', scope: 'self' },
     { permission: 'books.reports', scope: 'self' },
@@ -246,6 +264,9 @@ export const MATRIX: Record<RoleCode, Grant[]> = {
     { permission: 'reports.hr', scope: 'department' },
     // Workstation: full operational access (§14 Operations Manager / MD).
     { permission: 'workstation.access', scope: 'organisation' },
+    { permission: 'workstation.task.read', scope: 'organisation' },
+    { permission: 'workstation.task.manage', scope: 'organisation' },
+    { permission: 'workstation.task.report', scope: 'organisation' },
     { permission: 'workstation.lead.read', scope: 'organisation' },
     { permission: 'workstation.lead.manage', scope: 'organisation' },
     { permission: 'workstation.lead.convert', scope: 'organisation' },
@@ -296,6 +317,13 @@ export const MATRIX: Record<RoleCode, Grant[]> = {
     { permission: 'tools.audit_automation.tally.company.manage', scope: 'organisation' },
     { permission: 'tools.audit_automation.tally.master.read', scope: 'organisation' },
     { permission: 'tools.audit_automation.tally.master.manage', scope: 'organisation' },
+    { permission: 'tools.audit_automation.tally.voucher.read', scope: 'organisation' },
+    { permission: 'tools.audit_automation.tally.voucher.manage', scope: 'organisation' },
+    { permission: 'tools.audit_automation.tally.voucher.cancel', scope: 'organisation' },
+    { permission: 'tools.audit_automation.tally.report.read', scope: 'organisation' },
+    { permission: 'tools.audit_automation.tally.audit.read', scope: 'organisation' },
+    { permission: 'tools.audit_automation.tally.settings.manage', scope: 'organisation' },
+    { permission: 'tools.audit_automation.tally.data.manage', scope: 'organisation' },
     // Books: every set of books the firm keeps.
     { permission: 'books.access', scope: 'organisation' },
     { permission: 'books.manage', scope: 'organisation' },
@@ -387,6 +415,9 @@ export const MATRIX: Record<RoleCode, Grant[]> = {
     { permission: 'settings.manage', scope: 'organisation' },
     // Workstation: full operational access (§14 Operations Manager / MD).
     { permission: 'workstation.access', scope: 'organisation' },
+    { permission: 'workstation.task.read', scope: 'organisation' },
+    { permission: 'workstation.task.manage', scope: 'organisation' },
+    { permission: 'workstation.task.report', scope: 'organisation' },
     { permission: 'workstation.lead.read', scope: 'organisation' },
     { permission: 'workstation.lead.manage', scope: 'organisation' },
     { permission: 'workstation.lead.convert', scope: 'organisation' },
@@ -437,6 +468,13 @@ export const MATRIX: Record<RoleCode, Grant[]> = {
     { permission: 'tools.audit_automation.tally.company.manage', scope: 'organisation' },
     { permission: 'tools.audit_automation.tally.master.read', scope: 'organisation' },
     { permission: 'tools.audit_automation.tally.master.manage', scope: 'organisation' },
+    { permission: 'tools.audit_automation.tally.voucher.read', scope: 'organisation' },
+    { permission: 'tools.audit_automation.tally.voucher.manage', scope: 'organisation' },
+    { permission: 'tools.audit_automation.tally.voucher.cancel', scope: 'organisation' },
+    { permission: 'tools.audit_automation.tally.report.read', scope: 'organisation' },
+    { permission: 'tools.audit_automation.tally.audit.read', scope: 'organisation' },
+    { permission: 'tools.audit_automation.tally.settings.manage', scope: 'organisation' },
+    { permission: 'tools.audit_automation.tally.data.manage', scope: 'organisation' },
     // Books: every set of books the firm keeps.
     { permission: 'books.access', scope: 'organisation' },
     { permission: 'books.manage', scope: 'organisation' },
