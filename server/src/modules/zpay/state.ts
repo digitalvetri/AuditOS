@@ -39,7 +39,11 @@ export type ZpayStatus = (typeof ZPAY_STATUSES)[number]
 const NEXT: Record<ZpayStatus, readonly ZpayStatus[]> = {
   not_connected: ['consent_pending'],
   consent_pending: ['connected', 'error', 'not_connected'],
-  connected: ['expired', 'revoked', 'error'],
+  // connected → consent_pending is the "Reconnect" affordance: an operator
+  // re-consents to pick up a scope change or to rotate a suspicious token.
+  // Token refresh happens without a state hop; a full re-consent is what
+  // this edge exists for.
+  connected: ['expired', 'revoked', 'error', 'consent_pending'],
   expired: ['consent_pending'],
   revoked: ['consent_pending'],
   error: ['consent_pending', 'connected'],

@@ -22,6 +22,7 @@ import { ApiError, handler, ok } from '../../lib/http.js'
 import { prisma } from '../../lib/prisma.js'
 import { requireSession, requirePermission } from '../../platform/auth.js'
 import { beginConsent, completeConsent } from './service.js'
+import { syncAccount, syncConnection } from './sync.js'
 
 export const zpayRouter = Router()
 
@@ -85,6 +86,126 @@ zpayRouter.post('/connections/:id/authorize', handler(async (req, res) => {
   ok(res, result)
 }))
 
+// ── account CRUD (spec §2, §3) ─────────────────────────────────────────
+
+// POST /api/zpay/connections/:id/accounts
+// One connection may hold multiple accounts (see spec §2 topology check).
+// The operator sets label, GST flag, GSTIN, invoice-series prefix.
+zpayRouter.post('/connections/:id/accounts', handler(async (req, res) => {
+  const session = requireSession(req)
+  const orgId = await orgIdFor(session.userId)
+  const conn = await prisma.zpayConnection.findFirst({
+    where: { id: req.params.id, organisationId: orgId, deletedAt: null },
+    select: { id: true, status: true },
+  })
+  if (!conn) throw ApiError.notFound('No such connection.')
+
+  const body = (req.body ?? {}) as Record<string, unknown>
+  const accountId = str(body.accountId)
+  const label = str(body.label)
+  const legalEntityName = str(body.legalEntityName)
+  const invoiceSeriesPrefix = str(body.invoiceSeriesPrefix)
+  const isGstRegistered = body.isGstRegistered === true
+  const gstin = str(body.gstin) ?? null
+
+  if (!accountId) throw ApiError.badRequest('accountId is required (Zoho\'s account identifier).')
+  if (!label) throw ApiError.badRequest('label is required.')
+  if (!legalEntityName) throw ApiError.badRequest('legalEntityName is required.')
+  if (!invoiceSeriesPrefix) throw ApiError.badRequest('invoiceSeriesPrefix is required.')
+  if (isGstRegistered && !gstin) throw ApiError.badRequest('gstin is required for a GST-registered account.')
+
+  try {
+    const created = await prisma.zpayAccount.create({
+      data: {
+        connectionId: conn.id,
+        accountId,
+        label,
+        isGstRegistered,
+        legalEntityName,
+        gstin,
+        invoiceSeriesPrefix,
+        createdBy: session.userId,
+        updatedBy: session.userId,
+      },
+      select: {
+        id: true, accountId: true, label: true, isGstRegistered: true,
+        gstin: true, invoiceSeriesPrefix: true, isActive: true,
+        lastSyncAt: true, lastSyncStatus: true,
+      },
+    })
+    ok(res, created, 201)
+  } catch (err) {
+    // Unique on (connectionId, accountId) — a duplicate is a 409.
+    if (err && typeof err === 'object' && 'code' in err && err.code === 'P2002') {
+      throw ApiError.conflict('duplicate_account', 'This Zoho account is already added to this connection.')
+    }
+    throw err
+  }
+}))
+
+// POST /api/zpay/connections/:cid/accounts/:aid/sync
+// Trigger a sync. Runs synchronously — spec §3 defers scheduling to the
+// job runner that lands in a later PR. For the manual button the caller
+// waits and gets the outcome.
+zpayRouter.post('/connections/:cid/accounts/:aid/sync', handler(async (req, res) => {
+  const session = requireSession(req)
+  const orgId = await orgIdFor(session.userId)
+  const account = await prisma.zpayAccount.findFirst({
+    where: {
+      id: req.params.aid,
+      connectionId: req.params.cid,
+      deletedAt: null,
+      connection: { organisationId: orgId },
+    },
+    select: { id: true },
+  })
+  if (!account) throw ApiError.notFound('No such account.')
+  const outcome = await syncAccount(account.id)
+  ok(res, outcome)
+}))
+
+// POST /api/zpay/connections/:cid/sync
+// Kick off a sync for every active account under this connection. Same
+// caveat as above — synchronous for now.
+zpayRouter.post('/connections/:cid/sync', handler(async (req, res) => {
+  const session = requireSession(req)
+  const orgId = await orgIdFor(session.userId)
+  const conn = await prisma.zpayConnection.findFirst({
+    where: { id: req.params.cid, organisationId: orgId, deletedAt: null },
+    select: { id: true },
+  })
+  if (!conn) throw ApiError.notFound('No such connection.')
+  const outcomes = await syncConnection(conn.id)
+  ok(res, { runs: outcomes })
+}))
+
+// GET /api/zpay/connections/:cid/accounts/:aid/sync-runs
+// Recent runs for the account, most-recent first, for the ops screen.
+zpayRouter.get('/connections/:cid/accounts/:aid/sync-runs', handler(async (req, res) => {
+  const session = requireSession(req)
+  const orgId = await orgIdFor(session.userId)
+  const account = await prisma.zpayAccount.findFirst({
+    where: {
+      id: req.params.aid,
+      connectionId: req.params.cid,
+      connection: { organisationId: orgId },
+    },
+    select: { id: true },
+  })
+  if (!account) throw ApiError.notFound('No such account.')
+  const runs = await prisma.zpaySyncRun.findMany({
+    where: { accountRowId: account.id },
+    orderBy: { startedAt: 'desc' },
+    take: 20,
+    select: {
+      id: true, startedAt: true, finishedAt: true, status: true,
+      paymentsFetched: true, refundsFetched: true, errorCode: true,
+      errorDetail: true, windowFrom: true, windowTo: true,
+    },
+  })
+  ok(res, { items: runs, count: runs.length })
+}))
+
 // ── public callback router ────────────────────────────────────────────
 
 export const zpayCallbackRouter = Router()
@@ -113,6 +234,12 @@ zpayCallbackRouter.get('/callback', handler(async (req, res) => {
 }))
 
 // ── helpers ───────────────────────────────────────────────────────────
+
+function str(v: unknown): string | undefined {
+  if (typeof v !== 'string') return undefined
+  const t = v.trim()
+  return t.length ? t : undefined
+}
 
 async function orgIdFor(userId: string): Promise<string> {
   // A user belongs to exactly one Organisation in this schema; the value is

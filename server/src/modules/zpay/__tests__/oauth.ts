@@ -24,6 +24,7 @@ import { encryptToken, decryptToken, ZpayCryptoError } from '../crypto.js'
 import {
   buildAuthorizeUrl,
   exchangeCodeForTokens,
+  exchangeRefreshTokenForAccess,
   assertScopesGranted,
   ZohoOAuthError,
   type FetchLike,
@@ -250,6 +251,48 @@ function mockFetch(handler: (url: string, body: URLSearchParams) => { status: nu
     if (!(err instanceof ZohoOAuthError)) fail('scopes', 'wrong error type')
     if (err.code !== 'scope_downgrade') fail('scopes', `wrong code: ${err.code}`)
     pass('assertScopesGranted refuses a downgraded scope set')
+  }
+}
+
+// ── 5. Refresh helper ─────────────────────────────────────────────────
+
+{
+  const cfg = fakeConfig()
+  let seen: { url?: string; body?: URLSearchParams } = {}
+  const fetchImpl = mockFetch((url, body) => {
+    seen = { url, body }
+    return {
+      status: 200,
+      body: {
+        access_token: 'ACCESS-2',
+        // refresh call returns NO refresh_token (docs); helper's type
+        // enforces that at the boundary.
+        scope: cfg.scopes.join(' '),
+        token_type: 'Bearer',
+        expires_in: 3600,
+      },
+    }
+  })
+  const result = await exchangeRefreshTokenForAccess(cfg, 'fake-refresh-xyz', fetchImpl)
+  if (seen.body?.get('grant_type') !== 'refresh_token') fail('refresh body', 'grant_type wrong')
+  if (seen.body?.get('refresh_token') !== 'fake-refresh-xyz') fail('refresh body', 'refresh_token missing')
+  if (result.access_token !== 'ACCESS-2') fail('refresh result', 'access_token missing')
+  if ('refresh_token' in result) fail('refresh result', 'refresh helper should not surface refresh_token')
+  pass('exchangeRefreshTokenForAccess success')
+}
+
+// invalid_grant is the spec §3 STOP RETRYING signal; the helper must
+// surface the code so the caller can transition to `revoked`.
+{
+  const cfg = fakeConfig()
+  const fetchImpl = mockFetch(() => ({ status: 400, body: { error: 'invalid_grant' } }))
+  try {
+    await exchangeRefreshTokenForAccess(cfg, 'stale', fetchImpl)
+    fail('refresh invalid_grant', 'no error thrown')
+  } catch (err) {
+    if (!(err instanceof ZohoOAuthError)) fail('refresh invalid_grant', 'wrong error type')
+    if (err.code !== 'invalid_grant') fail('refresh invalid_grant', `wrong code: ${err.code}`)
+    pass('exchangeRefreshTokenForAccess surfaces invalid_grant')
   }
 }
 

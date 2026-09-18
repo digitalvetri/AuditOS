@@ -13,7 +13,7 @@
     "test": "vitest run",
     "test:audit-automation": "tsx src/modules/audit-automation/__tests__/gst-matching.ts && tsx src/modules/audit-automation/__tests__/tds-matching.ts && tsx src/modules/audit-automation/__tests__/preflight.ts",
     "test:tally": "tsx src/modules/tally/__tests__/foundation.ts && tsx src/modules/tally/__tests__/accounting.ts",
-    "test:zpay": "tsx src/modules/zpay/__tests__/state.ts && tsx src/modules/zpay/__tests__/oauth.ts && tsx src/modules/zpay/__tests__/fake-zoho.ts",
+    "test:zpay": "tsx src/modules/zpay/__tests__/state.ts && tsx src/modules/zpay/__tests__/oauth.ts && tsx src/modules/zpay/__tests__/fake-zoho.ts && tsx src/modules/zpay/__tests__/sync.ts",
     "test:scripts": "npm run test:audit-automation && npm run test:tally && npm run test:tasks && npm run test:zpay",
     "prisma:generate": "prisma generate",
     "prisma:push": "prisma db push --skip-generate",
