@@ -33,6 +33,7 @@ import {
   ListChecks,
   MessageSquare,
   PhoneCall,
+  Plug,
   ReceiptIndianRupee,
   Settings,
   Users,
@@ -96,7 +97,8 @@ export function Sidebar({ mobileOpen, onMobileClose }: Props) {
       { to: '/hrms/messages',   label: 'Messages',   icon: MessageSquare,        visible: can(role, 'chat.participate', 'organisation') },
       { to: '/hrms/documents',  label: 'Documents',  icon: FileText,             visible: can(role, 'document.read', 'self') },
       { to: '/hrms/reports',    label: 'Reports',    icon: BarChart3,            visible: can(role, 'reports.hr', 'department') || can(role, 'reports.finance', 'organisation') || can(role, 'reports.all', 'organisation') },
-      { to: '/hrms/settings',   label: 'Settings',   icon: Settings,             visible: can(role, 'settings.manage', 'organisation') || can(role, 'accounts.manage', 'organisation') },
+      { to: '/hrms/integrations', label: 'Integrations', icon: Plug,               visible: can(role, 'accounts.manage', 'organisation') },
+      { to: '/hrms/settings',   label: 'Settings',   icon: Settings,             visible: can(role, 'settings.manage', 'organisation') },
     ];
     // Workstation (teammate's module, per AUDIT_OS_WORKSTATION.md §4).
     // Sub-items follow the same can(role, ...) pattern; roles without a
