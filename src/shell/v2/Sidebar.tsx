@@ -97,7 +97,6 @@ export function Sidebar({ mobileOpen, onMobileClose }: Props) {
       { to: '/hrms/messages',   label: 'Messages',   icon: MessageSquare,        visible: can(role, 'chat.participate', 'organisation') },
       { to: '/hrms/documents',  label: 'Documents',  icon: FileText,             visible: can(role, 'document.read', 'self') },
       { to: '/hrms/reports',    label: 'Reports',    icon: BarChart3,            visible: can(role, 'reports.hr', 'department') || can(role, 'reports.finance', 'organisation') || can(role, 'reports.all', 'organisation') },
-      { to: '/hrms/integrations', label: 'Integrations', icon: Plug,               visible: can(role, 'accounts.manage', 'organisation') },
       { to: '/hrms/settings',   label: 'Settings',   icon: Settings,             visible: can(role, 'settings.manage', 'organisation') },
     ];
     // Workstation (teammate's module, per AUDIT_OS_WORKSTATION.md §4).
@@ -139,11 +138,20 @@ export function Sidebar({ mobileOpen, onMobileClose }: Props) {
       { to: '/books', label: 'Books', icon: Wallet,
         visible: can(role, 'books.access', 'self') },
     ];
+    // INTEGRATIONS — third-party services the firm connects to (Zoho
+    // Payments today; Books/Tally/banking as they land). Sibling of
+    // Tools, not nested inside HRMS: this is firm-level infrastructure,
+    // not an HR concern.
+    const integrationsItems: NavItem[] = [
+      { to: '/integrations/zoho-payments', label: 'Zoho Payments', icon: Plug,
+        visible: can(role, 'accounts.manage', 'organisation') },
+    ];
     return [
       { label: null, items: [{ to: '/', label: 'Dashboard', icon: Home, end: true, visible: true }] },
       { label: 'HRMS', items: auditItems.filter((i) => i.visible) },
       { label: 'WORKSTATION', items: workstationItems.filter((i) => i.visible) },
       { label: 'TOOLS', items: toolsItems.filter((i) => i.visible) },
+      { label: 'INTEGRATIONS', items: integrationsItems.filter((i) => i.visible) },
     ].filter((g) => g.items.length > 0);
   }, [role]);
 

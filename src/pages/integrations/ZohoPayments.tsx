@@ -1,9 +1,10 @@
 /**
- * /hrms/integrations — top-level home for third-party integrations.
+ * /integrations/zoho-payments — the Zoho Payments integration screen.
  *
- * Today the only integration is Zoho Payments; the page is structured so
- * additional integrations (Books, Tally, banking) drop in as sibling
- * sections when they land.
+ * INTEGRATIONS is a top-level sidebar section (sibling of TOOLS), not
+ * an HR concern. Each connected service gets its own route under
+ * /integrations; today Zoho Payments is the only one, but the shape is
+ * ready for Books, Tally, banking, etc. as they land.
  *
  * Gated on `accounts.manage@organisation` — the same finance permission
  * that owns the Accounts module. An executive without that grant sees a
@@ -14,7 +15,7 @@ import { useAuth } from '@/platform/auth/AuthContext';
 import { can } from '@/platform/rbac/can';
 import { ZpayIntegrationsSection } from '@/modules/zpay/IntegrationsSection';
 
-export function IntegrationsPage() {
+export function ZohoPaymentsIntegrationPage() {
   const { session } = useAuth();
   const allowed = can(session?.role.code, 'accounts.manage', 'organisation');
 
@@ -35,11 +36,11 @@ export function IntegrationsPage() {
   return (
     <div className="m-page">
       <header>
-        <div className="text-11 uppercase tracking-[0.06em] text-neutral-500">HRMS</div>
-        <h1 className="text-20 font-semibold text-neutral-900 mt-1">Integrations</h1>
+        <div className="text-11 uppercase tracking-[0.06em] text-neutral-500">Integrations</div>
+        <h1 className="text-20 font-semibold text-neutral-900 mt-1">Zoho Payments</h1>
         <p className="text-13 text-neutral-500 mt-1">
-          External services connected to Audit OS. Each row is a connection
-          the firm manages — credentials sit encrypted at rest.
+          Firm-collections integration — the firm's own two Zoho Payments
+          accounts. Credentials sit encrypted at rest.
         </p>
       </header>
 
