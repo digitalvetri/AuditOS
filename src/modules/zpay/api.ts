@@ -76,6 +76,32 @@ export interface SyncRunSummary {
 }
 
 export type EntityFilter = 'all' | 'gst' | 'non-gst';
+export type MatchFilter = 'unmatched' | 'proposed' | 'matched';
+export type MatchType = 'exact' | 'probable' | 'manual' | 'unmatched';
+
+export interface QueuePayment {
+  id: string;
+  paidAt: string;
+  amountPaise: number;
+  customerName: string | null;
+  referenceNumber: string | null;
+  matchType: MatchType;
+  matchedInvoiceRef: string | null;
+  matchedClientId: string | null;
+  matchConfirmedAt: string | null;
+  account: {
+    id: string;
+    label: string;
+    isGstRegistered: boolean;
+    invoiceSeriesPrefix: string;
+  };
+}
+
+export interface QueueResponse {
+  items: QueuePayment[];
+  counts: { unmatched: number; proposed: number; matched: number };
+}
+
 
 export interface CollectionsTile {
   amountPaise: number;
@@ -127,4 +153,17 @@ export const zpayApi = {
     const q = new URLSearchParams({ period, entity });
     return api.get<CollectionsAggregate>(`/api/zpay/collections?${q}`);
   },
+  queue: (period: string, entity: EntityFilter, filter: MatchFilter) => {
+    const q = new URLSearchParams({ period, entity, filter });
+    return api.get<QueueResponse>(`/api/zpay/payments?${q}`);
+  },
+  matchPayment: (paymentId: string, body: { invoiceRef: string; clientId?: string }) =>
+    api.post<{ paymentId: string; matchType: 'manual'; invoiceRef: string }>(
+      `/api/zpay/payments/${paymentId}/match`,
+      body,
+    ),
+  unmatchPayment: (paymentId: string) =>
+    api.post<{ paymentId: string; matchType: 'unmatched' }>(
+      `/api/zpay/payments/${paymentId}/unmatch`,
+    ),
 };

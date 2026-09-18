@@ -24,6 +24,7 @@ import { requireSession, requirePermission } from '../../platform/auth.js'
 import { beginConsent, completeConsent } from './service.js'
 import { syncAccount, syncConnection } from './sync.js'
 import { collectionsAggregate, parsePeriod } from './collections.js'
+import { manuallyMatch, unmatch } from './matching-service.js'
 
 export const zpayRouter = Router()
 
@@ -178,6 +179,126 @@ zpayRouter.post('/connections/:cid/sync', handler(async (req, res) => {
   if (!conn) throw ApiError.notFound('No such connection.')
   const outcomes = await syncConnection(conn.id)
   ok(res, { runs: outcomes })
+}))
+
+// GET /api/zpay/payments — the matching queue.
+//   filter:   unmatched | proposed | matched   (default: unmatched)
+//   entity:   all | gst | non-gst              (default: all)
+//   period:   YYYY-MM                          (default: current month)
+//   limit:    1..500                           (default: 100)
+zpayRouter.get('/payments', handler(async (req, res) => {
+  const session = requireSession(req)
+  const orgId = await orgIdFor(session.userId)
+  const filterRaw = typeof req.query.filter === 'string' ? req.query.filter : 'unmatched'
+  const filter = filterRaw === 'matched' || filterRaw === 'proposed' ? filterRaw : 'unmatched'
+  const entityRaw = typeof req.query.entity === 'string' ? req.query.entity : 'all'
+  const entity = entityRaw === 'gst' || entityRaw === 'non-gst' ? entityRaw : 'all'
+  const period = parsePeriod(typeof req.query.period === 'string' ? req.query.period : undefined)
+  const limit = Math.min(500, Math.max(1, Number(req.query.limit) || 100))
+
+  const matchTypeWhere =
+    filter === 'unmatched' ? { matchType: 'unmatched' as const }
+    : filter === 'proposed' ? { matchType: 'probable' as const }
+    : { matchType: { in: ['exact', 'manual'] } }
+
+  const entityWhere =
+    entity === 'gst' ? { account: { isGstRegistered: true } }
+    : entity === 'non-gst' ? { account: { isGstRegistered: false } }
+    : {}
+
+  const rows = await prisma.zpayPayment.findMany({
+    where: {
+      paidAt: { gte: period.from, lt: period.to },
+      account: {
+        connection: { organisationId: orgId, deletedAt: null },
+        deletedAt: null,
+        ...(entity !== 'all' ? { isGstRegistered: entity === 'gst' } : {}),
+      },
+      ...matchTypeWhere,
+      ...entityWhere,
+    },
+    orderBy: { paidAt: 'desc' },
+    take: limit,
+    select: {
+      id: true,
+      paidAt: true,
+      amountPaise: true,
+      customerName: true,
+      referenceNumber: true,
+      matchType: true,
+      matchedInvoiceRef: true,
+      matchedClientId: true,
+      matchConfirmedAt: true,
+      account: {
+        select: {
+          id: true,
+          label: true,
+          isGstRegistered: true,
+          invoiceSeriesPrefix: true,
+        },
+      },
+    },
+  })
+
+  // Counts of every bucket so tabs can render badges without a second call.
+  const countsFor = (m: 'unmatched' | 'proposed' | 'matched') =>
+    prisma.zpayPayment.count({
+      where: {
+        paidAt: { gte: period.from, lt: period.to },
+        account: {
+          connection: { organisationId: orgId, deletedAt: null },
+          deletedAt: null,
+          ...(entity !== 'all' ? { isGstRegistered: entity === 'gst' } : {}),
+        },
+        ...(m === 'unmatched' ? { matchType: 'unmatched' }
+          : m === 'proposed' ? { matchType: 'probable' }
+          : { matchType: { in: ['exact', 'manual'] as string[] } }),
+      },
+    })
+  const [unmatchedCount, proposedCount, matchedCount] = await Promise.all([
+    countsFor('unmatched'),
+    countsFor('proposed'),
+    countsFor('matched'),
+  ])
+
+  ok(res, {
+    items: rows,
+    counts: {
+      unmatched: unmatchedCount,
+      proposed: proposedCount,
+      matched: matchedCount,
+    },
+  })
+}))
+
+// POST /api/zpay/payments/:id/match  { invoiceRef, clientId? }
+zpayRouter.post('/payments/:id/match', handler(async (req, res) => {
+  const session = requireSession(req)
+  const orgId = await orgIdFor(session.userId)
+  const body = (req.body ?? {}) as { invoiceRef?: unknown; clientId?: unknown }
+  const invoiceRef = typeof body.invoiceRef === 'string' ? body.invoiceRef : ''
+  if (!invoiceRef.trim()) throw ApiError.badRequest('invoiceRef is required.')
+  const clientId = typeof body.clientId === 'string' && body.clientId.length ? body.clientId : null
+  await manuallyMatch({
+    paymentId: req.params.id,
+    organisationId: orgId,
+    actorUserId: session.userId,
+    invoiceRef,
+    clientId,
+  })
+  ok(res, { paymentId: req.params.id, matchType: 'manual', invoiceRef })
+}))
+
+// POST /api/zpay/payments/:id/unmatch
+zpayRouter.post('/payments/:id/unmatch', handler(async (req, res) => {
+  const session = requireSession(req)
+  const orgId = await orgIdFor(session.userId)
+  await unmatch({
+    paymentId: req.params.id,
+    organisationId: orgId,
+    actorUserId: session.userId,
+  })
+  ok(res, { paymentId: req.params.id, matchType: 'unmatched' })
 }))
 
 // GET /api/zpay/collections?period=YYYY-MM&entity=all|gst|non-gst

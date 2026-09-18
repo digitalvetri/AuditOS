@@ -33,7 +33,7 @@ function shiftMonth(ym: string, delta: number): string {
   return ymKey(d);
 }
 
-export function CollectionsSection() {
+export function CollectionsSection({ onGoToMatching }: { onGoToMatching?: () => void }) {
   const [period, setPeriod] = useState<string>(() => ymKey(new Date()));
   const [entity, setEntity] = useState<EntityFilter>('all');
 
@@ -95,13 +95,19 @@ export function CollectionsSection() {
           Failed to load: {(q.error as Error).message}
         </div>
       ) : q.data ? (
-        <Body data={q.data} />
+        <Body data={q.data} onGoToMatching={onGoToMatching} />
       ) : null}
     </section>
   );
 }
 
-function Body({ data }: { data: NonNullable<ReturnType<typeof useQuery<Awaited<ReturnType<typeof zpayApi.collections>>>>['data']> }) {
+function Body({
+  data,
+  onGoToMatching,
+}: {
+  data: NonNullable<ReturnType<typeof useQuery<Awaited<ReturnType<typeof zpayApi.collections>>>>['data']>;
+  onGoToMatching?: () => void;
+}) {
   const noAccounts = data.accounts.length === 0;
   return (
     <div className="space-y-6">
@@ -160,9 +166,9 @@ function Body({ data }: { data: NonNullable<ReturnType<typeof useQuery<Awaited<R
           </div>
           <button
             type="button"
-            disabled
-            className="h-8 px-3 rounded border border-amber-300 text-amber-900 text-13 opacity-60 cursor-not-allowed"
-            title="Review queue lands in step 5"
+            onClick={onGoToMatching}
+            disabled={!onGoToMatching}
+            className="h-8 px-3 rounded border border-amber-400 bg-white text-amber-900 text-13 font-medium hover:bg-amber-100 disabled:opacity-50 disabled:cursor-not-allowed"
           >
             Review queue ▸
           </button>

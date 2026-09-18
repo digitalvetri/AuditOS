@@ -16,10 +16,11 @@ import { can } from '@/platform/rbac/can';
 import { accountsApi, LEDGER_TYPES, type LedgerRowWithEmp } from '@/modules/accounts/api';
 import { NewPaymentModal } from '@/modules/accounts/NewPaymentModal';
 import { CollectionsSection } from '@/modules/zpay/CollectionsSection';
+import { MatchingQueueSection } from '@/modules/zpay/MatchingQueueSection';
 import { fmtDate, fmtDateTime, inr } from '@/lib/format';
 import { StatusLabel, type StatusVariant } from '@/components/StatusRow';
 
-type Tab = 'ledger' | 'payments' | 'summary' | 'collections';
+type Tab = 'ledger' | 'payments' | 'summary' | 'collections' | 'matching';
 
 export function AccountsPage() {
   const { session } = useAuth();
@@ -72,12 +73,14 @@ export function AccountsPage() {
         <TabBtn id="ledger" active={tab === 'ledger'} onClick={() => setActive('ledger')}>Ledger</TabBtn>
         <TabBtn id="payments" active={tab === 'payments'} onClick={() => setActive('payments')}>Payments</TabBtn>
         <TabBtn id="collections" active={tab === 'collections'} onClick={() => setActive('collections')}>Collections</TabBtn>
+        <TabBtn id="matching" active={tab === 'matching'} onClick={() => setActive('matching')}>Matching</TabBtn>
       </div>
 
       {tab === 'summary' ? <SummarySection /> : null}
       {tab === 'ledger' ? <LedgerSection canManage={canManage} /> : null}
       {tab === 'payments' ? <PaymentsSection /> : null}
-      {tab === 'collections' ? <CollectionsSection /> : null}
+      {tab === 'collections' ? <CollectionsSection onGoToMatching={() => setActive('matching')} /> : null}
+      {tab === 'matching' ? <MatchingQueueSection /> : null}
 
       <NewPaymentModal open={newPay} onClose={() => setNewPay(false)} />
     </div>
