@@ -15,6 +15,7 @@ import { useToast } from '@/components/Toast';
 import { fmtDate, fmtDateTime, fmtTime, inr } from '@/lib/format';
 import { can } from '@/platform/rbac/can';
 import { useAuth } from '@/platform/auth/AuthContext';
+import { BillingSliceCard } from '@/modules/zpay/BillingSliceCard';
 
 /**
  * THE CLIENT WORKSPACE (§7.3).
@@ -107,6 +108,8 @@ export function ClientWorkspacePage() {
 
 // ── Overview (§7.3) ───────────────────────────────────────────────────────
 function OverviewTab({ client }: { client: ClientDetail }) {
+  const { session } = useAuth();
+  const canSeeBilling = can(session?.role.code, 'accounts.manage', 'organisation');
   const services = useQuery({
     queryKey: ['workstation', 'client', client.id, 'services'],
     queryFn: () => workstationApi.clientServices(client.id),
@@ -131,25 +134,32 @@ function OverviewTab({ client }: { client: ClientDetail }) {
         </QueryState>
       </Card>
 
-      <Card title="Client status">
-        <div className="p-4">
-          <Detail label="Status" value={<Status value={client.status} />} />
-          <Detail label="Onboarded" value={fmtDate(client.onboarding_date)} />
-          <Detail label="Account Manager" value={client.account_manager?.full_name ?? '—'} />
-          <Detail label="Documents" value={`${client.document_count}`} />
-          <Detail label="Follow-ups" value={`${client.follow_up_count}`} />
-          {client.source_lead_id ? (
-            <Detail
-              label="Source"
-              value={
-                <a className="underline" href={`/workstation/leads/${client.source_lead_id}`}>
-                  Converted from a lead
-                </a>
-              }
-            />
-          ) : null}
-        </div>
-      </Card>
+      <div className="space-y-6">
+        <Card title="Client status">
+          <div className="p-4">
+            <Detail label="Status" value={<Status value={client.status} />} />
+            <Detail label="Onboarded" value={fmtDate(client.onboarding_date)} />
+            <Detail label="Account Manager" value={client.account_manager?.full_name ?? '—'} />
+            <Detail label="Documents" value={`${client.document_count}`} />
+            <Detail label="Follow-ups" value={`${client.follow_up_count}`} />
+            {client.source_lead_id ? (
+              <Detail
+                label="Source"
+                value={
+                  <a className="underline" href={`/workstation/leads/${client.source_lead_id}`}>
+                    Converted from a lead
+                  </a>
+                }
+              />
+            ) : null}
+          </div>
+        </Card>
+
+        {/* Spec §6.3: hidden entirely (not greyed) from users without the
+            finance permission. `canSeeBilling` short-circuits both the
+            render and any accompanying API request. */}
+        {canSeeBilling ? <BillingSliceCard clientId={client.id} /> : null}
+      </div>
     </div>
   );
 }

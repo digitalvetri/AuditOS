@@ -102,6 +102,26 @@ export interface QueueResponse {
   counts: { unmatched: number; proposed: number; matched: number };
 }
 
+export interface BillingSlice {
+  billingAccount: {
+    id: string;
+    label: string;
+    isGstRegistered: boolean;
+    legalEntityName: string;
+  } | null;
+  financialYear: string;
+  paidThisFyPaise: number;
+  paymentCountThisFy: number;
+  lastPayment: {
+    id: string;
+    paidAt: string;
+    amountPaise: number;
+    matchedInvoiceRef: string | null;
+  } | null;
+  outstandingPaise: number | null;
+  oldestOpenInvoice: null;
+}
+
 
 export interface CollectionsTile {
   amountPaise: number;
@@ -165,5 +185,12 @@ export const zpayApi = {
   unmatchPayment: (paymentId: string) =>
     api.post<{ paymentId: string; matchType: 'unmatched' }>(
       `/api/zpay/payments/${paymentId}/unmatch`,
+    ),
+  billingSlice: (clientId: string) =>
+    api.get<BillingSlice>(`/api/zpay/clients/${clientId}/billing-slice`),
+  setBillingAccount: (clientId: string, accountId: string | null) =>
+    api.patch<{ billingAccountId: string | null }>(
+      `/api/zpay/clients/${clientId}/billing-account`,
+      { accountId },
     ),
 };

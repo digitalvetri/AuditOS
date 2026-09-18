@@ -25,6 +25,7 @@ import { beginConsent, completeConsent } from './service.js'
 import { syncAccount, syncConnection } from './sync.js'
 import { collectionsAggregate, parsePeriod } from './collections.js'
 import { manuallyMatch, unmatch } from './matching-service.js'
+import { billingSliceFor, setBillingAccount } from './billing.js'
 
 export const zpayRouter = Router()
 
@@ -179,6 +180,38 @@ zpayRouter.post('/connections/:cid/sync', handler(async (req, res) => {
   if (!conn) throw ApiError.notFound('No such connection.')
   const outcomes = await syncConnection(conn.id)
   ok(res, { runs: outcomes })
+}))
+
+// ── client billing slice (spec §6.3) ──────────────────────────────────
+
+// GET /api/zpay/clients/:id/billing-slice
+// The card on the client record: billed-from account, paid-this-FY,
+// last-payment, plus placeholders for outstanding & oldest-open-invoice
+// (these come alive when an invoice source lands). Behind
+// accounts.manage@organisation — spec §6.3: hidden entirely, not greyed.
+zpayRouter.get('/clients/:id/billing-slice', handler(async (req, res) => {
+  const session = requireSession(req)
+  const orgId = await orgIdFor(session.userId)
+  const slice = await billingSliceFor(req.params.id, orgId)
+  ok(res, slice)
+}))
+
+// PATCH /api/zpay/clients/:id/billing-account  { accountId | null }
+// One client is billed from ONE account (spec §3). Setting null clears
+// the mapping. Behind accounts.manage@organisation.
+zpayRouter.patch('/clients/:id/billing-account', handler(async (req, res) => {
+  const session = requireSession(req)
+  const orgId = await orgIdFor(session.userId)
+  const body = (req.body ?? {}) as { accountId?: unknown }
+  const accountId =
+    body.accountId === null ? null
+    : typeof body.accountId === 'string' && body.accountId.length ? body.accountId
+    : undefined
+  if (accountId === undefined) {
+    throw ApiError.badRequest('accountId must be a string or null.')
+  }
+  const result = await setBillingAccount(req.params.id, orgId, accountId, session.userId)
+  ok(res, result)
 }))
 
 // GET /api/zpay/payments — the matching queue.
