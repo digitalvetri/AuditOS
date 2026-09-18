@@ -398,6 +398,7 @@ function AccountRow({
 }) {
   const qc = useQueryClient();
   const toast = useToast();
+  const [importing, setImporting] = useState(false);
   const sync = useMutation({
     mutationFn: () => zpayApi.syncAccount(connectionId, account.id),
     onSuccess: (outcome) => {
@@ -416,24 +417,77 @@ function AccountRow({
     },
     onError: (e: Error) => toast.push('error', e.message),
   });
+  const importInvoices = useMutation({
+    mutationFn: (file: File) => zpayApi.importInvoices(account.id, file),
+    onSuccess: (outcome) => {
+      const parts = [`${outcome.inserted} new`, `${outcome.updated} updated`];
+      if (outcome.probableProposed > 0) parts.push(`${outcome.probableProposed} probable matches proposed`);
+      if (outcome.errors.length > 0) parts.push(`${outcome.errors.length} errors`);
+      if (outcome.warnings.length > 0) parts.push(`${outcome.warnings.length} warnings`);
+      toast.push(
+        outcome.errors.length > 0 ? 'error' : 'success',
+        `Import: ${parts.join(', ')}.`,
+      );
+      qc.invalidateQueries({ queryKey: ['zpay', 'queue'] });
+      qc.invalidateQueries({ queryKey: ['zpay', 'billing-slice'] });
+    },
+    onError: (e: Error) => toast.push('error', e.message),
+  });
   return (
-    <li className="bg-white border border-neutral-200 rounded p-3 flex items-start justify-between gap-3 flex-wrap">
-      <div className="min-w-0">
-        <div className="text-13 text-neutral-900">
-          <span className="font-medium">{account.label}</span>
-          <span className="text-neutral-500"> · </span>
-          <span className="font-mono text-11">{account.accountId}</span>
+    <li className="bg-white border border-neutral-200 rounded p-3">
+      <div className="flex items-start justify-between gap-3 flex-wrap">
+        <div className="min-w-0">
+          <div className="text-13 text-neutral-900">
+            <span className="font-medium">{account.label}</span>
+            <span className="text-neutral-500"> · </span>
+            <span className="font-mono text-11">{account.accountId}</span>
+          </div>
+          <div className="text-11 text-neutral-500 mt-0.5">
+            {account.isGstRegistered ? `GST-registered${account.gstin ? ` · ${account.gstin}` : ''}` : 'Not GST-registered'}
+            {account.lastSyncAt
+              ? ` · ${account.lastSyncStatus ?? 'synced'} ${formatWhen(account.lastSyncAt)}`
+              : ' · never synced'}
+          </div>
         </div>
-        <div className="text-11 text-neutral-500 mt-0.5">
-          {account.isGstRegistered ? `GST-registered${account.gstin ? ` · ${account.gstin}` : ''}` : 'Not GST-registered'}
-          {account.lastSyncAt
-            ? ` · ${account.lastSyncStatus ?? 'synced'} ${formatWhen(account.lastSyncAt)}`
-            : ' · never synced'}
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={() => setImporting((v) => !v)}
+            className="text-12 text-navy-700 hover:underline"
+          >
+            {importing ? 'Cancel import' : 'Import invoices'}
+          </button>
+          <Button variant="secondary" onClick={() => sync.mutate()} disabled={sync.isPending}>
+            {sync.isPending ? 'Syncing…' : 'Sync now'}
+          </Button>
         </div>
       </div>
-      <Button variant="secondary" onClick={() => sync.mutate()} disabled={sync.isPending}>
-        {sync.isPending ? 'Syncing…' : 'Sync now'}
-      </Button>
+      {importing ? (
+        <div className="mt-3 bg-neutral-50 border border-neutral-200 rounded p-3 space-y-2">
+          <div className="text-12 text-neutral-600">
+            Upload a CSV of open + paid invoices raised from this account.
+            Required columns: <code>invoice_number</code>, <code>issued_on</code>,{' '}
+            <code>amount</code>. Optional: <code>status</code>,{' '}
+            <code>due_date</code>, <code>client_code</code> (matched to a
+            client in AuditOS). Re-uploading is idempotent — same invoice
+            number updates in place.
+          </div>
+          <input
+            type="file"
+            accept=".csv,text/csv"
+            className="text-13"
+            onChange={(e) => {
+              const file = e.target.files?.[0];
+              if (file) importInvoices.mutate(file);
+              e.target.value = '';
+            }}
+            disabled={importInvoices.isPending}
+          />
+          {importInvoices.isPending ? (
+            <div className="text-11 text-neutral-500">Uploading…</div>
+          ) : null}
+        </div>
+      ) : null}
     </li>
   );
 }

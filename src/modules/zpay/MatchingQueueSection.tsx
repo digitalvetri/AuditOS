@@ -126,7 +126,7 @@ export function MatchingQueueSection() {
         <div className="text-13 text-red-700 bg-red-50 border border-red-200 rounded p-3">
           Failed to load: {(q.error as Error).message}
         </div>
-      ) : filter === 'proposed' ? (
+      ) : filter === 'proposed' && (!q.data || q.data.items.length === 0) ? (
         <ProposedEmpty />
       ) : q.data && q.data.items.length === 0 ? (
         <EmptyState filter={filter} />
@@ -173,6 +173,16 @@ function QueueRow({
     },
     onError: (e: Error) => toast.push('error', e.message),
   });
+  const confirm = useMutation({
+    mutationFn: () => zpayApi.confirmProbable(payment.id),
+    onSuccess: () => {
+      toast.push('success', 'Match confirmed.');
+      qc.invalidateQueries({ queryKey: ['zpay', 'queue'] });
+      qc.invalidateQueries({ queryKey: ['zpay', 'collections'] });
+      qc.invalidateQueries({ queryKey: ['zpay', 'billing-slice'] });
+    },
+    onError: (e: Error) => toast.push('error', e.message),
+  });
   return (
     <li className="bg-white border border-neutral-200 rounded p-3 flex items-start justify-between gap-4 flex-wrap">
       <div className="min-w-0 flex-1">
@@ -187,7 +197,7 @@ function QueueRow({
         </div>
         <div className="text-12 text-neutral-500 mt-1 font-mono">
           Ref: {payment.referenceNumber ?? '—'}
-          {payment.matchedInvoiceRef ? (
+          {payment.matchedInvoiceRef && payment.matchType !== 'probable' ? (
             <>
               {' · matched → '}
               <span className="text-neutral-900">{payment.matchedInvoiceRef}</span>
@@ -199,10 +209,27 @@ function QueueRow({
             </>
           ) : null}
         </div>
+        {payment.matchType === 'probable' && payment.candidateInvoice ? (
+          <div className="mt-2 text-12 bg-amber-50 border border-amber-200 rounded p-2">
+            <span className="text-amber-900 font-medium">Probable:</span>{' '}
+            <span className="font-mono">{payment.candidateInvoice.invoiceNumber}</span>
+            {' · '}
+            <span className="tabular-nums">{inr(payment.candidateInvoice.amountPaise)}</span>
+            {' · raised '}
+            <span>{payment.candidateInvoice.issuedOn}</span>
+          </div>
+        ) : null}
       </div>
       <div className="flex items-center gap-2">
         {filter === 'unmatched' ? (
           <Button variant="primary" onClick={onMatch}>Link manually ▸</Button>
+        ) : filter === 'proposed' ? (
+          <>
+            <Button variant="primary" onClick={() => confirm.mutate()} disabled={confirm.isPending}>
+              {confirm.isPending ? 'Confirming…' : 'Confirm'}
+            </Button>
+            <Button variant="secondary" onClick={onMatch}>Choose other</Button>
+          </>
         ) : (
           <Button variant="secondary" onClick={() => un.mutate()} disabled={un.isPending}>
             {un.isPending ? 'Unmatching…' : 'Unmatch'}
@@ -370,13 +397,12 @@ function MatchModal({
 
 function ProposedEmpty() {
   return (
-    <div className="text-13 text-neutral-600 bg-amber-50 border border-amber-200 rounded p-4">
-      <div className="font-medium text-amber-900 mb-1">Probable-tier matching needs an invoice source</div>
+    <div className="text-13 text-neutral-600 bg-neutral-50 border border-neutral-200 rounded p-4">
+      <div className="font-medium text-neutral-900 mb-1">Nothing proposed</div>
       <p>
-        The spec§4.2 probable tier proposes a match when a payment's amount matches
-        an OPEN invoice for a client billed from the same account. That requires
-        pulling invoice data from your invoicing system. Once we wire either an
-        API or a CSV upload, this tab will fill in.
+        A payment lands here when its amount exactly matches an open imported
+        invoice from the same billing account within ±15 days of when it was
+        paid. Import invoices under Settings → Integrations → Zoho Payments.
       </p>
     </div>
   );

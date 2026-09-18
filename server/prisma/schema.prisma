@@ -1118,6 +1118,8 @@ model Client {
   billingAccountId String?
   billingAccount   ZpayAccount? @relation(fields: [billingAccountId], references: [id])
 
+  zpayExternalInvoices ZpayExternalInvoice[]
+
   contacts            ClientContact[]
   services            ClientService[]
   followUps           FollowUp[]
@@ -5353,11 +5355,12 @@ model ZpayAccount {
   /// so a card can render the last outcome without joining.
   lastSyncStatus String?
 
-  connection ZpayConnection @relation(fields: [connectionId], references: [id])
-  clients    Client[]
-  payments   ZpayPayment[]
-  refunds    ZpayRefund[]
-  syncRuns   ZpaySyncRun[]
+  connection       ZpayConnection        @relation(fields: [connectionId], references: [id])
+  clients          Client[]
+  payments         ZpayPayment[]
+  refunds          ZpayRefund[]
+  syncRuns         ZpaySyncRun[]
+  externalInvoices ZpayExternalInvoice[]
 
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt
@@ -5476,4 +5479,60 @@ model ZpaySyncRun {
 
   @@index([accountRowId, startedAt])
   @@index([status])
+}
+
+/// External invoices — the source of truth the exact/probable matcher
+/// verifies payment references against (docs/zoho-payments/README.md §4,
+/// §9). Imported from a CSV/XLSX today; a Books integration or a real
+/// invoicing API can replace the import path later without a schema
+/// change.
+///
+/// Idempotent import key is `(billingAccountId, invoiceNumber)` so
+/// re-uploading the same file merges instead of duplicating. Amounts are
+/// INTEGER PAISE — the parser normalises the CSV's decimal-rupees
+/// column at the boundary and nowhere else.
+model ZpayExternalInvoice {
+  id               String @id @default(uuid())
+  organisationId   String
+  /// Which of the firm's Zoho accounts raised this invoice — determines
+  /// which payments can probable-match against it.
+  billingAccountId String
+  /// The invoice number as printed. The exact-tier matcher looks for this
+  /// substring inside a Zoho payment's referenceNumber or description.
+  invoiceNumber    String
+
+  /// The client the invoice was raised to, if the CSV row carried a
+  /// resolvable client_code. Nullable so an unresolved row still imports
+  /// and matches on ref alone.
+  clientId String?
+
+  /// IST calendar date as ISO 'YYYY-MM-DD' string, per the schema's IST
+  /// invariant.
+  issuedOn String
+  dueDate  String?
+
+  amountPaise Int
+  /// open | paid | cancelled — the operator's status, not ours.
+  status      String @default("open")
+
+  /// Where this row came from. `csv` today; `books` / `api` if we add
+  /// alternate sources without changing the matcher.
+  source     String   @default("csv")
+  importedAt DateTime @default(now())
+  importedBy String?
+
+  billingAccount ZpayAccount @relation(fields: [billingAccountId], references: [id])
+  client         Client?     @relation(fields: [clientId], references: [id])
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  createdBy String?
+  updatedBy String?
+  deletedAt DateTime?
+
+  @@unique([billingAccountId, invoiceNumber])
+  @@index([organisationId, status])
+  @@index([clientId, status])
+  @@index([billingAccountId, issuedOn])
+  @@index([billingAccountId, amountPaise])
 }

@@ -114,16 +114,45 @@ export function BillingSliceCard({ clientId }: { clientId: string }) {
 
             <div className="grid grid-cols-2 gap-3 pt-2 border-t border-neutral-100">
               <Stat label="Outstanding">
-                <span className="text-neutral-400">—</span>
-                <div className="text-11 text-neutral-500">
-                  Needs an invoice source (spec §9)
-                </div>
+                {slice.data.outstandingCount > 0 ? (
+                  <>
+                    <span className="text-16 font-semibold tabular-nums text-amber-800">
+                      {inr(slice.data.outstandingPaise ?? 0)}
+                    </span>
+                    <div className="text-11 text-neutral-500">
+                      {slice.data.outstandingCount === 1
+                        ? '1 open invoice'
+                        : `${slice.data.outstandingCount} open invoices`}
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    <span className="text-neutral-400">—</span>
+                    <div className="text-11 text-neutral-500">
+                      No open invoices for this client
+                    </div>
+                  </>
+                )}
               </Stat>
               <Stat label="Oldest open invoice">
-                <span className="text-neutral-400">—</span>
-                <div className="text-11 text-neutral-500">
-                  Needs an invoice source
-                </div>
+                {slice.data.oldestOpenInvoice ? (
+                  <>
+                    <span className="text-13 font-medium text-neutral-900 font-mono">
+                      {slice.data.oldestOpenInvoice.invoiceNumber}
+                    </span>
+                    <div className="text-11 text-neutral-500">
+                      {slice.data.oldestOpenInvoice.ageDays} days
+                      <span className="ml-1">
+                        · {inr(slice.data.oldestOpenInvoice.amountPaise)}
+                      </span>
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    <span className="text-neutral-400">—</span>
+                    <div className="text-11 text-neutral-500">Nothing open</div>
+                  </>
+                )}
               </Stat>
             </div>
           </>

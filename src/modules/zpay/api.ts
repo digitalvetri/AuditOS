@@ -79,6 +79,15 @@ export type EntityFilter = 'all' | 'gst' | 'non-gst';
 export type MatchFilter = 'unmatched' | 'proposed' | 'matched';
 export type MatchType = 'exact' | 'probable' | 'manual' | 'unmatched';
 
+export interface CandidateInvoice {
+  billingAccountId: string;
+  invoiceNumber: string;
+  issuedOn: string;
+  amountPaise: number;
+  status: string;
+  clientId: string | null;
+}
+
 export interface QueuePayment {
   id: string;
   paidAt: string;
@@ -95,6 +104,7 @@ export interface QueuePayment {
     isGstRegistered: boolean;
     invoiceSeriesPrefix: string;
   };
+  candidateInvoice: CandidateInvoice | null;
 }
 
 export interface QueueResponse {
@@ -119,7 +129,22 @@ export interface BillingSlice {
     matchedInvoiceRef: string | null;
   } | null;
   outstandingPaise: number | null;
-  oldestOpenInvoice: null;
+  outstandingCount: number;
+  oldestOpenInvoice: {
+    invoiceNumber: string;
+    issuedOn: string;
+    amountPaise: number;
+    ageDays: number;
+  } | null;
+}
+
+export interface InvoiceImportOutcome {
+  inserted: number;
+  updated: number;
+  skipped: number;
+  errors: { row: number; message: string }[];
+  warnings: { row: number; message: string }[];
+  probableProposed: number;
 }
 
 
@@ -192,5 +217,17 @@ export const zpayApi = {
     api.patch<{ billingAccountId: string | null }>(
       `/api/zpay/clients/${clientId}/billing-account`,
       { accountId },
+    ),
+  importInvoices: (accountId: string, file: File) => {
+    const form = new FormData();
+    form.append('file', file, file.name);
+    return api.postForm<InvoiceImportOutcome>(
+      `/api/zpay/accounts/${accountId}/invoices/import`,
+      form,
+    );
+  },
+  confirmProbable: (paymentId: string) =>
+    api.post<{ paymentId: string; matchType: 'manual' }>(
+      `/api/zpay/payments/${paymentId}/confirm-probable`,
     ),
 };

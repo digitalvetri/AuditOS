@@ -88,6 +88,19 @@ async function main() {
   const md = await prisma.user.findFirstOrThrow({ where: { email: 'ravi@auditos.local' } })
   const orgId = md.organisationId
 
+  // Leftover from an earlier failed run — clear the FIXTURE- rows in this
+  // org before seeding so this test is repeatable without a manual reset.
+  await prisma.client.updateMany({
+    where: { organisationId: orgId, clientCode: { startsWith: 'FX-BILL-' } },
+    data: { billingAccountId: null },
+  })
+  await prisma.client.deleteMany({
+    where: { organisationId: orgId, clientCode: { startsWith: 'FX-BILL-' } },
+  })
+  await prisma.zpayConnection.deleteMany({
+    where: { organisationId: orgId, zohoOrgLabel: { startsWith: 'FIXTURE-' } },
+  })
+
   // Fixture connection + account.
   const conn = await prisma.zpayConnection.create({
     data: {
@@ -262,10 +275,16 @@ async function main() {
     }
     pass('billingSliceFor sums matched-only, in-FY, this-client payments only')
 
-    if (slice.outstandingPaise !== null || slice.oldestOpenInvoice !== null) {
-      fail('slice invoice placeholders', 'outstanding/oldest should be null placeholders')
+    // Outstanding + oldest-open-invoice now hydrate from ZpayExternalInvoice.
+    // No fixture invoices → outstanding is 0 and oldest is null.
+    if (slice.outstandingPaise !== 0) {
+      fail('slice outstanding zero', `expected 0, got ${slice.outstandingPaise}`)
     }
-    pass('outstanding & oldest-open-invoice are explicit nulls until an invoice source lands')
+    if (slice.outstandingCount !== 0) fail('slice outstanding count', `${slice.outstandingCount}`)
+    if (slice.oldestOpenInvoice !== null) {
+      fail('slice oldest', 'no fixture invoices → oldest should be null')
+    }
+    pass('outstanding numbers sum ZpayExternalInvoice; zero when no imports')
 
     // Beta client has one payment in-FY (matched) and shouldn't leak alpha's rows.
     const betaSlice = await billingSliceFor(beta.id, orgId)
