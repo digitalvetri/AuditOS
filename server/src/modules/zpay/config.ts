@@ -41,14 +41,36 @@ export interface ZpayConfig {
 const SCOPES = ['ZohoPay.payments.READ', 'ZohoPay.refunds.READ'] as const
 
 function readMode(): ZpayMode {
-  const raw = (process.env.ZPAY_MODE ?? 'fake').toLowerCase()
-  if (raw !== 'fake' && raw !== 'live') {
+  const raw = process.env.ZPAY_MODE?.toLowerCase()
+  if (raw && raw !== 'fake' && raw !== 'live') {
     throw new Error(`ZPAY_MODE must be "fake" or "live" (got "${raw}")`)
   }
-  if (raw === 'fake' && baseEnv.isProduction) {
+  // Default: fake in development, live in production. This is the shape
+  // an operator expects — a dev laptop should just work; a real deployment
+  // should not silently mount a fake token issuer if someone forgot to set
+  // the variable.
+  const mode = (raw as ZpayMode | undefined) ?? (baseEnv.isProduction ? 'live' : 'fake')
+  if (mode === 'fake' && baseEnv.isProduction) {
     throw new Error('ZPAY_MODE=fake is not allowed in production. Set ZPAY_MODE=live.')
   }
-  return raw
+  return mode
+}
+
+/**
+ * A boot-safe view of the mode used by `app.ts` to decide whether to mount
+ * the fake Zoho router. Never throws when zpay is simply not configured —
+ * a production deployment without Zoho credentials must still be able to
+ * start; only an actual zpay endpoint call touches full `zpayConfig()`.
+ */
+export function zpayShouldMountFake(): boolean {
+  try {
+    return readMode() === 'fake'
+  } catch {
+    // Bad ZPAY_MODE value or fake-in-production: don't mount the fake, and
+    // let full config resolution throw later when someone actually calls
+    // a zpay endpoint.
+    return false
+  }
 }
 
 function readCredential(name: string, mode: ZpayMode): string {

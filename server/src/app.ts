@@ -52,7 +52,7 @@ import { booksRouter } from './modules/books/routes.js'
 // Callback is public (state-signed); the rest is behind the finance permission.
 import { zpayRouter, zpayCallbackRouter } from './modules/zpay/routes.js'
 import { createFakeZohoRouter } from './modules/zpay/fake-zoho.js'
-import { zpayConfig } from './modules/zpay/config.js'
+import { zpayConfig, zpayShouldMountFake } from './modules/zpay/config.js'
 
 /**
  * The HTTP surface. Every route below /api answers in the Part 1 envelope
@@ -113,9 +113,11 @@ export function createApp() {
   app.use('/api/zpay', zpayCallbackRouter)
 
   // Fake Zoho, in-process. Mounted OUTSIDE /api so it never inherits the
-  // authenticate middleware; only when ZPAY_MODE=fake. In production this
-  // never mounts (the config module refuses fake mode there).
-  if (zpayConfig().mode === 'fake') {
+  // authenticate middleware; only when ZPAY_MODE=fake. The boot-safe check
+  // means an unconfigured production deployment still starts — full config
+  // resolution (and any missing-credential error) is deferred until an
+  // actual zpay endpoint is called.
+  if (zpayShouldMountFake()) {
     app.use('/fake-zoho', createFakeZohoRouter(zpayConfig()))
   }
 
