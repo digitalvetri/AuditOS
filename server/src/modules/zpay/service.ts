@@ -126,6 +126,17 @@ export async function completeConsent(
     where: { id: parsed.cid, organisationId: parsed.oid, deletedAt: null },
   })
   if (!conn) throw ApiError.notFound('No such Zoho Payments connection.')
+
+  // Idempotent completion — the callback is a browser GET, which can fire
+  // twice for the same successful consent (a back-then-forward, a
+  // duplicate history entry, an eager preloader). A signed state token
+  // guaranteed to be one of ours plus a `connected` row means the prior
+  // callback already ran; treat this hit as a no-op instead of throwing
+  // a `connected → connected` illegal transition.
+  if (conn.status === 'connected') {
+    return { connectionId: conn.id, status: 'connected' }
+  }
+
   assertTransition(conn.status as ZpayStatus, 'connected')
 
   let tokens
