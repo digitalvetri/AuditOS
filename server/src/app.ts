@@ -48,6 +48,11 @@ import { tasksRouter } from './modules/task/routes.js'
 import { gstRouter as gstComplianceRouter } from './modules/gst/routes.js'
 // Books — native bookkeeping, one set of books per client (docs/accounting-module).
 import { booksRouter } from './modules/books/routes.js'
+// Zoho Payments (docs/zoho-payments/README.md) — firm-collections integration.
+// Callback is public (state-signed); the rest is behind the finance permission.
+import { zpayRouter, zpayCallbackRouter } from './modules/zpay/routes.js'
+import { createFakeZohoRouter } from './modules/zpay/fake-zoho.js'
+import { zpayConfig } from './modules/zpay/config.js'
 
 /**
  * The HTTP surface. Every route below /api answers in the Part 1 envelope
@@ -100,6 +105,19 @@ export function createApp() {
   // Tool outputs download the same way: the HMAC in the query string is the
   // authorization, so a plain browser navigation can fetch the bytes.
   app.use('/api', toolsSignedRouter)
+
+  // Zoho Payments OAuth callback. Public because the redirect from
+  // accounts.zoho.in is a top-level browser navigation and we cannot
+  // count on the session cookie surviving cross-site — the signed `state`
+  // param is what authorises the call.
+  app.use('/api/zpay', zpayCallbackRouter)
+
+  // Fake Zoho, in-process. Mounted OUTSIDE /api so it never inherits the
+  // authenticate middleware; only when ZPAY_MODE=fake. In production this
+  // never mounts (the config module refuses fake mode there).
+  if (zpayConfig().mode === 'fake') {
+    app.use('/fake-zoho', createFakeZohoRouter(zpayConfig()))
+  }
 
   // Everything else requires a session.
   app.use('/api', authenticate)
@@ -177,6 +195,11 @@ export function createApp() {
 
   // ── Books ──────────────────────────────────────────────────────────────
   app.use('/api/books', booksRouter)
+
+  // ── Zoho Payments (firm collections) ───────────────────────────────────
+  // Management endpoints — the callback is already mounted above the
+  // authenticate middleware.
+  app.use('/api/zpay', zpayRouter)
 
   app.use('/api', (_req, res) => {
     res.status(404).json({ error: { code: 'not_found', message: 'No such endpoint.' } })
