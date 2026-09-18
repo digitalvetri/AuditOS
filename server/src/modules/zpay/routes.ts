@@ -23,6 +23,7 @@ import { prisma } from '../../lib/prisma.js'
 import { requireSession, requirePermission } from '../../platform/auth.js'
 import { beginConsent, completeConsent } from './service.js'
 import { syncAccount, syncConnection } from './sync.js'
+import { collectionsAggregate, parsePeriod } from './collections.js'
 
 export const zpayRouter = Router()
 
@@ -177,6 +178,19 @@ zpayRouter.post('/connections/:cid/sync', handler(async (req, res) => {
   if (!conn) throw ApiError.notFound('No such connection.')
   const outcomes = await syncConnection(conn.id)
   ok(res, { runs: outcomes })
+}))
+
+// GET /api/zpay/collections?period=YYYY-MM&entity=all|gst|non-gst
+// Local aggregate for the Collections card. Never touches Zoho on read
+// (spec §3) — if the tiles are stale, sync is where to look.
+zpayRouter.get('/collections', handler(async (req, res) => {
+  const session = requireSession(req)
+  const orgId = await orgIdFor(session.userId)
+  const period = parsePeriod(typeof req.query.period === 'string' ? req.query.period : undefined)
+  const entityRaw = typeof req.query.entity === 'string' ? req.query.entity : 'all'
+  const entity = entityRaw === 'gst' || entityRaw === 'non-gst' ? entityRaw : 'all'
+  const aggregate = await collectionsAggregate(orgId, entity, period)
+  ok(res, aggregate)
 }))
 
 // GET /api/zpay/connections/:cid/accounts/:aid/sync-runs
