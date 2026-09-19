@@ -1111,6 +1111,13 @@ model Client {
   portalEnabled     Boolean @default(false)
   portalInviteEmail String?
 
+  /// Which of the firm's Zoho Payments accounts bills this client.
+  /// Nullable — set once at onboarding, drives which invoice series
+  /// applies and which account a payment is expected in
+  /// (docs/zoho-payments/README.md §3 and §4).
+  billingAccountId String?
+  billingAccount   ZpayAccount? @relation(fields: [billingAccountId], references: [id])
+
   contacts            ClientContact[]
   services            ClientService[]
   followUps           FollowUp[]
@@ -1489,7 +1496,7 @@ model GstProfile {
   address            String?
   active             Boolean @default(true)
 
-  client  Client      @relation(fields: [clientId], references: [id])
+  client  Client                @relation(fields: [clientId], references: [id])
   filings GstFiling[]
   periods GstCompliancePeriod[]
 
@@ -1529,21 +1536,21 @@ model GstFiling {
   /// Declared figures, paise. GSTR-1 uses the first two; GSTR-3B uses the
   /// liability trio. All nullable — a filing is a lifecycle row first and
   /// carries numbers only once prepared.
-  taxableValue  BigInt?
-  taxAmount     BigInt?
-  taxLiability  BigInt?
-  eligibleItc   BigInt?
-  netPayable    BigInt?
+  taxableValue BigInt?
+  taxAmount    BigInt?
+  taxLiability BigInt?
+  eligibleItc  BigInt?
+  netPayable   BigInt?
 
   /// §31: filing is RECORDED, never transmitted. Audit OS has no GSTN
   /// connectivity, so `filedManually` is true for every filed row and the
   /// screens say so rather than implying an automated submission.
-  filedManually  Boolean @default(true)
-  filedByUserId  String?
+  filedManually Boolean @default(true)
+  filedByUserId String?
   /// not_applicable | pending | completed
-  paymentStatus  String  @default("not_applicable")
-  paymentDate    String?
-  challanRef     String?
+  paymentStatus String  @default("not_applicable")
+  paymentDate   String?
+  challanRef    String?
 
   gstProfile       GstProfile           @relation(fields: [gstProfileId], references: [id])
   compliancePeriod GstCompliancePeriod? @relation(fields: [compliancePeriodId], references: [id])
@@ -1766,8 +1773,8 @@ model GstLiabilitySnapshot {
 /// period needs hangs off this row, so a client/period can never be read
 /// across into another client's numbers.
 model GstCompliancePeriod {
-  id           String @id @default(uuid())
-  gstProfileId String
+  id            String @id @default(uuid())
+  gstProfileId  String
   /// '2026-27' — never hardcoded anywhere; derived from the period.
   financialYear String
   /// 'YYYY-MM' for monthly, 'YYYY-Q1'..'YYYY-Q4' for quarterly filers.
@@ -1778,7 +1785,7 @@ model GstCompliancePeriod {
 
   /// DERIVED (§29), recomputed by the engine — never written by a client.
   /// not_started | in_progress | completed | overdue | exception
-  overallStatus String @default("not_started")
+  overallStatus String  @default("not_started")
   /// The earliest unmet stage due date, for calendar and sorting (§30).
   nextDueDate   String?
 
@@ -1786,7 +1793,7 @@ model GstCompliancePeriod {
   reviewerEmployeeId String?
   managerEmployeeId  String?
 
-  gstProfile     GstProfile           @relation(fields: [gstProfileId], references: [id])
+  gstProfile     GstProfile         @relation(fields: [gstProfileId], references: [id])
   filings        GstFiling[]
   r2b            GstR2BRecord?
   reconciliation GstReconciliation?
@@ -1817,7 +1824,7 @@ model GstR2BRecord {
 
   /// pending | expected | available | downloaded | reconciliation_pending |
   /// reconciliation_in_progress | reconciliation_completed | exceptions_found
-  status        String @default("pending")
+  status        String  @default("pending")
   availableDate String?
   downloadDate  String?
 
@@ -1863,14 +1870,14 @@ model GstReconciliation {
   compliancePeriodId String @unique
 
   /// pending | in_progress | completed | completed_with_exceptions
-  status String @default("pending")
+  status     String  @default("pending")
   /// The Tools-side run this summarises. Null until a run is attached.
   reconJobId String?
 
-  totalInvoices Int @default(0)
-  matchedCount  Int @default(0)
-  partialCount  Int @default(0)
-  mismatchCount Int @default(0)
+  totalInvoices       Int @default(0)
+  matchedCount        Int @default(0)
+  partialCount        Int @default(0)
+  mismatchCount       Int @default(0)
   missingInBooksCount Int @default(0)
   missingIn2BCount    Int @default(0)
   duplicateCount      Int @default(0)
@@ -1878,17 +1885,17 @@ model GstReconciliation {
 
   /// Paise. booksItc − twoBItc is the §16 ITC difference, kept as stored
   /// columns so the dashboard aggregates in the database, not the browser.
-  booksItc     BigInt @default(0)
-  twoBItc      BigInt @default(0)
-  matchedItc   BigInt @default(0)
-  mismatchItc  BigInt @default(0)
-  missingItc   BigInt @default(0)
+  booksItc    BigInt @default(0)
+  twoBItc     BigInt @default(0)
+  matchedItc  BigInt @default(0)
+  mismatchItc BigInt @default(0)
+  missingItc  BigInt @default(0)
 
   startedAt   DateTime?
   completedAt DateTime?
   remarks     String?
 
-  compliancePeriod GstCompliancePeriod       @relation(fields: [compliancePeriodId], references: [id], onDelete: Cascade)
+  compliancePeriod GstCompliancePeriod     @relation(fields: [compliancePeriodId], references: [id], onDelete: Cascade)
   items            GstReconciliationItem[]
 
   createdAt DateTime  @default(now())
@@ -1933,10 +1940,10 @@ model GstReconciliationItem {
   taxDifference BigInt @default(0)
 
   /// open | accepted | disputed | resolved — the reviewer's decision.
-  reviewStatus   String  @default("open")
-  reviewNote     String?
-  reviewedBy     String?
-  reviewedAt     DateTime?
+  reviewStatus String    @default("open")
+  reviewNote   String?
+  reviewedBy   String?
+  reviewedAt   DateTime?
 
   reconciliation GstReconciliation @relation(fields: [reconciliationId], references: [id], onDelete: Cascade)
   exceptions     GstException[]
@@ -1954,28 +1961,28 @@ model GstReconciliationItem {
 /// the reconciliation line that produced it, so "mismatch ₹12,000" can be
 /// clicked through to the invoice.
 model GstException {
-  id                 String  @id @default(uuid())
-  compliancePeriodId String
+  id                   String  @id @default(uuid())
+  compliancePeriodId   String
   reconciliationItemId String?
 
   /// gstr1 | gstr2b | reconciliation | gstr3b | payment
-  stage String
+  stage       String
   /// missing_gstr1_data | gstr2b_unavailable | invoice_mismatch |
   /// itc_mismatch | missing_invoice | duplicate_invoice | gstin_mismatch |
   /// tax_calculation_mismatch | gstr3b_pending | payment_pending
-  issueType String
+  issueType   String
   /// low | medium | high | critical
-  severity  String @default("medium")
+  severity    String  @default("medium")
   title       String
   description String?
 
   /// open | under_review | resolved
-  status       String @default("open")
+  status               String    @default("open")
   assignedToEmployeeId String?
-  dueDate      String?
-  resolution   String?
-  resolvedBy   String?
-  resolvedAt   DateTime?
+  dueDate              String?
+  resolution           String?
+  resolvedBy           String?
+  resolvedAt           DateTime?
 
   compliancePeriod   GstCompliancePeriod    @relation(fields: [compliancePeriodId], references: [id], onDelete: Cascade)
   reconciliationItem GstReconciliationItem? @relation(fields: [reconciliationItemId], references: [id], onDelete: SetNull)
@@ -2029,9 +2036,9 @@ model GstAuditLog {
 
   performedByUserId     String?
   performedByEmployeeId String?
-  oldValue String?
-  newValue String?
-  metaJson String?
+  oldValue              String?
+  newValue              String?
+  metaJson              String?
 
   compliancePeriod GstCompliancePeriod? @relation(fields: [compliancePeriodId], references: [id], onDelete: Cascade)
 
@@ -5258,4 +5265,215 @@ model RegistrationEvent {
   createdAt DateTime @default(now())
 
   @@index([registrationId, createdAt])
+}
+
+// ============================================================
+// ZOHO PAYMENTS — firm collections (docs/zoho-payments/README.md)
+//
+// This is the FIRM's own money, not client data. Two Zoho Payments
+// accounts — one GST-registered entity, one not — connected via OAuth
+// against payments.zoho.in. Modelled as Connection 1:N Account so a
+// single Zoho login with two accounts and two separate logins both fit
+// without rework (§2 of the spec).
+//
+// Money is INTEGER PAISE, never float. `raw` mirrors exactly what Zoho
+// returned and is immutable — enforced in code, not schema. Unique
+// (accountRowId, zohoPaymentId) keeps re-sync idempotent (§3).
+// ============================================================
+
+/// A Zoho OAuth connection. Holds the encrypted refresh token that
+/// matters and the transient access token cached alongside it. The
+/// status field runs the connection state machine defined in
+/// server/src/modules/zpay/state.ts — do not write it from a route
+/// without going through allowedNext / assertTransition.
+model ZpayConnection {
+  id             String @id @default(uuid())
+  organisationId String
+
+  /// Free-text label the operator sees in Settings, e.g. "GST entity",
+  /// "Non-GST entity", or "Both" when one login carries both accounts.
+  zohoOrgLabel String
+
+  /// Encrypted at rest. NEVER logged, NEVER placed in error payloads,
+  /// NEVER in job records. Nullable because the row exists before
+  /// consent completes (status = not_connected | consent_pending).
+  refreshTokenEncrypted String?
+  accessTokenEncrypted  String?
+  accessTokenExpiresAt  DateTime?
+
+  /// Scopes actually granted at consent. Compared against the required
+  /// set on every API call so a downgrade fails loudly rather than
+  /// silently returning empty pages.
+  scopesGranted String[]
+
+  /// not_connected | consent_pending | connected | revoked | expired | error
+  status String @default("not_connected")
+
+  connectedAt   DateTime?
+  connectedBy   String?
+  lastErrorCode String?
+  lastErrorAt   DateTime?
+
+  accounts ZpayAccount[]
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  createdBy String?
+  updatedBy String?
+  deletedAt DateTime?
+
+  @@index([organisationId, status])
+}
+
+/// One Zoho Payments account. `accountId` is Zoho's identifier —
+/// required as a query parameter on every API call, per §1 of the spec.
+/// `label` is the operator's shorthand; `isGstRegistered` is the fact
+/// that decides invoice series and drives GST reconciliation.
+model ZpayAccount {
+  id           String @id @default(uuid())
+  connectionId String
+
+  /// Zoho's own account identifier. Unique per connection.
+  accountId String
+
+  /// "GST" | "Non-GST" — the operator label, not to be relied on for
+  /// tax logic. isGstRegistered is the source of truth.
+  label           String
+  isGstRegistered Boolean
+  legalEntityName String
+  gstin           String?
+
+  /// e.g. "INV/2026/". Used by the exact-tier matcher to recognise an
+  /// invoice number inside the payment's reference field (§4.2).
+  invoiceSeriesPrefix String
+
+  isActive       Boolean   @default(true)
+  lastSyncAt     DateTime?
+  /// pending | success | partial | failed — mirrors ZpaySyncRun.status
+  /// so a card can render the last outcome without joining.
+  lastSyncStatus String?
+
+  connection ZpayConnection @relation(fields: [connectionId], references: [id])
+  clients    Client[]
+  payments   ZpayPayment[]
+  refunds    ZpayRefund[]
+  syncRuns   ZpaySyncRun[]
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  createdBy String?
+  updatedBy String?
+  deletedAt DateTime?
+
+  @@unique([connectionId, accountId])
+  @@index([isActive])
+}
+
+/// One payment as Zoho recorded it. Idempotent upsert key is
+/// (accountRowId, zohoPaymentId) so re-running a sync over the same
+/// window never duplicates (§3). Amount and fee are INTEGER PAISE.
+/// `raw` is the untouched Zoho response, treated as immutable.
+model ZpayPayment {
+  id           String @id @default(uuid())
+  accountRowId String
+
+  zohoPaymentId String
+
+  amountPaise Int
+  /// Zoho's per-transaction fee, when the API exposes it. Nullable so
+  /// absence is modelled distinctly from zero (§3 note, §7 acceptance).
+  feePaise    Int?
+  currency    String  @default("INR")
+  /// captured | authorized | failed | refunded | disputed | …
+  /// Kept as a free string so an unknown Zoho value survives the sync
+  /// rather than dropping the row.
+  status      String
+  paymentMode String?
+
+  customerName  String?
+  customerEmail String?
+
+  /// THE matching key — invoice number placed here per the reference
+  /// discipline in §4.1. Nullable because Zoho does not require it.
+  referenceNumber String?
+  description     String?
+
+  mandateId     String?
+  paidAt        DateTime
+  createdAtZoho DateTime
+
+  /// Whatever Zoho returned. Immutable — write once at sync, never
+  /// updated in place.
+  raw Json
+
+  syncedAt DateTime @default(now())
+
+  // ── matching (§4) ────────────────────────────────────────────────
+  /// External invoice number, null until matched.
+  matchedInvoiceRef String?
+  matchedClientId   String?
+  /// exact | probable | manual | unmatched
+  matchType         String    @default("unmatched")
+  matchConfirmedBy  String?
+  matchConfirmedAt  DateTime?
+
+  account ZpayAccount @relation(fields: [accountRowId], references: [id])
+
+  @@unique([accountRowId, zohoPaymentId])
+  @@index([accountRowId, paidAt])
+  @@index([matchType])
+  @@index([matchedClientId])
+}
+
+/// A refund, mirrored 1:1 from Zoho. Also amount-in-paise, also
+/// immutable `raw`. Kept separate from ZpayPayment because Zoho models
+/// them separately and the sync windows are independent.
+model ZpayRefund {
+  id            String @id @default(uuid())
+  accountRowId  String
+  zohoRefundId  String
+  zohoPaymentId String
+
+  amountPaise Int
+  status      String
+  reason      String?
+  refundedAt  DateTime
+
+  raw      Json
+  syncedAt DateTime @default(now())
+
+  account ZpayAccount @relation(fields: [accountRowId], references: [id])
+
+  @@unique([accountRowId, zohoRefundId])
+  @@index([accountRowId, refundedAt])
+}
+
+/// One run of the sync job, per account. Two accounts sync
+/// independently (§3) — one failing must not stop the other, and the
+/// per-account row is what the ops screen shows.
+model ZpaySyncRun {
+  id           String @id @default(uuid())
+  accountRowId String
+
+  startedAt  DateTime  @default(now())
+  finishedAt DateTime?
+
+  /// The window this run pulled — spec §3 overlaps 3 days for
+  /// late-settlement changes; idempotent upserts make the overlap free.
+  windowFrom DateTime
+  windowTo   DateTime
+
+  paymentsFetched Int @default(0)
+  refundsFetched  Int @default(0)
+
+  /// pending | success | partial | failed
+  status       String  @default("pending")
+  errorCode    String?
+  errorDetail  String?
+  apiCallsMade Int     @default(0)
+
+  account ZpayAccount @relation(fields: [accountRowId], references: [id])
+
+  @@index([accountRowId, startedAt])
+  @@index([status])
 }
