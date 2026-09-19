@@ -44,6 +44,37 @@ export interface AuthorizeResult {
   authorizeUrl: string;
 }
 
+export interface CreateAccountInput {
+  accountId: string;
+  label: string;
+  isGstRegistered: boolean;
+  legalEntityName: string;
+  gstin: string | null;
+  invoiceSeriesPrefix: string;
+}
+
+export interface SyncOutcome {
+  syncRunId: string;
+  status: 'success' | 'partial' | 'failed';
+  paymentsFetched: number;
+  refundsFetched: number;
+  errorCode: string | null;
+  errorDetail: string | null;
+}
+
+export interface SyncRunSummary {
+  id: string;
+  startedAt: string;
+  finishedAt: string | null;
+  status: string;
+  paymentsFetched: number;
+  refundsFetched: number;
+  errorCode: string | null;
+  errorDetail: string | null;
+  windowFrom: string;
+  windowTo: string;
+}
+
 export const zpayApi = {
   list: () =>
     api.get<{ items: ZpayConnectionSummary[]; count: number }>('/api/zpay/connections'),
@@ -54,4 +85,14 @@ export const zpayApi = {
     ),
   authorize: (id: string) =>
     api.post<AuthorizeResult>(`/api/zpay/connections/${id}/authorize`),
+  createAccount: (connectionId: string, body: CreateAccountInput) =>
+    api.post<ZpayAccountSummary>(`/api/zpay/connections/${connectionId}/accounts`, body),
+  syncAccount: (connectionId: string, accountId: string) =>
+    api.post<SyncOutcome>(
+      `/api/zpay/connections/${connectionId}/accounts/${accountId}/sync`,
+    ),
+  listSyncRuns: (connectionId: string, accountId: string) =>
+    api.get<{ items: SyncRunSummary[]; count: number }>(
+      `/api/zpay/connections/${connectionId}/accounts/${accountId}/sync-runs`,
+    ),
 };

@@ -23,6 +23,8 @@ import { Input } from '@/components/Input';
 import { useToast } from '@/components/Toast';
 import {
   zpayApi,
+  type CreateAccountInput,
+  type ZpayAccountSummary,
   type ZpayConnectionSummary,
   type ZpayStatus,
 } from './api';
@@ -184,44 +186,254 @@ function ConnectionRow({
 }) {
   const action = actionLabelFor(conn.status);
   return (
-    <li className="bg-white border border-neutral-200 rounded p-4 flex items-start justify-between gap-4 flex-wrap">
-      <div className="min-w-0">
-        <div className="flex items-center gap-2 flex-wrap">
-          <span className="text-14 font-medium text-neutral-900">{conn.zohoOrgLabel}</span>
-          <span
-            className={
-              'inline-flex items-center h-5 px-2 rounded-full border text-11 ' +
-              STATUS_TONE[conn.status]
-            }
-          >
-            {STATUS_LABEL[conn.status]}
-          </span>
+    <li className="bg-white border border-neutral-200 rounded p-4">
+      <div className="flex items-start justify-between gap-4 flex-wrap">
+        <div className="min-w-0">
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className="text-14 font-medium text-neutral-900">{conn.zohoOrgLabel}</span>
+            <span
+              className={
+                'inline-flex items-center h-5 px-2 rounded-full border text-11 ' +
+                STATUS_TONE[conn.status]
+              }
+            >
+              {STATUS_LABEL[conn.status]}
+            </span>
+          </div>
+          <div className="text-12 text-neutral-500 mt-1">
+            {conn.status === 'connected' && conn.connectedAt
+              ? `Connected ${formatWhen(conn.connectedAt)}`
+              : conn.lastErrorCode
+              ? `Last error: ${conn.lastErrorCode}${conn.lastErrorAt ? ` · ${formatWhen(conn.lastErrorAt)}` : ''}`
+              : 'No accounts synced yet.'}
+          </div>
         </div>
-        <div className="text-12 text-neutral-500 mt-1">
-          {conn.status === 'connected' && conn.connectedAt
-            ? `Connected ${formatWhen(conn.connectedAt)}`
-            : conn.lastErrorCode
-            ? `Last error: ${conn.lastErrorCode}${conn.lastErrorAt ? ` · ${formatWhen(conn.lastErrorAt)}` : ''}`
-            : 'No accounts synced yet.'}
-        </div>
-        {conn.accounts.length > 0 ? (
-          <ul className="mt-3 space-y-1">
-            {conn.accounts.map((a) => (
-              <li key={a.id} className="text-12 text-neutral-700">
-                <span className="font-medium">{a.label}</span>
-                {a.isGstRegistered ? ' · GST-registered' : ' · not GST-registered'}
-                {a.gstin ? ` · ${a.gstin}` : ''}
-                {a.lastSyncAt ? ` · synced ${formatWhen(a.lastSyncAt)}` : ' · never synced'}
-              </li>
-            ))}
-          </ul>
+        {action ? (
+          <Button variant="primary" onClick={onAuthorize} disabled={busy}>
+            {busy ? 'Redirecting…' : action}
+          </Button>
         ) : null}
       </div>
-      {action ? (
-        <Button variant="primary" onClick={onAuthorize} disabled={busy}>
-          {busy ? 'Redirecting…' : action}
-        </Button>
+      {conn.status === 'connected' ? <AccountsBlock conn={conn} /> : null}
+    </li>
+  );
+}
+
+// ── Accounts under a connected connection ────────────────────────────
+
+function AccountsBlock({ conn }: { conn: ZpayConnectionSummary }) {
+  const [adding, setAdding] = useState(false);
+  return (
+    <div className="mt-4 border-t border-neutral-200 pt-4">
+      <div className="flex items-baseline justify-between mb-2">
+        <div className="text-11 uppercase tracking-[0.06em] text-neutral-500">
+          Accounts under this connection
+        </div>
+        {!adding ? (
+          <button
+            type="button"
+            onClick={() => setAdding(true)}
+            className="text-12 text-navy-700 hover:underline"
+          >
+            + Add account
+          </button>
+        ) : null}
+      </div>
+      {adding ? (
+        <AddAccountForm connectionId={conn.id} onDone={() => setAdding(false)} />
       ) : null}
+      {conn.accounts.length === 0 && !adding ? (
+        <p className="text-12 text-neutral-500 bg-neutral-50 border border-neutral-200 rounded p-3">
+          No accounts yet. Zoho's account identifier (from{' '}
+          <span className="font-mono">payments.zoho.in</span> settings) is what
+          this row needs.
+        </p>
+      ) : (
+        <ul className="space-y-2">
+          {conn.accounts.map((a) => (
+            <AccountRow key={a.id} connectionId={conn.id} account={a} />
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
+
+function AddAccountForm({
+  connectionId,
+  onDone,
+}: {
+  connectionId: string;
+  onDone: () => void;
+}) {
+  const qc = useQueryClient();
+  const toast = useToast();
+  const [form, setForm] = useState<CreateAccountInput>({
+    accountId: '',
+    label: '',
+    isGstRegistered: false,
+    legalEntityName: '',
+    gstin: '',
+    invoiceSeriesPrefix: '',
+  });
+  const set = <K extends keyof CreateAccountInput>(k: K, v: CreateAccountInput[K]) =>
+    setForm((f) => ({ ...f, [k]: v }));
+
+  const create = useMutation({
+    mutationFn: () =>
+      zpayApi.createAccount(connectionId, {
+        ...form,
+        gstin: form.isGstRegistered ? (form.gstin || null) : null,
+      }),
+    onSuccess: () => {
+      toast.push('success', 'Account added.');
+      qc.invalidateQueries({ queryKey: ['zpay', 'connections'] });
+      onDone();
+    },
+    onError: (e: Error) => toast.push('error', e.message),
+  });
+
+  const disabled =
+    !form.accountId.trim() ||
+    !form.label.trim() ||
+    !form.legalEntityName.trim() ||
+    !form.invoiceSeriesPrefix.trim() ||
+    (form.isGstRegistered && !(form.gstin ?? '').trim()) ||
+    create.isPending;
+
+  return (
+    <form
+      onSubmit={(e: FormEvent) => {
+        e.preventDefault();
+        if (disabled) return;
+        create.mutate();
+      }}
+      className="bg-neutral-50 border border-neutral-200 rounded p-3 mb-3 grid gap-3"
+    >
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+        <FieldSm label="Zoho account ID" hint="The value Zoho requires on every API call.">
+          <Input
+            value={form.accountId}
+            onChange={(e) => set('accountId', e.target.value)}
+            placeholder="e.g. 5432109876"
+          />
+        </FieldSm>
+        <FieldSm label="Label" hint='"GST" or "Non-GST" — your shorthand.'>
+          <Input
+            value={form.label}
+            onChange={(e) => set('label', e.target.value)}
+            placeholder="GST"
+          />
+        </FieldSm>
+        <FieldSm label="Legal entity name" hint="Whoever the invoice is raised from.">
+          <Input
+            value={form.legalEntityName}
+            onChange={(e) => set('legalEntityName', e.target.value)}
+            placeholder="Vetri & Associates LLP"
+          />
+        </FieldSm>
+        <FieldSm label="Invoice series prefix" hint="e.g. INV/2026/ — used for exact matching.">
+          <Input
+            value={form.invoiceSeriesPrefix}
+            onChange={(e) => set('invoiceSeriesPrefix', e.target.value)}
+            placeholder="INV/2026/"
+          />
+        </FieldSm>
+      </div>
+      <label className="flex items-center gap-2 text-12 text-neutral-700">
+        <input
+          type="checkbox"
+          checked={form.isGstRegistered}
+          onChange={(e) => set('isGstRegistered', e.target.checked)}
+        />
+        This account is GST-registered
+      </label>
+      {form.isGstRegistered ? (
+        <FieldSm label="GSTIN">
+          <Input
+            value={form.gstin ?? ''}
+            onChange={(e) => set('gstin', e.target.value)}
+            placeholder="33AAACR5055K1Z1"
+          />
+        </FieldSm>
+      ) : null}
+      <div className="flex gap-2">
+        <Button variant="primary" type="submit" disabled={disabled}>
+          {create.isPending ? 'Adding…' : 'Add account'}
+        </Button>
+        <Button variant="secondary" type="button" onClick={onDone}>
+          Cancel
+        </Button>
+      </div>
+    </form>
+  );
+}
+
+function FieldSm({
+  label,
+  hint,
+  children,
+}: {
+  label: string;
+  hint?: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <label className="block">
+      <span className="text-11 uppercase tracking-[0.06em] text-neutral-500 block mb-1">
+        {label}
+      </span>
+      {children}
+      {hint ? <span className="text-11 text-neutral-500 block mt-1">{hint}</span> : null}
+    </label>
+  );
+}
+
+function AccountRow({
+  connectionId,
+  account,
+}: {
+  connectionId: string;
+  account: ZpayAccountSummary;
+}) {
+  const qc = useQueryClient();
+  const toast = useToast();
+  const sync = useMutation({
+    mutationFn: () => zpayApi.syncAccount(connectionId, account.id),
+    onSuccess: (outcome) => {
+      if (outcome.status === 'success') {
+        toast.push(
+          'success',
+          `Synced ${outcome.paymentsFetched} payments, ${outcome.refundsFetched} refunds.`,
+        );
+      } else {
+        toast.push(
+          'error',
+          `Sync ${outcome.status}: ${outcome.errorCode ?? 'see run for detail'}`,
+        );
+      }
+      qc.invalidateQueries({ queryKey: ['zpay', 'connections'] });
+    },
+    onError: (e: Error) => toast.push('error', e.message),
+  });
+  return (
+    <li className="bg-white border border-neutral-200 rounded p-3 flex items-start justify-between gap-3 flex-wrap">
+      <div className="min-w-0">
+        <div className="text-13 text-neutral-900">
+          <span className="font-medium">{account.label}</span>
+          <span className="text-neutral-500"> · </span>
+          <span className="font-mono text-11">{account.accountId}</span>
+        </div>
+        <div className="text-11 text-neutral-500 mt-0.5">
+          {account.isGstRegistered ? `GST-registered${account.gstin ? ` · ${account.gstin}` : ''}` : 'Not GST-registered'}
+          {account.lastSyncAt
+            ? ` · ${account.lastSyncStatus ?? 'synced'} ${formatWhen(account.lastSyncAt)}`
+            : ' · never synced'}
+        </div>
+      </div>
+      <Button variant="secondary" onClick={() => sync.mutate()} disabled={sync.isPending}>
+        {sync.isPending ? 'Syncing…' : 'Sync now'}
+      </Button>
     </li>
   );
 }

@@ -63,6 +63,7 @@ const VALID: ReadonlyArray<readonly [ZpayStatus, ZpayStatus]> = [
   ['connected', 'expired'],
   ['connected', 'revoked'],
   ['connected', 'error'],
+  ['connected', 'consent_pending'], // Reconnect from a connected state
   ['expired', 'consent_pending'],
   ['revoked', 'consent_pending'],
   ['error', 'consent_pending'],

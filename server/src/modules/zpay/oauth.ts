@@ -67,7 +67,7 @@ export interface ZohoTokenError {
 
 export type FetchLike = (
   url: string,
-  init: { method: string; body: URLSearchParams; headers?: Record<string, string> },
+  init: { method: string; body?: URLSearchParams; headers?: Record<string, string> },
 ) => Promise<{ ok: boolean; status: number; json: () => Promise<unknown> }>
 
 export class ZohoOAuthError extends Error {
@@ -126,6 +126,56 @@ export async function exchangeCodeForTokens(
     )
   }
   return p as ZohoTokenResponse
+}
+
+/**
+ * Refresh an access token. Zoho only returns a fresh `refresh_token` on
+ * the first exchange; refresh calls return an access_token only, and
+ * the refresh_token in the DB stays as-is.
+ *
+ * On `invalid_grant` the caller must treat the connection as revoked
+ * (spec §3: STOP RETRYING). Any other failure — network, rate limit,
+ * 5xx — is transient and should be retried later.
+ */
+export async function exchangeRefreshTokenForAccess(
+  config: ZpayConfig,
+  refreshToken: string,
+  fetchImpl: FetchLike = fetch as unknown as FetchLike,
+): Promise<Omit<ZohoTokenResponse, 'refresh_token'>> {
+  const body = new URLSearchParams({
+    grant_type: 'refresh_token',
+    client_id: config.clientId,
+    client_secret: config.clientSecret,
+    refresh_token: refreshToken,
+  })
+  const url = `${config.accountsBase}/oauth/v2/token`
+  const res = await fetchImpl(url, {
+    method: 'POST',
+    body,
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+  })
+  let payload: unknown
+  try {
+    payload = await res.json()
+  } catch {
+    throw new ZohoOAuthError('bad_response', 'Zoho returned a non-JSON body on refresh', res.status)
+  }
+  if (!res.ok) {
+    const err = (payload as ZohoTokenError | undefined)?.error ?? 'http_error'
+    throw new ZohoOAuthError(err, `Zoho refresh returned ${res.status}`, res.status)
+  }
+  const p = payload as Partial<ZohoTokenResponse> & Partial<ZohoTokenError>
+  if (p.error) {
+    throw new ZohoOAuthError(p.error, `Zoho refused the refresh: ${p.error}`, res.status)
+  }
+  if (!p.access_token || typeof p.expires_in !== 'number') {
+    throw new ZohoOAuthError(
+      'bad_response',
+      'Zoho refresh missing access_token or expires_in',
+      res.status,
+    )
+  }
+  return p as Omit<ZohoTokenResponse, 'refresh_token'>
 }
 
 /**
