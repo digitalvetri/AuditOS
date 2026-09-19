@@ -69,8 +69,39 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
   return json.data as T;
 }
 
+/**
+ * The backend is briefly unreachable while it restarts (a deploy, or the dev
+ * server reloading on a code change). A read in that window fails with no
+ * status, or with the proxy's non-JSON 5xx — neither is a real answer from
+ * the API. So a GET is tried again a few times before the error surfaces.
+ *
+ * Reads only. A write is never repeated: if a POST failed mid-flight nobody
+ * knows whether it landed, and retrying could create the thing twice.
+ */
+const TRANSIENT = (e: unknown) => {
+  const x = e as Partial<ApiError>;
+  if (x.status === 0) return true;
+  // A real API error always carries its own { error: { code } }. A 5xx that
+  // does not — an empty body or an HTML page — came from the proxy standing
+  // in for a backend that is not there yet.
+  return (x.status ?? 0) >= 500 && (x.code === 'bad_response' || x.code === 'unknown');
+};
+
+async function getWithRetry<T>(path: string): Promise<T> {
+  // A dev reload takes ~3s (measured); a production restart can take longer.
+  const waits = [300, 600, 1000, 1500, 2000];
+  for (let attempt = 0; ; attempt++) {
+    try {
+      return await request<T>(path, { method: 'GET' });
+    } catch (e) {
+      if (attempt >= waits.length || !TRANSIENT(e)) throw e;
+      await new Promise((r) => setTimeout(r, waits[attempt]));
+    }
+  }
+}
+
 export const api = {
-  get: <T>(path: string) => request<T>(path, { method: 'GET' }),
+  get: <T>(path: string) => getWithRetry<T>(path),
   post: <T>(path: string, body?: unknown) =>
     request<T>(path, { method: 'POST', body: body ? JSON.stringify(body) : undefined }),
   /** Multipart POST — the only way file bytes leave the browser. */

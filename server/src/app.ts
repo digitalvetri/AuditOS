@@ -44,6 +44,9 @@ import { tdsRouter } from './modules/audit-automation/tds.routes.js'
 // Tally — native double-entry accounting module (foundation slice).
 import { tallyRouter } from './modules/tally/routes.js'
 import { tasksRouter } from './modules/task/routes.js'
+import { quotationsRouter } from './modules/quotation/routes.js'
+import { engagementRouter } from './modules/engagement/routes.js'
+import { checklistRouter } from './modules/checklist/routes.js'
 // GST compliance — Workstation → Services → Registration → GST Registration.
 import { gstRouter as gstComplianceRouter } from './modules/gst/routes.js'
 // Books — native bookkeeping, one set of books per client (docs/accounting-module).
@@ -172,6 +175,10 @@ export function createApp() {
   app.use('/api/tally', tallyRouter)
   // Workstation → Task: assignment plus server-side work-time tracking.
   app.use('/api/tasks', tasksRouter)
+  app.use('/api/quotations', quotationsRouter)
+  app.use('/api/engagement-letters', engagementRouter)
+  // Client compliance checklists (GST today). Master catalogue + client work.
+  app.use('/api/checklists', checklistRouter)
   // GST compliance service (NOT the Tools reconciliation router above).
   app.use('/api/gst', gstComplianceRouter)
 
