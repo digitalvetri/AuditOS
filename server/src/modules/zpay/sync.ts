@@ -32,6 +32,7 @@ import { Prisma } from '@prisma/client'
 import { prisma } from '../../lib/prisma.js'
 import { zpayConfig, type ZpayConfig } from './config.js'
 import { decryptToken, encryptToken } from './crypto.js'
+import { classify } from './matcher.js'
 import { assertTransition } from './state.js'
 import {
   ZohoOAuthError,
@@ -277,7 +278,7 @@ type Kind = 'payments' | 'refunds'
 
 async function pullAllPages(
   cfg: ZpayConfig,
-  account: { id: string; accountId: string },
+  account: { id: string; accountId: string; invoiceSeriesPrefix: string },
   accessToken: string,
   kind: Kind,
   windowFrom: Date,
@@ -316,7 +317,7 @@ async function pullAllPages(
     const rows = (kind === 'payments' ? payload.payments : payload.refunds) ?? []
 
     for (const row of rows) {
-      if (kind === 'payments') await upsertPayment(account.id, row)
+      if (kind === 'payments') await upsertPayment(account, row)
       else await upsertRefund(account.id, row)
       total++
     }
@@ -336,7 +337,7 @@ function rupeesToPaise(input: unknown): number {
 }
 
 async function upsertPayment(
-  accountRowId: string,
+  account: { id: string; invoiceSeriesPrefix: string },
   row: Record<string, unknown>,
 ): Promise<void> {
   const zohoPaymentId = String(row.payment_id ?? '')
@@ -347,6 +348,8 @@ async function upsertPayment(
 
   const paidAt = parseDate(row.paid_at ?? row.created_at)
   const createdAtZoho = parseDate(row.created_at ?? row.paid_at)
+  const referenceNumber = row.reference != null ? String(row.reference) : null
+  const description = row.description != null ? String(row.description) : null
 
   const data = {
     amountPaise,
@@ -356,8 +359,8 @@ async function upsertPayment(
     paymentMode: row.payment_mode != null ? String(row.payment_mode) : null,
     customerName: row.customer_name != null ? String(row.customer_name) : null,
     customerEmail: row.customer_email != null ? String(row.customer_email) : null,
-    referenceNumber: row.reference != null ? String(row.reference) : null,
-    description: row.description != null ? String(row.description) : null,
+    referenceNumber,
+    description,
     mandateId: row.mandate_id != null ? String(row.mandate_id) : null,
     paidAt,
     createdAtZoho,
@@ -366,9 +369,9 @@ async function upsertPayment(
 
   await prisma.zpayPayment.upsert({
     where: {
-      accountRowId_zohoPaymentId: { accountRowId, zohoPaymentId },
+      accountRowId_zohoPaymentId: { accountRowId: account.id, zohoPaymentId },
     },
-    create: { ...data, accountRowId, zohoPaymentId, matchType: 'unmatched' },
+    create: { ...data, accountRowId: account.id, zohoPaymentId, matchType: 'unmatched' },
     // NEVER update matchedInvoiceRef / matchedClientId / matchType — those
     // are ours, not Zoho's; a re-sync must not overwrite a human's manual
     // link. `raw` is refreshed so the untouched Zoho payload always
@@ -376,6 +379,28 @@ async function upsertPayment(
     // "within a version" (a later payload replaces the earlier version).
     update: data,
   })
+
+  // Auto-classify: if the row is unmatched (either freshly inserted, or a
+  // prior re-sync left it that way), try the exact matcher on the new
+  // fields. A manual or exact match is left alone — updateMany with the
+  // matchType guard is what makes the write conditional. Spec §4.2.
+  const outcome = classify(
+    { referenceNumber, description },
+    { invoiceSeriesPrefix: account.invoiceSeriesPrefix },
+  )
+  if (outcome.matchType === 'exact') {
+    await prisma.zpayPayment.updateMany({
+      where: {
+        accountRowId: account.id,
+        zohoPaymentId,
+        matchType: 'unmatched',
+      },
+      data: {
+        matchType: 'exact',
+        matchedInvoiceRef: outcome.matchedInvoiceRef,
+      },
+    })
+  }
 }
 
 async function upsertRefund(
