@@ -58,10 +58,16 @@ export interface BillingSlice {
     amountPaise: number
     matchedInvoiceRef: string | null
   } | null
-  /** Placeholder — needs an invoice source. Always null for step 6. */
   outstandingPaise: number | null
-  /** Placeholder — needs an invoice source. */
-  oldestOpenInvoice: null
+  outstandingCount: number
+  oldestOpenInvoice: {
+    invoiceNumber: string
+    issuedOn: string
+    amountPaise: number
+    /** Full days since issuedOn, computed in UTC — the operator reads
+     *  it as an age (spec §6.3 "62 days"). */
+    ageDays: number
+  } | null
 }
 
 export async function billingSliceFor(
@@ -86,7 +92,7 @@ export async function billingSliceFor(
   const fy = currentFinancialYear()
   const fyName = `${fy.startYear}-${(fy.startYear + 1).toString().slice(-2)}`
 
-  const [fyAgg, last] = await Promise.all([
+  const [fyAgg, last, outAgg, oldest] = await Promise.all([
     prisma.zpayPayment.aggregate({
       where: {
         matchedClientId: clientId,
@@ -106,6 +112,24 @@ export async function billingSliceFor(
         id: true, paidAt: true, amountPaise: true, matchedInvoiceRef: true,
       },
     }),
+    prisma.zpayExternalInvoice.aggregate({
+      where: {
+        clientId,
+        status: 'open',
+        deletedAt: null,
+      },
+      _sum: { amountPaise: true },
+      _count: { _all: true },
+    }),
+    prisma.zpayExternalInvoice.findFirst({
+      where: {
+        clientId,
+        status: 'open',
+        deletedAt: null,
+      },
+      orderBy: { issuedOn: 'asc' },
+      select: { invoiceNumber: true, issuedOn: true, amountPaise: true },
+    }),
   ])
 
   return {
@@ -121,9 +145,23 @@ export async function billingSliceFor(
     paidThisFyPaise: fyAgg._sum.amountPaise ?? 0,
     paymentCountThisFy: fyAgg._count._all,
     lastPayment: last,
-    outstandingPaise: null,
-    oldestOpenInvoice: null,
+    outstandingPaise: outAgg._sum.amountPaise ?? 0,
+    outstandingCount: outAgg._count._all,
+    oldestOpenInvoice: oldest
+      ? {
+          invoiceNumber: oldest.invoiceNumber,
+          issuedOn: oldest.issuedOn,
+          amountPaise: oldest.amountPaise,
+          ageDays: daysBetween(oldest.issuedOn, new Date()),
+        }
+      : null,
   }
+}
+
+function daysBetween(iso: string, now: Date): number {
+  const then = new Date(`${iso}T00:00:00Z`).getTime()
+  const nowUtc = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate())
+  return Math.max(0, Math.floor((nowUtc - then) / 86_400_000))
 }
 
 export async function setBillingAccount(

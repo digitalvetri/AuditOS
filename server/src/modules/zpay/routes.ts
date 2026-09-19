@@ -18,6 +18,7 @@
  * away.
  */
 import { Router } from 'express'
+import multer from 'multer'
 import { ApiError, handler, ok } from '../../lib/http.js'
 import { prisma } from '../../lib/prisma.js'
 import { requireSession, requirePermission } from '../../platform/auth.js'
@@ -26,10 +27,18 @@ import { syncAccount, syncConnection } from './sync.js'
 import { collectionsAggregate, parsePeriod } from './collections.js'
 import { manuallyMatch, unmatch } from './matching-service.js'
 import { billingSliceFor, setBillingAccount } from './billing.js'
+import { importInvoicesCsv } from './invoice-import.js'
+import { runProbableForAccount } from './matcher.js'
 
 export const zpayRouter = Router()
 
 zpayRouter.use(requirePermission('accounts.manage', 'organisation'))
+
+const MAX_CSV_MB = 5
+const csvUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: MAX_CSV_MB * 1024 * 1024, files: 1 },
+})
 
 // POST /api/zpay/connections
 zpayRouter.post('/connections', handler(async (req, res) => {
@@ -182,6 +191,64 @@ zpayRouter.post('/connections/:cid/sync', handler(async (req, res) => {
   ok(res, { runs: outcomes })
 }))
 
+// ── external invoices (spec §9) ───────────────────────────────────────
+
+// POST /api/zpay/accounts/:aid/invoices/import  multipart file=<csv>
+// Bulk import CSV of invoices raised from an account. Upsert on
+// (billingAccountId, invoice_number) so re-uploading is idempotent.
+zpayRouter.post('/accounts/:aid/invoices/import', (req, res, next) => {
+  csvUpload.single('file')(req, res, (err: unknown) => {
+    if (!err) return next()
+    const code = (err as { code?: string }).code
+    if (code === 'LIMIT_FILE_SIZE') {
+      return next(ApiError.unprocessable('too_large', `CSV is larger than ${MAX_CSV_MB} MB.`))
+    }
+    return next(err)
+  })
+}, handler(async (req, res) => {
+  const session = requireSession(req)
+  const orgId = await orgIdFor(session.userId)
+  const file = (req as unknown as { file?: { buffer: Buffer; originalname: string } }).file
+  if (!file || !file.buffer) throw ApiError.badRequest('Attach a CSV file under the "file" field.')
+  const csv = file.buffer.toString('utf8')
+  const outcome = await importInvoicesCsv({
+    billingAccountId: req.params.aid,
+    organisationId: orgId,
+    actorUserId: session.userId,
+    csv,
+  })
+  // Fresh invoices can unlock proposals for previously-unmatched
+  // payments on this account — spec §4.2 doesn't distinguish "matched
+  // during sync" from "matched after an import".
+  const { proposed } = await runProbableForAccount(req.params.aid)
+  ok(res, { ...outcome, probableProposed: proposed })
+}))
+
+// GET /api/zpay/accounts/:aid/invoices — recent invoices for the ops screen.
+zpayRouter.get('/accounts/:aid/invoices', handler(async (req, res) => {
+  const session = requireSession(req)
+  const orgId = await orgIdFor(session.userId)
+  const account = await prisma.zpayAccount.findFirst({
+    where: {
+      id: req.params.aid,
+      deletedAt: null,
+      connection: { organisationId: orgId, deletedAt: null },
+    },
+    select: { id: true },
+  })
+  if (!account) throw ApiError.notFound('No such account.')
+  const rows = await prisma.zpayExternalInvoice.findMany({
+    where: { billingAccountId: account.id, deletedAt: null },
+    orderBy: { issuedOn: 'desc' },
+    take: 100,
+    select: {
+      id: true, invoiceNumber: true, clientId: true, issuedOn: true,
+      dueDate: true, amountPaise: true, status: true, importedAt: true,
+    },
+  })
+  ok(res, { items: rows, count: rows.length })
+}))
+
 // ── client billing slice (spec §6.3) ──────────────────────────────────
 
 // GET /api/zpay/clients/:id/billing-slice
@@ -273,6 +340,31 @@ zpayRouter.get('/payments', handler(async (req, res) => {
     },
   })
 
+  // For probable/matched rows that point at an external invoice, hydrate
+  // the candidate details so the queue can render "Probable: INV/2026/… ·
+  // ₹25,000 · raised 09 Sep" without a second call.
+  const refKeys = rows
+    .filter((r) => r.matchedInvoiceRef)
+    .map((r) => ({ billingAccountId: r.account.id, invoiceNumber: r.matchedInvoiceRef as string }))
+  const invoices = refKeys.length
+    ? await prisma.zpayExternalInvoice.findMany({
+        where: { OR: refKeys, deletedAt: null },
+        select: {
+          billingAccountId: true, invoiceNumber: true, issuedOn: true,
+          amountPaise: true, status: true, clientId: true,
+        },
+      })
+    : []
+  const invoiceMap = new Map(
+    invoices.map((i) => [`${i.billingAccountId}::${i.invoiceNumber}`, i]),
+  )
+  const enriched = rows.map((r) => ({
+    ...r,
+    candidateInvoice: r.matchedInvoiceRef
+      ? invoiceMap.get(`${r.account.id}::${r.matchedInvoiceRef}`) ?? null
+      : null,
+  }))
+
   // Counts of every bucket so tabs can render badges without a second call.
   const countsFor = (m: 'unmatched' | 'proposed' | 'matched') =>
     prisma.zpayPayment.count({
@@ -295,13 +387,41 @@ zpayRouter.get('/payments', handler(async (req, res) => {
   ])
 
   ok(res, {
-    items: rows,
+    items: enriched,
     counts: {
       unmatched: unmatchedCount,
       proposed: proposedCount,
       matched: matchedCount,
     },
   })
+}))
+
+// POST /api/zpay/payments/:id/confirm-probable
+// Promote a proposed (probable) match to `manual`. Keeps
+// matchedInvoiceRef + matchedClientId and stamps the confirming user.
+zpayRouter.post('/payments/:id/confirm-probable', handler(async (req, res) => {
+  const session = requireSession(req)
+  const orgId = await orgIdFor(session.userId)
+  const payment = await prisma.zpayPayment.findFirst({
+    where: {
+      id: req.params.id,
+      account: { connection: { organisationId: orgId, deletedAt: null } },
+    },
+    select: { id: true, matchType: true },
+  })
+  if (!payment) throw ApiError.notFound('No such payment.')
+  if (payment.matchType !== 'probable') {
+    throw ApiError.conflict('not_probable', 'Only a probable-tier proposal can be confirmed.')
+  }
+  await prisma.zpayPayment.update({
+    where: { id: payment.id },
+    data: {
+      matchType: 'manual',
+      matchConfirmedBy: session.userId,
+      matchConfirmedAt: new Date(),
+    },
+  })
+  ok(res, { paymentId: payment.id, matchType: 'manual' })
 }))
 
 // POST /api/zpay/payments/:id/match  { invoiceRef, clientId? }

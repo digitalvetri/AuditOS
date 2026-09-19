@@ -32,7 +32,7 @@ import { Prisma } from '@prisma/client'
 import { prisma } from '../../lib/prisma.js'
 import { zpayConfig, type ZpayConfig } from './config.js'
 import { decryptToken, encryptToken } from './crypto.js'
-import { classify } from './matcher.js'
+import { classify, proposeProbableForPayment } from './matcher.js'
 import { assertTransition } from './state.js'
 import {
   ZohoOAuthError,
@@ -400,6 +400,21 @@ async function upsertPayment(
         matchedInvoiceRef: outcome.matchedInvoiceRef,
       },
     })
+    return
+  }
+
+  // Exact didn't hit — try the probable-tier matcher against imported
+  // invoices. proposeProbableForPayment() short-circuits on matched
+  // rows and only writes when there's exactly one candidate; multiple
+  // or zero candidates leave the payment unmatched.
+  const created = await prisma.zpayPayment.findUnique({
+    where: {
+      accountRowId_zohoPaymentId: { accountRowId: account.id, zohoPaymentId },
+    },
+    select: { id: true, matchType: true },
+  })
+  if (created?.matchType === 'unmatched') {
+    await proposeProbableForPayment(created.id)
   }
 }
 
