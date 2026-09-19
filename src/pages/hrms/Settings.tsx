@@ -8,6 +8,8 @@
 import { useSearchParams } from 'react-router-dom';
 import { useAuth } from '@/platform/auth/AuthContext';
 import { can } from '@/platform/rbac/can';
+import type { PermissionCode, Scope } from '@/platform/rbac/matrix';
+import type { RoleCode } from '@/data/models';
 import { DepartmentsSection } from '@/modules/settings/DepartmentsSection';
 import { DesignationsSection } from '@/modules/settings/DesignationsSection';
 import { WorkLocationsSection } from '@/modules/settings/WorkLocationsSection';
@@ -16,6 +18,7 @@ import { LeaveTypesSection } from '@/modules/settings/LeaveTypesSection';
 import { ExpenseCategoriesSection } from '@/modules/settings/ExpenseCategoriesSection';
 import { StatutoryRatesSection } from '@/modules/settings/StatutoryRatesSection';
 import { RolesSection } from '@/modules/settings/RolesSection';
+import { ZpayIntegrationsSection } from '@/modules/zpay/IntegrationsSection';
 
 type Section =
   | 'departments'
@@ -25,9 +28,19 @@ type Section =
   | 'leave-types'
   | 'expense-categories'
   | 'statutory-rates'
-  | 'roles';
+  | 'roles'
+  | 'integrations-zoho-payments';
 
-const SECTIONS: { id: Section; label: string; group: string }[] = [
+interface SectionDef {
+  id: Section;
+  label: string;
+  group: string;
+  /** Per-section permission gate. Defaults to settings.manage@organisation. */
+  permission?: PermissionCode;
+  scope?: Scope;
+}
+
+const SECTIONS: SectionDef[] = [
   { id: 'departments', label: 'Departments', group: 'Organisation' },
   { id: 'designations', label: 'Designations', group: 'Organisation' },
   { id: 'work-locations', label: 'Work locations', group: 'Organisation' },
@@ -36,20 +49,43 @@ const SECTIONS: { id: Section; label: string; group: string }[] = [
   { id: 'expense-categories', label: 'Expense categories', group: 'Finance' },
   { id: 'statutory-rates', label: 'Statutory rates', group: 'Finance' },
   { id: 'roles', label: 'Roles & permissions', group: 'Access' },
+  // The Zoho Payments row is behind the FINANCE permission, not the HR one —
+  // spec §1: "the connect action lives in Settings under a finance permission,
+  // not on a client record."
+  {
+    id: 'integrations-zoho-payments',
+    label: 'Zoho Payments',
+    group: 'Integrations',
+    permission: 'accounts.manage',
+    scope: 'organisation',
+  },
 ];
+
+function isSectionVisible(role: RoleCode | undefined, s: SectionDef): boolean {
+  if (s.permission) return can(role, s.permission, s.scope ?? 'self');
+  return can(role, 'settings.manage', 'organisation');
+}
 
 export function SettingsPage() {
   const { session } = useAuth();
-  const canManage = can(session?.role.code, 'settings.manage', 'organisation');
+  const role = session?.role.code;
   const [params, setParams] = useSearchParams();
-  const section = (params.get('section') as Section | null) ?? 'departments';
+  const visibleSections = SECTIONS.filter((s) => isSectionVisible(role, s));
+  // Fall back to the first visible section if the URL param names one the
+  // caller cannot see, so a finance_admin who bookmarks ?section=departments
+  // does not land on a blank pane.
+  const requested = params.get('section') as Section | null;
+  const section: Section =
+    requested && visibleSections.some((s) => s.id === requested)
+      ? requested
+      : visibleSections[0]?.id ?? 'departments';
 
-  if (!canManage) {
+  if (visibleSections.length === 0) {
     return (
       <div className="w-full max-w-[720px] mx-auto bg-white border border-neutral-200 rounded p-4 md:p-6">
         <div className="text-11 uppercase tracking-[0.06em] text-neutral-500">Access denied</div>
         <h1 className="text-20 font-semibold text-neutral-900 mt-1">
-          Settings are HR/MD only.
+          Nothing here for your role.
         </h1>
         <p className="text-13 text-neutral-500 mt-2">
           Ask an administrator if you need a value changed.
@@ -59,7 +95,7 @@ export function SettingsPage() {
   }
 
   const setSection = (s: Section) => setParams({ section: s });
-  const groups = Array.from(new Set(SECTIONS.map((s) => s.group)));
+  const groups = Array.from(new Set(visibleSections.map((s) => s.group)));
 
   return (
     <div className="m-page">
@@ -81,7 +117,7 @@ export function SettingsPage() {
           >
             {groups.map((g) => (
               <optgroup key={g} label={g}>
-                {SECTIONS.filter((x) => x.group === g).map((x) => (
+                {visibleSections.filter((x) => x.group === g).map((x) => (
                   <option key={x.id} value={x.id}>{x.label}</option>
                 ))}
               </optgroup>
@@ -95,7 +131,7 @@ export function SettingsPage() {
           {groups.map((g) => (
             <div key={g} className="mb-4">
               <div className="text-11 uppercase tracking-[0.06em] text-neutral-500 px-3 mb-1">{g}</div>
-              {SECTIONS.filter((s) => s.group === g).map((s) => {
+              {visibleSections.filter((s) => s.group === g).map((s) => {
                 const active = s.id === section;
                 return (
                   <button
@@ -126,6 +162,7 @@ export function SettingsPage() {
           {section === 'expense-categories' ? <ExpenseCategoriesSection /> : null}
           {section === 'statutory-rates' ? <StatutoryRatesSection /> : null}
           {section === 'roles' ? <RolesSection /> : null}
+          {section === 'integrations-zoho-payments' ? <ZpayIntegrationsSection /> : null}
         </main>
       </div>
     </div>
