@@ -61,6 +61,9 @@ export function TopBar({ onOpenMobileNav }: Props) {
       {/* The brand at phone widths, where the search field is hidden. The
           sidebar's plate is off-screen here, so this is the only mark on the
           page — it uses the same asset rather than a text stand-in. */}
+      {/* The bar is white here, so the mark stays in its own navy/blue —
+          the inverse of the sidebar, which renders the same asset white on
+          the navy rail. One asset, two treatments, picked by background. */}
       <span className="md:hidden flex-1 min-w-0 flex items-center">
         <img
           src="/jns-mark.png"

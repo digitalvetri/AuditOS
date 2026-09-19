@@ -19,6 +19,8 @@ import {
   Search,
 } from 'lucide-react';
 import { workstationApi } from '@/modules/workstation/api';
+import { checklistApi } from '@/modules/workstation/checklist/api';
+import { ClientChecklists } from './ClientChecklists';
 import { GST_SERVICES, SHAPE_TINT, type GstService } from './services';
 import {
   caseStageFor,
@@ -26,7 +28,19 @@ import {
   obligationStatusFor,
 } from './placeholder';
 
+/**
+ * Two views of GST, and the tabs are the line between them:
+ *
+ *   Service catalogue  — what the firm offers (the master list, unchanged)
+ *   Client checklists  — what each client actually owes, rolled up
+ *
+ * The second is a read-only report over the clients' own checklist rows; the
+ * work itself is still done on a client's GST tab.
+ */
+type View = 'catalogue' | 'checklists';
+
 export function GstServicesLanding() {
+  const [view, setView] = useState<View>('catalogue');
   const [query, setQuery] = useState('');
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -45,6 +59,26 @@ export function GstServicesLanding() {
         <h1 className="text-20 font-semibold text-neutral-900 mt-1">GST</h1>
       </header>
 
+      <nav className="flex gap-x-4 border-b border-neutral-200">
+        {([['catalogue', 'Service catalogue'], ['checklists', 'Client checklists']] as [View, string][]).map(([k, l]) => (
+          <button
+            key={k}
+            type="button"
+            onClick={() => setView(k)}
+            className={
+              'h-8 flex items-center text-13 whitespace-nowrap border-b-2 -mb-px transition-colors ' +
+              (view === k
+                ? 'border-gold text-neutral-900 font-medium'
+                : 'border-transparent text-neutral-500 hover:text-neutral-900')
+            }
+          >
+            {l}
+          </button>
+        ))}
+      </nav>
+
+      {view === 'checklists' ? <ClientChecklists /> : (
+      <>
       <StatsBar />
 
       <div className="relative">
@@ -76,11 +110,49 @@ export function GstServicesLanding() {
         </ul>
       </section>
 
+      <FirmAddedServices />
+
       <p className="text-11 text-neutral-500">
         {GST_SERVICES.length} services · Spec at{' '}
         <code className="text-neutral-700">docs/gst-services/README.md</code>
       </p>
+      </>
+      )}
     </div>
+  );
+}
+
+/**
+ * Services the firm added itself, from a client's GST checklist with "also add
+ * to GST master services" ticked. The eleven statutory services above are the
+ * fixed catalogue; this is the extension point, so it is listed separately and
+ * reads from the checklist catalogue API rather than the file.
+ */
+function FirmAddedServices() {
+  const q = useQuery({ queryKey: ['checklist', 'gst', 'catalog'], queryFn: () => checklistApi.catalog() });
+  const custom = (q.data?.services ?? []).filter((s) => s.is_custom);
+  const categories = new Map((q.data?.categories ?? []).map((c) => [c.id, c.name]));
+  if (custom.length === 0) return null;
+
+  return (
+    <section className="bg-white border border-neutral-200 rounded-lg shadow-card overflow-hidden">
+      <div className="h-9 px-4 flex items-center border-b border-neutral-200">
+        <span className="text-11 uppercase tracking-[0.06em] text-neutral-500">Added by your firm</span>
+      </div>
+      <ul>
+        {custom.map((s) => (
+          <li key={s.id} className="px-4 py-2.5 border-b border-neutral-100 last:border-0">
+            <div className="text-14 text-neutral-900">
+              {s.name}
+              {s.code ? <span className="text-neutral-500"> · {s.code}</span> : null}
+            </div>
+            <div className="text-11 text-neutral-500">
+              {s.category_id ? categories.get(s.category_id) ?? 'Uncategorised' : 'Uncategorised'} · {s.default_frequency}
+            </div>
+          </li>
+        ))}
+      </ul>
+    </section>
   );
 }
 

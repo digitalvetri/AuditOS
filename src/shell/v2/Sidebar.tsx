@@ -23,6 +23,7 @@ import {
   ChevronsLeft,
   ChevronsRight,
   Clock,
+  FileSignature,
   FileText,
   FolderKanban,
   Handshake,
@@ -36,6 +37,7 @@ import {
   ReceiptIndianRupee,
   Settings,
   Users,
+  ScrollText,
   Wallet,
   Wrench,
   type LucideIcon,
@@ -103,6 +105,11 @@ export function Sidebar({ mobileOpen, onMobileClose }: Props) {
     // workstation.access grant see nothing here.
     const workstationItems: NavItem[] = [
       { to: '/workstation',             label: 'Overview',   icon: LayoutGrid,    end: true, visible: can(role, 'workstation.access', 'self') },
+      /* Quotation is its own module. Billing — invoices, receipts, what is
+         actually charged — is a separate thing and gets its own row when it
+         exists; a quotation is a proposal and is not billing. */
+      { to: '/workstation/quotations',  label: 'Quotation',  icon: FileSignature, end: true, visible: can(role, 'workstation.quotation.read', 'self') },
+      { to: '/workstation/engagement',  label: 'Engagement', icon: ScrollText,    visible: can(role, 'workstation.engagement.read', 'self') },
       { to: '/workstation/leads',       label: 'Leads',      icon: PhoneCall,     visible: can(role, 'workstation.lead.read', 'self') },
       { to: '/workstation/clients',     label: 'Clients',    icon: Handshake,     visible: can(role, 'workstation.client.read', 'self') },
       { to: '/workstation/follow-ups',  label: 'Follow-ups', icon: Clock,         visible: can(role, 'workstation.followup.read', 'self') },
@@ -272,19 +279,24 @@ function Brand({ collapsed }: { collapsed: boolean }) {
   return (
     <div className={'h-20 flex items-center gap-3 shrink-0 border-b border-sidebarHover ' + (collapsed ? 'justify-center px-0' : 'pl-4 pr-3')}>
       <span
-        className="inline-flex items-center justify-center bg-white rounded-md shadow-card shrink-0"
-        /* Proportioned to the mark. The lockup is ~2.5:1, so a squarer plate
-           left it width-bound and floating in vertical slack; at 84x44 the
-           mark fills its box instead of swimming in it. */
-        style={{ height: 44, width: collapsed ? 52 : 84, padding: 6 }}
+        className="inline-flex items-center justify-center shrink-0"
+        /* No white plate. The mark sits directly on the navy rail and is
+           rendered white, so the brand reads as one piece with the sidebar
+           instead of a card floating on it. The rail is navy in BOTH themes
+           (--c-sidebar), so white is correct in each. */
+        style={{ height: 44, width: collapsed ? 52 : 84 }}
         aria-label="JNS Accounting Solutions"
       >
         <img
           src="/jns-mark.png"
           alt=""
           aria-hidden="true"
-          /* The swoosh climbs above the cap height on the right, so the
-             letterform mass reads low. A 1px lift optically centres it. */
+          /* The artwork is solid navy on transparent; brightness(0) flattens
+             it to black and invert(1) lifts it to pure white, which keeps one
+             asset serving both the white-background and dark-background
+             lockups. The swoosh climbs above the cap height on the right, so
+             a 1px lift optically centres the letterform mass. */
+          style={{ filter: 'brightness(0) invert(1)' }}
           className="block max-h-full max-w-full object-contain -translate-y-px"
         />
       </span>

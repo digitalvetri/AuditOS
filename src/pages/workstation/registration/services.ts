@@ -156,7 +156,7 @@ export const REGISTRATION_SERVICES: RegistrationService[] = [
     description:
       'A Limited Liability Partnership is incorporated through FiLLiP on the MCA portal, which also allots DPIN to the designated partners. The LLP agreement is filed separately in Form 3 within thirty days of incorporation — miss that window and the LLP carries a default from the day it was formed.',
     portalScope: 'india',
-    portalUrl: 'https://www.mca.gov.in/content/mca/global/en/mca/llp-e-filling.html',
+    portalUrl: 'https://www.mca.gov.in/content/mca/global/en/home.html',
     portalLabel: 'MCA Portal · Ministry of Corporate Affairs',
     outputDocument: 'LLP Certificate of Incorporation',
 
@@ -210,7 +210,7 @@ export const REGISTRATION_SERVICES: RegistrationService[] = [
     description:
       'Registers the enterprise as micro, small or medium against the proprietor\'s or firm\'s Aadhaar and PAN. It is free and self-declared on the government portal — investment and turnover are pulled from linked PAN and GST data rather than typed in. The certificate unlocks priority-sector lending, the 45-day delayed-payment protection under the MSMED Act, and preference in public procurement.',
     portalScope: 'india',
-    portalUrl: 'https://www.udyamregistration.gov.in/UdyamRegistration.aspx',
+    portalUrl: 'https://www.udyamregistration.gov.in/',
     portalLabel: 'UDYAM Registration · Ministry of MSME',
     outputDocument: 'UDYAM Registration Certificate',
 
