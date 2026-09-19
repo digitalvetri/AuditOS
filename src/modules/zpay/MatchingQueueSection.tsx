@@ -19,6 +19,7 @@ import { Button } from '@/components/Button';
 import { Input } from '@/components/Input';
 import { useToast } from '@/components/Toast';
 import { inr, fmtDate } from '@/lib/format';
+import { workstationApi } from '@/modules/workstation/api';
 import {
   zpayApi,
   type EntityFilter,
@@ -222,15 +223,31 @@ function MatchModal({
   const qc = useQueryClient();
   const toast = useToast();
   const [invoiceRef, setInvoiceRef] = useState('');
+  const [clientQuery, setClientQuery] = useState('');
+  const [clientId, setClientId] = useState<string | null>(null);
+  const [clientLabel, setClientLabel] = useState<string>('');
   const seed = payment.account.invoiceSeriesPrefix;
+
+  // Debounced typeahead against the workstation clients endpoint. Only
+  // fires when the user has typed at least 2 characters and hasn't
+  // already picked a client — the picked-state is a stable label.
+  const search = useQuery({
+    queryKey: ['zpay', 'match-client-search', clientQuery],
+    enabled: clientQuery.trim().length >= 2 && clientId === null,
+    queryFn: () => workstationApi.listClients({ q: clientQuery.trim() }),
+  });
 
   const match = useMutation({
     mutationFn: () =>
-      zpayApi.matchPayment(payment.id, { invoiceRef: invoiceRef.trim() }),
+      zpayApi.matchPayment(payment.id, {
+        invoiceRef: invoiceRef.trim(),
+        ...(clientId ? { clientId } : {}),
+      }),
     onSuccess: () => {
       toast.push('success', `Linked to ${invoiceRef.trim()}.`);
       qc.invalidateQueries({ queryKey: ['zpay', 'queue'] });
       qc.invalidateQueries({ queryKey: ['zpay', 'collections'] });
+      qc.invalidateQueries({ queryKey: ['zpay', 'billing-slice'] });
       onClose();
     },
     onError: (e: Error) => toast.push('error', e.message),
@@ -239,7 +256,7 @@ function MatchModal({
   return (
     <div className="fixed inset-0 z-40 bg-black/40 flex items-center justify-center p-4" onClick={onClose}>
       <div
-        className="bg-white rounded shadow-lg max-w-[480px] w-full p-5"
+        className="bg-white rounded shadow-lg max-w-[520px] w-full p-5"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="text-11 uppercase tracking-[0.06em] text-neutral-500">
@@ -253,7 +270,7 @@ function MatchModal({
         </div>
 
         <form
-          className="mt-4 space-y-3"
+          className="mt-4 space-y-4"
           onSubmit={(e) => {
             e.preventDefault();
             if (!invoiceRef.trim()) return;
@@ -271,10 +288,67 @@ function MatchModal({
               placeholder={seed ? `${seed}0412` : 'INV/2026/0412'}
             />
             <span className="text-11 text-neutral-500 block mt-1">
-              Whatever your invoicing system calls it. This is recorded exactly
-              as typed, with your name and the timestamp.
+              Whatever your invoicing system calls it. Recorded exactly as typed.
             </span>
           </label>
+
+          <div>
+            <div className="text-11 uppercase tracking-[0.06em] text-neutral-500 mb-1">
+              Client <span className="normal-case text-neutral-400">(optional)</span>
+            </div>
+            {clientId ? (
+              <div className="flex items-center gap-2 bg-emerald-50 border border-emerald-200 rounded p-2">
+                <span className="text-13 flex-1">{clientLabel}</span>
+                <button
+                  type="button"
+                  className="text-12 text-neutral-500 hover:text-neutral-900"
+                  onClick={() => {
+                    setClientId(null);
+                    setClientLabel('');
+                    setClientQuery('');
+                  }}
+                >
+                  Change
+                </button>
+              </div>
+            ) : (
+              <div className="relative">
+                <Input
+                  value={clientQuery}
+                  onChange={(e) => setClientQuery(e.target.value)}
+                  placeholder="Search clients by name…"
+                />
+                {clientQuery.trim().length >= 2 && search.data ? (
+                  <div className="absolute z-10 mt-1 w-full bg-white border border-neutral-200 rounded shadow-sm max-h-56 overflow-auto">
+                    {search.data.items.length === 0 ? (
+                      <div className="px-3 py-2 text-12 text-neutral-500">
+                        No clients match "{clientQuery.trim()}"
+                      </div>
+                    ) : (
+                      search.data.items.map((c) => (
+                        <button
+                          key={c.id}
+                          type="button"
+                          className="block w-full text-left px-3 py-2 hover:bg-neutral-50"
+                          onClick={() => {
+                            setClientId(c.id);
+                            setClientLabel(`${c.company_name} · ${c.client_id}`);
+                          }}
+                        >
+                          <div className="text-13 text-neutral-900">{c.company_name}</div>
+                          <div className="text-11 text-neutral-500">{c.client_id}</div>
+                        </button>
+                      ))
+                    )}
+                  </div>
+                ) : null}
+              </div>
+            )}
+            <p className="text-11 text-neutral-500 mt-1">
+              Linking a client here is what makes the payment show up on that
+              client's billing slice.
+            </p>
+          </div>
 
           <div className="flex justify-end gap-2 pt-2">
             <Button variant="secondary" type="button" onClick={onClose}>
