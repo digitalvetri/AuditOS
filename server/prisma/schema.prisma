@@ -4735,6 +4735,36 @@ model BookkeepingLedgerBalance {
   @@index([category, subtype])
 }
 
+/// Group-to-category mapping for the Reports tab (spec §6.5).
+///
+/// Classification is by PARENT GROUP, never by ledger name — firms name
+/// ledgers differently, but Tally's group hierarchy is standard. The ten
+/// system rows here are seeded once and never mutated; a firm that keeps
+/// a custom group inserts a NON-system row to teach the reports how to
+/// classify it. Deleting a row a period actually referenced would blank
+/// its report line — hence `deletedAt` on non-system rows and a hard
+/// guard against removing system rows.
+model BookkeepingLedgerGroup {
+  id   String @id @default(uuid())
+  /// Exact match against BookkeepingLedgerBalance.parentGroup — trim of
+  /// outer whitespace is the ONLY normalisation.
+  name String @unique
+
+  /// asset | liability | income | expense | equity
+  category String
+  /// cash | bank | receivable | payable | gst | other
+  subtype  String @default("other")
+
+  /// System rows: seeded from spec §6.5 and immutable through the UI.
+  isSystem Boolean @default(false)
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  @@index([category, subtype])
+}
+
 // ============================================================
 // INCORPORATION SERVICE (Workstation → Services → Incorporation)
 // ============================================================
