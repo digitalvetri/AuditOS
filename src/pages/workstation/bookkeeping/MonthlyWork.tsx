@@ -1,9 +1,11 @@
+import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { bookkeepingApi } from '@/modules/bookkeeping/api';
 import { human, opts } from '@/modules/bookkeeping/format';
 import type {
-  Deliverable, DocumentRequest, PendingItem, Task, WorkflowStage,
+  Deliverable, DocumentRequest, Import, ImportKind, PendingItem, Task,
+  WorkflowStage,
 } from '@/modules/bookkeeping/types';
 import {
   Card, Cell, FilterBar, PageHeader, QueryState, Row, Select, Status, Table,
@@ -184,8 +186,15 @@ export function BookkeepingPeriodDetailPage() {
 
             {section === 'data' ? (
               <DataSection
+                periodId={data.period.id}
+                clientName={data.period.client_name ?? ''}
+                periodStart={data.period.period_start}
+                periodEnd={data.period.period_end}
+                periodLabel={data.period.label}
+                imports={data.imports}
                 pending={data.pending_items}
                 documents={data.document_requests}
+                onImported={invalidate}
               />
             ) : null}
 
@@ -268,45 +277,255 @@ function ChecklistSection(props: {
 }
 
 /**
- * Data sub-tab. Today this is pending items + document requests (the two
- * lists the retired Pending Items / Documents tabs used to hold). Step 5
- * adds the imports table alongside; the section is shaped to accept it.
+ * Data sub-tab (spec §6.4). Four rows — trial balance, day book,
+ * outstandings, bank statement — plus the pending items and document
+ * requests that used to live in their own retired tabs.
+ *
+ * Each row shows the LATEST import of that kind on this period. A rejected
+ * import renders with the reason inline, so a reviewer sees WHY a file was
+ * refused before deciding to re-upload. Every upload is append-only — a
+ * new import row for the same kind never overwrites the previous one.
  */
+const IMPORT_KINDS_DISPLAY: { kind: ImportKind; label: string }[] = [
+  { kind: 'bank_statement', label: 'Bank statement' },
+  { kind: 'day_book', label: 'Day book' },
+  { kind: 'trial_balance', label: 'Trial balance' },
+  { kind: 'outstandings', label: 'Outstandings' },
+];
+
 function DataSection(props: {
+  periodId: string;
+  clientName: string;
+  periodStart: string | null;
+  periodEnd: string | null;
+  periodLabel: string;
+  imports: Import[];
   pending: PendingItem[];
   documents: DocumentRequest[];
+  onImported: () => void;
 }) {
-  const { pending, documents } = props;
+  const {
+    periodId, clientName, periodStart, periodEnd, periodLabel,
+    imports, pending, documents, onImported,
+  } = props;
+  const [uploadFor, setUploadFor] = useState<ImportKind | null>(null);
+  // Pick the latest import per kind for the header row; the "history"
+  // list below shows all imports (rejected included) in append order.
+  const latestByKind = new Map<ImportKind, Import>();
+  for (const i of imports) {
+    if (!latestByKind.has(i.kind)) latestByKind.set(i.kind, i);
+  }
   return (
-    <div className="grid gap-4 lg:grid-cols-2">
-      <Card title="Pending items">
-        {pending.length === 0 ? (
-          <div className="px-4 py-6 text-13 text-neutral-500">Nothing outstanding.</div>
-        ) : (
-          <ul className="divide-y divide-neutral-200">
-            {pending.map((p) => (
-              <li key={p.id} className="px-4 py-2 flex items-center gap-2">
-                <span className="text-13 flex-1">{p.title}</span>
-                <Status value={p.status} />
+    <div className="space-y-4">
+      <Card title="Imports">
+        <Table head={['Kind', 'Source', 'Period in file', 'Rows', 'Imported', '']}>
+          {IMPORT_KINDS_DISPLAY.map(({ kind, label }) => {
+            const latest = latestByKind.get(kind);
+            const rejected = latest && latest.status !== 'imported';
+            return (
+              <Row key={kind} status={rejected ? 'blocked' : latest ? 'ok' : undefined}>
+                <Cell>{label}</Cell>
+                <Cell muted>{latest ? human(latest.source) : '—'}</Cell>
+                <Cell muted>
+                  {latest ? `${latest.period_from_in_file} – ${latest.period_to_in_file}` : '—'}
+                </Cell>
+                <Cell muted>{latest?.row_count ?? '—'}</Cell>
+                <Cell muted>
+                  {latest ? (
+                    <span>
+                      {latest.imported_at ? fmtDate(latest.imported_at) : '—'}
+                      {latest.imported_by?.full_name
+                        ? ` · ${latest.imported_by.full_name}`
+                        : ''}
+                    </span>
+                  ) : (
+                    <span className="text-neutral-400">not imported</span>
+                  )}
+                </Cell>
+                <Cell>
+                  <button
+                    onClick={() => setUploadFor(kind)}
+                    className="h-7 px-2 text-12 border border-neutral-300 rounded hover:bg-neutral-50"
+                  >
+                    {latest ? 'Re-import' : 'Import file'}
+                  </button>
+                </Cell>
+              </Row>
+            );
+          })}
+        </Table>
+        {imports.some((i) => i.status !== 'imported') ? (
+          <ul className="px-4 py-2 border-t border-neutral-100 space-y-1">
+            {imports.filter((i) => i.status !== 'imported').map((i) => (
+              <li key={i.id} className="text-12 text-red-700">
+                <span className="tabular-nums">{i.imported_at ? fmtDate(i.imported_at) : ''}</span>
+                {' · '}
+                <span className="font-medium">{human(i.kind)}</span>
+                {' — '}{i.error_detail ?? human(i.status)}
               </li>
             ))}
           </ul>
-        )}
+        ) : null}
       </Card>
-      <Card title="Document requests">
-        {documents.length === 0 ? (
-          <div className="px-4 py-6 text-13 text-neutral-500">No documents chased yet.</div>
-        ) : (
-          <ul className="divide-y divide-neutral-200">
-            {documents.map((d) => (
-              <li key={d.id} className="px-4 py-2 flex items-center gap-2">
-                <span className="text-13 flex-1">{human(d.document_type)}</span>
-                <Status value={d.status} />
-              </li>
-            ))}
-          </ul>
-        )}
-      </Card>
+
+      <div className="grid gap-4 lg:grid-cols-2">
+        <Card title="Pending items">
+          {pending.length === 0 ? (
+            <div className="px-4 py-6 text-13 text-neutral-500">Nothing outstanding.</div>
+          ) : (
+            <ul className="divide-y divide-neutral-200">
+              {pending.map((p) => (
+                <li key={p.id} className="px-4 py-2 flex items-center gap-2">
+                  <span className="text-13 flex-1">{p.title}</span>
+                  <Status value={p.status} />
+                </li>
+              ))}
+            </ul>
+          )}
+        </Card>
+        <Card title="Document requests">
+          {documents.length === 0 ? (
+            <div className="px-4 py-6 text-13 text-neutral-500">No documents chased yet.</div>
+          ) : (
+            <ul className="divide-y divide-neutral-200">
+              {documents.map((d) => (
+                <li key={d.id} className="px-4 py-2 flex items-center gap-2">
+                  <span className="text-13 flex-1">{human(d.document_type)}</span>
+                  <Status value={d.status} />
+                </li>
+              ))}
+            </ul>
+          )}
+        </Card>
+      </div>
+
+      {uploadFor ? (
+        <ImportUploadModal
+          kind={uploadFor}
+          periodId={periodId}
+          clientName={clientName}
+          periodStart={periodStart}
+          periodEnd={periodEnd}
+          periodLabel={periodLabel}
+          onClose={() => setUploadFor(null)}
+          onImported={() => { setUploadFor(null); onImported(); }}
+        />
+      ) : null}
+    </div>
+  );
+}
+
+function ImportUploadModal(props: {
+  kind: ImportKind;
+  periodId: string;
+  clientName: string;
+  periodStart: string | null;
+  periodEnd: string | null;
+  periodLabel: string;
+  onClose: () => void;
+  onImported: () => void;
+}) {
+  const {
+    kind, periodId, clientName, periodStart, periodEnd, periodLabel,
+    onClose, onImported,
+  } = props;
+  const kindLabel = IMPORT_KINDS_DISPLAY.find((k) => k.kind === kind)?.label ?? human(kind);
+  const [file, setFile] = useState<File | null>(null);
+  // Pre-fill the two validation fields with what we expect the file to say
+  // so a matching Tally export can be uploaded in one click; the user is
+  // still required to confirm they typed what the FILE actually contains.
+  const [company, setCompany] = useState(clientName);
+  const [pFrom, setPFrom] = useState(periodStart ?? '');
+  const [pTo, setPTo] = useState(periodEnd ?? '');
+
+  const upload = useMutation({
+    mutationFn: () => {
+      if (!file) throw new Error('Choose a file first.');
+      return bookkeepingApi.createImport({
+        file, period_id: periodId, kind,
+        company_name_in_file: company,
+        period_from_in_file: pFrom,
+        period_to_in_file: pTo,
+      });
+    },
+    onSuccess: onImported,
+  });
+
+  return (
+    <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-40">
+      <div className="bg-white rounded shadow-xl w-full max-w-lg mx-4">
+        <div className="px-4 py-3 border-b border-neutral-200 flex items-center justify-between">
+          <div>
+            <div className="text-13 font-medium">Import {kindLabel}</div>
+            <div className="text-11 text-neutral-500">{periodLabel}</div>
+          </div>
+          <button onClick={onClose} className="text-neutral-500 hover:text-neutral-900 text-15" aria-label="Close">×</button>
+        </div>
+        <div className="px-4 py-3 space-y-3">
+          <label className="block">
+            <span className="block text-11 uppercase tracking-[0.06em] text-neutral-500 mb-1">
+              File
+            </span>
+            <input
+              type="file"
+              onChange={(e) => setFile(e.target.files?.[0] ?? null)}
+              className="text-13"
+            />
+          </label>
+          <label className="block">
+            <span className="block text-11 uppercase tracking-[0.06em] text-neutral-500 mb-1">
+              Company name in file
+            </span>
+            <input
+              type="text" value={company} onChange={(e) => setCompany(e.target.value)}
+              className="w-full h-8 px-2 text-13 border border-neutral-300 rounded"
+            />
+            <span className="block text-11 text-neutral-500 mt-1">
+              Must match the client record exactly ({clientName}).
+            </span>
+          </label>
+          <div className="grid grid-cols-2 gap-3">
+            <label className="block">
+              <span className="block text-11 uppercase tracking-[0.06em] text-neutral-500 mb-1">
+                Period from (in file)
+              </span>
+              <input
+                type="date" value={pFrom} onChange={(e) => setPFrom(e.target.value)}
+                className="w-full h-8 px-2 text-13 border border-neutral-300 rounded"
+              />
+            </label>
+            <label className="block">
+              <span className="block text-11 uppercase tracking-[0.06em] text-neutral-500 mb-1">
+                Period to (in file)
+              </span>
+              <input
+                type="date" value={pTo} onChange={(e) => setPTo(e.target.value)}
+                className="w-full h-8 px-2 text-13 border border-neutral-300 rounded"
+              />
+            </label>
+          </div>
+          {upload.error ? (
+            <div className="text-12 text-red-700">
+              {String((upload.error as { message?: string })?.message ?? upload.error)}
+            </div>
+          ) : null}
+        </div>
+        <div className="px-4 py-3 border-t border-neutral-200 flex justify-end gap-2">
+          <button
+            onClick={onClose}
+            className="h-8 px-3 text-13 border border-neutral-300 rounded hover:bg-neutral-50"
+          >
+            Cancel
+          </button>
+          <button
+            onClick={() => upload.mutate()}
+            disabled={upload.isPending || !file}
+            className="h-8 px-3 text-13 bg-primary text-white rounded hover:bg-primaryHover disabled:opacity-50"
+          >
+            {upload.isPending ? 'Uploading…' : 'Upload'}
+          </button>
+        </div>
+      </div>
     </div>
   );
 }
