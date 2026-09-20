@@ -2,11 +2,15 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { bookkeepingApi } from '@/modules/bookkeeping/api';
 import { human, opts } from '@/modules/bookkeeping/format';
-import type { Task, WorkflowStage } from '@/modules/bookkeeping/types';
+import type {
+  Deliverable, DocumentRequest, PendingItem, Task, WorkflowStage,
+} from '@/modules/bookkeeping/types';
 import {
   Card, Cell, FilterBar, PageHeader, QueryState, Row, Select, Status, Table,
 } from '@/modules/workstation/components';
 import { fmtDate } from '@/lib/format';
+
+type PeriodSection = 'checklist' | 'data' | 'deliverables';
 
 /** Every monthly period the caller can see (§11). */
 export function BookkeepingMonthlyWorkPage() {
@@ -72,6 +76,13 @@ export function BookkeepingPeriodDetailPage() {
   const { periodId = '' } = useParams();
   const navigate = useNavigate();
   const qc = useQueryClient();
+  const [params, setParams] = useSearchParams();
+  const section = ((params.get('section') as PeriodSection | null) ?? 'checklist') as PeriodSection;
+  const setSection = (v: string) => {
+    const next = new URLSearchParams(params);
+    if (v) next.set('section', v); else next.delete('section');
+    setParams(next, { replace: true });
+  };
 
   const detail = useQuery({
     queryKey: ['bookkeeping', 'period', periodId],
@@ -141,99 +152,185 @@ export function BookkeepingPeriodDetailPage() {
               </div>
             ) : null}
 
-            <Card title="Workflow">
-              {stages.length === 0 ? (
-                <div className="px-4 py-6 text-13 text-neutral-500">
-                  No workflow stages configured for this service.
-                </div>
-              ) : (
-                <ul className="divide-y divide-neutral-200">
-                  {stages.map((s) => {
-                    const inStage = stageTasks.filter((t) => t.stage?.id === s.id);
-                    const done = inStage.filter((t) => t.status === 'completed').length;
-                    return (
-                      <StageGroup
-                        key={s.id}
-                        stage={s}
-                        tasks={inStage}
-                        doneCount={done}
-                        taskStatuses={settings.data?.task_statuses ?? []}
-                        onToggle={(task, checked) =>
-                          setTaskStatus.mutate({
-                            id: task.id, status: checked ? 'completed' : 'pending',
-                          })
-                        }
-                        onStatus={(task, next) =>
-                          setTaskStatus.mutate({ id: task.id, status: next })
-                        }
-                      />
-                    );
-                  })}
-                </ul>
-              )}
-            </Card>
+            {/* Sub-tabs: Checklist | Data | Deliverables. `?section=` in the
+                URL rather than `?tab=` because the periods LIST view already
+                uses `?status=` — namespacing keeps a bookmarked link
+                unambiguous. */}
+            <nav className="flex gap-1 border-b border-neutral-200 -mt-2">
+              {(['checklist', 'data', 'deliverables'] as const).map((s) => (
+                <button
+                  key={s} onClick={() => setSection(s === 'checklist' ? '' : s)}
+                  className={
+                    'px-3 h-9 text-13 whitespace-nowrap border-b-2 -mb-px ' +
+                    (section === s
+                      ? 'border-gold text-neutral-900 font-medium'
+                      : 'border-transparent text-neutral-500 hover:text-neutral-900')
+                  }
+                >
+                  {human(s)}
+                </button>
+              ))}
+            </nav>
 
-            {adhocTasks.length > 0 ? (
-              <Card title="Ad-hoc tasks">
-                <Table head={['Task', 'Category', 'Priority', 'Assigned to', 'Due', 'Status']}>
-                  {adhocTasks.map((t) => (
-                    <Row key={t.id} status={t.status}>
-                      <Cell>{t.title}</Cell>
-                      <Cell muted>{human(t.category)}</Cell>
-                      <Cell muted>{human(t.priority)}</Cell>
-                      <Cell muted>{t.assigned_employee?.full_name ?? '—'}</Cell>
-                      <Cell muted>{t.due_date ? fmtDate(t.due_date) : '—'}</Cell>
-                      <Cell>
-                        <select
-                          value={t.status}
-                          onChange={(e) => setTaskStatus.mutate({ id: t.id, status: e.target.value })}
-                          className="h-7 px-1 text-12 bg-white border border-neutral-300 rounded"
-                        >
-                          {(settings.data?.task_statuses ?? []).map((s) => (
-                            <option key={s} value={s}>{human(s)}</option>
-                          ))}
-                        </select>
-                      </Cell>
-                    </Row>
-                  ))}
-                </Table>
-              </Card>
+            {section === 'checklist' ? (
+              <ChecklistSection
+                stages={stages}
+                stageTasks={stageTasks}
+                adhocTasks={adhocTasks}
+                taskStatuses={settings.data?.task_statuses ?? []}
+                onTaskStatus={(id, next) => setTaskStatus.mutate({ id, status: next })}
+              />
             ) : null}
 
-            <div className="grid gap-4 lg:grid-cols-2">
-              <Card title="Pending items">
-                {data.pending_items.length === 0 ? (
-                  <div className="px-4 py-6 text-13 text-neutral-500">Nothing outstanding.</div>
-                ) : (
-                  <ul className="divide-y divide-neutral-200">
-                    {data.pending_items.map((p) => (
-                      <li key={p.id} className="px-4 py-2 flex items-center gap-2">
-                        <span className="text-13 flex-1">{p.title}</span>
-                        <Status value={p.status} />
-                      </li>
-                    ))}
-                  </ul>
-                )}
-              </Card>
-              <Card title="Deliverables">
-                {data.deliverables.length === 0 ? (
-                  <div className="px-4 py-6 text-13 text-neutral-500">None prepared yet.</div>
-                ) : (
-                  <ul className="divide-y divide-neutral-200">
-                    {data.deliverables.map((d) => (
-                      <li key={d.id} className="px-4 py-2 flex items-center gap-2">
-                        <span className="text-13 flex-1">{human(d.type)}</span>
-                        <Status value={d.status} />
-                      </li>
-                    ))}
-                  </ul>
-                )}
-              </Card>
-            </div>
+            {section === 'data' ? (
+              <DataSection
+                pending={data.pending_items}
+                documents={data.document_requests}
+              />
+            ) : null}
+
+            {section === 'deliverables' ? (
+              <DeliverablesSection deliverables={data.deliverables} />
+            ) : null}
           </div>
         );
       }}
     </QueryState>
+  );
+}
+
+function ChecklistSection(props: {
+  stages: WorkflowStage[];
+  stageTasks: Task[];
+  adhocTasks: Task[];
+  taskStatuses: string[];
+  onTaskStatus: (id: string, status: string) => void;
+}) {
+  const { stages, stageTasks, adhocTasks, taskStatuses, onTaskStatus } = props;
+  return (
+    <>
+      <Card title="Workflow">
+        {stages.length === 0 ? (
+          <div className="px-4 py-6 text-13 text-neutral-500">
+            No workflow stages configured for this service.
+          </div>
+        ) : (
+          <ul className="divide-y divide-neutral-200">
+            {stages.map((s) => {
+              const inStage = stageTasks.filter((t) => t.stage?.id === s.id);
+              const done = inStage.filter((t) => t.status === 'completed').length;
+              return (
+                <StageGroup
+                  key={s.id}
+                  stage={s}
+                  tasks={inStage}
+                  doneCount={done}
+                  taskStatuses={taskStatuses}
+                  onToggle={(task, checked) =>
+                    onTaskStatus(task.id, checked ? 'completed' : 'pending')
+                  }
+                  onStatus={(task, next) => onTaskStatus(task.id, next)}
+                />
+              );
+            })}
+          </ul>
+        )}
+      </Card>
+
+      {adhocTasks.length > 0 ? (
+        <Card title="Ad-hoc tasks">
+          <Table head={['Task', 'Category', 'Priority', 'Assigned to', 'Due', 'Status']}>
+            {adhocTasks.map((t) => (
+              <Row key={t.id} status={t.status}>
+                <Cell>{t.title}</Cell>
+                <Cell muted>{human(t.category)}</Cell>
+                <Cell muted>{human(t.priority)}</Cell>
+                <Cell muted>{t.assigned_employee?.full_name ?? '—'}</Cell>
+                <Cell muted>{t.due_date ? fmtDate(t.due_date) : '—'}</Cell>
+                <Cell>
+                  <select
+                    value={t.status}
+                    onChange={(e) => onTaskStatus(t.id, e.target.value)}
+                    className="h-7 px-1 text-12 bg-white border border-neutral-300 rounded"
+                  >
+                    {taskStatuses.map((s) => (
+                      <option key={s} value={s}>{human(s)}</option>
+                    ))}
+                  </select>
+                </Cell>
+              </Row>
+            ))}
+          </Table>
+        </Card>
+      ) : null}
+    </>
+  );
+}
+
+/**
+ * Data sub-tab. Today this is pending items + document requests (the two
+ * lists the retired Pending Items / Documents tabs used to hold). Step 5
+ * adds the imports table alongside; the section is shaped to accept it.
+ */
+function DataSection(props: {
+  pending: PendingItem[];
+  documents: DocumentRequest[];
+}) {
+  const { pending, documents } = props;
+  return (
+    <div className="grid gap-4 lg:grid-cols-2">
+      <Card title="Pending items">
+        {pending.length === 0 ? (
+          <div className="px-4 py-6 text-13 text-neutral-500">Nothing outstanding.</div>
+        ) : (
+          <ul className="divide-y divide-neutral-200">
+            {pending.map((p) => (
+              <li key={p.id} className="px-4 py-2 flex items-center gap-2">
+                <span className="text-13 flex-1">{p.title}</span>
+                <Status value={p.status} />
+              </li>
+            ))}
+          </ul>
+        )}
+      </Card>
+      <Card title="Document requests">
+        {documents.length === 0 ? (
+          <div className="px-4 py-6 text-13 text-neutral-500">No documents chased yet.</div>
+        ) : (
+          <ul className="divide-y divide-neutral-200">
+            {documents.map((d) => (
+              <li key={d.id} className="px-4 py-2 flex items-center gap-2">
+                <span className="text-13 flex-1">{human(d.document_type)}</span>
+                <Status value={d.status} />
+              </li>
+            ))}
+          </ul>
+        )}
+      </Card>
+    </div>
+  );
+}
+
+function DeliverablesSection(props: { deliverables: Deliverable[] }) {
+  return (
+    <Card title="Deliverables">
+      {props.deliverables.length === 0 ? (
+        <div className="px-4 py-6 text-13 text-neutral-500">None prepared yet.</div>
+      ) : (
+        <Table head={['Type', 'Prepared by', 'Reviewed by', 'Approved', 'Delivered', 'Status']}>
+          {props.deliverables.map((d) => (
+            <Row key={d.id} status={d.status}>
+              <Cell>{human(d.type)}</Cell>
+              <Cell muted>{d.prepared_by?.full_name ?? '—'}</Cell>
+              <Cell muted>{d.reviewed_by?.full_name ?? '—'}</Cell>
+              <Cell muted>{d.approved_at ? fmtDate(d.approved_at) : '—'}</Cell>
+              <Cell muted>{d.delivered_at ? fmtDate(d.delivered_at) : '—'}</Cell>
+              <Cell><Status value={d.status} /></Cell>
+            </Row>
+          ))}
+        </Table>
+      )}
+    </Card>
   );
 }
 

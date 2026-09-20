@@ -71,10 +71,7 @@ import { BookkeepingShell } from '@/pages/workstation/bookkeeping/BookkeepingShe
 import { BookkeepingOverviewPage } from '@/pages/workstation/bookkeeping/Overview';
 import { BookkeepingClientsPage, BookkeepingClientDetailPage } from '@/pages/workstation/bookkeeping/Clients';
 import { BookkeepingMonthlyWorkPage, BookkeepingPeriodDetailPage } from '@/pages/workstation/bookkeeping/MonthlyWork';
-import {
-  BookkeepingTasksPage, BookkeepingPendingItemsPage, BookkeepingDocumentsPage,
-  BookkeepingDeliverablesPage, BookkeepingRemindersPage, BookkeepingSettingsPage,
-} from '@/pages/workstation/bookkeeping/Lists';
+import { BookkeepingSettingsPage } from '@/pages/workstation/bookkeeping/Lists';
 
 // GST — dedicated landing page + per-service AssistedHandoff detail +
 // shape-based workspace dispatcher (recurring period board / project case
@@ -233,12 +230,17 @@ export default function App() {
                 <Route path="clients/:clientId" element={<BookkeepingClientDetailPage />} />
                 <Route path="monthly-work" element={<BookkeepingMonthlyWorkPage />} />
                 <Route path="monthly-work/:periodId" element={<BookkeepingPeriodDetailPage />} />
-                <Route path="tasks" element={<BookkeepingTasksPage />} />
-                <Route path="pending-items" element={<BookkeepingPendingItemsPage />} />
-                <Route path="documents" element={<BookkeepingDocumentsPage />} />
-                <Route path="deliverables" element={<BookkeepingDeliverablesPage />} />
-                <Route path="reminders" element={<BookkeepingRemindersPage />} />
                 <Route path="settings" element={<BookkeepingSettingsPage />} />
+                {/* Spec §3: the five retired tabs REDIRECT to their new home
+                    with the equivalent filter, so an old bookmark still
+                    lands somewhere meaningful rather than 404. Reminders had
+                    no in-module home (spec: "notifications, not a page") —
+                    it redirects to Overview without a filter. */}
+                <Route path="tasks" element={<Navigate to="..?group=task" replace />} />
+                <Route path="pending-items" element={<Navigate to="..?tile=blocked" replace />} />
+                <Route path="documents" element={<Navigate to="../monthly-work" replace />} />
+                <Route path="deliverables" element={<Navigate to="../monthly-work" replace />} />
+                <Route path="reminders" element={<Navigate to=".." replace />} />
               </Route>
               {/* TDS module — copied from GST structure, wins over the
                   :category catch-all below. */}

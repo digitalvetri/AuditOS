@@ -5,10 +5,13 @@ export interface Progress {
   total: number; completed: number; pending: number; overdue: number; percent: number;
 }
 
-export interface Kpis {
-  total_clients: number; in_progress: number; pending_items: number; due_this_month: number;
-  completed_this_month: number; overdue_tasks: number; awaiting_documents: number;
-  awaiting_bank_statements: number; pending_review: number;
+/**
+ * OVERVIEW tile counts (spec §6.1). Each is a database aggregate over the
+ * caller's visible clients and is also the filter shortcut that produces
+ * the table below.
+ */
+export interface OverviewTiles {
+  overdue: number; blocked: number; due_soon: number; review: number; closed: number;
 }
 
 export interface Period {
@@ -90,7 +93,24 @@ export interface Activity {
 
 export interface ListResponse<T> { items: T[]; count: number; scope?: string }
 
-export interface OverviewResponse { kpis: Kpis; upcoming: Period[]; scope: string }
+/**
+ * A period on the Overview table, shown as one row with the current
+ * (earliest incomplete) stage and a blocked-task tally.
+ */
+export interface OverviewPeriodRow extends Period {
+  current_stage: { id: string; slug: string; name: string; sequence: number } | null;
+  blocked_count: number;
+}
+
+export type OverviewGroup = 'period' | 'task';
+
+export interface OverviewResponse {
+  tiles: OverviewTiles;
+  group: OverviewGroup;
+  rows: OverviewPeriodRow[] | Task[];
+  count: number;
+  scope: string;
+}
 
 export interface ClientDetailResponse {
   engagement: Engagement; periods: Period[]; books_org_id: string | null;
