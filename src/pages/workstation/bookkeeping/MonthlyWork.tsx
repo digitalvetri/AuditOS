@@ -106,6 +106,9 @@ export function BookkeepingPeriodDetailPage() {
               title={`${data.period.client_name ?? 'Client'} · ${data.period.label}`}
               subtitle={
                 <span>
+                  {data.period.period_start && data.period.period_end
+                    ? `${fmtDate(data.period.period_start)} – ${fmtDate(data.period.period_end)} · `
+                    : ''}
                   {data.period.progress
                     ? `${data.period.progress.completed} of ${data.period.progress.total} tasks done · ${data.period.progress.percent}%`
                     : 'No tasks yet'}

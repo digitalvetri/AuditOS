@@ -173,6 +173,13 @@ export function BookkeepingClientsPage() {
             ))}
           </select>
         </Field>
+        <Field label="Due offset (days after period end)" hint="Default 5. Weekend rolls to Monday.">
+          <input
+            type="number" min={0} max={60}
+            className={inputClass} value={form.due_offset_days ?? '5'}
+            onChange={(e) => setForm({ ...form, due_offset_days: e.target.value })}
+          />
+        </Field>
         <Field label="Next due date" hint="Optional — leave empty to set it when the first period opens.">
           <input
             type="date" className={inputClass} value={form.next_due_date ?? ''}
@@ -231,7 +238,7 @@ export function BookkeepingClientDetailPage() {
             <Detail label="Status" value={<Status value={data.engagement.status} />} />
             <Detail label="Assigned to" value={data.engagement.assigned_employee?.full_name ?? '—'} />
             <Detail label="Service start" value={fmtDate(data.engagement.service_start_date)} />
-            <Detail label="Billing" value={human(data.engagement.billing_frequency)} />
+            <Detail label="Billing" value={`${human(data.engagement.billing_frequency)} · +${data.engagement.due_offset_days}d`} />
             <Detail label="Current period" value={data.periods[0]?.label ?? '—'} />
             <Detail label="Next due" value={data.engagement.next_due_date ? fmtDate(data.engagement.next_due_date) : '—'} />
           </div>
