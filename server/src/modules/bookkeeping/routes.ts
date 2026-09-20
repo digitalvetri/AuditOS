@@ -27,6 +27,9 @@ import {
 } from './serialize.js'
 import { bookkeepingImportStorage, importStorageKey } from './storage.js'
 import { validateImport } from './imports.js'
+import { parseTrialBalanceCsv } from './parsers/trialBalance.js'
+import { classify, loadLedgerGroups } from './ledgerGroups.js'
+import { reportsForPeriod } from './reports.js'
 
 /**
  * BOOKKEEPING SERVICE.
@@ -1102,10 +1105,55 @@ bookkeepingRouter.post('/imports',
       throw ApiError.unprocessable('storage_failed', 'The file could not be saved.')
     }
 
-    const stored = await prisma.bookkeepingImport.update({
+    let stored = await prisma.bookkeepingImport.update({
       where: { id: importRow.id },
       data: { storagePath: key },
     })
+
+    // Trial balances parse INTO BookkeepingLedgerBalance so the Reports
+    // tab has numbers to render. Other kinds land their file today and
+    // wait for their per-kind parser in a follow-up PR. A parser failure
+    // never invalidates the file — the row moves to parse_failed with the
+    // reason, and the file is retained for a reviewer.
+    if (outcome.status === 'imported' && kind === 'trial_balance') {
+      try {
+        const text = file.buffer.toString('utf8')
+        const parsed = parseTrialBalanceCsv(text)
+        const groups = await loadLedgerGroups(prisma)
+        await prisma.$transaction([
+          prisma.bookkeepingLedgerBalance.deleteMany({ where: { importId: stored.id } }),
+          prisma.bookkeepingLedgerBalance.createMany({
+            data: parsed.rows.map((r) => {
+              const cls = classify(groups, r.parentGroup)
+              return {
+                importId: stored.id,
+                ledgerName: r.ledgerName,
+                parentGroup: r.parentGroup,
+                category: cls.category,
+                subtype: cls.subtype,
+                openingPaise: r.openingPaise,
+                debitPaise: r.debitPaise,
+                creditPaise: r.creditPaise,
+                closingPaise: r.closingPaise,
+                raw: r.raw,
+              }
+            }),
+          }),
+        ])
+        stored = await prisma.bookkeepingImport.update({
+          where: { id: stored.id },
+          data: { rowCount: parsed.rowCount },
+        })
+      } catch (err) {
+        stored = await prisma.bookkeepingImport.update({
+          where: { id: stored.id },
+          data: {
+            status: 'parse_failed',
+            errorDetail: err instanceof Error ? err.message : String(err),
+          },
+        })
+      }
+    }
 
     await writeAudit({
       actorUserId: session.userId, action: 'bookkeeping.import.create',
@@ -1113,14 +1161,35 @@ bookkeepingRouter.post('/imports',
     })
     await writeBkActivity({
       clientId: period.engagement.clientId, periodId: period.id, actorUserId: session.userId,
-      action: `Import ${outcome.status}`,
-      detail: `${kind!.replace(/_/g, ' ')} · ${file.originalname}${outcome.reason ? ` — ${outcome.reason}` : ''}`,
+      action: `Import ${stored.status}`,
+      detail: `${kind!.replace(/_/g, ' ')} · ${file.originalname}${stored.errorDetail ? ` — ${stored.errorDetail}` : ''}`,
     })
 
     const m = await employeeMap([stored.importedByEmployeeId])
     ok(res, importToApi(stored, m), 201)
   }),
 )
+
+// GET /api/bookkeeping/periods/:id/reports
+//
+// The Reports tab (spec §6.5). All five reports are derived from the
+// latest imported trial balance for the period; if none exists, every
+// report returns { available:false } with a verbatim empty-state message.
+//
+// Declared BEFORE the /imports list so `/periods/:id/reports` doesn't
+// need a separate router mount.
+bookkeepingRouter.get('/periods/:id/reports', handler(async (req, res) => {
+  const session = requireSession(req)
+  const scope = requireWorkstation(session, ...READ)
+  const period = await prisma.bookkeepingPeriod.findFirst({
+    where: { ...alive, id: req.params.id },
+    include: { engagement: true },
+  })
+  if (!period) throw ApiError.notFound('Period not found.')
+  await assertCanSeeClient(session, scope, period.engagement.clientId)
+  const reports = await reportsForPeriod(prisma, period.id)
+  ok(res, { reports })
+}))
 
 // GET /api/bookkeeping/imports?period_id=&kind=
 bookkeepingRouter.get('/imports', handler(async (req, res) => {

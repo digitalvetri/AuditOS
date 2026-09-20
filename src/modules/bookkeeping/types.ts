@@ -187,6 +187,47 @@ export interface PeriodDetailResponse {
   /** @deprecated use workflow_stages */ workflow_steps: string[];
 }
 
+// ── Reports (spec §6.5) ─────────────────────────────────────────────────
+export type ReportKind = 'trial_balance' | 'profit_and_loss' | 'balance_sheet' | 'debtors' | 'creditors';
+
+export interface ReportLine {
+  ledger_name: string;
+  parent_group: string;
+  category: string;
+  subtype: string;
+  opening: string;   // rupees.paise as string, e.g. "1500.00"
+  debit: string;
+  credit: string;
+  closing: string;
+}
+
+export interface ReportSection {
+  label: string;
+  lines: ReportLine[];
+  total_paise: string;
+}
+
+export interface ReportView {
+  available: true;
+  as_of_period_end: string | null;
+  imported_at: string | null;
+  imported_by: string | null;
+  sections: ReportSection[];
+  totals: Record<string, string>;
+}
+
+export interface UnavailableReport {
+  available: false;
+  missing_import: 'trial_balance';
+  message: string;   // verbatim spec §6.5 empty-state text
+}
+
+export type ReportEntry = ReportView | UnavailableReport;
+
+export interface ReportsResponse {
+  reports: Record<ReportKind, ReportEntry>;
+}
+
 export interface SettingsResponse {
   engagement_statuses: string[]; billing_frequencies: string[]; period_statuses: string[];
   task_statuses: string[]; task_categories: string[];

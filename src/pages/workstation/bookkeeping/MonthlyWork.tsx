@@ -4,15 +4,15 @@ import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { bookkeepingApi } from '@/modules/bookkeeping/api';
 import { human, opts } from '@/modules/bookkeeping/format';
 import type {
-  Deliverable, DocumentRequest, Import, ImportKind, PendingItem, Task,
-  WorkflowStage,
+  Deliverable, DocumentRequest, Import, ImportKind, PendingItem, ReportKind,
+  ReportView as ReportViewT, Task, WorkflowStage,
 } from '@/modules/bookkeeping/types';
 import {
   Card, Cell, FilterBar, PageHeader, QueryState, Row, Select, Status, Table,
 } from '@/modules/workstation/components';
 import { fmtDate } from '@/lib/format';
 
-type PeriodSection = 'checklist' | 'data' | 'deliverables';
+type PeriodSection = 'checklist' | 'data' | 'reports' | 'deliverables';
 
 /** Every monthly period the caller can see (§11). */
 export function BookkeepingMonthlyWorkPage() {
@@ -159,7 +159,7 @@ export function BookkeepingPeriodDetailPage() {
                 uses `?status=` — namespacing keeps a bookmarked link
                 unambiguous. */}
             <nav className="flex gap-1 border-b border-neutral-200 -mt-2">
-              {(['checklist', 'data', 'deliverables'] as const).map((s) => (
+              {(['checklist', 'data', 'reports', 'deliverables'] as const).map((s) => (
                 <button
                   key={s} onClick={() => setSection(s === 'checklist' ? '' : s)}
                   className={
@@ -196,6 +196,10 @@ export function BookkeepingPeriodDetailPage() {
                 documents={data.document_requests}
                 onImported={invalidate}
               />
+            ) : null}
+
+            {section === 'reports' ? (
+              <ReportsSection periodId={data.period.id} onOpenData={() => setSection('data')} />
             ) : null}
 
             {section === 'deliverables' ? (
@@ -528,6 +532,137 @@ function ImportUploadModal(props: {
       </div>
     </div>
   );
+}
+
+/**
+ * Reports sub-tab (spec §6.5). All five reports are DERIVED at read time
+ * from the latest imported trial balance for this period; no report is
+ * stored separately. When no trial balance is imported yet every report
+ * renders the verbatim empty-state message from spec §6.5.
+ */
+const REPORT_KINDS: { key: ReportKind; label: string }[] = [
+  { key: 'trial_balance', label: 'Trial Balance' },
+  { key: 'profit_and_loss', label: 'Profit & Loss' },
+  { key: 'balance_sheet', label: 'Balance Sheet' },
+  { key: 'debtors', label: 'Debtors' },
+  { key: 'creditors', label: 'Creditors' },
+];
+
+function ReportsSection(props: { periodId: string; onOpenData: () => void }) {
+  const [kind, setKind] = useState<ReportKind>('trial_balance');
+  const reports = useQuery({
+    queryKey: ['bookkeeping', 'reports', props.periodId],
+    queryFn: () => bookkeepingApi.reports(props.periodId),
+  });
+  return (
+    <div className="space-y-3">
+      <nav className="flex gap-1 border-b border-neutral-200">
+        {REPORT_KINDS.map((r) => (
+          <button
+            key={r.key} onClick={() => setKind(r.key)}
+            className={
+              'px-3 h-9 text-13 whitespace-nowrap border-b-2 -mb-px ' +
+              (kind === r.key
+                ? 'border-gold text-neutral-900 font-medium'
+                : 'border-transparent text-neutral-500 hover:text-neutral-900')
+            }
+          >
+            {r.label}
+          </button>
+        ))}
+      </nav>
+      <QueryState query={reports}>
+        {(data) => {
+          const entry = data.reports[kind];
+          if (!entry.available) {
+            return (
+              <Card>
+                <div className="px-4 py-8 text-center">
+                  <div className="text-13 text-neutral-700">{entry.message}</div>
+                  <button
+                    onClick={props.onOpenData}
+                    className="mt-2 text-12 text-gold hover:underline"
+                  >
+                    Open the Data tab to import →
+                  </button>
+                </div>
+              </Card>
+            );
+          }
+          return <ReportView entry={entry} />;
+        }}
+      </QueryState>
+    </div>
+  );
+}
+
+function ReportView({ entry }: { entry: ReportViewT }) {
+  return (
+    <Card>
+      <div className="px-4 py-2 text-11 text-neutral-500 border-b border-neutral-100">
+        As of {entry.as_of_period_end ?? '—'}
+        {entry.imported_by ? ` · imported by ${entry.imported_by}` : ''}
+      </div>
+      {entry.sections.map((s) => (
+        <div key={s.label} className="border-b border-neutral-100 last:border-b-0">
+          <div className="px-4 py-2 flex items-center justify-between bg-neutral-50">
+            <div className="text-11 uppercase tracking-[0.06em] text-neutral-500 font-medium">
+              {s.label}
+            </div>
+            <div className="text-12 text-neutral-700 tabular-nums">
+              {formatRupees(s.total_paise)}
+            </div>
+          </div>
+          {s.lines.length === 0 ? (
+            <div className="px-4 py-3 text-12 text-neutral-400 italic">No ledgers.</div>
+          ) : (
+            <Table head={['Ledger', 'Group', 'Opening', 'Debit', 'Credit', 'Closing']}>
+              {s.lines.map((line) => (
+                <Row key={`${line.ledger_name}-${line.parent_group}`}>
+                  <Cell>{line.ledger_name}</Cell>
+                  <Cell muted>{line.parent_group}</Cell>
+                  <Cell muted className="tabular-nums">{formatRupees(line.opening)}</Cell>
+                  <Cell muted className="tabular-nums">{formatRupees(line.debit)}</Cell>
+                  <Cell muted className="tabular-nums">{formatRupees(line.credit)}</Cell>
+                  <Cell className="tabular-nums">{formatRupees(line.closing)}</Cell>
+                </Row>
+              ))}
+            </Table>
+          )}
+        </div>
+      ))}
+      {Object.keys(entry.totals).length > 0 ? (
+        <div className="px-4 py-2 flex flex-wrap gap-4 text-12 border-t border-neutral-100 bg-neutral-50">
+          {Object.entries(entry.totals).map(([k, v]) => (
+            <span key={k}>
+              <span className="text-neutral-500 uppercase tracking-[0.06em] mr-1">
+                {human(k)}
+              </span>
+              <span className="tabular-nums text-neutral-900">{formatRupees(v)}</span>
+            </span>
+          ))}
+        </div>
+      ) : null}
+    </Card>
+  );
+}
+
+/**
+ * Display "1500.00" → "₹1,500.00" (Indian grouping). Cheap, no dep — but
+ * this is the only place `Number()` is allowed on an amount, and only for
+ * formatting the DISPLAY string. The wire is already paise-derived
+ * decimal, so no precision moves.
+ */
+function formatRupees(rupeesDecimal: string): string {
+  const negative = rupeesDecimal.startsWith('-');
+  const abs = negative ? rupeesDecimal.slice(1) : rupeesDecimal;
+  const [rupees, paise = '00'] = abs.split('.');
+  const withCommas = rupees.length <= 3
+    ? rupees
+    : rupees.slice(0, -3).replace(/\B(?=(\d{2})+(?!\d))/g, ',') + ',' + rupees.slice(-3);
+  const zero = rupees === '0' && paise === '00';
+  if (zero) return '—';
+  return `${negative ? '-' : ''}₹${withCommas}.${paise}`;
 }
 
 function DeliverablesSection(props: { deliverables: Deliverable[] }) {
