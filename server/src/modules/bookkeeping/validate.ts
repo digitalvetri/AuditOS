@@ -137,6 +137,12 @@ export const MONTH_NAMES = [
   'July', 'August', 'September', 'October', 'November', 'December',
 ]
 
+/** Three-letter abbreviations, used for the compact period-grid header. */
+export const MONTH_ABBREVS = [
+  'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+  'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
+]
+
 export const periodLabel = (year: number, month: number) => `${MONTH_NAMES[month - 1]} ${year}`
 
 /**

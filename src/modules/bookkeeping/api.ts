@@ -1,8 +1,8 @@
 import { api } from '@/services/api';
 import type {
   Activity, BookkeepingClient, ClientDetailResponse, Deliverable, DocumentRequest,
-  Engagement, ListResponse, OverviewResponse, PendingItem, Period, PeriodDetailResponse,
-  Reminder, SettingsResponse, Task,
+  Engagement, GridResponse, ListResponse, OverviewResponse, PendingItem, Period,
+  PeriodDetailResponse, Reminder, SettingsResponse, Task,
 } from './types';
 
 /** Empty values are dropped so an unset filter never reaches the server as `?status=`. */
@@ -24,6 +24,8 @@ export const bookkeepingApi = {
 
   listClients: (f: Record<string, string> = {}) =>
     api.get<ListResponse<BookkeepingClient>>(`${B}/clients${qs(f)}`),
+  clientsGrid: (f: Record<string, string | number> = {}) =>
+    api.get<GridResponse>(`${B}/clients/grid${qs(f)}`),
   client: (clientId: string) => api.get<ClientDetailResponse>(`${B}/clients/${clientId}`),
   clientActivity: (clientId: string) =>
     api.get<ListResponse<Activity>>(`${B}/clients/${clientId}/activity`),
