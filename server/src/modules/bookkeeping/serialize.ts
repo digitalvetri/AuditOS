@@ -1,7 +1,7 @@
 import type {
   BookkeepingActivity, BookkeepingDeliverable, BookkeepingDocumentRequest,
-  BookkeepingEngagement, BookkeepingPendingItem, BookkeepingPeriod,
-  BookkeepingTask, BookkeepingWorkflowStage, Client,
+  BookkeepingEngagement, BookkeepingImport, BookkeepingPendingItem,
+  BookkeepingPeriod, BookkeepingTask, BookkeepingWorkflowStage, Client,
 } from '@prisma/client'
 import type { EmployeeLookup } from '../../api/workstation.serialize.js'
 import { periodLabel } from './validate.js'
@@ -27,6 +27,7 @@ export function engagementToApi(
     assigned_employee_id: e.assignedEmployeeId,
     assigned_employee: ref(m, e.assignedEmployeeId),
     billing_frequency: e.billingFrequency,
+    due_offset_days: e.dueOffsetDays,
     next_due_date: e.nextDueDate,
     notes: e.notes,
     created_at: iso(e.createdAt),
@@ -47,6 +48,8 @@ export function periodToApi(
     year: p.year,
     month: p.month,
     label: periodLabel(p.year, p.month),
+    period_start: p.periodStart,
+    period_end: p.periodEnd,
     status: p.status,
     due_date: p.dueDate,
     completed_date: iso(p.completedDate),
@@ -172,6 +175,28 @@ export const deliverableToApi = (
   delivered_at: iso(d.deliveredAt),
   notes: d.notes,
   created_at: iso(d.createdAt),
+})
+
+export const importToApi = (
+  i: BookkeepingImport,
+  m: EmployeeLookup,
+) => ({
+  id: i.id,
+  period_id: i.periodId,
+  client_id: i.clientId,
+  kind: i.kind,
+  source: i.source,
+  original_filename: i.originalFilename,
+  file_size: i.fileSize,
+  mime_type: i.mimeType,
+  company_name_in_file: i.companyNameInFile,
+  period_from_in_file: i.periodFromInFile,
+  period_to_in_file: i.periodToInFile,
+  row_count: i.rowCount,
+  status: i.status,
+  error_detail: i.errorDetail,
+  imported_at: iso(i.importedAt),
+  imported_by: ref(m, i.importedByEmployeeId),
 })
 
 export const activityToApi = (a: BookkeepingActivity & { period?: BookkeepingPeriod | null }) => ({

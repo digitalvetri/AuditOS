@@ -1,8 +1,8 @@
 import { api } from '@/services/api';
 import type {
   Activity, BookkeepingClient, ClientDetailResponse, Deliverable, DocumentRequest,
-  Engagement, ListResponse, OverviewResponse, PendingItem, Period, PeriodDetailResponse,
-  Reminder, SettingsResponse, Task,
+  Engagement, GridResponse, Import, ListResponse, OverviewResponse, PendingItem,
+  Period, PeriodDetailResponse, Reminder, SettingsResponse, Task,
 } from './types';
 
 /** Empty values are dropped so an unset filter never reaches the server as `?status=`. */
@@ -24,6 +24,8 @@ export const bookkeepingApi = {
 
   listClients: (f: Record<string, string> = {}) =>
     api.get<ListResponse<BookkeepingClient>>(`${B}/clients${qs(f)}`),
+  clientsGrid: (f: Record<string, string | number> = {}) =>
+    api.get<GridResponse>(`${B}/clients/grid${qs(f)}`),
   client: (clientId: string) => api.get<ClientDetailResponse>(`${B}/clients/${clientId}`),
   clientActivity: (clientId: string) =>
     api.get<ListResponse<Activity>>(`${B}/clients/${clientId}/activity`),
@@ -71,4 +73,33 @@ export const bookkeepingApi = {
   createReminder: (input: Record<string, unknown>) => api.post<Reminder>(`${B}/reminders`, input),
   updateReminder: (id: string, input: Record<string, unknown>) =>
     api.patch<Reminder>(`${B}/reminders/${id}`, input),
+
+  listImports: (f: Record<string, string> = {}) =>
+    api.get<ListResponse<Import>>(`${B}/imports${qs(f)}`),
+  /**
+   * The import upload takes multipart/form-data — file plus metadata. Only
+   * the two-blocking-validation fields (company_name_in_file,
+   * period_from_in_file, period_to_in_file) are the user's own claim about
+   * the file; the server validates them against the period + client and
+   * records the outcome on a new BookkeepingImport row.
+   */
+  createImport: async (input: {
+    file: File;
+    period_id: string;
+    kind: 'trial_balance' | 'day_book' | 'outstandings' | 'bank_statement';
+    source?: 'upload' | 'email' | 'agent';
+    company_name_in_file: string;
+    period_from_in_file: string;
+    period_to_in_file: string;
+  }) => {
+    const fd = new FormData();
+    fd.set('file', input.file);
+    fd.set('period_id', input.period_id);
+    fd.set('kind', input.kind);
+    fd.set('source', input.source ?? 'upload');
+    fd.set('company_name_in_file', input.company_name_in_file);
+    fd.set('period_from_in_file', input.period_from_in_file);
+    fd.set('period_to_in_file', input.period_to_in_file);
+    return api.postForm<Import>(`${B}/imports`, fd);
+  },
 };

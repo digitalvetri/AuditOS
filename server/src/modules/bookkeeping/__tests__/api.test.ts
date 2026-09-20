@@ -118,14 +118,22 @@ describe('Bookkeeping Service API', () => {
     expect(dupe.status).toBe(409)
     expect(dupe.body.error.code).toBe('engagement_exists')
 
-    // 2 — period, which lays down one task per workflow stage in the same write
+    // 2 — period, which lays down one task per workflow stage in the same
+    //     write. No due_date supplied — the generator anchors to period_end
+    //     plus the engagement's dueOffsetDays (default 5).
     const period = await api('/api/bookkeeping/periods', {
       method: 'POST', cookie,
-      body: { engagement_id: engagementId, year: 2026, month: 5, due_date: '2026-06-05' },
+      body: { engagement_id: engagementId, year: 2026, month: 5 },
     })
     expect(period.status).toBe(201)
     const periodId = period.body.data.id
     expect(period.body.data.label).toBe('May 2026')
+    // The whole point of PR-2 — anchor to period END, not period START.
+    // May 2026 monthly period: window 2026-05-01 → 2026-05-31, and
+    // 31 May 2026 + 5 days = 5 Jun 2026 (a Friday, no weekend roll).
+    expect(period.body.data.period_start).toBe('2026-05-01')
+    expect(period.body.data.period_end).toBe('2026-05-31')
+    expect(period.body.data.due_date).toBe('2026-06-05')
 
     const detail = await api(`/api/bookkeeping/periods/${periodId}`, { cookie })
     // The unified stage model: one task per active workflow stage, and the
@@ -134,11 +142,28 @@ describe('Bookkeeping Service API', () => {
     expect(detail.body.data.workflow_stages).toHaveLength(WORKFLOW_STAGES.length)
     expect(detail.body.data).not.toHaveProperty('checklist')
     expect(detail.body.data.tasks[0].stage.slug).toBe(WORKFLOW_STAGES[0].slug)
+    // Every stage task carries an auto-generated due date — collection tasks
+    // early in the window, review tasks late.
+    for (const t of detail.body.data.tasks) {
+      expect(t.due_date).toMatch(/^\d{4}-\d{2}-\d{2}$/)
+    }
     // Progress on a fresh period: nine stage tasks, all pending.
     expect(detail.body.data.period.progress).toEqual({
       total: WORKFLOW_STAGES.length, completed: 0,
       pending: WORKFLOW_STAGES.length, overdue: 0, percent: 0,
     })
+
+    // 2b — moving the engagement's due offset rewrites the open period's
+    //     due date in the same request. This is the acceptance criterion
+    //     "changing due_offset_days changes their dates with no code change".
+    const bumped = await api(`/api/bookkeeping/engagements/${engagementId}`, {
+      method: 'PATCH', cookie, body: { due_offset_days: 10 },
+    })
+    expect(bumped.status).toBe(200)
+    expect(bumped.body.data.due_offset_days).toBe(10)
+    const rechecked = await api(`/api/bookkeeping/periods/${periodId}`, { cookie })
+    // 31 May 2026 + 10 days = 10 Jun 2026 (a Wednesday, no roll).
+    expect(rechecked.body.data.period.due_date).toBe('2026-06-10')
 
     // A second May 2026 for the same engagement is refused.
     const dupePeriod = await api('/api/bookkeeping/periods', {
