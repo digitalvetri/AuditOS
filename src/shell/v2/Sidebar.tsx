@@ -34,6 +34,7 @@ import {
   ListChecks,
   MessageSquare,
   PhoneCall,
+  Plug,
   ReceiptIndianRupee,
   Settings,
   Users,
@@ -144,11 +145,20 @@ export function Sidebar({ mobileOpen, onMobileClose }: Props) {
       { to: '/books', label: 'Books', icon: Wallet,
         visible: can(role, 'books.access', 'self') },
     ];
+    // INTEGRATIONS — third-party services the firm connects to (Zoho
+    // Payments today; Books/Tally/banking as they land). Sibling of
+    // Tools, not nested inside HRMS: this is firm-level infrastructure,
+    // not an HR concern.
+    const integrationsItems: NavItem[] = [
+      { to: '/integrations/zoho-payments', label: 'Zoho Payments', icon: Plug,
+        visible: can(role, 'accounts.manage', 'organisation') },
+    ];
     return [
       { label: null, items: [{ to: '/', label: 'Dashboard', icon: Home, end: true, visible: true }] },
       { label: 'HRMS', items: auditItems.filter((i) => i.visible) },
       { label: 'WORKSTATION', items: workstationItems.filter((i) => i.visible) },
       { label: 'TOOLS', items: toolsItems.filter((i) => i.visible) },
+      { label: 'INTEGRATIONS', items: integrationsItems.filter((i) => i.visible) },
     ].filter((g) => g.items.length > 0);
   }, [role]);
 
