@@ -10,9 +10,9 @@ import { employeeMap } from '../../api/workstation.serialize.js'
 import { body, FieldErrors } from '../workstation/validate.js'
 import {
   BILLING_FREQUENCIES, DELIVERABLE_STATUSES, DELIVERABLE_TYPES,
-  DOCREQ_STATUSES, DOCUMENT_TYPES, ENGAGEMENT_STATUSES, PENDING_CATEGORIES,
-  PENDING_STATUSES, PERIOD_STATUSES, PRIORITIES, TASK_CATEGORIES, TASK_STATUSES,
-  WORKFLOW_STEPS, periodLabel,
+  DOCREQ_STATUSES, DOCUMENT_TYPES, ENGAGEMENT_STATUSES, MONTH_ABBREVS,
+  PENDING_CATEGORIES, PENDING_STATUSES, PERIOD_STATUSES, PRIORITIES,
+  TASK_CATEGORIES, TASK_STATUSES, WORKFLOW_STEPS, periodLabel,
 } from './validate.js'
 import {
   createPeriodWithTasks, currentStageByPeriod, overviewTiles, progressByPeriod,
@@ -180,6 +180,101 @@ bookkeepingRouter.get('/overview', handler(async (req, res) => {
 }))
 
 // ── Clients ───────────────────────────────────────────────────────────────
+//
+// GET /api/bookkeeping/clients/grid?fy=YYYY&employee_id=&q=
+//
+// The period grid (spec §6.2). Clients down, twelve calendar months across,
+// one cell per client-period. This is the screen that makes silent drift
+// visible: a client three months behind that nobody noticed shows up as a
+// row of unmarked cells.
+//
+// Indian FY: April → March. `?fy=2026` renders April 2026 through March
+// 2027. Default is the FY containing today.
+//
+// Declared BEFORE `/clients` so Express's path matcher does not treat
+// `grid` as a clientId (`:clientId` catch-alls are the trap this router
+// has already been bitten by elsewhere).
+bookkeepingRouter.get('/clients/grid', handler(async (req, res) => {
+  const session = requireSession(req)
+  const scope = requireWorkstation(session, ...READ)
+  const where = await clientScopeWhere(session, scope)
+
+  const fyQuery = q(req, 'fy')
+  const now = new Date()
+  const currentFy = now.getUTCMonth() >= 3 // April is index 3
+    ? now.getUTCFullYear()
+    : now.getUTCFullYear() - 1
+  const fy = fyQuery && /^\d{4}$/.test(fyQuery) ? Number(fyQuery) : currentFy
+  const fyLabel = `${fy}-${String((fy + 1) % 100).padStart(2, '0')}`
+
+  // Twelve months, Apr…Mar, each carrying its calendar year.
+  const months: { year: number; month: number; label: string }[] = []
+  for (let i = 0; i < 12; i++) {
+    const monthIndex = 4 + i    // 4 = Apr, 15 → wraps to Mar
+    const year = fy + Math.floor((monthIndex - 1) / 12)
+    const month = ((monthIndex - 1) % 12) + 1
+    months.push({ year, month, label: MONTH_ABBREVS[month - 1] })
+  }
+
+  const employeeId = q(req, 'employee_id')
+  const search = q(req, 'q')
+
+  const engagements = await prisma.bookkeepingEngagement.findMany({
+    where: {
+      ...alive, ...where,
+      ...(employeeId ? { assignedEmployeeId: employeeId } : {}),
+      ...(search ? { client: { companyName: { contains: search, mode: 'insensitive' } } } : {}),
+    },
+    include: { client: true },
+    orderBy: { client: { companyName: 'asc' } },
+  })
+  const engagementIds = engagements.map((e) => e.id)
+
+  // ONE query for every period in the twelve-month window across every
+  // visible engagement. Fanned out into cells client-side in JS. This is
+  // deliberately not N+1 — a firm's book is small enough for the whole
+  // grid to fit on one read.
+  const yearsInWindow = Array.from(new Set(months.map((m) => m.year)))
+  const t = today()
+  const periods = engagementIds.length === 0 ? [] : await prisma.bookkeepingPeriod.findMany({
+    where: {
+      ...alive,
+      engagementId: { in: engagementIds },
+      year: { in: yearsInWindow },
+    },
+    select: {
+      id: true, engagementId: true, year: true, month: true,
+      status: true, dueDate: true,
+    },
+  })
+
+  const byEngagementMonth = new Map<string, typeof periods[number]>()
+  for (const p of periods) byEngagementMonth.set(`${p.engagementId}-${p.year}-${p.month}`, p)
+
+  const m = await employeeMap(engagements.map((e) => e.assignedEmployeeId))
+
+  const rows = engagements.map((e) => ({
+    client_id: e.clientId,
+    client_name: e.client?.companyName ?? null,
+    client_code: e.client?.clientCode ?? null,
+    engagement_id: e.id,
+    owner: e.assignedEmployeeId ? m.get(e.assignedEmployeeId) ?? null : null,
+    cells: months.map((mo) => {
+      const p = byEngagementMonth.get(`${e.id}-${mo.year}-${mo.month}`)
+      if (!p) {
+        return { year: mo.year, month: mo.month, period_id: null, status: null, is_overdue: false }
+      }
+      const isOverdue = p.status !== 'completed' && Boolean(p.dueDate && p.dueDate < t)
+      return {
+        year: mo.year, month: mo.month,
+        period_id: p.id, status: p.status, is_overdue: isOverdue,
+      }
+    }),
+  }))
+
+  ok(res, { fy, fy_label: fyLabel, months, rows, scope })
+}))
+
 // GET /api/bookkeeping/clients
 bookkeepingRouter.get('/clients', handler(async (req, res) => {
   const session = requireSession(req)

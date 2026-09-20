@@ -94,6 +94,35 @@ export interface Activity {
 export interface ListResponse<T> { items: T[]; count: number; scope?: string }
 
 /**
+ * Clients period grid (spec §6.2) — clients down, months across. Each cell
+ * carries the period_id if that month is open (so it can navigate straight
+ * to Monthly Work) plus enough state to render one of four glyphs:
+ *   ✓ closed · ▍ open/overdue · · in progress · blank not started
+ */
+export interface GridMonth { year: number; month: number; label: string }
+export interface GridCell {
+  year: number; month: number;
+  period_id: string | null;
+  status: string | null;    // period status; null when the period has not been opened yet
+  is_overdue: boolean;
+}
+export interface GridRow {
+  client_id: string;
+  client_name: string | null;
+  client_code: string | null;
+  engagement_id: string;
+  owner: EmployeeRef | null;
+  cells: GridCell[];
+}
+export interface GridResponse {
+  fy: number;              // starting calendar year — 2026 = FY 2026-27
+  fy_label: string;        // "2026-27"
+  months: GridMonth[];     // 12 entries, Apr → Mar
+  rows: GridRow[];
+  scope?: string;
+}
+
+/**
  * A period on the Overview table, shown as one row with the current
  * (earliest incomplete) stage and a blocked-task tally.
  */
