@@ -30,6 +30,7 @@ import { validateImport } from './imports.js'
 import { parseTrialBalanceCsv } from './parsers/trialBalance.js'
 import { classify, loadLedgerGroups } from './ledgerGroups.js'
 import { reportsForPeriod } from './reports.js'
+import { evaluateGate, loadPeriodGateContext } from './gates.js'
 
 /**
  * BOOKKEEPING SERVICE.
@@ -554,9 +555,16 @@ bookkeepingRouter.get('/periods/:id', handler(async (req, res) => {
     ...row.imports.map((i) => i.importedByEmployeeId),
   ])
 
+  // One evidence fetch per period covers every task's gate. Stages that
+  // carry no gate rule get `null` back and render as an ordinary task.
+  const gateCtx = await loadPeriodGateContext(prisma, row.id)
+
   ok(res, {
     period: periodToApi(row, m, progressFrom(row.tasks)),
-    tasks: row.tasks.map((t) => taskToApi(t, m)),
+    tasks: row.tasks.map((t) => taskToApi(t, m, evaluateGate(gateCtx, {
+      gateRuleSlug: t.stage?.gateRuleSlug ?? null,
+      taskId: t.id,
+    }))),
     pending_items: row.pendingItems.map((p) => pendingItemToApi(p, m)),
     document_requests: row.documentRequests.map((d) => documentRequestToApi(d, m)),
     deliverables: row.deliverables.map((d) => deliverableToApi(d, m)),
@@ -746,7 +754,10 @@ bookkeepingRouter.get('/tasks/:id', handler(async (req, res) => {
 bookkeepingRouter.patch('/tasks/:id', handler(async (req, res) => {
   const session = requireSession(req)
   const scope = requireWorkstation(session, ...MANAGE)
-  const before = await prisma.bookkeepingTask.findFirst({ where: { ...alive, id: req.params.id } })
+  const before = await prisma.bookkeepingTask.findFirst({
+    where: { ...alive, id: req.params.id },
+    include: { stage: true },
+  })
   if (!before) throw ApiError.notFound('Task not found.')
   await assertCanSeeClient(session, scope, before.clientId)
 
@@ -762,6 +773,28 @@ bookkeepingRouter.patch('/tasks/:id', handler(async (req, res) => {
   if (b.due_date !== undefined) data.dueDate = f.date('due_date', b.due_date, false) ?? null
   if (b.notes !== undefined) data.notes = f.str('notes', b.notes, { required: false, max: 2000 }) ?? null
   f.throwIfAny()
+
+  // Gate enforcement (spec §7). Completing a task that carries a gate rule
+  // requires the rule to pass, unless the firm has disabled the rule. The
+  // check runs BEFORE the write so an ungated task is never written and
+  // then rolled back. Only a status transition INTO 'completed' triggers
+  // the check — a re-open (completed → pending) can never fail a gate.
+  if (data.status === 'completed'
+      && before.status !== 'completed'
+      && before.stage?.gateRuleSlug
+      && before.periodId) {
+    const ctx = await loadPeriodGateContext(prisma, before.periodId)
+    const gate = evaluateGate(ctx, {
+      gateRuleSlug: before.stage.gateRuleSlug,
+      taskId: before.id,
+    })
+    if (gate && gate.is_enforced && !gate.passed) {
+      throw ApiError.unprocessable('gated', gate.reason ?? 'This task is blocked by an unmet gate.', {
+        gate_slug: gate.slug,
+        action: gate.action,
+      })
+    }
+  }
 
   if (data.status === 'completed') {
     data.completedAt = new Date()
@@ -785,7 +818,15 @@ bookkeepingRouter.patch('/tasks/:id', handler(async (req, res) => {
     })
   }
   const m = await employeeMap([row.assignedEmployeeId, row.completedByEmployeeId])
-  ok(res, taskToApi(row, m))
+  // Recompute the gate for the response so the UI never renders a "passed"
+  // state that just failed to save. `all_other_tasks_complete` in
+  // particular flips as tasks around this one change.
+  const gate = row.periodId && row.stage?.gateRuleSlug
+    ? evaluateGate(await loadPeriodGateContext(prisma, row.periodId), {
+        gateRuleSlug: row.stage.gateRuleSlug, taskId: row.id,
+      })
+    : null
+  ok(res, taskToApi(row, m, gate))
 }))
 
 // ── Pending items ─────────────────────────────────────────────────────────

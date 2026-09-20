@@ -181,6 +181,7 @@ export function BookkeepingPeriodDetailPage() {
                 adhocTasks={adhocTasks}
                 taskStatuses={settings.data?.task_statuses ?? []}
                 onTaskStatus={(id, next) => setTaskStatus.mutate({ id, status: next })}
+                onOpenSection={setSection}
               />
             ) : null}
 
@@ -218,8 +219,9 @@ function ChecklistSection(props: {
   adhocTasks: Task[];
   taskStatuses: string[];
   onTaskStatus: (id: string, status: string) => void;
+  onOpenSection: (section: string) => void;
 }) {
-  const { stages, stageTasks, adhocTasks, taskStatuses, onTaskStatus } = props;
+  const { stages, stageTasks, adhocTasks, taskStatuses, onTaskStatus, onOpenSection } = props;
   return (
     <>
       <Card title="Workflow">
@@ -243,6 +245,7 @@ function ChecklistSection(props: {
                     onTaskStatus(task.id, checked ? 'completed' : 'pending')
                   }
                   onStatus={(task, next) => onTaskStatus(task.id, next)}
+                  onOpenSection={onOpenSection}
                 />
               );
             })}
@@ -700,8 +703,9 @@ function StageGroup(props: {
   taskStatuses: string[];
   onToggle: (task: Task, checked: boolean) => void;
   onStatus: (task: Task, status: string) => void;
+  onOpenSection: (section: string) => void;
 }) {
-  const { stage, tasks, doneCount, taskStatuses, onToggle, onStatus } = props;
+  const { stage, tasks, doneCount, taskStatuses, onToggle, onStatus, onOpenSection } = props;
   const total = tasks.length;
   return (
     <li className="px-4 py-3">
@@ -717,35 +721,69 @@ function StageGroup(props: {
         <div className="text-13 text-neutral-400 italic">No task on this stage.</div>
       ) : (
         <ul className="space-y-1">
-          {tasks.map((t) => (
-            <li key={t.id} className="flex items-center gap-3">
-              <input
-                type="checkbox"
-                checked={t.status === 'completed'}
-                onChange={(e) => onToggle(t, e.target.checked)}
-                className="accent-neutral-900"
-                aria-label={t.title}
-              />
-              <span className={'text-13 flex-1 ' + (t.status === 'completed' ? 'text-neutral-400 line-through' : 'text-neutral-900')}>
-                {t.title}
-              </span>
-              {t.assigned_employee?.full_name ? (
-                <span className="text-12 text-neutral-500">{t.assigned_employee.full_name}</span>
-              ) : null}
-              {t.due_date ? (
-                <span className="text-12 text-neutral-500 tabular-nums">{fmtDate(t.due_date)}</span>
-              ) : null}
-              <select
-                value={t.status}
-                onChange={(e) => onStatus(t, e.target.value)}
-                className="h-7 px-1 text-12 bg-white border border-neutral-300 rounded"
-              >
-                {taskStatuses.map((s) => (
-                  <option key={s} value={s}>{human(s)}</option>
-                ))}
-              </select>
-            </li>
-          ))}
+          {tasks.map((t) => {
+            // A task is "gated" (blocked, UI-disabled) only when the rule
+            // is enforced. When enforcement is off the reason still surfaces
+            // — spec §7 requires the reason NEVER be hidden — but the
+            // control stays live because the API will allow the write.
+            const gated = t.gate && t.gate.is_enforced && !t.gate.passed && t.status !== 'completed';
+            const showReason = t.gate && !t.gate.passed && t.status !== 'completed';
+            return (
+              <li key={t.id} className="space-y-1">
+                <div className="flex items-center gap-3">
+                  <input
+                    type="checkbox"
+                    checked={t.status === 'completed'}
+                    disabled={gated ?? false}
+                    onChange={(e) => onToggle(t, e.target.checked)}
+                    className="accent-neutral-900 disabled:opacity-40 disabled:cursor-not-allowed"
+                    aria-label={t.title}
+                    title={gated && t.gate ? t.gate.reason ?? '' : undefined}
+                  />
+                  <span className={
+                    'text-13 flex-1 ' +
+                    (t.status === 'completed'
+                      ? 'text-neutral-400 line-through'
+                      : gated ? 'text-neutral-500' : 'text-neutral-900')
+                  }>
+                    {t.title}
+                  </span>
+                  {t.assigned_employee?.full_name ? (
+                    <span className="text-12 text-neutral-500">{t.assigned_employee.full_name}</span>
+                  ) : null}
+                  {t.due_date ? (
+                    <span className="text-12 text-neutral-500 tabular-nums">{fmtDate(t.due_date)}</span>
+                  ) : null}
+                  <select
+                    value={t.status}
+                    disabled={gated ?? false}
+                    onChange={(e) => onStatus(t, e.target.value)}
+                    className="h-7 px-1 text-12 bg-white border border-neutral-300 rounded disabled:opacity-40 disabled:cursor-not-allowed"
+                  >
+                    {taskStatuses.map((s) => (
+                      <option key={s} value={s}>{human(s)}</option>
+                    ))}
+                  </select>
+                </div>
+                {showReason && t.gate ? (
+                  <div className="pl-7 flex items-center gap-2 text-11">
+                    <span className={gated ? 'text-red-700' : 'text-amber-700'}>
+                      {gated ? '▍' : '⚠'} {t.gate.reason}
+                      {!t.gate.is_enforced ? ' (enforcement off)' : ''}
+                    </span>
+                    {t.gate.action ? (
+                      <button
+                        onClick={() => t.gate?.action && onOpenSection(t.gate.action.section)}
+                        className="text-gold hover:underline"
+                      >
+                        {t.gate.action.label} →
+                      </button>
+                    ) : null}
+                  </div>
+                ) : null}
+              </li>
+            );
+          })}
         </ul>
       )}
     </li>
