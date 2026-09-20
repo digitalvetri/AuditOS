@@ -15,8 +15,8 @@ import {
   WORKFLOW_STEPS, periodLabel,
 } from './validate.js'
 import {
-  createPeriodWithTasks, overviewKpis, progressByPeriod, progressFrom,
-  recomputeOpenPeriodsForEngagement, today, writeBkActivity,
+  createPeriodWithTasks, currentStageByPeriod, overviewTiles, progressByPeriod,
+  progressFrom, recomputeOpenPeriodsForEngagement, today, writeBkActivity,
 } from './service.js'
 import {
   activityToApi, deliverableToApi, documentRequestToApi,
@@ -50,32 +50,131 @@ async function booksOrgIdFor(clientIds: string[]): Promise<Map<string, string>> 
 }
 
 // ── Overview ──────────────────────────────────────────────────────────────
-// GET /api/bookkeeping/overview
+// GET /api/bookkeeping/overview?tile=&client_id=&employee_id=&stage=&status=&group=
+//
+// Answers "what needs doing?" — spec §6.1. The tile counts are ALWAYS the
+// unfiltered aggregates over the caller's visible clients (they're the
+// entry points for filters, not the results of one). The `rows` array is
+// filtered by the query params so tile-click and table-row can never
+// disagree — clicking a tile just sets `?tile=` and re-renders the same
+// endpoint response with the same tile counts.
 bookkeepingRouter.get('/overview', handler(async (req, res) => {
   const session = requireSession(req)
   const scope = requireWorkstation(session, ...READ)
   const where = await clientScopeWhere(session, scope)
+  const clientFilter = 'clientId' in where
+    ? { engagement: { clientId: (where as { clientId: { in: string[] } }).clientId } }
+    : {}
 
-  const kpis = await overviewKpis(where)
+  const tile = q(req, 'tile')            // overdue | blocked | due_soon | review | closed
+  const group = q(req, 'group') ?? 'period'   // period (default) | task
+  const clientId = q(req, 'client_id')
+  const employeeId = q(req, 'employee_id')
+  const stageSlug = q(req, 'stage')
+  const statusFilter = q(req, 'status')
+  const search = q(req, 'q')
 
-  // The month's periods, most urgent first, so Overview is actionable and
-  // not just a wall of counters.
+  const t = today()
+  const dueSoonEnd = (() => {
+    const [y, m, d] = t.split('-').map(Number)
+    const dt = new Date(Date.UTC(y, m - 1, d + 7))
+    return `${dt.getUTCFullYear()}-${String(dt.getUTCMonth() + 1).padStart(2, '0')}-${String(dt.getUTCDate()).padStart(2, '0')}`
+  })()
+  const monthStart = (() => {
+    const now = new Date()
+    return `${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2, '0')}-01`
+  })()
+
+  const tiles = await overviewTiles(where)
+
+  if (group === 'task') {
+    // Group-by-task: one row per task matching the filters. This is what
+    // the retired "Tasks" tab used to look like. Capped at 200 rows;
+    // real-world lists will grow past this and the follow-up will paginate.
+    const rows = await prisma.bookkeepingTask.findMany({
+      where: {
+        ...alive, ...where,
+        stageId: { not: null },
+        ...(tile === 'overdue' ? { dueDate: { lt: t }, status: { notIn: ['completed', 'cancelled'] } } : {}),
+        ...(tile === 'blocked' ? { status: 'blocked' } : {}),
+        ...(tile === 'due_soon' ? { dueDate: { gte: t, lte: dueSoonEnd }, status: { notIn: ['completed', 'cancelled'] } } : {}),
+        ...(tile === 'review' ? { period: { status: 'under_review' } } : {}),
+        ...(tile === 'closed' ? { period: { status: 'completed', completedDate: { gte: new Date(monthStart) } } } : {}),
+        ...(clientId ? { clientId } : {}),
+        ...(employeeId ? { assignedEmployeeId: employeeId } : {}),
+        ...(stageSlug ? { stage: { slug: stageSlug } } : {}),
+        ...(statusFilter ? { status: statusFilter } : {}),
+        ...(search ? { title: { contains: search, mode: 'insensitive' as const } } : {}),
+      },
+      include: { client: true, period: true, stage: true },
+      orderBy: [{ dueDate: 'asc' }, { createdAt: 'desc' }],
+      take: 200,
+    })
+    const m = await employeeMap(rows.map((r) => r.assignedEmployeeId))
+    ok(res, {
+      tiles,
+      group: 'task',
+      rows: rows.map((r) => taskToApi(r, m)),
+      count: rows.length,
+      scope,
+    })
+    return
+  }
+
+  // Group-by-period (default): one row per open period. Each row carries
+  // the "current stage" (earliest incomplete stage task) and how many of
+  // this period's tasks are blocked, so a reviewer can see WHERE a period
+  // is stuck at a glance.
+  const perTileFilter: Record<string, unknown> = tile === 'closed'
+    ? { status: 'completed', completedDate: { gte: new Date(monthStart) } }
+    : tile === 'review'
+      ? { status: 'under_review' }
+      : tile === 'due_soon'
+        ? { dueDate: { gte: t, lte: dueSoonEnd }, status: { not: 'completed' } }
+        : { status: { not: 'completed' } }
+
   const periods = await prisma.bookkeepingPeriod.findMany({
     where: {
-      ...alive,
-      ...(('clientId' in where) ? { engagement: { clientId: (where as { clientId: { in: string[] } }).clientId } } : {}),
-      status: { not: 'completed' },
+      ...alive, ...clientFilter, ...perTileFilter,
+      ...(clientId ? { engagement: { clientId } } : {}),
+      ...(employeeId ? { assignedEmployeeId: employeeId } : {}),
+      ...(statusFilter ? { status: statusFilter } : {}),
+      ...(search ? { engagement: { client: { companyName: { contains: search, mode: 'insensitive' as const } } } } : {}),
     },
     include: { engagement: { include: { client: true } } },
     orderBy: [{ dueDate: 'asc' }],
-    take: 8,
+    take: 100,
   })
   const prog = await progressByPeriod(periods.map((p) => p.id))
   const m = await employeeMap(periods.map((p) => p.assignedEmployeeId))
+  const stageByPeriod = await currentStageByPeriod(where)
+
+  // Post-filter for tiles that need a per-period aggregate (overdue,
+  // blocked, and stage=) — those cannot be expressed as a single Prisma
+  // where clause without a subquery per row.
+  const rows = periods
+    .map((p) => {
+      const cs = stageByPeriod.get(p.id)
+      return {
+        ...periodToApi(p, m, prog.get(p.id)),
+        current_stage: cs
+          ? { id: cs.stageId, slug: cs.stageSlug, name: cs.stageName, sequence: cs.stageSequence }
+          : null,
+        blocked_count: cs?.blockedCount ?? 0,
+      }
+    })
+    .filter((r) => {
+      if (tile === 'blocked' && r.blocked_count === 0) return false
+      if (tile === 'overdue' && !(r.due_date && r.due_date < t)) return false
+      if (stageSlug && r.current_stage?.slug !== stageSlug) return false
+      return true
+    })
 
   ok(res, {
-    kpis,
-    upcoming: periods.map((p) => periodToApi(p, m, prog.get(p.id))),
+    tiles,
+    group: 'period',
+    rows,
+    count: rows.length,
     scope,
   })
 }))

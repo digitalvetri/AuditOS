@@ -10,15 +10,18 @@ import { NavLink, Outlet } from 'react-router-dom';
  * The tab strip scrolls horizontally on a narrow screen instead of wrapping
  * into a second row that pushes the page content down on mobile.
  */
+/**
+ * Four tabs — spec §3. Everything else is a filter, a sub-tab, or removed:
+ *   - Tasks         → Overview `?group=task`
+ *   - Pending Items → Overview `?tile=blocked`
+ *   - Documents     → Monthly Work `?section=data`
+ *   - Deliverables  → Monthly Work `?section=deliverables`
+ *   - Reminders     → notifications, not a page
+ */
 const TABS: { to: string; label: string; end?: boolean }[] = [
   { to: '.', label: 'Overview', end: true },
   { to: 'clients', label: 'Clients' },
   { to: 'monthly-work', label: 'Monthly Work' },
-  { to: 'tasks', label: 'Tasks' },
-  { to: 'pending-items', label: 'Pending Items' },
-  { to: 'documents', label: 'Documents' },
-  { to: 'deliverables', label: 'Deliverables' },
-  { to: 'reminders', label: 'Reminders' },
   { to: 'settings', label: 'Settings' },
 ];
 
