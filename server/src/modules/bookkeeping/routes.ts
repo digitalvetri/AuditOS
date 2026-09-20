@@ -1,4 +1,5 @@
 import { Router } from 'express'
+import multer from 'multer'
 import { prisma, alive } from '../../lib/prisma.js'
 import { ApiError, handler, ok } from '../../lib/http.js'
 import { requireSession } from '../../platform/auth.js'
@@ -10,9 +11,10 @@ import { employeeMap } from '../../api/workstation.serialize.js'
 import { body, FieldErrors } from '../workstation/validate.js'
 import {
   BILLING_FREQUENCIES, DELIVERABLE_STATUSES, DELIVERABLE_TYPES,
-  DOCREQ_STATUSES, DOCUMENT_TYPES, ENGAGEMENT_STATUSES, MONTH_ABBREVS,
-  PENDING_CATEGORIES, PENDING_STATUSES, PERIOD_STATUSES, PRIORITIES,
-  TASK_CATEGORIES, TASK_STATUSES, WORKFLOW_STEPS, periodLabel,
+  DOCREQ_STATUSES, DOCUMENT_TYPES, ENGAGEMENT_STATUSES, IMPORT_KINDS,
+  IMPORT_SOURCES, MONTH_ABBREVS, PENDING_CATEGORIES, PENDING_STATUSES,
+  PERIOD_STATUSES, PRIORITIES, TASK_CATEGORIES, TASK_STATUSES,
+  WORKFLOW_STEPS, periodLabel,
 } from './validate.js'
 import {
   createPeriodWithTasks, currentStageByPeriod, overviewTiles, progressByPeriod,
@@ -20,8 +22,11 @@ import {
 } from './service.js'
 import {
   activityToApi, deliverableToApi, documentRequestToApi,
-  engagementToApi, pendingItemToApi, periodToApi, taskToApi, workflowStageToApi,
+  engagementToApi, importToApi, pendingItemToApi, periodToApi, taskToApi,
+  workflowStageToApi,
 } from './serialize.js'
+import { bookkeepingImportStorage, importStorageKey } from './storage.js'
+import { validateImport } from './imports.js'
 
 /**
  * BOOKKEEPING SERVICE.
@@ -527,6 +532,7 @@ bookkeepingRouter.get('/periods/:id', handler(async (req, res) => {
       pendingItems: { where: alive, include: { client: true } },
       documentRequests: { where: alive, include: { client: true, clientDocument: true } },
       deliverables: { where: alive, include: { client: true, clientDocument: true } },
+      imports: { orderBy: { importedAt: 'desc' } },
     },
   })
   if (!row) throw ApiError.notFound('Period not found.')
@@ -542,6 +548,7 @@ bookkeepingRouter.get('/periods/:id', handler(async (req, res) => {
     ...row.tasks.map((t) => t.completedByEmployeeId),
     ...row.pendingItems.map((p) => p.assignedEmployeeId),
     ...row.deliverables.flatMap((d) => [d.preparedByEmployeeId, d.reviewedByEmployeeId]),
+    ...row.imports.map((i) => i.importedByEmployeeId),
   ])
 
   ok(res, {
@@ -550,6 +557,7 @@ bookkeepingRouter.get('/periods/:id', handler(async (req, res) => {
     pending_items: row.pendingItems.map((p) => pendingItemToApi(p, m)),
     document_requests: row.documentRequests.map((d) => documentRequestToApi(d, m)),
     deliverables: row.deliverables.map((d) => deliverableToApi(d, m)),
+    imports: row.imports.map((i) => importToApi(i, m)),
     workflow_stages: stages.map(workflowStageToApi),
     // Legacy view kept for one release so old clients still render.
     workflow_steps: WORKFLOW_STEPS,
@@ -972,6 +980,168 @@ bookkeepingRouter.patch('/document-requests/:id', handler(async (req, res) => {
     })
   }
   ok(res, documentRequestToApi(row, new Map()))
+}))
+
+// ── Imports (the financial data layer, spec §5 / §6.4) ────────────────────
+//
+// Every file the firm pulls into a period lands here. Two blocking
+// validations (period + company) run BEFORE the row lands as `imported`;
+// a mismatch produces a `rejected_*` row with the reason on it so the UI
+// can render "▍ Rejected: <why>" instead of pretending the file wasn't
+// uploaded. Files are always stored — a reviewer needs to see WHAT was
+// refused, not just the fact of a refusal.
+//
+// Row-level parsing (populating rowCount + BookkeepingLedgerBalance) is
+// added by later PRs per kind. This route stops at the metadata contract.
+
+const IMPORT_MAX_MB = 25
+const importUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: IMPORT_MAX_MB * 1024 * 1024, files: 1 },
+})
+
+// POST /api/bookkeeping/imports  (multipart/form-data)
+//   file                     the uploaded file
+//   period_id                target period
+//   kind                     trial_balance | day_book | outstandings | bank_statement
+//   source                   upload | email | agent   (default 'upload')
+//   company_name_in_file     what the file says the company is
+//   period_from_in_file      'YYYY-MM-DD' the file starts at
+//   period_to_in_file        'YYYY-MM-DD' the file ends at
+bookkeepingRouter.post('/imports',
+  (req, res, next) => {
+    importUpload.single('file')(req, res, (err: unknown) => {
+      if (!err) return next()
+      const code = (err as { code?: string }).code
+      if (code === 'LIMIT_FILE_SIZE') {
+        return next(ApiError.unprocessable('too_large', `File is larger than the ${IMPORT_MAX_MB} MB limit.`))
+      }
+      next(ApiError.badRequest('Upload could not be read.'))
+    })
+  },
+  handler(async (req, res) => {
+    const session = requireSession(req)
+    const scope = requireWorkstation(session, ...MANAGE)
+
+    const b = body(req)
+    const f = new FieldErrors()
+    const periodId = f.str('period_id', b.period_id)
+    const kind = f.oneOf('kind', b.kind, IMPORT_KINDS)
+    const source = f.oneOf('source', b.source ?? 'upload', IMPORT_SOURCES)
+    const companyNameInFile = f.str('company_name_in_file', b.company_name_in_file, { max: 300 })
+    const periodFromInFile = f.date('period_from_in_file', b.period_from_in_file, true)
+    const periodToInFile = f.date('period_to_in_file', b.period_to_in_file, true)
+    f.throwIfAny()
+
+    const file = req.file
+    if (!file) throw ApiError.unprocessable('empty', 'Choose a file to upload.')
+    if (file.size === 0) throw ApiError.unprocessable('empty', 'The uploaded file is empty.')
+
+    const period = await prisma.bookkeepingPeriod.findFirst({
+      where: { ...alive, id: periodId! },
+      include: { engagement: { include: { client: true } } },
+    })
+    if (!period) throw ApiError.notFound('Period not found.')
+    await assertCanSeeClient(session, scope, period.engagement.clientId)
+
+    // The period must have periodStart/periodEnd populated by PR-2's
+    // generator; without those we cannot run the period check. In practice
+    // the seed backfill has already filled them for every row.
+    if (!period.periodStart || !period.periodEnd) {
+      throw ApiError.unprocessable(
+        'period_window_missing',
+        'This period has no start/end date. Reopen it or update the engagement so a window is derived.',
+      )
+    }
+
+    const outcome = validateImport({
+      clientCompanyName: period.engagement.client?.companyName ?? '',
+      periodStart: period.periodStart,
+      periodEnd: period.periodEnd,
+      companyNameInFile: companyNameInFile!,
+      periodFromInFile: periodFromInFile!,
+      periodToInFile: periodToInFile!,
+      periodLabel: periodLabel(period.year, period.month),
+    })
+
+    // Create the row FIRST — its id is part of the storage key so a
+    // failed write leaves no orphan file — then store the file, then
+    // update the row with the storagePath. If storage fails, roll the
+    // row back to `parse_failed` with the reason.
+    const importRow = await prisma.bookkeepingImport.create({
+      data: {
+        periodId: period.id,
+        clientId: period.engagement.clientId,
+        kind: kind!,
+        source: source!,
+        originalFilename: file.originalname,
+        storagePath: '',            // filled below
+        fileSize: file.size,
+        mimeType: file.mimetype || 'application/octet-stream',
+        companyNameInFile: companyNameInFile!,
+        periodFromInFile: periodFromInFile!,
+        periodToInFile: periodToInFile!,
+        status: outcome.status,
+        errorDetail: outcome.reason,
+        importedByEmployeeId: session.employeeId ?? null,
+      },
+    })
+
+    const key = importStorageKey({
+      periodId: period.id,
+      importId: importRow.id,
+      originalFilename: file.originalname,
+    })
+    try {
+      await bookkeepingImportStorage.put(key, file.buffer)
+    } catch (err) {
+      await prisma.bookkeepingImport.update({
+        where: { id: importRow.id },
+        data: { status: 'parse_failed', errorDetail: `Could not store the uploaded file: ${err instanceof Error ? err.message : String(err)}` },
+      })
+      throw ApiError.unprocessable('storage_failed', 'The file could not be saved.')
+    }
+
+    const stored = await prisma.bookkeepingImport.update({
+      where: { id: importRow.id },
+      data: { storagePath: key },
+    })
+
+    await writeAudit({
+      actorUserId: session.userId, action: 'bookkeeping.import.create',
+      entityType: 'BookkeepingImport', entityId: stored.id, after: stored, req,
+    })
+    await writeBkActivity({
+      clientId: period.engagement.clientId, periodId: period.id, actorUserId: session.userId,
+      action: `Import ${outcome.status}`,
+      detail: `${kind!.replace(/_/g, ' ')} · ${file.originalname}${outcome.reason ? ` — ${outcome.reason}` : ''}`,
+    })
+
+    const m = await employeeMap([stored.importedByEmployeeId])
+    ok(res, importToApi(stored, m), 201)
+  }),
+)
+
+// GET /api/bookkeeping/imports?period_id=&kind=
+bookkeepingRouter.get('/imports', handler(async (req, res) => {
+  const session = requireSession(req)
+  const scope = requireWorkstation(session, ...READ)
+  const where = await clientScopeWhere(session, scope)
+
+  const periodId = q(req, 'period_id')
+  const kind = q(req, 'kind')
+
+  const rows = await prisma.bookkeepingImport.findMany({
+    where: {
+      ...where,
+      ...(periodId ? { periodId } : {}),
+      ...(kind ? { kind } : {}),
+    },
+    orderBy: { importedAt: 'desc' },
+    take: 200,
+  })
+  const m = await employeeMap(rows.map((r) => r.importedByEmployeeId))
+  ok(res, { items: rows.map((r) => importToApi(r, m)), count: rows.length, scope })
 }))
 
 // ── Deliverables ──────────────────────────────────────────────────────────

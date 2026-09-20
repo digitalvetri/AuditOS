@@ -91,6 +91,37 @@ export interface Activity {
   action: string; detail: string | null; created_at: string | null;
 }
 
+/**
+ * A file the firm pulled into a period (spec §4.2 / §6.4). Append-only:
+ * a re-import creates a new record, never overwriting. `status` records
+ * the outcome of the two blocking validations (period + company).
+ */
+export type ImportKind = 'trial_balance' | 'day_book' | 'outstandings' | 'bank_statement';
+export type ImportStatus =
+  | 'imported'
+  | 'rejected_period_mismatch'
+  | 'rejected_company_mismatch'
+  | 'parse_failed';
+
+export interface Import {
+  id: string;
+  period_id: string;
+  client_id: string;
+  kind: ImportKind;
+  source: 'upload' | 'email' | 'agent';
+  original_filename: string;
+  file_size: number;
+  mime_type: string;
+  company_name_in_file: string;
+  period_from_in_file: string;
+  period_to_in_file: string;
+  row_count: number | null;
+  status: ImportStatus;
+  error_detail: string | null;
+  imported_at: string | null;
+  imported_by: EmployeeRef | null;
+}
+
 export interface ListResponse<T> { items: T[]; count: number; scope?: string }
 
 /**
@@ -150,7 +181,9 @@ export interface ClientDetailResponse {
 export interface PeriodDetailResponse {
   period: Period; tasks: Task[];
   pending_items: PendingItem[]; document_requests: DocumentRequest[];
-  deliverables: Deliverable[]; workflow_stages: WorkflowStage[];
+  deliverables: Deliverable[];
+  imports: Import[];
+  workflow_stages: WorkflowStage[];
   /** @deprecated use workflow_stages */ workflow_steps: string[];
 }
 
