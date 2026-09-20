@@ -14,6 +14,9 @@ import { Button } from '@/components/Button';
 import { useToast } from '@/components/Toast';
 import { fmtDate, fmtDateTime, fmtTime, inr } from '@/lib/format';
 import { can } from '@/platform/rbac/can';
+import { GstChecklist } from '@/modules/workstation/checklist/GstChecklist';
+import { quotationsApi } from '@/modules/workstation/quotations/api';
+import { engagementApi, type EngagementLetter } from '@/modules/workstation/engagement/api';
 import { useAuth } from '@/platform/auth/AuthContext';
 import { BillingSliceCard } from '@/modules/zpay/BillingSliceCard';
 
@@ -30,6 +33,8 @@ const TABS = [
   { key: 'details', label: 'Company Details', perm: 'workstation.client.read' },
   { key: 'services', label: 'Services', perm: 'workstation.service.read' },
   { key: 'gst', label: 'GST', perm: 'workstation.gst.read' },
+  { key: 'quotations', label: 'Quotations', perm: 'workstation.quotation.read' },
+  { key: 'engagement', label: 'Engagement', perm: 'workstation.engagement.read' },
   { key: 'eway', label: 'E-way Bills', perm: 'workstation.eway.read' },
   { key: 'documents', label: 'Documents', perm: 'workstation.document.read' },
   { key: 'follow-ups', label: 'Follow-ups', perm: 'workstation.followup.read' },
@@ -94,6 +99,8 @@ export function ClientWorkspacePage() {
             {tab === 'details' ? <DetailsTab client={client} /> : null}
             {tab === 'services' ? <ServicesTab client={client} /> : null}
             {tab === 'gst' ? <GstTab client={client} /> : null}
+            {tab === 'quotations' ? <QuotationsTab client={client} /> : null}
+            {tab === 'engagement' ? <EngagementTab client={client} /> : null}
             {tab === 'eway' ? <EwayTab client={client} /> : null}
             {tab === 'documents' ? <DocumentsTab client={client} /> : null}
             {tab === 'follow-ups' ? <FollowUpsTab client={client} /> : null}
@@ -342,7 +349,92 @@ function AssignServiceModal({ client, open, onClose }: { client: ClientDetail; o
 }
 
 // ── GST (§7.3) ────────────────────────────────────────────────────────────
+/**
+ * Workstation → Clients → [Client] → GST.
+ *
+ * The CHECKLIST is what this tab is for (what GST work does this client
+ * require, what is its status, who is on it, when is it due). The GST profile
+ * and the filing log that were here before it are kept below, unchanged —
+ * they are reference, not work management.
+ */
 function GstTab({ client }: { client: ClientDetail }) {
+  return (
+    <div className="space-y-6">
+      <GstChecklist clientId={client.id} clientName={client.company_name} />
+      <GstProfileSection client={client} />
+    </div>
+  );
+}
+
+/**
+ * This client's quotations, and the way to start another one.
+ *
+ * The row's action follows the quotation's state rather than being the same
+ * everywhere: a DRAFT has not gone anywhere, so the useful move is to carry on
+ * building it; anything SENT is a document the client has already seen and is
+ * frozen server-side, so it opens read-only. "New quotation" stays available
+ * in both cases — a sent quotation is a reason to write the next one, not a
+ * reason to stop.
+ */
+function QuotationsTab({ client }: { client: ClientDetail }) {
+  const navigate = useNavigate();
+  const { session } = useAuth();
+  const mayWrite = can(session?.role.code, 'workstation.quotation.manage', 'self');
+
+  const quotations = useQuery({
+    queryKey: ['workstation', 'client', client.id, 'quotations'],
+    queryFn: () => quotationsApi.list({ client_id: client.id, limit: 50 }),
+  });
+
+  const build = () => navigate(`/workstation/quotations/new?client_id=${client.id}`);
+
+  return (
+    <Card
+      title="Quotations"
+      right={mayWrite ? <Button onClick={build}>New quotation</Button> : undefined}
+    >
+      <QueryState query={quotations} empty="No quotations for this client yet.">
+        {(data) => (
+          <Table head={['Quotation', 'Subject', 'Date', 'Valid until', 'Status', 'Total', '']}>
+            {data.items.map((q) => {
+              const draft = q.status === 'draft';
+              return (
+                <Row
+                  key={q.id}
+                  status={q.status}
+                  onClick={() => navigate(`/workstation/quotations/${q.id}`)}
+                >
+                  <Cell>{q.quotation_code}</Cell>
+                  <Cell>{q.subject || '—'}</Cell>
+                  <Cell>{fmtDate(q.quote_date)}</Cell>
+                  <Cell>{q.valid_until ? fmtDate(q.valid_until) : '—'}</Cell>
+                  <Cell><Status value={q.status} /></Cell>
+                  <Cell>{inr(q.total_paise)}</Cell>
+                  <Cell>
+                    <button
+                      type="button"
+                      className="text-13 text-primary hover:underline"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        navigate(draft && mayWrite
+                          ? `/workstation/quotations/${q.id}/edit`
+                          : `/workstation/quotations/${q.id}`);
+                      }}
+                    >
+                      {draft && mayWrite ? 'Continue building' : 'View'}
+                    </button>
+                  </Cell>
+                </Row>
+              );
+            })}
+          </Table>
+        )}
+      </QueryState>
+    </Card>
+  );
+}
+
+function GstProfileSection({ client }: { client: ClientDetail }) {
   const gst = useQuery({
     queryKey: ['workstation', 'client', client.id, 'gst'],
     queryFn: () => workstationApi.clientGst(client.id),
@@ -751,6 +843,83 @@ function ActivityTab({ client }: { client: ClientDetail }) {
             ))}
           </ol>
         )}
+      </QueryState>
+    </Card>
+  );
+}
+
+/**
+ * This client's engagement letters — drafts, sent and accepted together —
+ * and the way to start another one.
+ *
+ * Every row opens the builder. A draft opens ready to edit; a letter that
+ * has gone out opens frozen as it was sent, with Actions → Duplicate letter
+ * as the way to prepare new terms. "New engagement letter" arrives in the
+ * builder with this client already chosen.
+ */
+function EngagementTab({ client }: { client: ClientDetail }) {
+  const navigate = useNavigate();
+  const { session } = useAuth();
+  const mayWrite = can(session?.role.code, 'workstation.engagement.manage', 'self');
+
+  const letters = useQuery({
+    queryKey: ['engagement.list', 'client', client.id],
+    queryFn: () => engagementApi.list({ client_id: client.id, limit: 100 }),
+  });
+
+  const open = (l: EngagementLetter) => navigate(`/workstation/engagement/${l.id}/edit`);
+  const counts = (items: EngagementLetter[]) => ({
+    draft: items.filter((l) => l.status === 'draft').length,
+    sent: items.filter((l) => l.status === 'sent').length,
+    accepted: items.filter((l) => l.status === 'accepted').length,
+  });
+
+  return (
+    <Card
+      title="Engagement letters"
+      right={mayWrite ? (
+        <Button onClick={() => navigate(`/workstation/engagement/new?client_id=${client.id}`)}>New engagement letter</Button>
+      ) : undefined}
+    >
+      <QueryState query={letters} empty="No engagement letters for this client yet.">
+        {(data) => {
+          const c = counts(data.items);
+          return (
+            <>
+              <div className="px-4 pt-3 pb-1 text-12 text-neutral-500 flex gap-4">
+                <span>{c.draft} draft</span>
+                <span>{c.sent} sent</span>
+                <span>{c.accepted} accepted</span>
+              </div>
+              <Table head={['Reference', 'Subject', 'Date', 'Financial year', 'Status', '']}>
+                {data.items.map((l) => {
+                  const draft = l.status === 'draft';
+                  return (
+                    <Row key={l.id} status={l.status} onClick={() => open(l)}>
+                      <Cell className="font-medium">{l.letter_code}</Cell>
+                      <Cell>{l.subject || '—'}</Cell>
+                      <Cell muted>{fmtDate(l.letter_date)}</Cell>
+                      <Cell muted>{l.financial_year ?? '—'}</Cell>
+                      <Cell><Status value={l.status} /></Cell>
+                      <Cell>
+                        <span className="inline-flex gap-3">
+                          <button type="button" className="text-13 text-primary hover:underline"
+                            onClick={(e) => { e.stopPropagation(); open(l); }}>
+                            {draft && mayWrite ? 'Continue building' : 'Open'}
+                          </button>
+                          <button type="button" className="text-13 text-primary hover:underline"
+                            onClick={(e) => { e.stopPropagation(); navigate(`/workstation/engagement/${l.id}/preview`); }}>
+                            Preview
+                          </button>
+                        </span>
+                      </Cell>
+                    </Row>
+                  );
+                })}
+              </Table>
+            </>
+          );
+        }}
       </QueryState>
     </Card>
   );

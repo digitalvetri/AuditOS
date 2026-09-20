@@ -150,3 +150,271 @@
     margin: 0;
   }
 }
+
+/* ════════════════════════════════════════════════════════════════════════
+   THE QUOTATION DOCUMENT
+   One stylesheet for the live preview, the on-screen document and the
+   printed page. There is no second "print layout": the pages you see are
+   real paper-sized pages, and printing hands the browser exactly those.
+   ════════════════════════════════════════════════════════════════════════ */
+
+/* Holds the scaled paper. A transform does not shrink the layout box, so this
+   wrapper carries the document's measured height times the scale on screen —
+   that is what makes the preview's scroll end on the last page instead of in
+   a field of white. Screen only; print resets it. */
+.qdoc-scaler { position: relative; width: 100%; }
+
+.qdoc-stack {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 16px;
+  color: #111827;
+  font-size: var(--qd-font-size, 10.5pt);
+  line-height: var(--qd-line-height, 1.55);
+}
+
+/* Off-screen twin used only to measure block heights for pagination. */
+.qdoc-measure {
+  position: absolute;
+  visibility: hidden;
+  pointer-events: none;
+  left: -10000px;
+  top: 0;
+  z-index: -1;
+}
+
+.qdoc-page {
+  position: relative;
+  background: #fff;
+  box-shadow: 0 1px 3px rgb(0 0 0 / 0.12), 0 6px 20px rgb(0 0 0 / 0.08);
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+}
+
+.qdoc-body { flex: 1 1 auto; }
+
+.qdoc-block + .qdoc-block { margin-top: 10px; }
+.qdoc-section + .qdoc-section { margin-top: 12px; }
+
+.qdoc-logo { height: 42px; width: auto; margin-bottom: 6px; }
+
+.qdoc-company-name {
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  font-size: calc(var(--qd-font-size) * 1.15);
+}
+
+.qdoc-muted { color: #6b7280; }
+.qdoc-label { color: #6b7280; font-weight: 600; }
+.qdoc-detail { font-size: 0.9em; }
+.qdoc-empty { font-style: italic; }
+
+.qdoc-rule { border-bottom: 1.5px solid #111827; margin-top: 8px; width: 100%; }
+.qdoc-header-bar { border-bottom: 3px solid #111827; padding-bottom: 8px; }
+
+.qdoc-title {
+  text-align: center;
+  font-weight: 700;
+  letter-spacing: 0.18em;
+  font-size: calc(var(--qd-font-size) * var(--qd-heading-scale));
+  margin-top: 12px;
+}
+.qdoc-title .qdoc-code {
+  display: block;
+  letter-spacing: 0.06em;
+  font-weight: 500;
+  color: #6b7280;
+  font-size: calc(var(--qd-font-size) * 0.85);
+}
+
+.qdoc-meta { display: flex; flex-wrap: wrap; gap: 4px 24px; }
+.qdoc-subject { margin-top: 2px; font-weight: 600; }
+
+.qdoc-heading {
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  font-size: calc(var(--qd-font-size) * 1.05);
+  margin-bottom: 4px;
+}
+
+.qdoc-p { white-space: pre-line; margin: 0; }
+
+.qdoc-list {
+  margin: 4px 0 0;
+  padding-left: 18px;
+  /* Tailwind's preflight strips list markers; a Nature of Work section
+     without bullets is not the document the reference shows. */
+  list-style: disc outside;
+}
+.qdoc-list li { margin-bottom: 2px; }
+
+.qdoc-kv { border-collapse: collapse; }
+.qdoc-kv td { padding: 2px 0; vertical-align: top; }
+.qdoc-kv td:first-child { width: 130px; padding-right: 12px; }
+
+.qdoc-table { width: 100%; border-collapse: collapse; }
+.qdoc-table th,
+.qdoc-table td { padding: 5px 8px; vertical-align: top; text-align: left; }
+.qdoc-table th {
+  font-weight: 700;
+  font-size: 0.92em;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.qdoc-table .qdoc-right { text-align: right; }
+.qdoc-w-sl { width: 48px; }
+.qdoc-w-freq { width: 150px; }
+.qdoc-w-fee { width: 120px; }
+
+.qdoc-table-lined th,
+.qdoc-table-lined td { border: 1px solid #111827; }
+.qdoc-table-striped thead th { border-bottom: 1.5px solid #111827; }
+.qdoc-table-striped tbody tr:nth-child(even) { background: #f3f4f6; }
+.qdoc-table-plain thead th { border-bottom: 1px solid #9ca3af; }
+.qdoc-table-plain tbody td { border-bottom: 1px solid #e5e7eb; }
+
+.qdoc-total-line {
+  display: flex;
+  justify-content: space-between;
+  font-weight: 700;
+  border-top: 1.5px solid #111827;
+  margin-top: -1px;
+  padding: 6px 8px;
+}
+
+.qdoc-totals { margin-left: auto; width: 260px; margin-top: 8px; }
+.qdoc-total-row { display: flex; justify-content: space-between; padding: 2px 0; }
+.qdoc-total-strong {
+  font-weight: 700;
+  border-top: 1px solid #111827;
+  margin-top: 4px;
+  padding-top: 6px;
+}
+
+.qdoc-closing { margin-top: 18px; }
+.qdoc-signer { font-weight: 600; margin-top: 12px; }
+
+.qdoc-footer {
+  margin-top: 12px;
+  padding-top: 6px;
+  border-top: 1px solid #e5e7eb;
+  font-size: 0.85em;
+  color: #6b7280;
+  text-align: center;
+}
+
+@media print {
+  /* The page divs ARE the paper, so the printer must not add its own
+     margin on top of theirs — that is what makes print match preview. */
+  @page { margin: 0; }
+
+  html, body { background: #fff !important; min-height: 0; }
+  body { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+
+  .qdoc-stack {
+    gap: 0;
+    transform: none !important;
+  }
+  /* The scale wrapper is a screen device. Its height was computed for the
+     scaled preview; left standing it would reserve that space on paper and
+     can cost a blank sheet. */
+  .qdoc-scaler { height: auto !important; }
+  .qdoc-page {
+    box-shadow: none;
+    break-after: page;
+    page-break-after: always;
+  }
+  .qdoc-page:last-child {
+    break-after: auto;
+    page-break-after: auto;
+  }
+  /* Anything that is not the document is not paper. */
+  .qdoc-print-hide { display: none !important; }
+}
+
+/* ── The builder's preview pane ─────────────────────────────────────────── */
+.qb-preview {
+  background: rgb(var(--c-neutral-100, 243 244 246));
+  border: 1px solid rgb(var(--c-neutral-200, 229 231 235));
+  border-radius: 6px;
+  padding: 12px 4px;
+  overflow: auto;
+  max-height: calc(100dvh - 190px);
+}
+
+@media print {
+  /* Print ONLY the document, from wherever it is rendered — including the
+     builder, where the CRM shell and the editor surround it. Visibility
+     rather than display, so the page keeps its layout box and the document
+     lands at the top-left of the sheet. */
+  html.qdoc-printing body * { visibility: hidden !important; }
+  html.qdoc-printing .qdoc-stack,
+  html.qdoc-printing .qdoc-stack * { visibility: visible !important; }
+  html.qdoc-printing .qdoc-measure { display: none !important; }
+  html.qdoc-printing .qdoc-stack {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 100%;
+  }
+  html.qdoc-printing .qb-preview {
+    overflow: visible !important;
+    max-height: none !important;
+    border: 0 !important;
+    padding: 0 !important;
+    background: #fff !important;
+  }
+  /* Editor chrome never reaches paper. */
+  .qdoc-screen-only { display: none !important; }
+}
+
+/* ── Engagement letter: direct editing on the page ───────────────────────
+   The page must read as a finished letter until it is touched: no boxes, no
+   inputs. A faint outline on hover says "this is editable"; a slightly
+   stronger one while typing. Every editing affordance is screen-only. */
+.el-edit { outline: none; border-radius: 2px; transition: box-shadow 120ms, background-color 120ms; cursor: text; }
+/* The page is shown scaled down (~0.6), which thins any outline to almost
+   nothing — so the cues are drawn heavier than they will look, and the
+   field being edited gets a tint that reads even at small sizes. */
+.el-editing .el-edit:hover { box-shadow: 0 0 0 2px rgb(59 130 246 / 0.55); background: rgb(59 130 246 / 0.06); }
+.el-edit:focus { box-shadow: 0 0 0 2.5px rgb(37 99 235 / 0.9); background: rgb(59 130 246 / 0.12); }
+.el-edit:empty::before, .el-empty[data-placeholder]:empty::before {
+  content: attr(data-placeholder); color: #9ca3af; font-style: italic; pointer-events: none;
+}
+/* Keep an empty inline field clickable. */
+span.el-edit:empty { display: inline-block; min-width: 2.5em; }
+.el-line { min-height: 1.55em; }
+.el-editing .el-ph { background: rgb(234 179 8 / 0.16); border-radius: 2px; padding: 0 1px; cursor: default; }
+.el-editing .el-ph-missing { color: #b45309; }
+.el-date { font: inherit; color: inherit; background: none; border: 0; padding: 0; }
+
+/* Block controls sit in the page's left margin, shown on hover. */
+.el-gutter {
+  position: absolute; left: -36px; top: 0; display: flex; flex-direction: column; gap: 2px;
+  opacity: 0; transition: opacity 120ms; z-index: 5;
+}
+.el-unit:hover > .el-gutter, .el-feerow:hover > .el-gutter, .el-gutter:focus-within { opacity: 1; }
+.el-feerow > .el-gutter { flex-direction: row; left: auto; right: 100%; margin-right: 6px; }
+
+.el-space { box-sizing: border-box; }
+.el-space::after { content: ''; position: absolute; inset: -6px 0; }
+.el-space:hover { outline: 1px dashed rgb(59 130 246 / 0.5); outline-offset: -1px; }
+.el-space-bar {
+  position: absolute; right: 0; top: 50%; transform: translateY(-50%); z-index: 6;
+  display: none; align-items: center; gap: 2px; padding: 2px 4px;
+  background: #fff; border: 1px solid #e5e7eb; border-radius: 4px; font-size: 11px; color: #6b7280;
+}
+.el-space:hover .el-space-bar, .el-space-bar:focus-within { display: flex; }
+.el-addfee { font-size: 0.9em; color: #2563eb; background: none; border: 0; padding: 0; cursor: pointer; }
+.el-addfee:hover { text-decoration: underline; }
+
+@media print {
+  .el-edit, .el-edit:hover, .el-edit:focus { box-shadow: none !important; background: none !important; }
+  .el-edit:empty::before, .el-empty::before { content: none !important; }
+  .el-empty { display: none !important; }
+  .el-ph { background: none !important; padding: 0 !important; color: inherit !important; }
+}

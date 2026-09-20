@@ -50,6 +50,10 @@ const STATUS_META: Record<string, { variant: StatusVariant; label: string }> = {
   rescheduled: { variant: 'pending', label: 'Rescheduled' },
   cancelled: { variant: 'ok', label: 'Cancelled' },
   missed: { variant: 'problem', label: 'Missed' },
+  // Quotation
+  draft: { variant: 'awaiting', label: 'Draft' },
+  sent: { variant: 'pending', label: 'Sent' },
+  accepted: { variant: 'ok', label: 'Accepted' },
   // Document
   requested: { variant: 'awaiting', label: 'Requested' },
   uploaded: { variant: 'awaiting', label: 'Uploaded' },
@@ -62,6 +66,9 @@ const STATUS_META: Record<string, { variant: StatusVariant; label: string }> = {
   filed: { variant: 'ok', label: 'Filed' },
   // E-way
   generated: { variant: 'awaiting', label: 'Generated' },
+  // Compliance checklist
+  overdue: { variant: 'problem', label: 'Overdue' },
+  not_required: { variant: 'ok', label: 'Not Required' },
 };
 
 export function statusMeta(status: string) {

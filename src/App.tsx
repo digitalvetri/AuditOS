@@ -20,6 +20,13 @@ import { DocumentsPage as WorkstationDocumentsPage } from '@/pages/workstation/D
 import { TaskListPage } from '@/pages/workstation/tasks/TaskList';
 import { TaskDetailPage } from '@/pages/workstation/tasks/TaskDetail';
 import { TaskReportsPage } from '@/pages/workstation/tasks/TaskReports';
+import { QuotationListPage } from '@/pages/workstation/quotations/QuotationList';
+import { QuotationBuilderPage } from '@/pages/workstation/quotations/QuotationBuilder';
+import { QuotationDetailPage } from '@/pages/workstation/quotations/QuotationDetail';
+import { QuotationPreviewPage } from '@/pages/workstation/quotations/QuotationPreview';
+import { EngagementListPage } from '@/pages/workstation/engagement/EngagementList';
+import { EngagementBuilderPage } from '@/pages/workstation/engagement/EngagementBuilder';
+import { EngagementPreviewPage } from '@/pages/workstation/engagement/EngagementPreview';
 // Tools (Converters & Utilities) — registry-driven; /tools/:toolId is one
 // shared workspace and /tools/documents the output history.
 import { ToolsPage } from '@/pages/tools/Tools';
@@ -153,6 +160,27 @@ export default function App() {
             <Routes>
             <Route path="/login" element={<LoginPage />} />
 
+            {/* The quotation preview is a document, not a screen: it is
+                declared OUTSIDE the AppShell route below so the sidebar,
+                top bar and mobile bottom nav are never rendered around it.
+                Still behind ProtectedRoute — only the chrome is dropped. */}
+            <Route
+              path="/workstation/engagement/:id/preview"
+              element={
+                <ProtectedRoute>
+                  <EngagementPreviewPage />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/workstation/quotations/:id/preview"
+              element={
+                <ProtectedRoute>
+                  <QuotationPreviewPage />
+                </ProtectedRoute>
+              }
+            />
+
             <Route
               element={
                 <ProtectedRoute>
@@ -257,6 +285,13 @@ export default function App() {
               <Route path="workstation/documents" element={<WorkstationDocumentsPage />} />
 
               {/* Workstation → Task: assignment plus server-tracked work time. */}
+              <Route path="workstation/quotations" element={<QuotationListPage />} />
+              <Route path="workstation/quotations/new" element={<QuotationBuilderPage />} />
+              <Route path="workstation/quotations/:id/edit" element={<QuotationBuilderPage />} />
+              <Route path="workstation/quotations/:id" element={<QuotationDetailPage />} />
+              <Route path="workstation/engagement" element={<EngagementListPage />} />
+              <Route path="workstation/engagement/new" element={<EngagementBuilderPage />} />
+              <Route path="workstation/engagement/:id/edit" element={<EngagementBuilderPage />} />
               <Route path="workstation/tasks" element={<TaskListPage />} />
               <Route path="workstation/tasks/reports" element={<TaskReportsPage />} />
               <Route path="workstation/tasks/:taskId" element={<TaskDetailPage />} />
