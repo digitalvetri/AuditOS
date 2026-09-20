@@ -1,15 +1,36 @@
 import type { PrismaClient } from '@prisma/client'
 import { CHECKLIST_TEMPLATE } from '../src/modules/bookkeeping/validate.js'
+import {
+  ensureStageTasksForPeriod, migrateChecklistToTasks, seedWorkflowStages,
+} from './seed-bookkeeping-stages.js'
 
 /**
  * BOOKKEEPING SERVICE demo data — engagements over the firm's real clients,
  * three months of periods each, with the tasks, chased documents and
  * deliverables a month actually carries. Idempotent: skips if engagements
  * already exist. It creates no accounting rows; Books owns those.
+ *
+ * The demo data uses the unified stage-task model. Legacy checklist rows
+ * are seeded on completed months only so the migration function has data to
+ * exercise; on the live month, tasks alone hold state.
  */
 export async function seedBookkeeping(prisma: PrismaClient, organisationId: string) {
+  // Workflow stages are a prerequisite for any new period, regardless of
+  // whether demo engagements exist yet — the config table must always be
+  // in sync with the code.
+  await seedWorkflowStages(prisma)
+
   const existing = await prisma.bookkeepingEngagement.count()
-  if (existing > 0) return { engagements: existing, periods: await prisma.bookkeepingPeriod.count() }
+  if (existing > 0) {
+    // Existing database: migrate any legacy checklist state onto the stage
+    // tasks and backfill missing stage tasks.
+    const migration = await migrateChecklistToTasks(prisma)
+    return {
+      engagements: existing,
+      periods: await prisma.bookkeepingPeriod.count(),
+      migration,
+    }
+  }
 
   const clients = await prisma.client.findMany({ where: { deletedAt: null }, take: 4, orderBy: { clientCode: 'asc' } })
   if (clients.length === 0) return { engagements: 0, periods: 0 }
@@ -56,6 +77,11 @@ export async function seedBookkeeping(prisma: PrismaClient, organisationId: stri
       const isMiddle = mi === 1
       const status = isCurrent ? 'in_progress' : isMiddle ? 'under_review' : 'completed'
 
+      // Legacy checklist rows only seeded on the two closed months, so the
+      // migration function has real data to translate; the live month goes
+      // straight to stage-task state.
+      const seedLegacyChecklist = !isCurrent
+
       const period = await prisma.bookkeepingPeriod.create({
         data: {
           engagementId: engagement.id, year: m.year, month: m.month,
@@ -63,44 +89,52 @@ export async function seedBookkeeping(prisma: PrismaClient, organisationId: stri
           dueDate: dayOf(m.year, m.month, 5),
           completedDate: status === 'completed' ? new Date(Date.UTC(m.year, m.month - 1, 4)) : null,
           assignedEmployeeId: owner,
-          checklistItems: {
-            create: CHECKLIST_TEMPLATE.map((label, i) => ({
-              label, sortOrder: i,
-              // A finished month has a finished checklist; the live month is
-              // partway through it.
-              status: status === 'completed' ? 'completed' : i < 4 ? 'completed' : i < 6 ? 'in_progress' : 'pending',
-              completedAt: status === 'completed' || i < 4 ? new Date(Date.UTC(m.year, m.month - 1, 3)) : null,
-              completedByEmployeeId: status === 'completed' || i < 4 ? owner : null,
-            })),
-          },
+          ...(seedLegacyChecklist ? {
+            checklistItems: {
+              create: CHECKLIST_TEMPLATE.map((label, i) => ({
+                label, sortOrder: i,
+                status: status === 'completed' ? 'completed' : i < 4 ? 'completed' : i < 6 ? 'in_progress' : 'pending',
+                completedAt: status === 'completed' || i < 4 ? new Date(Date.UTC(m.year, m.month - 1, 3)) : null,
+                completedByEmployeeId: status === 'completed' || i < 4 ? owner : null,
+              })),
+            },
+          } : {}),
         },
       })
       periods++
 
-      const taskSpec = [
-        ['Collect bank statements', 'data_collection', 'high'],
-        ['Enter sales invoices', 'sales', 'medium'],
-        ['Enter purchase bills', 'purchases', 'medium'],
-        ['Record expenses', 'expenses', 'low'],
-        ['Reconcile bank account', 'reconciliation', 'high'],
-        ['Review trial balance', 'review', 'critical'],
-      ] as const
+      // Seed the stage tasks. On completed months, mark them all done; on the
+      // live month, leave them at their default pending. Assign the first
+      // three to different owners so the assignee filter has variety.
+      const stageTasksCreated = await ensureStageTasksForPeriod(prisma, {
+        periodId: period.id, clientId: client.id, assignedEmployeeId: owner,
+      })
 
-      for (const [ti, [title, category, priority]] of taskSpec.entries()) {
-        const done = status === 'completed' || ti < 3
-        await prisma.bookkeepingTask.create({
-          data: {
-            clientId: client.id, periodId: period.id, title,
-            description: `${title} for ${client.companyName}.`,
-            category, priority,
-            status: done ? 'completed' : ti === 3 ? 'in_progress' : 'pending',
-            assignedEmployeeId: pick(ci + ti),
-            // One deliberately overdue task on the live month so the overdue
-            // KPI is exercised rather than always reading zero.
-            dueDate: isCurrent && ti === 5 ? dayOf(m.year, m.month, 2) : dayOf(m.year, m.month, 5 + ti),
-            completedAt: done ? new Date(Date.UTC(m.year, m.month - 1, 4)) : null,
-          },
+      if (status === 'completed') {
+        await prisma.bookkeepingTask.updateMany({
+          where: { periodId: period.id, stageId: { not: null } },
+          data: { status: 'completed', completedAt: new Date(Date.UTC(m.year, m.month - 1, 4)) },
         })
+      } else if (isCurrent) {
+        // Progress the live month partway: first two stages done, next in
+        // progress, one deliberately overdue so the KPI is exercised.
+        const stageTasks = await prisma.bookkeepingTask.findMany({
+          where: { periodId: period.id, stageId: { not: null } },
+          include: { stage: true },
+          orderBy: { stage: { sequence: 'asc' } },
+        })
+        for (const [ti, t] of stageTasks.entries()) {
+          const isOverdue = ti === 5
+          await prisma.bookkeepingTask.update({
+            where: { id: t.id },
+            data: {
+              status: ti < 2 ? 'completed' : ti === 2 ? 'in_progress' : 'pending',
+              completedAt: ti < 2 ? new Date(Date.UTC(m.year, m.month - 1, 4)) : null,
+              assignedEmployeeId: pick(ci + ti),
+              dueDate: isOverdue ? dayOf(m.year, m.month, 2) : dayOf(m.year, m.month, 5 + ti),
+            },
+          })
+        }
       }
 
       if (!isCurrent && status !== 'completed') continue
@@ -152,11 +186,15 @@ export async function seedBookkeeping(prisma: PrismaClient, organisationId: stri
         data: {
           clientId: client.id, periodId: period.id, actorUserId: null,
           action: 'Period opened',
-          detail: `Bookkeeping for ${m.month}/${m.year} opened with ${CHECKLIST_TEMPLATE.length} checklist items.`,
+          detail: `Bookkeeping for ${m.month}/${m.year} opened with ${stageTasksCreated.created} stage tasks.`,
         },
       })
     }
   }
 
-  return { engagements: clients.length, periods }
+  // For the demo seed we also run the migration so any legacy checklist rows
+  // we just inserted are folded into stage tasks — proves the path end-to-end.
+  const migration = await migrateChecklistToTasks(prisma)
+
+  return { engagements: clients.length, periods, migration }
 }

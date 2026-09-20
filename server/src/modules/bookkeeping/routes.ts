@@ -9,18 +9,18 @@ import {
 import { employeeMap } from '../../api/workstation.serialize.js'
 import { body, FieldErrors } from '../workstation/validate.js'
 import {
-  BILLING_FREQUENCIES, CHECKLIST_STATUSES, DELIVERABLE_STATUSES, DELIVERABLE_TYPES,
+  BILLING_FREQUENCIES, DELIVERABLE_STATUSES, DELIVERABLE_TYPES,
   DOCREQ_STATUSES, DOCUMENT_TYPES, ENGAGEMENT_STATUSES, PENDING_CATEGORIES,
   PENDING_STATUSES, PERIOD_STATUSES, PRIORITIES, TASK_CATEGORIES, TASK_STATUSES,
-  WORKFLOW_STEPS, CHECKLIST_TEMPLATE, periodLabel,
+  WORKFLOW_STEPS, periodLabel,
 } from './validate.js'
 import {
-  createPeriodWithChecklist, overviewKpis, progressByPeriod, progressFrom,
+  createPeriodWithTasks, overviewKpis, progressByPeriod, progressFrom,
   today, writeBkActivity,
 } from './service.js'
 import {
-  activityToApi, checklistItemToApi, deliverableToApi, documentRequestToApi,
-  engagementToApi, pendingItemToApi, periodToApi, taskToApi,
+  activityToApi, deliverableToApi, documentRequestToApi,
+  engagementToApi, pendingItemToApi, periodToApi, taskToApi, workflowStageToApi,
 } from './serialize.js'
 
 /**
@@ -152,11 +152,16 @@ bookkeepingRouter.get('/clients/:clientId', handler(async (req, res) => {
     ...engagement.periods.map((p) => p.assignedEmployeeId),
   ])
   const books = await booksOrgIdFor([clientId])
+  const stages = await prisma.bookkeepingWorkflowStage.findMany({
+    where: { isActive: true }, orderBy: { sequence: 'asc' },
+  })
 
   ok(res, {
     engagement: engagementToApi(engagement, m),
     periods: engagement.periods.map((p) => periodToApi(p, m, prog.get(p.id))),
     books_org_id: books.get(clientId) ?? null,
+    workflow_stages: stages.map(workflowStageToApi),
+    // Legacy string[] view retained for one release so old clients keep rendering.
     workflow_steps: WORKFLOW_STEPS,
   })
 }))
@@ -292,8 +297,11 @@ bookkeepingRouter.get('/periods/:id', handler(async (req, res) => {
     where: { ...alive, id: req.params.id },
     include: {
       engagement: { include: { client: true } },
-      checklistItems: { orderBy: { sortOrder: 'asc' } },
-      tasks: { where: alive, include: { client: true } },
+      tasks: {
+        where: alive,
+        include: { client: true, stage: true },
+        orderBy: [{ stage: { sequence: 'asc' } }, { createdAt: 'asc' }],
+      },
       pendingItems: { where: alive, include: { client: true } },
       documentRequests: { where: alive, include: { client: true, clientDocument: true } },
       deliverables: { where: alive, include: { client: true, clientDocument: true } },
@@ -302,21 +310,26 @@ bookkeepingRouter.get('/periods/:id', handler(async (req, res) => {
   if (!row) throw ApiError.notFound('Period not found.')
   await assertCanSeeClient(session, scope, row.engagement.clientId)
 
+  const stages = await prisma.bookkeepingWorkflowStage.findMany({
+    where: { isActive: true }, orderBy: { sequence: 'asc' },
+  })
+
   const m = await employeeMap([
     row.assignedEmployeeId,
-    ...row.checklistItems.map((c) => c.completedByEmployeeId),
     ...row.tasks.map((t) => t.assignedEmployeeId),
+    ...row.tasks.map((t) => t.completedByEmployeeId),
     ...row.pendingItems.map((p) => p.assignedEmployeeId),
     ...row.deliverables.flatMap((d) => [d.preparedByEmployeeId, d.reviewedByEmployeeId]),
   ])
 
   ok(res, {
     period: periodToApi(row, m, progressFrom(row.tasks)),
-    checklist: row.checklistItems.map((c) => checklistItemToApi(c, m)),
     tasks: row.tasks.map((t) => taskToApi(t, m)),
     pending_items: row.pendingItems.map((p) => pendingItemToApi(p, m)),
     document_requests: row.documentRequests.map((d) => documentRequestToApi(d, m)),
     deliverables: row.deliverables.map((d) => deliverableToApi(d, m)),
+    workflow_stages: stages.map(workflowStageToApi),
+    // Legacy view kept for one release so old clients still render.
     workflow_steps: WORKFLOW_STEPS,
   })
 }))
@@ -340,8 +353,8 @@ bookkeepingRouter.post('/periods', handler(async (req, res) => {
   if (!engagement) throw ApiError.notFound('Engagement not found.')
   await assertCanSeeClient(session, scope, engagement.clientId)
 
-  const row = await createPeriodWithChecklist(prisma, {
-    engagementId: engagementId!, year, month,
+  const row = await createPeriodWithTasks(prisma, {
+    engagementId: engagementId!, clientId: engagement.clientId, year, month,
     dueDate: dueDate ?? null,
     assignedEmployeeId: assignedEmployeeId ?? engagement.assignedEmployeeId,
     createdBy: session.userId,
@@ -353,7 +366,7 @@ bookkeepingRouter.post('/periods', handler(async (req, res) => {
   })
   await writeBkActivity({
     clientId: engagement.clientId, periodId: row.id, actorUserId: session.userId,
-    action: 'Period opened', detail: `${periodLabel(year, month)} opened with ${row.checklistItems.length} checklist items.`,
+    action: 'Period opened', detail: `${periodLabel(year, month)} opened with ${row.tasks.length} workflow tasks.`,
   })
 
   const m = await employeeMap([row.assignedEmployeeId])
@@ -405,36 +418,18 @@ bookkeepingRouter.patch('/periods/:id', handler(async (req, res) => {
 }))
 
 // PATCH /api/bookkeeping/checklist-items/:id
-bookkeepingRouter.patch('/checklist-items/:id', handler(async (req, res) => {
-  const session = requireSession(req)
-  const scope = requireWorkstation(session, ...MANAGE)
-  const before = await prisma.bookkeepingChecklistItem.findFirst({
-    where: { id: req.params.id }, include: { period: { include: { engagement: true } } },
-  })
-  if (!before) throw ApiError.notFound('Checklist item not found.')
-  await assertCanSeeClient(session, scope, before.period.engagement.clientId)
-
-  const b = body(req)
-  const f = new FieldErrors()
-  const status = f.oneOf('status', b.status, CHECKLIST_STATUSES)
-  const notes = b.notes === undefined ? undefined : f.str('notes', b.notes, { required: false, max: 1000 }) ?? null
-  f.throwIfAny()
-
-  const row = await prisma.bookkeepingChecklistItem.update({
-    where: { id: before.id },
-    data: {
-      status: status!,
-      ...(notes === undefined ? {} : { notes }),
-      completedAt: status === 'completed' ? new Date() : null,
-      completedByEmployeeId: status === 'completed' ? session.employeeId ?? null : null,
-    },
-  })
-  await writeAudit({
-    actorUserId: session.userId, action: 'bookkeeping.checklist.update',
-    entityType: 'BookkeepingChecklistItem', entityId: row.id, before, after: row, req,
-  })
-  const m = await employeeMap([row.completedByEmployeeId])
-  ok(res, checklistItemToApi(row, m))
+//
+// The standalone checklist is gone: every checkbox in Monthly Work is now a
+// checkbox on the underlying stage task, and the correct call is
+// `PATCH /api/bookkeeping/tasks/:id`. This stub returns 410 Gone so that any
+// old client left in the wild fails loudly (with a message pointing at the
+// new endpoint) rather than silently 404-ing.
+bookkeepingRouter.patch('/checklist-items/:id', handler(async (_req, _res) => {
+  throw new ApiError(
+    410,
+    'checklist_removed',
+    'Checklist items were folded into tasks — update the underlying task via PATCH /api/bookkeeping/tasks/:id.',
+  )
 }))
 
 // ── Tasks ─────────────────────────────────────────────────────────────────
@@ -460,7 +455,7 @@ bookkeepingRouter.get('/tasks', handler(async (req, res) => {
         { description: { contains: search, mode: 'insensitive' as const } },
       ] } : {}),
     },
-    include: { client: true, period: true },
+    include: { client: true, period: true, stage: true },
     orderBy: [{ dueDate: 'asc' }, { createdAt: 'desc' }],
   })
   const m = await employeeMap(rows.map((r) => r.assignedEmployeeId))
@@ -489,7 +484,7 @@ bookkeepingRouter.post('/tasks', handler(async (req, res) => {
       category: category!, priority: priority!, assignedEmployeeId: assignedEmployeeId!,
       dueDate: dueDate ?? null, createdById: session.userId,
     },
-    include: { client: true, period: true },
+    include: { client: true, period: true, stage: true },
   })
   await writeAudit({
     actorUserId: session.userId, action: 'bookkeeping.task.create',
@@ -507,11 +502,11 @@ bookkeepingRouter.get('/tasks/:id', handler(async (req, res) => {
   const session = requireSession(req)
   const scope = requireWorkstation(session, ...READ)
   const row = await prisma.bookkeepingTask.findFirst({
-    where: { ...alive, id: req.params.id }, include: { client: true, period: true },
+    where: { ...alive, id: req.params.id }, include: { client: true, period: true, stage: true },
   })
   if (!row) throw ApiError.notFound('Task not found.')
   await assertCanSeeClient(session, scope, row.clientId)
-  const m = await employeeMap([row.assignedEmployeeId])
+  const m = await employeeMap([row.assignedEmployeeId, row.completedByEmployeeId])
   ok(res, taskToApi(row, m))
 }))
 
@@ -535,11 +530,16 @@ bookkeepingRouter.patch('/tasks/:id', handler(async (req, res) => {
   if (b.notes !== undefined) data.notes = f.str('notes', b.notes, { required: false, max: 2000 }) ?? null
   f.throwIfAny()
 
-  if (data.status === 'completed') data.completedAt = new Date()
-  else if (data.status && before.status === 'completed') data.completedAt = null
+  if (data.status === 'completed') {
+    data.completedAt = new Date()
+    data.completedByEmployeeId = session.employeeId ?? null
+  } else if (data.status && before.status === 'completed') {
+    data.completedAt = null
+    data.completedByEmployeeId = null
+  }
 
   const row = await prisma.bookkeepingTask.update({
-    where: { id: before.id }, data, include: { client: true, period: true },
+    where: { id: before.id }, data, include: { client: true, period: true, stage: true },
   })
   await writeAudit({
     actorUserId: session.userId, action: 'bookkeeping.task.update',
@@ -551,7 +551,7 @@ bookkeepingRouter.patch('/tasks/:id', handler(async (req, res) => {
       action: 'Task status changed', detail: `${row.title}: ${before.status} → ${row.status}`,
     })
   }
-  const m = await employeeMap([row.assignedEmployeeId])
+  const m = await employeeMap([row.assignedEmployeeId, row.completedByEmployeeId])
   ok(res, taskToApi(row, m))
 }))
 
@@ -964,11 +964,13 @@ bookkeepingRouter.patch('/reminders/:id', handler(async (req, res) => {
 bookkeepingRouter.get('/settings', handler(async (req, res) => {
   const session = requireSession(req)
   requireWorkstation(session, ...READ)
+  const stages = await prisma.bookkeepingWorkflowStage.findMany({
+    where: { isActive: true }, orderBy: { sequence: 'asc' },
+  })
   ok(res, {
     engagement_statuses: ENGAGEMENT_STATUSES,
     billing_frequencies: BILLING_FREQUENCIES,
     period_statuses: PERIOD_STATUSES,
-    checklist_statuses: CHECKLIST_STATUSES,
     task_statuses: TASK_STATUSES,
     task_categories: TASK_CATEGORIES,
     priorities: PRIORITIES,
@@ -978,7 +980,8 @@ bookkeepingRouter.get('/settings', handler(async (req, res) => {
     docreq_statuses: DOCREQ_STATUSES,
     deliverable_types: DELIVERABLE_TYPES,
     deliverable_statuses: DELIVERABLE_STATUSES,
+    workflow_stages: stages.map(workflowStageToApi),
+    // Legacy view of stages as a flat string[], retained for one release.
     workflow_steps: WORKFLOW_STEPS,
-    checklist_template: CHECKLIST_TEMPLATE,
   })
 }))

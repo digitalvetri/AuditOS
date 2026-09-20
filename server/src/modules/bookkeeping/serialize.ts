@@ -1,7 +1,7 @@
 import type {
-  BookkeepingActivity, BookkeepingChecklistItem, BookkeepingDeliverable,
-  BookkeepingDocumentRequest, BookkeepingEngagement, BookkeepingPendingItem,
-  BookkeepingPeriod, BookkeepingTask, Client,
+  BookkeepingActivity, BookkeepingDeliverable, BookkeepingDocumentRequest,
+  BookkeepingEngagement, BookkeepingPendingItem, BookkeepingPeriod,
+  BookkeepingTask, BookkeepingWorkflowStage, Client,
 } from '@prisma/client'
 import type { EmployeeLookup } from '../../api/workstation.serialize.js'
 import { periodLabel } from './validate.js'
@@ -58,19 +58,23 @@ export function periodToApi(
   }
 }
 
-export const checklistItemToApi = (c: BookkeepingChecklistItem, m: EmployeeLookup) => ({
-  id: c.id,
-  period_id: c.periodId,
-  label: c.label,
-  status: c.status,
-  sort_order: c.sortOrder,
-  notes: c.notes,
-  completed_at: iso(c.completedAt),
-  completed_by: ref(m, c.completedByEmployeeId),
+export const workflowStageToApi = (s: BookkeepingWorkflowStage) => ({
+  id: s.id,
+  sequence: s.sequence,
+  name: s.name,
+  slug: s.slug,
+  default_category: s.defaultCategory,
+  default_offset_days: s.defaultOffsetDays,
+  gate_rule_slug: s.gateRuleSlug,
+  is_active: s.isActive,
 })
 
 export const taskToApi = (
-  t: BookkeepingTask & { client?: Client | null; period?: BookkeepingPeriod | null },
+  t: BookkeepingTask & {
+    client?: Client | null
+    period?: BookkeepingPeriod | null
+    stage?: BookkeepingWorkflowStage | null
+  },
   m: EmployeeLookup,
 ) => ({
   id: t.id,
@@ -78,6 +82,10 @@ export const taskToApi = (
   period_label: t.period ? periodLabel(t.period.year, t.period.month) : null,
   client_id: t.clientId,
   client_name: t.client?.companyName ?? null,
+  stage_id: t.stageId,
+  stage: t.stage
+    ? { id: t.stage.id, slug: t.stage.slug, name: t.stage.name, sequence: t.stage.sequence }
+    : null,
   title: t.title,
   description: t.description,
   category: t.category,
@@ -87,6 +95,7 @@ export const taskToApi = (
   assigned_employee: ref(m, t.assignedEmployeeId),
   due_date: t.dueDate,
   completed_at: iso(t.completedAt),
+  completed_by: ref(m, t.completedByEmployeeId),
   notes: t.notes,
   created_at: iso(t.createdAt),
 })

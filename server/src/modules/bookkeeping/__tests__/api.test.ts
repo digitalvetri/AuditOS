@@ -5,7 +5,8 @@ import { signToken } from '../../../platform/auth.js'
 import { prisma, uid } from '../../books/__tests__/helpers.js'
 import { MATRIX } from '../../../platform/rbac/matrix.js'
 import { progressFrom } from '../service.js'
-import { CHECKLIST_TEMPLATE } from '../validate.js'
+import { WORKFLOW_STAGES } from '../validate.js'
+import { seedWorkflowStages } from '../../../../prisma/seed-bookkeeping-stages.js'
 
 /**
  * HTTP-level tests for the Bookkeeping Service: real Express app, real
@@ -61,6 +62,9 @@ async function client(orgId: string, name = 'ABC Private Limited') {
 }
 
 beforeAll(async () => {
+  // The stage table is workflow-scoped config, not per-organisation, so it
+  // has to exist before any period is opened in a test run.
+  await seedWorkflowStages(prisma)
   server = createApp().listen(0)
   await new Promise((r) => server.once('listening', r))
   const addr = server.address()
@@ -114,7 +118,7 @@ describe('Bookkeeping Service API', () => {
     expect(dupe.status).toBe(409)
     expect(dupe.body.error.code).toBe('engagement_exists')
 
-    // 2 — period, which lays down the checklist in the same write
+    // 2 — period, which lays down one task per workflow stage in the same write
     const period = await api('/api/bookkeeping/periods', {
       method: 'POST', cookie,
       body: { engagement_id: engagementId, year: 2026, month: 5, due_date: '2026-06-05' },
@@ -124,8 +128,17 @@ describe('Bookkeeping Service API', () => {
     expect(period.body.data.label).toBe('May 2026')
 
     const detail = await api(`/api/bookkeeping/periods/${periodId}`, { cookie })
-    expect(detail.body.data.checklist).toHaveLength(CHECKLIST_TEMPLATE.length)
-    expect(detail.body.data.period.progress).toEqual({ total: 0, completed: 0, pending: 0, overdue: 0, percent: 0 })
+    // The unified stage model: one task per active workflow stage, and the
+    // response now carries workflow_stages instead of a separate checklist.
+    expect(detail.body.data.tasks).toHaveLength(WORKFLOW_STAGES.length)
+    expect(detail.body.data.workflow_stages).toHaveLength(WORKFLOW_STAGES.length)
+    expect(detail.body.data).not.toHaveProperty('checklist')
+    expect(detail.body.data.tasks[0].stage.slug).toBe(WORKFLOW_STAGES[0].slug)
+    // Progress on a fresh period: nine stage tasks, all pending.
+    expect(detail.body.data.period.progress).toEqual({
+      total: WORKFLOW_STAGES.length, completed: 0,
+      pending: WORKFLOW_STAGES.length, overdue: 0, percent: 0,
+    })
 
     // A second May 2026 for the same engagement is refused.
     const dupePeriod = await api('/api/bookkeeping/periods', {
@@ -134,29 +147,41 @@ describe('Bookkeeping Service API', () => {
     expect(dupePeriod.status).toBe(409)
     expect(dupePeriod.body.error.code).toBe('period_exists')
 
-    // 3 — checklist state persists
-    const firstItem = detail.body.data.checklist[0]
-    const ticked = await api(`/api/bookkeeping/checklist-items/${firstItem.id}`, {
+    // 3 — the old checklist endpoint returns 410 pointing at the new home
+    const legacy = await api(`/api/bookkeeping/checklist-items/anything`, {
       method: 'PATCH', cookie, body: { status: 'completed' },
     })
-    expect(ticked.status).toBe(200)
-    expect(ticked.body.data.status).toBe('completed')
-    expect(ticked.body.data.completed_at).not.toBeNull()
+    expect(legacy.status).toBe(410)
+    expect(legacy.body.error.code).toBe('checklist_removed')
 
-    // 4 — tasks drive progress
+    // 3b — ticking a stage task is a PATCH on the task itself, which is the
+    // same write the UI checkbox now makes.
+    const firstTaskId = detail.body.data.tasks[0].id
+    const firstTicked = await api(`/api/bookkeeping/tasks/${firstTaskId}`, {
+      method: 'PATCH', cookie, body: { status: 'completed' },
+    })
+    expect(firstTicked.status).toBe(200)
+    expect(firstTicked.body.data.status).toBe('completed')
+    expect(firstTicked.body.data.completed_at).not.toBeNull()
+
+    // 4 — creating ad-hoc tasks alongside stage tasks; progress reads the sum
     const t1 = await api('/api/bookkeeping/tasks', {
       method: 'POST', cookie,
       body: { client_id: c.id, period_id: periodId, title: 'Enter sales invoices', category: 'sales', assigned_employee_id: emp, due_date: '2026-06-03' },
     })
     expect(t1.status).toBe(201)
+    // Ad-hoc tasks have no stage.
+    expect(t1.body.data.stage).toBeNull()
     const t2 = await api('/api/bookkeeping/tasks', {
       method: 'POST', cookie,
       body: { client_id: c.id, period_id: periodId, title: 'Reconcile bank', category: 'reconciliation', assigned_employee_id: emp },
     })
     expect(t2.status).toBe(201)
 
+    const total = WORKFLOW_STAGES.length + 2
     let after = await api(`/api/bookkeeping/periods/${periodId}`, { cookie })
-    expect(after.body.data.period.progress).toMatchObject({ total: 2, completed: 0, percent: 0 })
+    // First stage task already completed above; the two ad-hoc tasks are pending.
+    expect(after.body.data.period.progress).toMatchObject({ total, completed: 1 })
 
     const done = await api(`/api/bookkeeping/tasks/${t1.body.data.id}`, {
       method: 'PATCH', cookie, body: { status: 'completed' },
@@ -164,7 +189,7 @@ describe('Bookkeeping Service API', () => {
     expect(done.body.data.completed_at).not.toBeNull()
 
     after = await api(`/api/bookkeeping/periods/${periodId}`, { cookie })
-    expect(after.body.data.period.progress).toMatchObject({ total: 2, completed: 1, percent: 50 })
+    expect(after.body.data.period.progress).toMatchObject({ total, completed: 2 })
 
     // 5 — pending item, resolved
     const pending = await api('/api/bookkeeping/pending-items', {

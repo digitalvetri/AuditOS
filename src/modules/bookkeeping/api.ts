@@ -2,7 +2,7 @@ import { api } from '@/services/api';
 import type {
   Activity, BookkeepingClient, ClientDetailResponse, Deliverable, DocumentRequest,
   Engagement, ListResponse, OverviewResponse, PendingItem, Period, PeriodDetailResponse,
-  Reminder, SettingsResponse, Task, ChecklistItem,
+  Reminder, SettingsResponse, Task,
 } from './types';
 
 /** Empty values are dropped so an unset filter never reaches the server as `?status=`. */
@@ -39,8 +39,6 @@ export const bookkeepingApi = {
   createPeriod: (input: Record<string, unknown>) => api.post<Period>(`${B}/periods`, input),
   updatePeriod: (id: string, input: Record<string, unknown>) =>
     api.patch<Period>(`${B}/periods/${id}`, input),
-  updateChecklistItem: (id: string, input: Record<string, unknown>) =>
-    api.patch<ChecklistItem>(`${B}/checklist-items/${id}`, input),
 
   listTasks: (f: Record<string, string> = {}) => api.get<ListResponse<Task>>(`${B}/tasks${qs(f)}`),
   createTask: (input: Record<string, unknown>) => api.post<Task>(`${B}/tasks`, input),

@@ -548,20 +548,13 @@ export function BookkeepingSettingsPage() {
       <QueryState query={settings}>
         {(s) => (
           <div className="grid gap-4 md:grid-cols-2">
-            <Card title="Monthly checklist template">
+            <Card title="Workflow stages">
               <ol className="px-4 py-3 space-y-1">
-                {s.checklist_template.map((c, i) => (
-                  <li key={c} className="text-13 text-neutral-700 flex gap-2">
-                    <span className="text-neutral-400 tabular-nums w-5">{i + 1}.</span>{c}
-                  </li>
-                ))}
-              </ol>
-            </Card>
-            <Card title="Workflow steps">
-              <ol className="px-4 py-3 space-y-1">
-                {s.workflow_steps.map((c, i) => (
-                  <li key={c} className="text-13 text-neutral-700 flex gap-2">
-                    <span className="text-neutral-400 tabular-nums w-5">{i + 1}.</span>{c}
+                {(s.workflow_stages ?? []).map((stage) => (
+                  <li key={stage.id} className="text-13 text-neutral-700 flex gap-2 items-baseline">
+                    <span className="text-neutral-400 tabular-nums w-5">{stage.sequence}.</span>
+                    <span className="flex-1">{stage.name}</span>
+                    <span className="text-11 text-neutral-500">{human(stage.default_category)}</span>
                   </li>
                 ))}
               </ol>

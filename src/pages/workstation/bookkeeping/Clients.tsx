@@ -252,9 +252,9 @@ export function BookkeepingClientDetailPage() {
           {tab === 'overview' ? (
             <Card title="Monthly workflow">
               <ol className="px-4 py-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-5">
-                {data.workflow_steps.map((s, i) => (
-                  <li key={s} className="text-13 text-neutral-700 flex gap-2">
-                    <span className="text-neutral-400 tabular-nums">{i + 1}.</span>{s}
+                {(data.workflow_stages ?? []).map((stage) => (
+                  <li key={stage.id} className="text-13 text-neutral-700 flex gap-2">
+                    <span className="text-neutral-400 tabular-nums">{stage.sequence}.</span>{stage.name}
                   </li>
                 ))}
               </ol>
