@@ -72,6 +72,16 @@ const PROTEAN_TIN = 'https://tin.tin.proteantech.in/';
 const EFILING = 'https://www.incometax.gov.in/';
 const TRACES = 'https://www.tdscpc.gov.in/';
 
+/**
+ * The portal the TDS landing links to from its header — the TRACES deductor
+ * login, which is where the operator actually starts a session. Kept separate
+ * from `TRACES` above, which is the host the per-service handoffs point at.
+ */
+export const TDS_PORTAL = {
+  url: 'https://traces.tdscpc.gov.in/',
+  label: 'TRACES · TDS Reconciliation Analysis and Correction Enabling System',
+};
+
 export const TDS_SUB_SERVICES: TdsSubService[] = [
   {
     slug: 'registration',

@@ -91,6 +91,11 @@ export type PermissionCode =
   | 'workstation.task.read'
   | 'workstation.task.manage'
   | 'workstation.task.report'
+  | 'workstation.quotation.read'
+  | 'workstation.quotation.manage'
+  | 'workstation.quotation.approve'
+  | 'workstation.engagement.read'
+  | 'workstation.engagement.manage'
   | 'workstation.gst.read'
   | 'workstation.gst.manage'
   | 'workstation.eway.read'
@@ -187,6 +192,10 @@ export const MATRIX: Record<RoleCode, Grant[]> = {
     // to me" — resolved by assignedClientIds(), never a post-fetch filter.
     { permission: 'workstation.access', scope: 'self' },
     { permission: 'workstation.task.read', scope: 'self' },
+    { permission: 'workstation.quotation.read', scope: 'self' },
+    { permission: 'workstation.quotation.manage', scope: 'self' },
+    { permission: 'workstation.engagement.read', scope: 'self' },
+    { permission: 'workstation.engagement.manage', scope: 'self' },
     { permission: 'workstation.lead.read', scope: 'self' },
     { permission: 'workstation.lead.manage', scope: 'self' },
     { permission: 'workstation.client.read', scope: 'self' },
@@ -267,6 +276,11 @@ export const MATRIX: Record<RoleCode, Grant[]> = {
     { permission: 'workstation.task.read', scope: 'organisation' },
     { permission: 'workstation.task.manage', scope: 'organisation' },
     { permission: 'workstation.task.report', scope: 'organisation' },
+    { permission: 'workstation.quotation.read', scope: 'organisation' },
+    { permission: 'workstation.quotation.manage', scope: 'organisation' },
+    { permission: 'workstation.engagement.read', scope: 'organisation' },
+    { permission: 'workstation.engagement.manage', scope: 'organisation' },
+    { permission: 'workstation.quotation.approve', scope: 'organisation' },
     { permission: 'workstation.lead.read', scope: 'organisation' },
     { permission: 'workstation.lead.manage', scope: 'organisation' },
     { permission: 'workstation.lead.convert', scope: 'organisation' },
@@ -418,6 +432,11 @@ export const MATRIX: Record<RoleCode, Grant[]> = {
     { permission: 'workstation.task.read', scope: 'organisation' },
     { permission: 'workstation.task.manage', scope: 'organisation' },
     { permission: 'workstation.task.report', scope: 'organisation' },
+    { permission: 'workstation.quotation.read', scope: 'organisation' },
+    { permission: 'workstation.quotation.manage', scope: 'organisation' },
+    { permission: 'workstation.engagement.read', scope: 'organisation' },
+    { permission: 'workstation.engagement.manage', scope: 'organisation' },
+    { permission: 'workstation.quotation.approve', scope: 'organisation' },
     { permission: 'workstation.lead.read', scope: 'organisation' },
     { permission: 'workstation.lead.manage', scope: 'organisation' },
     { permission: 'workstation.lead.convert', scope: 'organisation' },

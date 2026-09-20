@@ -67,6 +67,7 @@ model Organisation {
   aaTds26AS           AaTds26AS[]
   aaTdsBooks          AaTdsBooks[]
   aaTdsReconJobs      AaTdsReconJob[]
+  checklistItems      ClientChecklistItem[]
   tallyCompanies      TallyCompany[]
 
   createdAt DateTime  @default(now())
@@ -355,9 +356,12 @@ model Employee {
   weeklyCapacityHours Float?
 
   // Task module back-relations (Workstation → Task).
-  assignedTasks Task[]            @relation("TaskAssignee")
-  raisedTasks   Task[]            @relation("TaskAssigner")
-  taskSessions  TaskTimeSession[]
+  assignedTasks  Task[]                @relation("TaskAssignee")
+  quotations     Quotation[]           @relation("QuotationPreparedBy")
+  engagementLetters EngagementLetter[]  @relation("EngagementPreparedBy")
+  raisedTasks    Task[]                @relation("TaskAssigner")
+  taskSessions   TaskTimeSession[]
+  checklistItems ClientChecklistItem[] @relation("ChecklistAssignee")
 
   photoUrl              String?
   address               String?
@@ -1031,6 +1035,7 @@ model Service {
 
   leads          Lead[]
   clientServices ClientService[]
+  quotationItems QuotationItem[]
 
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt
@@ -1063,8 +1068,10 @@ model Lead {
   convertedClientId String?   @unique
   convertedAt       DateTime?
 
-  service   Service    @relation(fields: [serviceId], references: [id])
-  followUps FollowUp[]
+  service    Service     @relation(fields: [serviceId], references: [id])
+  followUps  FollowUp[]
+  quotations Quotation[]
+  engagementLetters EngagementLetter[]
 
   /// System-generated (§5.2). Never accepted from a request body.
   createdAt DateTime  @default(now())
@@ -1123,6 +1130,8 @@ model Client {
   followUps           FollowUp[]
   documents           ClientDocument[]
   tasks               Task[]
+  quotations          Quotation[]
+  engagementLetters   EngagementLetter[]
   ewayBills           EwayBill[]
   gstProfile          GstProfile?
   eInvoiceEwbProfile  EInvoiceEwbProfile?
@@ -1149,11 +1158,12 @@ model Client {
   aaTdsBooks          AaTdsBooks[]
   aaTdsReconJobs      AaTdsReconJob[]
 
-  createdAt DateTime  @default(now())
-  updatedAt DateTime  @updatedAt
-  createdBy String?
-  updatedBy String?
-  deletedAt DateTime?
+  createdAt           DateTime              @default(now())
+  updatedAt           DateTime              @updatedAt
+  createdBy           String?
+  updatedBy           String?
+  deletedAt           DateTime?
+  ClientChecklistItem ClientChecklistItem[]
 
   @@index([status])
   @@index([accountManagerId])
@@ -5476,4 +5486,466 @@ model ZpaySyncRun {
 
   @@index([accountRowId, startedAt])
   @@index([status])
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// QUOTATION (Workstation → Quotation)
+//
+// A priced proposal sent to a prospect (Lead) or an existing Client. It sits
+// one step BEFORE the Task module: an accepted quotation is what authorises
+// the work, and `convertedTaskId` records that hand-off exactly once.
+//
+// Money is in PAISE throughout (Int), the same rule as Lead.priceQuotedPaise
+// and Books — no floats anywhere near a rupee figure. Every total on the
+// parent row is DERIVED from the items by the service layer and recomputed on
+// every write; nothing here is accepted from a request body.
+// ═══════════════════════════════════════════════════════════════════════════
+
+model Quotation {
+  id             String @id @default(uuid())
+  organisationId String
+  /// Human-readable 'QT-2026-0001'. Per-year sequence, allocated server-side
+  /// inside the creating transaction (see platform/workstation/codes.ts).
+  quotationCode  String @unique
+
+  /// Exactly one of leadId / clientId is set — the service layer enforces the
+  /// XOR on write, the same shape FollowUp uses for the same reason.
+  leadId   String?
+  clientId String?
+
+  /// What the quotation is for, in the client's language.
+  subject    String
+  /// YYYY-MM-DD. The date printed on the document, not the row's createdAt.
+  quoteDate  String
+  /// YYYY-MM-DD. After this date the quotation reads as expired.
+  validUntil String
+
+  /// draft | sent | accepted | rejected | expired
+  status String @default("draft")
+
+  /// Place of supply decides the tax split. Intra-state -> CGST+SGST,
+  /// inter-state -> IGST. Stored, not inferred at render time, so a
+  /// historical quotation keeps the split it was sent with.
+  placeOfSupply String?
+  isInterState  Boolean @default(false)
+
+  // ── Derived money (paise). Never written from a request body. ──────────
+  subtotalPaise Int @default(0)
+  /// A flat discount on the whole quotation, applied after the line total.
+  discountPaise Int @default(0)
+  taxablePaise  Int @default(0)
+  cgstPaise     Int @default(0)
+  sgstPaise     Int @default(0)
+  igstPaise     Int @default(0)
+  totalPaise    Int @default(0)
+
+  notes String?
+  terms String?
+
+  // ── Document composition (the builder) ────────────────────────────────
+  /// Which template renders this quotation. 'gst-line-item' is the original
+  /// priced-lines document; 'jns-compliance' is the professional-fee
+  /// compliance proposal. The renderer switches on this, which is what lets
+  /// both documents exist without either one bending to fit the other.
+  templateId            String  @default("gst-line-item")
+  /// Opening message, above the fee table. Plain text, newlines preserved.
+  introduction          String?
+  /// Closing line before the signature ('Thanks').
+  closingText           String?
+  /// Who signs it, as printed. Free text so a quotation can be signed by
+  /// someone who is not an Audit OS employee row.
+  preparedByName        String?
+  preparedByDesignation String?
+  /// Page size, margins, fonts, table and header style. Stored as sent, so a
+  /// later change of house style does not silently redraw a quotation that
+  /// has already gone out.
+  layoutConfig          Json?
+  /// Which blocks appear and in what order.
+  blockConfig           Json?
+  /// The client's particulars AS AT SENDING: name, type, industry, location,
+  /// monthly volume. Editing the client master later must not rewrite a
+  /// quotation that has already gone out, so the document reads from this
+  /// snapshot once it exists rather than from the live client row.
+  clientSnapshot        Json?
+
+  preparedById String?
+
+  sentAt          DateTime?
+  acceptedAt      DateTime?
+  rejectedAt      DateTime?
+  rejectionReason String?
+
+  /// Set once, by conversion. @unique makes a second task from one accepted
+  /// quotation impossible at the database level, mirroring Lead.convertedClientId.
+  convertedTaskId String?   @unique
+  convertedAt     DateTime?
+
+  lead         Lead?                  @relation(fields: [leadId], references: [id])
+  client       Client?                @relation(fields: [clientId], references: [id])
+  preparedBy   Employee?              @relation("QuotationPreparedBy", fields: [preparedById], references: [id])
+  items        QuotationItem[]
+  workSections QuotationWorkSection[]
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  createdBy String?
+  updatedBy String?
+  deletedAt DateTime?
+
+  @@index([clientId])
+  @@index([leadId])
+  @@index([status])
+  @@index([quoteDate])
+  @@index([preparedById])
+  @@index([createdAt])
+}
+
+/// One priced line. `amountPaise` and `taxPaise` are derived by the service
+/// layer from quantity × unitRatePaise, less the line discount, at the line's
+/// own GST rate — a quotation can mix 18% professional fees with a 0% reimbursement.
+model QuotationItem {
+  id          String  @id @default(uuid())
+  quotationId String
+  /// Optional link to the service catalogue. Null for a free-text line.
+  serviceId   String?
+
+  description     String
+  /// Quantity in HUNDREDTHS (250 = 2.5), so half-hours and part-months are
+  /// exact integers rather than floats.
+  quantityCenti   Int    @default(100)
+  unitRatePaise   Int    @default(0)
+  /// Whole percent, 0-100.
+  discountPercent Int    @default(0)
+  /// Whole percent: 0 | 5 | 12 | 18 | 28.
+  gstRatePercent  Int    @default(18)
+
+  /// How often the fee recurs — 'Monthly', 'Quarterly', 'Yearly', 'One-Time'
+  /// or anything the user types. Free text, because a fixed enum could not
+  /// hold 'Every 6 Months'.
+  frequency String?
+  /// Optional grouping for the line, shown only if the template uses it.
+  category  String?
+  /// Longer description under the particulars, when the template shows one.
+  detail    String?
+
+  // ── Derived (paise) ───────────────────────────────────────────────────
+  amountPaise Int @default(0)
+  taxPaise    Int @default(0)
+
+  sortOrder Int @default(0)
+
+  quotation Quotation @relation(fields: [quotationId], references: [id], onDelete: Cascade)
+  service   Service?  @relation(fields: [serviceId], references: [id])
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([quotationId, sortOrder])
+}
+
+// ════════════════════════════════════════════════════════════════════════
+// COMPLIANCE CHECKLISTS — Workstation → Clients → [Client] → GST Checklist
+//
+// Three tables, and the whole design is the line between two of them:
+//
+//   ChecklistCategory + ChecklistService = THE MASTER CATALOGUE. What the
+//   firm offers. Editing it changes what can be picked, never what any
+//   client owes.
+//
+//   ClientChecklistItem = THE WORK. One row per client per obligation, with
+//   its OWN status, assignee and due date. Client A going to 'completed'
+//   touches one row and cannot be seen from Client B.
+//
+// `kind` ('gst') is what makes this reusable: a TDS or Income-Tax checklist
+// later is the same three tables with a different kind, not a fourth table.
+// Only 'gst' is populated and surfaced today.
+// ════════════════════════════════════════════════════════════════════════
+
+/// A grouping inside one kind of checklist — 'GST Returns', 'GST Notices'.
+/// Users may add their own, which is why this is a row and not an enum.
+model ChecklistCategory {
+  id             String  @id @default(uuid())
+  organisationId String
+  /// Which checklist this belongs to. 'gst' today.
+  kind           String  @default("gst")
+  name           String
+  description    String?
+  active         Boolean @default(true)
+  sortOrder      Int     @default(0)
+
+  services ChecklistService[]
+  items    ClientChecklistItem[]
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  createdBy String?
+  updatedBy String?
+  deletedAt DateTime?
+
+  @@unique([organisationId, kind, name])
+  @@index([kind, active])
+}
+
+/// THE MASTER SERVICE. Mirrors the catalogue shown at Workstation → Services
+/// → GST; a service added here with `isCustom` becomes available to every
+/// client's picker. It holds DEFAULTS only — never a client's status.
+model ChecklistService {
+  id               String  @id @default(uuid())
+  organisationId   String
+  kind             String  @default("gst")
+  /// Stable handle for a seeded row ('registration'), so re-seeding updates
+  /// rather than duplicates. Null for a user-added service.
+  slug             String?
+  name             String
+  /// Statutory form: 'REG-01', 'GSTR-1 / 3B / CMP-08'.
+  code             String?
+  categoryId       String?
+  /// recurring | project | externally-triggered | retainer
+  serviceType      String  @default("project")
+  /// one-time | monthly | quarterly | annual | event-based
+  defaultFrequency String  @default("one-time")
+  description      String?
+  active           Boolean @default(true)
+  sortOrder        Int     @default(0)
+  /// True when a user created it from a client's checklist.
+  isCustom         Boolean @default(false)
+
+  category ChecklistCategory?    @relation(fields: [categoryId], references: [id])
+  items    ClientChecklistItem[]
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  createdBy String?
+  updatedBy String?
+  deletedAt DateTime?
+
+  @@unique([organisationId, kind, name])
+  @@index([kind, active])
+  @@index([categoryId])
+}
+
+/// ONE CLIENT'S OBLIGATION. Everything that differs between clients lives
+/// here: status, who is doing it, when it is due, what was noted.
+///
+/// `serviceId` points at the master row it was picked from and is null for a
+/// one-off item that exists only for this client. Its @@unique with clientId
+/// is what stops the same master service being added twice — SQLite treats
+/// NULLs as distinct, so custom items are unaffected.
+model ClientChecklistItem {
+  id             String  @id @default(uuid())
+  organisationId String
+  kind           String  @default("gst")
+  clientId       String
+  serviceId      String?
+  categoryId     String?
+
+  /// Set only for a custom item; otherwise the master service's name is used.
+  customName  String?
+  description String?
+
+  /// STORED status: not_started | in_progress | pending | completed | not_required.
+  /// 'overdue' is DERIVED on read (past due and not completed) and never
+  /// stored, so completing a late item does not leave it stuck overdue.
+  status       String    @default("not_started")
+  assignedToId String?
+  /// YYYY-MM-DD, like every other date in Workstation.
+  dueDate      String?
+  frequency    String    @default("one-time")
+  notes        String?
+  completedAt  DateTime?
+  sortOrder    Int       @default(0)
+
+  client     Client                    @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  service    ChecklistService?         @relation(fields: [serviceId], references: [id])
+  category   ChecklistCategory?        @relation(fields: [categoryId], references: [id])
+  assignedTo Employee?                 @relation("ChecklistAssignee", fields: [assignedToId], references: [id])
+  activities ClientChecklistActivity[]
+
+  createdAt    DateTime     @default(now())
+  updatedAt    DateTime     @updatedAt
+  createdBy    String?
+  updatedBy    String?
+  deletedAt    DateTime?
+  Organisation Organisation @relation(fields: [organisationId], references: [id])
+
+  @@unique([clientId, kind, serviceId])
+  @@index([clientId, kind])
+  @@index([status])
+  @@index([assignedToId])
+  @@index([dueDate])
+}
+
+/// Append-only trail for one checklist item: created, assigned, status
+/// changed, due date changed, completed. Written by the service layer only.
+model ClientChecklistActivity {
+  id        String  @id @default(uuid())
+  itemId    String
+  /// created | assigned | status_changed | due_date_changed | completed | reopened | note
+  action    String
+  detail    String?
+  /// Employee id of whoever did it; kept as a plain id so the trail survives
+  /// an employee row being archived.
+  actorId   String?
+  actorName String?
+
+  item ClientChecklistItem @relation(fields: [itemId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+
+  @@index([itemId, createdAt])
+}
+
+/// A Nature-of-Work section: one heading, an optional lead-in, and bullets.
+/// Separate rows rather than a blob of HTML so the builder can reorder and
+/// edit a single bullet, and so a future template can render them differently.
+model QuotationWorkSection {
+  id          String  @id @default(uuid())
+  quotationId String
+  sortOrder   Int     @default(0)
+  title       String
+  description String?
+
+  quotation Quotation           @relation(fields: [quotationId], references: [id], onDelete: Cascade)
+  items     QuotationWorkItem[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([quotationId, sortOrder])
+}
+
+/// One bullet of a work section.
+model QuotationWorkItem {
+  id        String @id @default(uuid())
+  sectionId String
+  sortOrder Int    @default(0)
+  content   String
+
+  section QuotationWorkSection @relation(fields: [sectionId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([sectionId, sortOrder])
+}
+
+/// A quotation TEMPLATE — the document shape, separate from any quotation's
+/// data. Seeded with the two that exist; adding a third is a row plus a
+/// renderer branch, not a change to every quotation.
+model QuotationTemplate {
+  id             String  @id @default(uuid())
+  organisationId String
+  /// Stable handle the renderer switches on: 'gst-line-item', 'jns-compliance'.
+  slug           String
+  name           String
+  description    String?
+  /// Default block order/visibility and layout for quotations made from it.
+  configuration  Json?
+  active         Boolean @default(true)
+  sortOrder      Int     @default(0)
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  @@unique([organisationId, slug])
+}
+
+/// ENGAGEMENT LETTER — the terms of an engagement, as a composed document.
+///
+/// A sibling of Quotation, deliberately built on the same three-part split:
+/// DATA (the fields below), TEMPLATE (`templateId`) and COMPOSITION
+/// (`blockConfig`). The letter's prose lives in `blockConfig` as ordered
+/// blocks rather than in named columns, so a firm can add a clause, move
+/// confidentiality above fees, or drop a section without a migration.
+model EngagementLetter {
+  id             String @id @default(uuid())
+  organisationId String
+  /// 'EL-2026-0001'. Per-year sequence, allocated inside the creating
+  /// transaction, exactly as quotationCode is.
+  letterCode     String @unique
+
+  /// Exactly one of leadId / clientId, the same XOR Quotation enforces.
+  leadId   String?
+  clientId String?
+
+  subject String
+
+  /// YYYY-MM-DD, all three. `letterDate` is what prints at the top; the
+  /// effective dates are the period the engagement covers and are what the
+  /// {{effective_from}} / {{effective_until}} placeholders resolve to.
+  letterDate     String
+  effectiveFrom  String?
+  effectiveUntil String?
+  /// '2024-25', as a firm writes it. Free text: a financial year is not a
+  /// date range everywhere, and the letter prints whatever is typed.
+  financialYear  String?
+
+  /// draft | sent | accepted | archived
+  status String @default("draft")
+
+  /// The recipient AS AT SENDING — name, designation, company, address.
+  /// Editing the client master later must not silently rewrite a letter that
+  /// has already gone out, so the document reads this snapshot once set.
+  recipientSnapshot Json?
+
+  templateId String @default("jns-accounting")
+  /// Ordered document blocks: paragraphs, titled sections, the fee table,
+  /// spacers and the signature. The whole body of the letter.
+  blockConfig Json?
+  /// Page size, margins, fonts — stored as sent.
+  layoutConfig Json?
+
+  /// Who signs on the firm's side, as printed.
+  signatoryName        String?
+  signatoryDesignation String?
+  /// Who countersigns, as printed on the confirmation line.
+  clientSignatoryName        String?
+  clientSignatoryDesignation String?
+
+  preparedById String?
+
+  sentAt     DateTime?
+  acceptedAt DateTime?
+
+  lead       Lead?     @relation(fields: [leadId], references: [id])
+  client     Client?   @relation(fields: [clientId], references: [id])
+  preparedBy Employee? @relation("EngagementPreparedBy", fields: [preparedById], references: [id])
+  feeItems   EngagementFeeItem[]
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  createdBy String?
+  updatedBy String?
+  deletedAt DateTime?
+
+  @@index([clientId])
+  @@index([leadId])
+  @@index([status])
+  @@index([letterDate])
+  @@index([createdAt])
+}
+
+/// One priced line in an engagement letter's Fees section.
+///
+/// Amounts are paise and the letter carries no computed total: an engagement
+/// mixes monthly, quarterly and yearly bases, so a single sum of the column
+/// would be a number that means nothing. Each line states its own basis.
+model EngagementFeeItem {
+  id        String @id @default(uuid())
+  letterId  String
+  sortOrder Int    @default(0)
+
+  service     String
+  description String?
+  /// 'per month', 'per quarter', 'per year', 'per return' — free text.
+  frequency   String?
+  amountPaise Int     @default(0)
+  /// How it is billed, when that needs saying beyond the frequency.
+  billingBasis String?
+  notes        String?
+
+  letter EngagementLetter @relation(fields: [letterId], references: [id], onDelete: Cascade)
+
+  @@index([letterId, sortOrder])
 }

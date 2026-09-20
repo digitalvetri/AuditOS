@@ -23,6 +23,7 @@ import {
   ChevronsLeft,
   ChevronsRight,
   Clock,
+  FileSignature,
   FileText,
   FolderKanban,
   Handshake,
@@ -36,6 +37,7 @@ import {
   ReceiptIndianRupee,
   Settings,
   Users,
+  ScrollText,
   Wallet,
   Wrench,
   type LucideIcon,
@@ -103,6 +105,11 @@ export function Sidebar({ mobileOpen, onMobileClose }: Props) {
     // workstation.access grant see nothing here.
     const workstationItems: NavItem[] = [
       { to: '/workstation',             label: 'Overview',   icon: LayoutGrid,    end: true, visible: can(role, 'workstation.access', 'self') },
+      /* Quotation is its own module. Billing — invoices, receipts, what is
+         actually charged — is a separate thing and gets its own row when it
+         exists; a quotation is a proposal and is not billing. */
+      { to: '/workstation/quotations',  label: 'Quotation',  icon: FileSignature, end: true, visible: can(role, 'workstation.quotation.read', 'self') },
+      { to: '/workstation/engagement',  label: 'Engagement', icon: ScrollText,    visible: can(role, 'workstation.engagement.read', 'self') },
       { to: '/workstation/leads',       label: 'Leads',      icon: PhoneCall,     visible: can(role, 'workstation.lead.read', 'self') },
       { to: '/workstation/clients',     label: 'Clients',    icon: Handshake,     visible: can(role, 'workstation.client.read', 'self') },
       { to: '/workstation/follow-ups',  label: 'Follow-ups', icon: Clock,         visible: can(role, 'workstation.followup.read', 'self') },

@@ -75,3 +75,38 @@ export async function nextRegistrationCode(tx: Tx, year: number): Promise<string
   }
   return `${prefix}${String(max + 1).padStart(4, '0')}`
 }
+
+/**
+ * 'QT-2026-0001' — per-YEAR sequence, same rule as the two above: read the
+ * maximum inside the creating transaction, soft-deleted rows included,
+ * because `quotationCode` is @unique and a retired code must never be handed
+ * out twice.
+ */
+export async function nextQuotationCode(tx: Tx, year: number): Promise<string> {
+  const prefix = `QT-${year}-`
+  const rows = await tx.quotation.findMany({
+    where: { quotationCode: { startsWith: prefix } },
+    select: { quotationCode: true },
+  })
+  let max = 0
+  for (const r of rows) {
+    const n = Number(r.quotationCode.slice(prefix.length))
+    if (Number.isFinite(n) && n > max) max = n
+  }
+  return `${prefix}${String(max + 1).padStart(4, '0')}`
+}
+
+/** 'EL-2026-0001' — per-year, allocated inside the creating transaction. */
+export async function nextEngagementCode(tx: Tx, year: number): Promise<string> {
+  const prefix = `EL-${year}-`
+  const rows = await tx.engagementLetter.findMany({
+    where: { letterCode: { startsWith: prefix } },
+    select: { letterCode: true },
+  })
+  let max = 0
+  for (const r of rows) {
+    const n = Number(r.letterCode.slice(prefix.length))
+    if (Number.isFinite(n) && n > max) max = n
+  }
+  return `${prefix}${String(max + 1).padStart(4, '0')}`
+}

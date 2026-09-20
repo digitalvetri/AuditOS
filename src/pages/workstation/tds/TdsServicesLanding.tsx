@@ -15,7 +15,7 @@ import { Link, useSearchParams } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { BellRing, ChevronRight, ExternalLink, Users } from 'lucide-react';
 import { workstationApi } from '@/modules/workstation/api';
-import { TDS_SUB_SERVICES, type TdsSubService } from './services';
+import { TDS_PORTAL, TDS_SUB_SERVICES, type TdsSubService } from './services';
 import { fyLabelForDate, fyRange } from './config';
 import {
   challanStatus,
@@ -93,9 +93,22 @@ export function TdsServicesLanding() {
 
   return (
     <div className="space-y-4">
-      <header>
-        <div className="text-11 uppercase tracking-[0.06em] text-neutral-500">Workstation · Services</div>
-        <h1 className="text-20 font-semibold text-neutral-900 mt-1">TDS</h1>
+      <header className="flex items-start justify-between gap-4">
+        <div>
+          <div className="text-11 uppercase tracking-[0.06em] text-neutral-500">Workstation · Services</div>
+          <h1 className="text-20 font-semibold text-neutral-900 mt-1">TDS</h1>
+        </div>
+        <a
+          href={TDS_PORTAL.url}
+          target="_blank"
+          rel="noopener noreferrer"
+          title={TDS_PORTAL.label}
+          aria-label={`Open ${TDS_PORTAL.label} in a new tab`}
+          className="shrink-0 inline-flex items-center gap-2 h-10 px-4 rounded-md bg-primary text-white text-14 font-medium hover:bg-primaryHover transition-colors"
+        >
+          <ExternalLink size={16} strokeWidth={2} />
+          <span className="hidden sm:inline">Visit portal</span>
+        </a>
       </header>
 
       {/* Sticky selector strip */}
