@@ -27,6 +27,10 @@ import {
 } from './serialize.js'
 import { bookkeepingImportStorage, importStorageKey } from './storage.js'
 import { validateImport } from './imports.js'
+import { parseTrialBalanceCsv } from './parsers/trialBalance.js'
+import { classify, loadLedgerGroups } from './ledgerGroups.js'
+import { reportsForPeriod } from './reports.js'
+import { evaluateGate, loadPeriodGateContext } from './gates.js'
 
 /**
  * BOOKKEEPING SERVICE.
@@ -551,9 +555,16 @@ bookkeepingRouter.get('/periods/:id', handler(async (req, res) => {
     ...row.imports.map((i) => i.importedByEmployeeId),
   ])
 
+  // One evidence fetch per period covers every task's gate. Stages that
+  // carry no gate rule get `null` back and render as an ordinary task.
+  const gateCtx = await loadPeriodGateContext(prisma, row.id)
+
   ok(res, {
     period: periodToApi(row, m, progressFrom(row.tasks)),
-    tasks: row.tasks.map((t) => taskToApi(t, m)),
+    tasks: row.tasks.map((t) => taskToApi(t, m, evaluateGate(gateCtx, {
+      gateRuleSlug: t.stage?.gateRuleSlug ?? null,
+      taskId: t.id,
+    }))),
     pending_items: row.pendingItems.map((p) => pendingItemToApi(p, m)),
     document_requests: row.documentRequests.map((d) => documentRequestToApi(d, m)),
     deliverables: row.deliverables.map((d) => deliverableToApi(d, m)),
@@ -743,7 +754,10 @@ bookkeepingRouter.get('/tasks/:id', handler(async (req, res) => {
 bookkeepingRouter.patch('/tasks/:id', handler(async (req, res) => {
   const session = requireSession(req)
   const scope = requireWorkstation(session, ...MANAGE)
-  const before = await prisma.bookkeepingTask.findFirst({ where: { ...alive, id: req.params.id } })
+  const before = await prisma.bookkeepingTask.findFirst({
+    where: { ...alive, id: req.params.id },
+    include: { stage: true },
+  })
   if (!before) throw ApiError.notFound('Task not found.')
   await assertCanSeeClient(session, scope, before.clientId)
 
@@ -759,6 +773,28 @@ bookkeepingRouter.patch('/tasks/:id', handler(async (req, res) => {
   if (b.due_date !== undefined) data.dueDate = f.date('due_date', b.due_date, false) ?? null
   if (b.notes !== undefined) data.notes = f.str('notes', b.notes, { required: false, max: 2000 }) ?? null
   f.throwIfAny()
+
+  // Gate enforcement (spec §7). Completing a task that carries a gate rule
+  // requires the rule to pass, unless the firm has disabled the rule. The
+  // check runs BEFORE the write so an ungated task is never written and
+  // then rolled back. Only a status transition INTO 'completed' triggers
+  // the check — a re-open (completed → pending) can never fail a gate.
+  if (data.status === 'completed'
+      && before.status !== 'completed'
+      && before.stage?.gateRuleSlug
+      && before.periodId) {
+    const ctx = await loadPeriodGateContext(prisma, before.periodId)
+    const gate = evaluateGate(ctx, {
+      gateRuleSlug: before.stage.gateRuleSlug,
+      taskId: before.id,
+    })
+    if (gate && gate.is_enforced && !gate.passed) {
+      throw ApiError.unprocessable('gated', gate.reason ?? 'This task is blocked by an unmet gate.', {
+        gate_slug: gate.slug,
+        action: gate.action,
+      })
+    }
+  }
 
   if (data.status === 'completed') {
     data.completedAt = new Date()
@@ -782,7 +818,15 @@ bookkeepingRouter.patch('/tasks/:id', handler(async (req, res) => {
     })
   }
   const m = await employeeMap([row.assignedEmployeeId, row.completedByEmployeeId])
-  ok(res, taskToApi(row, m))
+  // Recompute the gate for the response so the UI never renders a "passed"
+  // state that just failed to save. `all_other_tasks_complete` in
+  // particular flips as tasks around this one change.
+  const gate = row.periodId && row.stage?.gateRuleSlug
+    ? evaluateGate(await loadPeriodGateContext(prisma, row.periodId), {
+        gateRuleSlug: row.stage.gateRuleSlug, taskId: row.id,
+      })
+    : null
+  ok(res, taskToApi(row, m, gate))
 }))
 
 // ── Pending items ─────────────────────────────────────────────────────────
@@ -1102,10 +1146,55 @@ bookkeepingRouter.post('/imports',
       throw ApiError.unprocessable('storage_failed', 'The file could not be saved.')
     }
 
-    const stored = await prisma.bookkeepingImport.update({
+    let stored = await prisma.bookkeepingImport.update({
       where: { id: importRow.id },
       data: { storagePath: key },
     })
+
+    // Trial balances parse INTO BookkeepingLedgerBalance so the Reports
+    // tab has numbers to render. Other kinds land their file today and
+    // wait for their per-kind parser in a follow-up PR. A parser failure
+    // never invalidates the file — the row moves to parse_failed with the
+    // reason, and the file is retained for a reviewer.
+    if (outcome.status === 'imported' && kind === 'trial_balance') {
+      try {
+        const text = file.buffer.toString('utf8')
+        const parsed = parseTrialBalanceCsv(text)
+        const groups = await loadLedgerGroups(prisma)
+        await prisma.$transaction([
+          prisma.bookkeepingLedgerBalance.deleteMany({ where: { importId: stored.id } }),
+          prisma.bookkeepingLedgerBalance.createMany({
+            data: parsed.rows.map((r) => {
+              const cls = classify(groups, r.parentGroup)
+              return {
+                importId: stored.id,
+                ledgerName: r.ledgerName,
+                parentGroup: r.parentGroup,
+                category: cls.category,
+                subtype: cls.subtype,
+                openingPaise: r.openingPaise,
+                debitPaise: r.debitPaise,
+                creditPaise: r.creditPaise,
+                closingPaise: r.closingPaise,
+                raw: r.raw,
+              }
+            }),
+          }),
+        ])
+        stored = await prisma.bookkeepingImport.update({
+          where: { id: stored.id },
+          data: { rowCount: parsed.rowCount },
+        })
+      } catch (err) {
+        stored = await prisma.bookkeepingImport.update({
+          where: { id: stored.id },
+          data: {
+            status: 'parse_failed',
+            errorDetail: err instanceof Error ? err.message : String(err),
+          },
+        })
+      }
+    }
 
     await writeAudit({
       actorUserId: session.userId, action: 'bookkeeping.import.create',
@@ -1113,14 +1202,35 @@ bookkeepingRouter.post('/imports',
     })
     await writeBkActivity({
       clientId: period.engagement.clientId, periodId: period.id, actorUserId: session.userId,
-      action: `Import ${outcome.status}`,
-      detail: `${kind!.replace(/_/g, ' ')} · ${file.originalname}${outcome.reason ? ` — ${outcome.reason}` : ''}`,
+      action: `Import ${stored.status}`,
+      detail: `${kind!.replace(/_/g, ' ')} · ${file.originalname}${stored.errorDetail ? ` — ${stored.errorDetail}` : ''}`,
     })
 
     const m = await employeeMap([stored.importedByEmployeeId])
     ok(res, importToApi(stored, m), 201)
   }),
 )
+
+// GET /api/bookkeeping/periods/:id/reports
+//
+// The Reports tab (spec §6.5). All five reports are derived from the
+// latest imported trial balance for the period; if none exists, every
+// report returns { available:false } with a verbatim empty-state message.
+//
+// Declared BEFORE the /imports list so `/periods/:id/reports` doesn't
+// need a separate router mount.
+bookkeepingRouter.get('/periods/:id/reports', handler(async (req, res) => {
+  const session = requireSession(req)
+  const scope = requireWorkstation(session, ...READ)
+  const period = await prisma.bookkeepingPeriod.findFirst({
+    where: { ...alive, id: req.params.id },
+    include: { engagement: true },
+  })
+  if (!period) throw ApiError.notFound('Period not found.')
+  await assertCanSeeClient(session, scope, period.engagement.clientId)
+  const reports = await reportsForPeriod(prisma, period.id)
+  ok(res, { reports })
+}))
 
 // GET /api/bookkeeping/imports?period_id=&kind=
 bookkeepingRouter.get('/imports', handler(async (req, res) => {

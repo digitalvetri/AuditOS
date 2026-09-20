@@ -4735,6 +4735,75 @@ model BookkeepingLedgerBalance {
   @@index([category, subtype])
 }
 
+/// Group-to-category mapping for the Reports tab (spec §6.5).
+///
+/// Classification is by PARENT GROUP, never by ledger name — firms name
+/// ledgers differently, but Tally's group hierarchy is standard. The ten
+/// system rows here are seeded once and never mutated; a firm that keeps
+/// a custom group inserts a NON-system row to teach the reports how to
+/// classify it. Deleting a row a period actually referenced would blank
+/// its report line — hence `deletedAt` on non-system rows and a hard
+/// guard against removing system rows.
+model BookkeepingLedgerGroup {
+  id   String @id @default(uuid())
+  /// Exact match against BookkeepingLedgerBalance.parentGroup — trim of
+  /// outer whitespace is the ONLY normalisation.
+  name String @unique
+
+  /// asset | liability | income | expense | equity
+  category String
+  /// cash | bank | receivable | payable | gst | other
+  subtype  String @default("other")
+
+  /// System rows: seeded from spec §6.5 and immutable through the UI.
+  isSystem Boolean @default(false)
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  @@index([category, subtype])
+}
+
+/// GATE RULES (spec §4.3, §7). Tasks that assert work was done should
+/// require evidence that it was — a "Reconcile Bank" task cannot honestly
+/// be marked complete without a bank statement on record for the period.
+///
+/// Each workflow stage carries a nullable `gateRuleSlug` pointing at a
+/// row here; the evaluator (server/src/modules/bookkeeping/gates.ts)
+/// resolves the row on task read and again on PATCH-to-completed. Rules
+/// are DATA-driven — `requires` is the evaluator's dispatch key and
+/// `requiresValue` is its parameter — so a firm can add a rule ("must
+/// have a Form 26AS import for TDS periods") without a code change.
+///
+/// `isEnforced` false → the rule STILL runs and the UI still shows the
+/// reason, but the API allows the task to be completed anyway. That is
+/// the escape hatch spec §7 explicitly asks for: "a firm may switch one
+/// off rather than working around it."
+model BookkeepingGateRule {
+  /// The value on BookkeepingWorkflowStage.gateRuleSlug.
+  slug        String @id
+  description String
+
+  /// document | import | all_other_tasks_complete
+  requires      String
+  /// For requires='document': the BookkeepingDocumentRequest.documentType.
+  /// For requires='import':   the BookkeepingImport.kind.
+  /// For requires='all_other_tasks_complete': null.
+  requiresValue String?
+
+  isEnforced Boolean @default(true)
+
+  /// Where the UI sends the user when the gate fails. Section is a
+  /// Monthly Work sub-tab slug ('data', 'checklist', …); label is the
+  /// short call-to-action.
+  actionSection String?
+  actionLabel   String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
 // ============================================================
 // INCORPORATION SERVICE (Workstation → Services → Incorporation)
 // ============================================================

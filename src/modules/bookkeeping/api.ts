@@ -2,7 +2,7 @@ import { api } from '@/services/api';
 import type {
   Activity, BookkeepingClient, ClientDetailResponse, Deliverable, DocumentRequest,
   Engagement, GridResponse, Import, ListResponse, OverviewResponse, PendingItem,
-  Period, PeriodDetailResponse, Reminder, SettingsResponse, Task,
+  Period, PeriodDetailResponse, Reminder, ReportsResponse, SettingsResponse, Task,
 } from './types';
 
 /** Empty values are dropped so an unset filter never reaches the server as `?status=`. */
@@ -73,6 +73,9 @@ export const bookkeepingApi = {
   createReminder: (input: Record<string, unknown>) => api.post<Reminder>(`${B}/reminders`, input),
   updateReminder: (id: string, input: Record<string, unknown>) =>
     api.patch<Reminder>(`${B}/reminders/${id}`, input),
+
+  reports: (periodId: string) =>
+    api.get<ReportsResponse>(`${B}/periods/${periodId}/reports`),
 
   listImports: (f: Record<string, string> = {}) =>
     api.get<ListResponse<Import>>(`${B}/imports${qs(f)}`),

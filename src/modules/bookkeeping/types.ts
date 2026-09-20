@@ -44,6 +44,22 @@ export interface WorkflowStage {
   gate_rule_slug: string | null; is_active: boolean;
 }
 
+/**
+ * The result of a gate rule evaluation for one task on one period.
+ * `passed=false && is_enforced=true` means the API will reject a
+ * completion PATCH (422) and the UI mirrors that as a disabled control.
+ * `passed=false && is_enforced=false` — the firm has disabled this rule;
+ * the reason still surfaces so the reviewer can see WHY the check would
+ * otherwise fail, but the API allows completion.
+ */
+export interface TaskGate {
+  slug: string;
+  is_enforced: boolean;
+  passed: boolean;
+  reason: string | null;
+  action: { section: string; label: string } | null;
+}
+
 export interface Task {
   id: string; period_id: string | null; period_label: string | null; client_id: string;
   client_name: string | null; title: string; description: string | null; category: string;
@@ -56,6 +72,8 @@ export interface Task {
    */
   stage_id: string | null;
   stage: { id: string; slug: string; name: string; sequence: number } | null;
+  /** Gate evaluation for this task's stage rule. `null` if the stage carries no gate. */
+  gate: TaskGate | null;
 }
 
 export interface PendingItem {
@@ -185,6 +203,47 @@ export interface PeriodDetailResponse {
   imports: Import[];
   workflow_stages: WorkflowStage[];
   /** @deprecated use workflow_stages */ workflow_steps: string[];
+}
+
+// ── Reports (spec §6.5) ─────────────────────────────────────────────────
+export type ReportKind = 'trial_balance' | 'profit_and_loss' | 'balance_sheet' | 'debtors' | 'creditors';
+
+export interface ReportLine {
+  ledger_name: string;
+  parent_group: string;
+  category: string;
+  subtype: string;
+  opening: string;   // rupees.paise as string, e.g. "1500.00"
+  debit: string;
+  credit: string;
+  closing: string;
+}
+
+export interface ReportSection {
+  label: string;
+  lines: ReportLine[];
+  total_paise: string;
+}
+
+export interface ReportView {
+  available: true;
+  as_of_period_end: string | null;
+  imported_at: string | null;
+  imported_by: string | null;
+  sections: ReportSection[];
+  totals: Record<string, string>;
+}
+
+export interface UnavailableReport {
+  available: false;
+  missing_import: 'trial_balance';
+  message: string;   // verbatim spec §6.5 empty-state text
+}
+
+export type ReportEntry = ReportView | UnavailableReport;
+
+export interface ReportsResponse {
+  reports: Record<ReportKind, ReportEntry>;
 }
 
 export interface SettingsResponse {

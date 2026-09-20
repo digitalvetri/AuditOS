@@ -3,6 +3,9 @@ import { CHECKLIST_TEMPLATE } from '../src/modules/bookkeeping/validate.js'
 import {
   ensureStageTasksForPeriod, migrateChecklistToTasks, seedWorkflowStages,
 } from './seed-bookkeeping-stages.js'
+import { seedBookkeepingLedgerGroups } from './seed-bookkeeping-groups.js'
+import { seedBookkeepingGateRules } from './seed-bookkeeping-gates.js'
+import { seedDemoTrialBalance } from './seed-bookkeeping-reports.js'
 
 /**
  * BOOKKEEPING SERVICE demo data — engagements over the firm's real clients,
@@ -15,20 +18,27 @@ import {
  * exercise; on the live month, tasks alone hold state.
  */
 export async function seedBookkeeping(prisma: PrismaClient, organisationId: string) {
-  // Workflow stages are a prerequisite for any new period, regardless of
-  // whether demo engagements exist yet — the config table must always be
-  // in sync with the code.
+  // Workflow stages and the ledger-group classifier are both prerequisites
+  // for the periods and imports below, and both are config the code owns —
+  // they must always be in sync with the code, regardless of demo data.
   await seedWorkflowStages(prisma)
+  await seedBookkeepingLedgerGroups(prisma)
+  await seedBookkeepingGateRules(prisma)
 
   const existing = await prisma.bookkeepingEngagement.count()
   if (existing > 0) {
     // Existing database: migrate any legacy checklist state onto the stage
-    // tasks and backfill missing stage tasks.
+    // tasks and backfill missing stage tasks. Also seed a demo trial
+    // balance for the middle month of every engagement so Reports has
+    // real numbers on `docker compose up` even when the demo data was
+    // laid down before this seed step existed.
     const migration = await migrateChecklistToTasks(prisma)
+    const reports = await seedDemoTrialBalance(prisma)
     return {
       engagements: existing,
       periods: await prisma.bookkeepingPeriod.count(),
       migration,
+      reports,
     }
   }
 
@@ -195,6 +205,7 @@ export async function seedBookkeeping(prisma: PrismaClient, organisationId: stri
   // For the demo seed we also run the migration so any legacy checklist rows
   // we just inserted are folded into stage tasks — proves the path end-to-end.
   const migration = await migrateChecklistToTasks(prisma)
+  const reports = await seedDemoTrialBalance(prisma)
 
-  return { engagements: clients.length, periods, migration }
+  return { engagements: clients.length, periods, migration, reports }
 }

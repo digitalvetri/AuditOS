@@ -72,6 +72,14 @@ export const workflowStageToApi = (s: BookkeepingWorkflowStage) => ({
   is_active: s.isActive,
 })
 
+export interface TaskGateApi {
+  slug: string
+  is_enforced: boolean
+  passed: boolean
+  reason: string | null
+  action: { section: string; label: string } | null
+}
+
 export const taskToApi = (
   t: BookkeepingTask & {
     client?: Client | null
@@ -79,6 +87,7 @@ export const taskToApi = (
     stage?: BookkeepingWorkflowStage | null
   },
   m: EmployeeLookup,
+  gate?: TaskGateApi | null,
 ) => ({
   id: t.id,
   period_id: t.periodId,
@@ -101,6 +110,13 @@ export const taskToApi = (
   completed_by: ref(m, t.completedByEmployeeId),
   notes: t.notes,
   created_at: iso(t.createdAt),
+  /**
+   * `gate` is present on stage tasks whose stage carries a gate rule.
+   * When passed=false and is_enforced=true, the API rejects a
+   * completion PATCH with 422 — the UI mirrors that as a disabled
+   * control with the reason and an action shortcut.
+   */
+  gate: gate ?? null,
 })
 
 export const pendingItemToApi = (
