@@ -356,12 +356,12 @@ model Employee {
   weeklyCapacityHours Float?
 
   // Task module back-relations (Workstation → Task).
-  assignedTasks  Task[]                @relation("TaskAssignee")
-  quotations     Quotation[]           @relation("QuotationPreparedBy")
-  engagementLetters EngagementLetter[]  @relation("EngagementPreparedBy")
-  raisedTasks    Task[]                @relation("TaskAssigner")
-  taskSessions   TaskTimeSession[]
-  checklistItems ClientChecklistItem[] @relation("ChecklistAssignee")
+  assignedTasks     Task[]                @relation("TaskAssignee")
+  quotations        Quotation[]           @relation("QuotationPreparedBy")
+  engagementLetters EngagementLetter[]    @relation("EngagementPreparedBy")
+  raisedTasks       Task[]                @relation("TaskAssigner")
+  taskSessions      TaskTimeSession[]
+  checklistItems    ClientChecklistItem[] @relation("ChecklistAssignee")
 
   photoUrl              String?
   address               String?
@@ -1068,9 +1068,9 @@ model Lead {
   convertedClientId String?   @unique
   convertedAt       DateTime?
 
-  service    Service     @relation(fields: [serviceId], references: [id])
-  followUps  FollowUp[]
-  quotations Quotation[]
+  service           Service            @relation(fields: [serviceId], references: [id])
+  followUps         FollowUp[]
+  quotations        Quotation[]
   engagementLetters EngagementLetter[]
 
   /// System-generated (§5.2). Never accepted from a request body.
@@ -4404,8 +4404,12 @@ model BookkeepingPeriod {
   @@index([dueDate])
 }
 
-/// A line on the month's standard checklist, seeded from CHECKLIST_TEMPLATE
-/// when the period is created. State lives here, never in React.
+/// DEPRECATED. The monthly checklist is now a rendering of BookkeepingTask
+/// rows grouped by BookkeepingWorkflowStage — one task per stage per period.
+/// This table is retained only so `prisma db push` never has to drop it (see
+/// docker-compose.yml note): existing rows migrated their state onto tasks
+/// via seed-bookkeeping-stages.ts, and no code path reads or writes here.
+/// A follow-up PR drops the table once every environment has migrated.
 model BookkeepingChecklistItem {
   id       String @id @default(uuid())
   periodId String
@@ -4427,10 +4431,42 @@ model BookkeepingChecklistItem {
   @@index([periodId, sortOrder])
 }
 
+/// The monthly workflow — one config row per stage of a bookkeeping close.
+/// Every BookkeepingTask on a period is derived from one of these, so the
+/// "checklist", the "task list" and the "workflow panel" are three renderings
+/// of the same underlying record. Sequence orders the render; slug is stable.
+model BookkeepingWorkflowStage {
+  id                String  @id @default(uuid())
+  sequence          Int     @unique
+  name              String
+  slug              String  @unique
+  /// The category to stamp on tasks seeded from this stage.
+  defaultCategory   String  @default("other")
+  /// Offset in days from the period end to seed the task's due date at. Used
+  /// when the future auto-due-date generator (PR-2) runs; today it seeds a
+  /// null due date and the user still enters it manually.
+  defaultOffsetDays Int     @default(0)
+  /// Nullable pointer to a gate rule (PR-6). Left as a plain string rather
+  /// than a FK so the rules table can arrive later without a data migration.
+  gateRuleSlug      String?
+  isActive          Boolean @default(true)
+
+  tasks BookkeepingTask[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([isActive, sequence])
+}
+
 model BookkeepingTask {
   id       String  @id @default(uuid())
   periodId String?
   clientId String
+  /// The workflow stage this task represents. Null means an ad-hoc task
+  /// created outside the standard monthly workflow (retained for
+  /// backwards compatibility with rows migrated from the old task table).
+  stageId  String?
 
   title       String
   description String?
@@ -4442,21 +4478,29 @@ model BookkeepingTask {
   /// pending | in_progress | completed | blocked | cancelled
   status      String  @default("pending")
 
-  assignedEmployeeId String
-  dueDate            String?
-  completedAt        DateTime?
-  createdById        String?
-  notes              String?
+  assignedEmployeeId    String
+  dueDate               String?
+  completedAt           DateTime?
+  completedByEmployeeId String?
+  createdById           String?
+  notes                 String?
 
-  period BookkeepingPeriod? @relation(fields: [periodId], references: [id])
-  client Client             @relation(fields: [clientId], references: [id])
+  period BookkeepingPeriod?        @relation(fields: [periodId], references: [id])
+  client Client                    @relation(fields: [clientId], references: [id])
+  stage  BookkeepingWorkflowStage? @relation(fields: [stageId], references: [id])
 
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt
   deletedAt DateTime?
 
+  /// The (period_id, stage_id) invariant — one task per stage per period —
+  /// is enforced at the application layer today (upsert in service.ts and
+  /// the seed migration). A DB-level UNIQUE will be added in a follow-up PR
+  /// once every environment has migrated, because `prisma db push` refuses
+  /// to add a UNIQUE constraint on live data without --accept-data-loss.
   @@index([clientId])
   @@index([periodId])
+  @@index([periodId, stageId])
   @@index([status])
   @@index([assignedEmployeeId, status])
   @@index([dueDate])
@@ -5948,16 +5992,16 @@ model EngagementLetter {
   /// has already gone out, so the document reads this snapshot once set.
   recipientSnapshot Json?
 
-  templateId String @default("jns-accounting")
+  templateId   String @default("jns-accounting")
   /// Ordered document blocks: paragraphs, titled sections, the fee table,
   /// spacers and the signature. The whole body of the letter.
-  blockConfig Json?
+  blockConfig  Json?
   /// Page size, margins, fonts — stored as sent.
   layoutConfig Json?
 
   /// Who signs on the firm's side, as printed.
-  signatoryName        String?
-  signatoryDesignation String?
+  signatoryName              String?
+  signatoryDesignation       String?
   /// Who countersigns, as printed on the confirmation line.
   clientSignatoryName        String?
   clientSignatoryDesignation String?
@@ -5967,9 +6011,9 @@ model EngagementLetter {
   sentAt     DateTime?
   acceptedAt DateTime?
 
-  lead       Lead?     @relation(fields: [leadId], references: [id])
-  client     Client?   @relation(fields: [clientId], references: [id])
-  preparedBy Employee? @relation("EngagementPreparedBy", fields: [preparedById], references: [id])
+  lead       Lead?               @relation(fields: [leadId], references: [id])
+  client     Client?             @relation(fields: [clientId], references: [id])
+  preparedBy Employee?           @relation("EngagementPreparedBy", fields: [preparedById], references: [id])
   feeItems   EngagementFeeItem[]
 
   createdAt DateTime  @default(now())
@@ -5995,11 +6039,11 @@ model EngagementFeeItem {
   letterId  String
   sortOrder Int    @default(0)
 
-  service     String
-  description String?
+  service      String
+  description  String?
   /// 'per month', 'per quarter', 'per year', 'per return' — free text.
-  frequency   String?
-  amountPaise Int     @default(0)
+  frequency    String?
+  amountPaise  Int     @default(0)
   /// How it is billed, when that needs saying beyond the frequency.
   billingBasis String?
   notes        String?

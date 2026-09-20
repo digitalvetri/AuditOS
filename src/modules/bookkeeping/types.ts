@@ -29,16 +29,24 @@ export interface BookkeepingClient extends Engagement {
   current_period_status: string | null; pending_items: number; books_org_id: string | null;
 }
 
-export interface ChecklistItem {
-  id: string; period_id: string; label: string; status: string; sort_order: number;
-  notes: string | null; completed_at: string | null; completed_by: EmployeeRef | null;
+export interface WorkflowStage {
+  id: string; sequence: number; name: string; slug: string;
+  default_category: string; default_offset_days: number;
+  gate_rule_slug: string | null; is_active: boolean;
 }
 
 export interface Task {
   id: string; period_id: string | null; period_label: string | null; client_id: string;
   client_name: string | null; title: string; description: string | null; category: string;
   priority: string; status: string; assigned_employee: EmployeeRef | null;
-  due_date: string | null; completed_at: string | null; notes: string | null;
+  due_date: string | null; completed_at: string | null; completed_by: EmployeeRef | null;
+  notes: string | null;
+  /**
+   * The workflow stage this task represents. `null` for ad-hoc tasks that
+   * live on the period outside the standard monthly workflow.
+   */
+  stage_id: string | null;
+  stage: { id: string; slug: string; name: string; sequence: number } | null;
 }
 
 export interface PendingItem {
@@ -80,19 +88,22 @@ export interface OverviewResponse { kpis: Kpis; upcoming: Period[]; scope: strin
 
 export interface ClientDetailResponse {
   engagement: Engagement; periods: Period[]; books_org_id: string | null;
-  workflow_steps: string[];
+  workflow_stages: WorkflowStage[];
+  /** @deprecated use workflow_stages */ workflow_steps: string[];
 }
 
 export interface PeriodDetailResponse {
-  period: Period; checklist: ChecklistItem[]; tasks: Task[];
+  period: Period; tasks: Task[];
   pending_items: PendingItem[]; document_requests: DocumentRequest[];
-  deliverables: Deliverable[]; workflow_steps: string[];
+  deliverables: Deliverable[]; workflow_stages: WorkflowStage[];
+  /** @deprecated use workflow_stages */ workflow_steps: string[];
 }
 
 export interface SettingsResponse {
   engagement_statuses: string[]; billing_frequencies: string[]; period_statuses: string[];
-  checklist_statuses: string[]; task_statuses: string[]; task_categories: string[];
+  task_statuses: string[]; task_categories: string[];
   priorities: string[]; pending_statuses: string[]; pending_categories: string[];
   document_types: string[]; docreq_statuses: string[]; deliverable_types: string[];
-  deliverable_statuses: string[]; workflow_steps: string[]; checklist_template: string[];
+  deliverable_statuses: string[]; workflow_stages: WorkflowStage[];
+  /** @deprecated use workflow_stages */ workflow_steps: string[];
 }
