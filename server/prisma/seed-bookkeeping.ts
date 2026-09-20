@@ -4,6 +4,7 @@ import {
   ensureStageTasksForPeriod, migrateChecklistToTasks, seedWorkflowStages,
 } from './seed-bookkeeping-stages.js'
 import { seedBookkeepingLedgerGroups } from './seed-bookkeeping-groups.js'
+import { seedBookkeepingGateRules } from './seed-bookkeeping-gates.js'
 import { seedDemoTrialBalance } from './seed-bookkeeping-reports.js'
 
 /**
@@ -22,6 +23,7 @@ export async function seedBookkeeping(prisma: PrismaClient, organisationId: stri
   // they must always be in sync with the code, regardless of demo data.
   await seedWorkflowStages(prisma)
   await seedBookkeepingLedgerGroups(prisma)
+  await seedBookkeepingGateRules(prisma)
 
   const existing = await prisma.bookkeepingEngagement.count()
   if (existing > 0) {

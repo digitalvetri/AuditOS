@@ -44,6 +44,22 @@ export interface WorkflowStage {
   gate_rule_slug: string | null; is_active: boolean;
 }
 
+/**
+ * The result of a gate rule evaluation for one task on one period.
+ * `passed=false && is_enforced=true` means the API will reject a
+ * completion PATCH (422) and the UI mirrors that as a disabled control.
+ * `passed=false && is_enforced=false` — the firm has disabled this rule;
+ * the reason still surfaces so the reviewer can see WHY the check would
+ * otherwise fail, but the API allows completion.
+ */
+export interface TaskGate {
+  slug: string;
+  is_enforced: boolean;
+  passed: boolean;
+  reason: string | null;
+  action: { section: string; label: string } | null;
+}
+
 export interface Task {
   id: string; period_id: string | null; period_label: string | null; client_id: string;
   client_name: string | null; title: string; description: string | null; category: string;
@@ -56,6 +72,8 @@ export interface Task {
    */
   stage_id: string | null;
   stage: { id: string; slug: string; name: string; sequence: number } | null;
+  /** Gate evaluation for this task's stage rule. `null` if the stage carries no gate. */
+  gate: TaskGate | null;
 }
 
 export interface PendingItem {
