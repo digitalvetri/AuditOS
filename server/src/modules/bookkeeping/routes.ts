@@ -16,7 +16,7 @@ import {
 } from './validate.js'
 import {
   createPeriodWithTasks, overviewKpis, progressByPeriod, progressFrom,
-  today, writeBkActivity,
+  recomputeOpenPeriodsForEngagement, today, writeBkActivity,
 } from './service.js'
 import {
   activityToApi, deliverableToApi, documentRequestToApi,
@@ -192,6 +192,10 @@ bookkeepingRouter.post('/engagements', handler(async (req, res) => {
   const serviceStartDate = f.date('service_start_date', b.service_start_date, true)
   const assignedEmployeeId = f.str('assigned_employee_id', b.assigned_employee_id)
   const billingFrequency = f.oneOf('billing_frequency', b.billing_frequency ?? 'monthly', BILLING_FREQUENCIES)
+  const dueOffsetDaysRaw = b.due_offset_days === undefined ? 5 : Number(b.due_offset_days)
+  if (!Number.isInteger(dueOffsetDaysRaw) || dueOffsetDaysRaw < 0 || dueOffsetDaysRaw > 60) {
+    f.add('due_offset_days', 'Enter a whole number of days between 0 and 60.')
+  }
   const nextDueDate = f.date('next_due_date', b.next_due_date, false)
   const notes = f.str('notes', b.notes, { required: false, max: 2000 })
   f.throwIfAny()
@@ -206,7 +210,8 @@ bookkeepingRouter.post('/engagements', handler(async (req, res) => {
   const row = await prisma.bookkeepingEngagement.create({
     data: {
       clientId: clientId!, serviceStartDate: serviceStartDate!, assignedEmployeeId: assignedEmployeeId!,
-      billingFrequency: billingFrequency!, nextDueDate: nextDueDate ?? null, notes: notes ?? null,
+      billingFrequency: billingFrequency!, dueOffsetDays: dueOffsetDaysRaw,
+      nextDueDate: nextDueDate ?? null, notes: notes ?? null,
       createdBy: session.userId,
     },
     include: { client: true },
@@ -239,6 +244,14 @@ bookkeepingRouter.patch('/engagements/:id', handler(async (req, res) => {
   if (b.status !== undefined) data.status = f.oneOf('status', b.status, ENGAGEMENT_STATUSES)
   if (b.assigned_employee_id !== undefined) data.assignedEmployeeId = f.str('assigned_employee_id', b.assigned_employee_id)
   if (b.billing_frequency !== undefined) data.billingFrequency = f.oneOf('billing_frequency', b.billing_frequency, BILLING_FREQUENCIES)
+  if (b.due_offset_days !== undefined) {
+    const n = Number(b.due_offset_days)
+    if (!Number.isInteger(n) || n < 0 || n > 60) {
+      f.add('due_offset_days', 'Enter a whole number of days between 0 and 60.')
+    } else {
+      data.dueOffsetDays = n
+    }
+  }
   if (b.next_due_date !== undefined) data.nextDueDate = f.date('next_due_date', b.next_due_date, false) ?? null
   if (b.notes !== undefined) data.notes = f.str('notes', b.notes, { required: false, max: 2000 }) ?? null
   f.throwIfAny()
@@ -257,6 +270,21 @@ bookkeepingRouter.patch('/engagements/:id', handler(async (req, res) => {
       clientId: row.clientId, actorUserId: session.userId,
       action: 'Engagement status changed', detail: `${before.status} → ${row.status}`,
     })
+  }
+  // If the frequency or the turnaround changed, every open period's due date
+  // is now stale — recompute in the same request so the UI never renders a
+  // date that disagrees with the config that just wrote it.
+  const dueOffsetChanged = data.dueOffsetDays !== undefined && data.dueOffsetDays !== before.dueOffsetDays
+  const frequencyChanged = data.billingFrequency !== undefined && data.billingFrequency !== before.billingFrequency
+  if (dueOffsetChanged || frequencyChanged) {
+    const summary = await recomputeOpenPeriodsForEngagement(prisma, row.id)
+    if (summary.periodsMoved > 0 || summary.tasksMoved > 0) {
+      await writeBkActivity({
+        clientId: row.clientId, actorUserId: session.userId,
+        action: 'Due dates recomputed',
+        detail: `${summary.periods} open period(s); ${summary.periodsMoved} period due date(s) and ${summary.tasksMoved} task due date(s) moved to reflect ${dueOffsetChanged ? `dueOffsetDays ${before.dueOffsetDays} → ${row.dueOffsetDays}` : `frequency ${before.billingFrequency} → ${row.billingFrequency}`}.`,
+      })
+    }
   }
   const m = await employeeMap([row.assignedEmployeeId])
   ok(res, engagementToApi(row, m))

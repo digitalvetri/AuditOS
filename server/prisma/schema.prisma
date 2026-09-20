@@ -4354,6 +4354,11 @@ model BookkeepingEngagement {
   assignedEmployeeId String
   /// monthly | quarterly | annual
   billingFrequency   String  @default("monthly")
+  /// Days after period end at which the period's due date defaults. Per-client
+  /// because firms agree different turnarounds; bookkeeping carries no
+  /// statutory deadline, so every date here is an internal commitment and
+  /// must be configurable rather than constant.
+  dueOffsetDays      Int     @default(5)
   nextDueDate        String?
   notes              String?
 
@@ -4377,6 +4382,15 @@ model BookkeepingPeriod {
   engagementId String
   year         Int
   month        Int
+
+  /// The period window as calendar dates. Derived on write from year+month
+  /// and the engagement's billingFrequency (monthly: 1st→last of month;
+  /// quarterly: 1st of month→last of month+2; annual: 1st→last of month+11).
+  /// Nullable only for the backfill of pre-existing rows; new periods always
+  /// carry both. `dueDate` in turn is derived from `periodEnd` plus the
+  /// engagement's `dueOffsetDays`, adjusted forward off weekends.
+  periodStart String?
+  periodEnd   String?
 
   /// not_started | in_progress | awaiting_documents | under_review | completed | blocked
   status             String    @default("not_started")
@@ -4402,6 +4416,7 @@ model BookkeepingPeriod {
   @@unique([engagementId, year, month])
   @@index([status])
   @@index([dueDate])
+  @@index([periodEnd])
 }
 
 /// DEPRECATED. The monthly checklist is now a rendering of BookkeepingTask

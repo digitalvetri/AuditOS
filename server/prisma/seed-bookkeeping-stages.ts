@@ -2,6 +2,10 @@ import type { PrismaClient } from '@prisma/client'
 import {
   CHECKLIST_LABEL_TO_STAGE_SLUG, WORKFLOW_STAGES, mergeChecklistStatuses,
 } from '../src/modules/bookkeeping/validate.js'
+import {
+  type BookkeepingFrequency, computeDueDate, periodEndOf, periodStartOf,
+} from '../src/modules/bookkeeping/dates.js'
+import { today } from '../src/modules/bookkeeping/service.js'
 
 /**
  * BOOKKEEPING WORKFLOW-STAGE SEED + MIGRATION.
@@ -28,6 +32,13 @@ export interface StageMigrationReport {
   tasksMerged: number
   orphanChecklistRows: number
   periodsTouched: number
+  /** Periods that acquired a periodStart/periodEnd or a fresh dueDate. */
+  periodWindowsBackfilled: number
+  periodDueDatesRecomputed: number
+  stageTaskDueDatesRecomputed: number
+  /** Overdue open-task counts, captured before and after the recompute. */
+  overdueTasksBefore: number
+  overdueTasksAfter: number
 }
 
 export async function seedWorkflowStages(prisma: PrismaClient): Promise<number> {
@@ -121,6 +132,14 @@ export async function migrateChecklistToTasks(prisma: PrismaClient): Promise<Sta
   let orphanChecklistRows = 0
   let periodsTouched = 0
 
+  // Capture how many open tasks were overdue against today under the OLD
+  // dates. Spec §7 asks for this figure alongside the recomputed one, so a
+  // reviewer can see the inflation the anchor bug was creating.
+  const t = today()
+  const overdueTasksBefore = await prisma.bookkeepingTask.count({
+    where: { deletedAt: null, dueDate: { lt: t }, status: { notIn: ['completed', 'cancelled'] } },
+  })
+
   for (const period of periods) {
     const owner = period.assignedEmployeeId ?? period.engagement.assignedEmployeeId
     const clientId = period.engagement.clientId
@@ -182,11 +201,97 @@ export async function migrateChecklistToTasks(prisma: PrismaClient): Promise<Sta
     if (touched) periodsTouched++
   }
 
+  // ── Step 2: date backfill + recompute ──────────────────────────────────
+  // Every period now has stage tasks. Backfill periodStart/periodEnd on any
+  // row that predates the columns, and — for OPEN periods only — recompute
+  // dueDate on the period and on each stage task. Completed periods keep
+  // their historical dates: they were correct at the time.
+  const {
+    periodWindowsBackfilled, periodDueDatesRecomputed, stageTaskDueDatesRecomputed,
+  } = await backfillAndRecomputeDates(prisma)
+
+  const overdueTasksAfter = await prisma.bookkeepingTask.count({
+    where: { deletedAt: null, dueDate: { lt: t }, status: { notIn: ['completed', 'cancelled'] } },
+  })
+
   const report: StageMigrationReport = {
     stagesSeeded, tasksCreated, tasksMerged, orphanChecklistRows, periodsTouched,
+    periodWindowsBackfilled, periodDueDatesRecomputed, stageTaskDueDatesRecomputed,
+    overdueTasksBefore, overdueTasksAfter,
   }
   console.log('[bookkeeping] stage migration:', report)
   return report
+}
+
+/**
+ * Backfill period_start / period_end for pre-existing rows and recompute the
+ * due date on every OPEN period plus its stage tasks. Idempotent.
+ *
+ * Completed periods keep whatever dates they were closed against — the whole
+ * point of a completed period is that it is history and cannot move.
+ */
+async function backfillAndRecomputeDates(prisma: PrismaClient): Promise<{
+  periodWindowsBackfilled: number
+  periodDueDatesRecomputed: number
+  stageTaskDueDatesRecomputed: number
+}> {
+  const periods = await prisma.bookkeepingPeriod.findMany({
+    where: { deletedAt: null },
+    include: {
+      engagement: { select: { billingFrequency: true, dueOffsetDays: true } },
+      tasks: {
+        where: { deletedAt: null, stageId: { not: null } },
+        include: { stage: true },
+      },
+    },
+  })
+
+  let periodWindowsBackfilled = 0
+  let periodDueDatesRecomputed = 0
+  let stageTaskDueDatesRecomputed = 0
+
+  for (const period of periods) {
+    const frequency = period.engagement.billingFrequency as BookkeepingFrequency
+    const periodStart = periodStartOf(period.year, period.month, frequency)
+    const periodEnd = periodEndOf(period.year, period.month, frequency)
+
+    const windowChanged =
+      period.periodStart !== periodStart || period.periodEnd !== periodEnd
+
+    // Only OPEN periods get their due date rewritten. Completed periods are
+    // history; the number they closed under stays on the row.
+    const shouldRewriteDates = period.status !== 'completed'
+    const nextDue = shouldRewriteDates
+      ? computeDueDate(periodEnd, period.engagement.dueOffsetDays)
+      : period.dueDate
+
+    const dueChanged = shouldRewriteDates && period.dueDate !== nextDue
+
+    if (windowChanged || dueChanged) {
+      await prisma.bookkeepingPeriod.update({
+        where: { id: period.id },
+        data: {
+          periodStart,
+          periodEnd,
+          ...(shouldRewriteDates ? { dueDate: nextDue } : {}),
+        },
+      })
+      if (windowChanged) periodWindowsBackfilled++
+      if (dueChanged) periodDueDatesRecomputed++
+    }
+
+    if (!shouldRewriteDates) continue
+    for (const t of period.tasks) {
+      if (!t.stage) continue
+      const desired = computeDueDate(periodEnd, t.stage.defaultOffsetDays)
+      if (t.dueDate !== desired) {
+        await prisma.bookkeepingTask.update({ where: { id: t.id }, data: { dueDate: desired } })
+        stageTaskDueDatesRecomputed++
+      }
+    }
+  }
+
+  return { periodWindowsBackfilled, periodDueDatesRecomputed, stageTaskDueDatesRecomputed }
 }
 
 /**

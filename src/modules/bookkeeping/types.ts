@@ -13,7 +13,10 @@ export interface Kpis {
 
 export interface Period {
   id: string; engagement_id: string; client_id: string | null; client_name: string | null;
-  year: number; month: number; label: string; status: string; due_date: string | null;
+  year: number; month: number; label: string;
+  /** Calendar window of the period; derived from year+month+engagement frequency. */
+  period_start: string | null; period_end: string | null;
+  status: string; due_date: string | null;
   completed_date: string | null; assigned_employee: EmployeeRef | null; notes: string | null;
   progress: Progress | null; created_at: string | null;
 }
@@ -21,7 +24,10 @@ export interface Period {
 export interface Engagement {
   id: string; client_id: string; client_name: string | null; client_code: string | null;
   status: string; service_start_date: string; assigned_employee: EmployeeRef | null;
-  billing_frequency: string; next_due_date: string | null; notes: string | null;
+  billing_frequency: string;
+  /** Days after period_end at which the period defaults to due. Per-client. */
+  due_offset_days: number;
+  next_due_date: string | null; notes: string | null;
 }
 
 export interface BookkeepingClient extends Engagement {
