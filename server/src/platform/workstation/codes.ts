@@ -110,3 +110,18 @@ export async function nextEngagementCode(tx: Tx, year: number): Promise<string> 
   }
   return `${prefix}${String(max + 1).padStart(4, '0')}`
 }
+
+/** 'DOC-2026-0001' — per-year, allocated inside the creating transaction. */
+export async function nextWorkstationDocCode(tx: Tx, year: number): Promise<string> {
+  const prefix = `DOC-${year}-`
+  const rows = await tx.workstationDoc.findMany({
+    where: { docCode: { startsWith: prefix } },
+    select: { docCode: true },
+  })
+  let max = 0
+  for (const r of rows) {
+    const n = Number(r.docCode.slice(prefix.length))
+    if (Number.isFinite(n) && n > max) max = n
+  }
+  return `${prefix}${String(max + 1).padStart(4, '0')}`
+}

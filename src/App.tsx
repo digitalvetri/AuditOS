@@ -27,6 +27,10 @@ import { QuotationPreviewPage } from '@/pages/workstation/quotations/QuotationPr
 import { EngagementListPage } from '@/pages/workstation/engagement/EngagementList';
 import { EngagementBuilderPage } from '@/pages/workstation/engagement/EngagementBuilder';
 import { EngagementPreviewPage } from '@/pages/workstation/engagement/EngagementPreview';
+import { DocHomePage } from '@/pages/workstation/doc/DocHome';
+import { DocListPage } from '@/pages/workstation/doc/DocList';
+import { DocBuilderPage } from '@/pages/workstation/doc/DocBuilder';
+import { DocPreviewPage } from '@/pages/workstation/doc/DocPreview';
 // Tools (Converters & Utilities) — registry-driven; /tools/:toolId is one
 // shared workspace and /tools/documents the output history.
 import { ToolsPage } from '@/pages/tools/Tools';
@@ -162,6 +166,14 @@ export default function App() {
                 top bar and mobile bottom nav are never rendered around it.
                 Still behind ProtectedRoute — only the chrome is dropped. */}
             <Route
+              path="/workstation/doc/:id/preview"
+              element={
+                <ProtectedRoute>
+                  <DocPreviewPage />
+                </ProtectedRoute>
+              }
+            />
+            <Route
               path="/workstation/engagement/:id/preview"
               element={
                 <ProtectedRoute>
@@ -291,6 +303,10 @@ export default function App() {
               <Route path="workstation/quotations/new" element={<QuotationBuilderPage />} />
               <Route path="workstation/quotations/:id/edit" element={<QuotationBuilderPage />} />
               <Route path="workstation/quotations/:id" element={<QuotationDetailPage />} />
+              <Route path="workstation/doc" element={<DocHomePage />} />
+              <Route path="workstation/doc/t/:typeId" element={<DocListPage />} />
+              <Route path="workstation/doc/t/:typeId/new" element={<DocBuilderPage />} />
+              <Route path="workstation/doc/:id/edit" element={<DocBuilderPage />} />
               <Route path="workstation/engagement" element={<EngagementListPage />} />
               <Route path="workstation/engagement/new" element={<EngagementBuilderPage />} />
               <Route path="workstation/engagement/:id/edit" element={<EngagementBuilderPage />} />

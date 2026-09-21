@@ -359,6 +359,7 @@ model Employee {
   assignedTasks     Task[]                @relation("TaskAssignee")
   quotations        Quotation[]           @relation("QuotationPreparedBy")
   engagementLetters EngagementLetter[]    @relation("EngagementPreparedBy")
+  workstationDocs   WorkstationDoc[]      @relation("WorkstationDocPreparedBy")
   raisedTasks       Task[]                @relation("TaskAssigner")
   taskSessions      TaskTimeSession[]
   checklistItems    ClientChecklistItem[] @relation("ChecklistAssignee")
@@ -1072,6 +1073,7 @@ model Lead {
   followUps         FollowUp[]
   quotations        Quotation[]
   engagementLetters EngagementLetter[]
+  workstationDocs   WorkstationDoc[]
 
   /// System-generated (§5.2). Never accepted from a request body.
   createdAt DateTime  @default(now())
@@ -1134,6 +1136,7 @@ model Client {
   tasks               Task[]
   quotations          Quotation[]
   engagementLetters   EngagementLetter[]
+  workstationDocs     WorkstationDoc[]
   ewayBills           EwayBill[]
   gstProfile          GstProfile?
   eInvoiceEwbProfile  EInvoiceEwbProfile?
@@ -6225,4 +6228,72 @@ model EngagementFeeItem {
   letter EngagementLetter @relation(fields: [letterId], references: [id], onDelete: Cascade)
 
   @@index([letterId, sortOrder])
+}
+
+/// ────────────────────────────────────────────────────────────────────────
+/// WORKSTATION DOC — one row per composed statutory / secretarial document.
+///
+/// Thirteen document TYPES (consent letter, board resolutions, NOCs, LLP and
+/// partnership agreements …) share ONE table rather than thirteen, because
+/// they differ only in their template: the body of every one of them is the
+/// same ordered `blockConfig` the Doc editor composes and the PDF walks, and
+/// their type-specific facts are the `fieldValues` map their template
+/// declares. A new document type is a config file, not a migration.
+///
+/// The document is the truth. `fieldValues` feeds the {{placeholders}} in the
+/// blocks, but once a user types over a filled value on the page that text is
+/// literal — so the stored blocks always print exactly what was seen.
+model WorkstationDoc {
+  id             String @id @default(uuid())
+  organisationId String
+  /// 'DOC-2026-0001'. Per-year sequence, allocated inside the creating
+  /// transaction, exactly as letterCode and quotationCode are.
+  docCode        String @unique
+
+  /// The template id from the client-side registry — 'consent-letter',
+  /// 'llp-agreement', … Never a free string from the browser: the route
+  /// validates it against the same list the editor offers.
+  docType String
+  /// What this document is called in the list. Defaults to the type's name.
+  title   String
+
+  /// At most one party, and never both — the same XOR quotations and letters
+  /// enforce. A document may also stand alone (no client, no lead).
+  clientId String?
+  leadId   String?
+
+  /// YYYY-MM-DD — what prints as the document's date.
+  docDate String
+
+  /// draft | final | archived. A final document is frozen; reopening it
+  /// returns it to draft, which is how an already-issued paper gets amended.
+  status String @default("draft")
+
+  /// The template's declared fields, as typed in the left panel.
+  fieldValues  Json?
+  /// Ordered blocks: headings, prose lines, key-value details, signature
+  /// grids, witnesses, spacers. The whole body of the document.
+  blockConfig  Json?
+  /// Page size, margins, fonts, header and footer — stored as composed.
+  layoutConfig Json?
+
+  preparedById String?
+  finalisedAt  DateTime?
+
+  lead       Lead?     @relation(fields: [leadId], references: [id])
+  client     Client?   @relation(fields: [clientId], references: [id])
+  preparedBy Employee? @relation("WorkstationDocPreparedBy", fields: [preparedById], references: [id])
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  createdBy String?
+  updatedBy String?
+  deletedAt DateTime?
+
+  @@index([docType])
+  @@index([clientId])
+  @@index([leadId])
+  @@index([status])
+  @@index([docDate])
+  @@index([createdAt])
 }

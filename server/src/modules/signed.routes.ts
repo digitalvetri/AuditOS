@@ -6,6 +6,8 @@ import { streamPayslipPdf } from './payroll/pdf.js'
 import { streamQuotationPdf, QUOTATION_PDF_INCLUDE } from './quotation/pdf.js'
 import { streamEngagementPdf } from './engagement/pdf.js'
 import { INCLUDE as ENGAGEMENT_INCLUDE } from './engagement/service.js'
+import { streamDocPdf } from './docs/pdf.js'
+import { INCLUDE as DOC_INCLUDE } from './docs/service.js'
 
 /**
  * SIGNED-URL BYTE ENDPOINTS.
@@ -82,4 +84,13 @@ signedRouter.get('/engagement-letters/:id/pdf', handler(async (req, res) => {
   })
   if (!l) throw ApiError.notFound('Engagement letter not found.')
   streamEngagementPdf(res, l)
+}))
+
+/** A Workstation document's PDF — public by signed token, like the two above. */
+signedRouter.get('/workstation-docs/:id/pdf', handler(async (req, res) => {
+  const id = req.params.id
+  verifyResourceToken(`wsdoc:${id}`, req.query.t as string | undefined)
+  const d = await prisma.workstationDoc.findFirst({ where: { id, deletedAt: null }, include: DOC_INCLUDE })
+  if (!d) throw ApiError.notFound('Document not found.')
+  streamDocPdf(res, d)
 }))
