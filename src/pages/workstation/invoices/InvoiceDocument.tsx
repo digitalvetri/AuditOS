@@ -111,15 +111,13 @@ export function InvoiceDocument({ doc, scale = 1 }: { doc: InvoiceDoc; scale?: n
 
       <div ref={pages.pagesRef} className="contents">
         {pages.pages.map((ids, pageIndex) => (
-          <div
-            key={pageIndex}
-            className="qdoc-page"
-            style={{
-              ...pageStyle,
-              marginBottom: pageIndex === pages.pages.length - 1 ? 0 : 16,
-              breakAfter: pageIndex === pages.pages.length - 1 ? 'auto' : 'page',
-            }}
-          >
+          /* No inline margin and no inline break-after. The stack's own gap
+             already separates the sheets on screen, and `.qdoc-page` in the
+             print stylesheet already breaks after every page but the last.
+             An inline margin outranks that stylesheet, so a 16px gap survived
+             into print, pushed each page 16px past its sheet and ejected a
+             blank one behind it — one extra white page per break. */
+          <div key={pageIndex} className="qdoc-page" style={pageStyle}>
             {renderPage(doc, ids, byId)}
           </div>
         ))}

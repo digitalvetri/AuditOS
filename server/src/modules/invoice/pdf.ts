@@ -331,24 +331,30 @@ export async function streamInvoicePdf(res: Response, inv: InvoicePdfRow) {
   }
 
   // ── Words / Notes on the left, tax summary on the right ─────────────────
-  if (on('total_in_words') || on('notes') || on('tax_summary')) {
+  /* What this band will ACTUALLY draw, decided before the page break is
+     reserved. `notes` switched on with nothing written in it draws nothing,
+     and breaking to a fresh page for it would leave that page blank. */
+  const wordsOn = on('total_in_words')
+  const notesText = on('notes') ? (inv.notes ?? '') : ''
+  const summaryOn = on('tax_summary')
+  if (wordsOn || notesText || summaryOn) {
     if (doc.y + 120 > bottom) { doc.addPage(); doc.y = margin }
     const top = doc.y
     const colW = width * 0.55
 
-    if (on('total_in_words')) {
+    if (wordsOn) {
       doc.fillColor(NAVY).font('Helvetica-Bold').fontSize(9).text('Total In Words', left, doc.y, { width: colW })
       doc.fillColor(INK).font('Helvetica').fontSize(9)
         .text(invoiceAmountInWords(inv.totalPaise), left, doc.y, { width: colW })
       doc.moveDown(0.4)
     }
-    if (on('notes') && inv.notes) {
+    if (notesText) {
       doc.fillColor(NAVY).font('Helvetica-Bold').fontSize(9).text('Notes', left, doc.y, { width: colW })
-      doc.fillColor(INK).font('Helvetica').fontSize(9).text(inv.notes, left, doc.y, { width: colW })
+      doc.fillColor(INK).font('Helvetica').fontSize(9).text(notesText, left, doc.y, { width: colW })
     }
     const leftEnd = doc.y
 
-    if (on('tax_summary')) {
+    if (summaryOn) {
       const sx = left + width * 0.58
       const sw = width * 0.42
       let y = top

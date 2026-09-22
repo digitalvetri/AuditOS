@@ -323,10 +323,23 @@
      scaled preview; left standing it would reserve that space on paper and
      can cost a blank sheet. */
   .qdoc-scaler { height: auto !important; }
+  /* The measuring twin is layout, not paper. `visibility: hidden` keeps its
+     box — and an absolutely positioned box taller than one sheet is still
+     paginated, so a one-page invoice whose unbroken measure column runs past
+     the bottom ejected a blank second sheet. Only `display: none` removes it.
+     Unscoped on purpose: it must go whether or not the print was started
+     through `qdoc-printing`, and /preview's own Print button is not. */
+  .qdoc-measure { display: none !important; }
+
   .qdoc-page {
     box-shadow: none;
     break-after: page;
     page-break-after: always;
+    /* The sheets are separated by the stack's gap, which is zeroed above. A
+       margin here has nowhere to go but onto the next sheet: it pushes the
+       page past the bottom and the printer ejects a blank one behind it.
+       !important because an inline style would otherwise outrank this. */
+    margin: 0 !important;
   }
   .qdoc-page:last-child {
     break-after: auto;
@@ -354,7 +367,6 @@
   html.qdoc-printing body * { visibility: hidden !important; }
   html.qdoc-printing .qdoc-stack,
   html.qdoc-printing .qdoc-stack * { visibility: visible !important; }
-  html.qdoc-printing .qdoc-measure { display: none !important; }
   html.qdoc-printing .qdoc-stack {
     position: absolute;
     left: 0;
