@@ -125,3 +125,30 @@ export async function nextWorkstationDocCode(tx: Tx, year: number): Promise<stri
   }
   return `${prefix}${String(max + 1).padStart(4, '0')}`
 }
+
+/**
+ * 'INV-000001' — a single FLAT sequence, deliberately not per-year.
+ *
+ * A GST invoice number must be unique and unbroken for the life of the
+ * books. Restarting at 0001 each April — which is what the QT-YYYY-NNNN
+ * shape does — would reissue numbers that already exist, so the invoice
+ * sequence does not take a year at all. Six digits because the reference
+ * document is already at INV-000188 and four would not hold a busy decade.
+ *
+ * Allocated inside the creating transaction by reading the current maximum,
+ * for the reason the header gives: `count() + 1` reuses a number the moment
+ * a row is soft-deleted, and `invoiceNumber` is @unique so the insert fails.
+ */
+export async function nextInvoiceNumber(tx: Tx): Promise<string> {
+  const prefix = 'INV-'
+  const rows = await tx.invoice.findMany({
+    where: { invoiceNumber: { startsWith: prefix } },
+    select: { invoiceNumber: true },
+  })
+  let max = 0
+  for (const r of rows) {
+    const n = Number(r.invoiceNumber.slice(prefix.length))
+    if (Number.isFinite(n) && n > max) max = n
+  }
+  return `${prefix}${String(max + 1).padStart(6, '0')}`
+}

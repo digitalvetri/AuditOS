@@ -4,6 +4,7 @@ import { prisma } from '../lib/prisma.js'
 import { verifyResourceToken } from '../platform/signedUrl.js'
 import { streamPayslipPdf } from './payroll/pdf.js'
 import { streamQuotationPdf, QUOTATION_PDF_INCLUDE } from './quotation/pdf.js'
+import { streamInvoicePdf, INVOICE_PDF_INCLUDE } from './invoice/pdf.js'
 import { streamEngagementPdf } from './engagement/pdf.js'
 import { INCLUDE as ENGAGEMENT_INCLUDE } from './engagement/service.js'
 import { streamDocPdf } from './docs/pdf.js'
@@ -72,6 +73,22 @@ signedRouter.get('/quotations/:id/pdf', handler(async (req, res) => {
   })
   if (!q) throw ApiError.notFound('Quotation not found.')
   streamQuotationPdf(res, q)
+}))
+
+/**
+ * The invoice PDF a client receives. Public by signed token, exactly like the
+ * quotation: the link is pasted into WhatsApp or an email and opened by
+ * someone who has no login here.
+ */
+signedRouter.get('/invoices/:id/pdf', handler(async (req, res) => {
+  const id = req.params.id
+  verifyResourceToken(`invoice:${id}`, req.query.t as string | undefined)
+  const inv = await prisma.invoice.findFirst({
+    where: { id, deletedAt: null },
+    include: INVOICE_PDF_INCLUDE,
+  })
+  if (!inv) throw ApiError.notFound('Invoice not found.')
+  await streamInvoicePdf(res, inv)
 }))
 
 /** The engagement letter PDF — public by signed token, like the quotation. */

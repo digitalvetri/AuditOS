@@ -1135,6 +1135,7 @@ model Client {
   documents           ClientDocument[]
   tasks               Task[]
   quotations          Quotation[]
+  invoices            Invoice[]
   engagementLetters   EngagementLetter[]
   workstationDocs     WorkstationDoc[]
   ewayBills           EwayBill[]
@@ -6296,4 +6297,211 @@ model WorkstationDoc {
   @@index([status])
   @@index([docDate])
   @@index([createdAt])
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// INVOICE (Workstation → Invoice)
+//
+// A tax invoice raised against a Client. It is the step AFTER the quotation:
+// a quotation proposes a price, an invoice demands it.
+//
+// Money is in PAISE (Int) throughout, the same rule as Quotation and Books —
+// no floats anywhere near a rupee figure. Every total on the parent row is
+// DERIVED from the items by the service layer and recomputed on every write;
+// nothing here is accepted from a request body.
+//
+// THE AMOUNT COLUMN IS THE TAXABLE BASE, not the tax-inclusive figure: the
+// printed "Sub Total" is the sum of the line amounts and the taxes are added
+// on top to reach Total. Storing it the other way round would make the
+// printed lines fail to add up to the printed total.
+// ═══════════════════════════════════════════════════════════════════════════
+
+model Invoice {
+  id             String @id @default(uuid())
+  organisationId String
+  /// Human-readable 'INV-000001'. A single flat sequence, not per-year: an
+  /// invoice number must be unique and gapless for GST, and restarting it
+  /// every April would reissue numbers that already exist.
+  invoiceNumber  String @unique
+
+  clientId String
+
+  /// YYYY-MM-DD. The date printed on the document, not the row's createdAt.
+  invoiceDate String
+  /// due_on_receipt | net_7 | net_15 | net_30 | net_45 | custom
+  terms       String @default("due_on_receipt")
+  /// YYYY-MM-DD. Derived from invoiceDate + terms, overridable for 'custom'.
+  dueDate     String
+
+  /// 'Tamil Nadu (33)' — the state whose code decides the tax split.
+  placeOfSupply String?
+  /// Intra-state -> CGST+SGST, inter-state -> IGST. Stored, not inferred at
+  /// render time, so a historical invoice keeps the split it was issued with.
+  isInterState  Boolean @default(false)
+
+  /// draft | sent | partially_paid | paid | overdue | cancelled
+  status String @default("draft")
+
+  // ── Party snapshot (§39). Written once at creation and on every draft
+  // save; read by the document instead of the live Client row, so editing a
+  // client master later cannot rewrite an invoice already sent. ───────────
+  billingName     String?
+  billingAddress  String?
+  shippingName    String?
+  shippingAddress String?
+  /// True when Ship To simply repeats Bill To.
+  shipSameAsBill  Boolean @default(true)
+  customerGstin   String?
+
+  // ── Derived money (paise). Never written from a request body. ──────────
+  /// Sum of the line taxable amounts — the printed "Sub Total".
+  subtotalPaise   Int @default(0)
+  /// A flat discount on the whole invoice, spread across lines pro rata.
+  discountPaise   Int @default(0)
+  taxablePaise    Int @default(0)
+  cgstPaise       Int @default(0)
+  sgstPaise       Int @default(0)
+  igstPaise       Int @default(0)
+  /// Difference between the exact total and the whole rupee it is printed as.
+  roundOffPaise   Int @default(0)
+  totalPaise      Int @default(0)
+  /// Sum of payments recorded against this invoice. Drives balanceDuePaise
+  /// and the partially_paid / paid statuses.
+  amountPaidPaise Int @default(0)
+  balanceDuePaise Int @default(0)
+
+  notes String?
+
+  // ── Document composition (the builder) ────────────────────────────────
+  /// Which template renders this invoice. 'tax-invoice' is the GST document.
+  templateId           String  @default("tax-invoice")
+  /// Page size, margins, fonts, table style — and the company block, which
+  /// is snapshotted here so a later change of letterhead does not silently
+  /// redraw an invoice that has already gone out.
+  layoutConfig         Json?
+  /// Which blocks appear and in what order.
+  blockConfig          Json?
+  /// The bank account printed on the document, snapshotted for the same
+  /// reason: closing an account must not blank a historical invoice.
+  bankSnapshot         Json?
+  /// Who signs it, as printed.
+  signatoryName        String?
+  signatoryDesignation String?
+  /// Optional line under the document. Configurable, defaulted in the UI.
+  footerNote           String?
+
+  /// What the payment QR encodes, if anything.
+  ///   upi_amount — UPI intent pre-filled with the balance due (default)
+  ///   upi_only   — UPI intent with no amount, so the payer types it
+  ///   custom     — whatever `qrValue` holds: a payment page, a portal link
+  ///   none       — no QR at all
+  /// Stored per invoice, not per bank account: the same account can be shown
+  /// with an amount on one invoice and without on another.
+  qrMode  String  @default("upi_amount")
+  /// The payload for `custom`. Ignored in every other mode.
+  qrValue String?
+  /// The uploaded code for `image` mode, as a `data:image/...;base64,` URL.
+  ///
+  /// Held ON THE INVOICE rather than in the uploads volume on purpose: a QR
+  /// PNG is a few kilobytes, and inlining it makes the image part of the
+  /// invoice's own snapshot. Replacing the firm's QR next year then cannot
+  /// silently change where an invoice already sent points a payer — which is
+  /// the whole reason §39 exists, and matters more here than anywhere else
+  /// because this field moves money.
+  qrImage String? @db.Text
+
+  preparedById String?
+
+  sentAt      DateTime?
+  paidAt      DateTime?
+  cancelledAt DateTime?
+
+  bankAccountId String?
+  bankAccount   FirmBankAccount? @relation(fields: [bankAccountId], references: [id])
+  client        Client           @relation(fields: [clientId], references: [id])
+  items         InvoiceItem[]
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  createdBy String?
+  updatedBy String?
+  deletedAt DateTime?
+
+  @@index([clientId])
+  @@index([status])
+  @@index([invoiceDate])
+  @@index([dueDate])
+  @@index([createdAt])
+}
+
+/// One priced line. `taxableAmountPaise` and the three tax figures are
+/// derived by the service layer from quantity × rate, less the line discount,
+/// at the line's own rates — an invoice can mix 18% professional fees with a
+/// 0% reimbursement, and each line carries its own HSN/SAC.
+model InvoiceItem {
+  id        String  @id @default(uuid())
+  invoiceId String
+  /// Optional link to the service catalogue. Null for a free-text line.
+  serviceId String?
+
+  sortOrder   Int     @default(0)
+  itemName    String
+  description String?
+  /// HSN for goods, SAC for services. Per line, never forced to one value.
+  hsnSac      String?
+
+  /// Quantity in HUNDREDTHS (250 = 2.5), so half-hours and part-months are
+  /// exact integers rather than floats — the same rule QuotationItem uses.
+  quantityCenti   Int    @default(100)
+  /// 'Nos' | 'Hours' | 'Month' | free text.
+  unit            String @default("Nos")
+  ratePaise       Int    @default(0)
+  /// Whole percent, 0-100, off this line only.
+  discountPercent Int    @default(0)
+
+  /// The line's FULL GST slab — 0 | 5 | 12 | 18 | 28. The CGST/SGST split is
+  /// DERIVED from it (half each) and never stored, because half of the 5%
+  /// slab is 2.5% and a whole-percent column cannot hold it: rounding 2.5 to
+  /// 3 would print a rate the invoice does not charge. One honest integer
+  /// beats three lossy ones.
+  gstRatePercent Int @default(18)
+
+  // ── Derived (paise) ────────────────────────────────────────────────────
+  taxableAmountPaise Int @default(0)
+  cgstAmountPaise    Int @default(0)
+  sgstAmountPaise    Int @default(0)
+  igstAmountPaise    Int @default(0)
+  /// taxable + the applicable taxes, for the line.
+  totalAmountPaise   Int @default(0)
+
+  invoice Invoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+
+  @@index([invoiceId])
+}
+
+/// A bank account the firm can print on an invoice. A table rather than a
+/// constant so the account shown is a choice, not a hardcoded block — and so
+/// closing one account does not require a code change.
+model FirmBankAccount {
+  id             String @id @default(uuid())
+  organisationId String
+
+  label         String
+  accountNumber String
+  accountType   String  @default("Current")
+  accountHolder String
+  bankName      String
+  branchName    String?
+  ifscCode      String
+  upiId         String?
+
+  isDefault Boolean @default(false)
+  isActive  Boolean @default(true)
+
+  invoices Invoice[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([organisationId])
 }
