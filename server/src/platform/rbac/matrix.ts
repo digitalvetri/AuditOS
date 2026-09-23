@@ -44,6 +44,7 @@ export type PermissionCode =
   | 'workstation.document.read'
   | 'workstation.document.manage'
   | 'workstation.document.verify'
+  | 'workstation.registration.template.manage'
   | 'workstation.task.read'
   | 'workstation.task.manage'
   | 'workstation.task.report'
@@ -253,6 +254,7 @@ export const MATRIX: Record<RoleCode, Grant[]> = {
     { permission: 'workstation.document.read', scope: 'organisation' },
     { permission: 'workstation.document.manage', scope: 'organisation' },
     { permission: 'workstation.document.verify', scope: 'organisation' },
+    { permission: 'workstation.registration.template.manage', scope: 'organisation' },
     { permission: 'workstation.gst.read', scope: 'organisation' },
     { permission: 'workstation.gst.manage', scope: 'organisation' },
     { permission: 'workstation.eway.read', scope: 'organisation' },
@@ -410,6 +412,7 @@ export const MATRIX: Record<RoleCode, Grant[]> = {
     { permission: 'workstation.document.read', scope: 'organisation' },
     { permission: 'workstation.document.manage', scope: 'organisation' },
     { permission: 'workstation.document.verify', scope: 'organisation' },
+    { permission: 'workstation.registration.template.manage', scope: 'organisation' },
     { permission: 'workstation.gst.read', scope: 'organisation' },
     { permission: 'workstation.gst.manage', scope: 'organisation' },
     { permission: 'workstation.eway.read', scope: 'organisation' },
@@ -541,6 +544,7 @@ export const PERMISSION_DESCRIPTIONS: Record<string, string> = {
   'workstation.document.read': 'View client documents',
   'workstation.document.manage': 'Request and upload client documents',
   'workstation.document.verify': 'Verify or reject a client document',
+  'workstation.registration.template.manage': 'Edit the master checklist a new registration case starts from',
   'workstation.gst.read': 'View GST profiles and filings',
   'workstation.gst.manage': 'Update GST filing status',
   'workstation.eway.read': 'View e-way bills',

@@ -89,6 +89,11 @@ import { BookkeepingSettingsPage } from '@/pages/workstation/bookkeeping/Lists';
 // reference only; nothing files a registration yet.
 import { RegistrationServicesLanding } from '@/pages/workstation/registration/RegistrationServicesLanding';
 // GST compliance lives inside the GST Registration entry — see GstShell.
+import { PartnershipShell } from '@/pages/workstation/registration/partnership/PartnershipShell';
+import { PartnershipDashboard } from '@/pages/workstation/registration/partnership/PartnershipDashboard';
+import { PartnershipClients } from '@/pages/workstation/registration/partnership/PartnershipClients';
+import { PartnershipCase } from '@/pages/workstation/registration/partnership/PartnershipCase';
+import { PartnershipTemplate } from '@/pages/workstation/registration/partnership/PartnershipTemplate';
 import { GstShell } from '@/pages/workstation/registration/gst/GstShell';
 import { GstRegistrationTab } from '@/pages/workstation/registration/gst/GstRegistrationTab';
 import { GstDashboard } from '@/pages/workstation/registration/gst/GstDashboard';
@@ -304,6 +309,27 @@ export default function App() {
                 <Route path="gstr3b" element={<Gstr3bPage />} />
                 {/* Every list row navigates here — the one place work is done. */}
                 <Route path="periods/:periodId" element={<GstPeriodDetail />} />
+              </Route>
+              {/* Partnership Firm Registration — a real case module, so it is
+                  declared BEFORE the :slug catch-all, the same way GST is. */}
+              <Route path="workstation/services/registration/partnership-firm" element={<PartnershipShell />}>
+                <Route index element={<Navigate to="dashboard" replace />} />
+                <Route path="dashboard" element={<PartnershipDashboard />} />
+                <Route path="clients" element={<PartnershipClients />} />
+                <Route path="clients/:caseId" element={<PartnershipCase />} />
+                <Route path="template" element={<PartnershipTemplate />} />
+                <Route path="registration" element={<RegistrationServiceDetail slug="partnership-firm" embedded />} />
+                <Route path="about" element={<Navigate to="../registration" replace />} />
+              </Route>
+              {/* LLP Registration — the same case engine and screens, its own checklist. */}
+              <Route path="workstation/services/registration/llp" element={<PartnershipShell kind="LLP" />}>
+                <Route index element={<Navigate to="dashboard" replace />} />
+                <Route path="dashboard" element={<PartnershipDashboard />} />
+                <Route path="clients" element={<PartnershipClients />} />
+                <Route path="clients/:caseId" element={<PartnershipCase />} />
+                <Route path="template" element={<PartnershipTemplate />} />
+                <Route path="registration" element={<RegistrationServiceDetail slug="llp" embedded />} />
+                <Route path="about" element={<Navigate to="../registration" replace />} />
               </Route>
               <Route path="workstation/services/registration/:slug" element={<RegistrationServiceDetail />} />
               <Route path="workstation/services/:category" element={<ServicesPage />} />

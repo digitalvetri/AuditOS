@@ -28,6 +28,7 @@ import { seedAuditAutomation } from './seed-audit-automation.js'
 import { seedBooks } from './seed-books.js'
 import { seedBookkeeping } from './seed-bookkeeping.js'
 import { seedRegistration } from './seed-registration.js'
+import { seedPartnership } from './seed-partnership.js'
 import { seedGst } from './seed-gst.js'
 
 const prisma = new PrismaClient()
@@ -974,6 +975,7 @@ async function main() {
   await seedBooks(prisma, org.id)
   const bookkeeping = await seedBookkeeping(prisma, org.id)
   const registration = await seedRegistration(prisma, org.id)
+  await seedPartnership(prisma, org.id)
   const gst = await seedGst(prisma)
 
   const counts = {

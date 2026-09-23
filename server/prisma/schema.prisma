@@ -1152,6 +1152,7 @@ model Client {
   bkImports           BookkeepingImport[]
   registrations       ClientRegistration[]
   incCases            IncorporationCase[]
+  pfrCases            PartnershipCase[]
   incDocumentRequests IncorporationDocumentRequest[]
   incDeliverables     IncorporationDeliverable[]
   incFees             IncorporationFee[]
@@ -1219,6 +1220,7 @@ model ClientService {
   tasks    Task[]
   incCases IncorporationCase[]
   incFees  IncorporationFee[]
+  pfrCases PartnershipCase[]
 
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt
@@ -1443,6 +1445,7 @@ model ClientDocument {
   bkDocumentRequests  BookkeepingDocumentRequest[]
   bkDeliverables      BookkeepingDeliverable[]
   incDocumentRequests IncorporationDocumentRequest[]
+  pfrRequirements     PartnershipDocRequirement[]
   incFilings          IncorporationFiling[]
   incQueries          IncorporationQuery[]
   incDeliverables     IncorporationDeliverable[]
@@ -1472,6 +1475,20 @@ model ClientDocumentVersion {
   sizeBytes         Int      @default(0)
   notes             String?
   previousVersionId String?
+  /// Set only when real bytes sit behind fileKey (Partnership Registration
+  /// uploads). Null means the older metadata-only version.
+  originalName      String?
+  mimeType          String?
+  /// This version's own review outcome, so v1 stays "rejected" after v2 is
+  /// verified: uploaded | under_review | verified | rejected | replacement_required
+  reviewStatus      String?
+  reviewedByEmployeeId String?
+  reviewedAt        DateTime?
+  reviewNote        String?
+  /// Which "any one" option this file is (e.g. "Voter ID")
+  documentType      String?
+  /// Date printed on the document, as entered — for "not older than" checks
+  documentDate      String?
 
   document ClientDocument @relation(fields: [documentId], references: [id])
 
@@ -6504,4 +6521,270 @@ model FirmBankAccount {
   updatedAt DateTime @updatedAt
 
   @@index([organisationId])
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Workstation → Services → Registration → Partnership Firm Registration.
+//
+// MASTER template (PartnershipTemplate*) is copied into a case when the case
+// opens and never read by that case again, so template edits cannot move an
+// existing client's checklist. Files live in ClientDocument/Version — the
+// client's one document store — and a requirement row ties a file to a case.
+// Employee ids are plain scalars, as everywhere else in Workstation.
+// ═══════════════════════════════════════════════════════════════════════════
+
+model PartnershipTemplateCategory {
+  id          String  @id @default(uuid())
+  /// PARTNERSHIP | LLP — which registration service this master belongs to
+  kind        String  @default("PARTNERSHIP")
+  /// Repeated once per partner on a case (LLP partner KYC)
+  perPartner  Boolean @default(false)
+  name        String
+  description String?
+  /// INFO_COLLECTION | DEED | ROF_FILING | REGISTERED
+  stage       String
+  sortOrder   Int     @default(0)
+
+  items PartnershipTemplateItem[]
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  createdBy String?
+  updatedBy String?
+  deletedAt DateTime?
+}
+
+model PartnershipTemplateItem {
+  id             String  @id @default(uuid())
+  categoryId     String
+  name           String
+  description    String?
+  /// REQUIRED | OPTIONAL | CONDITIONAL
+  requirement    String
+  /// INFO | DOCUMENT | ACTION
+  kind           String
+  perPartner     Boolean @default(false)
+  docKey         String?
+  /// RENTED | OWNED — premises the item applies to
+  condition      String?
+  /// "Any one" choices, pipe-separated ("Passport|Voter ID|Driving License")
+  docTypeOptions String?
+  /// Document must be dated within this many days (source: "not older than 2 months")
+  maxAgeDays     Int?
+  defaultDueDays Int?
+  /// Default assignee role on the case: ASSIGNEE | REVIEWER
+  defaultAssignee String?
+  sortOrder      Int     @default(0)
+
+  category PartnershipTemplateCategory @relation(fields: [categoryId], references: [id])
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  createdBy String?
+  updatedBy String?
+  deletedAt DateTime?
+
+  @@index([categoryId])
+}
+
+model PartnershipCase {
+  id                 String    @id @default(uuid())
+  caseCode           String    @unique
+  /// PARTNERSHIP | LLP
+  kind               String    @default("PARTNERSHIP")
+  clientId           String
+  /// The enrolment: ClientService row for the PARTNERSHIP_FIRM_REGISTRATION
+  /// service. It is what makes the case visible at `self` scope.
+  clientServiceId    String?
+  /// NOT_STARTED | IN_PROGRESS | DOCUMENTS_PENDING | UNDER_REVIEW | SUBMITTED | QUERY | COMPLETED | ON_HOLD
+  status             String    @default("NOT_STARTED")
+  stage              String    @default("INFO_COLLECTION")
+  assignedEmployeeId String?
+  reviewerEmployeeId String?
+  approverEmployeeId String?
+  /// 'YYYY-MM-DD'
+  dueDate            String?
+  /// RENTED | OWNED — decides which office-proof items apply
+  premisesType       String?
+  /// Registration Details form (fields from the source PDF, Part A)
+  detailsJson        String?
+  completedAt        DateTime?
+
+  // Denormalised progress, recomputed after every checklist/document write so
+  // the list can filter and sort on it in the database.
+  itemsTotal    Int @default(0)
+  itemsDone     Int @default(0)
+  itemsRequired Int @default(0)
+  itemsRequiredDone Int @default(0)
+  docsRequired  Int @default(0)
+  docsUploaded  Int @default(0)
+  docsVerified  Int @default(0)
+  progressPct   Int @default(0)
+  lastActivityAt DateTime?
+
+  client        Client                      @relation(fields: [clientId], references: [id])
+  clientService ClientService?              @relation(fields: [clientServiceId], references: [id])
+  partners     PartnershipPartner[]
+  categories   PartnershipCaseCategory[]
+  items        PartnershipCaseItem[]
+  requirements PartnershipDocRequirement[]
+  activities   PartnershipActivity[]
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  createdBy String?
+  updatedBy String?
+  deletedAt DateTime?
+
+  @@index([clientId])
+  @@index([kind])
+  @@index([status])
+  @@index([assignedEmployeeId])
+  @@index([dueDate])
+}
+
+model PartnershipPartner {
+  id           String  @id @default(uuid())
+  caseId       String
+  name         String
+  fatherName   String?
+  address      String?
+  mobile       String?
+  email        String?
+  pan          String?
+  aadhaar      String?
+  /// Rupees as text, as the deed states it ("5,00,000")
+  capital      String?
+  profitShare  String?
+  remuneration String?
+  sortOrder    Int     @default(0)
+
+  case         PartnershipCase             @relation(fields: [caseId], references: [id])
+  requirements PartnershipDocRequirement[]
+  items        PartnershipCaseItem[]
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  @@index([caseId])
+}
+
+model PartnershipCaseCategory {
+  id               String  @id @default(uuid())
+  caseId           String
+  sourceCategoryId String?
+  name             String
+  description      String?
+  stage            String?
+  sortOrder        Int     @default(0)
+  isCustom         Boolean @default(false)
+  /// Items with partnerId = null here are the case's own copy of the per-partner
+  /// items — cloned for each partner added, never shown or counted themselves.
+  perPartner       Boolean @default(false)
+
+  case  PartnershipCase       @relation(fields: [caseId], references: [id])
+  items PartnershipCaseItem[]
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  createdBy String?
+  deletedAt DateTime?
+
+  @@index([caseId])
+}
+
+model PartnershipCaseItem {
+  id                    String    @id @default(uuid())
+  caseId                String
+  categoryId            String
+  sourceItemId          String?
+  partnerId             String?
+  name                  String
+  description           String?
+  requirement           String
+  kind                  String
+  perPartner            Boolean   @default(false)
+  docKey                String?
+  condition             String?
+  docTypeOptions        String?
+  maxAgeDays            Int?
+  /// PENDING | IN_PROGRESS | COMPLETED | NOT_APPLICABLE | BLOCKED
+  status                String    @default("PENDING")
+  assignedEmployeeId    String?
+  dueDate               String?
+  /// LOW | MEDIUM | HIGH
+  priority              String    @default("MEDIUM")
+  notes                 String?
+  completedAt           DateTime?
+  completedByEmployeeId String?
+  completedByUserId     String?
+  isCustom              Boolean   @default(false)
+  sortOrder             Int       @default(0)
+
+  case     PartnershipCase         @relation(fields: [caseId], references: [id])
+  category PartnershipCaseCategory @relation(fields: [categoryId], references: [id])
+  partner  PartnershipPartner?     @relation(fields: [partnerId], references: [id])
+  requirements PartnershipDocRequirement[]
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  createdBy String?
+  updatedBy String?
+  deletedAt DateTime?
+
+  @@index([caseId])
+  @@index([categoryId])
+}
+
+/// One file the case needs (or holds). Status is the ClientDocument's status;
+/// notApplicable takes it out of every count.
+model PartnershipDocRequirement {
+  id               String  @id @default(uuid())
+  caseId           String
+  itemId           String?
+  partnerId        String?
+  docKey           String?
+  name             String
+  /// Document category label (the case category name it was collected under)
+  categoryName     String?
+  requirement      String  @default("REQUIRED")
+  condition        String?
+  docTypeOptions   String?
+  maxAgeDays       Int?
+  notApplicable    Boolean @default(false)
+  dueDate          String?
+  clientDocumentId String? @unique
+  sortOrder        Int     @default(0)
+
+  case           PartnershipCase      @relation(fields: [caseId], references: [id])
+  item           PartnershipCaseItem? @relation(fields: [itemId], references: [id])
+  partner        PartnershipPartner?  @relation(fields: [partnerId], references: [id])
+  clientDocument ClientDocument?      @relation(fields: [clientDocumentId], references: [id])
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  createdBy String?
+  deletedAt DateTime?
+
+  @@index([caseId])
+  @@index([itemId])
+}
+
+/// Append-only case trail.
+model PartnershipActivity {
+  id              String   @id @default(uuid())
+  caseId          String
+  actorUserId     String?
+  actorEmployeeId String?
+  action          String
+  entityType      String?
+  entityId        String?
+  detail          String?
+  metaJson        String?
+  createdAt       DateTime @default(now())
+
+  case PartnershipCase @relation(fields: [caseId], references: [id])
+
+  @@index([caseId, createdAt])
 }

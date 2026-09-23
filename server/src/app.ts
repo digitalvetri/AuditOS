@@ -23,6 +23,7 @@ import { leadsRouter } from './modules/workstation/leads.routes.js'
 import { clientsRouter } from './modules/workstation/clients.routes.js'
 import { servicesRouter, serviceCatalogRouter } from './modules/workstation/services.routes.js'
 import { bookkeepingRouter } from './modules/bookkeeping/routes.js'
+import { forKind, partnershipRouter, partnershipSignedRouter } from './modules/partnership/routes.js'
 import { registrationsRouter } from './modules/registration/routes.js'
 import { followUpsRouter } from './modules/workstation/followups.routes.js'
 import {
@@ -110,6 +111,8 @@ export function createApp() {
   // Tool outputs download the same way: the HMAC in the query string is the
   // authorization, so a plain browser navigation can fetch the bytes.
   app.use('/api', toolsSignedRouter)
+  // Partnership Registration uploads — real bytes, same signed-link rule.
+  app.use('/api', partnershipSignedRouter)
 
   // Zoho Payments OAuth callback. Public because the redirect from
   // accounts.zoho.in is a top-level browser navigation and we cannot
@@ -171,6 +174,10 @@ export function createApp() {
   // Calls no portal: every government fact it holds was recorded by an
   // employee and is attributed to them.
   app.use('/api/registrations', registrationsRouter)
+  // Partnership Firm Registration — per-client cases, checklist, documents.
+  app.use('/api/partnership', forKind('PARTNERSHIP'), partnershipRouter)
+  // LLP Registration — the same case engine with its own master checklist.
+  app.use('/api/llp', forKind('LLP'), partnershipRouter)
   // NOT '/api/documents': that path already belongs to the HRMS
   // EmployeeDocument router mounted above, and Express matches the first
   // mount — so mounting here would shadow the Workstation list and silently
