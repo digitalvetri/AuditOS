@@ -10,22 +10,26 @@ import { CaseChecklist } from './CaseChecklist';
 import { CaseDocuments } from './CaseDocuments';
 import { CaseDetails } from './CaseDetails';
 
-const TABS = [
-  { key: 'checklist', label: 'Checklist' },
-  { key: 'documents', label: 'Documents' },
-  { key: 'details', label: 'Registration Details' },
-  { key: 'activity', label: 'Activity' },
-] as const;
+const TAB_KEYS = ['checklist', 'documents', 'details', 'activity'] as const;
+type TabKey = (typeof TAB_KEYS)[number];
 
 /**
- * PARTNERSHIP REGISTRATION — <client>. Opens straight onto the checklist;
- * the generic client profile is one link away, never in the way.
+ * Case screen shared by all six services: Partnership / LLP / GST
+ * Registration and the three GST returns. The third tab's label comes
+ * from the service (Registration Details vs Return Details) — same slot,
+ * different data — per GST-RETURNS-CASE-SCREEN §2.
  */
 export function PartnershipCase() {
-  const { api: regApi, keys: regKeys, base, label } = useSvc();
+  const { api: regApi, keys: regKeys, base, label, detailsLabel } = useSvc();
   const { caseId = '' } = useParams();
   const [params, setParams] = useSearchParams();
-  const tab = (params.get('tab') ?? 'checklist') as (typeof TABS)[number]['key'];
+  const tab = (params.get('tab') ?? 'checklist') as TabKey;
+  const tabs: { key: TabKey; label: string }[] = [
+    { key: 'checklist', label: 'Checklist' },
+    { key: 'documents', label: 'Documents' },
+    { key: 'details', label: detailsLabel },
+    { key: 'activity', label: 'Activity' },
+  ];
   const q = useQuery({ queryKey: regKeys.case(caseId), queryFn: () => regApi.getCase(caseId) });
 
   return (
@@ -36,7 +40,7 @@ export function PartnershipCase() {
           <>
             <CaseHeader c={c} />
             <nav className="flex gap-1 border-b border-neutral-200 mb-4 overflow-x-auto">
-              {TABS.map((t) => (
+              {tabs.map((t) => (
                 <button
                   key={t.key}
                   type="button"
@@ -111,7 +115,7 @@ function CaseHeader({ c }: { c: CaseDetail }) {
 
       <div className="px-4 py-3 grid grid-cols-2 md:grid-cols-6 gap-4">
         <div className="col-span-2">
-          <div className="text-11 uppercase tracking-[0.06em] text-neutral-500 mb-1">Registration progress</div>
+          <div className="text-11 uppercase tracking-[0.06em] text-neutral-500 mb-1">Progress</div>
           <ProgressBar pct={p.pct} className="w-full" />
           <div className="text-12 text-neutral-500 mt-1">
             Completed {p.items_done} / {p.items_total} · Remaining {p.items_pending} · Required items {p.items_required_done} / {p.items_required}

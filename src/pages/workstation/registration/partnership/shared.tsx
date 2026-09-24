@@ -20,6 +20,14 @@ export interface RegistrationService {
   keys: RegistrationKeys;
   stageOptions: { value: string; label: string }[];
   stageLabel: (s: string | null) => string;
+  /**
+   * Label for the third tab and the "saved" toast on that tab. The three
+   * one-time registrations capture "Registration Details" (name, PAN, deed
+   * terms); the three return cycles capture "Return Details" (ARN, taxable
+   * value, filing date). Same slot, different data — GST-RETURNS-CASE-SCREEN
+   * §7.4.
+   */
+  detailsLabel: string;
 }
 
 function stageLabeller(options: { value: string; label: string }[]) {
@@ -76,6 +84,7 @@ export const SERVICES: Record<RegistrationKind, RegistrationService> = {
     keys: makeRegistrationKeys('partnership'),
     stageOptions: PARTNERSHIP_STAGES,
     stageLabel: stageLabeller(PARTNERSHIP_STAGES),
+    detailsLabel: 'Registration Details',
   },
   LLP: {
     kind: 'LLP',
@@ -85,6 +94,7 @@ export const SERVICES: Record<RegistrationKind, RegistrationService> = {
     keys: makeRegistrationKeys('llp'),
     stageOptions: LLP_STAGES,
     stageLabel: stageLabeller(LLP_STAGES),
+    detailsLabel: 'Registration Details',
   },
   GST: {
     kind: 'GST',
@@ -100,10 +110,10 @@ export const SERVICES: Record<RegistrationKind, RegistrationService> = {
     keys: makeRegistrationKeys('gst-registration'),
     stageOptions: GST_STAGES,
     stageLabel: stageLabeller(GST_STAGES),
+    detailsLabel: 'Registration Details',
   },
-  // The three return checklists (§7.2, §7.3, §7.4). No case list / case
-  // screen for these yet — the recurring-cycle "case per period" flow is a
-  // separate build; today these entries drive the Checklist Template editor.
+  // The three return checklists (§7.2, §7.3, §7.4). Templates ship via
+  // the Checklist Template editor; case-per-period wiring is §9-2.
   GSTR1: {
     kind: 'GSTR1',
     label: 'GSTR-1',
@@ -112,6 +122,7 @@ export const SERVICES: Record<RegistrationKind, RegistrationService> = {
     keys: makeRegistrationKeys('gstr1'),
     stageOptions: GSTR1_STAGES,
     stageLabel: stageLabeller(GSTR1_STAGES),
+    detailsLabel: 'Return Details',
   },
   GSTR2B: {
     kind: 'GSTR2B',
@@ -121,6 +132,7 @@ export const SERVICES: Record<RegistrationKind, RegistrationService> = {
     keys: makeRegistrationKeys('gstr2b'),
     stageOptions: GSTR2B_STAGES,
     stageLabel: stageLabeller(GSTR2B_STAGES),
+    detailsLabel: 'Return Details',
   },
   GSTR3B: {
     kind: 'GSTR3B',
@@ -130,6 +142,7 @@ export const SERVICES: Record<RegistrationKind, RegistrationService> = {
     keys: makeRegistrationKeys('gstr3b'),
     stageOptions: GSTR3B_STAGES,
     stageLabel: stageLabeller(GSTR3B_STAGES),
+    detailsLabel: 'Return Details',
   },
 };
 

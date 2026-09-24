@@ -25,7 +25,7 @@ function PartnershipDetails({ c }: { c: CaseDetail }) {
   const { api: regApi } = useSvc();
   const [d, setD] = useState<RegistrationDetails>(() => normalise(c.details));
   const [dirty, setDirty] = useState(false);
-  const save = useCaseMutation(() => regApi.saveDetails(c.id, d), 'Registration details saved');
+  const save = useCaseMutation(() => regApi.saveDetails(c.id, d), 'Details saved');
   const premises = useCaseMutation((v: string) => regApi.updateCase(c.id, { premises_type: v || null }), 'Premises updated');
   const ro = !c.permissions.manage;
   const set = <K extends keyof RegistrationDetails>(k: K, v: RegistrationDetails[K]) => { setD((s) => ({ ...s, [k]: v })); setDirty(true); };
@@ -130,7 +130,7 @@ function LlpCaseDetails({ c }: { c: CaseDetail }) {
     total_contribution: c.details.total_contribution ?? '',
   }));
   const [dirty, setDirty] = useState(false);
-  const save = useCaseMutation(() => regApi.saveDetails(c.id, d as never), 'Registration details saved');
+  const save = useCaseMutation(() => regApi.saveDetails(c.id, d as never), 'Details saved');
   const office = useCaseMutation((v: string) => regApi.updateCase(c.id, { premises_type: v || null }), 'Office type updated');
   const ro = !c.permissions.manage;
   const set = (patch: Partial<LlpDetails>) => { setD((s) => ({ ...s, ...patch })); setDirty(true); };
