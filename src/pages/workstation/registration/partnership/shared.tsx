@@ -2,7 +2,7 @@ import { createContext, useContext, type ReactNode } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { workstationApi } from '@/modules/workstation/api';
 import {
-  llpApi, makeRegistrationKeys, partnershipApi,
+  gstRegistrationApi, privateLimitedApi, llpApi, makeRegistrationKeys, partnershipApi,
   type CaseStatus, type DueState, type RegistrationApi, type RegistrationKeys, type RegistrationKind, type RequirementType,
 } from '@/modules/partnership/api';
 import { fmtDate } from '@/lib/format';
@@ -34,11 +34,28 @@ const PARTNERSHIP_STAGES = [
   { value: 'REGISTERED', label: 'Registered' },
 ];
 /** The LLP source says only "two stages", so they carry no invented names. */
+const PVT_STAGES = [
+  { value: 'DOCUMENTS', label: 'Document Collection' },
+  { value: 'COMPLETED', label: 'Completed' },
+];
+
 const LLP_STAGES = [
   { value: 'STAGE_1', label: 'Stage 1' },
   { value: 'STAGE_2', label: 'Stage 2' },
   { value: 'COMPLETED', label: 'Completed' },
 ];
+
+/** The GST source defines no stages: collect the documents, then the GSTIN. */
+const GST_STAGES = [
+  { value: 'DOCUMENTS', label: 'Document Collection' },
+  { value: 'REGISTERED', label: 'Registered' },
+];
+
+export const ENTITY_LABEL: Record<string, string> = {
+  PROPRIETORSHIP: 'Individual / Proprietorship',
+  PARTNERSHIP: 'Partnership Firm',
+  LLP_COMPANY: 'LLP / Private Limited Company',
+};
 
 export const SERVICES: Record<RegistrationKind, RegistrationService> = {
   PARTNERSHIP: {
@@ -58,6 +75,25 @@ export const SERVICES: Record<RegistrationKind, RegistrationService> = {
     keys: makeRegistrationKeys('llp'),
     stageOptions: LLP_STAGES,
     stageLabel: stageLabeller(LLP_STAGES),
+  },
+  GST: {
+    kind: 'GST',
+    label: 'GST Registration',
+    // Lives inside the GST module: Services → GST → GST Registration.
+    base: '/workstation/services/registration/gst/registration',
+    api: gstRegistrationApi,
+    keys: makeRegistrationKeys('gst-registration'),
+    stageOptions: GST_STAGES,
+    stageLabel: stageLabeller(GST_STAGES),
+  },
+  PRIVATE_LIMITED: {
+    kind: 'PRIVATE_LIMITED',
+    label: 'Private Limited Incorporation',
+    base: '/workstation/services/registration/private-limited',
+    api: privateLimitedApi,
+    keys: makeRegistrationKeys('private-limited'),
+    stageOptions: PVT_STAGES,
+    stageLabel: stageLabeller(PVT_STAGES),
   },
 };
 
@@ -84,7 +120,8 @@ export function RequirementTag({ value, condition }: { value: RequirementType; c
     value === 'REQUIRED' ? 'text-neutral-900 border-neutral-400'
     : value === 'CONDITIONAL' ? 'text-amber border-amber'
     : 'text-neutral-500 border-neutral-300';
-  const text = value === 'CONDITIONAL' && condition ? `Conditional · ${condition === 'RENTED' ? 'Rented' : 'Owned'}` : value.charAt(0) + value.slice(1).toLowerCase();
+  const when = condition === 'RENTED' ? 'Rented' : condition === 'OWNED' ? 'Owned' : condition ? ENTITY_LABEL[condition] : '';
+  const text = value === 'CONDITIONAL' && condition ? `Conditional · ${when}` : value.charAt(0) + value.slice(1).toLowerCase();
   return <span className={`inline-block px-1.5 h-5 leading-5 text-11 border rounded ${cls}`}>{text}</span>;
 }
 

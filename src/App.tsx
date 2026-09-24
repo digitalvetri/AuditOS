@@ -302,7 +302,15 @@ export default function App() {
                     one-time registration reference. */}
                 <Route index element={<Navigate to="dashboard" replace />} />
                 <Route path="dashboard" element={<GstDashboard />} />
-                <Route path="registration" element={<GstRegistrationTab />} />
+                {/* GST Registration — client cases on the registration engine;
+                    the original reference page is its "Reference" tab. */}
+                <Route path="registration" element={<PartnershipShell kind="GST" />}>
+                  <Route index element={<Navigate to="clients" replace />} />
+                  <Route path="clients" element={<PartnershipClients />} />
+                  <Route path="clients/:caseId" element={<PartnershipCase />} />
+                  <Route path="template" element={<PartnershipTemplate />} />
+                  <Route path="registration" element={<GstRegistrationTab />} />
+                </Route>
                 <Route path="clients" element={<GstClients />} />
                 <Route path="gstr1" element={<Gstr1Page />} />
                 <Route path="gstr2b" element={<Gstr2bPage />} />
@@ -330,6 +338,15 @@ export default function App() {
                 <Route path="template" element={<PartnershipTemplate />} />
                 <Route path="registration" element={<RegistrationServiceDetail slug="llp" embedded />} />
                 <Route path="about" element={<Navigate to="../registration" replace />} />
+              </Route>
+              {/* Private Limited Incorporation — the same case engine, its own checklist. */}
+              <Route path="workstation/services/registration/private-limited" element={<PartnershipShell kind="PRIVATE_LIMITED" />}>
+                <Route index element={<Navigate to="dashboard" replace />} />
+                <Route path="dashboard" element={<PartnershipDashboard />} />
+                <Route path="clients" element={<PartnershipClients />} />
+                <Route path="clients/:caseId" element={<PartnershipCase />} />
+                <Route path="template" element={<PartnershipTemplate />} />
+                <Route path="registration" element={<RegistrationServiceDetail slug="private-limited" embedded />} />
               </Route>
               <Route path="workstation/services/registration/:slug" element={<RegistrationServiceDetail />} />
               <Route path="workstation/services/:category" element={<ServicesPage />} />

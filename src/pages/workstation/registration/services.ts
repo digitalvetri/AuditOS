@@ -33,7 +33,7 @@
  *
  * PROPRIETORSHIP still has no registry — India keeps no proprietorship
  * register and there is no certificate of proprietorship. Its link points at
- * the GST portal because that is where the identity is actually established;
+ * the UDYAM portal because that is where the identity is actually established;
  * its portalLabel says so, so the row never reads as a registry that exists.
  */
 import {
@@ -62,7 +62,7 @@ export type RegistrationKind = 'tax' | 'entity' | 'licence' | 'labour';
  * Whose portal it is. Tamil Nadu registrations go to a state department; the
  * rest are central. `none` is retained for a registration that genuinely has
  * nowhere to go — nothing uses it today, since Proprietorship now points at
- * the GST portal.
+ * the UDYAM portal.
  */
 export type PortalScope = 'tamil-nadu' | 'india' | 'none';
 
@@ -181,7 +181,7 @@ export const REGISTRATION_SERVICES: RegistrationService[] = [
   },
   {
     slug: 'proprietorship',
-    name: 'Proprietorship Registration',
+    name: 'Udyam Registration',
     shortName: 'Proprietorship',
     kind: 'entity',
     icon: UserRound,
@@ -190,10 +190,10 @@ export const REGISTRATION_SERVICES: RegistrationService[] = [
     summary:
       'Establishes a sole proprietorship. There is no single registry, so identity is evidenced through GST, UDYAM and a current account in the trade name.',
     description:
-      'A sole proprietorship is not a separate legal person, and there is no proprietorship register anywhere in India — no proprietorship portal and no certificate of proprietorship. Existence is evidenced instead by whatever the proprietor holds in the trade name: a GST registration, a UDYAM certificate, a Shops and Establishment licence, and a current account. The portal link here therefore goes to GST, which is the usual way the identity is established. Anyone offering a \'proprietorship registration certificate\' is selling one of those under another name.',
+      'A sole proprietorship is not a separate legal person, and there is no proprietorship register anywhere in India — no proprietorship portal and no certificate of proprietorship. Existence is evidenced instead by whatever the proprietor holds in the trade name: a GST registration, a UDYAM certificate, a Shops and Establishment licence, and a current account. The portal link here therefore goes to UDYAM, which is the usual way the identity is established. Anyone offering a \'proprietorship registration certificate\' is selling one of those under another name.',
     portalScope: 'india',
-    portalUrl: 'https://www.gst.gov.in/',
-    portalLabel: 'GST Portal · Government of India (no proprietorship registry exists)',
+    portalUrl: 'https://www.udyamregistration.gov.in/',
+    portalLabel: 'UDYAM Registration · Ministry of MSME (no proprietorship registry exists)',
     outputDocument: 'GST certificate / UDYAM certificate / bank proof',
 
   },

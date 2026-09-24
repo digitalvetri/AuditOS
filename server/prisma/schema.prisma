@@ -6606,6 +6606,8 @@ model PartnershipCase {
   dueDate            String?
   /// RENTED | OWNED — decides which office-proof items apply
   premisesType       String?
+  /// GST: PROPRIETORSHIP | PARTNERSHIP | LLP_COMPANY — decides which document section applies
+  entityType         String?
   /// Registration Details form (fields from the source PDF, Part A)
   detailsJson        String?
   completedAt        DateTime?
@@ -6657,6 +6659,10 @@ model PartnershipPartner {
   capital      String?
   profitShare  String?
   remuneration String?
+  /// Private Limited: DIRECTOR | SHAREHOLDER | BOTH
+  role         String?
+  /// Private Limited: shares allotted to this person (shareholding pattern)
+  shares       Int?
   sortOrder    Int     @default(0)
 
   case         PartnershipCase             @relation(fields: [caseId], references: [id])
