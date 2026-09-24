@@ -11,8 +11,16 @@ export interface EmployeeRef { id: string; full_name: string; employee_code: str
 export type CaseStatus =
   | 'NOT_STARTED' | 'IN_PROGRESS' | 'DOCUMENTS_PENDING' | 'UNDER_REVIEW'
   | 'SUBMITTED' | 'QUERY' | 'COMPLETED' | 'ON_HOLD';
-export type RegistrationKind = 'PARTNERSHIP' | 'LLP' | 'GST';
-/** Partnership: INFO_COLLECTION | DEED | ROF_FILING | REGISTERED. LLP: STAGE_1 | STAGE_2 | COMPLETED. GST: INFO_COLLECTION | FILING | REGISTERED. */
+export type RegistrationKind = 'PARTNERSHIP' | 'LLP' | 'GST' | 'GSTR1' | 'GSTR2B' | 'GSTR3B';
+/**
+ * Free-form because the six services each have their own stage set:
+ *   PARTNERSHIP INFO_COLLECTION | DEED | ROF_FILING | REGISTERED
+ *   LLP         STAGE_1 | STAGE_2 | COMPLETED
+ *   GST         INFO_COLLECTION | FILING | REGISTERED
+ *   GSTR1       DATA_COLLECTION | PREPARATION | PRE_FILING | FILING
+ *   GSTR2B      INWARD_DATA | IMS_ACTIONS | RECONCILIATION | FINALISE
+ *   GSTR3B      PREREQUISITES | VERIFICATION | PAYMENT | FILING
+ */
 export type CaseStage = string;
 export type ItemStatus = 'PENDING' | 'IN_PROGRESS' | 'COMPLETED' | 'NOT_APPLICABLE' | 'BLOCKED';
 export type RequirementType = 'REQUIRED' | 'OPTIONAL' | 'CONDITIONAL';
@@ -300,6 +308,9 @@ export type RegistrationApi = ReturnType<typeof makeRegistrationApi>;
 export const partnershipApi = makeRegistrationApi('/api/partnership');
 export const llpApi = makeRegistrationApi('/api/llp');
 export const gstRegApi = makeRegistrationApi('/api/gst-registration');
+export const gstr1Api = makeRegistrationApi('/api/gstr1');
+export const gstr2bApi = makeRegistrationApi('/api/gstr2b');
+export const gstr3bApi = makeRegistrationApi('/api/gstr3b');
 
 /** Query keys, namespaced per service so the two never share a cache entry. */
 export function makeRegistrationKeys(ns: string) {

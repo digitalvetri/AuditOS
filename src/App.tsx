@@ -100,6 +100,7 @@ import { GstDashboard } from '@/pages/workstation/registration/gst/GstDashboard'
 import { GstClients } from '@/pages/workstation/registration/gst/GstClients';
 import { Gstr1Page, Gstr2bPage, Gstr3bPage } from '@/pages/workstation/registration/gst/GstStagePage';
 import { GstPeriodDetail } from '@/pages/workstation/registration/gst/GstPeriodDetail';
+import { GstTemplateHub } from '@/pages/workstation/registration/gst/GstTemplateHub';
 import { RegistrationServiceDetail } from '@/pages/workstation/registration/RegistrationServiceDetail';
 // E-Invoice & E-Way Bill monitoring page (E-INVOICE-EWAYBILL.md). Both
 // sidebar entries route here, but `mode` splits them: each screen shows only
@@ -304,9 +305,11 @@ export default function App() {
                 <Route path="gstr1" element={<Gstr1Page />} />
                 <Route path="gstr2b" element={<Gstr2bPage />} />
                 <Route path="gstr3b" element={<Gstr3bPage />} />
-                {/* GST Registration checklist template editor — shared with
-                    Partnership and LLP, scoped to GST via the provider. */}
-                <Route path="template" element={<PartnershipTemplate />} />
+                {/* Checklist Template editor — hub with a sub-nav to switch
+                    between GST Registration and the three return templates
+                    (§7.2, §7.3, §7.4). Each uses the shared PartnershipTemplate
+                    re-rooted in a ServiceProvider for the chosen kind. */}
+                <Route path="template" element={<GstTemplateHub />} />
                 {/* Every list row navigates here — the one place work is done. */}
                 <Route path="periods/:periodId" element={<GstPeriodDetail />} />
               </Route>

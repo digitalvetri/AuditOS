@@ -1,15 +1,22 @@
 /** Shared by the module and its seed. */
-import { CASE_STAGES, GST_STAGES, GST_TEMPLATE, LLP_STAGES, LLP_TEMPLATE, MASTER_TEMPLATE, type TemplateCategorySeed } from './template.js'
+import {
+  CASE_STAGES, GST_STAGES, GST_TEMPLATE, GSTR1_STAGES, GSTR1_TEMPLATE,
+  GSTR2B_STAGES, GSTR2B_TEMPLATE, GSTR3B_STAGES, GSTR3B_TEMPLATE,
+  LLP_STAGES, LLP_TEMPLATE, MASTER_TEMPLATE, type TemplateCategorySeed,
+} from './template.js'
 
 export const PFR_SERVICE_CODE = 'PARTNERSHIP_FIRM_REGISTRATION'
 export const PFR_DOC_CATEGORY_CODE = 'registration'
 export const PFR_CODE_PREFIX = 'PFR'
 
 /**
- * One case engine, three registration services. Everything that differs
- * between them lives here; the routes, tables and screens are shared.
+ * One case engine, six services. Everything that differs between them
+ * lives here; the routes, tables and screens are shared.
+ *   PARTNERSHIP · LLP · GST — one-time registration cases
+ *   GSTR1 · GSTR2B · GSTR3B — monthly return checklists (one case per
+ *   client per period, once the period-per-case flow is wired)
  */
-export const REGISTRATION_KINDS = ['PARTNERSHIP', 'LLP', 'GST'] as const
+export const REGISTRATION_KINDS = ['PARTNERSHIP', 'LLP', 'GST', 'GSTR1', 'GSTR2B', 'GSTR3B'] as const
 export type RegistrationKind = (typeof REGISTRATION_KINDS)[number]
 
 export interface KindConfig {
@@ -19,6 +26,14 @@ export interface KindConfig {
   codePrefix: string
   stages: readonly string[]
   template: TemplateCategorySeed[]
+  /**
+   * Whether a client is enrolled in this kind as a sellable service. True for
+   * the three one-time registrations; false for the return kinds, which only
+   * exist to hang a master checklist off — no per-period case flow yet, so a
+   * Service row would leak into /api/service-catalog and offer them for
+   * enrolment. When that flow lands, flip this and add the Service upsert.
+   */
+  hasCaseFlow: boolean
 }
 
 export const KINDS: Record<RegistrationKind, KindConfig> = {
@@ -29,6 +44,7 @@ export const KINDS: Record<RegistrationKind, KindConfig> = {
     codePrefix: PFR_CODE_PREFIX,
     stages: CASE_STAGES,
     template: MASTER_TEMPLATE,
+    hasCaseFlow: true,
   },
   LLP: {
     label: 'LLP Registration',
@@ -37,6 +53,7 @@ export const KINDS: Record<RegistrationKind, KindConfig> = {
     codePrefix: 'LLP',
     stages: LLP_STAGES,
     template: LLP_TEMPLATE,
+    hasCaseFlow: true,
   },
   GST: {
     label: 'GST Registration',
@@ -45,5 +62,33 @@ export const KINDS: Record<RegistrationKind, KindConfig> = {
     codePrefix: 'GST',
     stages: GST_STAGES,
     template: GST_TEMPLATE,
+    hasCaseFlow: true,
+  },
+  GSTR1: {
+    label: 'GSTR-1',
+    serviceCode: 'GSTR1_RETURN',
+    serviceId: 'svc-gstr1',
+    codePrefix: 'GSTR1',
+    stages: GSTR1_STAGES,
+    template: GSTR1_TEMPLATE,
+    hasCaseFlow: false,
+  },
+  GSTR2B: {
+    label: 'IMS + GSTR-2B',
+    serviceCode: 'GSTR2B_RETURN',
+    serviceId: 'svc-gstr2b',
+    codePrefix: 'GSTR2B',
+    stages: GSTR2B_STAGES,
+    template: GSTR2B_TEMPLATE,
+    hasCaseFlow: false,
+  },
+  GSTR3B: {
+    label: 'GSTR-3B',
+    serviceCode: 'GSTR3B_RETURN',
+    serviceId: 'svc-gstr3b',
+    codePrefix: 'GSTR3B',
+    stages: GSTR3B_STAGES,
+    template: GSTR3B_TEMPLATE,
+    hasCaseFlow: false,
   },
 }

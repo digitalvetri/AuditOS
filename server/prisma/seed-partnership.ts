@@ -24,11 +24,18 @@ export async function seedPartnership(prisma: PrismaClient, orgId: string) {
   const result: Record<string, { templateCategories: number; seeded: boolean }> = {}
   for (const kind of REGISTRATION_KINDS) {
     const cfg = KINDS[kind]
-    await prisma.service.upsert({
-      where: { code: cfg.serviceCode },
-      update: { name: cfg.label, isActive: true },
-      create: { id: cfg.serviceId, code: cfg.serviceCode, name: cfg.label, sortOrder: 3, isActive: true, organisationId: orgId },
-    })
+    // Only kinds with a case flow become sellable services. The three GST
+    // return kinds carry a master checklist but no enrolment path today, so
+    // creating a Service row would surface them in /api/service-catalog and
+    // offer them for client enrolment. When the per-period flow lands, the
+    // PR wiring it flips hasCaseFlow and this upsert runs.
+    if (cfg.hasCaseFlow) {
+      await prisma.service.upsert({
+        where: { code: cfg.serviceCode },
+        update: { name: cfg.label, isActive: true },
+        create: { id: cfg.serviceId, code: cfg.serviceCode, name: cfg.label, sortOrder: 3, isActive: true, organisationId: orgId },
+      })
+    }
 
     const existing = await prisma.partnershipTemplateCategory.count({ where: { kind, deletedAt: null } })
     if (existing > 0) { result[kind] = { templateCategories: existing, seeded: false }; continue }

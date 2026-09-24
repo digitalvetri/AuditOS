@@ -78,6 +78,12 @@ export const LLP_STAGES = ['STAGE_1', 'STAGE_2', 'COMPLETED'] as const;
  * cycle live on the portal; the case tracks what the firm gathers and holds.
  */
 export const GST_STAGES = ['INFO_COLLECTION', 'FILING', 'REGISTERED'] as const;
+/** GSTR-1 (§7.2): outward supplies, filed by the 11th. */
+export const GSTR1_STAGES = ['DATA_COLLECTION', 'PREPARATION', 'PRE_FILING', 'FILING'] as const;
+/** IMS + GSTR-2B (§7.3): inward, actions, reconcile, finalise. */
+export const GSTR2B_STAGES = ['INWARD_DATA', 'IMS_ACTIONS', 'RECONCILIATION', 'FINALISE'] as const;
+/** GSTR-3B (§7.4): prerequisites, verify, pay, file. */
+export const GSTR3B_STAGES = ['PREREQUISITES', 'VERIFICATION', 'PAYMENT', 'FILING'] as const;
 
 export const CASE_STATUSES = [
   'NOT_STARTED',
@@ -315,6 +321,151 @@ export const GST_TEMPLATE: TemplateCategorySeed[] = [
       { name: 'Rent Agreement / Lease Deed', requirement: 'CONDITIONAL', kind: 'DOCUMENT', condition: 'RENTED' },
       { name: "Electricity Bill in Owner's name", requirement: 'CONDITIONAL', kind: 'DOCUMENT', condition: 'RENTED' },
       { name: 'NOC from Property Owner', requirement: 'CONDITIONAL', kind: 'DOCUMENT', condition: 'RENTED' },
+    ],
+  },
+];
+
+/**
+ * GSTR-1 master checklist — GST-MODULE-REBUILD.md §7.2.
+ *
+ * Outward supplies, filed by the 11th of the following month. Once filed,
+ * the liability flows into GSTR-3B and cannot be edited there — hence the
+ * pre-filing verification stage is where the real review happens.
+ */
+export const GSTR1_TEMPLATE: TemplateCategorySeed[] = [
+  {
+    name: 'Data Collection',
+    stage: 'DATA_COLLECTION',
+    items: [
+      { name: 'Sales register received', requirement: 'REQUIRED', kind: 'DOCUMENT' },
+      { name: 'Credit / debit notes for the period', requirement: 'REQUIRED', kind: 'DOCUMENT' },
+      { name: 'Export invoices with shipping bill details', description: 'Applies when the client is an exporter.', requirement: 'CONDITIONAL', kind: 'DOCUMENT' },
+      { name: 'E-commerce supply details', description: 'Applies when the client sells through an e-commerce operator.', requirement: 'CONDITIONAL', kind: 'DOCUMENT' },
+      { name: 'Document series details', requirement: 'REQUIRED', kind: 'ACTION' },
+    ],
+  },
+  {
+    name: 'Preparation',
+    stage: 'PREPARATION',
+    items: [
+      { name: 'B2B invoices — GSTIN validated', requirement: 'REQUIRED', kind: 'ACTION' },
+      { name: 'HSN summary prepared', requirement: 'REQUIRED', kind: 'ACTION' },
+      { name: 'Place of supply verified on B2B', requirement: 'REQUIRED', kind: 'ACTION' },
+      { name: 'Taxable value tallies with books', requirement: 'REQUIRED', kind: 'ACTION' },
+      { name: 'Tax amounts verified CGST / SGST / IGST', requirement: 'REQUIRED', kind: 'ACTION' },
+    ],
+  },
+  {
+    name: 'Pre-Filing Verification',
+    description: 'GSTR-1 liability flows into GSTR-3B and cannot be edited there. Verify before filing. GSTR-1A is the only correction route.',
+    stage: 'PRE_FILING',
+    items: [
+      { name: 'Manager review completed', requirement: 'REQUIRED', kind: 'ACTION' },
+      { name: 'Client confirmation received', requirement: 'OPTIONAL', kind: 'ACTION' },
+    ],
+  },
+  {
+    name: 'Filing',
+    stage: 'FILING',
+    items: [
+      { name: 'Filed on GST portal', description: 'Gated on stages 1–3 complete.', requirement: 'REQUIRED', kind: 'ACTION' },
+      { name: 'ARN captured', requirement: 'REQUIRED', kind: 'INFO' },
+      { name: 'Filed return PDF saved', requirement: 'REQUIRED', kind: 'DOCUMENT' },
+    ],
+  },
+];
+
+/**
+ * IMS + GSTR-2B master checklist — GST-MODULE-REBUILD.md §7.3.
+ *
+ * IMS actions are time-boxed — Accept / Reject / Pending on every inward
+ * invoice must complete before GSTR-2B generates on the 14th. Whatever the
+ * ITC figure lands at here is what GSTR-3B reads; 3B does not recompute.
+ */
+export const GSTR2B_TEMPLATE: TemplateCategorySeed[] = [
+  {
+    name: 'Inward Data',
+    stage: 'INWARD_DATA',
+    items: [
+      { name: 'Purchase register received', requirement: 'REQUIRED', kind: 'DOCUMENT' },
+    ],
+  },
+  {
+    name: 'IMS Actions',
+    description: 'Must complete before GSTR-2B generates on the 14th.',
+    stage: 'IMS_ACTIONS',
+    items: [
+      { name: 'All inward invoices reviewed in IMS', requirement: 'REQUIRED', kind: 'ACTION' },
+      { name: 'Accept / Reject / Pending actioned on all', requirement: 'REQUIRED', kind: 'ACTION' },
+      { name: 'Rejected invoices communicated to suppliers', requirement: 'REQUIRED', kind: 'ACTION' },
+    ],
+  },
+  {
+    name: '2B and Reconciliation',
+    stage: 'RECONCILIATION',
+    items: [
+      { name: 'GSTR-2B downloaded', requirement: 'REQUIRED', kind: 'DOCUMENT' },
+      { name: '2B reconciled against purchase register', requirement: 'REQUIRED', kind: 'ACTION' },
+      { name: 'Missing-in-2B supplier follow-up list sent', description: 'Applies when variances exist.', requirement: 'CONDITIONAL', kind: 'ACTION' },
+      { name: 'ITC eligibility classified', requirement: 'REQUIRED', kind: 'ACTION' },
+      { name: 'Ineligible ITC identified with reason', requirement: 'REQUIRED', kind: 'ACTION' },
+    ],
+  },
+  {
+    name: 'Finalise',
+    stage: 'FINALISE',
+    items: [
+      { name: 'ITC figure locked for GSTR-3B', description: 'GSTR-3B reads this figure and does not recompute it.', requirement: 'REQUIRED', kind: 'INFO' },
+    ],
+  },
+];
+
+/**
+ * GSTR-3B master checklist — GST-MODULE-REBUILD.md §7.4.
+ *
+ * Prerequisites are auto-checked (GSTR-1 filed, ITC finalised from 2B), not
+ * manual — they gate the filing action. The outward liability figure is
+ * locked (from July 2025) and cannot be edited in 3B; GSTR-1A is the only
+ * same-period correction route.
+ */
+export const GSTR3B_TEMPLATE: TemplateCategorySeed[] = [
+  {
+    name: 'Prerequisites',
+    description: 'Auto-checked. GSTR-1 must be filed and the ITC figure finalised from 2B before this return can be filed.',
+    stage: 'PREREQUISITES',
+    items: [
+      { name: 'GSTR-1 filed for this period', description: 'Gate — checked automatically.', requirement: 'REQUIRED', kind: 'ACTION' },
+      { name: 'ITC figure finalised from 2B', description: 'Gate — checked automatically.', requirement: 'REQUIRED', kind: 'ACTION' },
+    ],
+  },
+  {
+    name: 'Verification',
+    description: 'The auto-populated outward liability is locked and cannot be edited in 3B. Use GSTR-1A to correct a mismatch found here.',
+    stage: 'VERIFICATION',
+    items: [
+      { name: 'Auto-populated outward liability verified', description: 'This figure is locked and cannot be edited in 3B.', requirement: 'REQUIRED', kind: 'ACTION' },
+      { name: 'GSTR-1A filed to correct liability', description: 'Applies when a mismatch is found — the only same-period correction route.', requirement: 'CONDITIONAL', kind: 'ACTION' },
+      { name: 'Reverse charge liability computed', requirement: 'REQUIRED', kind: 'ACTION' },
+      { name: 'Ineligible ITC reversal computed', requirement: 'REQUIRED', kind: 'ACTION' },
+      { name: 'Net tax payable computed', requirement: 'REQUIRED', kind: 'ACTION' },
+      { name: 'Cash and credit ledger balances checked', requirement: 'REQUIRED', kind: 'ACTION' },
+    ],
+  },
+  {
+    name: 'Payment',
+    stage: 'PAYMENT',
+    items: [
+      { name: 'Challan generated and paid', description: 'Applies when cash is payable after ITC set-off.', requirement: 'CONDITIONAL', kind: 'DOCUMENT' },
+    ],
+  },
+  {
+    name: 'Filing',
+    stage: 'FILING',
+    items: [
+      { name: 'Manager review completed', requirement: 'REQUIRED', kind: 'ACTION' },
+      { name: 'Filed on GST portal', description: 'Gated on stages 1–3 complete.', requirement: 'REQUIRED', kind: 'ACTION' },
+      { name: 'ARN captured', requirement: 'REQUIRED', kind: 'INFO' },
+      { name: 'Filed return PDF saved', requirement: 'REQUIRED', kind: 'DOCUMENT' },
     ],
   },
 ];
