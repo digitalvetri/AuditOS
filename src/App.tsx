@@ -99,7 +99,10 @@ import { GstShell } from '@/pages/workstation/registration/gst/GstShell';
 import { GstRegistrationTab } from '@/pages/workstation/registration/gst/GstRegistrationTab';
 import { GstDashboard } from '@/pages/workstation/registration/gst/GstDashboard';
 import { GstClients } from '@/pages/workstation/registration/gst/GstClients';
-import { Gstr1Page, Gstr2bPage, Gstr3bPage } from '@/pages/workstation/registration/gst/GstStagePage';
+// GstStagePage (Gstr1Page/2b/3b) retired in §9-3 — the return tabs now
+// render the shared PartnershipClients component under a per-return
+// ServiceProvider. The file remains for now until §9-4 also drops any
+// other references from the dashboard.
 import { GstPeriodDetail } from '@/pages/workstation/registration/gst/GstPeriodDetail';
 import { GstTemplateHub } from '@/pages/workstation/registration/gst/GstTemplateHub';
 import { RegistrationServiceDetail } from '@/pages/workstation/registration/RegistrationServiceDetail';
@@ -303,9 +306,13 @@ export default function App() {
                     so PartnershipClients.navigate hits the right route. */}
                 <Route path="registration/clients/:caseId" element={<PartnershipCase />} />
                 <Route path="clients" element={<GstClients />} />
-                <Route path="gstr1" element={<Gstr1Page />} />
-                <Route path="gstr2b" element={<Gstr2bPage />} />
-                <Route path="gstr3b" element={<Gstr3bPage />} />
+                {/* Return-cycle client lists (§9-3). PartnershipClients is
+                    service-agnostic and reads the per-return service via
+                    ServiceProvider; the period selector switches on
+                    isReturnKind so registration lists stay period-less. */}
+                <Route path="gstr1" element={<ServiceProvider kind="GSTR1"><PartnershipClients /></ServiceProvider>} />
+                <Route path="gstr2b" element={<ServiceProvider kind="GSTR2B"><PartnershipClients /></ServiceProvider>} />
+                <Route path="gstr3b" element={<ServiceProvider kind="GSTR3B"><PartnershipClients /></ServiceProvider>} />
                 {/* Return-cycle cases (§9-2). The shared PartnershipCase
                     renders inside a per-return ServiceProvider so useSvc()
                     resolves to the right template, api and detailsLabel.

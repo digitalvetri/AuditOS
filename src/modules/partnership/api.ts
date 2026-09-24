@@ -266,6 +266,8 @@ export interface CaseFilters {
   sort?: string;
   dir?: string;
   page?: number;
+  /** Only meaningful for return kinds — the period selector on the GSTR-1/2B/3B tabs. */
+  period?: string;
 }
 
 function qs(params: Record<string, string | number | undefined>): string {

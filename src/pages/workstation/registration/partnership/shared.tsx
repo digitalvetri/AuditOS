@@ -28,6 +28,15 @@ export interface RegistrationService {
    * §7.4.
    */
   detailsLabel: string;
+  /**
+   * URL for a case's detail screen. Registration services live under
+   * `${base}/clients/:caseId` (historical). Return services live under
+   * `${base}/cases/:caseId` (§9-2's new routes). The helper hides this
+   * split from the client list so PartnershipClients works for both.
+   */
+  caseUrl: (caseId: string) => string;
+  /** True for the three GSTR* kinds — used to conditionally render the period selector. */
+  isReturnKind: boolean;
 }
 
 function stageLabeller(options: { value: string; label: string }[]) {
@@ -85,6 +94,8 @@ export const SERVICES: Record<RegistrationKind, RegistrationService> = {
     stageOptions: PARTNERSHIP_STAGES,
     stageLabel: stageLabeller(PARTNERSHIP_STAGES),
     detailsLabel: 'Registration Details',
+    caseUrl: (id) => `/workstation/services/registration/partnership-firm/clients/${id}`,
+    isReturnKind: false,
   },
   LLP: {
     kind: 'LLP',
@@ -95,6 +106,8 @@ export const SERVICES: Record<RegistrationKind, RegistrationService> = {
     stageOptions: LLP_STAGES,
     stageLabel: stageLabeller(LLP_STAGES),
     detailsLabel: 'Registration Details',
+    caseUrl: (id) => `/workstation/services/registration/llp/clients/${id}`,
+    isReturnKind: false,
   },
   GST: {
     kind: 'GST',
@@ -111,6 +124,8 @@ export const SERVICES: Record<RegistrationKind, RegistrationService> = {
     stageOptions: GST_STAGES,
     stageLabel: stageLabeller(GST_STAGES),
     detailsLabel: 'Registration Details',
+    caseUrl: (id) => `/workstation/services/registration/gst/registration/clients/${id}`,
+    isReturnKind: false,
   },
   // The three return checklists (§7.2, §7.3, §7.4). Templates ship via
   // the Checklist Template editor; case-per-period wiring is §9-2.
@@ -123,6 +138,8 @@ export const SERVICES: Record<RegistrationKind, RegistrationService> = {
     stageOptions: GSTR1_STAGES,
     stageLabel: stageLabeller(GSTR1_STAGES),
     detailsLabel: 'Return Details',
+    caseUrl: (id) => `/workstation/services/registration/gst/gstr1/cases/${id}`,
+    isReturnKind: true,
   },
   GSTR2B: {
     kind: 'GSTR2B',
@@ -133,6 +150,8 @@ export const SERVICES: Record<RegistrationKind, RegistrationService> = {
     stageOptions: GSTR2B_STAGES,
     stageLabel: stageLabeller(GSTR2B_STAGES),
     detailsLabel: 'Return Details',
+    caseUrl: (id) => `/workstation/services/registration/gst/gstr2b/cases/${id}`,
+    isReturnKind: true,
   },
   GSTR3B: {
     kind: 'GSTR3B',
@@ -143,6 +162,8 @@ export const SERVICES: Record<RegistrationKind, RegistrationService> = {
     stageOptions: GSTR3B_STAGES,
     stageLabel: stageLabeller(GSTR3B_STAGES),
     detailsLabel: 'Return Details',
+    caseUrl: (id) => `/workstation/services/registration/gst/gstr3b/cases/${id}`,
+    isReturnKind: true,
   },
 };
 

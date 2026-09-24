@@ -283,6 +283,9 @@ partnershipRouter.get('/cases', handler(async (req, res) => {
   if (q.assignee) and.push({ assignedEmployeeId: q.assignee === 'unassigned' ? null : q.assignee })
   if (q.reviewer) and.push({ reviewerEmployeeId: q.reviewer })
   if (q.client_id) and.push({ clientId: q.client_id })
+  // Return cases live per period; this filter is the period selector on the
+  // GSTR-1 / 2B / 3B tabs. Registration cases have period=null and ignore it.
+  if (q.period) and.push({ period: q.period })
   const pmin = Number(q.progress_min); const pmax = Number(q.progress_max)
   if (q.progress_min && Number.isFinite(pmin)) and.push({ progressPct: { gte: pmin } })
   if (q.progress_max && Number.isFinite(pmax)) and.push({ progressPct: { lte: pmax } })
