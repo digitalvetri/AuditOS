@@ -3,9 +3,10 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { workstationApi } from '@/modules/workstation/api';
 import {
-  Card, Detail, Field, Modal, PageHeader, QueryState, SimulatedNotice, Status,
-  fieldErrors, inputClass, textareaClass,
+  Card, Cell, Detail, Field, Modal, PageHeader, QueryState, Row, SimulatedNotice, Status,
+  Table, fieldErrors, inputClass, textareaClass,
 } from '@/modules/workstation/components';
+import { quotationsApi } from '@/modules/workstation/quotations/api';
 import type { Activity, Lead, LeadStatus, ListResponse } from '@/modules/workstation/types';
 import { Button } from '@/components/Button';
 import { useToast } from '@/components/Toast';
@@ -170,10 +171,101 @@ function LeadBody({ lead }: { lead: Lead }) {
         </Card>
       </div>
 
+      {/* Quotations sit BELOW the two-column grid, full width: a quotation row
+          carries a code, subject, two dates, a status and a total, which does
+          not fit a half-width column without truncating the subject. */}
+      {can(role, 'workstation.quotation.read', 'self') ? (
+        <div className="mt-6">
+          <LeadQuotationsCard lead={lead} />
+        </div>
+      ) : null}
+
       <ConvertModal lead={lead} open={convertOpen} onClose={() => setConvertOpen(false)} />
       <NoteModal lead={lead} open={noteOpen} onClose={() => setNoteOpen(false)} />
       <LeadFollowUpModal lead={lead} open={followUpOpen} onClose={() => setFollowUpOpen(false)} />
     </>
+  );
+}
+
+/**
+ * This lead's quotations, and the way to start another one.
+ *
+ * Mirrors the client workspace's Quotations tab deliberately: the same
+ * columns, the same state-dependent action, the same wording. A quotation
+ * against a prospect and one against a client are the same document with a
+ * different party — `Quotation` stores leadId/clientId as an XOR — so the two
+ * surfaces should not diverge in how they read.
+ *
+ * The row action follows the quotation's state: a DRAFT has gone nowhere, so
+ * the useful move is to carry on building it; anything SENT is frozen
+ * server-side and opens read-only.
+ */
+function LeadQuotationsCard({ lead }: { lead: Lead }) {
+  const navigate = useNavigate();
+  const { session } = useAuth();
+  const mayWrite = can(session?.role.code, 'workstation.quotation.manage', 'self');
+
+  const quotations = useQuery({
+    queryKey: ['workstation', 'lead', lead.id, 'quotations'],
+    queryFn: () => quotationsApi.list({ lead_id: lead.id, limit: 50 }),
+  });
+
+  const build = () => navigate(`/workstation/quotations/new?lead_id=${lead.id}`);
+
+  return (
+    <Card
+      title="Quotations"
+      right={mayWrite ? <Button onClick={build}>New quotation</Button> : undefined}
+    >
+      <QueryState
+        query={quotations}
+        empty="No quotations for this lead yet. Build one to price the work before the lead is won."
+      >
+        {(data) => (
+          <>
+            <Table head={['Quotation', 'Subject', 'Date', 'Valid until', 'Status', 'Total', '']}>
+              {data.items.map((q) => {
+                const draft = q.status === 'draft';
+                return (
+                  <Row
+                    key={q.id}
+                    status={q.status}
+                    onClick={() => navigate(`/workstation/quotations/${q.id}`)}
+                  >
+                    <Cell>{q.quotation_code}</Cell>
+                    <Cell>{q.subject || '—'}</Cell>
+                    <Cell>{fmtDate(q.quote_date)}</Cell>
+                    <Cell>{q.valid_until ? fmtDate(q.valid_until) : '—'}</Cell>
+                    <Cell><Status value={q.status} /></Cell>
+                    <Cell>{inr(q.total_paise)}</Cell>
+                    <Cell>
+                      <button
+                        type="button"
+                        className="text-13 text-primary hover:underline"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          navigate(draft && mayWrite
+                            ? `/workstation/quotations/${q.id}/edit`
+                            : `/workstation/quotations/${q.id}`);
+                        }}
+                      >
+                        {draft && mayWrite ? 'Continue building' : 'View'}
+                      </button>
+                    </Cell>
+                  </Row>
+                );
+              })}
+            </Table>
+            {/* Two different numbers live on this page. Say which is which
+                rather than letting them look like a disagreement. */}
+            <div className="px-4 py-3 border-t border-neutral-200 text-12 text-neutral-500">
+              A quotation's total is derived from its own priced lines. "Price Quoted" above is the
+              single figure typed on the lead, and the two are kept separately on purpose.
+            </div>
+          </>
+        )}
+      </QueryState>
+    </Card>
   );
 }
 
