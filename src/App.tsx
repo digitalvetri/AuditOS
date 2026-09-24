@@ -101,14 +101,10 @@ import { GstClients } from '@/pages/workstation/registration/gst/GstClients';
 import { Gstr1Page, Gstr2bPage, Gstr3bPage } from '@/pages/workstation/registration/gst/GstStagePage';
 import { GstPeriodDetail } from '@/pages/workstation/registration/gst/GstPeriodDetail';
 import { RegistrationServiceDetail } from '@/pages/workstation/registration/RegistrationServiceDetail';
-import { GstServicesLanding } from '@/pages/workstation/gst/GstServicesLanding';
-import { GstServiceHandoff } from '@/pages/workstation/gst/GstServiceHandoff';
 // E-Invoice & E-Way Bill monitoring page (E-INVOICE-EWAYBILL.md). Both
 // sidebar entries route here, but `mode` splits them: each screen shows only
 // its own monitors, setup row and reconciliation column.
 import EInvoiceEwbPage from '@/pages/workstation/einvoice-ewb/EInvoiceEwbPage';
-import { GstWorkspace } from '@/pages/workstation/gst/GstWorkspace';
-import { GstNoticeCheck } from '@/pages/workstation/gst/NoticeCheck';
 
 // TDS — copied from the GST page structure per TDS-PAGE-PROMPT.md.
 // Client + FY + TAN scope in the URL; six sub-services (Registration,
@@ -275,15 +271,6 @@ export default function App() {
                   :category catch-all below. */}
               <Route path="workstation/services/tds" element={<TdsServicesLanding />} />
               <Route path="workstation/services/tds/:slug" element={<TdsServiceHandoff />} />
-              {/* GST module landing + per-service AssistedHandoff detail —
-                  see docs/gst-services/README.md. Declared BEFORE the
-                  :category catch-all so they win. */}
-              <Route path="workstation/services/gst" element={<GstServicesLanding />} />
-              {/* Weekly notice-check comes BEFORE the /:slug catch to avoid
-                  being treated as a service slug. */}
-              <Route path="workstation/services/gst/notice-check" element={<GstNoticeCheck />} />
-              <Route path="workstation/services/gst/:slug" element={<GstServiceHandoff />} />
-              <Route path="workstation/services/gst/:slug/workspace" element={<GstWorkspace />} />
               {/* E-Invoice & E-Way Bill — one page for both sidebar entries.
                   Declared BEFORE the :category catch-all so both slugs resolve
                   here instead of the generic Services page. */}

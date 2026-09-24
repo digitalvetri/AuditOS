@@ -24,7 +24,7 @@ import {
   Info,
 } from 'lucide-react';
 import { workstationApi } from '@/modules/workstation/api';
-import { CredentialVault, CredentialsNotNeededNote, type VaultClient } from '../gst/CredentialVault';
+import { CredentialVault, CredentialsNotNeededNote, type VaultClient } from './CredentialVault';
 import { findTdsSubService, type TdsSubService } from './services';
 import {
   fyLabelForDate,

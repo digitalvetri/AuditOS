@@ -119,7 +119,6 @@ export function Sidebar({ mobileOpen, onMobileClose }: Props) {
       { to: '/workstation/follow-ups',  label: 'Follow-ups', icon: Clock,         visible: can(role, 'workstation.followup.read', 'self') },
       { to: '/workstation/services',    label: 'Services',   icon: Briefcase,     end: true, visible: can(role, 'workstation.service.read', 'self'),
         children: [
-          { to: '/workstation/services/gst',           label: 'GST' },
           { to: '/workstation/services/tds',           label: 'TDS' },
           { to: '/workstation/services/e-invoice',     label: 'E-Invoice' },
           { to: '/workstation/services/e-way-bill',    label: 'E-Way Bill' },

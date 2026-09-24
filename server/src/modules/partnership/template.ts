@@ -61,6 +61,12 @@ export type CaseStage = (typeof CASE_STAGES)[number];
  * template.
  */
 export const LLP_STAGES = ['STAGE_1', 'STAGE_2', 'COMPLETED'] as const;
+/**
+ * GST Registration: collect KYC + entity documents + place proof, file REG-01
+ * on the portal, GSTIN issued (REG-06). The application itself and the query
+ * cycle live on the portal; the case tracks what the firm gathers and holds.
+ */
+export const GST_STAGES = ['INFO_COLLECTION', 'FILING', 'REGISTERED'] as const;
 
 export const CASE_STATUSES = [
   'NOT_STARTED',
@@ -207,6 +213,92 @@ export const LLP_TEMPLATE: TemplateCategorySeed[] = [
       { name: 'Proposed LLP Names', description: '2 unique names in order of preference', requirement: 'REQUIRED', kind: 'INFO' },
       { name: 'Main Objective', description: 'A brief description of the business activities you plan to run', requirement: 'REQUIRED', kind: 'INFO' },
       { name: 'Contribution', description: 'Total capital of the LLP and the profit-sharing ratio among partners', requirement: 'REQUIRED', kind: 'INFO' },
+    ],
+  },
+];
+
+/**
+ * GST Registration master checklist — GST-MODULE-REBUILD.md §7.1.
+ *
+ * The six categories are grouped by ENTITY TYPE (Proprietorship / Partnership
+ * / LLP / Pvt Ltd), plus one that applies to every entity. The engine has no
+ * entity-type condition on categories today, so every category is seeded and
+ * the description states which entity types it applies to. Case-opening logic
+ * will filter categories against the client's entity type when a GST case is
+ * created; for now the template is data.
+ *
+ * "MoA & AoA (for Co.) / LLP Agreement (for LLP)" in the source is ONE line
+ * but must be TWO items, so the correct one appears per entity type.
+ */
+export const GST_TEMPLATE: TemplateCategorySeed[] = [
+  {
+    name: 'Proprietor KYC',
+    description: 'Applies when the entity is a Proprietorship.',
+    stage: 'INFO_COLLECTION',
+    items: [
+      { name: "Owner's PAN Card", requirement: 'REQUIRED', kind: 'DOCUMENT' },
+      { name: "Owner's Aadhaar Card", requirement: 'REQUIRED', kind: 'DOCUMENT' },
+      { name: "Owner's Passport Size Photo", requirement: 'REQUIRED', kind: 'DOCUMENT' },
+      { name: 'Email & Mobile linked with Aadhaar', requirement: 'REQUIRED', kind: 'INFO' },
+      { name: 'Bank Account Proof', description: 'Any one: cancelled cheque, bank statement, or passbook front page', requirement: 'REQUIRED', kind: 'DOCUMENT', docTypeOptions: ['Cancelled cheque', 'Bank statement', 'Passbook front page'] },
+    ],
+  },
+  {
+    name: 'Firm Documents',
+    description: 'Applies when the entity is a Partnership Firm.',
+    stage: 'INFO_COLLECTION',
+    items: [
+      { name: "Firm's PAN Card", requirement: 'REQUIRED', kind: 'DOCUMENT' },
+      { name: 'Partnership Deed', requirement: 'REQUIRED', kind: 'DOCUMENT' },
+      { name: 'Authorised Signatory Proof', description: 'Letter of Authorisation or Board Resolution', requirement: 'REQUIRED', kind: 'DOCUMENT' },
+      { name: "Firm's Bank Account Proof", requirement: 'REQUIRED', kind: 'DOCUMENT' },
+    ],
+  },
+  {
+    name: 'Partner KYC',
+    description: 'Applies when the entity is a Partnership Firm. One copy per partner.',
+    stage: 'INFO_COLLECTION',
+    perPartner: true,
+    items: [
+      { name: 'PAN Card', requirement: 'REQUIRED', kind: 'DOCUMENT', perPartner: true, docKey: 'PAN' },
+      { name: 'Aadhaar Card', requirement: 'REQUIRED', kind: 'DOCUMENT', perPartner: true },
+      { name: 'Passport Size Photo', requirement: 'REQUIRED', kind: 'DOCUMENT', perPartner: true },
+      { name: 'Email & Mobile', requirement: 'REQUIRED', kind: 'INFO', perPartner: true },
+    ],
+  },
+  {
+    name: 'Entity Documents',
+    description: 'Applies when the entity is an LLP or a Private Limited Company.',
+    stage: 'INFO_COLLECTION',
+    items: [
+      { name: 'Company / LLP PAN Card', requirement: 'REQUIRED', kind: 'DOCUMENT' },
+      { name: 'Certificate of Incorporation', requirement: 'REQUIRED', kind: 'DOCUMENT' },
+      { name: 'MoA & AoA', description: 'Applies to Private Limited Company.', requirement: 'CONDITIONAL', kind: 'DOCUMENT' },
+      { name: 'LLP Agreement', description: 'Applies to LLP.', requirement: 'CONDITIONAL', kind: 'DOCUMENT' },
+      { name: 'Board Resolution / LoA for Signatory', requirement: 'REQUIRED', kind: 'DOCUMENT' },
+      { name: 'Company Bank Account Proof', requirement: 'REQUIRED', kind: 'DOCUMENT' },
+    ],
+  },
+  {
+    name: 'Director / Partner KYC',
+    description: 'Applies when the entity is an LLP or a Private Limited Company. One copy per director or designated partner.',
+    stage: 'INFO_COLLECTION',
+    perPartner: true,
+    items: [
+      { name: 'PAN Card', requirement: 'REQUIRED', kind: 'DOCUMENT', perPartner: true, docKey: 'PAN' },
+      { name: 'Aadhaar Card', requirement: 'REQUIRED', kind: 'DOCUMENT', perPartner: true },
+      { name: 'Passport Size Photo', requirement: 'REQUIRED', kind: 'DOCUMENT', perPartner: true },
+    ],
+  },
+  {
+    name: 'Business Place Proof',
+    description: 'Applies to every entity type.',
+    stage: 'INFO_COLLECTION',
+    items: [
+      { name: "Property Tax Receipt / Ownership Deed / Electricity Bill", description: 'Any one, in the owner\'s name.', requirement: 'CONDITIONAL', kind: 'DOCUMENT', condition: 'OWNED', docTypeOptions: ['Property Tax Receipt', 'Ownership Deed', 'Electricity Bill'] },
+      { name: 'Rent Agreement / Lease Deed', requirement: 'CONDITIONAL', kind: 'DOCUMENT', condition: 'RENTED' },
+      { name: "Electricity Bill in Owner's name", requirement: 'CONDITIONAL', kind: 'DOCUMENT', condition: 'RENTED' },
+      { name: 'NOC from Property Owner', requirement: 'CONDITIONAL', kind: 'DOCUMENT', condition: 'RENTED' },
     ],
   },
 ];

@@ -13,7 +13,7 @@
 import { useMemo } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
-import { BellRing, ChevronRight, ExternalLink, Users } from 'lucide-react';
+import { ChevronRight, ExternalLink, Users } from 'lucide-react';
 import { workstationApi } from '@/modules/workstation/api';
 import { TDS_PORTAL, TDS_SUB_SERVICES, type TdsSubService } from './services';
 import { fyLabelForDate, fyRange } from './config';
@@ -200,8 +200,6 @@ export function TdsServicesLanding() {
         <EmptyState />
       ) : (
         <>
-          <NoticeCheckShortcut />
-
           <section className="bg-white border border-neutral-200 rounded-lg shadow-card overflow-hidden">
             <ul>
               {TDS_SUB_SERVICES.map((s, i) => {
@@ -248,33 +246,6 @@ function EmptyState() {
         Nothing renders until a client is selected — TDS work is always TAN-scoped.
       </p>
     </section>
-  );
-}
-
-function NoticeCheckShortcut() {
-  return (
-    <Link
-      to="/workstation/services/gst/notice-check"
-      className="group flex items-center gap-4 rounded-lg p-4 border border-neutral-200 bg-white shadow-card hover:border-neutral-300 transition-colors"
-    >
-      <span
-        className="inline-flex items-center justify-center w-10 h-10 rounded-md shrink-0"
-        style={{ backgroundColor: '#FDE7EA', color: '#B91C1C' }}
-        aria-hidden
-      >
-        <BellRing size={18} strokeWidth={1.75} />
-      </span>
-      <div className="flex-1 min-w-0">
-        <div className="text-14 font-medium text-neutral-900 group-hover:text-gold">
-          Weekly TRACES sweep for this client
-        </div>
-        <p className="text-12 text-neutral-500 mt-0.5">
-          A missed short-deduction default accrues interest quietly — walk the notices/defaults
-          tab and log the outcome.
-        </p>
-      </div>
-      <ChevronRight size={18} strokeWidth={2} className="text-neutral-400 group-hover:text-gold shrink-0" />
-    </Link>
   );
 }
 
