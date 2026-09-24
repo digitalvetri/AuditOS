@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, describe, expect, it } from 'vitest'
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
 import type { Server } from 'node:http'
 import { createApp } from '../../../app.js'
 import { signToken } from '../../../platform/auth.js'
@@ -62,6 +62,10 @@ async function client(orgId: string, name = 'ABC Private Limited') {
 }
 
 beforeAll(async () => {
+  // The fixtures are dated around May 2026; pin the clock there so "overdue"
+  // does not depend on the day the suite runs. Only Date is faked — real
+  // timers keep the HTTP server and Prisma working.
+  vi.useFakeTimers({ toFake: ['Date'], now: new Date('2026-05-15T00:00:00Z') })
   // The stage table is workflow-scoped config, not per-organisation, so it
   // has to exist before any period is opened in a test run.
   await seedWorkflowStages(prisma)
@@ -70,7 +74,7 @@ beforeAll(async () => {
   const addr = server.address()
   base = `http://127.0.0.1:${typeof addr === 'object' && addr ? addr.port : 0}`
 })
-afterAll(async () => { server.close(); await prisma.$disconnect() })
+afterAll(async () => { vi.useRealTimers(); server.close(); await prisma.$disconnect() })
 
 describe('Bookkeeping Service — progress engine', () => {
   it('computes completion from task rows and never divides by zero', () => {
@@ -323,16 +327,22 @@ describe('Bookkeeping Service API', () => {
     expect(badMonth.status).toBe(400)
   })
 
-  it('reports overview KPIs from the database, not from constants', async () => {
+  it('reports overview rows from the database, not from constants', async () => {
     const org = await prisma.organisation.create({ data: { id: uid('org'), name: 'Firm' } })
     const md = await user(org.id, (await seedRole('md')).id)
-    const before = await api('/api/bookkeeping/overview', { cookie: md.cookie })
     const c = await client(org.id)
-    await api('/api/bookkeeping/engagements', {
+    const overview = () => api(`/api/bookkeeping/overview?client_id=${c.id}`, { cookie: md.cookie })
+    expect((await overview()).body.data.count).toBe(0)
+    const eng = await api('/api/bookkeeping/engagements', {
       method: 'POST', cookie: md.cookie,
       body: { client_id: c.id, service_start_date: '2026-04-01', assigned_employee_id: uid('emp') },
     })
-    const after = await api('/api/bookkeeping/overview', { cookie: md.cookie })
-    expect(after.body.data.kpis.total_clients).toBe(before.body.data.kpis.total_clients + 1)
+    await api('/api/bookkeeping/periods', {
+      method: 'POST', cookie: md.cookie,
+      body: { engagement_id: eng.body.data.id, year: 2026, month: 5 },
+    })
+    const after = await overview()
+    expect(after.body.data.count).toBe(1)
+    expect(after.body.data.rows[0].progress.total).toBe(WORKFLOW_STAGES.length)
   })
 })
