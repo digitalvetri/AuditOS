@@ -1,7 +1,7 @@
 /**
  * Registration service catalogue — Workstation → Services → Registration.
  *
- * Single source of truth for the twelve registrations the firm files for its
+ * Single source of truth for the eleven registrations the firm files for its
  * clients, mirroring the shape gst/services.ts uses so both categories read
  * and behave the same way.
  *
@@ -30,11 +30,6 @@
  *                                 einvoice1..6.gst.gov.in, held separately in
  *                                 einvoice-ewb/handoffs.ts
  *   ewaybillgst.gov.in .......... e-way bill portal, NIC
- *
- * PROPRIETORSHIP still has no registry — India keeps no proprietorship
- * register and there is no certificate of proprietorship. Its link points at
- * the GST portal because that is where the identity is actually established;
- * its portalLabel says so, so the row never reads as a registry that exists.
  */
 import {
   Building2,
@@ -47,7 +42,6 @@ import {
   Ship,
   Truck,
   Store,
-  UserRound,
   Users,
   type LucideIcon,
 } from 'lucide-react';
@@ -61,8 +55,7 @@ export type RegistrationKind = 'tax' | 'entity' | 'licence' | 'labour';
 /**
  * Whose portal it is. Tamil Nadu registrations go to a state department; the
  * rest are central. `none` is retained for a registration that genuinely has
- * nowhere to go — nothing uses it today, since Proprietorship now points at
- * the GST portal.
+ * nowhere to go — nothing uses it today.
  */
 export type PortalScope = 'tamil-nadu' | 'india' | 'none';
 
@@ -177,24 +170,6 @@ export const REGISTRATION_SERVICES: RegistrationService[] = [
     portalUrl: 'https://tnreginet.gov.in/portal/',
     portalLabel: 'TNREGINET · Inspector General of Registration, Tamil Nadu',
     outputDocument: 'Certificate of Registration of Firm',
-
-  },
-  {
-    slug: 'proprietorship',
-    name: 'Proprietorship Registration',
-    shortName: 'Proprietorship',
-    kind: 'entity',
-    icon: UserRound,
-    authority: 'No separate statute',
-    form: 'Via GST / UDYAM / bank',
-    summary:
-      'Establishes a sole proprietorship. There is no single registry, so identity is evidenced through GST, UDYAM and a current account in the trade name.',
-    description:
-      'A sole proprietorship is not a separate legal person, and there is no proprietorship register anywhere in India — no proprietorship portal and no certificate of proprietorship. Existence is evidenced instead by whatever the proprietor holds in the trade name: a GST registration, a UDYAM certificate, a Shops and Establishment licence, and a current account. The portal link here therefore goes to GST, which is the usual way the identity is established. Anyone offering a \'proprietorship registration certificate\' is selling one of those under another name.',
-    portalScope: 'india',
-    portalUrl: 'https://www.gst.gov.in/',
-    portalLabel: 'GST Portal · Government of India (no proprietorship registry exists)',
-    outputDocument: 'GST certificate / UDYAM certificate / bank proof',
 
   },
   {
