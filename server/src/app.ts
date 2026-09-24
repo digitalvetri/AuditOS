@@ -45,6 +45,7 @@ import { tdsRouter } from './modules/audit-automation/tds.routes.js'
 import { tallyRouter } from './modules/tally/routes.js'
 import { tasksRouter } from './modules/task/routes.js'
 import { quotationsRouter } from './modules/quotation/routes.js'
+import { invoicesRouter } from './modules/invoice/routes.js'
 import { engagementRouter } from './modules/engagement/routes.js'
 import { docsRouter } from './modules/docs/routes.js'
 import { checklistRouter } from './modules/checklist/routes.js'
@@ -197,6 +198,9 @@ export function createApp() {
   // Workstation → Task: assignment plus server-side work-time tracking.
   app.use('/api/tasks', tasksRouter)
   app.use('/api/quotations', quotationsRouter)
+  // Invoice — Workstation → Invoice. Mounted beside Quotation on purpose:
+  // the two are one pipeline, a priced proposal and the demand that follows.
+  app.use('/api/invoices', invoicesRouter)
   app.use('/api/engagement-letters', engagementRouter)
   app.use('/api/workstation-docs', docsRouter)
   // Client compliance checklists (GST today). Master catalogue + client work.

@@ -49,6 +49,8 @@ export type PermissionCode =
   | 'workstation.task.report'
   | 'workstation.quotation.read'
   | 'workstation.quotation.manage'
+  | 'workstation.invoice.read'
+  | 'workstation.invoice.manage'
   | 'workstation.quotation.approve'
   | 'workstation.engagement.read'
   | 'workstation.engagement.manage'
@@ -144,6 +146,8 @@ export const MATRIX: Record<RoleCode, Grant[]> = {
     { permission: 'workstation.task.read', scope: 'self' },
     { permission: 'workstation.quotation.read', scope: 'self' },
     { permission: 'workstation.quotation.manage', scope: 'self' },
+    { permission: 'workstation.invoice.read', scope: 'self' },
+    { permission: 'workstation.invoice.manage', scope: 'self' },
     { permission: 'workstation.engagement.read', scope: 'self' },
     { permission: 'workstation.engagement.manage', scope: 'self' },
     { permission: 'workstation.doc.read', scope: 'self' },
@@ -230,6 +234,8 @@ export const MATRIX: Record<RoleCode, Grant[]> = {
     { permission: 'workstation.task.report', scope: 'organisation' },
     { permission: 'workstation.quotation.read', scope: 'organisation' },
     { permission: 'workstation.quotation.manage', scope: 'organisation' },
+    { permission: 'workstation.invoice.read', scope: 'organisation' },
+    { permission: 'workstation.invoice.manage', scope: 'organisation' },
     { permission: 'workstation.engagement.read', scope: 'organisation' },
     { permission: 'workstation.engagement.manage', scope: 'organisation' },
     { permission: 'workstation.doc.read', scope: 'organisation' },
@@ -385,6 +391,8 @@ export const MATRIX: Record<RoleCode, Grant[]> = {
     { permission: 'workstation.task.report', scope: 'organisation' },
     { permission: 'workstation.quotation.read', scope: 'organisation' },
     { permission: 'workstation.quotation.manage', scope: 'organisation' },
+    { permission: 'workstation.invoice.read', scope: 'organisation' },
+    { permission: 'workstation.invoice.manage', scope: 'organisation' },
     { permission: 'workstation.engagement.read', scope: 'organisation' },
     { permission: 'workstation.engagement.manage', scope: 'organisation' },
     { permission: 'workstation.doc.read', scope: 'organisation' },
@@ -516,6 +524,8 @@ export const PERMISSION_DESCRIPTIONS: Record<string, string> = {
   'workstation.task.read': 'View tasks and their tracked work time',
   'workstation.quotation.read': 'View quotations',
   'workstation.quotation.manage': 'Create and edit quotations',
+  'workstation.invoice.read': 'View invoices',
+  'workstation.invoice.manage': 'Create and edit invoices',
   'workstation.quotation.approve': 'Mark a quotation accepted or rejected',
   'workstation.task.manage': 'Create, edit, assign, reassign and cancel tasks',
   'workstation.task.report': 'View task reports and employee work-time summaries',

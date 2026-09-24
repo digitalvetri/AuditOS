@@ -21,6 +21,10 @@ import { TaskListPage } from '@/pages/workstation/tasks/TaskList';
 import { TaskDetailPage } from '@/pages/workstation/tasks/TaskDetail';
 import { TaskReportsPage } from '@/pages/workstation/tasks/TaskReports';
 import { QuotationListPage } from '@/pages/workstation/quotations/QuotationList';
+import { InvoiceListPage } from '@/pages/workstation/invoices/InvoiceList';
+import { InvoiceBuilderPage } from '@/pages/workstation/invoices/InvoiceBuilder';
+import { InvoiceDetailPage } from '@/pages/workstation/invoices/InvoiceDetail';
+import { InvoicePreviewPage } from '@/pages/workstation/invoices/InvoicePreview';
 import { QuotationBuilderPage } from '@/pages/workstation/quotations/QuotationBuilder';
 import { QuotationDetailPage } from '@/pages/workstation/quotations/QuotationDetail';
 import { QuotationPreviewPage } from '@/pages/workstation/quotations/QuotationPreview';
@@ -189,6 +193,14 @@ export default function App() {
                 </ProtectedRoute>
               }
             />
+            <Route
+              path="/workstation/invoices/:id/preview"
+              element={
+                <ProtectedRoute>
+                  <InvoicePreviewPage />
+                </ProtectedRoute>
+              }
+            />
 
             <Route
               element={
@@ -300,6 +312,13 @@ export default function App() {
 
               {/* Workstation → Task: assignment plus server-tracked work time. */}
               <Route path="workstation/quotations" element={<QuotationListPage />} />
+              {/* Invoice — beside Quotation, inside Workstation (§52). The
+                  builder handles both new and edit; the detail page is the
+                  issued document. */}
+              <Route path="workstation/invoices" element={<InvoiceListPage />} />
+              <Route path="workstation/invoices/new" element={<InvoiceBuilderPage />} />
+              <Route path="workstation/invoices/:id/edit" element={<InvoiceBuilderPage />} />
+              <Route path="workstation/invoices/:id" element={<InvoiceDetailPage />} />
               <Route path="workstation/quotations/new" element={<QuotationBuilderPage />} />
               <Route path="workstation/quotations/:id/edit" element={<QuotationBuilderPage />} />
               <Route path="workstation/quotations/:id" element={<QuotationDetailPage />} />

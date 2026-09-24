@@ -16,6 +16,7 @@ import { fmtDate, fmtDateTime, fmtTime, inr } from '@/lib/format';
 import { can } from '@/platform/rbac/can';
 import { GstChecklist } from '@/modules/workstation/checklist/GstChecklist';
 import { quotationsApi } from '@/modules/workstation/quotations/api';
+import { invoicesApi } from '@/modules/workstation/invoices/api';
 import { engagementApi, type EngagementLetter } from '@/modules/workstation/engagement/api';
 import { useAuth } from '@/platform/auth/AuthContext';
 import { BillingSliceCard } from '@/modules/zpay/BillingSliceCard';
@@ -23,7 +24,7 @@ import { BillingSliceCard } from '@/modules/zpay/BillingSliceCard';
 /**
  * THE CLIENT WORKSPACE (§7.3).
  *
- * Nine tabs, each a nested route segment rather than local state, so a tab is
+ * Each tab is a nested route segment rather than local state, so a tab is
  * deep-linkable and the breadcrumb reads correctly. A tab the caller cannot
  * read is not rendered — and its endpoint answers 403 regardless, because
  * hiding a tab is not an access control.
@@ -34,6 +35,7 @@ const TABS = [
   { key: 'services', label: 'Services', perm: 'workstation.service.read' },
   { key: 'gst', label: 'GST', perm: 'workstation.gst.read' },
   { key: 'quotations', label: 'Quotations', perm: 'workstation.quotation.read' },
+  { key: 'invoices', label: 'Invoices', perm: 'workstation.invoice.read' },
   { key: 'engagement', label: 'Engagement', perm: 'workstation.engagement.read' },
   { key: 'eway', label: 'E-way Bills', perm: 'workstation.eway.read' },
   { key: 'documents', label: 'Documents', perm: 'workstation.document.read' },
@@ -100,6 +102,7 @@ export function ClientWorkspacePage() {
             {tab === 'services' ? <ServicesTab client={client} /> : null}
             {tab === 'gst' ? <GstTab client={client} /> : null}
             {tab === 'quotations' ? <QuotationsTab client={client} /> : null}
+            {tab === 'invoices' ? <InvoicesTab client={client} /> : null}
             {tab === 'engagement' ? <EngagementTab client={client} /> : null}
             {tab === 'eway' ? <EwayTab client={client} /> : null}
             {tab === 'documents' ? <DocumentsTab client={client} /> : null}
@@ -422,6 +425,74 @@ function QuotationsTab({ client }: { client: ClientDetail }) {
                       }}
                     >
                       {draft && mayWrite ? 'Continue building' : 'View'}
+                    </button>
+                  </Cell>
+                </Row>
+              );
+            })}
+          </Table>
+        )}
+      </QueryState>
+    </Card>
+  );
+}
+
+/**
+ * This client's invoices, and the way to raise another one.
+ *
+ * Same shape as the quotations tab above, and deliberately so: the row's
+ * action follows the invoice's own state rather than being the same
+ * everywhere. Only a DRAFT is still editable — `is_editable` is the server's
+ * word on that, not a status the UI re-derives — so anything issued opens
+ * read-only. Money and payment state come off the row as stored; nothing is
+ * recomputed here.
+ */
+function InvoicesTab({ client }: { client: ClientDetail }) {
+  const navigate = useNavigate();
+  const { session } = useAuth();
+  const mayWrite = can(session?.role.code, 'workstation.invoice.manage', 'self');
+
+  const invoices = useQuery({
+    queryKey: ['workstation', 'client', client.id, 'invoices'],
+    queryFn: () => invoicesApi.list({ client_id: client.id, limit: 50 }),
+  });
+
+  const build = () => navigate(`/workstation/invoices/new?client_id=${client.id}`);
+
+  return (
+    <Card
+      title="Invoices"
+      right={mayWrite ? <Button onClick={build}>New invoice</Button> : undefined}
+    >
+      <QueryState query={invoices} empty="No invoices for this client yet.">
+        {(data) => (
+          <Table head={['Invoice', 'Date', 'Due', 'Status', 'Total', 'Balance', '']}>
+            {data.items.map((v) => {
+              const editable = v.is_editable && mayWrite;
+              return (
+                <Row
+                  key={v.id}
+                  status={v.status}
+                  onClick={() => navigate(`/workstation/invoices/${v.id}`)}
+                >
+                  <Cell>{v.invoice_number}</Cell>
+                  <Cell>{fmtDate(v.invoice_date)}</Cell>
+                  <Cell>{v.due_date ? fmtDate(v.due_date) : '—'}</Cell>
+                  <Cell><Status value={v.status} /></Cell>
+                  <Cell>{inr(v.total_paise)}</Cell>
+                  <Cell>{inr(v.balance_due_paise)}</Cell>
+                  <Cell>
+                    <button
+                      type="button"
+                      className="text-13 text-primary hover:underline"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        navigate(editable
+                          ? `/workstation/invoices/${v.id}/edit`
+                          : `/workstation/invoices/${v.id}`);
+                      }}
+                    >
+                      {editable ? 'Continue building' : 'View'}
                     </button>
                   </Cell>
                 </Row>
