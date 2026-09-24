@@ -2,8 +2,8 @@ import { createContext, useContext, type ReactNode } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { workstationApi } from '@/modules/workstation/api';
 import {
-  llpApi, makeRegistrationKeys, partnershipApi,
-  type CaseStatus, type DueState, type RegistrationApi, type RegistrationKeys, type RegistrationKind, type RequirementType,
+  gstRegApi, llpApi, makeRegistrationKeys, partnershipApi,
+  type CaseStatus, type DueState, type EntityType, type RegistrationApi, type RegistrationKeys, type RegistrationKind, type RequirementType,
 } from '@/modules/partnership/api';
 import { fmtDate } from '@/lib/format';
 
@@ -39,6 +39,12 @@ const LLP_STAGES = [
   { value: 'STAGE_2', label: 'Stage 2' },
   { value: 'COMPLETED', label: 'Completed' },
 ];
+/** GST Registration: collect → REG-01 filed → GSTIN issued. */
+const GST_STAGES = [
+  { value: 'INFO_COLLECTION', label: 'Information Collection' },
+  { value: 'FILING', label: 'Filing (REG-01)' },
+  { value: 'REGISTERED', label: 'Registered' },
+];
 
 export const SERVICES: Record<RegistrationKind, RegistrationService> = {
   PARTNERSHIP: {
@@ -59,6 +65,21 @@ export const SERVICES: Record<RegistrationKind, RegistrationService> = {
     stageOptions: LLP_STAGES,
     stageLabel: stageLabeller(LLP_STAGES),
   },
+  GST: {
+    kind: 'GST',
+    // GST Registration cases live inside the GST Compliance module under
+    // the Registration tab — the module already owns /registration/gst and
+    // its own "Clients" tab means the compliance roster, not registration
+    // cases. Nesting under /registration keeps registration-case URLs like
+    // /registration/gst/registration/clients/<id> distinct from the
+    // compliance client roster at /registration/gst/clients.
+    label: 'GST Registration',
+    base: '/workstation/services/registration/gst/registration',
+    api: gstRegApi,
+    keys: makeRegistrationKeys('gst-registration'),
+    stageOptions: GST_STAGES,
+    stageLabel: stageLabeller(GST_STAGES),
+  },
 };
 
 const ServiceContext = createContext<RegistrationService>(SERVICES.PARTNERSHIP);
@@ -66,6 +87,14 @@ export function ServiceProvider({ kind, children }: { kind: RegistrationKind; ch
   return <ServiceContext.Provider value={SERVICES[kind]}>{children}</ServiceContext.Provider>;
 }
 export const useSvc = () => useContext(ServiceContext);
+
+/** Entity types a GST Registration case can be scoped to. */
+export const ENTITY_TYPE_OPTIONS: { value: EntityType; label: string }[] = [
+  { value: 'PROPRIETORSHIP', label: 'Proprietorship' },
+  { value: 'PARTNERSHIP', label: 'Partnership Firm' },
+  { value: 'LLP', label: 'LLP' },
+  { value: 'PVT_LTD', label: 'Private Limited Company' },
+];
 
 export const CASE_STATUS_OPTIONS: { value: CaseStatus; label: string }[] = [
   { value: 'NOT_STARTED', label: 'Not Started' },

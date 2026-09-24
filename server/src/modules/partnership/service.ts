@@ -29,6 +29,8 @@ export const PRIORITIES = ['LOW', 'MEDIUM', 'HIGH'] as const
 export const REQUIREMENT_TYPES = ['REQUIRED', 'OPTIONAL', 'CONDITIONAL'] as const
 export const ITEM_KINDS = ['INFO', 'DOCUMENT', 'ACTION'] as const
 export const PREMISES = ['RENTED', 'OWNED'] as const
+/** Entity types a GST Registration case can be scoped to (spec §7.1). */
+export const ENTITY_TYPES = ['PROPRIETORSHIP', 'PARTNERSHIP', 'LLP', 'PVT_LTD'] as const
 /** Per-version review outcome. */
 export const REVIEW_STATUSES = ['uploaded', 'under_review', 'verified', 'rejected', 'replacement_required'] as const
 export type ReviewStatus = (typeof REVIEW_STATUSES)[number]
@@ -61,6 +63,23 @@ export async function nextCaseCode(tx: Tx, codePrefix: string, year: number): Pr
 
 export function conditionApplies(condition: string | null, premises: string | null): boolean {
   return !condition || condition === premises
+}
+
+/**
+ * True when an entity-scoped row applies to a case whose client is of the
+ * given entity type. Null condition means "all entity types", so it always
+ * applies. `LLP_OR_PVT_LTD` matches either LLP or PVT_LTD (used at the
+ * category level; item-level conditions are single entity types).
+ *
+ * Until an entity type is chosen on the case, entity-scoped rows are
+ * PENDING — the case still shows every category so the operator can see
+ * what the checklist will look like once they pick the entity type.
+ */
+export function entityConditionApplies(condition: string | null, entityType: string | null): boolean {
+  if (!condition) return true
+  if (!entityType) return true
+  if (condition === 'LLP_OR_PVT_LTD') return entityType === 'LLP' || entityType === 'PVT_LTD'
+  return condition === entityType
 }
 
 /** Append to the case trail and bump lastActivityAt. Never throws into the request. */
@@ -99,6 +118,7 @@ export async function openCase(session: Session, kind: RegistrationKind, input: 
   reviewerEmployeeId: string | null
   approverEmployeeId: string | null
   dueDate: string | null
+  entityType?: string | null
 }) {
   const start = today()
   return prisma.$transaction(async (tx) => {
@@ -129,6 +149,7 @@ export async function openCase(session: Session, kind: RegistrationKind, input: 
         stage: cfg.stages[0],
         clientId: input.clientId,
         clientServiceId: enrolment?.id ?? null,
+        entityType: input.entityType ?? null,
         assignedEmployeeId: input.assignedEmployeeId,
         reviewerEmployeeId: input.reviewerEmployeeId,
         approverEmployeeId: input.approverEmployeeId,
@@ -154,7 +175,8 @@ export async function openCase(session: Session, kind: RegistrationKind, input: 
         data: {
           caseId: c.id, sourceCategoryId: cat.id, name: cat.name,
           description: cat.description, stage: cat.stage, sortOrder: cat.sortOrder,
-          perPartner: cat.perPartner, createdBy: session.userId,
+          perPartner: cat.perPartner, entityCondition: cat.entityCondition,
+          createdBy: session.userId,
         },
       })
       for (const it of cat.items) {
@@ -166,6 +188,7 @@ export async function openCase(session: Session, kind: RegistrationKind, input: 
             caseId: c.id, categoryId: cc.id, sourceItemId: it.id,
             name: it.name, description: it.description, requirement: it.requirement,
             kind: it.kind, perPartner: it.perPartner, docKey: it.docKey, condition: it.condition,
+            entityCondition: it.entityCondition,
             docTypeOptions: it.docTypeOptions, maxAgeDays: it.maxAgeDays,
             assignedEmployeeId: assignee, dueDate: due, sortOrder: it.sortOrder,
             createdBy: session.userId,
@@ -302,14 +325,23 @@ export async function recompute(caseId: string) {
   const [items, reqs] = await Promise.all([
     prisma.partnershipCaseItem.findMany({
       where: { caseId, deletedAt: null, category: { deletedAt: null } },
-      select: { status: true, requirement: true, condition: true, partnerId: true, category: { select: { perPartner: true } } },
+      select: {
+        status: true, requirement: true, condition: true, entityCondition: true, partnerId: true,
+        category: { select: { perPartner: true, entityCondition: true } },
+      },
     }),
     prisma.partnershipDocRequirement.findMany({
       where: { caseId, deletedAt: null },
       include: requirementInclude,
     }),
   ])
-  const applicable = items.filter((i) => !isPartnerTemplateRow(i) && i.status !== 'NOT_APPLICABLE' && conditionApplies(i.condition, c.premisesType))
+  const applicable = items.filter((i) => (
+    !isPartnerTemplateRow(i)
+    && i.status !== 'NOT_APPLICABLE'
+    && conditionApplies(i.condition, c.premisesType)
+    && entityConditionApplies(i.category.entityCondition ?? null, c.entityType)
+    && entityConditionApplies(i.entityCondition ?? null, c.entityType)
+  ))
   const done = applicable.filter((i) => i.status === 'COMPLETED')
   const required = applicable.filter((i) => i.requirement !== 'OPTIONAL')
   const requiredDone = required.filter((i) => i.status === 'COMPLETED')

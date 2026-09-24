@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import { type CaseFilters } from '@/modules/partnership/api';
+import { type CaseFilters, type EntityType } from '@/modules/partnership/api';
 import { workstationApi } from '@/modules/workstation/api';
 import {
   Card, Cell, Field, FilterBar, Modal, PageHeader, QueryState, Row, SearchInput, Select, Status, Table,
@@ -12,7 +12,7 @@ import { useToast } from '@/components/Toast';
 import { useAuth } from '@/platform/auth/AuthContext';
 import { can } from '@/platform/rbac/can';
 import type { ApiError } from '@/services/api';
-import { CASE_STATUS_OPTIONS, DueChip, EmployeeSelect, ProgressBar, useEmployees, useSvc } from './shared';
+import { CASE_STATUS_OPTIONS, DueChip, EmployeeSelect, ENTITY_TYPE_OPTIONS, ProgressBar, useEmployees, useSvc } from './shared';
 
 /**
  * Only clients ENROLLED in Partnership Firm Registration — one row per case.
@@ -134,7 +134,7 @@ export function PartnershipClients() {
  * picker reads the Clients module; a new client is added there first.
  */
 function AddClientModal({ open, onClose }: { open: boolean; onClose: () => void }) {
-  const { api: regApi, keys: regKeys, base, label } = useSvc();
+  const { api: regApi, keys: regKeys, base, label, kind } = useSvc();
   const navigate = useNavigate();
   const qc = useQueryClient();
   const toast = useToast();
@@ -144,6 +144,8 @@ function AddClientModal({ open, onClose }: { open: boolean; onClose: () => void 
   const [reviewer, setReviewer] = useState('');
   const [approver, setApprover] = useState('');
   const [due, setDue] = useState('');
+  const [entityType, setEntityType] = useState<EntityType | ''>('');
+  const needsEntityType = kind === 'GST';
   const clients = useQuery({
     queryKey: ['workstation', 'clients', { for: 'registration', search }],
     queryFn: () => workstationApi.listClients({ q: search || undefined }),
@@ -156,6 +158,7 @@ function AddClientModal({ open, onClose }: { open: boolean; onClose: () => void 
       reviewer_employee_id: reviewer || undefined,
       approver_employee_id: approver || undefined,
       due_date: due || undefined,
+      entity_type: needsEntityType && entityType ? entityType : undefined,
     }),
     onSuccess: (r) => {
       void qc.invalidateQueries({ queryKey: regKeys.all });
@@ -181,7 +184,11 @@ function AddClientModal({ open, onClose }: { open: boolean; onClose: () => void 
       footer={
         <>
           <Button onClick={onClose}>Cancel</Button>
-          <Button variant="primary" disabled={!clientId || create.isPending} onClick={() => create.mutate()}>
+          <Button
+            variant="primary"
+            disabled={!clientId || (needsEntityType && !entityType) || create.isPending}
+            onClick={() => create.mutate()}
+          >
             {create.isPending ? 'Opening…' : 'Create registration case'}
           </Button>
         </>
@@ -194,6 +201,14 @@ function AddClientModal({ open, onClose }: { open: boolean; onClose: () => void 
         </select>
       </Field>
       <div className="grid grid-cols-2 gap-3">
+        {needsEntityType ? (
+          <Field label="Entity type" error={errs.entity_type} hint="Decides which of the six §7.1 categories apply.">
+            <select className={inputClass} value={entityType} onChange={(e) => setEntityType(e.target.value as EntityType | '')}>
+              <option value="">Select…</option>
+              {ENTITY_TYPE_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+            </select>
+          </Field>
+        ) : null}
         <Field label="Assigned employee" error={errs.assigned_employee_id}><EmployeeSelect value={assigned} onChange={setAssigned} className="w-full" /></Field>
         <Field label="Reviewer" error={errs.reviewer_employee_id}><EmployeeSelect value={reviewer} onChange={setReviewer} placeholder="None" className="w-full" /></Field>
         <Field label="Manager / Approver (optional)" error={errs.approver_employee_id}><EmployeeSelect value={approver} onChange={setApprover} placeholder="None" className="w-full" /></Field>

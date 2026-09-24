@@ -43,6 +43,7 @@ export async function seedPartnership(prisma: PrismaClient, orgId: string) {
           description: cat.description ?? null,
           stage: cat.stage,
           perPartner: cat.perPartner ?? false,
+          entityCondition: cat.entityCondition ?? null,
           sortOrder: catOrder,
           createdBy: 'seed',
           items: {
@@ -54,6 +55,7 @@ export async function seedPartnership(prisma: PrismaClient, orgId: string) {
               perPartner: it.perPartner ?? false,
               docKey: it.docKey ?? null,
               condition: it.condition ?? null,
+              entityCondition: it.entityCondition ?? null,
               docTypeOptions: it.docTypeOptions?.join('|') ?? null,
               maxAgeDays: it.maxAgeDays ?? null,
               sortOrder: (i + 1) * 10,

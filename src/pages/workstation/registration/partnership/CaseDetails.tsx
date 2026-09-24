@@ -2,16 +2,23 @@ import { useState, type ReactNode } from 'react';
 import { type CaseDetail, type Partner, type RegistrationDetails, type LlpDetails } from '@/modules/partnership/api';
 import { Card, Field, Modal, fieldErrors, inputClass, textareaClass } from '@/modules/workstation/components';
 import { Button } from '@/components/Button';
-import { useSvc } from './shared';
+import { ENTITY_TYPE_OPTIONS, useSvc } from './shared';
 import { useCaseMutation } from './PartnershipCase';
 
 /**
  * Registration Details — the fields named in the source PDF, Part A
  * ("Details & documents required for Partnership Deed drafting"). Client
  * master data (name, GSTIN, contact) stays on the client record.
+ *
+ * The switch on kind is BY DESIGN — a case's Details form is
+ * service-specific, and Partnership, LLP and GST Registration each ask for
+ * different things. The rest of the case screens (header, checklist,
+ * documents, activity) stay generic.
  */
 export function CaseDetails({ c }: { c: CaseDetail }) {
-  return c.kind === 'LLP' ? <LlpCaseDetails c={c} /> : <PartnershipDetails c={c} />;
+  if (c.kind === 'GST') return <GstCaseDetails c={c} />;
+  if (c.kind === 'LLP') return <LlpCaseDetails c={c} />;
+  return <PartnershipDetails c={c} />;
 }
 
 function PartnershipDetails({ c }: { c: CaseDetail }) {
@@ -164,6 +171,50 @@ function LlpCaseDetails({ c }: { c: CaseDetail }) {
           {dirty ? <span className="text-12 text-amber self-center">Unsaved changes</span> : null}
           <Button variant="primary" disabled={!dirty || save.isPending} onClick={() => save.mutate(undefined, { onSuccess: () => setDirty(false) })}>Save details</Button>
         </div>
+      ) : null}
+    </div>
+  );
+}
+
+/**
+ * GST Registration Details — REG-01 has almost no free-text; the checklist
+ * covers what documents to collect. The entity type decides which of the six
+ * §7.1 categories apply, and the premises type decides which of the four
+ * office-proof documents apply.
+ */
+function GstCaseDetails({ c }: { c: CaseDetail }) {
+  const { api: regApi } = useSvc();
+  const entity = useCaseMutation((v: string) => regApi.updateCase(c.id, { entity_type: v || null }), 'Entity type updated');
+  const office = useCaseMutation((v: string) => regApi.updateCase(c.id, { premises_type: v || null }), 'Premises updated');
+  const ro = !c.permissions.manage;
+  return (
+    <div className="space-y-4">
+      <Section title="Entity">
+        <Field label="Client entity type" hint="Decides which of the six §7.1 categories the checklist shows.">
+          <select
+            className={inputClass + ' max-w-[320px]'}
+            disabled={ro || entity.isPending}
+            value={c.entity_type ?? ''}
+            onChange={(e) => entity.mutate(e.target.value)}
+          >
+            <option value="">Not specified</option>
+            {ENTITY_TYPE_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+          </select>
+        </Field>
+      </Section>
+
+      <Section title="Business Place">
+        <Field label="Principal place of business is" hint="Decides which office-proof documents are collected.">
+          <select className={inputClass + ' max-w-[260px]'} disabled={ro || office.isPending} value={c.premises_type ?? ''} onChange={(e) => office.mutate(e.target.value)}>
+            <option value="">Not specified</option>
+            <option value="RENTED">Rented / Leased</option>
+            <option value="OWNED">Owned</option>
+          </select>
+        </Field>
+      </Section>
+
+      {c.entity_type === 'PARTNERSHIP' || c.entity_type === 'LLP' || c.entity_type === 'PVT_LTD' ? (
+        <Partners c={c} />
       ) : null}
     </div>
   );

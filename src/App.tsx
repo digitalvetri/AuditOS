@@ -290,10 +290,23 @@ export default function App() {
                 <Route index element={<Navigate to="dashboard" replace />} />
                 <Route path="dashboard" element={<GstDashboard />} />
                 <Route path="registration" element={<GstRegistrationTab />} />
+                {/* /registration/clients aliases /registration so
+                    PartnershipCase's "Back to GST Registration Clients"
+                    link lands on the case list (which lives inside the
+                    Registration tab). */}
+                <Route path="registration/clients" element={<GstRegistrationTab />} />
+                {/* Registration case screen — the shared PartnershipCase,
+                    resolved through the GST ServiceProvider on GstShell.
+                    Path mirrors Partnership/LLP (base + '/clients/:caseId')
+                    so PartnershipClients.navigate hits the right route. */}
+                <Route path="registration/clients/:caseId" element={<PartnershipCase />} />
                 <Route path="clients" element={<GstClients />} />
                 <Route path="gstr1" element={<Gstr1Page />} />
                 <Route path="gstr2b" element={<Gstr2bPage />} />
                 <Route path="gstr3b" element={<Gstr3bPage />} />
+                {/* GST Registration checklist template editor — shared with
+                    Partnership and LLP, scoped to GST via the provider. */}
+                <Route path="template" element={<PartnershipTemplate />} />
                 {/* Every list row navigates here — the one place work is done. */}
                 <Route path="periods/:periodId" element={<GstPeriodDetail />} />
               </Route>

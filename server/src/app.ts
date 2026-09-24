@@ -178,6 +178,9 @@ export function createApp() {
   app.use('/api/partnership', forKind('PARTNERSHIP'), partnershipRouter)
   // LLP Registration — the same case engine with its own master checklist.
   app.use('/api/llp', forKind('LLP'), partnershipRouter)
+  // GST Registration — the same case engine, its own master checklist. The
+  // path is '-registration' to leave /api/gst for the GST Compliance module.
+  app.use('/api/gst-registration', forKind('GST'), partnershipRouter)
   // NOT '/api/documents': that path already belongs to the HRMS
   // EmployeeDocument router mounted above, and Express matches the first
   // mount — so mounting here would shadow the Workstation list and silently

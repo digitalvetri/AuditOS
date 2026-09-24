@@ -28,6 +28,13 @@
 export type RequirementType = 'REQUIRED' | 'OPTIONAL' | 'CONDITIONAL';
 export type ItemKind = 'INFO' | 'DOCUMENT' | 'ACTION';
 export type PremisesCondition = 'RENTED' | 'OWNED';
+/**
+ * Entity types for GST Registration. `LLP_OR_PVT_LTD` is used on category-level
+ * conditions where either applies (Entity Documents, Director/Partner KYC);
+ * item-level conditions narrow to one specific entity (MoA & AoA is PVT_LTD
+ * only, LLP Agreement is LLP only).
+ */
+export type EntityCondition = 'PROPRIETORSHIP' | 'PARTNERSHIP' | 'LLP' | 'PVT_LTD' | 'LLP_OR_PVT_LTD';
 
 export interface TemplateItemSeed {
   name: string;
@@ -37,6 +44,8 @@ export interface TemplateItemSeed {
   perPartner?: boolean;
   docKey?: string;
   condition?: PremisesCondition;
+  /** Narrows to one entity type within a category. */
+  entityCondition?: EntityCondition;
   /** "Any one" of these satisfies the item — the uploader picks which. */
   docTypeOptions?: string[];
   maxAgeDays?: number;
@@ -48,6 +57,8 @@ export interface TemplateCategorySeed {
   stage: string;
   /** Repeated for every partner on the case (LLP partner KYC). */
   perPartner?: boolean;
+  /** Restricts the whole category to a specific entity type. */
+  entityCondition?: EntityCondition;
   items: TemplateItemSeed[];
 }
 
@@ -235,6 +246,7 @@ export const GST_TEMPLATE: TemplateCategorySeed[] = [
     name: 'Proprietor KYC',
     description: 'Applies when the entity is a Proprietorship.',
     stage: 'INFO_COLLECTION',
+    entityCondition: 'PROPRIETORSHIP',
     items: [
       { name: "Owner's PAN Card", requirement: 'REQUIRED', kind: 'DOCUMENT' },
       { name: "Owner's Aadhaar Card", requirement: 'REQUIRED', kind: 'DOCUMENT' },
@@ -247,6 +259,7 @@ export const GST_TEMPLATE: TemplateCategorySeed[] = [
     name: 'Firm Documents',
     description: 'Applies when the entity is a Partnership Firm.',
     stage: 'INFO_COLLECTION',
+    entityCondition: 'PARTNERSHIP',
     items: [
       { name: "Firm's PAN Card", requirement: 'REQUIRED', kind: 'DOCUMENT' },
       { name: 'Partnership Deed', requirement: 'REQUIRED', kind: 'DOCUMENT' },
@@ -259,6 +272,7 @@ export const GST_TEMPLATE: TemplateCategorySeed[] = [
     description: 'Applies when the entity is a Partnership Firm. One copy per partner.',
     stage: 'INFO_COLLECTION',
     perPartner: true,
+    entityCondition: 'PARTNERSHIP',
     items: [
       { name: 'PAN Card', requirement: 'REQUIRED', kind: 'DOCUMENT', perPartner: true, docKey: 'PAN' },
       { name: 'Aadhaar Card', requirement: 'REQUIRED', kind: 'DOCUMENT', perPartner: true },
@@ -270,11 +284,12 @@ export const GST_TEMPLATE: TemplateCategorySeed[] = [
     name: 'Entity Documents',
     description: 'Applies when the entity is an LLP or a Private Limited Company.',
     stage: 'INFO_COLLECTION',
+    entityCondition: 'LLP_OR_PVT_LTD',
     items: [
       { name: 'Company / LLP PAN Card', requirement: 'REQUIRED', kind: 'DOCUMENT' },
       { name: 'Certificate of Incorporation', requirement: 'REQUIRED', kind: 'DOCUMENT' },
-      { name: 'MoA & AoA', description: 'Applies to Private Limited Company.', requirement: 'CONDITIONAL', kind: 'DOCUMENT' },
-      { name: 'LLP Agreement', description: 'Applies to LLP.', requirement: 'CONDITIONAL', kind: 'DOCUMENT' },
+      { name: 'MoA & AoA', description: 'Applies to Private Limited Company.', requirement: 'CONDITIONAL', kind: 'DOCUMENT', entityCondition: 'PVT_LTD' },
+      { name: 'LLP Agreement', description: 'Applies to LLP.', requirement: 'CONDITIONAL', kind: 'DOCUMENT', entityCondition: 'LLP' },
       { name: 'Board Resolution / LoA for Signatory', requirement: 'REQUIRED', kind: 'DOCUMENT' },
       { name: 'Company Bank Account Proof', requirement: 'REQUIRED', kind: 'DOCUMENT' },
     ],
@@ -284,6 +299,7 @@ export const GST_TEMPLATE: TemplateCategorySeed[] = [
     description: 'Applies when the entity is an LLP or a Private Limited Company. One copy per director or designated partner.',
     stage: 'INFO_COLLECTION',
     perPartner: true,
+    entityCondition: 'LLP_OR_PVT_LTD',
     items: [
       { name: 'PAN Card', requirement: 'REQUIRED', kind: 'DOCUMENT', perPartner: true, docKey: 'PAN' },
       { name: 'Aadhaar Card', requirement: 'REQUIRED', kind: 'DOCUMENT', perPartner: true },
