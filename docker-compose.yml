@@ -89,6 +89,11 @@ services:
     build:
       context: .
       target: runtime
+      # Baked into the bundle at build time. Compose reads it from ./.env (the
+      # same file `npm run dev` uses), so a local VITE_SHOW_DEMO_LOGINS=true
+      # shows the demo list here too; unset, it stays off.
+      args:
+        VITE_SHOW_DEMO_LOGINS: ${VITE_SHOW_DEMO_LOGINS:-false}
     container_name: auditos-web
     restart: unless-stopped
     ports:
