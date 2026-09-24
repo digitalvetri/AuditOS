@@ -88,6 +88,7 @@ export type PermissionCode =
   | 'workstation.document.read'
   | 'workstation.document.manage'
   | 'workstation.document.verify'
+  | 'workstation.registration.template.manage'
   | 'workstation.task.read'
   | 'workstation.task.manage'
   | 'workstation.task.report'
@@ -305,6 +306,7 @@ export const MATRIX: Record<RoleCode, Grant[]> = {
     { permission: 'workstation.document.read', scope: 'organisation' },
     { permission: 'workstation.document.manage', scope: 'organisation' },
     { permission: 'workstation.document.verify', scope: 'organisation' },
+    { permission: 'workstation.registration.template.manage', scope: 'organisation' },
     { permission: 'workstation.gst.read', scope: 'organisation' },
     { permission: 'workstation.gst.manage', scope: 'organisation' },
     { permission: 'workstation.eway.read', scope: 'organisation' },
@@ -465,6 +467,7 @@ export const MATRIX: Record<RoleCode, Grant[]> = {
     { permission: 'workstation.document.read', scope: 'organisation' },
     { permission: 'workstation.document.manage', scope: 'organisation' },
     { permission: 'workstation.document.verify', scope: 'organisation' },
+    { permission: 'workstation.registration.template.manage', scope: 'organisation' },
     { permission: 'workstation.gst.read', scope: 'organisation' },
     { permission: 'workstation.gst.manage', scope: 'organisation' },
     { permission: 'workstation.eway.read', scope: 'organisation' },

@@ -69,6 +69,11 @@ const STATUS_META: Record<string, { variant: StatusVariant; label: string }> = {
   // Compliance checklist
   overdue: { variant: 'problem', label: 'Overdue' },
   not_required: { variant: 'ok', label: 'Not Required' },
+  // Registration case (Partnership Firm Registration)
+  query: { variant: 'problem', label: 'Query / Clarification' },
+  replacement_required: { variant: 'problem', label: 'Replacement Required' },
+  not_applicable: { variant: 'ok', label: 'Not Applicable' },
+  blocked: { variant: 'problem', label: 'Blocked' },
 };
 
 export function statusMeta(status: string) {
