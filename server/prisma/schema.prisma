@@ -6598,7 +6598,7 @@ model PartnershipTemplateItem {
 model PartnershipCase {
   id                 String    @id @default(uuid())
   caseCode           String    @unique
-  /// PARTNERSHIP | LLP
+  /// PARTNERSHIP | LLP | GST | GSTR1 | GSTR2B | GSTR3B
   kind               String    @default("PARTNERSHIP")
   clientId           String
   /// The enrolment: ClientService row for the PARTNERSHIP_FIRM_REGISTRATION
@@ -6617,7 +6617,17 @@ model PartnershipCase {
   /// PROPRIETORSHIP | PARTNERSHIP | LLP | PVT_LTD — the client's entity type
   /// for GST Registration. Decides which of the six §7.1 categories apply.
   entityType         String?
-  /// Registration Details form (fields from the source PDF, Part A)
+  /// The return period the case belongs to, for GSTR* kinds only. Null for
+  /// the three one-time registrations. 'YYYY-MM' for monthly filers, or
+  /// 'YYYY-Q1'..'YYYY-Q4' for quarterly. Together with (clientId, kind) it
+  /// is the natural identity of a return-cycle case — GST-RETURNS-CASE-
+  /// SCREEN §6.
+  period             String?
+  /// monthly | quarterly. Copied from the client's GST profile at creation
+  /// so a later frequency change does not silently rewrite closed cases.
+  periodType         String?
+  /// Registration Details (one-time kinds) OR Return Details (return
+  /// kinds — ARN, taxable value, tax, filed_at). Same slot, different data.
   detailsJson        String?
   completedAt        DateTime?
 
@@ -6652,6 +6662,13 @@ model PartnershipCase {
   @@index([status])
   @@index([assignedEmployeeId])
   @@index([dueDate])
+  /// A client has at most one case per (return kind, period). Registration
+  /// kinds set period=null so this constraint is vacuous for them — one
+  /// client can still hold multiple registration cases. Nullable columns
+  /// participate in uniqueness in Postgres by treating NULL as distinct,
+  /// which is the behaviour we want.
+  @@unique([clientId, kind, period])
+  @@index([period])
 }
 
 model PartnershipPartner {
