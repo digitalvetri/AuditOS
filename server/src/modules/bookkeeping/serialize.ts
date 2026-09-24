@@ -1,7 +1,7 @@
 import type {
   BookkeepingActivity, BookkeepingDeliverable, BookkeepingDocumentRequest,
-  BookkeepingEngagement, BookkeepingPendingItem, BookkeepingPeriod,
-  BookkeepingTask, BookkeepingWorkflowStage, Client,
+  BookkeepingEngagement, BookkeepingImport, BookkeepingPendingItem,
+  BookkeepingPeriod, BookkeepingTask, BookkeepingWorkflowStage, Client,
 } from '@prisma/client'
 import type { EmployeeLookup } from '../../api/workstation.serialize.js'
 import { periodLabel } from './validate.js'
@@ -27,6 +27,7 @@ export function engagementToApi(
     assigned_employee_id: e.assignedEmployeeId,
     assigned_employee: ref(m, e.assignedEmployeeId),
     billing_frequency: e.billingFrequency,
+    due_offset_days: e.dueOffsetDays,
     next_due_date: e.nextDueDate,
     notes: e.notes,
     created_at: iso(e.createdAt),
@@ -47,6 +48,8 @@ export function periodToApi(
     year: p.year,
     month: p.month,
     label: periodLabel(p.year, p.month),
+    period_start: p.periodStart,
+    period_end: p.periodEnd,
     status: p.status,
     due_date: p.dueDate,
     completed_date: iso(p.completedDate),
@@ -69,6 +72,14 @@ export const workflowStageToApi = (s: BookkeepingWorkflowStage) => ({
   is_active: s.isActive,
 })
 
+export interface TaskGateApi {
+  slug: string
+  is_enforced: boolean
+  passed: boolean
+  reason: string | null
+  action: { section: string; label: string } | null
+}
+
 export const taskToApi = (
   t: BookkeepingTask & {
     client?: Client | null
@@ -76,6 +87,7 @@ export const taskToApi = (
     stage?: BookkeepingWorkflowStage | null
   },
   m: EmployeeLookup,
+  gate?: TaskGateApi | null,
 ) => ({
   id: t.id,
   period_id: t.periodId,
@@ -98,6 +110,13 @@ export const taskToApi = (
   completed_by: ref(m, t.completedByEmployeeId),
   notes: t.notes,
   created_at: iso(t.createdAt),
+  /**
+   * `gate` is present on stage tasks whose stage carries a gate rule.
+   * When passed=false and is_enforced=true, the API rejects a
+   * completion PATCH with 422 — the UI mirrors that as a disabled
+   * control with the reason and an action shortcut.
+   */
+  gate: gate ?? null,
 })
 
 export const pendingItemToApi = (
@@ -172,6 +191,28 @@ export const deliverableToApi = (
   delivered_at: iso(d.deliveredAt),
   notes: d.notes,
   created_at: iso(d.createdAt),
+})
+
+export const importToApi = (
+  i: BookkeepingImport,
+  m: EmployeeLookup,
+) => ({
+  id: i.id,
+  period_id: i.periodId,
+  client_id: i.clientId,
+  kind: i.kind,
+  source: i.source,
+  original_filename: i.originalFilename,
+  file_size: i.fileSize,
+  mime_type: i.mimeType,
+  company_name_in_file: i.companyNameInFile,
+  period_from_in_file: i.periodFromInFile,
+  period_to_in_file: i.periodToInFile,
+  row_count: i.rowCount,
+  status: i.status,
+  error_detail: i.errorDetail,
+  imported_at: iso(i.importedAt),
+  imported_by: ref(m, i.importedByEmployeeId),
 })
 
 export const activityToApi = (a: BookkeepingActivity & { period?: BookkeepingPeriod | null }) => ({

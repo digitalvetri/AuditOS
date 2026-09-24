@@ -231,6 +231,7 @@ build shows nothing.
 | **Notifications** | `/notifications` | `/api/notifications` | Platform primitive every module emits into |
 | **Settings** | `/hrms/settings` | `/api/settings` | Departments, designations, locations, holidays, leave types, expense categories, statutory rates (supersede + audited in-place correction), role matrix |
 | **Tools** | `/tools` | `/api/tools`, `/api/tool-jobs`, `/api/tool-documents` | Registry-driven converters (12 live, 6 compliance cards "coming soon"), one shared workspace, every output saved to `/tools/documents` with an audit trail |
+| **Doc** | `/workstation/doc` | `/api/workstation-docs` | Thirteen statutory / secretarial document types (consent, DIR-8, resignations, board and shareholders' resolutions, authorised-signatory declaration, GST and incorporation NOCs, LLP agreement, partnership deed) on one editor engine: two-sided workspace, direct editing on the A4 page, multi-page flow, PDF and print |
 | **Books** | `/books` | `/api/books` | Native bookkeeping, one set of books per client: double-entry ledger with database-enforced invariants, sales and purchase chains, GST/TDS, multi-currency, reports |
 
 ### Books (accounting)

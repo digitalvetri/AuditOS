@@ -96,6 +96,8 @@ export type PermissionCode =
   | 'workstation.quotation.approve'
   | 'workstation.engagement.read'
   | 'workstation.engagement.manage'
+  | 'workstation.doc.read'
+  | 'workstation.doc.manage'
   | 'workstation.gst.read'
   | 'workstation.gst.manage'
   | 'workstation.eway.read'
@@ -196,6 +198,8 @@ export const MATRIX: Record<RoleCode, Grant[]> = {
     { permission: 'workstation.quotation.manage', scope: 'self' },
     { permission: 'workstation.engagement.read', scope: 'self' },
     { permission: 'workstation.engagement.manage', scope: 'self' },
+    { permission: 'workstation.doc.read', scope: 'self' },
+    { permission: 'workstation.doc.manage', scope: 'self' },
     { permission: 'workstation.lead.read', scope: 'self' },
     { permission: 'workstation.lead.manage', scope: 'self' },
     { permission: 'workstation.client.read', scope: 'self' },
@@ -280,6 +284,8 @@ export const MATRIX: Record<RoleCode, Grant[]> = {
     { permission: 'workstation.quotation.manage', scope: 'organisation' },
     { permission: 'workstation.engagement.read', scope: 'organisation' },
     { permission: 'workstation.engagement.manage', scope: 'organisation' },
+    { permission: 'workstation.doc.read', scope: 'organisation' },
+    { permission: 'workstation.doc.manage', scope: 'organisation' },
     { permission: 'workstation.quotation.approve', scope: 'organisation' },
     { permission: 'workstation.lead.read', scope: 'organisation' },
     { permission: 'workstation.lead.manage', scope: 'organisation' },
@@ -436,6 +442,8 @@ export const MATRIX: Record<RoleCode, Grant[]> = {
     { permission: 'workstation.quotation.manage', scope: 'organisation' },
     { permission: 'workstation.engagement.read', scope: 'organisation' },
     { permission: 'workstation.engagement.manage', scope: 'organisation' },
+    { permission: 'workstation.doc.read', scope: 'organisation' },
+    { permission: 'workstation.doc.manage', scope: 'organisation' },
     { permission: 'workstation.quotation.approve', scope: 'organisation' },
     { permission: 'workstation.lead.read', scope: 'organisation' },
     { permission: 'workstation.lead.manage', scope: 'organisation' },

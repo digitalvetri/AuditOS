@@ -27,6 +27,10 @@ import { QuotationPreviewPage } from '@/pages/workstation/quotations/QuotationPr
 import { EngagementListPage } from '@/pages/workstation/engagement/EngagementList';
 import { EngagementBuilderPage } from '@/pages/workstation/engagement/EngagementBuilder';
 import { EngagementPreviewPage } from '@/pages/workstation/engagement/EngagementPreview';
+import { DocHomePage } from '@/pages/workstation/doc/DocHome';
+import { DocListPage } from '@/pages/workstation/doc/DocList';
+import { DocBuilderPage } from '@/pages/workstation/doc/DocBuilder';
+import { DocPreviewPage } from '@/pages/workstation/doc/DocPreview';
 // Tools (Converters & Utilities) — registry-driven; /tools/:toolId is one
 // shared workspace and /tools/documents the output history.
 import { ToolsPage } from '@/pages/tools/Tools';
@@ -71,10 +75,7 @@ import { BookkeepingShell } from '@/pages/workstation/bookkeeping/BookkeepingShe
 import { BookkeepingOverviewPage } from '@/pages/workstation/bookkeeping/Overview';
 import { BookkeepingClientsPage, BookkeepingClientDetailPage } from '@/pages/workstation/bookkeeping/Clients';
 import { BookkeepingMonthlyWorkPage, BookkeepingPeriodDetailPage } from '@/pages/workstation/bookkeeping/MonthlyWork';
-import {
-  BookkeepingTasksPage, BookkeepingPendingItemsPage, BookkeepingDocumentsPage,
-  BookkeepingDeliverablesPage, BookkeepingRemindersPage, BookkeepingSettingsPage,
-} from '@/pages/workstation/bookkeeping/Lists';
+import { BookkeepingSettingsPage } from '@/pages/workstation/bookkeeping/Lists';
 
 // GST — dedicated landing page + per-service AssistedHandoff detail +
 // shape-based workspace dispatcher (recurring period board / project case
@@ -165,6 +166,14 @@ export default function App() {
                 top bar and mobile bottom nav are never rendered around it.
                 Still behind ProtectedRoute — only the chrome is dropped. */}
             <Route
+              path="/workstation/doc/:id/preview"
+              element={
+                <ProtectedRoute>
+                  <DocPreviewPage />
+                </ProtectedRoute>
+              }
+            />
+            <Route
               path="/workstation/engagement/:id/preview"
               element={
                 <ProtectedRoute>
@@ -233,12 +242,17 @@ export default function App() {
                 <Route path="clients/:clientId" element={<BookkeepingClientDetailPage />} />
                 <Route path="monthly-work" element={<BookkeepingMonthlyWorkPage />} />
                 <Route path="monthly-work/:periodId" element={<BookkeepingPeriodDetailPage />} />
-                <Route path="tasks" element={<BookkeepingTasksPage />} />
-                <Route path="pending-items" element={<BookkeepingPendingItemsPage />} />
-                <Route path="documents" element={<BookkeepingDocumentsPage />} />
-                <Route path="deliverables" element={<BookkeepingDeliverablesPage />} />
-                <Route path="reminders" element={<BookkeepingRemindersPage />} />
                 <Route path="settings" element={<BookkeepingSettingsPage />} />
+                {/* Spec §3: the five retired tabs REDIRECT to their new home
+                    with the equivalent filter, so an old bookmark still
+                    lands somewhere meaningful rather than 404. Reminders had
+                    no in-module home (spec: "notifications, not a page") —
+                    it redirects to Overview without a filter. */}
+                <Route path="tasks" element={<Navigate to="..?group=task" replace />} />
+                <Route path="pending-items" element={<Navigate to="..?tile=blocked" replace />} />
+                <Route path="documents" element={<Navigate to="../monthly-work" replace />} />
+                <Route path="deliverables" element={<Navigate to="../monthly-work" replace />} />
+                <Route path="reminders" element={<Navigate to=".." replace />} />
               </Route>
               {/* TDS module — copied from GST structure, wins over the
                   :category catch-all below. */}
@@ -289,6 +303,10 @@ export default function App() {
               <Route path="workstation/quotations/new" element={<QuotationBuilderPage />} />
               <Route path="workstation/quotations/:id/edit" element={<QuotationBuilderPage />} />
               <Route path="workstation/quotations/:id" element={<QuotationDetailPage />} />
+              <Route path="workstation/doc" element={<DocHomePage />} />
+              <Route path="workstation/doc/t/:typeId" element={<DocListPage />} />
+              <Route path="workstation/doc/t/:typeId/new" element={<DocBuilderPage />} />
+              <Route path="workstation/doc/:id/edit" element={<DocBuilderPage />} />
               <Route path="workstation/engagement" element={<EngagementListPage />} />
               <Route path="workstation/engagement/new" element={<EngagementBuilderPage />} />
               <Route path="workstation/engagement/:id/edit" element={<EngagementBuilderPage />} />

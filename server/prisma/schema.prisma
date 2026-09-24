@@ -359,6 +359,7 @@ model Employee {
   assignedTasks     Task[]                @relation("TaskAssignee")
   quotations        Quotation[]           @relation("QuotationPreparedBy")
   engagementLetters EngagementLetter[]    @relation("EngagementPreparedBy")
+  workstationDocs   WorkstationDoc[]      @relation("WorkstationDocPreparedBy")
   raisedTasks       Task[]                @relation("TaskAssigner")
   taskSessions      TaskTimeSession[]
   checklistItems    ClientChecklistItem[] @relation("ChecklistAssignee")
@@ -1072,6 +1073,7 @@ model Lead {
   followUps         FollowUp[]
   quotations        Quotation[]
   engagementLetters EngagementLetter[]
+  workstationDocs   WorkstationDoc[]
 
   /// System-generated (§5.2). Never accepted from a request body.
   createdAt DateTime  @default(now())
@@ -1134,6 +1136,7 @@ model Client {
   tasks               Task[]
   quotations          Quotation[]
   engagementLetters   EngagementLetter[]
+  workstationDocs     WorkstationDoc[]
   ewayBills           EwayBill[]
   gstProfile          GstProfile?
   eInvoiceEwbProfile  EInvoiceEwbProfile?
@@ -1145,6 +1148,7 @@ model Client {
   bkDocumentRequests  BookkeepingDocumentRequest[]
   bkDeliverables      BookkeepingDeliverable[]
   bkActivities        BookkeepingActivity[]
+  bkImports           BookkeepingImport[]
   registrations       ClientRegistration[]
   incCases            IncorporationCase[]
   incDocumentRequests IncorporationDocumentRequest[]
@@ -4354,6 +4358,11 @@ model BookkeepingEngagement {
   assignedEmployeeId String
   /// monthly | quarterly | annual
   billingFrequency   String  @default("monthly")
+  /// Days after period end at which the period's due date defaults. Per-client
+  /// because firms agree different turnarounds; bookkeeping carries no
+  /// statutory deadline, so every date here is an internal commitment and
+  /// must be configurable rather than constant.
+  dueOffsetDays      Int     @default(5)
   nextDueDate        String?
   notes              String?
 
@@ -4378,6 +4387,15 @@ model BookkeepingPeriod {
   year         Int
   month        Int
 
+  /// The period window as calendar dates. Derived on write from year+month
+  /// and the engagement's billingFrequency (monthly: 1st→last of month;
+  /// quarterly: 1st of month→last of month+2; annual: 1st→last of month+11).
+  /// Nullable only for the backfill of pre-existing rows; new periods always
+  /// carry both. `dueDate` in turn is derived from `periodEnd` plus the
+  /// engagement's `dueOffsetDays`, adjusted forward off weekends.
+  periodStart String?
+  periodEnd   String?
+
   /// not_started | in_progress | awaiting_documents | under_review | completed | blocked
   status             String    @default("not_started")
   dueDate            String?
@@ -4392,6 +4410,7 @@ model BookkeepingPeriod {
   documentRequests BookkeepingDocumentRequest[]
   deliverables     BookkeepingDeliverable[]
   activities       BookkeepingActivity[]
+  imports          BookkeepingImport[]
 
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt
@@ -4402,6 +4421,7 @@ model BookkeepingPeriod {
   @@unique([engagementId, year, month])
   @@index([status])
   @@index([dueDate])
+  @@index([periodEnd])
 }
 
 /// DEPRECATED. The monthly checklist is now a rendering of BookkeepingTask
@@ -4628,6 +4648,163 @@ model BookkeepingActivity {
 
   @@index([clientId, createdAt])
   @@index([periodId, createdAt])
+}
+
+/// The financial data layer (spec §4.2 / §6.4). One row per file the firm
+/// pulls into a period — bank statement, day book, outstandings, trial
+/// balance. Append-only: a re-import creates a new row and never overwrites,
+/// because the prior-period comparison needs history.
+///
+/// Every row records the outcome of the TWO BLOCKING VALIDATIONS spec §5
+/// requires (period and company must match the target). A rejected row is
+/// deliberately kept so a reviewer can see WHICH file was refused and why.
+/// The stored file lives under `storagePath`; row-level parsing (populating
+/// `rowCount` and BookkeepingLedgerBalance below) is added by later PRs on
+/// a per-kind basis.
+model BookkeepingImport {
+  id       String @id @default(uuid())
+  periodId String
+  clientId String
+
+  /// trial_balance | day_book | outstandings | bank_statement
+  kind   String
+  /// upload | email | agent  (only 'upload' today; 'email' and 'agent' are
+  /// reserved for the ingestion pipeline that will follow.)
+  source String @default("upload")
+
+  originalFilename String
+  storagePath      String // resolved by bookkeepingImportStorage
+  fileSize         Int
+  mimeType         String
+
+  /// The company name and period boundary the CALLER declared for the file.
+  /// These are what the two blocking validations run against — a future
+  /// parser will populate them automatically; today the user types them.
+  companyNameInFile String
+  periodFromInFile  String // 'YYYY-MM-DD'
+  periodToInFile    String // 'YYYY-MM-DD'
+
+  /// Populated when a per-kind parser runs; null in the meantime.
+  rowCount Int?
+
+  /// imported | rejected_period_mismatch | rejected_company_mismatch | parse_failed
+  status      String
+  errorDetail String?
+
+  importedAt           DateTime @default(now())
+  importedByEmployeeId String?
+
+  period  BookkeepingPeriod          @relation(fields: [periodId], references: [id])
+  client  Client                     @relation(fields: [clientId], references: [id])
+  ledgers BookkeepingLedgerBalance[]
+
+  @@index([periodId, kind, importedAt])
+  @@index([clientId, importedAt])
+  @@index([status])
+}
+
+/// One ledger balance from a trial-balance import. Money is INTEGER PAISE
+/// (BigInt in the schema so a legacy INR balance never overflows Int32).
+/// Classification is by PARENT GROUP (`Bank Accounts` → asset · bank,
+/// `Sundry Creditors` → liability · payable), never by ledger name — firms
+/// name ledgers differently, but Tally's group hierarchy is standard.
+///
+/// Populated by a parser attached to BookkeepingImport in a follow-up PR;
+/// the table is declared now so the schema is complete and Reports (spec
+/// §6.5, PR-6) can slot in without a second migration.
+model BookkeepingLedgerBalance {
+  id       String @id @default(uuid())
+  importId String
+
+  ledgerName  String
+  parentGroup String
+  /// asset | liability | income | expense | equity
+  category    String
+  /// cash | bank | receivable | payable | gst | other
+  subtype     String @default("other")
+
+  openingPaise BigInt @default(0)
+  debitPaise   BigInt @default(0)
+  creditPaise  BigInt @default(0)
+  closingPaise BigInt @default(0)
+
+  /// The raw row as the file carried it, so the parser output remains
+  /// auditable even after the classification rules change.
+  raw Json?
+
+  import BookkeepingImport @relation(fields: [importId], references: [id], onDelete: Cascade)
+
+  @@index([importId])
+  @@index([category, subtype])
+}
+
+/// Group-to-category mapping for the Reports tab (spec §6.5).
+///
+/// Classification is by PARENT GROUP, never by ledger name — firms name
+/// ledgers differently, but Tally's group hierarchy is standard. The ten
+/// system rows here are seeded once and never mutated; a firm that keeps
+/// a custom group inserts a NON-system row to teach the reports how to
+/// classify it. Deleting a row a period actually referenced would blank
+/// its report line — hence `deletedAt` on non-system rows and a hard
+/// guard against removing system rows.
+model BookkeepingLedgerGroup {
+  id   String @id @default(uuid())
+  /// Exact match against BookkeepingLedgerBalance.parentGroup — trim of
+  /// outer whitespace is the ONLY normalisation.
+  name String @unique
+
+  /// asset | liability | income | expense | equity
+  category String
+  /// cash | bank | receivable | payable | gst | other
+  subtype  String @default("other")
+
+  /// System rows: seeded from spec §6.5 and immutable through the UI.
+  isSystem Boolean @default(false)
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  @@index([category, subtype])
+}
+
+/// GATE RULES (spec §4.3, §7). Tasks that assert work was done should
+/// require evidence that it was — a "Reconcile Bank" task cannot honestly
+/// be marked complete without a bank statement on record for the period.
+///
+/// Each workflow stage carries a nullable `gateRuleSlug` pointing at a
+/// row here; the evaluator (server/src/modules/bookkeeping/gates.ts)
+/// resolves the row on task read and again on PATCH-to-completed. Rules
+/// are DATA-driven — `requires` is the evaluator's dispatch key and
+/// `requiresValue` is its parameter — so a firm can add a rule ("must
+/// have a Form 26AS import for TDS periods") without a code change.
+///
+/// `isEnforced` false → the rule STILL runs and the UI still shows the
+/// reason, but the API allows the task to be completed anyway. That is
+/// the escape hatch spec §7 explicitly asks for: "a firm may switch one
+/// off rather than working around it."
+model BookkeepingGateRule {
+  /// The value on BookkeepingWorkflowStage.gateRuleSlug.
+  slug        String @id
+  description String
+
+  /// document | import | all_other_tasks_complete
+  requires      String
+  /// For requires='document': the BookkeepingDocumentRequest.documentType.
+  /// For requires='import':   the BookkeepingImport.kind.
+  /// For requires='all_other_tasks_complete': null.
+  requiresValue String?
+
+  isEnforced Boolean @default(true)
+
+  /// Where the UI sends the user when the gate fails. Section is a
+  /// Monthly Work sub-tab slug ('data', 'checklist', …); label is the
+  /// short call-to-action.
+  actionSection String?
+  actionLabel   String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 }
 
 // ============================================================
@@ -6051,4 +6228,72 @@ model EngagementFeeItem {
   letter EngagementLetter @relation(fields: [letterId], references: [id], onDelete: Cascade)
 
   @@index([letterId, sortOrder])
+}
+
+/// ────────────────────────────────────────────────────────────────────────
+/// WORKSTATION DOC — one row per composed statutory / secretarial document.
+///
+/// Thirteen document TYPES (consent letter, board resolutions, NOCs, LLP and
+/// partnership agreements …) share ONE table rather than thirteen, because
+/// they differ only in their template: the body of every one of them is the
+/// same ordered `blockConfig` the Doc editor composes and the PDF walks, and
+/// their type-specific facts are the `fieldValues` map their template
+/// declares. A new document type is a config file, not a migration.
+///
+/// The document is the truth. `fieldValues` feeds the {{placeholders}} in the
+/// blocks, but once a user types over a filled value on the page that text is
+/// literal — so the stored blocks always print exactly what was seen.
+model WorkstationDoc {
+  id             String @id @default(uuid())
+  organisationId String
+  /// 'DOC-2026-0001'. Per-year sequence, allocated inside the creating
+  /// transaction, exactly as letterCode and quotationCode are.
+  docCode        String @unique
+
+  /// The template id from the client-side registry — 'consent-letter',
+  /// 'llp-agreement', … Never a free string from the browser: the route
+  /// validates it against the same list the editor offers.
+  docType String
+  /// What this document is called in the list. Defaults to the type's name.
+  title   String
+
+  /// At most one party, and never both — the same XOR quotations and letters
+  /// enforce. A document may also stand alone (no client, no lead).
+  clientId String?
+  leadId   String?
+
+  /// YYYY-MM-DD — what prints as the document's date.
+  docDate String
+
+  /// draft | final | archived. A final document is frozen; reopening it
+  /// returns it to draft, which is how an already-issued paper gets amended.
+  status String @default("draft")
+
+  /// The template's declared fields, as typed in the left panel.
+  fieldValues  Json?
+  /// Ordered blocks: headings, prose lines, key-value details, signature
+  /// grids, witnesses, spacers. The whole body of the document.
+  blockConfig  Json?
+  /// Page size, margins, fonts, header and footer — stored as composed.
+  layoutConfig Json?
+
+  preparedById String?
+  finalisedAt  DateTime?
+
+  lead       Lead?     @relation(fields: [leadId], references: [id])
+  client     Client?   @relation(fields: [clientId], references: [id])
+  preparedBy Employee? @relation("WorkstationDocPreparedBy", fields: [preparedById], references: [id])
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  createdBy String?
+  updatedBy String?
+  deletedAt DateTime?
+
+  @@index([docType])
+  @@index([clientId])
+  @@index([leadId])
+  @@index([status])
+  @@index([docDate])
+  @@index([createdAt])
 }

@@ -1,4 +1,5 @@
 import { Router } from 'express'
+import multer from 'multer'
 import { prisma, alive } from '../../lib/prisma.js'
 import { ApiError, handler, ok } from '../../lib/http.js'
 import { requireSession } from '../../platform/auth.js'
@@ -10,18 +11,26 @@ import { employeeMap } from '../../api/workstation.serialize.js'
 import { body, FieldErrors } from '../workstation/validate.js'
 import {
   BILLING_FREQUENCIES, DELIVERABLE_STATUSES, DELIVERABLE_TYPES,
-  DOCREQ_STATUSES, DOCUMENT_TYPES, ENGAGEMENT_STATUSES, PENDING_CATEGORIES,
-  PENDING_STATUSES, PERIOD_STATUSES, PRIORITIES, TASK_CATEGORIES, TASK_STATUSES,
+  DOCREQ_STATUSES, DOCUMENT_TYPES, ENGAGEMENT_STATUSES, IMPORT_KINDS,
+  IMPORT_SOURCES, MONTH_ABBREVS, PENDING_CATEGORIES, PENDING_STATUSES,
+  PERIOD_STATUSES, PRIORITIES, TASK_CATEGORIES, TASK_STATUSES,
   WORKFLOW_STEPS, periodLabel,
 } from './validate.js'
 import {
-  createPeriodWithTasks, overviewKpis, progressByPeriod, progressFrom,
-  today, writeBkActivity,
+  createPeriodWithTasks, currentStageByPeriod, overviewTiles, progressByPeriod,
+  progressFrom, recomputeOpenPeriodsForEngagement, today, writeBkActivity,
 } from './service.js'
 import {
   activityToApi, deliverableToApi, documentRequestToApi,
-  engagementToApi, pendingItemToApi, periodToApi, taskToApi, workflowStageToApi,
+  engagementToApi, importToApi, pendingItemToApi, periodToApi, taskToApi,
+  workflowStageToApi,
 } from './serialize.js'
+import { bookkeepingImportStorage, importStorageKey } from './storage.js'
+import { validateImport } from './imports.js'
+import { parseTrialBalanceCsv } from './parsers/trialBalance.js'
+import { classify, loadLedgerGroups } from './ledgerGroups.js'
+import { reportsForPeriod } from './reports.js'
+import { evaluateGate, loadPeriodGateContext } from './gates.js'
 
 /**
  * BOOKKEEPING SERVICE.
@@ -50,37 +59,231 @@ async function booksOrgIdFor(clientIds: string[]): Promise<Map<string, string>> 
 }
 
 // ── Overview ──────────────────────────────────────────────────────────────
-// GET /api/bookkeeping/overview
+// GET /api/bookkeeping/overview?tile=&client_id=&employee_id=&stage=&status=&group=
+//
+// Answers "what needs doing?" — spec §6.1. The tile counts are ALWAYS the
+// unfiltered aggregates over the caller's visible clients (they're the
+// entry points for filters, not the results of one). The `rows` array is
+// filtered by the query params so tile-click and table-row can never
+// disagree — clicking a tile just sets `?tile=` and re-renders the same
+// endpoint response with the same tile counts.
 bookkeepingRouter.get('/overview', handler(async (req, res) => {
   const session = requireSession(req)
   const scope = requireWorkstation(session, ...READ)
   const where = await clientScopeWhere(session, scope)
+  const clientFilter = 'clientId' in where
+    ? { engagement: { clientId: (where as { clientId: { in: string[] } }).clientId } }
+    : {}
 
-  const kpis = await overviewKpis(where)
+  const tile = q(req, 'tile')            // overdue | blocked | due_soon | review | closed
+  const group = q(req, 'group') ?? 'period'   // period (default) | task
+  const clientId = q(req, 'client_id')
+  const employeeId = q(req, 'employee_id')
+  const stageSlug = q(req, 'stage')
+  const statusFilter = q(req, 'status')
+  const search = q(req, 'q')
 
-  // The month's periods, most urgent first, so Overview is actionable and
-  // not just a wall of counters.
+  const t = today()
+  const dueSoonEnd = (() => {
+    const [y, m, d] = t.split('-').map(Number)
+    const dt = new Date(Date.UTC(y, m - 1, d + 7))
+    return `${dt.getUTCFullYear()}-${String(dt.getUTCMonth() + 1).padStart(2, '0')}-${String(dt.getUTCDate()).padStart(2, '0')}`
+  })()
+  const monthStart = (() => {
+    const now = new Date()
+    return `${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2, '0')}-01`
+  })()
+
+  const tiles = await overviewTiles(where)
+
+  if (group === 'task') {
+    // Group-by-task: one row per task matching the filters. This is what
+    // the retired "Tasks" tab used to look like. Capped at 200 rows;
+    // real-world lists will grow past this and the follow-up will paginate.
+    const rows = await prisma.bookkeepingTask.findMany({
+      where: {
+        ...alive, ...where,
+        stageId: { not: null },
+        ...(tile === 'overdue' ? { dueDate: { lt: t }, status: { notIn: ['completed', 'cancelled'] } } : {}),
+        ...(tile === 'blocked' ? { status: 'blocked' } : {}),
+        ...(tile === 'due_soon' ? { dueDate: { gte: t, lte: dueSoonEnd }, status: { notIn: ['completed', 'cancelled'] } } : {}),
+        ...(tile === 'review' ? { period: { status: 'under_review' } } : {}),
+        ...(tile === 'closed' ? { period: { status: 'completed', completedDate: { gte: new Date(monthStart) } } } : {}),
+        ...(clientId ? { clientId } : {}),
+        ...(employeeId ? { assignedEmployeeId: employeeId } : {}),
+        ...(stageSlug ? { stage: { slug: stageSlug } } : {}),
+        ...(statusFilter ? { status: statusFilter } : {}),
+        ...(search ? { title: { contains: search, mode: 'insensitive' as const } } : {}),
+      },
+      include: { client: true, period: true, stage: true },
+      orderBy: [{ dueDate: 'asc' }, { createdAt: 'desc' }],
+      take: 200,
+    })
+    const m = await employeeMap(rows.map((r) => r.assignedEmployeeId))
+    ok(res, {
+      tiles,
+      group: 'task',
+      rows: rows.map((r) => taskToApi(r, m)),
+      count: rows.length,
+      scope,
+    })
+    return
+  }
+
+  // Group-by-period (default): one row per open period. Each row carries
+  // the "current stage" (earliest incomplete stage task) and how many of
+  // this period's tasks are blocked, so a reviewer can see WHERE a period
+  // is stuck at a glance.
+  const perTileFilter: Record<string, unknown> = tile === 'closed'
+    ? { status: 'completed', completedDate: { gte: new Date(monthStart) } }
+    : tile === 'review'
+      ? { status: 'under_review' }
+      : tile === 'due_soon'
+        ? { dueDate: { gte: t, lte: dueSoonEnd }, status: { not: 'completed' } }
+        : { status: { not: 'completed' } }
+
   const periods = await prisma.bookkeepingPeriod.findMany({
     where: {
-      ...alive,
-      ...(('clientId' in where) ? { engagement: { clientId: (where as { clientId: { in: string[] } }).clientId } } : {}),
-      status: { not: 'completed' },
+      ...alive, ...clientFilter, ...perTileFilter,
+      ...(clientId ? { engagement: { clientId } } : {}),
+      ...(employeeId ? { assignedEmployeeId: employeeId } : {}),
+      ...(statusFilter ? { status: statusFilter } : {}),
+      ...(search ? { engagement: { client: { companyName: { contains: search, mode: 'insensitive' as const } } } } : {}),
     },
     include: { engagement: { include: { client: true } } },
     orderBy: [{ dueDate: 'asc' }],
-    take: 8,
+    take: 100,
   })
   const prog = await progressByPeriod(periods.map((p) => p.id))
   const m = await employeeMap(periods.map((p) => p.assignedEmployeeId))
+  const stageByPeriod = await currentStageByPeriod(where)
+
+  // Post-filter for tiles that need a per-period aggregate (overdue,
+  // blocked, and stage=) — those cannot be expressed as a single Prisma
+  // where clause without a subquery per row.
+  const rows = periods
+    .map((p) => {
+      const cs = stageByPeriod.get(p.id)
+      return {
+        ...periodToApi(p, m, prog.get(p.id)),
+        current_stage: cs
+          ? { id: cs.stageId, slug: cs.stageSlug, name: cs.stageName, sequence: cs.stageSequence }
+          : null,
+        blocked_count: cs?.blockedCount ?? 0,
+      }
+    })
+    .filter((r) => {
+      if (tile === 'blocked' && r.blocked_count === 0) return false
+      if (tile === 'overdue' && !(r.due_date && r.due_date < t)) return false
+      if (stageSlug && r.current_stage?.slug !== stageSlug) return false
+      return true
+    })
 
   ok(res, {
-    kpis,
-    upcoming: periods.map((p) => periodToApi(p, m, prog.get(p.id))),
+    tiles,
+    group: 'period',
+    rows,
+    count: rows.length,
     scope,
   })
 }))
 
 // ── Clients ───────────────────────────────────────────────────────────────
+//
+// GET /api/bookkeeping/clients/grid?fy=YYYY&employee_id=&q=
+//
+// The period grid (spec §6.2). Clients down, twelve calendar months across,
+// one cell per client-period. This is the screen that makes silent drift
+// visible: a client three months behind that nobody noticed shows up as a
+// row of unmarked cells.
+//
+// Indian FY: April → March. `?fy=2026` renders April 2026 through March
+// 2027. Default is the FY containing today.
+//
+// Declared BEFORE `/clients` so Express's path matcher does not treat
+// `grid` as a clientId (`:clientId` catch-alls are the trap this router
+// has already been bitten by elsewhere).
+bookkeepingRouter.get('/clients/grid', handler(async (req, res) => {
+  const session = requireSession(req)
+  const scope = requireWorkstation(session, ...READ)
+  const where = await clientScopeWhere(session, scope)
+
+  const fyQuery = q(req, 'fy')
+  const now = new Date()
+  const currentFy = now.getUTCMonth() >= 3 // April is index 3
+    ? now.getUTCFullYear()
+    : now.getUTCFullYear() - 1
+  const fy = fyQuery && /^\d{4}$/.test(fyQuery) ? Number(fyQuery) : currentFy
+  const fyLabel = `${fy}-${String((fy + 1) % 100).padStart(2, '0')}`
+
+  // Twelve months, Apr…Mar, each carrying its calendar year.
+  const months: { year: number; month: number; label: string }[] = []
+  for (let i = 0; i < 12; i++) {
+    const monthIndex = 4 + i    // 4 = Apr, 15 → wraps to Mar
+    const year = fy + Math.floor((monthIndex - 1) / 12)
+    const month = ((monthIndex - 1) % 12) + 1
+    months.push({ year, month, label: MONTH_ABBREVS[month - 1] })
+  }
+
+  const employeeId = q(req, 'employee_id')
+  const search = q(req, 'q')
+
+  const engagements = await prisma.bookkeepingEngagement.findMany({
+    where: {
+      ...alive, ...where,
+      ...(employeeId ? { assignedEmployeeId: employeeId } : {}),
+      ...(search ? { client: { companyName: { contains: search, mode: 'insensitive' } } } : {}),
+    },
+    include: { client: true },
+    orderBy: { client: { companyName: 'asc' } },
+  })
+  const engagementIds = engagements.map((e) => e.id)
+
+  // ONE query for every period in the twelve-month window across every
+  // visible engagement. Fanned out into cells client-side in JS. This is
+  // deliberately not N+1 — a firm's book is small enough for the whole
+  // grid to fit on one read.
+  const yearsInWindow = Array.from(new Set(months.map((m) => m.year)))
+  const t = today()
+  const periods = engagementIds.length === 0 ? [] : await prisma.bookkeepingPeriod.findMany({
+    where: {
+      ...alive,
+      engagementId: { in: engagementIds },
+      year: { in: yearsInWindow },
+    },
+    select: {
+      id: true, engagementId: true, year: true, month: true,
+      status: true, dueDate: true,
+    },
+  })
+
+  const byEngagementMonth = new Map<string, typeof periods[number]>()
+  for (const p of periods) byEngagementMonth.set(`${p.engagementId}-${p.year}-${p.month}`, p)
+
+  const m = await employeeMap(engagements.map((e) => e.assignedEmployeeId))
+
+  const rows = engagements.map((e) => ({
+    client_id: e.clientId,
+    client_name: e.client?.companyName ?? null,
+    client_code: e.client?.clientCode ?? null,
+    engagement_id: e.id,
+    owner: e.assignedEmployeeId ? m.get(e.assignedEmployeeId) ?? null : null,
+    cells: months.map((mo) => {
+      const p = byEngagementMonth.get(`${e.id}-${mo.year}-${mo.month}`)
+      if (!p) {
+        return { year: mo.year, month: mo.month, period_id: null, status: null, is_overdue: false }
+      }
+      const isOverdue = p.status !== 'completed' && Boolean(p.dueDate && p.dueDate < t)
+      return {
+        year: mo.year, month: mo.month,
+        period_id: p.id, status: p.status, is_overdue: isOverdue,
+      }
+    }),
+  }))
+
+  ok(res, { fy, fy_label: fyLabel, months, rows, scope })
+}))
+
 // GET /api/bookkeeping/clients
 bookkeepingRouter.get('/clients', handler(async (req, res) => {
   const session = requireSession(req)
@@ -192,6 +395,10 @@ bookkeepingRouter.post('/engagements', handler(async (req, res) => {
   const serviceStartDate = f.date('service_start_date', b.service_start_date, true)
   const assignedEmployeeId = f.str('assigned_employee_id', b.assigned_employee_id)
   const billingFrequency = f.oneOf('billing_frequency', b.billing_frequency ?? 'monthly', BILLING_FREQUENCIES)
+  const dueOffsetDaysRaw = b.due_offset_days === undefined ? 5 : Number(b.due_offset_days)
+  if (!Number.isInteger(dueOffsetDaysRaw) || dueOffsetDaysRaw < 0 || dueOffsetDaysRaw > 60) {
+    f.add('due_offset_days', 'Enter a whole number of days between 0 and 60.')
+  }
   const nextDueDate = f.date('next_due_date', b.next_due_date, false)
   const notes = f.str('notes', b.notes, { required: false, max: 2000 })
   f.throwIfAny()
@@ -206,7 +413,8 @@ bookkeepingRouter.post('/engagements', handler(async (req, res) => {
   const row = await prisma.bookkeepingEngagement.create({
     data: {
       clientId: clientId!, serviceStartDate: serviceStartDate!, assignedEmployeeId: assignedEmployeeId!,
-      billingFrequency: billingFrequency!, nextDueDate: nextDueDate ?? null, notes: notes ?? null,
+      billingFrequency: billingFrequency!, dueOffsetDays: dueOffsetDaysRaw,
+      nextDueDate: nextDueDate ?? null, notes: notes ?? null,
       createdBy: session.userId,
     },
     include: { client: true },
@@ -239,6 +447,14 @@ bookkeepingRouter.patch('/engagements/:id', handler(async (req, res) => {
   if (b.status !== undefined) data.status = f.oneOf('status', b.status, ENGAGEMENT_STATUSES)
   if (b.assigned_employee_id !== undefined) data.assignedEmployeeId = f.str('assigned_employee_id', b.assigned_employee_id)
   if (b.billing_frequency !== undefined) data.billingFrequency = f.oneOf('billing_frequency', b.billing_frequency, BILLING_FREQUENCIES)
+  if (b.due_offset_days !== undefined) {
+    const n = Number(b.due_offset_days)
+    if (!Number.isInteger(n) || n < 0 || n > 60) {
+      f.add('due_offset_days', 'Enter a whole number of days between 0 and 60.')
+    } else {
+      data.dueOffsetDays = n
+    }
+  }
   if (b.next_due_date !== undefined) data.nextDueDate = f.date('next_due_date', b.next_due_date, false) ?? null
   if (b.notes !== undefined) data.notes = f.str('notes', b.notes, { required: false, max: 2000 }) ?? null
   f.throwIfAny()
@@ -257,6 +473,21 @@ bookkeepingRouter.patch('/engagements/:id', handler(async (req, res) => {
       clientId: row.clientId, actorUserId: session.userId,
       action: 'Engagement status changed', detail: `${before.status} → ${row.status}`,
     })
+  }
+  // If the frequency or the turnaround changed, every open period's due date
+  // is now stale — recompute in the same request so the UI never renders a
+  // date that disagrees with the config that just wrote it.
+  const dueOffsetChanged = data.dueOffsetDays !== undefined && data.dueOffsetDays !== before.dueOffsetDays
+  const frequencyChanged = data.billingFrequency !== undefined && data.billingFrequency !== before.billingFrequency
+  if (dueOffsetChanged || frequencyChanged) {
+    const summary = await recomputeOpenPeriodsForEngagement(prisma, row.id)
+    if (summary.periodsMoved > 0 || summary.tasksMoved > 0) {
+      await writeBkActivity({
+        clientId: row.clientId, actorUserId: session.userId,
+        action: 'Due dates recomputed',
+        detail: `${summary.periods} open period(s); ${summary.periodsMoved} period due date(s) and ${summary.tasksMoved} task due date(s) moved to reflect ${dueOffsetChanged ? `dueOffsetDays ${before.dueOffsetDays} → ${row.dueOffsetDays}` : `frequency ${before.billingFrequency} → ${row.billingFrequency}`}.`,
+      })
+    }
   }
   const m = await employeeMap([row.assignedEmployeeId])
   ok(res, engagementToApi(row, m))
@@ -305,6 +536,7 @@ bookkeepingRouter.get('/periods/:id', handler(async (req, res) => {
       pendingItems: { where: alive, include: { client: true } },
       documentRequests: { where: alive, include: { client: true, clientDocument: true } },
       deliverables: { where: alive, include: { client: true, clientDocument: true } },
+      imports: { orderBy: { importedAt: 'desc' } },
     },
   })
   if (!row) throw ApiError.notFound('Period not found.')
@@ -320,14 +552,23 @@ bookkeepingRouter.get('/periods/:id', handler(async (req, res) => {
     ...row.tasks.map((t) => t.completedByEmployeeId),
     ...row.pendingItems.map((p) => p.assignedEmployeeId),
     ...row.deliverables.flatMap((d) => [d.preparedByEmployeeId, d.reviewedByEmployeeId]),
+    ...row.imports.map((i) => i.importedByEmployeeId),
   ])
+
+  // One evidence fetch per period covers every task's gate. Stages that
+  // carry no gate rule get `null` back and render as an ordinary task.
+  const gateCtx = await loadPeriodGateContext(prisma, row.id)
 
   ok(res, {
     period: periodToApi(row, m, progressFrom(row.tasks)),
-    tasks: row.tasks.map((t) => taskToApi(t, m)),
+    tasks: row.tasks.map((t) => taskToApi(t, m, evaluateGate(gateCtx, {
+      gateRuleSlug: t.stage?.gateRuleSlug ?? null,
+      taskId: t.id,
+    }))),
     pending_items: row.pendingItems.map((p) => pendingItemToApi(p, m)),
     document_requests: row.documentRequests.map((d) => documentRequestToApi(d, m)),
     deliverables: row.deliverables.map((d) => deliverableToApi(d, m)),
+    imports: row.imports.map((i) => importToApi(i, m)),
     workflow_stages: stages.map(workflowStageToApi),
     // Legacy view kept for one release so old clients still render.
     workflow_steps: WORKFLOW_STEPS,
@@ -513,7 +754,10 @@ bookkeepingRouter.get('/tasks/:id', handler(async (req, res) => {
 bookkeepingRouter.patch('/tasks/:id', handler(async (req, res) => {
   const session = requireSession(req)
   const scope = requireWorkstation(session, ...MANAGE)
-  const before = await prisma.bookkeepingTask.findFirst({ where: { ...alive, id: req.params.id } })
+  const before = await prisma.bookkeepingTask.findFirst({
+    where: { ...alive, id: req.params.id },
+    include: { stage: true },
+  })
   if (!before) throw ApiError.notFound('Task not found.')
   await assertCanSeeClient(session, scope, before.clientId)
 
@@ -529,6 +773,28 @@ bookkeepingRouter.patch('/tasks/:id', handler(async (req, res) => {
   if (b.due_date !== undefined) data.dueDate = f.date('due_date', b.due_date, false) ?? null
   if (b.notes !== undefined) data.notes = f.str('notes', b.notes, { required: false, max: 2000 }) ?? null
   f.throwIfAny()
+
+  // Gate enforcement (spec §7). Completing a task that carries a gate rule
+  // requires the rule to pass, unless the firm has disabled the rule. The
+  // check runs BEFORE the write so an ungated task is never written and
+  // then rolled back. Only a status transition INTO 'completed' triggers
+  // the check — a re-open (completed → pending) can never fail a gate.
+  if (data.status === 'completed'
+      && before.status !== 'completed'
+      && before.stage?.gateRuleSlug
+      && before.periodId) {
+    const ctx = await loadPeriodGateContext(prisma, before.periodId)
+    const gate = evaluateGate(ctx, {
+      gateRuleSlug: before.stage.gateRuleSlug,
+      taskId: before.id,
+    })
+    if (gate && gate.is_enforced && !gate.passed) {
+      throw ApiError.unprocessable('gated', gate.reason ?? 'This task is blocked by an unmet gate.', {
+        gate_slug: gate.slug,
+        action: gate.action,
+      })
+    }
+  }
 
   if (data.status === 'completed') {
     data.completedAt = new Date()
@@ -552,7 +818,15 @@ bookkeepingRouter.patch('/tasks/:id', handler(async (req, res) => {
     })
   }
   const m = await employeeMap([row.assignedEmployeeId, row.completedByEmployeeId])
-  ok(res, taskToApi(row, m))
+  // Recompute the gate for the response so the UI never renders a "passed"
+  // state that just failed to save. `all_other_tasks_complete` in
+  // particular flips as tasks around this one change.
+  const gate = row.periodId && row.stage?.gateRuleSlug
+    ? evaluateGate(await loadPeriodGateContext(prisma, row.periodId), {
+        gateRuleSlug: row.stage.gateRuleSlug, taskId: row.id,
+      })
+    : null
+  ok(res, taskToApi(row, m, gate))
 }))
 
 // ── Pending items ─────────────────────────────────────────────────────────
@@ -750,6 +1024,234 @@ bookkeepingRouter.patch('/document-requests/:id', handler(async (req, res) => {
     })
   }
   ok(res, documentRequestToApi(row, new Map()))
+}))
+
+// ── Imports (the financial data layer, spec §5 / §6.4) ────────────────────
+//
+// Every file the firm pulls into a period lands here. Two blocking
+// validations (period + company) run BEFORE the row lands as `imported`;
+// a mismatch produces a `rejected_*` row with the reason on it so the UI
+// can render "▍ Rejected: <why>" instead of pretending the file wasn't
+// uploaded. Files are always stored — a reviewer needs to see WHAT was
+// refused, not just the fact of a refusal.
+//
+// Row-level parsing (populating rowCount + BookkeepingLedgerBalance) is
+// added by later PRs per kind. This route stops at the metadata contract.
+
+const IMPORT_MAX_MB = 25
+const importUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: IMPORT_MAX_MB * 1024 * 1024, files: 1 },
+})
+
+// POST /api/bookkeeping/imports  (multipart/form-data)
+//   file                     the uploaded file
+//   period_id                target period
+//   kind                     trial_balance | day_book | outstandings | bank_statement
+//   source                   upload | email | agent   (default 'upload')
+//   company_name_in_file     what the file says the company is
+//   period_from_in_file      'YYYY-MM-DD' the file starts at
+//   period_to_in_file        'YYYY-MM-DD' the file ends at
+bookkeepingRouter.post('/imports',
+  (req, res, next) => {
+    importUpload.single('file')(req, res, (err: unknown) => {
+      if (!err) return next()
+      const code = (err as { code?: string }).code
+      if (code === 'LIMIT_FILE_SIZE') {
+        return next(ApiError.unprocessable('too_large', `File is larger than the ${IMPORT_MAX_MB} MB limit.`))
+      }
+      next(ApiError.badRequest('Upload could not be read.'))
+    })
+  },
+  handler(async (req, res) => {
+    const session = requireSession(req)
+    const scope = requireWorkstation(session, ...MANAGE)
+
+    const b = body(req)
+    const f = new FieldErrors()
+    const periodId = f.str('period_id', b.period_id)
+    const kind = f.oneOf('kind', b.kind, IMPORT_KINDS)
+    const source = f.oneOf('source', b.source ?? 'upload', IMPORT_SOURCES)
+    const companyNameInFile = f.str('company_name_in_file', b.company_name_in_file, { max: 300 })
+    const periodFromInFile = f.date('period_from_in_file', b.period_from_in_file, true)
+    const periodToInFile = f.date('period_to_in_file', b.period_to_in_file, true)
+    f.throwIfAny()
+
+    const file = req.file
+    if (!file) throw ApiError.unprocessable('empty', 'Choose a file to upload.')
+    if (file.size === 0) throw ApiError.unprocessable('empty', 'The uploaded file is empty.')
+
+    const period = await prisma.bookkeepingPeriod.findFirst({
+      where: { ...alive, id: periodId! },
+      include: { engagement: { include: { client: true } } },
+    })
+    if (!period) throw ApiError.notFound('Period not found.')
+    await assertCanSeeClient(session, scope, period.engagement.clientId)
+
+    // The period must have periodStart/periodEnd populated by PR-2's
+    // generator; without those we cannot run the period check. In practice
+    // the seed backfill has already filled them for every row.
+    if (!period.periodStart || !period.periodEnd) {
+      throw ApiError.unprocessable(
+        'period_window_missing',
+        'This period has no start/end date. Reopen it or update the engagement so a window is derived.',
+      )
+    }
+
+    const outcome = validateImport({
+      clientCompanyName: period.engagement.client?.companyName ?? '',
+      periodStart: period.periodStart,
+      periodEnd: period.periodEnd,
+      companyNameInFile: companyNameInFile!,
+      periodFromInFile: periodFromInFile!,
+      periodToInFile: periodToInFile!,
+      periodLabel: periodLabel(period.year, period.month),
+    })
+
+    // Create the row FIRST — its id is part of the storage key so a
+    // failed write leaves no orphan file — then store the file, then
+    // update the row with the storagePath. If storage fails, roll the
+    // row back to `parse_failed` with the reason.
+    const importRow = await prisma.bookkeepingImport.create({
+      data: {
+        periodId: period.id,
+        clientId: period.engagement.clientId,
+        kind: kind!,
+        source: source!,
+        originalFilename: file.originalname,
+        storagePath: '',            // filled below
+        fileSize: file.size,
+        mimeType: file.mimetype || 'application/octet-stream',
+        companyNameInFile: companyNameInFile!,
+        periodFromInFile: periodFromInFile!,
+        periodToInFile: periodToInFile!,
+        status: outcome.status,
+        errorDetail: outcome.reason,
+        importedByEmployeeId: session.employeeId ?? null,
+      },
+    })
+
+    const key = importStorageKey({
+      periodId: period.id,
+      importId: importRow.id,
+      originalFilename: file.originalname,
+    })
+    try {
+      await bookkeepingImportStorage.put(key, file.buffer)
+    } catch (err) {
+      await prisma.bookkeepingImport.update({
+        where: { id: importRow.id },
+        data: { status: 'parse_failed', errorDetail: `Could not store the uploaded file: ${err instanceof Error ? err.message : String(err)}` },
+      })
+      throw ApiError.unprocessable('storage_failed', 'The file could not be saved.')
+    }
+
+    let stored = await prisma.bookkeepingImport.update({
+      where: { id: importRow.id },
+      data: { storagePath: key },
+    })
+
+    // Trial balances parse INTO BookkeepingLedgerBalance so the Reports
+    // tab has numbers to render. Other kinds land their file today and
+    // wait for their per-kind parser in a follow-up PR. A parser failure
+    // never invalidates the file — the row moves to parse_failed with the
+    // reason, and the file is retained for a reviewer.
+    if (outcome.status === 'imported' && kind === 'trial_balance') {
+      try {
+        const text = file.buffer.toString('utf8')
+        const parsed = parseTrialBalanceCsv(text)
+        const groups = await loadLedgerGroups(prisma)
+        await prisma.$transaction([
+          prisma.bookkeepingLedgerBalance.deleteMany({ where: { importId: stored.id } }),
+          prisma.bookkeepingLedgerBalance.createMany({
+            data: parsed.rows.map((r) => {
+              const cls = classify(groups, r.parentGroup)
+              return {
+                importId: stored.id,
+                ledgerName: r.ledgerName,
+                parentGroup: r.parentGroup,
+                category: cls.category,
+                subtype: cls.subtype,
+                openingPaise: r.openingPaise,
+                debitPaise: r.debitPaise,
+                creditPaise: r.creditPaise,
+                closingPaise: r.closingPaise,
+                raw: r.raw,
+              }
+            }),
+          }),
+        ])
+        stored = await prisma.bookkeepingImport.update({
+          where: { id: stored.id },
+          data: { rowCount: parsed.rowCount },
+        })
+      } catch (err) {
+        stored = await prisma.bookkeepingImport.update({
+          where: { id: stored.id },
+          data: {
+            status: 'parse_failed',
+            errorDetail: err instanceof Error ? err.message : String(err),
+          },
+        })
+      }
+    }
+
+    await writeAudit({
+      actorUserId: session.userId, action: 'bookkeeping.import.create',
+      entityType: 'BookkeepingImport', entityId: stored.id, after: stored, req,
+    })
+    await writeBkActivity({
+      clientId: period.engagement.clientId, periodId: period.id, actorUserId: session.userId,
+      action: `Import ${stored.status}`,
+      detail: `${kind!.replace(/_/g, ' ')} · ${file.originalname}${stored.errorDetail ? ` — ${stored.errorDetail}` : ''}`,
+    })
+
+    const m = await employeeMap([stored.importedByEmployeeId])
+    ok(res, importToApi(stored, m), 201)
+  }),
+)
+
+// GET /api/bookkeeping/periods/:id/reports
+//
+// The Reports tab (spec §6.5). All five reports are derived from the
+// latest imported trial balance for the period; if none exists, every
+// report returns { available:false } with a verbatim empty-state message.
+//
+// Declared BEFORE the /imports list so `/periods/:id/reports` doesn't
+// need a separate router mount.
+bookkeepingRouter.get('/periods/:id/reports', handler(async (req, res) => {
+  const session = requireSession(req)
+  const scope = requireWorkstation(session, ...READ)
+  const period = await prisma.bookkeepingPeriod.findFirst({
+    where: { ...alive, id: req.params.id },
+    include: { engagement: true },
+  })
+  if (!period) throw ApiError.notFound('Period not found.')
+  await assertCanSeeClient(session, scope, period.engagement.clientId)
+  const reports = await reportsForPeriod(prisma, period.id)
+  ok(res, { reports })
+}))
+
+// GET /api/bookkeeping/imports?period_id=&kind=
+bookkeepingRouter.get('/imports', handler(async (req, res) => {
+  const session = requireSession(req)
+  const scope = requireWorkstation(session, ...READ)
+  const where = await clientScopeWhere(session, scope)
+
+  const periodId = q(req, 'period_id')
+  const kind = q(req, 'kind')
+
+  const rows = await prisma.bookkeepingImport.findMany({
+    where: {
+      ...where,
+      ...(periodId ? { periodId } : {}),
+      ...(kind ? { kind } : {}),
+    },
+    orderBy: { importedAt: 'desc' },
+    take: 200,
+  })
+  const m = await employeeMap(rows.map((r) => r.importedByEmployeeId))
+  ok(res, { items: rows.map((r) => importToApi(r, m)), count: rows.length, scope })
 }))
 
 // ── Deliverables ──────────────────────────────────────────────────────────

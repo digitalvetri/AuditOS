@@ -3,7 +3,8 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { bookkeepingApi } from '@/modules/bookkeeping/api';
 import { workstationApi } from '@/modules/workstation/api';
-import { human, opts } from '@/modules/bookkeeping/format';
+import { human } from '@/modules/bookkeeping/format';
+import type { GridCell, GridRow } from '@/modules/bookkeeping/types';
 import {
   Card, Cell, Detail, Field, FilterBar, PageHeader, QueryState, Row, SearchInput,
   Select, Status, Table, inputClass, textareaClass,
@@ -11,11 +12,30 @@ import {
 import { CreateModal } from './CreateModal';
 import { fmtDate } from '@/lib/format';
 
-/** The bookkeeping service client list (§8). */
+/**
+ * BOOKKEEPING CLIENTS — the period grid (spec §6.2).
+ *
+ * Clients down, twelve calendar months across, one cell per client-period.
+ * This is the screen that makes silent drift visible: a client three months
+ * behind that nobody noticed shows up as a row of unmarked cells.
+ *
+ * The old "one row per client with the current period label" list is gone
+ * because the grid answers the same question and four more (which months
+ * are open, which are overdue, which are closed, and — most importantly —
+ * which are missing entirely).
+ */
+
+// Current Indian FY (Apr → Mar). Today is 2026-09-20 → FY 2026 (2026-27).
+function currentFy(): number {
+  const now = new Date();
+  return now.getUTCMonth() >= 3 ? now.getUTCFullYear() : now.getUTCFullYear() - 1;
+}
+
 export function BookkeepingClientsPage() {
   const [params, setParams] = useSearchParams();
   const navigate = useNavigate();
-  const status = params.get('status') ?? '';
+  const fyStr = params.get('fy');
+  const fy = fyStr && /^\d{4}$/.test(fyStr) ? Number(fyStr) : currentFy();
   const employeeId = params.get('employee_id') ?? '';
   const q = params.get('q') ?? '';
 
@@ -29,15 +49,15 @@ export function BookkeepingClientsPage() {
   const [open, setOpen] = useState(false);
   const [form, setForm] = useState<Record<string, string>>({});
 
-  const clients = useQuery({
-    queryKey: ['bookkeeping', 'clients', { status, employeeId, q }],
-    queryFn: () => bookkeepingApi.listClients({ status, employee_id: employeeId, q }),
+  const grid = useQuery({
+    queryKey: ['bookkeeping', 'clients', 'grid', { fy, employeeId, q }],
+    queryFn: () => bookkeepingApi.clientsGrid({ fy, employee_id: employeeId, q }),
   });
   const settings = useQuery({ queryKey: ['bookkeeping', 'settings'], queryFn: bookkeepingApi.settings });
   const employees = useQuery({ queryKey: ['workstation', 'employees'], queryFn: workstationApi.assignableEmployees });
 
   // The full client book — a client only becomes a *bookkeeping* client once
-  // an engagement opens, so the picker cannot be fed from the list above.
+  // an engagement opens, so the picker cannot be fed from the grid above.
   const allClients = useQuery({
     queryKey: ['workstation', 'clients', 'for-bookkeeping'],
     queryFn: () => workstationApi.listClients(),
@@ -46,9 +66,7 @@ export function BookkeepingClientsPage() {
   // Two exclusions, for different reasons: a client that already has an
   // engagement would be rejected by the server with 409 (one per client), and
   // an inactive client is not someone whose books we would start keeping.
-  // Every other status stays — the seed's own `pending_documents` client has
-  // an engagement, so filtering to `active` would hide legitimate choices.
-  const engaged = new Set((clients.data?.items ?? []).map((c) => c.client_id));
+  const engaged = new Set((grid.data?.rows ?? []).map((r) => r.client_id));
   const selectable = (allClients.data?.items ?? [])
     .filter((c) => !engaged.has(c.id) && c.status !== 'inactive');
 
@@ -62,10 +80,19 @@ export function BookkeepingClientsPage() {
     },
   });
 
+  // Three FYs are enough for the selector — last FY (compliance queries),
+  // this FY (default), next FY (planning ahead). Anything further and the
+  // firm should filter another way.
+  const fyOptions = [currentFy() - 1, currentFy(), currentFy() + 1].map((y) => ({
+    value: String(y),
+    label: `${y}-${String((y + 1) % 100).padStart(2, '0')}`,
+  }));
+
   return (
     <div>
       <PageHeader
-        title="Clients" subtitle="Clients whose books this firm keeps."
+        title="Clients"
+        subtitle="Every open client, every month of the year. A row of blanks is a client the firm has stopped keeping books for without noticing."
         action={
           <button
             onClick={() => setOpen(true)}
@@ -78,45 +105,37 @@ export function BookkeepingClientsPage() {
       <FilterBar>
         <SearchInput value={q} onChange={(v) => setParam('q', v)} placeholder="Client name" />
         <Select
-          label="Status" value={status} onChange={(v) => setParam('status', v)}
-          options={opts(settings.data?.engagement_statuses)}
-        />
-        <Select
           label="Assigned to" value={employeeId} onChange={(v) => setParam('employee_id', v)}
           options={(employees.data?.items ?? []).map((e) => ({ value: e.id, label: e.full_name }))}
         />
+        <label className="block">
+          <span className="block text-11 uppercase tracking-[0.06em] text-neutral-500 mb-1">
+            Financial year
+          </span>
+          <select
+            value={String(fy)}
+            onChange={(e) => setParam('fy', e.target.value === String(currentFy()) ? '' : e.target.value)}
+            className="h-8 px-2 text-13 bg-white text-neutral-900 border border-neutral-300 rounded focus:outline-none focus:border-gold"
+          >
+            {fyOptions.map((o) => (
+              <option key={o.value} value={o.value}>{o.label}</option>
+            ))}
+          </select>
+        </label>
       </FilterBar>
 
       <Card>
-        <QueryState query={clients}>
-          {(data) => data.items.length === 0 ? (
+        <QueryState query={grid}>
+          {(data) => data.rows.length === 0 ? (
             <div className="px-4 py-6 text-13 text-neutral-500">
               No bookkeeping clients match these filters.
             </div>
           ) : (
-            <Table head={['Client', 'Service Status', 'Current Period', 'Pending Items', 'Next Due', 'Assigned To', 'Books', '']}>
-              {data.items.map((c) => (
-                <Row key={c.id} status={c.status} onClick={() => navigate(c.client_id)}>
-                  <Cell>{c.client_name ?? '—'}</Cell>
-                  <Cell><Status value={c.status} /></Cell>
-                  <Cell muted>{c.current_period ?? '—'}</Cell>
-                  <Cell muted>{c.pending_items === 0 ? '—' : `${c.pending_items} pending`}</Cell>
-                  <Cell muted>{c.next_due_date ? fmtDate(c.next_due_date) : '—'}</Cell>
-                  <Cell muted>{c.assigned_employee?.full_name ?? '—'}</Cell>
-                  <Cell>
-                    {c.books_org_id ? (
-                      <button
-                        onClick={(e) => { e.stopPropagation(); navigate(`/books/${c.books_org_id}`); }}
-                        className="text-12 text-gold hover:underline"
-                      >
-                        Open Books
-                      </button>
-                    ) : <span className="text-12 text-neutral-400">No books</span>}
-                  </Cell>
-                  <Cell muted className="text-12">Open →</Cell>
-                </Row>
-              ))}
-            </Table>
+            <ClientsPeriodGrid
+              data={data}
+              onOpenPeriod={(periodId) => navigate(`../monthly-work/${periodId}`)}
+              onOpenClient={(clientId) => navigate(clientId)}
+            />
           )}
         </QueryState>
       </Card>
@@ -173,6 +192,13 @@ export function BookkeepingClientsPage() {
             ))}
           </select>
         </Field>
+        <Field label="Due offset (days after period end)" hint="Default 5. Weekend rolls to Monday.">
+          <input
+            type="number" min={0} max={60}
+            className={inputClass} value={form.due_offset_days ?? '5'}
+            onChange={(e) => setForm({ ...form, due_offset_days: e.target.value })}
+          />
+        </Field>
         <Field label="Next due date" hint="Optional — leave empty to set it when the first period opens.">
           <input
             type="date" className={inputClass} value={form.next_due_date ?? ''}
@@ -186,6 +212,155 @@ export function BookkeepingClientsPage() {
           />
         </Field>
       </CreateModal>
+    </div>
+  );
+}
+
+/**
+ * The grid itself. Rendered as a plain HTML table so column widths line up
+ * — the shared Table component is grid-based and cannot enforce a fixed
+ * 12-column month strip. No new design tokens: only Cell shading and the
+ * existing status vocabulary.
+ */
+function ClientsPeriodGrid({
+  data,
+  onOpenPeriod,
+  onOpenClient,
+}: {
+  data: import('@/modules/bookkeeping/types').GridResponse;
+  onOpenPeriod: (periodId: string) => void;
+  onOpenClient: (clientId: string) => void;
+}) {
+  return (
+    <div>
+      <div className="overflow-x-auto">
+        <table className="w-full text-13 border-collapse">
+          <thead>
+            <tr className="text-left border-b border-neutral-200">
+              <th className="px-3 py-2 font-medium text-11 uppercase tracking-[0.06em] text-neutral-500 sticky left-0 bg-white">
+                Client
+              </th>
+              {data.months.map((m) => (
+                <th
+                  key={`${m.year}-${m.month}`}
+                  className="px-2 py-2 font-medium text-11 uppercase tracking-[0.06em] text-neutral-500 text-center tabular-nums"
+                  title={`${m.label} ${m.year}`}
+                >
+                  {m.label}
+                </th>
+              ))}
+              <th className="px-3 py-2 font-medium text-11 uppercase tracking-[0.06em] text-neutral-500 text-right">
+                Owner
+              </th>
+            </tr>
+          </thead>
+          <tbody>
+            {data.rows.map((row) => (
+              <ClientGridRow
+                key={row.engagement_id}
+                row={row}
+                onOpenPeriod={onOpenPeriod}
+                onOpenClient={onOpenClient}
+              />
+            ))}
+          </tbody>
+        </table>
+      </div>
+      <GridLegend />
+    </div>
+  );
+}
+
+function ClientGridRow({
+  row, onOpenPeriod, onOpenClient,
+}: {
+  row: GridRow;
+  onOpenPeriod: (periodId: string) => void;
+  onOpenClient: (clientId: string) => void;
+}) {
+  return (
+    <tr className="border-b border-neutral-100 hover:bg-neutral-50">
+      <td className="px-3 py-2 sticky left-0 bg-inherit">
+        <button
+          onClick={() => onOpenClient(row.client_id)}
+          className="text-left text-13 text-neutral-900 hover:underline"
+        >
+          {row.client_name ?? '—'}
+        </button>
+      </td>
+      {row.cells.map((cell) => (
+        <GridCellView
+          key={`${cell.year}-${cell.month}`}
+          cell={cell}
+          onOpenPeriod={onOpenPeriod}
+        />
+      ))}
+      <td className="px-3 py-2 text-right text-12 text-neutral-500">
+        {row.owner?.full_name ?? '—'}
+      </td>
+    </tr>
+  );
+}
+
+function GridCellView({
+  cell, onOpenPeriod,
+}: { cell: GridCell; onOpenPeriod: (periodId: string) => void }) {
+  const { glyph, tone, label } = cellPresentation(cell);
+  const clickable = Boolean(cell.period_id);
+  return (
+    <td className="p-0 text-center align-middle">
+      <button
+        onClick={() => cell.period_id && onOpenPeriod(cell.period_id)}
+        disabled={!clickable}
+        title={label}
+        className={
+          'w-full h-8 text-13 tabular-nums flex items-center justify-center ' +
+          (clickable ? 'cursor-pointer ' : 'cursor-default ') + tone
+        }
+      >
+        {glyph}
+      </button>
+    </td>
+  );
+}
+
+interface CellPresentation { glyph: string; tone: string; label: string }
+function cellPresentation(cell: GridCell): CellPresentation {
+  if (!cell.period_id) {
+    return {
+      glyph: '',
+      tone: 'text-neutral-300',
+      label: 'Not opened yet',
+    };
+  }
+  if (cell.status === 'completed') {
+    return {
+      glyph: '✓',
+      tone: 'text-neutral-500 hover:bg-neutral-100',
+      label: 'Closed',
+    };
+  }
+  if (cell.is_overdue) {
+    return {
+      glyph: '▍',
+      tone: 'text-red-600 hover:bg-red-50',
+      label: 'Overdue',
+    };
+  }
+  return {
+    glyph: '·',
+    tone: 'text-neutral-700 hover:bg-neutral-100',
+    label: `In progress · ${cell.status ?? ''}`,
+  };
+}
+
+function GridLegend() {
+  return (
+    <div className="px-4 py-2 flex gap-4 text-11 text-neutral-500 border-t border-neutral-100">
+      <span><span className="text-neutral-500">✓</span> closed</span>
+      <span><span className="text-red-600">▍</span> overdue</span>
+      <span><span className="text-neutral-700">·</span> in progress</span>
+      <span className="text-neutral-400">blank not opened yet</span>
     </div>
   );
 }
@@ -231,7 +406,7 @@ export function BookkeepingClientDetailPage() {
             <Detail label="Status" value={<Status value={data.engagement.status} />} />
             <Detail label="Assigned to" value={data.engagement.assigned_employee?.full_name ?? '—'} />
             <Detail label="Service start" value={fmtDate(data.engagement.service_start_date)} />
-            <Detail label="Billing" value={human(data.engagement.billing_frequency)} />
+            <Detail label="Billing" value={`${human(data.engagement.billing_frequency)} · +${data.engagement.due_offset_days}d`} />
             <Detail label="Current period" value={data.periods[0]?.label ?? '—'} />
             <Detail label="Next due" value={data.engagement.next_due_date ? fmtDate(data.engagement.next_due_date) : '—'} />
           </div>

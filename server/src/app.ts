@@ -46,6 +46,7 @@ import { tallyRouter } from './modules/tally/routes.js'
 import { tasksRouter } from './modules/task/routes.js'
 import { quotationsRouter } from './modules/quotation/routes.js'
 import { engagementRouter } from './modules/engagement/routes.js'
+import { docsRouter } from './modules/docs/routes.js'
 import { checklistRouter } from './modules/checklist/routes.js'
 // GST compliance — Workstation → Services → Registration → GST Registration.
 import { gstRouter as gstComplianceRouter } from './modules/gst/routes.js'
@@ -197,6 +198,7 @@ export function createApp() {
   app.use('/api/tasks', tasksRouter)
   app.use('/api/quotations', quotationsRouter)
   app.use('/api/engagement-letters', engagementRouter)
+  app.use('/api/workstation-docs', docsRouter)
   // Client compliance checklists (GST today). Master catalogue + client work.
   app.use('/api/checklists', checklistRouter)
   // GST compliance service (NOT the Tools reconciliation router above).

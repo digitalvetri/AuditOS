@@ -51,6 +51,24 @@ export const DELIVERABLE_TYPES = [
 ] as const
 
 /**
+ * BOOKKEEPING IMPORTS (spec §4.2 / §6.4). The four kinds cover the whole
+ * financial-data layer that Bookkeeping needs — anything else fits under
+ * `other` and can graduate to its own kind once a parser exists for it.
+ */
+export const IMPORT_KINDS = [
+  'trial_balance', 'day_book', 'outstandings', 'bank_statement',
+] as const
+export type ImportKind = typeof IMPORT_KINDS[number]
+
+export const IMPORT_SOURCES = ['upload', 'email', 'agent'] as const
+export const IMPORT_STATUSES = [
+  'imported',
+  'rejected_period_mismatch',
+  'rejected_company_mismatch',
+  'parse_failed',
+] as const
+
+/**
  * The canonical monthly workflow. Each entry becomes one BookkeepingTask on
  * every period; the "checklist" and "workflow panel" in the UI are just two
  * renderings of these rows grouped by stage. Ordering is the sequence a firm
@@ -135,6 +153,12 @@ export const WORKFLOW_STEPS: readonly string[] = WORKFLOW_STAGES.map((s) => s.na
 export const MONTH_NAMES = [
   'January', 'February', 'March', 'April', 'May', 'June',
   'July', 'August', 'September', 'October', 'November', 'December',
+]
+
+/** Three-letter abbreviations, used for the compact period-grid header. */
+export const MONTH_ABBREVS = [
+  'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+  'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
 ]
 
 export const periodLabel = (year: number, month: number) => `${MONTH_NAMES[month - 1]} ${year}`

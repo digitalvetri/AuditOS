@@ -5,15 +5,21 @@ export interface Progress {
   total: number; completed: number; pending: number; overdue: number; percent: number;
 }
 
-export interface Kpis {
-  total_clients: number; in_progress: number; pending_items: number; due_this_month: number;
-  completed_this_month: number; overdue_tasks: number; awaiting_documents: number;
-  awaiting_bank_statements: number; pending_review: number;
+/**
+ * OVERVIEW tile counts (spec §6.1). Each is a database aggregate over the
+ * caller's visible clients and is also the filter shortcut that produces
+ * the table below.
+ */
+export interface OverviewTiles {
+  overdue: number; blocked: number; due_soon: number; review: number; closed: number;
 }
 
 export interface Period {
   id: string; engagement_id: string; client_id: string | null; client_name: string | null;
-  year: number; month: number; label: string; status: string; due_date: string | null;
+  year: number; month: number; label: string;
+  /** Calendar window of the period; derived from year+month+engagement frequency. */
+  period_start: string | null; period_end: string | null;
+  status: string; due_date: string | null;
   completed_date: string | null; assigned_employee: EmployeeRef | null; notes: string | null;
   progress: Progress | null; created_at: string | null;
 }
@@ -21,7 +27,10 @@ export interface Period {
 export interface Engagement {
   id: string; client_id: string; client_name: string | null; client_code: string | null;
   status: string; service_start_date: string; assigned_employee: EmployeeRef | null;
-  billing_frequency: string; next_due_date: string | null; notes: string | null;
+  billing_frequency: string;
+  /** Days after period_end at which the period defaults to due. Per-client. */
+  due_offset_days: number;
+  next_due_date: string | null; notes: string | null;
 }
 
 export interface BookkeepingClient extends Engagement {
@@ -33,6 +42,22 @@ export interface WorkflowStage {
   id: string; sequence: number; name: string; slug: string;
   default_category: string; default_offset_days: number;
   gate_rule_slug: string | null; is_active: boolean;
+}
+
+/**
+ * The result of a gate rule evaluation for one task on one period.
+ * `passed=false && is_enforced=true` means the API will reject a
+ * completion PATCH (422) and the UI mirrors that as a disabled control.
+ * `passed=false && is_enforced=false` — the firm has disabled this rule;
+ * the reason still surfaces so the reviewer can see WHY the check would
+ * otherwise fail, but the API allows completion.
+ */
+export interface TaskGate {
+  slug: string;
+  is_enforced: boolean;
+  passed: boolean;
+  reason: string | null;
+  action: { section: string; label: string } | null;
 }
 
 export interface Task {
@@ -47,6 +72,8 @@ export interface Task {
    */
   stage_id: string | null;
   stage: { id: string; slug: string; name: string; sequence: number } | null;
+  /** Gate evaluation for this task's stage rule. `null` if the stage carries no gate. */
+  gate: TaskGate | null;
 }
 
 export interface PendingItem {
@@ -82,9 +109,86 @@ export interface Activity {
   action: string; detail: string | null; created_at: string | null;
 }
 
+/**
+ * A file the firm pulled into a period (spec §4.2 / §6.4). Append-only:
+ * a re-import creates a new record, never overwriting. `status` records
+ * the outcome of the two blocking validations (period + company).
+ */
+export type ImportKind = 'trial_balance' | 'day_book' | 'outstandings' | 'bank_statement';
+export type ImportStatus =
+  | 'imported'
+  | 'rejected_period_mismatch'
+  | 'rejected_company_mismatch'
+  | 'parse_failed';
+
+export interface Import {
+  id: string;
+  period_id: string;
+  client_id: string;
+  kind: ImportKind;
+  source: 'upload' | 'email' | 'agent';
+  original_filename: string;
+  file_size: number;
+  mime_type: string;
+  company_name_in_file: string;
+  period_from_in_file: string;
+  period_to_in_file: string;
+  row_count: number | null;
+  status: ImportStatus;
+  error_detail: string | null;
+  imported_at: string | null;
+  imported_by: EmployeeRef | null;
+}
+
 export interface ListResponse<T> { items: T[]; count: number; scope?: string }
 
-export interface OverviewResponse { kpis: Kpis; upcoming: Period[]; scope: string }
+/**
+ * Clients period grid (spec §6.2) — clients down, months across. Each cell
+ * carries the period_id if that month is open (so it can navigate straight
+ * to Monthly Work) plus enough state to render one of four glyphs:
+ *   ✓ closed · ▍ open/overdue · · in progress · blank not started
+ */
+export interface GridMonth { year: number; month: number; label: string }
+export interface GridCell {
+  year: number; month: number;
+  period_id: string | null;
+  status: string | null;    // period status; null when the period has not been opened yet
+  is_overdue: boolean;
+}
+export interface GridRow {
+  client_id: string;
+  client_name: string | null;
+  client_code: string | null;
+  engagement_id: string;
+  owner: EmployeeRef | null;
+  cells: GridCell[];
+}
+export interface GridResponse {
+  fy: number;              // starting calendar year — 2026 = FY 2026-27
+  fy_label: string;        // "2026-27"
+  months: GridMonth[];     // 12 entries, Apr → Mar
+  rows: GridRow[];
+  scope?: string;
+}
+
+/**
+ * A period on the Overview table, shown as one row with the current
+ * (earliest incomplete) stage and a blocked-task tally.
+ */
+export interface OverviewPeriodRow extends Period {
+  current_stage: { id: string; slug: string; name: string; sequence: number } | null;
+  blocked_count: number;
+}
+
+export type OverviewGroup = 'period' | 'task';
+
+export interface OverviewResponse {
+  tiles: OverviewTiles;
+  group: OverviewGroup;
+  rows: OverviewPeriodRow[] | Task[];
+  count: number;
+  scope: string;
+}
 
 export interface ClientDetailResponse {
   engagement: Engagement; periods: Period[]; books_org_id: string | null;
@@ -95,8 +199,51 @@ export interface ClientDetailResponse {
 export interface PeriodDetailResponse {
   period: Period; tasks: Task[];
   pending_items: PendingItem[]; document_requests: DocumentRequest[];
-  deliverables: Deliverable[]; workflow_stages: WorkflowStage[];
+  deliverables: Deliverable[];
+  imports: Import[];
+  workflow_stages: WorkflowStage[];
   /** @deprecated use workflow_stages */ workflow_steps: string[];
+}
+
+// ── Reports (spec §6.5) ─────────────────────────────────────────────────
+export type ReportKind = 'trial_balance' | 'profit_and_loss' | 'balance_sheet' | 'debtors' | 'creditors';
+
+export interface ReportLine {
+  ledger_name: string;
+  parent_group: string;
+  category: string;
+  subtype: string;
+  opening: string;   // rupees.paise as string, e.g. "1500.00"
+  debit: string;
+  credit: string;
+  closing: string;
+}
+
+export interface ReportSection {
+  label: string;
+  lines: ReportLine[];
+  total_paise: string;
+}
+
+export interface ReportView {
+  available: true;
+  as_of_period_end: string | null;
+  imported_at: string | null;
+  imported_by: string | null;
+  sections: ReportSection[];
+  totals: Record<string, string>;
+}
+
+export interface UnavailableReport {
+  available: false;
+  missing_import: 'trial_balance';
+  message: string;   // verbatim spec §6.5 empty-state text
+}
+
+export type ReportEntry = ReportView | UnavailableReport;
+
+export interface ReportsResponse {
+  reports: Record<ReportKind, ReportEntry>;
 }
 
 export interface SettingsResponse {

@@ -1,6 +1,9 @@
 import type { Prisma, PrismaClient } from '@prisma/client'
 import { prisma, alive } from '../../lib/prisma.js'
 import { ApiError } from '../../lib/http.js'
+import {
+  type BookkeepingFrequency, computeDueDate, periodEndOf, periodStartOf,
+} from './dates.js'
 
 export const today = () => new Date().toISOString().slice(0, 10)
 
@@ -64,6 +67,11 @@ export async function createPeriodWithTasks(
     clientId: string
     year: number
     month: number
+    /**
+     * Optional caller-supplied due date. When omitted (the normal case), the
+     * period's due date is derived from `periodEnd + engagement.dueOffsetDays`
+     * per Bookkeeping module spec §5.
+     */
     dueDate?: string | null
     assignedEmployeeId?: string | null
     notes?: string | null
@@ -86,6 +94,18 @@ export async function createPeriodWithTasks(
       'assigned_employee_id is required to open a period — set one on the engagement or pass it explicitly.',
     )
   }
+  // Engagement holds the frequency and the per-client due offset — every
+  // date this function writes flows from those two knobs.
+  const engagement = await db.bookkeepingEngagement.findFirst({
+    where: { id: input.engagementId },
+    select: { billingFrequency: true, dueOffsetDays: true },
+  })
+  if (!engagement) throw ApiError.notFound('Engagement not found.')
+  const frequency = engagement.billingFrequency as BookkeepingFrequency
+  const periodStart = periodStartOf(input.year, input.month, frequency)
+  const periodEnd = periodEndOf(input.year, input.month, frequency)
+  const dueDate = input.dueDate ?? computeDueDate(periodEnd, engagement.dueOffsetDays)
+
   const stages = await db.bookkeepingWorkflowStage.findMany({
     where: { isActive: true }, orderBy: { sequence: 'asc' },
   })
@@ -94,7 +114,9 @@ export async function createPeriodWithTasks(
       engagementId: input.engagementId,
       year: input.year,
       month: input.month,
-      dueDate: input.dueDate ?? null,
+      periodStart,
+      periodEnd,
+      dueDate,
       assignedEmployeeId: owner,
       notes: input.notes ?? null,
       createdBy: input.createdBy ?? null,
@@ -107,6 +129,9 @@ export async function createPeriodWithTasks(
           priority: 'medium',
           status: 'pending',
           assignedEmployeeId: owner,
+          // Per-stage offset staggers tasks across the window — collection
+          // early (offset 0), review late (offset 5). Same weekend rule.
+          dueDate: computeDueDate(periodEnd, s.defaultOffsetDays),
         })),
       },
     },
@@ -114,6 +139,76 @@ export async function createPeriodWithTasks(
       tasks: { include: { stage: true }, orderBy: { stage: { sequence: 'asc' } } },
     },
   })
+}
+
+/**
+ * Recompute a single period's dueDate and every stage task's dueDate from
+ * the current engagement config. Ad-hoc tasks (stageId=null) keep whatever
+ * date the user picked. Idempotent; returns how many rows moved.
+ */
+export async function recomputePeriodDates(
+  db: PrismaClient | Prisma.TransactionClient,
+  periodId: string,
+): Promise<{ periodMoved: boolean; taskMoved: number }> {
+  const period = await db.bookkeepingPeriod.findFirst({
+    where: { id: periodId },
+    include: {
+      engagement: { select: { billingFrequency: true, dueOffsetDays: true } },
+      tasks: {
+        where: { deletedAt: null, stageId: { not: null } },
+        include: { stage: true },
+      },
+    },
+  })
+  if (!period) return { periodMoved: false, taskMoved: 0 }
+  const frequency = period.engagement.billingFrequency as BookkeepingFrequency
+  const periodStart = period.periodStart ?? periodStartOf(period.year, period.month, frequency)
+  const periodEnd = period.periodEnd ?? periodEndOf(period.year, period.month, frequency)
+  const nextDue = computeDueDate(periodEnd, period.engagement.dueOffsetDays)
+
+  const periodMoved =
+    period.periodStart !== periodStart ||
+    period.periodEnd !== periodEnd ||
+    period.dueDate !== nextDue
+  if (periodMoved) {
+    await db.bookkeepingPeriod.update({
+      where: { id: period.id },
+      data: { periodStart, periodEnd, dueDate: nextDue },
+    })
+  }
+
+  let taskMoved = 0
+  for (const t of period.tasks) {
+    if (!t.stage) continue
+    const desired = computeDueDate(periodEnd, t.stage.defaultOffsetDays)
+    if (t.dueDate !== desired) {
+      await db.bookkeepingTask.update({ where: { id: t.id }, data: { dueDate: desired } })
+      taskMoved++
+    }
+  }
+  return { periodMoved, taskMoved }
+}
+
+/**
+ * Recompute all open (non-completed) periods for one engagement. Called when
+ * the engagement's frequency or dueOffsetDays changes.
+ */
+export async function recomputeOpenPeriodsForEngagement(
+  db: PrismaClient | Prisma.TransactionClient,
+  engagementId: string,
+): Promise<{ periods: number; periodsMoved: number; tasksMoved: number }> {
+  const periods = await db.bookkeepingPeriod.findMany({
+    where: { engagementId, deletedAt: null, status: { not: 'completed' } },
+    select: { id: true },
+  })
+  let periodsMoved = 0
+  let tasksMoved = 0
+  for (const p of periods) {
+    const r = await recomputePeriodDates(db, p.id)
+    if (r.periodMoved) periodsMoved++
+    tasksMoved += r.taskMoved
+  }
+  return { periods: periods.length, periodsMoved, tasksMoved }
 }
 
 /** Append-only per-period trail (§32 keeps AuditLog as the compliance record). */
@@ -141,42 +236,119 @@ export async function writeBkActivity(input: {
 }
 
 /**
- * OVERVIEW KPIs (§7/§36). Every number is a database aggregate over the
- * caller's visible clients — there is no hard-coded figure anywhere here.
+ * OVERVIEW TILE COUNTS (spec §6.1). Each of the five tiles on Overview is a
+ * filter shortcut; the count MUST come from the same source-of-truth as the
+ * filtered table below or the two answers will disagree. Every count is a DB
+ * aggregate over the caller's visible clients — nothing is hard-coded.
+ *
+ * The old wall of nine KPIs was replaced with these five (`overdue` /
+ * `blocked` / `due_soon` / `review` / `closed`) because the spec's premise
+ * is that a tile is a filter and a filter with no matching rows is dead ink.
  */
-export async function overviewKpis(clientWhere: { clientId?: { in: string[] } }) {
-  const now = new Date()
+export interface OverviewTiles {
+  overdue: number
+  blocked: number
+  due_soon: number
+  review: number
+  closed: number
+}
+
+export async function overviewTiles(
+  clientWhere: { clientId?: { in: string[] } },
+): Promise<OverviewTiles> {
   const t = today()
+  const dueSoonEnd = addISODays(t, 7)
+  const now = new Date()
   const monthStart = `${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2, '0')}-01`
-  const monthEnd = `${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2, '0')}-31`
 
-  const engWhere = clientWhere.clientId ? { clientId: clientWhere.clientId } : {}
   const perWhere = clientWhere.clientId ? { engagement: { clientId: clientWhere.clientId } } : {}
-
-  const [
-    totalClients, inProgress, pendingItems, dueThisMonth, completedThisMonth,
-    overdueTasks, awaitingDocuments, awaitingBankStatements, pendingReview,
-  ] = await Promise.all([
-    prisma.bookkeepingEngagement.count({ where: { ...alive, ...engWhere } }),
-    prisma.bookkeepingPeriod.count({ where: { ...alive, ...perWhere, status: { in: ['in_progress', 'awaiting_documents'] } } }),
-    prisma.bookkeepingPendingItem.count({ where: { ...alive, ...clientWhere, status: { notIn: ['resolved', 'received'] } } }),
-    prisma.bookkeepingPeriod.count({ where: { ...alive, ...perWhere, dueDate: { gte: monthStart, lte: monthEnd }, status: { not: 'completed' } } }),
-    prisma.bookkeepingPeriod.count({ where: { ...alive, ...perWhere, status: 'completed', completedDate: { gte: new Date(monthStart) } } }),
-    prisma.bookkeepingTask.count({ where: { ...alive, ...clientWhere, dueDate: { lt: t }, status: { notIn: ['completed', 'cancelled'] } } }),
-    prisma.bookkeepingDocumentRequest.count({ where: { ...alive, ...clientWhere, status: 'requested' } }),
-    prisma.bookkeepingPendingItem.count({ where: { ...alive, ...clientWhere, category: 'bank_statement', status: { notIn: ['resolved', 'received'] } } }),
-    prisma.bookkeepingDeliverable.count({ where: { ...alive, ...clientWhere, status: 'in_review' } }),
-  ])
-
-  return {
-    total_clients: totalClients,
-    in_progress: inProgress,
-    pending_items: pendingItems,
-    due_this_month: dueThisMonth,
-    completed_this_month: completedThisMonth,
-    overdue_tasks: overdueTasks,
-    awaiting_documents: awaitingDocuments,
-    awaiting_bank_statements: awaitingBankStatements,
-    pending_review: pendingReview,
+  const openTaskWhere = {
+    ...alive, ...clientWhere,
+    status: { notIn: ['completed', 'cancelled'] },
   }
+
+  const [overdue, blocked, dueSoon, review, closed] = await Promise.all([
+    prisma.bookkeepingTask.count({ where: { ...openTaskWhere, dueDate: { lt: t } } }),
+    prisma.bookkeepingTask.count({ where: { ...alive, ...clientWhere, status: 'blocked' } }),
+    prisma.bookkeepingPeriod.count({
+      where: {
+        ...alive, ...perWhere,
+        status: { not: 'completed' },
+        dueDate: { gte: t, lte: dueSoonEnd },
+      },
+    }),
+    prisma.bookkeepingPeriod.count({
+      where: { ...alive, ...perWhere, status: 'under_review' },
+    }),
+    prisma.bookkeepingPeriod.count({
+      where: {
+        ...alive, ...perWhere,
+        status: 'completed',
+        completedDate: { gte: new Date(monthStart) },
+      },
+    }),
+  ])
+  return { overdue, blocked, due_soon: dueSoon, review, closed }
+}
+
+function addISODays(iso: string, days: number): string {
+  const [y, m, d] = iso.split('-').map(Number)
+  const dt = new Date(Date.UTC(y, m - 1, d + days))
+  return `${dt.getUTCFullYear()}-${String(dt.getUTCMonth() + 1).padStart(2, '0')}-${String(dt.getUTCDate()).padStart(2, '0')}`
+}
+
+/**
+ * For each open period, the "current stage" is the earliest active-stage
+ * task that is not yet completed. Rendered as a single row on Overview.
+ *
+ * One query, deduped in JS — no N+1. Blocked-task counts come from the same
+ * result set so tile counts and row values cannot disagree.
+ */
+export async function currentStageByPeriod(
+  clientWhere: { clientId?: { in: string[] } },
+): Promise<Map<string, {
+  stageId: string; stageSlug: string; stageName: string; stageSequence: number
+  blockedCount: number
+}>> {
+  // All open (non-completed) stage tasks on open periods, sorted so the
+  // FIRST task per period is the earliest incomplete stage.
+  const tasks = await prisma.bookkeepingTask.findMany({
+    where: {
+      ...alive, ...clientWhere,
+      stageId: { not: null },
+      status: { notIn: ['completed', 'cancelled'] },
+      period: { deletedAt: null, status: { not: 'completed' } },
+    },
+    select: {
+      periodId: true, status: true,
+      stage: { select: { id: true, slug: true, name: true, sequence: true } },
+    },
+    orderBy: [{ periodId: 'asc' }, { stage: { sequence: 'asc' } }],
+  })
+
+  const seenPeriod = new Set<string>()
+  const blockedByPeriod = new Map<string, number>()
+  const out = new Map<string, {
+    stageId: string; stageSlug: string; stageName: string; stageSequence: number
+    blockedCount: number
+  }>()
+
+  for (const t of tasks) {
+    if (!t.periodId || !t.stage) continue
+    if (t.status === 'blocked') {
+      blockedByPeriod.set(t.periodId, (blockedByPeriod.get(t.periodId) ?? 0) + 1)
+    }
+    if (seenPeriod.has(t.periodId)) continue
+    seenPeriod.add(t.periodId)
+    out.set(t.periodId, {
+      stageId: t.stage.id, stageSlug: t.stage.slug,
+      stageName: t.stage.name, stageSequence: t.stage.sequence,
+      blockedCount: 0, // filled in below
+    })
+  }
+  for (const [periodId, count] of blockedByPeriod) {
+    const row = out.get(periodId)
+    if (row) row.blockedCount = count
+  }
+  return out
 }
