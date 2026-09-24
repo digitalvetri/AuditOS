@@ -23,6 +23,15 @@ import {
   gstApi, rupees, periodLabel, recentPeriods, errorMessage, STAGE_STATUSES,
   type StageKey, type PeriodFilters, type StageRow,
 } from '@/modules/workstation/gst/api';
+import { SERVICES } from '../partnership/shared';
+import type { RegistrationKind } from '@/modules/partnership/api';
+
+/** Which shared-case service each return-tab stage maps to (§9-2). */
+const STAGE_TO_KIND: Record<StageKey, RegistrationKind> = {
+  gstr1: 'GSTR1',
+  gstr2b: 'GSTR2B',
+  gstr3b: 'GSTR3B',
+};
 
 interface Tile { key: string; label: string; tone?: 'warn' | 'bad' | 'good'; due?: string }
 
@@ -125,6 +134,27 @@ export function GstStagePage({ stage }: { stage: StageKey }) {
     onSuccess: () => { closeAdd(); void qc.invalidateQueries({ queryKey: ['gst'] }); },
     onError: (e) => setErrMsg(errorMessage(e)),
   });
+  /**
+   * Row click on a return tab (§9-2): open-or-return the case for that
+   * (client, period, return kind) and navigate to the shared case screen.
+   * The list still comes from GstCompliancePeriod today; §9-3 replaces it
+   * with a case list that pre-owns these IDs.
+   */
+  const openCase = useMutation({
+    mutationFn: async (r: StageRow) => {
+      if (!r.client_id) throw new Error('This period has no linked client — add a client to the GST profile first.');
+      const kind = STAGE_TO_KIND[stage];
+      return SERVICES[kind].api.openForPeriod({
+        client_id: r.client_id,
+        period: r.period,
+        period_type: r.period_type === 'quarterly' ? 'quarterly' : 'monthly',
+        assigned_employee_id: r.assigned_employee_id ?? undefined,
+        reviewer_employee_id: r.reviewer_employee_id ?? undefined,
+      });
+    },
+    onSuccess: (res) => navigate(`../${stage}/cases/${res.id}`),
+    onError: (e) => window.alert(errorMessage(e)),
+  });
   const setF = (k: string, v: string) => setForm((f) => ({ ...f, [k]: v }));
   const numF = (v: string | undefined) => (v === undefined || v === '' ? undefined : Number(v));
 
@@ -191,7 +221,7 @@ export function GstStagePage({ stage }: { stage: StageKey }) {
                 // §14 columns — availability and ITC, no due date, no ARN.
                 <Table head={['Client', 'GSTIN', 'Period', 'Available', 'Status', 'ITC', 'Reconciliation', 'Assigned']}>
                   {d.items.map((r) => (
-                    <Row key={r.id} status={r.stage_status_value} onClick={() => navigate(`../periods/${r.id}`)}>
+                    <Row key={r.id} status={r.stage_status_value} onClick={() => openCase.mutate(r)}>
                       <Cell>{r.client_name ?? '—'}</Cell>
                       <Cell muted><span className="font-mono text-12">{r.gstin}</span></Cell>
                       <Cell>{periodLabel(r.period)}</Cell>
@@ -207,7 +237,7 @@ export function GstStagePage({ stage }: { stage: StageKey }) {
                 // §19 columns — the money and the payment state.
                 <Table head={['Client', 'GSTIN', 'Period', 'Due', 'Liability', 'Eligible ITC', 'Net payable', 'Assigned', 'Reviewer', 'Status', 'Payment']}>
                   {d.items.map((r) => (
-                    <Row key={r.id} status={r.stage_status_value} onClick={() => navigate(`../periods/${r.id}`)}>
+                    <Row key={r.id} status={r.stage_status_value} onClick={() => openCase.mutate(r)}>
                       <Cell>{r.client_name ?? '—'}</Cell>
                       <Cell muted><span className="font-mono text-12">{r.gstin}</span></Cell>
                       <Cell>{periodLabel(r.period)}</Cell>
@@ -228,7 +258,7 @@ export function GstStagePage({ stage }: { stage: StageKey }) {
                 // §12 columns.
                 <Table head={['Client', 'GSTIN', 'FY', 'Period', 'Due', 'Days', 'Assigned', 'Reviewer', 'Status', 'ARN']}>
                   {d.items.map((r) => (
-                    <Row key={r.id} status={r.stage_status_value} onClick={() => navigate(`../periods/${r.id}`)}>
+                    <Row key={r.id} status={r.stage_status_value} onClick={() => openCase.mutate(r)}>
                       <Cell>{r.client_name ?? '—'}</Cell>
                       <Cell muted><span className="font-mono text-12">{r.gstin}</span></Cell>
                       <Cell muted>{r.financial_year}</Cell>

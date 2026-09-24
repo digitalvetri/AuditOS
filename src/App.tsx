@@ -93,6 +93,7 @@ import { PartnershipShell } from '@/pages/workstation/registration/partnership/P
 import { PartnershipDashboard } from '@/pages/workstation/registration/partnership/PartnershipDashboard';
 import { PartnershipClients } from '@/pages/workstation/registration/partnership/PartnershipClients';
 import { PartnershipCase } from '@/pages/workstation/registration/partnership/PartnershipCase';
+import { ServiceProvider } from '@/pages/workstation/registration/partnership/shared';
 import { PartnershipTemplate } from '@/pages/workstation/registration/partnership/PartnershipTemplate';
 import { GstShell } from '@/pages/workstation/registration/gst/GstShell';
 import { GstRegistrationTab } from '@/pages/workstation/registration/gst/GstRegistrationTab';
@@ -305,12 +306,22 @@ export default function App() {
                 <Route path="gstr1" element={<Gstr1Page />} />
                 <Route path="gstr2b" element={<Gstr2bPage />} />
                 <Route path="gstr3b" element={<Gstr3bPage />} />
+                {/* Return-cycle cases (§9-2). The shared PartnershipCase
+                    renders inside a per-return ServiceProvider so useSvc()
+                    resolves to the right template, api and detailsLabel.
+                    GstShell wraps the whole route tree in kind=GST — the
+                    innermost provider wins. */}
+                <Route path="gstr1/cases/:caseId" element={<ServiceProvider kind="GSTR1"><PartnershipCase /></ServiceProvider>} />
+                <Route path="gstr2b/cases/:caseId" element={<ServiceProvider kind="GSTR2B"><PartnershipCase /></ServiceProvider>} />
+                <Route path="gstr3b/cases/:caseId" element={<ServiceProvider kind="GSTR3B"><PartnershipCase /></ServiceProvider>} />
                 {/* Checklist Template editor — hub with a sub-nav to switch
                     between GST Registration and the three return templates
                     (§7.2, §7.3, §7.4). Each uses the shared PartnershipTemplate
                     re-rooted in a ServiceProvider for the chosen kind. */}
                 <Route path="template" element={<GstTemplateHub />} />
-                {/* Every list row navigates here — the one place work is done. */}
+                {/* Pre-rebuild flat period detail. §9-2 keeps this mounted
+                    for now so nothing 404s while other paths still reference
+                    it; §9-3 kills it once the new list is in. */}
                 <Route path="periods/:periodId" element={<GstPeriodDetail />} />
               </Route>
               {/* Partnership Firm Registration — a real case module, so it is

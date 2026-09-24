@@ -362,6 +362,68 @@ partnershipRouter.post('/cases', handler(async (req, res) => {
   ok(res, { id: c.id, case_code: c.caseCode }, 201)
 }))
 
+/**
+ * POST /api/{gstr1|gstr2b|gstr3b}/cases/for-period — idempotent.
+ *
+ * Return-cycle cases live per (client, kind, period). Clicking a client
+ * row on a return tab for a period we've not touched should just work —
+ * the case is opened if it doesn't exist, and returned if it does. This
+ * is where the master template is snapshotted for the period.
+ *
+ * Registration kinds have no period and use POST /cases instead — hitting
+ * this endpoint against a non-return mount returns 400.
+ */
+partnershipRouter.post('/cases/for-period', handler(async (req, res) => {
+  const session = requireSession(req)
+  const scope = requireWorkstation(session, ...MANAGE)
+  const kind = kindOf(res)
+  if (KINDS[kind].hasCaseFlow) {
+    throw ApiError.badRequest('not_a_return_kind', 'This endpoint is only for GSTR return kinds.')
+  }
+  const b = body(req)
+  const e = new FieldErrors()
+  const clientId = e.str('client_id', b.client_id)
+  const period = e.str('period', b.period)
+  const periodType = oneOf(e, 'period_type', b.period_type, ['monthly', 'quarterly'] as const) ?? 'monthly'
+  const dueDate = e.date('due_date', b.due_date)
+  const assigned = await employeeField(e, 'assigned_employee_id', b.assigned_employee_id)
+  const reviewer = await employeeField(e, 'reviewer_employee_id', b.reviewer_employee_id)
+  e.throwIfAny()
+
+  const client = await prisma.client.findFirst({ where: { id: clientId!, deletedAt: null } })
+  if (!client) throw ApiError.notFound('Client not found.')
+  await assertCanSeeClient(session, scope, client.id)
+
+  const existing = await prisma.partnershipCase.findFirst({
+    where: { clientId: client.id, kind, period: period!, deletedAt: null },
+    select: { id: true, caseCode: true },
+  })
+  if (existing) {
+    ok(res, { id: existing.id, case_code: existing.caseCode, created: false })
+    return
+  }
+
+  const c = await openCase(session, kind, {
+    clientId: client.id,
+    assignedEmployeeId: assigned ?? null,
+    reviewerEmployeeId: reviewer ?? null,
+    approverEmployeeId: null,
+    dueDate: dueDate ?? null,
+    period: period!,
+    periodType,
+  })
+  await recompute(c.id)
+  const counts = await prisma.partnershipCaseItem.count({ where: { caseId: c.id } })
+  await logActivity(c.id, session, 'case.created', `${KINDS[kind].label} case ${c.caseCode} opened for ${period}`)
+  await logActivity(c.id, session, 'checklist.initialized', `Checklist initialised from the master template (${counts} items)`)
+  await writeActivity({
+    session, subjectType: 'client', subjectId: client.id, action: `${kind.toLowerCase()}.opened`,
+    description: `${KINDS[kind].label} ${period} opened (${c.caseCode})`, entityType: 'partnership_case', entityId: c.id,
+  })
+  await writeAudit({ actorUserId: session.userId, action: 'partnership_case.create', entityType: 'partnership_case', entityId: c.id, after: { caseCode: c.caseCode, clientId: client.id, period }, req })
+  ok(res, { id: c.id, case_code: c.caseCode, created: true }, 201)
+}))
+
 // GET /api/partnership/cases/:id — everything the workspace shows.
 partnershipRouter.get('/cases/:id', handler(async (req, res) => {
   const session = requireSession(req)

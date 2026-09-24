@@ -269,6 +269,16 @@ export function makeRegistrationApi(base: string) {
       api.get<{ items: CaseSummary[]; count: number; page: number; page_size: number }>(`${base}/cases${qs({ ...f })}`),
     createCase: (input: { client_id: string; assigned_employee_id?: string; reviewer_employee_id?: string; approver_employee_id?: string; due_date?: string; entity_type?: EntityType | null }) =>
       api.post<{ id: string; case_code: string }>(`${base}/cases`, input),
+    /**
+     * Idempotent open-or-return for a GSTR return-cycle case. Only the three
+     * GSTR kinds accept this call; registration kinds return 400.
+     * `created:true` when a fresh case was opened, `false` when the existing
+     * one for that (client, period) was returned as-is.
+     */
+    openForPeriod: (input: {
+      client_id: string; period: string; period_type?: 'monthly' | 'quarterly';
+      assigned_employee_id?: string; reviewer_employee_id?: string; due_date?: string;
+    }) => api.post<{ id: string; case_code: string; created: boolean }>(`${base}/cases/for-period`, input),
     getCase: (id: string) => api.get<CaseDetail>(c(id)),
     updateCase: (id: string, input: Record<string, unknown>) => api.patch<{ id: string }>(c(id), input),
     saveDetails: (id: string, details: RegistrationDetails) => api.put<{ details: RegistrationDetails }>(`${c(id)}/details`, { details }),
