@@ -134,6 +134,8 @@ function caseSummary(c: CaseRow, m: EmployeeLookup) {
     due_state: dueState(c.dueDate, done),
     premises_type: c.premisesType,
     entity_type: c.entityType,
+    period: c.period,
+    period_type: c.periodType,
     progress: {
       pct: c.progressPct,
       items_total: c.itemsTotal,
@@ -167,6 +169,27 @@ const LLP_DETAIL_TEXT_FIELDS = ['main_objective', 'total_contribution'] as const
 
 function parseDetails(raw: unknown, kind: RegistrationKind = 'PARTNERSHIP') {
   const b = (raw && typeof raw === 'object' ? raw : {}) as Record<string, unknown>
+  if (kind === 'GSTR1' || kind === 'GSTR2B' || kind === 'GSTR3B') {
+    // Return Details — GST-RETURNS-CASE-SCREEN §6 / §7.4. Money lives in
+    // INTEGER paise on the wire and in storage; the frontend does the
+    // rupees ↔ paise conversion. Everything is nullable — a case is opened
+    // long before ARN or figures exist.
+    const money = (v: unknown) => {
+      if (v === null || v === undefined || v === '') return null
+      const n = typeof v === 'string' ? Number(v.replace(/[₹,\s]/g, '')) : Number(v)
+      return Number.isFinite(n) && n >= 0 ? Math.round(n) : null
+    }
+    const str = (v: unknown, max: number) => (typeof v === 'string' ? v.slice(0, max) : '') || null
+    return {
+      arn: str(b.arn, 30),
+      taxable_value_paise: money(b.taxable_value_paise),
+      tax_paise: money(b.tax_paise),
+      itc_finalised_paise: money(b.itc_finalised_paise),
+      filed_at: str(b.filed_at, 20),
+      filed_by_user_id: str(b.filed_by_user_id, 50),
+      receipt_document_id: str(b.receipt_document_id, 50),
+    }
+  }
   if (kind === 'LLP') {
     const out: Record<string, unknown> = {}
     for (const f of LLP_DETAIL_TEXT_FIELDS) out[f] = typeof b[f] === 'string' ? (b[f] as string).slice(0, 4000) : ''
@@ -412,10 +435,19 @@ partnershipRouter.post('/cases/for-period', handler(async (req, res) => {
     period: period!,
     periodType,
   })
+
+  // Lazy migration — the pre-rebuild flat panel stored ARN + figures on
+  // GstFiling rows tied to the same (client, period, returnType) triple.
+  // Carry those onto the new case's Return Details so nothing is lost when
+  // the old panel is retired. GST-RETURNS-CASE-SCREEN §9-2 "DO NOT LOSE
+  // THE DATA IT CAPTURED".
+  const migrated = await migrateLegacyReturnDetails(c.id, kind, client.id, period!)
+
   await recompute(c.id)
   const counts = await prisma.partnershipCaseItem.count({ where: { caseId: c.id } })
   await logActivity(c.id, session, 'case.created', `${KINDS[kind].label} case ${c.caseCode} opened for ${period}`)
   await logActivity(c.id, session, 'checklist.initialized', `Checklist initialised from the master template (${counts} items)`)
+  if (migrated) await logActivity(c.id, session, 'details.migrated', `Return Details carried over from the legacy flat panel (source ${migrated})`)
   await writeActivity({
     session, subjectType: 'client', subjectId: client.id, action: `${kind.toLowerCase()}.opened`,
     description: `${KINDS[kind].label} ${period} opened (${c.caseCode})`, entityType: 'partnership_case', entityId: c.id,
@@ -423,6 +455,77 @@ partnershipRouter.post('/cases/for-period', handler(async (req, res) => {
   await writeAudit({ actorUserId: session.userId, action: 'partnership_case.create', entityType: 'partnership_case', entityId: c.id, after: { caseCode: c.caseCode, clientId: client.id, period }, req })
   ok(res, { id: c.id, case_code: c.caseCode, created: true }, 201)
 }))
+
+/**
+ * Look for a pre-rebuild GstFiling / GstR2BRecord that matches this case's
+ * (client, period, kind) triple and copy the ARN + figures onto the case's
+ * detailsJson. Returns the legacy source identifier when data was found, or
+ * null when the case starts blank. Never throws — the case is more
+ * important than its historical carry-over.
+ */
+async function migrateLegacyReturnDetails(caseId: string, kind: RegistrationKind, clientId: string, period: string): Promise<string | null> {
+  try {
+    if (kind === 'GSTR1' || kind === 'GSTR3B') {
+      const returnType = kind === 'GSTR1' ? 'GSTR-1' : 'GSTR-3B'
+      const filing = await prisma.gstFiling.findFirst({
+        where: { period, returnType, deletedAt: null, gstProfile: { clientId } },
+      })
+      if (!filing) return null
+      const paise = (n: bigint | null) => (n === null ? null : Number(n))
+      const details: Record<string, unknown> = {
+        arn: filing.arn ?? null,
+        filed_at: filing.filedAt ? filing.filedAt.toISOString().slice(0, 10) : null,
+        filed_by_user_id: filing.filedByUserId ?? null,
+        receipt_document_id: null,
+        taxable_value_paise: null,
+        tax_paise: null,
+        itc_finalised_paise: null,
+      }
+      if (kind === 'GSTR1') {
+        details.taxable_value_paise = paise(filing.taxableValue)
+        details.tax_paise = paise(filing.taxAmount)
+      } else {
+        // GSTR-3B carries the liability trio: liability, ITC, net payable.
+        // The Return Details form shows tax = liability (what was declared),
+        // and ITC as the finalised figure from the 2B case for the same period.
+        details.tax_paise = paise(filing.taxLiability)
+        details.itc_finalised_paise = paise(filing.eligibleItc)
+      }
+      const dueDate = filing.dueDate ?? null
+      await prisma.partnershipCase.update({
+        where: { id: caseId },
+        data: {
+          detailsJson: JSON.stringify(details),
+          ...(dueDate ? { dueDate } : {}),
+        },
+      })
+      return `GstFiling:${filing.id}`
+    }
+    if (kind === 'GSTR2B') {
+      const period2b = await prisma.gstR2BRecord.findFirst({
+        where: { deletedAt: null, compliancePeriod: { period, gstProfile: { clientId } } },
+      })
+      if (!period2b) return null
+      const paise = (n: bigint) => Number(n)
+      const itc = paise(period2b.totalItcCgst) + paise(period2b.totalItcSgst) + paise(period2b.totalItcIgst) + paise(period2b.totalItcCess)
+      const details: Record<string, unknown> = {
+        arn: null,
+        taxable_value_paise: null,
+        tax_paise: null,
+        itc_finalised_paise: period2b.status === 'reconciliation_completed' ? itc : null,
+        filed_at: null,
+        filed_by_user_id: null,
+        receipt_document_id: null,
+      }
+      await prisma.partnershipCase.update({ where: { id: caseId }, data: { detailsJson: JSON.stringify(details) } })
+      return `GstR2BRecord:${period2b.id}`
+    }
+    return null
+  } catch (err) {
+    console.error('[partnership] legacy migration failed', err instanceof Error ? err.message : err)
+    return null
+  }
+}
 
 // GET /api/partnership/cases/:id — everything the workspace shows.
 partnershipRouter.get('/cases/:id', handler(async (req, res) => {

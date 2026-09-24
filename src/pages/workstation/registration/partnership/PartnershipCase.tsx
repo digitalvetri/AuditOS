@@ -91,7 +91,12 @@ function CaseHeader({ c }: { c: CaseDetail }) {
     <section className="mt-2 mb-4 bg-white border border-neutral-200 rounded">
       <div className="px-4 py-3 flex flex-wrap items-start gap-x-6 gap-y-3 border-b border-neutral-200">
         <div className="min-w-0">
-          <div className="text-11 uppercase tracking-[0.06em] text-neutral-500">{label}</div>
+          {/* Return cases lead with "GSTR-1 · SEPTEMBER 2026" per
+              GST-RETURNS-CASE-SCREEN §7.3 mockup. Registrations show just
+              the service label. */}
+          <div className="text-11 uppercase tracking-[0.06em] text-neutral-500">
+            {label}{c.period ? ` · ${c.period}` : ''}
+          </div>
           <h1 className="text-20 font-semibold text-neutral-900">{c.client.name}</h1>
           <div className="text-13 text-neutral-500">
             {c.case_code} · Created {fmtDate(c.created_at)} ·{' '}

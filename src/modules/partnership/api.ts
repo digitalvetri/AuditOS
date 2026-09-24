@@ -59,10 +59,28 @@ export interface CaseSummary {
   due_state: DueState;
   premises_type: 'RENTED' | 'OWNED' | null;
   entity_type: EntityType | null;
+  /** For GSTR* kinds — 'YYYY-MM' monthly, 'YYYY-Q1' quarterly. null for the three registration kinds. */
+  period: string | null;
+  period_type: 'monthly' | 'quarterly' | null;
   progress: CaseProgress;
   created_at: string;
   last_activity_at: string | null;
   completed_at: string | null;
+}
+
+/**
+ * Return Details — the fields the pre-rebuild flat panel captured, now
+ * on the third tab of the shared case screen. Money is INTEGER paise on
+ * the wire; the form converts rupees ↔ paise. GST-RETURNS-CASE-SCREEN §6.
+ */
+export interface ReturnDetails {
+  arn: string | null;
+  taxable_value_paise: number | null;
+  tax_paise: number | null;
+  itc_finalised_paise: number | null;
+  filed_at: string | null;
+  filed_by_user_id: string | null;
+  receipt_document_id: string | null;
 }
 
 export interface CaseItem {
@@ -178,7 +196,7 @@ export interface LlpDetails {
 }
 
 export interface CaseDetail extends CaseSummary {
-  details: RegistrationDetails & Partial<LlpDetails>;
+  details: RegistrationDetails & Partial<LlpDetails> & Partial<ReturnDetails>;
   stages: string[];
   stage_progress: { stage: string; done: number; total: number }[];
   partner_progress: { partner_id: string; name: string; done: number; total: number; docs_pending: number }[];
@@ -281,7 +299,7 @@ export function makeRegistrationApi(base: string) {
     }) => api.post<{ id: string; case_code: string; created: boolean }>(`${base}/cases/for-period`, input),
     getCase: (id: string) => api.get<CaseDetail>(c(id)),
     updateCase: (id: string, input: Record<string, unknown>) => api.patch<{ id: string }>(c(id), input),
-    saveDetails: (id: string, details: RegistrationDetails) => api.put<{ details: RegistrationDetails }>(`${c(id)}/details`, { details }),
+    saveDetails: (id: string, details: RegistrationDetails | LlpDetails | ReturnDetails) => api.put<{ details: unknown }>(`${c(id)}/details`, { details }),
 
     addPartner: (id: string, input: Partial<Partner>) => api.post<{ id: string }>(`${c(id)}/partners`, input),
     updatePartner: (id: string, pid: string, input: Partial<Partner>) => api.patch<{ id: string }>(`${c(id)}/partners/${pid}`, input),
