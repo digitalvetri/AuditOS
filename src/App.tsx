@@ -99,11 +99,9 @@ import { GstShell } from '@/pages/workstation/registration/gst/GstShell';
 import { GstRegistrationTab } from '@/pages/workstation/registration/gst/GstRegistrationTab';
 import { GstDashboard } from '@/pages/workstation/registration/gst/GstDashboard';
 import { GstClients } from '@/pages/workstation/registration/gst/GstClients';
-// GstStagePage (Gstr1Page/2b/3b) retired in §9-3 — the return tabs now
-// render the shared PartnershipClients component under a per-return
-// ServiceProvider. The file remains for now until §9-4 also drops any
-// other references from the dashboard.
-import { GstPeriodDetail } from '@/pages/workstation/registration/gst/GstPeriodDetail';
+// GstStagePage + GstPeriodDetail deleted in §9-4 — the return tabs
+// render PartnershipClients, and the dashboard's 1 › 2B › Recon › 3B
+// chain nodes open the shared PartnershipCase directly.
 import { GstTemplateHub } from '@/pages/workstation/registration/gst/GstTemplateHub';
 import { RegistrationServiceDetail } from '@/pages/workstation/registration/RegistrationServiceDetail';
 // E-Invoice & E-Way Bill monitoring page (E-INVOICE-EWAYBILL.md). Both
@@ -326,10 +324,6 @@ export default function App() {
                     (§7.2, §7.3, §7.4). Each uses the shared PartnershipTemplate
                     re-rooted in a ServiceProvider for the chosen kind. */}
                 <Route path="template" element={<GstTemplateHub />} />
-                {/* Pre-rebuild flat period detail. §9-2 keeps this mounted
-                    for now so nothing 404s while other paths still reference
-                    it; §9-3 kills it once the new list is in. */}
-                <Route path="periods/:periodId" element={<GstPeriodDetail />} />
               </Route>
               {/* Partnership Firm Registration — a real case module, so it is
                   declared BEFORE the :slug catch-all, the same way GST is. */}
