@@ -466,6 +466,43 @@ partnershipRouter.post('/cases/for-period', handler(async (req, res) => {
  * null when the case starts blank. Never throws — the case is more
  * important than its historical carry-over.
  */
+/**
+ * Evaluate a checklist item's gate rule — GST-RETURNS-CASE-SCREEN §9-6.
+ * Returns `met:true` when the gating case has satisfied its condition,
+ * or `met:false` with a human-readable reason and a link to the case
+ * that needs work. Two rules today; add more when more prerequisites
+ * enter the spec.
+ */
+async function evaluateGate(rule: string, c: { clientId: string; period: string | null }): Promise<{ met: boolean; reason?: string; openCase?: { kind: RegistrationKind; id: string; period: string; case_code: string } }> {
+  if (!c.period) return { met: false, reason: 'This case has no period — the gate cannot be evaluated.' }
+  if (rule === 'gstr1.filed:same_period') {
+    const target = await prisma.partnershipCase.findFirst({
+      where: { clientId: c.clientId, kind: 'GSTR1', period: c.period, deletedAt: null },
+      select: { id: true, status: true, caseCode: true, period: true },
+    })
+    if (!target) return { met: false, reason: `Blocked — GSTR-1 case for ${c.period} not opened yet.` }
+    if (target.status !== 'COMPLETED') {
+      return { met: false, reason: `Blocked — GSTR-1 not filed for ${c.period}.`, openCase: { kind: 'GSTR1', id: target.id, period: target.period ?? c.period, case_code: target.caseCode } }
+    }
+    return { met: true }
+  }
+  if (rule === 'gstr2b.itc_finalised:same_period') {
+    const target = await prisma.partnershipCase.findFirst({
+      where: { clientId: c.clientId, kind: 'GSTR2B', period: c.period, deletedAt: null },
+      select: { id: true, detailsJson: true, caseCode: true, period: true },
+    })
+    if (!target) return { met: false, reason: `Blocked — IMS + 2B case for ${c.period} not opened yet.` }
+    let itc: unknown = null
+    try { itc = target.detailsJson ? JSON.parse(target.detailsJson).itc_finalised_paise : null } catch {}
+    if (typeof itc !== 'number') {
+      return { met: false, reason: `Blocked — 2B reconciliation not complete for ${c.period}.`, openCase: { kind: 'GSTR2B', id: target.id, period: target.period ?? c.period, case_code: target.caseCode } }
+    }
+    return { met: true }
+  }
+  // Unknown rule — fail closed rather than silently allow.
+  return { met: false, reason: `Unknown gate rule: ${rule}` }
+}
+
 async function migrateLegacyReturnDetails(caseId: string, kind: RegistrationKind, clientId: string, period: string): Promise<string | null> {
   try {
     if (kind === 'GSTR1' || kind === 'GSTR3B') {
@@ -557,6 +594,12 @@ partnershipRouter.get('/cases/:id', handler(async (req, res) => {
   ]
   const m = await employeeMap(ids)
 
+  // §9-6 — evaluate each distinct gate rule once, then attach the result to
+  // every item that carries the rule. Two DB reads at most per case today.
+  const gateRules = Array.from(new Set(categories.flatMap((cat) => cat.items.map((i) => i.gateRule).filter((r): r is string => !!r))))
+  const gateResults = new Map<string, Awaited<ReturnType<typeof evaluateGate>>>()
+  for (const rule of gateRules) gateResults.set(rule, await evaluateGate(rule, c))
+
   const reqApi = reqs.map((r) => {
     const v = latestVersion(r)
     return {
@@ -638,6 +681,18 @@ partnershipRouter.get('/cases/:id', handler(async (req, res) => {
         max_age_days: i.maxAgeDays,
         condition: i.condition,
         entity_condition: i.entityCondition,
+        gate_rule: i.gateRule,
+        gate: i.gateRule ? (() => {
+          const g = gateResults.get(i.gateRule)
+          if (!g) return null
+          return {
+            met: g.met,
+            reason: g.reason ?? null,
+            unblock_case: g.openCase
+              ? { id: g.openCase.id, kind: g.openCase.kind, case_code: g.openCase.case_code, period: g.openCase.period }
+              : null,
+          }
+        })() : null,
         applicable: (
           conditionApplies(i.condition, c.premisesType)
           && entityConditionApplies(cat.entityCondition ?? null, c.entityType)
@@ -922,6 +977,20 @@ partnershipRouter.patch('/cases/:id/items/:itemId', handler(async (req, res) => 
   const data: Prisma.PartnershipCaseItemUpdateInput = { updatedBy: session.userId }
   const log: [string, string][] = []
   if (status && status !== item.status) {
+    // §9-6 — a gated item cannot be marked COMPLETED manually; the state is
+    // owned by the case that unblocks it. Other transitions (PENDING, N/A)
+    // are still allowed so an operator can hide the item if it's genuinely
+    // not applicable.
+    if (item.gateRule && status === 'COMPLETED') {
+      const gate = await evaluateGate(item.gateRule, c)
+      if (!gate.met) {
+        throw ApiError.unprocessable('item_gated', gate.reason ?? 'This item is gated by another case and cannot be completed manually.', {
+          gate_rule: item.gateRule,
+          unblock_case_id: gate.openCase?.id ?? null,
+          unblock_case_kind: gate.openCase?.kind ?? null,
+        })
+      }
+    }
     data.status = status
     if (status === 'COMPLETED') {
       data.completedAt = new Date()
@@ -1249,13 +1318,21 @@ function requireTemplateAdmin(session: Session) {
 partnershipRouter.get('/template', handler(async (req, res) => {
   const session = requireSession(req)
   requireWorkstation(session, ...READ)
-  const cats = await prisma.partnershipTemplateCategory.findMany({
-    where: { kind: kindOf(res), deletedAt: null }, orderBy: { sortOrder: 'asc' },
-    include: { items: { where: { deletedAt: null }, orderBy: { sortOrder: 'asc' } } },
-  })
+  const kind = kindOf(res)
+  const [cats, openCases] = await Promise.all([
+    prisma.partnershipTemplateCategory.findMany({
+      where: { kind, deletedAt: null }, orderBy: { sortOrder: 'asc' },
+      include: { items: { where: { deletedAt: null }, orderBy: { sortOrder: 'asc' } } },
+    }),
+    // §9-8 pinning message: how many cases are currently reading their own
+    // copy of the template. Editing here won't touch them — a case snapshots
+    // the template rows at creation and never re-reads.
+    prisma.partnershipCase.count({ where: { kind, deletedAt: null, status: { not: 'COMPLETED' } } }),
+  ])
   ok(res, {
     can_manage: can(session, 'workstation.registration.template.manage', 'organisation'),
-    stages: KINDS[kindOf(res)].stages,
+    stages: KINDS[kind].stages,
+    open_case_count: openCases,
     categories: cats.map((cat) => ({
       id: cat.id, name: cat.name, description: cat.description, stage: cat.stage, sort_order: cat.sortOrder,
       per_partner: cat.perPartner, entity_condition: cat.entityCondition,
@@ -1264,7 +1341,9 @@ partnershipRouter.get('/template', handler(async (req, res) => {
         per_partner: i.perPartner, doc_key: i.docKey, condition: i.condition,
         entity_condition: i.entityCondition,
         doc_type_options: i.docTypeOptions ? i.docTypeOptions.split('|') : null, max_age_days: i.maxAgeDays,
-        default_due_days: i.defaultDueDays, default_assignee: i.defaultAssignee, sort_order: i.sortOrder,
+        default_due_days: i.defaultDueDays, default_assignee: i.defaultAssignee,
+        gate_rule: i.gateRule,
+        sort_order: i.sortOrder,
       })),
     })),
   })

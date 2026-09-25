@@ -65,6 +65,7 @@ export async function seedPartnership(prisma: PrismaClient, orgId: string) {
               entityCondition: it.entityCondition ?? null,
               docTypeOptions: it.docTypeOptions?.join('|') ?? null,
               maxAgeDays: it.maxAgeDays ?? null,
+              gateRule: it.gateRule ?? null,
               sortOrder: (i + 1) * 10,
               createdBy: 'seed',
             })),

@@ -206,6 +206,7 @@ export async function openCase(session: Session, kind: RegistrationKind, input: 
             kind: it.kind, perPartner: it.perPartner, docKey: it.docKey, condition: it.condition,
             entityCondition: it.entityCondition,
             docTypeOptions: it.docTypeOptions, maxAgeDays: it.maxAgeDays,
+            gateRule: it.gateRule,
             assignedEmployeeId: assignee, dueDate: due, sortOrder: it.sortOrder,
             createdBy: session.userId,
           },

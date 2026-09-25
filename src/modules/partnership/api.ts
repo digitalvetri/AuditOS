@@ -95,6 +95,17 @@ export interface CaseItem {
   max_age_days: number | null;
   condition: 'RENTED' | 'OWNED' | null;
   entity_condition: EntityCondition | null;
+  /** §9-6 — 'gstr1.filed:same_period' | 'gstr2b.itc_finalised:same_period' | null. */
+  gate_rule: string | null;
+  /**
+   * Server-evaluated state of gate_rule. Null for non-gated items. When
+   * met is false, unblock_case points at the case that satisfies the gate.
+   */
+  gate: {
+    met: boolean;
+    reason: string | null;
+    unblock_case: { id: string; kind: RegistrationKind; case_code: string; period: string } | null;
+  } | null;
   applicable: boolean;
   status: ItemStatus;
   assigned: EmployeeRef | null;
@@ -324,7 +335,7 @@ export function makeRegistrationApi(base: string) {
 
     activity: (id: string) => api.get<{ items: ActivityEntry[] }>(`${c(id)}/activity`),
 
-    template: () => api.get<{ can_manage: boolean; stages: string[]; categories: TemplateCategory[] }>(`${base}/template`),
+    template: () => api.get<{ can_manage: boolean; stages: string[]; categories: TemplateCategory[]; open_case_count: number }>(`${base}/template`),
     addTemplateCategory: (input: Record<string, unknown>) => api.post<{ id: string }>(`${base}/template/categories`, input),
     updateTemplateCategory: (cid: string, input: Record<string, unknown>) => api.patch<{ id: string }>(`${base}/template/categories/${cid}`, input),
     deleteTemplateCategory: (cid: string) => api.delete<{ id: string }>(`${base}/template/categories/${cid}`),

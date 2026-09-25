@@ -37,7 +37,7 @@ function nextCaseCode(existing: string[], prefix: string, year: number): string 
   return `${p}${String(max + 1).padStart(4, '0')}`
 }
 
-export async function migrateGstReturnCases(prisma: PrismaClient): Promise<{ opened: Record<ReturnKind, number>; skipped: number }> {
+export async function migrateGstReturnCases(prisma: PrismaClient): Promise<{ opened: Record<ReturnKind, number>; skipped: number; gateBackfill: number }> {
   const opened: Record<ReturnKind, number> = { GSTR1: 0, GSTR2B: 0, GSTR3B: 0 }
   let skipped = 0
 
@@ -160,6 +160,7 @@ export async function migrateGstReturnCases(prisma: PrismaClient): Promise<{ ope
                 kind: it.kind, perPartner: it.perPartner, docKey: it.docKey, condition: it.condition,
                 entityCondition: it.entityCondition,
                 docTypeOptions: it.docTypeOptions, maxAgeDays: it.maxAgeDays,
+                gateRule: it.gateRule,
                 sortOrder: it.sortOrder,
                 createdBy: 'seed',
               },
@@ -201,5 +202,13 @@ export async function migrateGstReturnCases(prisma: PrismaClient): Promise<{ ope
       opened[kind] += 1
     }
   }
-  return { opened, skipped }
+
+  // Forward-propagate gate rules from the master template onto every case
+  // item that still has NULL. This lets §9-6 (case-per-period gating) work
+  // on cases that were opened before gateRule existed on the schema —
+  // otherwise those old cases would have blank rules forever.
+  const gateBackfill = await prisma.$executeRawUnsafe(
+    'UPDATE "PartnershipCaseItem" ci SET "gateRule" = ti."gateRule" FROM "PartnershipTemplateItem" ti WHERE ci."sourceItemId" = ti.id AND ti."gateRule" IS NOT NULL AND ci."gateRule" IS NULL',
+  )
+  return { opened, skipped, gateBackfill }
 }

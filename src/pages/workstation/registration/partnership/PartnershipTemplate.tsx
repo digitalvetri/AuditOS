@@ -29,6 +29,17 @@ export function PartnershipTemplate() {
       <QueryState query={q}>
         {(d) => (
           <div className="space-y-3">
+            {/* §9-8 template version pinning — cases snapshot the template
+                at creation, so an edit here does not touch cases already
+                open. Make that explicit in the UI. */}
+            {d.open_case_count > 0 ? (
+              <div className="text-12 text-neutral-500 border-l-2 border-neutral-300 pl-3 py-1">
+                Changes apply to cases created from now on.
+                {' '}
+                <strong>{d.open_case_count}</strong> open {d.open_case_count === 1 ? 'case keeps' : 'cases keep'}{' '}
+                the wording {d.open_case_count === 1 ? 'it was' : 'they were'} opened with.
+              </div>
+            ) : null}
             {d.categories.map((cat) => (
               <Card
                 key={cat.id}

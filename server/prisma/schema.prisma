@@ -6582,6 +6582,13 @@ model PartnershipTemplateItem {
   defaultDueDays Int?
   /// Default assignee role on the case: ASSIGNEE | REVIEWER
   defaultAssignee String?
+  /// Cross-case dependency rule — GST-RETURNS-CASE-SCREEN §9-6. Null means
+  /// the item is completed manually. When set, the service layer evaluates
+  /// the rule and either 422s a manual PATCH or auto-marks the item
+  /// COMPLETED when the referenced case has satisfied it. Format is
+  /// 'target:scope' where target is one of gstr1.filed | gstr2b.itc_finalised
+  /// and scope is same_period.
+  gateRule       String?
   sortOrder      Int     @default(0)
 
   category PartnershipTemplateCategory @relation(fields: [categoryId], references: [id])
@@ -6753,6 +6760,8 @@ model PartnershipCaseItem {
   completedByUserId     String?
   isCustom              Boolean   @default(false)
   sortOrder             Int       @default(0)
+  /// Snapshot of PartnershipTemplateItem.gateRule at case creation (§9-6).
+  gateRule              String?
 
   case     PartnershipCase         @relation(fields: [caseId], references: [id])
   category PartnershipCaseCategory @relation(fields: [categoryId], references: [id])

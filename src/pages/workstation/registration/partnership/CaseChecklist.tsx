@@ -1,9 +1,10 @@
 import { useState } from 'react';
+import { Link } from 'react-router-dom';
 import { type CaseDetail, type CaseItem, type DocRequirement } from '@/modules/partnership/api';
 import { Card, Field, Modal, Status, fieldErrors, inputClass, textareaClass } from '@/modules/workstation/components';
 import { Button } from '@/components/Button';
 import { fmtDate } from '@/lib/format';
-import { DueChip, EmployeeSelect, RequirementTag, useSvc } from './shared';
+import { DueChip, EmployeeSelect, RequirementTag, SERVICES as SERVICES_BY_KIND, useSvc } from './shared';
 import { useCaseMutation } from './PartnershipCase';
 import { UploadModal } from './CaseDocuments';
 
@@ -79,6 +80,15 @@ export function CaseChecklist({ c, onOpenDocuments, onOpenDetails }: { c: CaseDe
                   onAddItem={(partnerId) => setAddItemTo({ categoryId: cat.id, partnerId })} onOpenDetails={onOpenDetails} />
               ) : open ? (
                 <div>
+                  {/* §5.1 mandatory banners for return kinds: the seeded
+                       category description is regulatory content, not a
+                       throwaway hint. Rendered as a bordered amber banner
+                       inside the category body so it can't be missed. */}
+                  {cat.description && (c.kind === 'GSTR1' || c.kind === 'GSTR2B' || c.kind === 'GSTR3B') ? (
+                    <div className="mx-4 mt-3 text-12 text-amber border-l-2 border-amber pl-3 py-1">
+                      {cat.description}
+                    </div>
+                  ) : null}
                   {cat.items.length === 0 ? (
                     <div className="px-4 py-3 text-13 text-neutral-500">No items in this category yet.</div>
                   ) : cat.items.map((item) => (
@@ -150,6 +160,13 @@ function ItemRow({ c, item, reqById, onUpload }: {
   const done = item.status === 'COMPLETED';
   const na = item.status === 'NOT_APPLICABLE' || !item.applicable;
   const docs = item.documents.filter((d) => d.status !== 'NOT_APPLICABLE' || item.applicable);
+  // §9-6 — a gated item cannot be ticked manually; its state is decided by
+  // the case that unblocks it. Show the reason inline with a link to that
+  // case so the user can jump straight to what actually needs work.
+  const gated = !!item.gate && !item.gate.met;
+  const gateCaseUrl = item.gate?.unblock_case
+    ? (SERVICES_BY_KIND[item.gate.unblock_case.kind]?.caseUrl(item.gate.unblock_case.id) ?? null)
+    : null;
 
   return (
     <div className={`px-4 py-2 border-b border-neutral-100 last:border-b-0 ${na ? 'opacity-60' : ''}`}>
@@ -158,7 +175,7 @@ function ItemRow({ c, item, reqById, onUpload }: {
           type="checkbox"
           className="mt-1 h-4 w-4 accent-neutral-900"
           checked={done}
-          disabled={!c.permissions.manage || update.isPending || na}
+          disabled={!c.permissions.manage || update.isPending || na || gated}
           onChange={() => update.mutate({ status: done ? 'PENDING' : 'COMPLETED' })}
           aria-label={`Mark ${item.name} ${done ? 'pending' : 'completed'}`}
         />
@@ -175,6 +192,19 @@ function ItemRow({ c, item, reqById, onUpload }: {
           {item.description ? <div className="text-12 text-neutral-500">{item.description}</div> : null}
           {item.doc_type_options ? <div className="text-12 text-neutral-500">Any one: {item.doc_type_options.join(' / ')}</div> : null}
           {!item.applicable ? <div className="text-12 text-neutral-500">Not applicable — premises are {c.premises_type === 'OWNED' ? 'owned' : 'rented'}.</div> : null}
+          {gated ? (
+            <div className="text-12 text-amber mt-1">
+              {item.gate?.reason ?? 'Blocked — waiting on another case.'}
+              {gateCaseUrl && item.gate?.unblock_case ? (
+                <>
+                  {' '}
+                  <Link to={gateCaseUrl} className="underline">
+                    Open {item.gate.unblock_case.kind === 'GSTR1' ? 'GSTR-1' : item.gate.unblock_case.kind === 'GSTR2B' ? 'IMS + 2B' : 'GSTR-3B'} case ▸
+                  </Link>
+                </>
+              ) : null}
+            </div>
+          ) : null}
           {done && item.completed_at ? (
             <div className="text-12 text-neutral-500">Completed {fmtDate(item.completed_at)}{item.completed_by ? ` by ${item.completed_by.full_name}` : ''}</div>
           ) : null}
