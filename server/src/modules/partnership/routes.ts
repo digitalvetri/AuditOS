@@ -16,7 +16,7 @@ import { body, FieldErrors } from '../workstation/validate.js'
 import { CASE_STATUSES } from './template.js'
 import { KINDS, type RegistrationKind } from './constants.js'
 import {
-  ENTITY_TYPES, ITEM_KINDS, ITEM_STATUSES, PREMISES, PRIORITIES, REQUIREMENT_TYPES,
+  CONDITIONS, ENTITY_TYPES, ITEM_KINDS, ITEM_STATUSES, PREMISES, PRIORITIES, REQUIREMENT_TYPES,
   addPartnerRequirements, conditionApplies, entityConditionApplies, isPartnerTemplateRow,
   latestVersion, logActivity, openCase, recompute, registrationCategoryId, requirementInclude,
   requirementStatus, serviceStatusFor, today, addDays,
@@ -162,11 +162,22 @@ const DETAIL_TEXT_FIELDS = [
   'bank_operation', 'authorized_signatory', 'commencement_date',
 ] as const
 
+/** Private Limited — section 3 ("Basic Company Details Needed"); shareholding lives on each person. */
+const PVT_DETAIL_TEXT_FIELDS = ['name_significance', 'main_objective', 'authorized_capital', 'paid_up_capital'] as const
+
 /** LLP Registration Details — section 3 of the LLP source ("Basic Business Details Needed"). */
 const LLP_DETAIL_TEXT_FIELDS = ['main_objective', 'total_contribution'] as const
 
 function parseDetails(raw: unknown, kind: RegistrationKind = 'PARTNERSHIP') {
   const b = (raw && typeof raw === 'object' ? raw : {}) as Record<string, unknown>
+  if (kind === 'GST') return {} // the GST source asks for documents only; business type and premises live on the case
+  if (kind === 'PRIVATE_LIMITED') {
+    const out: Record<string, unknown> = {}
+    for (const f of PVT_DETAIL_TEXT_FIELDS) out[f] = typeof b[f] === 'string' ? (b[f] as string).slice(0, 4000) : ''
+    // "2 unique names in order of preference"
+    out.company_names = (Array.isArray(b.company_names) ? b.company_names : []).slice(0, 2).map((x) => (typeof x === 'string' ? x.slice(0, 200) : ''))
+    return out
+  }
   if (kind === 'LLP') {
     const out: Record<string, unknown> = {}
     for (const f of LLP_DETAIL_TEXT_FIELDS) out[f] = typeof b[f] === 'string' ? (b[f] as string).slice(0, 4000) : ''
@@ -378,7 +389,7 @@ partnershipRouter.get('/cases/:id', handler(async (req, res) => {
     prisma.partnershipDocRequirement.findMany({
       where: { caseId: c.id, deletedAt: null },
       orderBy: { sortOrder: 'asc' },
-      include: { ...requirementInclude, item: { select: { id: true, name: true } } },
+      include: { ...requirementInclude, item: { select: { id: true, name: true, entityCondition: true, category: { select: { entityCondition: true } } } } },
     }),
   ])
 
@@ -400,7 +411,7 @@ partnershipRouter.get('/cases/:id', handler(async (req, res) => {
       doc_key: r.docKey,
       doc_type_options: r.docTypeOptions ? r.docTypeOptions.split('|') : null,
       max_age_days: r.maxAgeDays,
-      status: requirementStatus(r, c.premisesType),
+      status: requirementStatus(r, c),
       not_applicable: r.notApplicable,
       due_date: r.dueDate,
       due_state: dueState(r.dueDate, !!v && v.reviewStatus === 'verified'),
@@ -418,7 +429,7 @@ partnershipRouter.get('/cases/:id', handler(async (req, res) => {
   }))
   const counted = (i: (typeof visible)[number]['items'][number]) => {
     if (i.status === 'NOT_APPLICABLE') return false
-    if (!conditionApplies(i.condition, c.premisesType)) return false
+    if (!conditionApplies(i.condition, c)) return false
     // Category-level entity condition (Proprietor KYC only for Proprietorship);
     // then the item's own — MoA & AoA within Entity Documents is PVT_LTD only.
     const cat = visible.find((v) => v.id === i.categoryId)
@@ -447,7 +458,7 @@ partnershipRouter.get('/cases/:id', handler(async (req, res) => {
     details: c.detailsJson ? JSON.parse(c.detailsJson) : parseDetails({}, c.kind as RegistrationKind),
     partners: partners.map((p) => ({
       id: p.id, name: p.name, father_name: p.fatherName, address: p.address, mobile: p.mobile,
-      email: p.email, pan: p.pan, aadhaar: p.aadhaar, capital: p.capital, profit_share: p.profitShare, remuneration: p.remuneration,
+      email: p.email, pan: p.pan, aadhaar: p.aadhaar, capital: p.capital, profit_share: p.profitShare, remuneration: p.remuneration, role: p.role, shares: p.shares,
     })),
     categories: visible.map((cat) => ({
       id: cat.id,
@@ -471,7 +482,7 @@ partnershipRouter.get('/cases/:id', handler(async (req, res) => {
         condition: i.condition,
         entity_condition: i.entityCondition,
         applicable: (
-          conditionApplies(i.condition, c.premisesType)
+          conditionApplies(i.condition, c)
           && entityConditionApplies(cat.entityCondition ?? null, c.entityType)
           && entityConditionApplies(i.entityCondition ?? null, c.entityType)
         ),
@@ -597,6 +608,14 @@ function aadhaar(e: FieldErrors, v: unknown): string | null {
   return digits
 }
 
+const PERSON_ROLES = ['DIRECTOR', 'SHAREHOLDER', 'BOTH'] as const
+function shareCount(e: FieldErrors, v: unknown): number | null {
+  if (v === undefined || v === null || v === '') return null
+  const n = Number(String(v).replace(/,/g, ''))
+  if (!Number.isInteger(n) || n < 0) { e.add('shares', 'Enter a whole number of shares.'); return null }
+  return n
+}
+
 function partnerFields(b: Record<string, unknown>) {
   const e = new FieldErrors()
   const out = {
@@ -610,6 +629,9 @@ function partnerFields(b: Record<string, unknown>) {
     capital: e.str('capital', b.capital, { max: 50, required: false }) ?? null,
     profitShare: e.str('profit_share', b.profit_share, { max: 20, required: false }) ?? null,
     remuneration: e.str('remuneration', b.remuneration, { max: 200, required: false }) ?? null,
+    // Private Limited: director, shareholder or both, and the shares allotted.
+    role: b.role ? oneOf(e, 'role', b.role, PERSON_ROLES) ?? null : null,
+    shares: shareCount(e, b.shares),
   }
   e.throwIfAny()
   return out as typeof out & { name: string }
@@ -1111,7 +1133,7 @@ function templateItemFields(b: Record<string, unknown>, partial: boolean) {
   if (!partial || b.kind !== undefined) out.kind = oneOf(e, 'kind', b.kind, ITEM_KINDS) ?? 'ACTION'
   if (b.per_partner !== undefined) out.perPartner = !!b.per_partner
   if (b.doc_key !== undefined) out.docKey = str(b.doc_key)?.toUpperCase().replace(/[^A-Z0-9_]/g, '_').slice(0, 40) ?? null
-  if (b.condition !== undefined) out.condition = b.condition ? oneOf(e, 'condition', b.condition, PREMISES) ?? null : null
+  if (b.condition !== undefined) out.condition = b.condition ? oneOf(e, 'condition', b.condition, CONDITIONS) ?? null : null
   if (b.default_due_days !== undefined) {
     const n = b.default_due_days === null || b.default_due_days === '' ? null : Number(b.default_due_days)
     if (n !== null && (!Number.isInteger(n) || n < 0 || n > 365)) e.add('default_due_days', 'Whole days, 0–365.')

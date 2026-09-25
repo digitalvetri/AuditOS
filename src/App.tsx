@@ -334,6 +334,15 @@ export default function App() {
                 <Route path="registration" element={<RegistrationServiceDetail slug="llp" embedded />} />
                 <Route path="about" element={<Navigate to="../registration" replace />} />
               </Route>
+              {/* Private Limited Incorporation — the same case engine, its own checklist. */}
+              <Route path="workstation/services/registration/private-limited" element={<PartnershipShell kind="PRIVATE_LIMITED" />}>
+                <Route index element={<Navigate to="dashboard" replace />} />
+                <Route path="dashboard" element={<PartnershipDashboard />} />
+                <Route path="clients" element={<PartnershipClients />} />
+                <Route path="clients/:caseId" element={<PartnershipCase />} />
+                <Route path="template" element={<PartnershipTemplate />} />
+                <Route path="registration" element={<RegistrationServiceDetail slug="private-limited" embedded />} />
+              </Route>
               <Route path="workstation/services/registration/:slug" element={<RegistrationServiceDetail />} />
               <Route path="workstation/services/:category" element={<ServicesPage />} />
               <Route path="workstation/follow-ups" element={<FollowUpsPage />} />

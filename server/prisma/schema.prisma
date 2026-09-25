@@ -6668,6 +6668,10 @@ model PartnershipPartner {
   capital      String?
   profitShare  String?
   remuneration String?
+  /// Private Limited: DIRECTOR | SHAREHOLDER | BOTH
+  role         String?
+  /// Private Limited: shares allotted to this person (shareholding pattern)
+  shares       Int?
   sortOrder    Int     @default(0)
 
   case         PartnershipCase             @relation(fields: [caseId], references: [id])

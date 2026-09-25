@@ -187,6 +187,7 @@ export function createApp() {
   app.use('/api/gstr1', forKind('GSTR1'), partnershipRouter)
   app.use('/api/gstr2b', forKind('GSTR2B'), partnershipRouter)
   app.use('/api/gstr3b', forKind('GSTR3B'), partnershipRouter)
+  app.use('/api/private-limited', forKind('PRIVATE_LIMITED'), partnershipRouter)
   // NOT '/api/documents': that path already belongs to the HRMS
   // EmployeeDocument router mounted above, and Express matches the first
   // mount — so mounting here would shadow the Workstation list and silently
