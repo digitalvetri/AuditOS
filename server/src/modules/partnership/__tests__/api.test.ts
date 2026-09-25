@@ -68,6 +68,43 @@ function pdf(name: string) {
 
 const firstItem = (c: any) => c.categories[0].items[0]
 
+describe('Private Limited Incorporation (same engine, /api/private-limited)', () => {
+  it('builds each person their own checklist from the source, with Any One proofs as one requirement', async () => {
+    const cl = await client('Pvt Client')
+    const r = await api('/api/private-limited/cases', { method: 'POST', body: { client_id: cl.id } })
+    expect(r.status).toBe(201)
+    expect(r.body.case_code).toMatch(/^PVT-/)
+    const id = r.body.id
+    const get = async () => (await api(`/api/private-limited/cases/${id}`)).body
+
+    const both = await api(`/api/private-limited/cases/${id}/partners`, { method: 'POST', body: { name: 'Kaarthika P', role: 'BOTH', shares: '5000' } })
+    expect(both.status).toBe(201)
+    await api(`/api/private-limited/cases/${id}/partners`, { method: 'POST', body: { name: 'Second Holder', role: 'SHAREHOLDER', shares: 5000 } })
+    expect((await api(`/api/private-limited/cases/${id}/partners`, { method: 'POST', body: { name: 'X', role: 'CEO' } })).status).toBe(400)
+
+    const c = await get()
+    expect(c.partners.map((p: any) => [p.name, p.role, p.shares])).toEqual([['Kaarthika P', 'BOTH', 5000], ['Second Holder', 'SHAREHOLDER', 5000]])
+    // Per person: PAN, Identity (any one), Address (any one), Aadhaar, Photo, EPF signature = 6 documents
+    expect(c.progress.docs_required).toBe(12)
+    const kp = c.requirements.filter((x: any) => x.name.endsWith('— Kaarthika P')).map((x: any) => x.name)
+    expect(kp).toContain('Identity Proof — Kaarthika P')
+    expect(kp.some((n: string) => n.startsWith('Passport —'))).toBe(false)
+
+    await api(`/api/private-limited/cases/${id}`, { method: 'PATCH', body: { premises_type: 'RENTED' } })
+    expect((await get()).progress.docs_required).toBe(12 + 3)
+    await api(`/api/private-limited/cases/${id}`, { method: 'PATCH', body: { premises_type: 'OWNED' } })
+    const owned = await get()
+    expect(owned.progress.docs_required).toBe(12 + 2)
+    const na = owned.requirements.filter((x: any) => x.status === 'NOT_APPLICABLE').map((x: any) => x.name)
+    expect(na).toContain('Valid Rent Agreement / Lease Deed')
+
+    const details = { company_names: ['Alpha Pvt Ltd', 'Beta Pvt Ltd'], name_significance: 'x', main_objective: 'Software', authorized_capital: '1,00,000', paid_up_capital: '1,00,000' }
+    await api(`/api/private-limited/cases/${id}/details`, { method: 'PUT', body: { details } })
+    expect((await get()).details).toMatchObject(details)
+    expect((await api(`/api/llp/cases/${id}`)).status).toBe(404)
+  })
+})
+
 beforeAll(async () => {
   const org = await prisma.organisation.create({ data: { id: uid('org'), name: 'Firm' } })
   orgId = org.id
@@ -317,4 +354,31 @@ describe('LLP Registration (same engine, /api/llp)', () => {
     const kinds = (await api(`/api/llp/cases/${id}/activity`)).body.items.map((a: any) => a.action)
     expect(kinds).toEqual(expect.arrayContaining(['case.stage_changed', 'item.completed', 'details.updated']))
   })
+})
+
+describe('GST Registration (same engine, /api/gst-registration)', () => {
+  it('collects only the chosen business type\'s documents plus business place proof', async () => {
+    const cl = await client('GST Client')
+    const r = await api('/api/gst-registration/cases', { method: 'POST', body: { client_id: cl.id } })
+    expect(r.status).toBe(201)
+    expect(r.body.case_code).toMatch(/^GST-\d{4}-\d{4}$/)
+    const id = r.body.id
+    const req = async () => (await api(`/api/gst-registration/cases/${id}`)).body.progress.docs_required
+    expect(await req()).toBe(0) // nothing decided yet → nothing demanded
+
+    await api(`/api/gst-registration/cases/${id}`, { method: 'PATCH', body: { entity_type: 'PROPRIETORSHIP', premises_type: 'OWNED' } })
+    expect(await req()).toBe(4 + 1) // PAN, Aadhaar, photo, bank + one owned-property proof
+
+    await api(`/api/gst-registration/cases/${id}`, { method: 'PATCH', body: { entity_type: 'PARTNERSHIP', premises_type: 'RENTED' } })
+    await api(`/api/gst-registration/cases/${id}/partners`, { method: 'POST', body: { name: 'Ravi' } })
+    await api(`/api/gst-registration/cases/${id}/partners`, { method: 'POST', body: { name: 'Priya' } })
+    const c = (await api(`/api/gst-registration/cases/${id}`)).body
+    // Firm PAN, deed, signatory proof, bank (4) + PAN/Aadhaar/photo × 2 partners (6) + rented proofs (3)
+    expect(c.progress.docs_required).toBe(13)
+    const applicable = c.requirements.filter((x: any) => x.status !== 'NOT_APPLICABLE').map((x: any) => x.name)
+    expect(applicable).toContain('PAN of all Partners — Priya')
+    expect(applicable.some((n: string) => n.startsWith("Owner's"))).toBe(false)
+    expect((await api(`/api/llp/cases/${id}`)).status).toBe(404)
+  })
+
 })

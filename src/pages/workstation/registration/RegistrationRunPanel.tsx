@@ -156,8 +156,7 @@ export function RegistrationRunPanel({ service }: { service: RegistrationService
         {/* ── 2 · portal ─────────────────────────────────────────────── */}
         <Step n={2} title="Open the official portal" done={false}>
           {portalDisabled ? (
-            /* No registration currently sets portalUrl to null — Proprietorship,
-               the one that used to, now points at the GST portal. The branch
+            /* No registration currently sets portalUrl to null. The branch
                stays as the guard for any registration that genuinely has
                nowhere to go, so a null can never render a dead button. */
             <p className="text-13 text-neutral-600">

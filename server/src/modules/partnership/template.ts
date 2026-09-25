@@ -478,3 +478,50 @@ export const GSTR3B_TEMPLATE: TemplateCategorySeed[] = [
     ],
   },
 ];
+
+/** Private Limited: the source defines no stages — collect, then incorporate. */
+export const PVT_STAGES = ['DOCUMENTS', 'COMPLETED'] as const;
+
+/**
+ * Private Limited Incorporation — SOURCE: "Private Limited Incorporation
+ * Documents .pdf" (Registration folder). Section 1 is per person; section 2
+ * splits by rented / owned office; section 3 is information.
+ */
+export const PVT_TEMPLATE: TemplateCategorySeed[] = [
+  {
+    name: 'Documents of All Directors & Shareholders',
+    stage: 'DOCUMENTS',
+    perPartner: true,
+    items: [
+      { name: 'PAN Card', description: 'Mandatory for all Indian nationals (Name must match exactly with Aadhaar)', requirement: 'REQUIRED', kind: 'DOCUMENT' },
+      { name: 'Identity Proof', description: 'Any One: Passport, Voter ID, or Driving License', requirement: 'REQUIRED', kind: 'DOCUMENT', docTypeOptions: ['Passport', 'Voter ID', 'Driving License'] },
+      { name: 'Address Proof', description: 'Any One — must not be older than 2 months and name must match PAN exactly: Bank Statement, Electricity Bill, or Mobile/Broadband Bill', requirement: 'REQUIRED', kind: 'DOCUMENT', docTypeOptions: ['Bank Statement', 'Electricity Bill', 'Mobile/Broadband Bill'], maxAgeDays: 60 },
+      { name: 'Aadhaar Card', description: 'Mandatory for verification', requirement: 'REQUIRED', kind: 'DOCUMENT' },
+      { name: 'Passport Size Photo', description: 'Recent, with a clear background', requirement: 'REQUIRED', kind: 'DOCUMENT' },
+      { name: 'Mobile Number', description: 'Separate for each Director (for OTP verification)', requirement: 'REQUIRED', kind: 'INFO' },
+      { name: 'Email ID', description: 'Separate for each Director (for OTP verification)', requirement: 'REQUIRED', kind: 'INFO' },
+      { name: 'Signature for EPF Application', description: 'Please sign in a white plain paper for EPF application', requirement: 'REQUIRED', kind: 'DOCUMENT' },
+    ],
+  },
+  {
+    name: 'Registered Office Proof of the Company',
+    stage: 'DOCUMENTS',
+    items: [
+      { name: 'Valid Rent Agreement / Lease Deed', description: 'If Rented / Leased Premises', requirement: 'CONDITIONAL', kind: 'DOCUMENT', condition: 'RENTED' },
+      { name: 'No Objection Certificate (NOC) from the Property Owner', description: 'If Rented / Leased Premises', requirement: 'CONDITIONAL', kind: 'DOCUMENT', condition: 'RENTED' },
+      { name: 'Recent Utility Bill', description: "If Rented / Leased Premises — Electricity Bill / Gas Bill / Property Tax Receipt in the Owner's name, not older than 2 months", requirement: 'CONDITIONAL', kind: 'DOCUMENT', condition: 'RENTED', docTypeOptions: ['Electricity Bill', 'Gas Bill', 'Property Tax Receipt'], maxAgeDays: 60 },
+      { name: 'Ownership Deed / Sale Deed', description: 'If Owned Premises', requirement: 'CONDITIONAL', kind: 'DOCUMENT', condition: 'OWNED' },
+      { name: 'Recent Electricity Bill or Property Tax Receipt', description: 'If Owned Premises', requirement: 'CONDITIONAL', kind: 'DOCUMENT', condition: 'OWNED', docTypeOptions: ['Electricity Bill', 'Property Tax Receipt'] },
+    ],
+  },
+  {
+    name: 'Basic Company Details Needed',
+    stage: 'DOCUMENTS',
+    items: [
+      { name: 'Proposed Company Names', description: '2 unique names in order of preference (along with the significance of the word/name chosen)', requirement: 'REQUIRED', kind: 'INFO' },
+      { name: 'Main Objective', description: 'A brief description of the primary business activities you plan to conduct', requirement: 'REQUIRED', kind: 'INFO' },
+      { name: 'Capital Structure', description: 'Total Proposed Authorized Capital & Paid-up Capital (e.g., Rs. 1,00,000)', requirement: 'REQUIRED', kind: 'INFO' },
+      { name: 'Shareholding Pattern', description: 'How many shares will be allocated to each shareholder/director', requirement: 'REQUIRED', kind: 'INFO' },
+    ],
+  },
+];

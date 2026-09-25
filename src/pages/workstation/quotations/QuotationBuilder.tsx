@@ -66,6 +66,7 @@ export function QuotationBuilderPage() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const prefillClientId = searchParams.get('client_id');
+  const prefillLeadId = searchParams.get('lead_id');
   const prefilled = useRef(false);
   const queryClient = useQueryClient();
 
@@ -311,6 +312,22 @@ export function QuotationBuilderPage() {
     prefilled.current = true;
     chooseParty('client', prefillClientId);
   }, [id, prefillClientId, clientsQ.data]);
+
+  /**
+   * The same arrival from a LEAD — "New quotation" on the lead page sends
+   * ?lead_id=…. It waits on the lead list for the same reason the client
+   * branch waits on the client list: chooseParty reads the row to fill the
+   * snapshot, so firing before the list is in would attach the party and
+   * leave the name blank. `prefilled` is shared with the client branch, so a
+   * URL carrying both attaches whichever list lands first and the other is
+   * then refused — the party is never silently swapped underneath the user.
+   */
+  useEffect(() => {
+    if (id || prefilled.current || !prefillLeadId || !leadsQ.data) return;
+    if (!leadsQ.data.items.some((l) => l.id === prefillLeadId)) return;
+    prefilled.current = true;
+    chooseParty('lead', prefillLeadId);
+  }, [id, prefillLeadId, leadsQ.data]);
 
   function applyTemplate(next: TemplateId) {
     setTemplateId(next);

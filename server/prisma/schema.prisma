@@ -6684,11 +6684,12 @@ model PartnershipCase {
   dueDate            String?
   /// RENTED | OWNED — decides which office-proof items apply
   premisesType       String?
-  /// PROPRIETORSHIP | PARTNERSHIP | LLP | PVT_LTD — the client's entity type
-  /// for GST Registration. Decides which of the six §7.1 categories apply.
+  /// PROPRIETORSHIP | PARTNERSHIP | LLP | LLP_COMPANY | PVT_LTD — the
+  /// client's entity type for GST Registration and Private Limited
+  /// Incorporation. Decides which document section applies.
   entityType         String?
   /// The return period the case belongs to, for GSTR* kinds only. Null for
-  /// the three one-time registrations. 'YYYY-MM' for monthly filers, or
+  /// the one-time registrations. 'YYYY-MM' for monthly filers, or
   /// 'YYYY-Q1'..'YYYY-Q4' for quarterly. Together with (clientId, kind) it
   /// is the natural identity of a return-cycle case — GST-RETURNS-CASE-
   /// SCREEN §6.
@@ -6755,6 +6756,10 @@ model PartnershipPartner {
   capital      String?
   profitShare  String?
   remuneration String?
+  /// Private Limited: DIRECTOR | SHAREHOLDER | BOTH
+  role         String?
+  /// Private Limited: shares allotted to this person (shareholding pattern)
+  shares       Int?
   sortOrder    Int     @default(0)
 
   case         PartnershipCase             @relation(fields: [caseId], references: [id])
