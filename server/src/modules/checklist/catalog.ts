@@ -1,15 +1,10 @@
 /**
  * The GST master catalogue, as data.
  *
- * These are the same eleven services the Workstation → Services → GST page
- * lists (src/pages/workstation/gst/services.ts) plus the twelve default
- * categories. They are SEEDED, not hard-coded behaviour: `ensureCatalog()`
- * upserts them by slug/name once per organisation, after which a user can add
- * categories and services of their own and nothing here overwrites them.
- *
- * Seeding rather than reading the frontend file keeps the master catalogue a
- * database table, which is what lets §6's "also add this to GST Master
- * Services" work at all.
+ * Eleven services plus twelve default categories. They are SEEDED, not
+ * hard-coded behaviour: `ensureCatalog()` upserts them by slug/name once per
+ * organisation, after which a user can add categories and services of their
+ * own and nothing here overwrites them.
  */
 
 export const CHECKLIST_KINDS = ['gst'] as const

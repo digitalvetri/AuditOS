@@ -100,15 +100,12 @@ import { GstDashboard } from '@/pages/workstation/registration/gst/GstDashboard'
 import { GstClients } from '@/pages/workstation/registration/gst/GstClients';
 import { Gstr1Page, Gstr2bPage, Gstr3bPage } from '@/pages/workstation/registration/gst/GstStagePage';
 import { GstPeriodDetail } from '@/pages/workstation/registration/gst/GstPeriodDetail';
+import { GstTemplateHub } from '@/pages/workstation/registration/gst/GstTemplateHub';
 import { RegistrationServiceDetail } from '@/pages/workstation/registration/RegistrationServiceDetail';
-import { GstServicesLanding } from '@/pages/workstation/gst/GstServicesLanding';
-import { GstServiceHandoff } from '@/pages/workstation/gst/GstServiceHandoff';
 // E-Invoice & E-Way Bill monitoring page (E-INVOICE-EWAYBILL.md). Both
 // sidebar entries route here, but `mode` splits them: each screen shows only
 // its own monitors, setup row and reconciliation column.
 import EInvoiceEwbPage from '@/pages/workstation/einvoice-ewb/EInvoiceEwbPage';
-import { GstWorkspace } from '@/pages/workstation/gst/GstWorkspace';
-import { GstNoticeCheck } from '@/pages/workstation/gst/NoticeCheck';
 
 // TDS — copied from the GST page structure per TDS-PAGE-PROMPT.md.
 // Client + FY + TAN scope in the URL; six sub-services (Registration,
@@ -275,15 +272,6 @@ export default function App() {
                   :category catch-all below. */}
               <Route path="workstation/services/tds" element={<TdsServicesLanding />} />
               <Route path="workstation/services/tds/:slug" element={<TdsServiceHandoff />} />
-              {/* GST module landing + per-service AssistedHandoff detail —
-                  see docs/gst-services/README.md. Declared BEFORE the
-                  :category catch-all so they win. */}
-              <Route path="workstation/services/gst" element={<GstServicesLanding />} />
-              {/* Weekly notice-check comes BEFORE the /:slug catch to avoid
-                  being treated as a service slug. */}
-              <Route path="workstation/services/gst/notice-check" element={<GstNoticeCheck />} />
-              <Route path="workstation/services/gst/:slug" element={<GstServiceHandoff />} />
-              <Route path="workstation/services/gst/:slug/workspace" element={<GstWorkspace />} />
               {/* E-Invoice & E-Way Bill — one page for both sidebar entries.
                   Declared BEFORE the :category catch-all so both slugs resolve
                   here instead of the generic Services page. */}
@@ -302,19 +290,26 @@ export default function App() {
                     one-time registration reference. */}
                 <Route index element={<Navigate to="dashboard" replace />} />
                 <Route path="dashboard" element={<GstDashboard />} />
-                {/* GST Registration — client cases on the registration engine;
-                    the original reference page is its "Reference" tab. */}
-                <Route path="registration" element={<PartnershipShell kind="GST" />}>
-                  <Route index element={<Navigate to="clients" replace />} />
-                  <Route path="clients" element={<PartnershipClients />} />
-                  <Route path="clients/:caseId" element={<PartnershipCase />} />
-                  <Route path="template" element={<PartnershipTemplate />} />
-                  <Route path="registration" element={<GstRegistrationTab />} />
-                </Route>
+                <Route path="registration" element={<GstRegistrationTab />} />
+                {/* /registration/clients aliases /registration so
+                    PartnershipCase's "Back to GST Registration Clients"
+                    link lands on the case list (which lives inside the
+                    Registration tab). */}
+                <Route path="registration/clients" element={<GstRegistrationTab />} />
+                {/* Registration case screen — the shared PartnershipCase,
+                    resolved through the GST ServiceProvider on GstShell.
+                    Path mirrors Partnership/LLP (base + '/clients/:caseId')
+                    so PartnershipClients.navigate hits the right route. */}
+                <Route path="registration/clients/:caseId" element={<PartnershipCase />} />
                 <Route path="clients" element={<GstClients />} />
                 <Route path="gstr1" element={<Gstr1Page />} />
                 <Route path="gstr2b" element={<Gstr2bPage />} />
                 <Route path="gstr3b" element={<Gstr3bPage />} />
+                {/* Checklist Template editor — hub with a sub-nav to switch
+                    between GST Registration and the three return templates
+                    (§7.2, §7.3, §7.4). Each uses the shared PartnershipTemplate
+                    re-rooted in a ServiceProvider for the chosen kind. */}
+                <Route path="template" element={<GstTemplateHub />} />
                 {/* Every list row navigates here — the one place work is done. */}
                 <Route path="periods/:periodId" element={<GstPeriodDetail />} />
               </Route>

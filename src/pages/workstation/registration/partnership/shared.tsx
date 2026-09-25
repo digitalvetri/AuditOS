@@ -2,8 +2,8 @@ import { createContext, useContext, type ReactNode } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { workstationApi } from '@/modules/workstation/api';
 import {
-  gstRegistrationApi, privateLimitedApi, llpApi, makeRegistrationKeys, partnershipApi,
-  type CaseStatus, type DueState, type RegistrationApi, type RegistrationKeys, type RegistrationKind, type RequirementType,
+  gstRegApi, gstr1Api, gstr2bApi, gstr3bApi, privateLimitedApi, llpApi, makeRegistrationKeys, partnershipApi,
+  type CaseStatus, type DueState, type EntityType, type RegistrationApi, type RegistrationKeys, type RegistrationKind, type RequirementType,
 } from '@/modules/partnership/api';
 import { fmtDate } from '@/lib/format';
 
@@ -44,17 +44,42 @@ const LLP_STAGES = [
   { value: 'STAGE_2', label: 'Stage 2' },
   { value: 'COMPLETED', label: 'Completed' },
 ];
-
-/** The GST source defines no stages: collect the documents, then the GSTIN. */
+/** GST Registration: collect → REG-01 filed → GSTIN issued. */
 const GST_STAGES = [
-  { value: 'DOCUMENTS', label: 'Document Collection' },
+  { value: 'INFO_COLLECTION', label: 'Information Collection' },
+  { value: 'FILING', label: 'Filing (REG-01)' },
   { value: 'REGISTERED', label: 'Registered' },
 ];
+/** GSTR-1 (§7.2). */
+const GSTR1_STAGES = [
+  { value: 'DATA_COLLECTION', label: 'Data Collection' },
+  { value: 'PREPARATION', label: 'Preparation' },
+  { value: 'PRE_FILING', label: 'Pre-Filing Verification' },
+  { value: 'FILING', label: 'Filing' },
+];
+/** IMS + GSTR-2B (§7.3). */
+const GSTR2B_STAGES = [
+  { value: 'INWARD_DATA', label: 'Inward Data' },
+  { value: 'IMS_ACTIONS', label: 'IMS Actions' },
+  { value: 'RECONCILIATION', label: '2B & Reconciliation' },
+  { value: 'FINALISE', label: 'Finalise' },
+];
+/** GSTR-3B (§7.4). */
+const GSTR3B_STAGES = [
+  { value: 'PREREQUISITES', label: 'Prerequisites' },
+  { value: 'VERIFICATION', label: 'Verification' },
+  { value: 'PAYMENT', label: 'Payment' },
+  { value: 'FILING', label: 'Filing' },
+];
 
+
+/** Label for an entity type named in a checklist condition (GST Registration). */
 export const ENTITY_LABEL: Record<string, string> = {
-  PROPRIETORSHIP: 'Individual / Proprietorship',
+  PROPRIETORSHIP: 'Proprietorship',
   PARTNERSHIP: 'Partnership Firm',
-  LLP_COMPANY: 'LLP / Private Limited Company',
+  LLP: 'LLP',
+  PVT_LTD: 'Private Limited Company',
+  LLP_OR_PVT_LTD: 'LLP / Private Limited Company',
 };
 
 export const SERVICES: Record<RegistrationKind, RegistrationService> = {
@@ -78,13 +103,48 @@ export const SERVICES: Record<RegistrationKind, RegistrationService> = {
   },
   GST: {
     kind: 'GST',
+    // GST Registration cases live inside the GST Compliance module under
+    // the Registration tab — the module already owns /registration/gst and
+    // its own "Clients" tab means the compliance roster, not registration
+    // cases. Nesting under /registration keeps registration-case URLs like
+    // /registration/gst/registration/clients/<id> distinct from the
+    // compliance client roster at /registration/gst/clients.
     label: 'GST Registration',
-    // Lives inside the GST module: Services → GST → GST Registration.
     base: '/workstation/services/registration/gst/registration',
-    api: gstRegistrationApi,
+    api: gstRegApi,
     keys: makeRegistrationKeys('gst-registration'),
     stageOptions: GST_STAGES,
     stageLabel: stageLabeller(GST_STAGES),
+  },
+  // The three return checklists (§7.2, §7.3, §7.4). No case list / case
+  // screen for these yet — the recurring-cycle "case per period" flow is a
+  // separate build; today these entries drive the Checklist Template editor.
+  GSTR1: {
+    kind: 'GSTR1',
+    label: 'GSTR-1',
+    base: '/workstation/services/registration/gst/gstr1',
+    api: gstr1Api,
+    keys: makeRegistrationKeys('gstr1'),
+    stageOptions: GSTR1_STAGES,
+    stageLabel: stageLabeller(GSTR1_STAGES),
+  },
+  GSTR2B: {
+    kind: 'GSTR2B',
+    label: 'IMS + GSTR-2B',
+    base: '/workstation/services/registration/gst/gstr2b',
+    api: gstr2bApi,
+    keys: makeRegistrationKeys('gstr2b'),
+    stageOptions: GSTR2B_STAGES,
+    stageLabel: stageLabeller(GSTR2B_STAGES),
+  },
+  GSTR3B: {
+    kind: 'GSTR3B',
+    label: 'GSTR-3B',
+    base: '/workstation/services/registration/gst/gstr3b',
+    api: gstr3bApi,
+    keys: makeRegistrationKeys('gstr3b'),
+    stageOptions: GSTR3B_STAGES,
+    stageLabel: stageLabeller(GSTR3B_STAGES),
   },
   PRIVATE_LIMITED: {
     kind: 'PRIVATE_LIMITED',
@@ -102,6 +162,14 @@ export function ServiceProvider({ kind, children }: { kind: RegistrationKind; ch
   return <ServiceContext.Provider value={SERVICES[kind]}>{children}</ServiceContext.Provider>;
 }
 export const useSvc = () => useContext(ServiceContext);
+
+/** Entity types a GST Registration case can be scoped to. */
+export const ENTITY_TYPE_OPTIONS: { value: EntityType; label: string }[] = [
+  { value: 'PROPRIETORSHIP', label: 'Proprietorship' },
+  { value: 'PARTNERSHIP', label: 'Partnership Firm' },
+  { value: 'LLP', label: 'LLP' },
+  { value: 'PVT_LTD', label: 'Private Limited Company' },
+];
 
 export const CASE_STATUS_OPTIONS: { value: CaseStatus; label: string }[] = [
   { value: 'NOT_STARTED', label: 'Not Started' },

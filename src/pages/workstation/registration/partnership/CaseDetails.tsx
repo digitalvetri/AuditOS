@@ -2,18 +2,24 @@ import { useState, type ReactNode } from 'react';
 import { type CaseDetail, type Partner, type RegistrationDetails, type LlpDetails, type PvtDetails } from '@/modules/partnership/api';
 import { Card, Field, Modal, fieldErrors, inputClass, textareaClass } from '@/modules/workstation/components';
 import { Button } from '@/components/Button';
-import { ENTITY_LABEL, useSvc } from './shared';
+import { ENTITY_TYPE_OPTIONS, useSvc } from './shared';
 import { useCaseMutation } from './PartnershipCase';
 
 /**
  * Registration Details — the fields named in the source PDF, Part A
  * ("Details & documents required for Partnership Deed drafting"). Client
  * master data (name, GSTIN, contact) stays on the client record.
+ *
+ * The switch on kind is BY DESIGN — a case's Details form is
+ * service-specific, and Partnership, LLP and GST Registration each ask for
+ * different things. The rest of the case screens (header, checklist,
+ * documents, activity) stay generic.
  */
 export function CaseDetails({ c }: { c: CaseDetail }) {
   if (c.kind === 'GST') return <GstCaseDetails c={c} />;
   if (c.kind === 'PRIVATE_LIMITED') return <PvtCaseDetails c={c} />;
-  return c.kind === 'LLP' ? <LlpCaseDetails c={c} /> : <PartnershipDetails c={c} />;
+  if (c.kind === 'LLP') return <LlpCaseDetails c={c} />;
+  return <PartnershipDetails c={c} />;
 }
 
 function PartnershipDetails({ c }: { c: CaseDetail }) {
@@ -172,6 +178,50 @@ function LlpCaseDetails({ c }: { c: CaseDetail }) {
 }
 
 /**
+ * GST Registration Details — REG-01 has almost no free-text; the checklist
+ * covers what documents to collect. The entity type decides which of the six
+ * §7.1 categories apply, and the premises type decides which of the four
+ * office-proof documents apply.
+ */
+function GstCaseDetails({ c }: { c: CaseDetail }) {
+  const { api: regApi } = useSvc();
+  const entity = useCaseMutation((v: string) => regApi.updateCase(c.id, { entity_type: v || null }), 'Entity type updated');
+  const office = useCaseMutation((v: string) => regApi.updateCase(c.id, { premises_type: v || null }), 'Premises updated');
+  const ro = !c.permissions.manage;
+  return (
+    <div className="space-y-4">
+      <Section title="Entity">
+        <Field label="Client entity type" hint="Decides which of the six §7.1 categories the checklist shows.">
+          <select
+            className={inputClass + ' max-w-[320px]'}
+            disabled={ro || entity.isPending}
+            value={c.entity_type ?? ''}
+            onChange={(e) => entity.mutate(e.target.value)}
+          >
+            <option value="">Not specified</option>
+            {ENTITY_TYPE_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+          </select>
+        </Field>
+      </Section>
+
+      <Section title="Business Place">
+        <Field label="Principal place of business is" hint="Decides which office-proof documents are collected.">
+          <select className={inputClass + ' max-w-[260px]'} disabled={ro || office.isPending} value={c.premises_type ?? ''} onChange={(e) => office.mutate(e.target.value)}>
+            <option value="">Not specified</option>
+            <option value="RENTED">Rented / Leased</option>
+            <option value="OWNED">Owned</option>
+          </select>
+        </Field>
+      </Section>
+
+      {c.entity_type === 'PARTNERSHIP' || c.entity_type === 'LLP' || c.entity_type === 'PVT_LTD' ? (
+        <Partners c={c} />
+      ) : null}
+    </div>
+  );
+}
+
+/**
  * Private Limited — "BASIC COMPANY DETAILS NEEDED" (source section 3) plus the
  * registered-office type that decides which office proofs apply (section 2).
  * The shareholding pattern is read from the people below — one record each.
@@ -271,39 +321,6 @@ function Shareholding({ partners }: { partners: Partner[] }) {
   );
 }
 
-/**
- * GST — the source is a document list "based on your business type", so the
- * details are the two facts that decide which documents apply, plus the
- * partners / directors whose PAN, Aadhaar and photo are collected.
- */
-function GstCaseDetails({ c }: { c: CaseDetail }) {
-  const { api: regApi } = useSvc();
-  const update = useCaseMutation((v: Record<string, unknown>) => regApi.updateCase(c.id, v), 'Saved');
-  const ro = !c.permissions.manage || update.isPending;
-  return (
-    <div className="space-y-4">
-      <Section title="Business">
-        <div className="grid md:grid-cols-2 gap-x-4">
-          <Field label="Business type" hint="Only this type's documents are collected.">
-            <select className={inputClass} disabled={ro} value={c.entity_type ?? ''} onChange={(e) => update.mutate({ entity_type: e.target.value || null })}>
-              <option value="">Not specified</option>
-              {Object.entries(ENTITY_LABEL).map(([v, l]) => <option key={v} value={v}>{l}</option>)}
-            </select>
-          </Field>
-          <Field label="Business place" hint="Business Place Proof is mandatory for all.">
-            <select className={inputClass} disabled={ro} value={c.premises_type ?? ''} onChange={(e) => update.mutate({ premises_type: e.target.value || null })}>
-              <option value="">Not specified</option>
-              <option value="OWNED">Owned Property</option>
-              <option value="RENTED">Rented / Leased Property</option>
-            </select>
-          </Field>
-        </div>
-      </Section>
-      {c.entity_type && c.entity_type !== 'PROPRIETORSHIP' ? <Partners c={c} /> : null}
-    </div>
-  );
-}
-
 /** "5,00,000" / "₹ 5,00,000" → 500000; anything unparseable → null. */
 const num = (v: string | null) => {
   if (!v) return null;
@@ -334,7 +351,7 @@ function Partners({ c }: { c: CaseDetail }) {
   const remove = useCaseMutation((pid: string) => regApi.removePartner(c.id, pid), 'Partner removed');
   return (
     <Card
-      title={pvt ? 'Directors & Shareholders' : c.kind === 'GST' ? (c.entity_type === 'LLP_COMPANY' ? 'Directors / Partners' : 'Partners') : llp ? 'Partners — contribution & profit share' : '2. Partners — identity, address & share'}
+      title={pvt ? 'Directors & Shareholders' : c.kind === 'GST' ? (c.entity_type === 'LLP' || c.entity_type === 'PVT_LTD' ? 'Directors / Partners' : 'Partners') : llp ? 'Partners — contribution & profit share' : '2. Partners — identity, address & share'}
       right={c.permissions.manage ? <Button size="sm" onClick={() => setEditing('new')}>{pvt ? '+ Add Director / Shareholder' : '+ Add Partner'}</Button> : undefined}
     >
       {c.partners.length === 0 ? (

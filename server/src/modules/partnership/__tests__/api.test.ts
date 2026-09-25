@@ -364,7 +364,10 @@ describe('GST Registration (same engine, /api/gst-registration)', () => {
     expect(r.body.case_code).toMatch(/^GST-\d{4}-\d{4}$/)
     const id = r.body.id
     const req = async () => (await api(`/api/gst-registration/cases/${id}`)).body.progress.docs_required
-    expect(await req()).toBe(0) // nothing decided yet → nothing demanded
+    // No entity type yet: every entity's documents are listed (GST rebuild —
+    // entityConditionApplies treats an unknown entity as "applies"); the
+    // premises proofs still wait for the premises type.
+    expect(await req()).toBe(14)
 
     await api(`/api/gst-registration/cases/${id}`, { method: 'PATCH', body: { entity_type: 'PROPRIETORSHIP', premises_type: 'OWNED' } })
     expect(await req()).toBe(4 + 1) // PAN, Aadhaar, photo, bank + one owned-property proof
@@ -376,7 +379,7 @@ describe('GST Registration (same engine, /api/gst-registration)', () => {
     // Firm PAN, deed, signatory proof, bank (4) + PAN/Aadhaar/photo × 2 partners (6) + rented proofs (3)
     expect(c.progress.docs_required).toBe(13)
     const applicable = c.requirements.filter((x: any) => x.status !== 'NOT_APPLICABLE').map((x: any) => x.name)
-    expect(applicable).toContain('PAN of all Partners — Priya')
+    expect(applicable).toContain('PAN Card — Priya') // Partner KYC, one per partner (GST rebuild §7.1)
     expect(applicable.some((n: string) => n.startsWith("Owner's"))).toBe(false)
     expect((await api(`/api/llp/cases/${id}`)).status).toBe(404)
   })

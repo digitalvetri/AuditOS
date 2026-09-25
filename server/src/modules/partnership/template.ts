@@ -27,8 +27,14 @@
 
 export type RequirementType = 'REQUIRED' | 'OPTIONAL' | 'CONDITIONAL';
 export type ItemKind = 'INFO' | 'DOCUMENT' | 'ACTION';
-/** Premises (RENTED/OWNED) or, for GST, the business type the item applies to. */
-export type PremisesCondition = 'RENTED' | 'OWNED' | 'PROPRIETORSHIP' | 'PARTNERSHIP' | 'LLP_COMPANY';
+export type PremisesCondition = 'RENTED' | 'OWNED';
+/**
+ * Entity types for GST Registration. `LLP_OR_PVT_LTD` is used on category-level
+ * conditions where either applies (Entity Documents, Director/Partner KYC);
+ * item-level conditions narrow to one specific entity (MoA & AoA is PVT_LTD
+ * only, LLP Agreement is LLP only).
+ */
+export type EntityCondition = 'PROPRIETORSHIP' | 'PARTNERSHIP' | 'LLP' | 'PVT_LTD' | 'LLP_OR_PVT_LTD';
 
 export interface TemplateItemSeed {
   name: string;
@@ -38,6 +44,8 @@ export interface TemplateItemSeed {
   perPartner?: boolean;
   docKey?: string;
   condition?: PremisesCondition;
+  /** Narrows to one entity type within a category. */
+  entityCondition?: EntityCondition;
   /** "Any one" of these satisfies the item — the uploader picks which. */
   docTypeOptions?: string[];
   maxAgeDays?: number;
@@ -49,6 +57,8 @@ export interface TemplateCategorySeed {
   stage: string;
   /** Repeated for every partner on the case (LLP partner KYC). */
   perPartner?: boolean;
+  /** Restricts the whole category to a specific entity type. */
+  entityCondition?: EntityCondition;
   items: TemplateItemSeed[];
 }
 
@@ -62,6 +72,18 @@ export type CaseStage = (typeof CASE_STAGES)[number];
  * template.
  */
 export const LLP_STAGES = ['STAGE_1', 'STAGE_2', 'COMPLETED'] as const;
+/**
+ * GST Registration: collect KYC + entity documents + place proof, file REG-01
+ * on the portal, GSTIN issued (REG-06). The application itself and the query
+ * cycle live on the portal; the case tracks what the firm gathers and holds.
+ */
+export const GST_STAGES = ['INFO_COLLECTION', 'FILING', 'REGISTERED'] as const;
+/** GSTR-1 (§7.2): outward supplies, filed by the 11th. */
+export const GSTR1_STAGES = ['DATA_COLLECTION', 'PREPARATION', 'PRE_FILING', 'FILING'] as const;
+/** IMS + GSTR-2B (§7.3): inward, actions, reconcile, finalise. */
+export const GSTR2B_STAGES = ['INWARD_DATA', 'IMS_ACTIONS', 'RECONCILIATION', 'FINALISE'] as const;
+/** GSTR-3B (§7.4): prerequisites, verify, pay, file. */
+export const GSTR3B_STAGES = ['PREREQUISITES', 'VERIFICATION', 'PAYMENT', 'FILING'] as const;
 
 export const CASE_STATUSES = [
   'NOT_STARTED',
@@ -212,71 +234,241 @@ export const LLP_TEMPLATE: TemplateCategorySeed[] = [
   },
 ];
 
-/** GST: the source defines no stages — collect the documents, then the GSTIN. */
-export const GST_STAGES = ['DOCUMENTS', 'REGISTERED'] as const
-
 /**
- * GST Registration — SOURCE: "GST Registration .pdf" (Registration folder),
- * "DOCUMENTS REQUIRED FOR GST REGISTRATION", "based on your business type".
- * Sections 1–3 apply by business type; section 4 is "Mandatory for All" and
- * splits by owned / rented property. "PAN & Aadhaar of all Partners" is two
- * files per partner, so it is two items carrying the source line as description.
+ * GST Registration master checklist — GST-MODULE-REBUILD.md §7.1.
+ *
+ * The six categories are grouped by ENTITY TYPE (Proprietorship / Partnership
+ * / LLP / Pvt Ltd), plus one that applies to every entity. The engine has no
+ * entity-type condition on categories today, so every category is seeded and
+ * the description states which entity types it applies to. Case-opening logic
+ * will filter categories against the client's entity type when a GST case is
+ * created; for now the template is data.
+ *
+ * "MoA & AoA (for Co.) / LLP Agreement (for LLP)" in the source is ONE line
+ * but must be TWO items, so the correct one appears per entity type.
  */
-const P = 'PARTNERSHIP' as const
-const L = 'LLP_COMPANY' as const
 export const GST_TEMPLATE: TemplateCategorySeed[] = [
   {
-    name: 'Individual / Proprietorship',
-    stage: 'DOCUMENTS',
+    name: 'Proprietor KYC',
+    description: 'Applies when the entity is a Proprietorship.',
+    stage: 'INFO_COLLECTION',
+    entityCondition: 'PROPRIETORSHIP',
     items: [
-      { name: "Owner's PAN Card", requirement: 'CONDITIONAL', kind: 'DOCUMENT', condition: 'PROPRIETORSHIP' },
-      { name: "Owner's Aadhaar Card", requirement: 'CONDITIONAL', kind: 'DOCUMENT', condition: 'PROPRIETORSHIP' },
-      { name: "Owner's Passport Size Photo", requirement: 'CONDITIONAL', kind: 'DOCUMENT', condition: 'PROPRIETORSHIP' },
-      { name: 'Valid Email ID & Mobile Number', description: 'Linked with Aadhaar', requirement: 'CONDITIONAL', kind: 'INFO', condition: 'PROPRIETORSHIP' },
-      { name: 'Bank Account Details', description: 'Cancel Cheque / Bank Statement / Passbook front page', requirement: 'CONDITIONAL', kind: 'DOCUMENT', condition: 'PROPRIETORSHIP', docTypeOptions: ['Cancel Cheque', 'Bank Statement', 'Passbook front page'] },
+      { name: "Owner's PAN Card", requirement: 'REQUIRED', kind: 'DOCUMENT' },
+      { name: "Owner's Aadhaar Card", requirement: 'REQUIRED', kind: 'DOCUMENT' },
+      { name: "Owner's Passport Size Photo", requirement: 'REQUIRED', kind: 'DOCUMENT' },
+      { name: 'Email & Mobile linked with Aadhaar', requirement: 'REQUIRED', kind: 'INFO' },
+      { name: 'Bank Account Proof', description: 'Any one: cancelled cheque, bank statement, or passbook front page', requirement: 'REQUIRED', kind: 'DOCUMENT', docTypeOptions: ['Cancelled cheque', 'Bank statement', 'Passbook front page'] },
     ],
   },
   {
-    name: 'Partnership Firm',
-    stage: 'DOCUMENTS',
+    name: 'Firm Documents',
+    description: 'Applies when the entity is a Partnership Firm.',
+    stage: 'INFO_COLLECTION',
+    entityCondition: 'PARTNERSHIP',
     items: [
-      { name: "Firm's PAN Card", requirement: 'CONDITIONAL', kind: 'DOCUMENT', condition: P },
-      { name: 'Partnership Deed', requirement: 'CONDITIONAL', kind: 'DOCUMENT', condition: P },
-      { name: 'PAN of all Partners', description: 'PAN & Aadhaar of all Partners', requirement: 'CONDITIONAL', kind: 'DOCUMENT', condition: P, perPartner: true, docKey: 'GST_P_PAN' },
-      { name: 'Aadhaar of all Partners', description: 'PAN & Aadhaar of all Partners', requirement: 'CONDITIONAL', kind: 'DOCUMENT', condition: P, perPartner: true, docKey: 'GST_P_AADHAAR' },
-      { name: 'Photos of all Partners', requirement: 'CONDITIONAL', kind: 'DOCUMENT', condition: P, perPartner: true, docKey: 'GST_P_PHOTO' },
-      { name: 'Authorized Signatory Proof', description: 'Letter of Authorization / Board Resolution', requirement: 'CONDITIONAL', kind: 'DOCUMENT', condition: P, docTypeOptions: ['Letter of Authorization', 'Board Resolution'] },
-      { name: 'Valid Email ID & Mobile Number of all partners', requirement: 'CONDITIONAL', kind: 'INFO', condition: P },
-      { name: "Firm's Bank Account Details", description: 'Cancel Cheque / Statement', requirement: 'CONDITIONAL', kind: 'DOCUMENT', condition: P, docTypeOptions: ['Cancel Cheque', 'Statement'] },
+      { name: "Firm's PAN Card", requirement: 'REQUIRED', kind: 'DOCUMENT' },
+      { name: 'Partnership Deed', requirement: 'REQUIRED', kind: 'DOCUMENT' },
+      { name: 'Authorised Signatory Proof', description: 'Letter of Authorisation or Board Resolution', requirement: 'REQUIRED', kind: 'DOCUMENT' },
+      { name: "Firm's Bank Account Proof", requirement: 'REQUIRED', kind: 'DOCUMENT' },
     ],
   },
   {
-    name: 'LLP / Private Limited Company',
-    stage: 'DOCUMENTS',
+    name: 'Partner KYC',
+    description: 'Applies when the entity is a Partnership Firm. One copy per partner.',
+    stage: 'INFO_COLLECTION',
+    perPartner: true,
+    entityCondition: 'PARTNERSHIP',
     items: [
-      { name: 'Company / LLP PAN Card', requirement: 'CONDITIONAL', kind: 'DOCUMENT', condition: L },
-      { name: 'Certificate of Incorporation (COI)', requirement: 'CONDITIONAL', kind: 'DOCUMENT', condition: L },
-      { name: 'MoA & AoA (for Co.) / LLP Agreement (for LLP)', requirement: 'CONDITIONAL', kind: 'DOCUMENT', condition: L, docTypeOptions: ['MoA & AoA', 'LLP Agreement'] },
-      { name: 'PAN of all Directors / Partners', description: 'PAN & Aadhaar of all Directors / Partners', requirement: 'CONDITIONAL', kind: 'DOCUMENT', condition: L, perPartner: true, docKey: 'GST_D_PAN' },
-      { name: 'Aadhaar of all Directors / Partners', description: 'PAN & Aadhaar of all Directors / Partners', requirement: 'CONDITIONAL', kind: 'DOCUMENT', condition: L, perPartner: true, docKey: 'GST_D_AADHAAR' },
-      { name: 'Photos of all Directors / Partners', requirement: 'CONDITIONAL', kind: 'DOCUMENT', condition: L, perPartner: true, docKey: 'GST_D_PHOTO' },
-      { name: 'Board Resolution / Letter of Authorization for Authorized Signatory', requirement: 'CONDITIONAL', kind: 'DOCUMENT', condition: L, docTypeOptions: ['Board Resolution', 'Letter of Authorization'] },
-      { name: 'Valid Email ID & Mobile Number of Authorized Signatory', requirement: 'CONDITIONAL', kind: 'INFO', condition: L },
-      { name: 'Company Bank Account Details', description: 'Cancel Cheque / Statement', requirement: 'CONDITIONAL', kind: 'DOCUMENT', condition: L, docTypeOptions: ['Cancel Cheque', 'Statement'] },
+      { name: 'PAN Card', requirement: 'REQUIRED', kind: 'DOCUMENT', perPartner: true, docKey: 'PAN' },
+      { name: 'Aadhaar Card', requirement: 'REQUIRED', kind: 'DOCUMENT', perPartner: true },
+      { name: 'Passport Size Photo', requirement: 'REQUIRED', kind: 'DOCUMENT', perPartner: true },
+      { name: 'Email & Mobile', requirement: 'REQUIRED', kind: 'INFO', perPartner: true },
+    ],
+  },
+  {
+    name: 'Entity Documents',
+    description: 'Applies when the entity is an LLP or a Private Limited Company.',
+    stage: 'INFO_COLLECTION',
+    entityCondition: 'LLP_OR_PVT_LTD',
+    items: [
+      { name: 'Company / LLP PAN Card', requirement: 'REQUIRED', kind: 'DOCUMENT' },
+      { name: 'Certificate of Incorporation', requirement: 'REQUIRED', kind: 'DOCUMENT' },
+      { name: 'MoA & AoA', description: 'Applies to Private Limited Company.', requirement: 'CONDITIONAL', kind: 'DOCUMENT', entityCondition: 'PVT_LTD' },
+      { name: 'LLP Agreement', description: 'Applies to LLP.', requirement: 'CONDITIONAL', kind: 'DOCUMENT', entityCondition: 'LLP' },
+      { name: 'Board Resolution / LoA for Signatory', requirement: 'REQUIRED', kind: 'DOCUMENT' },
+      { name: 'Company Bank Account Proof', requirement: 'REQUIRED', kind: 'DOCUMENT' },
+    ],
+  },
+  {
+    name: 'Director / Partner KYC',
+    description: 'Applies when the entity is an LLP or a Private Limited Company. One copy per director or designated partner.',
+    stage: 'INFO_COLLECTION',
+    perPartner: true,
+    entityCondition: 'LLP_OR_PVT_LTD',
+    items: [
+      { name: 'PAN Card', requirement: 'REQUIRED', kind: 'DOCUMENT', perPartner: true, docKey: 'PAN' },
+      { name: 'Aadhaar Card', requirement: 'REQUIRED', kind: 'DOCUMENT', perPartner: true },
+      { name: 'Passport Size Photo', requirement: 'REQUIRED', kind: 'DOCUMENT', perPartner: true },
     ],
   },
   {
     name: 'Business Place Proof',
-    description: 'Mandatory for All',
-    stage: 'DOCUMENTS',
+    description: 'Applies to every entity type.',
+    stage: 'INFO_COLLECTION',
     items: [
-      { name: 'Property Tax Receipt / Ownership Deed / Copy of Electricity Bill', description: 'If Owned Property', requirement: 'CONDITIONAL', kind: 'DOCUMENT', condition: 'OWNED', docTypeOptions: ['Property Tax Receipt', 'Ownership Deed', 'Copy of Electricity Bill'] },
-      { name: 'Valid Rent Agreement / Lease Deed', description: 'If Rented / Leased Property', requirement: 'CONDITIONAL', kind: 'DOCUMENT', condition: 'RENTED' },
-      { name: 'Electricity Bill', description: "If Rented / Leased Property — recent copy in Owner's name", requirement: 'CONDITIONAL', kind: 'DOCUMENT', condition: 'RENTED' },
-      { name: 'NOC (No Objection Certificate) from the Property Owner', description: 'If Rented / Leased Property', requirement: 'CONDITIONAL', kind: 'DOCUMENT', condition: 'RENTED' },
+      { name: "Property Tax Receipt / Ownership Deed / Electricity Bill", description: 'Any one, in the owner\'s name.', requirement: 'CONDITIONAL', kind: 'DOCUMENT', condition: 'OWNED', docTypeOptions: ['Property Tax Receipt', 'Ownership Deed', 'Electricity Bill'] },
+      { name: 'Rent Agreement / Lease Deed', requirement: 'CONDITIONAL', kind: 'DOCUMENT', condition: 'RENTED' },
+      { name: "Electricity Bill in Owner's name", requirement: 'CONDITIONAL', kind: 'DOCUMENT', condition: 'RENTED' },
+      { name: 'NOC from Property Owner', requirement: 'CONDITIONAL', kind: 'DOCUMENT', condition: 'RENTED' },
     ],
   },
-]
+];
+
+/**
+ * GSTR-1 master checklist — GST-MODULE-REBUILD.md §7.2.
+ *
+ * Outward supplies, filed by the 11th of the following month. Once filed,
+ * the liability flows into GSTR-3B and cannot be edited there — hence the
+ * pre-filing verification stage is where the real review happens.
+ */
+export const GSTR1_TEMPLATE: TemplateCategorySeed[] = [
+  {
+    name: 'Data Collection',
+    stage: 'DATA_COLLECTION',
+    items: [
+      { name: 'Sales register received', requirement: 'REQUIRED', kind: 'DOCUMENT' },
+      { name: 'Credit / debit notes for the period', requirement: 'REQUIRED', kind: 'DOCUMENT' },
+      { name: 'Export invoices with shipping bill details', description: 'Applies when the client is an exporter.', requirement: 'CONDITIONAL', kind: 'DOCUMENT' },
+      { name: 'E-commerce supply details', description: 'Applies when the client sells through an e-commerce operator.', requirement: 'CONDITIONAL', kind: 'DOCUMENT' },
+      { name: 'Document series details', requirement: 'REQUIRED', kind: 'ACTION' },
+    ],
+  },
+  {
+    name: 'Preparation',
+    stage: 'PREPARATION',
+    items: [
+      { name: 'B2B invoices — GSTIN validated', requirement: 'REQUIRED', kind: 'ACTION' },
+      { name: 'HSN summary prepared', requirement: 'REQUIRED', kind: 'ACTION' },
+      { name: 'Place of supply verified on B2B', requirement: 'REQUIRED', kind: 'ACTION' },
+      { name: 'Taxable value tallies with books', requirement: 'REQUIRED', kind: 'ACTION' },
+      { name: 'Tax amounts verified CGST / SGST / IGST', requirement: 'REQUIRED', kind: 'ACTION' },
+    ],
+  },
+  {
+    name: 'Pre-Filing Verification',
+    description: 'GSTR-1 liability flows into GSTR-3B and cannot be edited there. Verify before filing. GSTR-1A is the only correction route.',
+    stage: 'PRE_FILING',
+    items: [
+      { name: 'Manager review completed', requirement: 'REQUIRED', kind: 'ACTION' },
+      { name: 'Client confirmation received', requirement: 'OPTIONAL', kind: 'ACTION' },
+    ],
+  },
+  {
+    name: 'Filing',
+    stage: 'FILING',
+    items: [
+      { name: 'Filed on GST portal', description: 'Gated on stages 1–3 complete.', requirement: 'REQUIRED', kind: 'ACTION' },
+      { name: 'ARN captured', requirement: 'REQUIRED', kind: 'INFO' },
+      { name: 'Filed return PDF saved', requirement: 'REQUIRED', kind: 'DOCUMENT' },
+    ],
+  },
+];
+
+/**
+ * IMS + GSTR-2B master checklist — GST-MODULE-REBUILD.md §7.3.
+ *
+ * IMS actions are time-boxed — Accept / Reject / Pending on every inward
+ * invoice must complete before GSTR-2B generates on the 14th. Whatever the
+ * ITC figure lands at here is what GSTR-3B reads; 3B does not recompute.
+ */
+export const GSTR2B_TEMPLATE: TemplateCategorySeed[] = [
+  {
+    name: 'Inward Data',
+    stage: 'INWARD_DATA',
+    items: [
+      { name: 'Purchase register received', requirement: 'REQUIRED', kind: 'DOCUMENT' },
+    ],
+  },
+  {
+    name: 'IMS Actions',
+    description: 'Must complete before GSTR-2B generates on the 14th.',
+    stage: 'IMS_ACTIONS',
+    items: [
+      { name: 'All inward invoices reviewed in IMS', requirement: 'REQUIRED', kind: 'ACTION' },
+      { name: 'Accept / Reject / Pending actioned on all', requirement: 'REQUIRED', kind: 'ACTION' },
+      { name: 'Rejected invoices communicated to suppliers', requirement: 'REQUIRED', kind: 'ACTION' },
+    ],
+  },
+  {
+    name: '2B and Reconciliation',
+    stage: 'RECONCILIATION',
+    items: [
+      { name: 'GSTR-2B downloaded', requirement: 'REQUIRED', kind: 'DOCUMENT' },
+      { name: '2B reconciled against purchase register', requirement: 'REQUIRED', kind: 'ACTION' },
+      { name: 'Missing-in-2B supplier follow-up list sent', description: 'Applies when variances exist.', requirement: 'CONDITIONAL', kind: 'ACTION' },
+      { name: 'ITC eligibility classified', requirement: 'REQUIRED', kind: 'ACTION' },
+      { name: 'Ineligible ITC identified with reason', requirement: 'REQUIRED', kind: 'ACTION' },
+    ],
+  },
+  {
+    name: 'Finalise',
+    stage: 'FINALISE',
+    items: [
+      { name: 'ITC figure locked for GSTR-3B', description: 'GSTR-3B reads this figure and does not recompute it.', requirement: 'REQUIRED', kind: 'INFO' },
+    ],
+  },
+];
+
+/**
+ * GSTR-3B master checklist — GST-MODULE-REBUILD.md §7.4.
+ *
+ * Prerequisites are auto-checked (GSTR-1 filed, ITC finalised from 2B), not
+ * manual — they gate the filing action. The outward liability figure is
+ * locked (from July 2025) and cannot be edited in 3B; GSTR-1A is the only
+ * same-period correction route.
+ */
+export const GSTR3B_TEMPLATE: TemplateCategorySeed[] = [
+  {
+    name: 'Prerequisites',
+    description: 'Auto-checked. GSTR-1 must be filed and the ITC figure finalised from 2B before this return can be filed.',
+    stage: 'PREREQUISITES',
+    items: [
+      { name: 'GSTR-1 filed for this period', description: 'Gate — checked automatically.', requirement: 'REQUIRED', kind: 'ACTION' },
+      { name: 'ITC figure finalised from 2B', description: 'Gate — checked automatically.', requirement: 'REQUIRED', kind: 'ACTION' },
+    ],
+  },
+  {
+    name: 'Verification',
+    description: 'The auto-populated outward liability is locked and cannot be edited in 3B. Use GSTR-1A to correct a mismatch found here.',
+    stage: 'VERIFICATION',
+    items: [
+      { name: 'Auto-populated outward liability verified', description: 'This figure is locked and cannot be edited in 3B.', requirement: 'REQUIRED', kind: 'ACTION' },
+      { name: 'GSTR-1A filed to correct liability', description: 'Applies when a mismatch is found — the only same-period correction route.', requirement: 'CONDITIONAL', kind: 'ACTION' },
+      { name: 'Reverse charge liability computed', requirement: 'REQUIRED', kind: 'ACTION' },
+      { name: 'Ineligible ITC reversal computed', requirement: 'REQUIRED', kind: 'ACTION' },
+      { name: 'Net tax payable computed', requirement: 'REQUIRED', kind: 'ACTION' },
+      { name: 'Cash and credit ledger balances checked', requirement: 'REQUIRED', kind: 'ACTION' },
+    ],
+  },
+  {
+    name: 'Payment',
+    stage: 'PAYMENT',
+    items: [
+      { name: 'Challan generated and paid', description: 'Applies when cash is payable after ITC set-off.', requirement: 'CONDITIONAL', kind: 'DOCUMENT' },
+    ],
+  },
+  {
+    name: 'Filing',
+    stage: 'FILING',
+    items: [
+      { name: 'Manager review completed', requirement: 'REQUIRED', kind: 'ACTION' },
+      { name: 'Filed on GST portal', description: 'Gated on stages 1–3 complete.', requirement: 'REQUIRED', kind: 'ACTION' },
+      { name: 'ARN captured', requirement: 'REQUIRED', kind: 'INFO' },
+      { name: 'Filed return PDF saved', requirement: 'REQUIRED', kind: 'DOCUMENT' },
+    ],
+  },
+];
 
 /** Private Limited: the source defines no stages — collect, then incorporate. */
 export const PVT_STAGES = ['DOCUMENTS', 'COMPLETED'] as const

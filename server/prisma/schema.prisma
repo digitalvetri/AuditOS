@@ -6535,7 +6535,7 @@ model FirmBankAccount {
 
 model PartnershipTemplateCategory {
   id          String  @id @default(uuid())
-  /// PARTNERSHIP | LLP — which registration service this master belongs to
+  /// PARTNERSHIP | LLP | GST — which registration service this master belongs to
   kind        String  @default("PARTNERSHIP")
   /// Repeated once per partner on a case (LLP partner KYC)
   perPartner  Boolean @default(false)
@@ -6544,6 +6544,10 @@ model PartnershipTemplateCategory {
   /// INFO_COLLECTION | DEED | ROF_FILING | REGISTERED
   stage       String
   sortOrder   Int     @default(0)
+  /// PROPRIETORSHIP | PARTNERSHIP | LLP_OR_PVT_LTD — restricts the category to
+  /// clients of that entity type. Null means all entity types (used by
+  /// Business Place Proof and every non-GST category).
+  entityCondition String?
 
   items PartnershipTemplateItem[]
 
@@ -6567,6 +6571,10 @@ model PartnershipTemplateItem {
   docKey         String?
   /// RENTED | OWNED — premises the item applies to
   condition      String?
+  /// LLP | PVT_LTD — narrows an item within a category to one specific entity
+  /// type (MoA & AoA is PVT_LTD only, LLP Agreement is LLP only). Null means
+  /// the item follows its category's entity condition.
+  entityCondition String?
   /// "Any one" choices, pipe-separated ("Passport|Voter ID|Driving License")
   docTypeOptions String?
   /// Document must be dated within this many days (source: "not older than 2 months")
@@ -6606,7 +6614,8 @@ model PartnershipCase {
   dueDate            String?
   /// RENTED | OWNED — decides which office-proof items apply
   premisesType       String?
-  /// GST: PROPRIETORSHIP | PARTNERSHIP | LLP_COMPANY — decides which document section applies
+  /// PROPRIETORSHIP | PARTNERSHIP | LLP | PVT_LTD — the client's entity type
+  /// for GST Registration. Decides which of the six §7.1 categories apply.
   entityType         String?
   /// Registration Details form (fields from the source PDF, Part A)
   detailsJson        String?
@@ -6688,6 +6697,8 @@ model PartnershipCaseCategory {
   /// Items with partnerId = null here are the case's own copy of the per-partner
   /// items — cloned for each partner added, never shown or counted themselves.
   perPartner       Boolean @default(false)
+  /// Snapshot of PartnershipTemplateCategory.entityCondition at case creation.
+  entityCondition  String?
 
   case  PartnershipCase       @relation(fields: [caseId], references: [id])
   items PartnershipCaseItem[]
@@ -6713,6 +6724,8 @@ model PartnershipCaseItem {
   perPartner            Boolean   @default(false)
   docKey                String?
   condition             String?
+  /// Snapshot of PartnershipTemplateItem.entityCondition at case creation.
+  entityCondition       String?
   docTypeOptions        String?
   maxAgeDays            Int?
   /// PENDING | IN_PROGRESS | COMPLETED | NOT_APPLICABLE | BLOCKED

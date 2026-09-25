@@ -11,15 +11,25 @@ export interface EmployeeRef { id: string; full_name: string; employee_code: str
 export type CaseStatus =
   | 'NOT_STARTED' | 'IN_PROGRESS' | 'DOCUMENTS_PENDING' | 'UNDER_REVIEW'
   | 'SUBMITTED' | 'QUERY' | 'COMPLETED' | 'ON_HOLD';
-export type RegistrationKind = 'PARTNERSHIP' | 'LLP' | 'GST' | 'PRIVATE_LIMITED';
-/** Premises, or (GST) the business type an item applies to. */
-export type Condition = 'RENTED' | 'OWNED' | 'PROPRIETORSHIP' | 'PARTNERSHIP' | 'LLP_COMPANY';
-export type EntityType = 'PROPRIETORSHIP' | 'PARTNERSHIP' | 'LLP_COMPANY';
-/** Partnership: INFO_COLLECTION | DEED | ROF_FILING | REGISTERED. LLP: STAGE_1 | STAGE_2 | COMPLETED. */
+export type RegistrationKind = 'PARTNERSHIP' | 'LLP' | 'GST' | 'PRIVATE_LIMITED' | 'GSTR1' | 'GSTR2B' | 'GSTR3B';
+/**
+ * Free-form because the six services each have their own stage set:
+ *   PARTNERSHIP INFO_COLLECTION | DEED | ROF_FILING | REGISTERED
+ *   LLP         STAGE_1 | STAGE_2 | COMPLETED
+ *   GST         INFO_COLLECTION | FILING | REGISTERED
+ *   GSTR1       DATA_COLLECTION | PREPARATION | PRE_FILING | FILING
+ *   GSTR2B      INWARD_DATA | IMS_ACTIONS | RECONCILIATION | FINALISE
+ *   GSTR3B      PREREQUISITES | VERIFICATION | PAYMENT | FILING
+ *   PRIVATE_LIMITED  DOCUMENTS | COMPLETED
+ */
 export type CaseStage = string;
 export type ItemStatus = 'PENDING' | 'IN_PROGRESS' | 'COMPLETED' | 'NOT_APPLICABLE' | 'BLOCKED';
 export type RequirementType = 'REQUIRED' | 'OPTIONAL' | 'CONDITIONAL';
 export type ItemKind = 'INFO' | 'DOCUMENT' | 'ACTION';
+export type EntityType = 'PROPRIETORSHIP' | 'PARTNERSHIP' | 'LLP' | 'PVT_LTD';
+export type EntityCondition = EntityType | 'LLP_OR_PVT_LTD';
+/** What an item's own `condition` may name — premises or an entity type (server CONDITIONS). */
+export type Condition = 'RENTED' | 'OWNED' | EntityType;
 export type DocStatus =
   | 'PENDING' | 'UPLOADED' | 'UNDER_REVIEW' | 'VERIFIED' | 'REJECTED'
   | 'REPLACEMENT_REQUIRED' | 'NOT_APPLICABLE';
@@ -68,7 +78,8 @@ export interface CaseItem {
   partner: { id: string; name: string } | null;
   doc_type_options: string[] | null;
   max_age_days: number | null;
-  condition: Condition | null;
+  condition: 'RENTED' | 'OWNED' | null;
+  entity_condition: EntityCondition | null;
   applicable: boolean;
   status: ItemStatus;
   assigned: EmployeeRef | null;
@@ -91,6 +102,8 @@ export interface CaseCategory {
   stage: CaseStage | null;
   is_custom: boolean;
   per_partner: boolean;
+  entity_condition: EntityCondition | null;
+  applicable: boolean;
   items: CaseItem[];
 }
 
@@ -218,7 +231,8 @@ export interface TemplateItem {
   kind: ItemKind;
   per_partner: boolean;
   doc_key: string | null;
-  condition: Condition | null;
+  condition: 'RENTED' | 'OWNED' | null;
+  entity_condition: EntityCondition | null;
   default_due_days: number | null;
   default_assignee: 'ASSIGNEE' | 'REVIEWER' | null;
   doc_type_options: string[] | null;
@@ -232,6 +246,7 @@ export interface TemplateCategory {
   stage: CaseStage;
   sort_order: number;
   per_partner: boolean;
+  entity_condition: EntityCondition | null;
   items: TemplateItem[];
 }
 
@@ -267,7 +282,7 @@ export function makeRegistrationApi(base: string) {
     overview: () => api.get<Overview>(`${base}/overview`),
     listCases: (f: CaseFilters = {}) =>
       api.get<{ items: CaseSummary[]; count: number; page: number; page_size: number }>(`${base}/cases${qs({ ...f })}`),
-    createCase: (input: { client_id: string; assigned_employee_id?: string; reviewer_employee_id?: string; approver_employee_id?: string; due_date?: string }) =>
+    createCase: (input: { client_id: string; assigned_employee_id?: string; reviewer_employee_id?: string; approver_employee_id?: string; due_date?: string; entity_type?: EntityType | null }) =>
       api.post<{ id: string; case_code: string }>(`${base}/cases`, input),
     getCase: (id: string) => api.get<CaseDetail>(c(id)),
     updateCase: (id: string, input: Record<string, unknown>) => api.patch<{ id: string }>(c(id), input),
@@ -307,7 +322,10 @@ export type RegistrationApi = ReturnType<typeof makeRegistrationApi>;
 
 export const partnershipApi = makeRegistrationApi('/api/partnership');
 export const llpApi = makeRegistrationApi('/api/llp');
-export const gstRegistrationApi = makeRegistrationApi('/api/gst-registration');
+export const gstRegApi = makeRegistrationApi('/api/gst-registration');
+export const gstr1Api = makeRegistrationApi('/api/gstr1');
+export const gstr2bApi = makeRegistrationApi('/api/gstr2b');
+export const gstr3bApi = makeRegistrationApi('/api/gstr3b');
 export const privateLimitedApi = makeRegistrationApi('/api/private-limited');
 
 /** Query keys, namespaced per service so the two never share a cache entry. */

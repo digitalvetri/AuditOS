@@ -31,6 +31,13 @@ export function CaseChecklist({ c, onOpenDocuments, onOpenDetails }: { c: CaseDe
   return (
     <div className="grid md:grid-cols-[1fr_260px] gap-4 items-start">
       <div>
+        {c.kind === 'GST' && c.entity_type === null ? (
+          <div className="mb-3 border-l-2 border-amber pl-3 text-13 text-neutral-700">
+            Entity type is not set. Every §7.1 category is shown until you pick one under{' '}
+            <strong>Registration Details</strong>. A Proprietorship case will then show Proprietor KYC only,
+            an LLP case shows LLP Agreement, and so on.
+          </div>
+        ) : null}
         {c.premises_type === null && c.categories.some((cat) => cat.items.some((i) => i.condition)) ? (
           <div className="mb-3 border-l-2 border-amber pl-3 text-13 text-neutral-700">
             Office proof depends on whether the premises are rented or owned. Set it under{' '}
@@ -54,6 +61,7 @@ export function CaseChecklist({ c, onOpenDocuments, onOpenDetails }: { c: CaseDe
         ) : null}
 
         {c.categories.map((cat) => {
+          if (cat.applicable === false) return null;
           const applicable = cat.items.filter((i) => i.applicable && i.status !== 'NOT_APPLICABLE');
           const done = applicable.filter((i) => i.status === 'COMPLETED').length;
           const open = !collapsed[cat.id];

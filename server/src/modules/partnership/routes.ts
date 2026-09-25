@@ -16,10 +16,10 @@ import { body, FieldErrors } from '../workstation/validate.js'
 import { CASE_STATUSES } from './template.js'
 import { KINDS, type RegistrationKind } from './constants.js'
 import {
-  CONDITIONS, ITEM_KINDS, ITEM_STATUSES, PREMISES, PRIORITIES, REQUIREMENT_TYPES,
-  addPartnerRequirements, conditionApplies, isPartnerTemplateRow, latestVersion, logActivity, openCase,
-  recompute, registrationCategoryId, requirementInclude, requirementStatus,
-  serviceStatusFor, today, addDays,
+  CONDITIONS, ENTITY_TYPES, ITEM_KINDS, ITEM_STATUSES, PREMISES, PRIORITIES, REQUIREMENT_TYPES,
+  addPartnerRequirements, conditionApplies, entityConditionApplies, isPartnerTemplateRow,
+  latestVersion, logActivity, openCase, recompute, registrationCategoryId, requirementInclude,
+  requirementStatus, serviceStatusFor, today, addDays,
 } from './service.js'
 import {
   ALLOWED_EXTENSIONS, MAX_UPLOAD_MB, MIME_BY_EXT, fileKey, partnershipStorage,
@@ -336,6 +336,9 @@ partnershipRouter.post('/cases', handler(async (req, res) => {
   const reviewer = await employeeField(e, 'reviewer_employee_id', b.reviewer_employee_id)
   const approver = await employeeField(e, 'approver_employee_id', b.approver_employee_id)
   const dueDate = e.date('due_date', b.due_date)
+  const entityType = b.entity_type === null || b.entity_type === undefined || b.entity_type === ''
+    ? null
+    : oneOf(e, 'entity_type', b.entity_type, ENTITY_TYPES)
   e.throwIfAny()
 
   const client = await prisma.client.findFirst({ where: { id: clientId!, deletedAt: null } })
@@ -355,6 +358,7 @@ partnershipRouter.post('/cases', handler(async (req, res) => {
     reviewerEmployeeId: reviewer ?? null,
     approverEmployeeId: approver ?? null,
     dueDate: dueDate ?? null,
+    entityType: entityType ?? null,
   })
   await recompute(c.id)
   const counts = await prisma.partnershipCaseItem.count({ where: { caseId: c.id } })
@@ -385,7 +389,7 @@ partnershipRouter.get('/cases/:id', handler(async (req, res) => {
     prisma.partnershipDocRequirement.findMany({
       where: { caseId: c.id, deletedAt: null },
       orderBy: { sortOrder: 'asc' },
-      include: { ...requirementInclude, item: { select: { id: true, name: true } } },
+      include: { ...requirementInclude, item: { select: { id: true, name: true, entityCondition: true, category: { select: { entityCondition: true } } } } },
     }),
   ])
 
@@ -423,8 +427,16 @@ partnershipRouter.get('/cases/:id', handler(async (req, res) => {
     ...cat,
     items: cat.items.filter((i) => !isPartnerTemplateRow({ partnerId: i.partnerId, category: cat }) && !i.partner?.deletedAt),
   }))
-  const counted = (i: (typeof visible)[number]['items'][number]) =>
-    i.status !== 'NOT_APPLICABLE' && conditionApplies(i.condition, c)
+  const counted = (i: (typeof visible)[number]['items'][number]) => {
+    if (i.status === 'NOT_APPLICABLE') return false
+    if (!conditionApplies(i.condition, c)) return false
+    // Category-level entity condition (Proprietor KYC only for Proprietorship);
+    // then the item's own — MoA & AoA within Entity Documents is PVT_LTD only.
+    const cat = visible.find((v) => v.id === i.categoryId)
+    if (!entityConditionApplies(cat?.entityCondition ?? null, c.entityType)) return false
+    if (!entityConditionApplies(i.entityCondition ?? null, c.entityType)) return false
+    return true
+  }
   const tally = (list: (typeof visible)[number]['items']) => {
     const n = list.filter(counted)
     return { done: n.filter((i) => i.status === 'COMPLETED').length, total: n.length }
@@ -455,6 +467,8 @@ partnershipRouter.get('/cases/:id', handler(async (req, res) => {
       stage: cat.stage,
       is_custom: cat.isCustom,
       per_partner: cat.perPartner,
+      entity_condition: cat.entityCondition,
+      applicable: entityConditionApplies(cat.entityCondition ?? null, c.entityType),
       items: cat.items.map((i) => ({
         id: i.id,
         name: i.name,
@@ -466,7 +480,12 @@ partnershipRouter.get('/cases/:id', handler(async (req, res) => {
         doc_type_options: i.docTypeOptions ? i.docTypeOptions.split('|') : null,
         max_age_days: i.maxAgeDays,
         condition: i.condition,
-        applicable: conditionApplies(i.condition, c),
+        entity_condition: i.entityCondition,
+        applicable: (
+          conditionApplies(i.condition, c)
+          && entityConditionApplies(cat.entityCondition ?? null, c.entityType)
+          && entityConditionApplies(i.entityCondition ?? null, c.entityType)
+        ),
         status: i.status,
         assigned: ref(m, i.assignedEmployeeId),
         due_date: i.dueDate,
@@ -502,8 +521,8 @@ partnershipRouter.patch('/cases/:id', handler(async (req, res) => {
   const status = oneOf(e, 'status', b.status, CASE_STATUSES)
   const stages = KINDS[c.kind as RegistrationKind].stages
   const stage = oneOf(e, 'stage', b.stage, stages)
-  const entity = b.entity_type === null || b.entity_type === '' ? null : oneOf(e, 'entity_type', b.entity_type, ['PROPRIETORSHIP', 'PARTNERSHIP', 'LLP_COMPANY'] as const)
   const premises = b.premises_type === null || b.premises_type === '' ? null : oneOf(e, 'premises_type', b.premises_type, PREMISES)
+  const entity = b.entity_type === null || b.entity_type === '' ? null : oneOf(e, 'entity_type', b.entity_type, ENTITY_TYPES)
   const assigned = await employeeField(e, 'assigned_employee_id', b.assigned_employee_id)
   const reviewer = await employeeField(e, 'reviewer_employee_id', b.reviewer_employee_id)
   const approver = await employeeField(e, 'approver_employee_id', b.approver_employee_id)
@@ -526,7 +545,7 @@ partnershipRouter.patch('/cases/:id', handler(async (req, res) => {
   }
   if (b.entity_type !== undefined && entity !== c.entityType) {
     data.entityType = entity ?? null
-    log.push(['case.entity_changed', `Business type set to ${entity ?? 'not specified'}`])
+    log.push(['case.entity_changed', `Entity type set to ${entity ?? 'not specified'}`])
   }
   const m = await employeeMap([assigned, reviewer, approver])
   const name = (id: string | null | undefined) => (id ? m.get(id)?.full_name ?? id : 'nobody')
@@ -1093,10 +1112,11 @@ partnershipRouter.get('/template', handler(async (req, res) => {
     stages: KINDS[kindOf(res)].stages,
     categories: cats.map((cat) => ({
       id: cat.id, name: cat.name, description: cat.description, stage: cat.stage, sort_order: cat.sortOrder,
-      per_partner: cat.perPartner,
+      per_partner: cat.perPartner, entity_condition: cat.entityCondition,
       items: cat.items.map((i) => ({
         id: i.id, name: i.name, description: i.description, requirement: i.requirement, kind: i.kind,
         per_partner: i.perPartner, doc_key: i.docKey, condition: i.condition,
+        entity_condition: i.entityCondition,
         doc_type_options: i.docTypeOptions ? i.docTypeOptions.split('|') : null, max_age_days: i.maxAgeDays,
         default_due_days: i.defaultDueDays, default_assignee: i.defaultAssignee, sort_order: i.sortOrder,
       })),

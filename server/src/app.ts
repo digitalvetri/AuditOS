@@ -178,8 +178,15 @@ export function createApp() {
   app.use('/api/partnership', forKind('PARTNERSHIP'), partnershipRouter)
   // LLP Registration — the same case engine with its own master checklist.
   app.use('/api/llp', forKind('LLP'), partnershipRouter)
-  // GST Registration — same engine; checklist by business type.
+  // GST Registration — the same case engine, its own master checklist. The
+  // path is '-registration' to leave /api/gst for the GST Compliance module.
   app.use('/api/gst-registration', forKind('GST'), partnershipRouter)
+  // GST return-cycle templates — same engine, no case flow yet (the
+  // compliance module owns the per-period cases). Mounted so the shared
+  // Checklist Template editor can read/write each return's master.
+  app.use('/api/gstr1', forKind('GSTR1'), partnershipRouter)
+  app.use('/api/gstr2b', forKind('GSTR2B'), partnershipRouter)
+  app.use('/api/gstr3b', forKind('GSTR3B'), partnershipRouter)
   app.use('/api/private-limited', forKind('PRIVATE_LIMITED'), partnershipRouter)
   // NOT '/api/documents': that path already belongs to the HRMS
   // EmployeeDocument router mounted above, and Express matches the first
