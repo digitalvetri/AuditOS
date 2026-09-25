@@ -1,5 +1,5 @@
 /**
- * Registration seed — the twelve registrations, mirroring the frontend
+ * Registration seed — the eleven registrations, mirroring the frontend
  * catalogue at src/pages/workstation/registration/services.ts.
  *
  * The two must agree: the frontend keeps icons and long-form copy, the
@@ -31,11 +31,6 @@ const TYPES = [
     portalScope: 'tamil-nadu', portalUrl: 'https://tnreginet.gov.in/portal/',
     portalLabel: 'TNREGINET · Inspector General of Registration, Tamil Nadu',
     outputDocument: 'Certificate of Registration of Firm', renewalMonths: null },
-  { code: 'proprietorship', name: 'Udyam Registration', shortName: 'Proprietorship',
-    kind: 'entity', authority: 'No separate statute', form: 'Via GST / UDYAM / bank',
-    portalScope: 'india', portalUrl: 'https://www.udyamregistration.gov.in/',
-    portalLabel: 'UDYAM Registration · Ministry of MSME (no proprietorship registry exists)',
-    outputDocument: 'GST certificate / UDYAM certificate / bank proof', renewalMonths: null },
   { code: 'msme-udyam', name: 'MSME UDYAM Registration', shortName: 'MSME UDYAM', kind: 'licence',
     authority: 'Ministry of MSME', form: 'UDYAM certificate', portalScope: 'india',
     portalUrl: 'https://www.udyamregistration.gov.in/',
