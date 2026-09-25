@@ -186,6 +186,86 @@ export const DOC_LAYOUT: LayoutConfig = {
   logoPosition: 'center',
 };
 
+// ── Company header (optional, per document) ─────────────────────────────
+
+export type HeaderField = 'name' | 'address' | 'email' | 'phone' | 'gstin';
+
+/**
+ * An optional centred company header at the top of the document — the
+ * CLIENT's letterhead (these documents are issued on the client's
+ * letterhead, not the firm's). Stored in the document's own layout_config
+ * (`companyHeader`), so it is per document, saved and reopened with it, and
+ * absent — OFF — on every document created before it existed. Values are
+ * filled from the linked client and may be edited for this one document
+ * without touching the client record.
+ */
+export interface CompanyHeader {
+  enabled: boolean;
+  name: string;
+  address: string;
+  email: string;
+  phone: string;
+  gstin: string;
+  show: Record<HeaderField, boolean>;
+}
+
+/** The client particulars the header is filled from (a Workstation client). */
+export interface HeaderSource {
+  company_name: string;
+  legal_name?: string | null;
+  address?: string | null;
+  email?: string | null;
+  contact_number?: string | null;
+  gstin?: string | null;
+}
+
+/** An empty header — what a document with no linked client starts from. */
+export function emptyHeader(): CompanyHeader {
+  return {
+    enabled: true, name: '', address: '', email: '', phone: '', gstin: '',
+    show: { name: true, address: true, email: true, phone: true, gstin: true },
+  };
+}
+
+/** The header filled from a client's record (legal name preferred). */
+export function clientHeader(c: HeaderSource | null | undefined): CompanyHeader {
+  if (!c) return emptyHeader();
+  const gstin = (c.gstin ?? '').trim();
+  return {
+    enabled: true,
+    name: (c.legal_name?.trim() || c.company_name || '').toUpperCase(),
+    address: (c.address ?? '').trim(),
+    email: (c.email ?? '').trim(),
+    phone: (c.contact_number ?? '').trim(),
+    gstin,
+    show: { name: true, address: true, email: true, phone: true, gstin: Boolean(gstin) },
+  };
+}
+
+/** The saved header, or null when the document has none or it is switched off. */
+export function companyHeaderOf(layout: unknown): CompanyHeader | null {
+  const h = (layout as { companyHeader?: Partial<CompanyHeader> } | null)?.companyHeader;
+  if (!h || !h.enabled) return null;
+  const base = emptyHeader();
+  return { ...base, ...h, show: { ...base.show, ...(h.show ?? {}) } } as CompanyHeader;
+}
+
+/**
+ * The lines the header actually prints, top to bottom. A field that is
+ * switched off or empty contributes nothing — no blank line, no bare label.
+ * The server's PDF (server/src/modules/docs/pdf.ts) applies the same rule.
+ */
+export function companyHeaderLines(h: CompanyHeader): { name: string | null; lines: string[] } {
+  const on = (k: HeaderField, v: string) => h.show[k] && v.trim() ? v.trim() : '';
+  const lines = [
+    ...on('address', h.address).split('\n').map((l) => l.trim()).filter(Boolean),
+    ...(on('email', h.email) ? [`Mail – ${h.email.trim()}`] : []),
+    ...(on('phone', h.phone) ? [`Phone – ${h.phone.trim()}`] : []),
+    ...(on('gstin', h.gstin) ? [`GSTIN – ${h.gstin.trim()}`] : []),
+  ];
+  return { name: on('name', h.name) || null, lines };
+}
+
 /** A saved layout_config back to a full layout. */
 export function layoutOf(cfg: Record<string, unknown> | null | undefined): LayoutConfig {
   return { ...DOC_LAYOUT, ...((cfg ?? {}) as Partial<LayoutConfig>) };

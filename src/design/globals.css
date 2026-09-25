@@ -195,6 +195,10 @@
 
 .qdoc-body { flex: 1 1 auto; }
 
+/* Doc: optional company header — centred, in flow, ruled off from the letter. */
+.qdoc-company-header { text-align: center; line-height: 1.45; font-size: 0.95em; padding-bottom: 8px; margin-bottom: 14px; border-bottom: 1px solid #9ca3af; }
+.qdoc-company-header-name { font-weight: 700; font-size: 1.35em; letter-spacing: 0.02em; margin-bottom: 2px; }
+
 .qdoc-block + .qdoc-block { margin-top: 10px; }
 .qdoc-section + .qdoc-section { margin-top: 12px; }
 
