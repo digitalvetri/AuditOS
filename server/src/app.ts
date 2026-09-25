@@ -52,6 +52,7 @@ import { docsRouter } from './modules/docs/routes.js'
 import { checklistRouter } from './modules/checklist/routes.js'
 // GST compliance — Workstation → Services → Registration → GST Registration.
 import { gstRouter as gstComplianceRouter } from './modules/gst/routes.js'
+import { gstPortalRouter } from './modules/gst-portal/routes.js'
 // Books — native bookkeeping, one set of books per client (docs/accounting-module).
 import { booksRouter } from './modules/books/routes.js'
 // Zoho Payments (docs/zoho-payments/README.md) — firm-collections integration.
@@ -223,6 +224,9 @@ export function createApp() {
   app.use('/api/checklists', checklistRouter)
   // GST compliance service (NOT the Tools reconciliation router above).
   app.use('/api/gst', gstComplianceRouter)
+  // GST portal access — credentials record per GstProfile. Its own permission
+  // codes gate view and reveal. GST-RETURNS-CASE-SCREEN §9-5.
+  app.use('/api/gst-portal', gstPortalRouter)
 
   // ── Books ──────────────────────────────────────────────────────────────
   app.use('/api/books', booksRouter)

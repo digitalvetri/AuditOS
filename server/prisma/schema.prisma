@@ -1533,6 +1533,69 @@ model GstProfile {
   client  Client                @relation(fields: [clientId], references: [id])
   filings GstFiling[]
   periods GstCompliancePeriod[]
+  portalAccess GstPortalAccess?
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  createdBy String?
+  updatedBy String?
+  deletedAt DateTime?
+}
+
+/// GST portal + e-invoice + e-way bill credentials, one row per GSTIN.
+/// GST-RETURNS-CASE-SCREEN §5 and §9-5.
+///
+/// The most valuable field is NOT the password. It is otpContactName +
+/// otpContactNumber — MFA on the GST portal sends an OTP to the registered
+/// mobile, so a filer at 6pm needs to know whose phone to call, immediately,
+/// from the case screen. Rules:
+///   - The three *_passwordCiphertext fields are AES-256-GCM ciphertext
+///     produced by the portalCrypto helper. Never stored in plaintext,
+///     never returned by GET — only via POST /reveal, which writes an
+///     audit row scoped to a single field
+///   - passwordHeldBy = 'client' means the firm doesn't hold the GST
+///     portal password; the UI hides the field and the ciphertext MUST
+///     be null (server-side invariant)
+///   - Viewing this record is its own permission
+///     (workstation.gst.portal.view), separate from workstation.service.read
+model GstPortalAccess {
+  id                   String  @id @default(uuid())
+  gstProfileId         String  @unique
+
+  /// Portal login name — not secret, needed every login.
+  portalUsername       String?
+  /// AES-256-GCM ciphertext of the portal password. Null when the client
+  /// holds it (passwordHeldBy=client) or the record was never filled in.
+  portalPasswordCiphertext String?
+  /// firm | client — who holds the portal password. Drives UI + is the
+  /// invariant behind the "ciphertext must be null when client" rule.
+  passwordHeldBy       String  @default("firm")
+
+  /// Number that receives the MFA OTP, masked at rest ('98••••4471').
+  /// Full number is not stored — the firm rings the OTP contact instead.
+  registeredMobileMasked String?
+  /// Person to phone when an OTP is needed. Usually the client or an
+  /// employee at the client's office.
+  otpContactName       String?
+  otpContactNumber     String?
+
+  /// otp_mobile | authenticator | none
+  mfaMethod            String  @default("otp_mobile")
+
+  /// E-Way Bill portal — separate credentials, same crypto rules.
+  ewbUsername          String?
+  ewbPasswordCiphertext String?
+
+  /// Invoice Registration Portal — six IRPs exist, which one matters.
+  irpName              String?
+  irpUsername          String?
+  irpPasswordCiphertext String?
+
+  /// Last time an operator verified the credentials still work.
+  lastVerifiedAt       DateTime?
+  lastVerifiedByEmployeeId String?
+
+  gstProfile GstProfile @relation(fields: [gstProfileId], references: [id])
 
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt
