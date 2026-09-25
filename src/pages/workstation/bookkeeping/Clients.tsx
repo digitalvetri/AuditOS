@@ -391,13 +391,13 @@ export function BookkeepingClientDetailPage() {
             action={
               data.books_org_id ? (
                 <button
-                  onClick={() => navigate(`/books/${data.books_org_id}`)}
+                  onClick={() => navigate(`/books?org=${data.books_org_id}`)}
                   className="h-8 px-3 text-13 bg-primary text-white rounded hover:bg-primaryHover"
                 >
                   Open Books
                 </button>
               ) : (
-                <span className="text-12 text-neutral-500">No set of books for this client yet</span>
+                <span className="text-12 text-neutral-500">No Zoho Books organisation mapped to this client yet</span>
               )
             }
           />

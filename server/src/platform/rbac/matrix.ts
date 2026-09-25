@@ -116,12 +116,11 @@ export type PermissionCode =
   | 'tools.audit_automation.tally.settings.manage'
   | 'tools.audit_automation.tally.data.manage'
 
-  // â”€â”€ Books (docs/accounting-module/README.md) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-  // books.access opens the module; scope self = only books the user is a
-  // member of, organisation = every set of books the firm keeps.
-  // books.manage creates books and memberships; settings / reports /
-  // accountant gate those areas inside a set of books (membership role
-  // narrows further: a `staff` member never gets them).
+  // ── Books (docs/books-zoho/README.md) — Tools → Books, backed by Zoho Books.
+  // Organisation scope only: a Zoho organisation has no per-user membership,
+  // so a `self` grant would mean nothing narrower than the whole firm.
+  // access = view · manage = create/edit, sync · accountant = delete, void,
+  // payments, banking · settings = connect Zoho, activate/map orgs, taxes.
   | 'books.access'
   | 'books.manage'
   | 'books.settings'
@@ -213,10 +212,6 @@ export const MATRIX: Record<RoleCode, Grant[]> = {
     { permission: 'tools.audit_automation.tally.audit.read', scope: 'self' },
     { permission: 'tools.audit_automation.tally.settings.manage', scope: 'self' },
     { permission: 'tools.audit_automation.tally.data.manage', scope: 'self' },
-    // Books: only the sets of books this person is assigned to.
-    { permission: 'books.access', scope: 'self' },
-    { permission: 'books.reports', scope: 'self' },
-    { permission: 'books.accountant', scope: 'self' },
   ],
   dept_manager: [
     { permission: 'profile.read', scope: 'self' },
@@ -312,7 +307,7 @@ export const MATRIX: Record<RoleCode, Grant[]> = {
     { permission: 'tools.audit_automation.tally.audit.read', scope: 'organisation' },
     { permission: 'tools.audit_automation.tally.settings.manage', scope: 'organisation' },
     { permission: 'tools.audit_automation.tally.data.manage', scope: 'organisation' },
-    // Books: every set of books the firm keeps.
+    // Books: every Zoho Books organisation the firm has activated.
     { permission: 'books.access', scope: 'organisation' },
     { permission: 'books.manage', scope: 'organisation' },
     { permission: 'books.settings', scope: 'organisation' },
@@ -360,7 +355,7 @@ export const MATRIX: Record<RoleCode, Grant[]> = {
     { permission: 'chat.participate', scope: 'organisation' },
     { permission: 'reports.finance', scope: 'organisation' },
     { permission: 'audit.read.finance', scope: 'organisation' },
-    // Books: the firm's accountants keep every client's books.
+    // Books: the firm's accountants work every client's Zoho Books.
     { permission: 'books.access', scope: 'organisation' },
     { permission: 'books.manage', scope: 'organisation' },
     { permission: 'books.settings', scope: 'organisation' },
@@ -475,7 +470,7 @@ export const MATRIX: Record<RoleCode, Grant[]> = {
     { permission: 'tools.audit_automation.tally.audit.read', scope: 'organisation' },
     { permission: 'tools.audit_automation.tally.settings.manage', scope: 'organisation' },
     { permission: 'tools.audit_automation.tally.data.manage', scope: 'organisation' },
-    // Books: every set of books the firm keeps.
+    // Books: every Zoho Books organisation the firm has activated.
     { permission: 'books.access', scope: 'organisation' },
     { permission: 'books.manage', scope: 'organisation' },
     { permission: 'books.settings', scope: 'organisation' },
@@ -601,9 +596,9 @@ export const PERMISSION_DESCRIPTIONS: Record<string, string> = {
   'tools.audit_automation.tally.company.manage': 'Create and edit Tally companies and financial years',
   'tools.audit_automation.tally.master.read': 'View Tally groups and ledgers',
   'tools.audit_automation.tally.master.manage': 'Create, edit and delete Tally groups and ledgers',
-  'books.access': 'Open the Books module',
-  'books.manage': 'Create sets of books and assign staff',
-  'books.settings': 'Change a set of books\' settings, taxes and chart of accounts',
-  'books.reports': 'Run financial reports',
-  'books.accountant': 'Manual journals, revaluation, reconciliation',
+  'books.access': 'View Books (Zoho Books) data',
+  'books.manage': 'Create and edit Books records; run a sync',
+  'books.settings': 'Connect Zoho Books, activate and map organisations, manage taxes',
+  'books.reports': 'Run Books reports',
+  'books.accountant': 'Delete and void, record payments, banking and reconciliation',
 }

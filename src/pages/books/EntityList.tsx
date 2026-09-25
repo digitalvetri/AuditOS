@@ -1,0 +1,350 @@
+import { useEffect, useState, type ReactNode } from 'react';
+import { useNavigate } from 'react-router-dom';
+import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { FileText, Plus } from 'lucide-react';
+import { useToast } from '@/components/Toast';
+import { booksApi, errorText, type ZRecord } from '@/modules/books/api';
+import { useBooks, useOrg } from '@/modules/books/context';
+import { Badge, Btn, Cell, Drawer, Empty, ErrorState, KV, Modal, PageHeader, Pager, Row, Section, Select, Skeleton, Table, TextInput, date, money } from '@/modules/books/ui';
+import { ActionForm, ApplyCreditForm, BankAccountForm, ContactForm, ExpenseForm, ItemForm, PaymentForm, TaxForm, TXN, TxnEditor } from './forms';
+
+/**
+ * One list screen for every Zoho Books resource, driven by RESOURCES below:
+ * server-side search / filter / sort / pagination, a detail drawer with the
+ * record's lines and totals, and only the actions Zoho supports for it.
+ */
+type Perm = 'manage' | 'accountant' | 'settings';
+interface Col { label: string; right?: boolean; sortKey?: string; render: (r: ZRecord, cur: string | null) => ReactNode }
+interface FormProps { record?: ZRecord; onClose: () => void; onSaved: (r: ZRecord) => void }
+export interface Resource {
+  entity: string; title: string; singular: string; idField: string; nameField: string;
+  subtitle?: string; filters?: { value: string; label: string }[]; dated?: boolean;
+  columns: Col[]; Form?: (p: FormProps) => JSX.Element; createPerm?: Perm; editPerm?: Perm; deletePerm?: Perm;
+  detail: (r: ZRecord, cur: string | null) => [string, ReactNode][];
+  detailPath?: string; empty: string; pdf?: boolean;
+}
+
+const m = (v: unknown, r: ZRecord, cur: string | null) => money(v, r.currency_code ?? cur);
+const num = (field: string): Col => ({ label: 'Number', sortKey: field, render: (r) => <span className="font-medium">{r[field] ?? '—'}</span> });
+const col = (label: string, field: string, sortKey?: string): Col => ({ label, sortKey, render: (r) => r[field] || <span className="text-inkFaint">—</span> });
+const dcol = (label: string, field: string, sortKey?: string): Col => ({ label, sortKey, render: (r) => date(r[field]) });
+const mcol = (label: string, field: string, sortKey?: string): Col => ({ label, right: true, sortKey, render: (r, c) => m(r[field], r, c) });
+const status: Col = { label: 'Status', render: (r) => <Badge status={r.status} /> };
+const st = (...xs: [string, string][]) => xs.map(([value, label]) => ({ value, label }));
+
+const txnDetail = (party: string, numberField: string, second?: [string, string]) => (r: ZRecord, cur: string | null): [string, ReactNode][] => [
+  ['Number', r[numberField]], [party === 'customer_name' ? 'Customer' : 'Vendor', r[party]], ['Status', <Badge status={r.status} />],
+  ['Date', date(r.date)], ...(second ? [[second[1], date(r[second[0]])] as [string, ReactNode]] : []), ['Reference', r.reference_number],
+  ['Total', m(r.total, r, cur)], ['Balance', r.balance !== undefined ? m(r.balance, r, cur) : null], ['Place of supply', r.place_of_supply],
+];
+const contactDetail = (balanceField: string) => (r: ZRecord, cur: string | null): [string, ReactNode][] => [
+  ['Name', r.contact_name], ['Company', r.company_name], ['Email', r.email], ['Phone', r.phone ?? r.mobile], ['Status', <Badge status={r.status} />],
+  ['Outstanding', m(r[balanceField], r, cur)], ['GST treatment', r.gst_treatment?.replace(/_/g, ' ')], ['GSTIN', r.gst_no], ['Payment terms', r.payment_terms_label],
+];
+
+export const RESOURCES: Record<string, Resource> = {
+  customers: {
+    entity: 'customers', title: 'Customers', singular: 'customer', idField: 'contact_id', nameField: 'contact_name', empty: 'No customers found.',
+    filters: st(['Status.Active', 'Active'], ['Status.Inactive', 'Inactive'], ['Status.All', 'All'], ['Status.OverDue', 'Overdue'], ['Status.Unpaid', 'Unpaid']),
+    columns: [col('Name', 'contact_name', 'contact_name'), col('Company', 'company_name'), col('Email', 'email', 'email'), col('Phone', 'phone'), mcol('Receivable', 'outstanding_receivable_amount', 'outstanding_receivable_amount'), status],
+    Form: (p) => <ContactForm kind="customer" {...p} />, createPerm: 'manage', editPerm: 'manage', deletePerm: 'accountant', detail: contactDetail('outstanding_receivable_amount'), detailPath: '/books/customers',
+  },
+  vendors: {
+    entity: 'vendors', title: 'Vendors', singular: 'vendor', idField: 'contact_id', nameField: 'contact_name', empty: 'No vendors found.',
+    filters: st(['Status.Active', 'Active'], ['Status.Inactive', 'Inactive'], ['Status.All', 'All']),
+    columns: [col('Name', 'contact_name', 'contact_name'), col('Company', 'company_name'), col('Email', 'email', 'email'), col('Phone', 'phone'), mcol('Payable', 'outstanding_payable_amount', 'outstanding_payable_amount'), status],
+    Form: (p) => <ContactForm kind="vendor" {...p} />, createPerm: 'manage', editPerm: 'manage', deletePerm: 'accountant', detail: contactDetail('outstanding_payable_amount'), detailPath: '/books/vendors',
+  },
+  items: {
+    entity: 'items', title: 'Items', singular: 'item', idField: 'item_id', nameField: 'name', empty: 'No items found.', subtitle: 'Products and services from Zoho Books.',
+    filters: st(['Status.Active', 'Active'], ['Status.Inactive', 'Inactive'], ['Status.All', 'All']),
+    columns: [col('Name', 'name', 'name'), col('SKU', 'sku'), col('Unit', 'unit'), mcol('Selling price', 'rate', 'rate'), mcol('Cost price', 'purchase_rate'), { label: 'Tax', render: (r) => r.tax_name ? `${r.tax_name}` : '—' }, status],
+    Form: ItemForm, createPerm: 'manage', editPerm: 'manage', deletePerm: 'accountant',
+    detail: (r, c) => [['Name', r.name], ['Type', r.product_type], ['SKU', r.sku], ['Unit', r.unit], ['HSN / SAC', r.hsn_or_sac], ['Status', <Badge status={r.status} />], ['Selling price', m(r.rate, r, c)], ['Cost price', r.purchase_rate != null ? m(r.purchase_rate, r, c) : null], ['Sales account', r.account_name], ['Purchase account', r.purchase_account_name], ['Tax', r.tax_name ? `${r.tax_name} (${r.tax_percentage}%)` : null], ['Stock on hand', r.stock_on_hand], ['Description', r.description]],
+  },
+  estimates: {
+    entity: 'estimates', title: 'Estimates', singular: 'estimate', idField: 'estimate_id', nameField: 'estimate_number', empty: 'No estimates found.', dated: true, pdf: true,
+    filters: st(['Status.All', 'All'], ['Status.Draft', 'Draft'], ['Status.Sent', 'Sent'], ['Status.Accepted', 'Accepted'], ['Status.Declined', 'Declined'], ['Status.Invoiced', 'Invoiced'], ['Status.Expired', 'Expired']),
+    columns: [dcol('Date', 'date', 'date'), num('estimate_number'), col('Customer', 'customer_name', 'customer_name'), col('Reference', 'reference_number'), status, mcol('Amount', 'total', 'total')],
+    Form: (p) => <TxnEditor spec={TXN.estimates} {...p} />, createPerm: 'manage', editPerm: 'manage', deletePerm: 'accountant', detail: txnDetail('customer_name', 'estimate_number', ['expiry_date', 'Expiry date']),
+  },
+  salesorders: {
+    entity: 'salesorders', title: 'Sales Orders', singular: 'sales order', idField: 'salesorder_id', nameField: 'salesorder_number', empty: 'No sales orders found.', dated: true, pdf: true,
+    filters: st(['Status.All', 'All'], ['Status.Draft', 'Draft'], ['Status.Open', 'Open'], ['Status.Invoiced', 'Invoiced'], ['Status.Void', 'Void']),
+    columns: [dcol('Date', 'date', 'date'), num('salesorder_number'), col('Customer', 'customer_name', 'customer_name'), col('Reference', 'reference_number'), status, mcol('Amount', 'total', 'total')],
+    Form: (p) => <TxnEditor spec={TXN.salesorders} {...p} />, createPerm: 'manage', editPerm: 'manage', deletePerm: 'accountant', detail: txnDetail('customer_name', 'salesorder_number', ['shipment_date', 'Expected shipment']),
+  },
+  invoices: {
+    entity: 'invoices', title: 'Invoices', singular: 'invoice', idField: 'invoice_id', nameField: 'invoice_number', empty: 'No invoices found.', dated: true, pdf: true,
+    filters: st(['Status.All', 'All'], ['Status.Draft', 'Draft'], ['Status.Sent', 'Sent'], ['Status.Unpaid', 'Unpaid'], ['Status.PartiallyPaid', 'Partially paid'], ['Status.OverDue', 'Overdue'], ['Status.Paid', 'Paid'], ['Status.Void', 'Void']),
+    columns: [dcol('Date', 'date', 'date'), num('invoice_number'), col('Customer', 'customer_name', 'customer_name'), dcol('Due date', 'due_date', 'due_date'), status, mcol('Amount', 'total', 'total'), mcol('Balance due', 'balance', 'balance')],
+    Form: (p) => <TxnEditor spec={TXN.invoices} {...p} />, createPerm: 'manage', editPerm: 'manage', deletePerm: 'accountant', detail: txnDetail('customer_name', 'invoice_number', ['due_date', 'Due date']),
+  },
+  purchaseorders: {
+    entity: 'purchaseorders', title: 'Purchase Orders', singular: 'purchase order', idField: 'purchaseorder_id', nameField: 'purchaseorder_number', empty: 'No purchase orders found.', dated: true, pdf: true,
+    filters: st(['Status.All', 'All'], ['Status.Draft', 'Draft'], ['Status.Open', 'Open'], ['Status.Billed', 'Billed'], ['Status.Cancelled', 'Cancelled']),
+    columns: [dcol('Date', 'date', 'date'), num('purchaseorder_number'), col('Vendor', 'vendor_name', 'vendor_name'), col('Reference', 'reference_number'), dcol('Delivery', 'delivery_date'), status, mcol('Amount', 'total', 'total')],
+    Form: (p) => <TxnEditor spec={TXN.purchaseorders} {...p} />, createPerm: 'manage', editPerm: 'manage', deletePerm: 'accountant', detail: txnDetail('vendor_name', 'purchaseorder_number', ['delivery_date', 'Delivery date']),
+  },
+  bills: {
+    entity: 'bills', title: 'Bills', singular: 'bill', idField: 'bill_id', nameField: 'bill_number', empty: 'No bills found.', dated: true,
+    filters: st(['Status.All', 'All'], ['Status.Open', 'Open'], ['Status.PartiallyPaid', 'Partially paid'], ['Status.Overdue', 'Overdue'], ['Status.Paid', 'Paid'], ['Status.Void', 'Void']),
+    columns: [dcol('Date', 'date', 'date'), num('bill_number'), col('Vendor', 'vendor_name', 'vendor_name'), dcol('Due date', 'due_date', 'due_date'), status, mcol('Amount', 'total', 'total'), mcol('Balance due', 'balance', 'balance')],
+    Form: (p) => <TxnEditor spec={TXN.bills} {...p} />, createPerm: 'manage', editPerm: 'manage', deletePerm: 'accountant', detail: txnDetail('vendor_name', 'bill_number', ['due_date', 'Due date']),
+  },
+  expenses: {
+    entity: 'expenses', title: 'Expenses', singular: 'expense', idField: 'expense_id', nameField: 'account_name', empty: 'No expenses found.',
+    filters: st(['Status.All', 'All'], ['Status.Billable', 'Billable'], ['Status.Nonbillable', 'Non-billable'], ['Status.Unbilled', 'Unbilled'], ['Status.Invoiced', 'Invoiced'], ['Status.Reimbursed', 'Reimbursed']),
+    columns: [dcol('Date', 'date', 'date'), col('Expense account', 'account_name'), col('Vendor', 'vendor_name'), col('Paid through', 'paid_through_account_name'), col('Customer', 'customer_name'), status, mcol('Amount', 'total', 'total')],
+    Form: ExpenseForm, createPerm: 'manage', editPerm: 'manage', deletePerm: 'accountant',
+    detail: (r, c) => [['Date', date(r.date)], ['Expense account', r.account_name], ['Amount', m(r.total ?? r.amount, r, c)], ['Paid through', r.paid_through_account_name], ['Vendor', r.vendor_name], ['Customer', r.customer_name], ['Billable', r.is_billable ? 'Yes' : 'No'], ['Tax', r.tax_name], ['Reference', r.reference_number], ['Receipt', r.receipt_name], ['Description', r.description], ['Status', <Badge status={r.status} />]],
+  },
+  customerpayments: {
+    entity: 'customerpayments', title: 'Payments received', singular: 'payment', idField: 'payment_id', nameField: 'payment_number', empty: 'No payments found.',
+    columns: [dcol('Date', 'date', 'date'), num('payment_number'), col('Customer', 'customer_name', 'customer_name'), col('Mode', 'payment_mode'), col('Reference', 'reference_number'), col('Invoices', 'invoice_numbers'), mcol('Amount', 'amount', 'amount'), mcol('Unused', 'unused_amount')],
+    Form: (p) => <PaymentForm side="customer" {...p} />, createPerm: 'accountant', editPerm: 'accountant', deletePerm: 'accountant',
+    detail: (r, c) => [['Number', r.payment_number], ['Customer', r.customer_name], ['Date', date(r.date)], ['Amount', m(r.amount, r, c)], ['Mode', r.payment_mode], ['Reference', r.reference_number], ['Deposited to', r.account_name], ['Unused', m(r.unused_amount, r, c)], ['Applied to', ((r.invoices as ZRecord[]) ?? []).map((i) => `${i.invoice_number} (${m(i.amount_applied, r, c)})`).join(', ')], ['Notes', r.description]],
+  },
+  vendorpayments: {
+    entity: 'vendorpayments', title: 'Payments made', singular: 'payment', idField: 'payment_id', nameField: 'payment_number', empty: 'No payments found.',
+    columns: [dcol('Date', 'date', 'date'), num('payment_number'), col('Vendor', 'vendor_name', 'vendor_name'), col('Mode', 'payment_mode'), col('Reference', 'reference_number'), col('Bills', 'bill_numbers'), mcol('Amount', 'amount', 'amount')],
+    Form: (p) => <PaymentForm side="vendor" {...p} />, createPerm: 'accountant', editPerm: 'accountant', deletePerm: 'accountant',
+    detail: (r, c) => [['Number', r.payment_number], ['Vendor', r.vendor_name], ['Date', date(r.date)], ['Amount', m(r.amount, r, c)], ['Mode', r.payment_mode], ['Reference', r.reference_number], ['Paid through', r.paid_through_account_name], ['Applied to', ((r.bills as ZRecord[]) ?? []).map((b) => `${b.bill_number} (${m(b.amount_applied, r, c)})`).join(', ')], ['Notes', r.description]],
+  },
+  creditnotes: {
+    entity: 'creditnotes', title: 'Credit Notes', singular: 'credit note', idField: 'creditnote_id', nameField: 'creditnote_number', empty: 'No credit notes found.', dated: true, pdf: true,
+    filters: st(['Status.All', 'All'], ['Status.Draft', 'Draft'], ['Status.Open', 'Open'], ['Status.Closed', 'Closed'], ['Status.Void', 'Void']),
+    columns: [dcol('Date', 'date', 'date'), num('creditnote_number'), col('Customer', 'customer_name', 'customer_name'), col('Reference', 'reference_number'), status, mcol('Amount', 'total', 'total'), mcol('Balance', 'balance', 'balance')],
+    Form: (p) => <TxnEditor spec={TXN.creditnotes} {...p} />, createPerm: 'manage', editPerm: 'manage', deletePerm: 'accountant', detail: txnDetail('customer_name', 'creditnote_number'),
+  },
+  vendorcredits: {
+    entity: 'vendorcredits', title: 'Debit Notes', singular: 'debit note', idField: 'vendor_credit_id', nameField: 'vendor_credit_number', empty: 'No debit notes found.', dated: true,
+    subtitle: 'Purchase-side debit notes (vendor credits in Zoho Books).',
+    filters: st(['Status.All', 'All'], ['Status.Draft', 'Draft'], ['Status.Open', 'Open'], ['Status.Closed', 'Closed'], ['Status.Void', 'Void']),
+    columns: [dcol('Date', 'date', 'date'), num('vendor_credit_number'), col('Vendor', 'vendor_name', 'vendor_name'), col('Reference', 'reference_number'), status, mcol('Amount', 'total', 'total'), mcol('Balance', 'balance', 'balance')],
+    Form: (p) => <TxnEditor spec={TXN.vendorcredits} {...p} />, createPerm: 'manage', editPerm: 'manage', deletePerm: 'accountant', detail: txnDetail('vendor_name', 'vendor_credit_number'),
+  },
+  taxes: {
+    entity: 'taxes', title: 'Taxes', singular: 'tax', idField: 'tax_id', nameField: 'tax_name', empty: 'No taxes configured in Zoho Books.',
+    subtitle: 'Tax rates configured in the connected Zoho Books organisation.',
+    columns: [col('Name', 'tax_name'), { label: 'Rate', right: true, render: (r) => `${r.tax_percentage}%` }, { label: 'Type', render: (r) => String(r.tax_type ?? '—').replace(/_/g, ' ') }, { label: 'Component', render: (r) => r.tax_specific_type ? String(r.tax_specific_type).toUpperCase() : '—' }, { label: 'Status', render: (r) => <Badge status={r.status ?? (r.is_inactive ? 'inactive' : 'active')} /> }],
+    Form: TaxForm, createPerm: 'settings', editPerm: 'settings', deletePerm: 'settings',
+    detail: (r) => [['Name', r.tax_name], ['Rate', `${r.tax_percentage}%`], ['Type', r.tax_type], ['Component', r.tax_specific_type], ['Authority', r.tax_authority_name], ['Default', r.is_default_tax ? 'Yes' : null]],
+  },
+  bankaccounts: {
+    entity: 'bankaccounts', title: 'Bank accounts', singular: 'bank account', idField: 'account_id', nameField: 'account_name', empty: 'No bank accounts in Zoho Books.',
+    columns: [col('Account', 'account_name'), { label: 'Type', render: (r) => String(r.account_type ?? '').replace(/_/g, ' ') }, col('Bank', 'bank_name'), col('Account #', 'account_number'), mcol('Balance', 'balance'), { label: 'Status', render: (r) => <Badge status={r.is_active === false ? 'inactive' : 'active'} /> }],
+    Form: BankAccountForm, createPerm: 'accountant', editPerm: 'accountant',
+    detail: (r, c) => [['Account', r.account_name], ['Type', r.account_type], ['Bank', r.bank_name], ['Account number', r.account_number], ['Balance', m(r.balance, r, c)], ['Currency', r.currency_code]],
+  },
+};
+
+// ── list ──────────────────────────────────────────────────────────────────
+export function EntityListPage({ resource, fixedParams, embedded = false }: { resource: Resource; fixedParams?: Record<string, string>; embedded?: boolean }) {
+  const org = useOrg();
+  const { can } = useBooks();
+  const navigate = useNavigate();
+  const [page, setPage] = useState(1);
+  const [search, setSearch] = useState('');
+  const [q, setQ] = useState('');
+  const [filter, setFilter] = useState(resource.filters?.[0]?.value ?? '');
+  const [range, setRange] = useState({ from: '', to: '' });
+  const [sort, setSort] = useState<{ key: string; dir: 'A' | 'D' } | undefined>(undefined);
+  const [open, setOpen] = useState<string | null>(null);
+  const [creating, setCreating] = useState(false);
+
+  useEffect(() => { const t = setTimeout(() => { setQ(search.trim()); setPage(1); }, 350); return () => clearTimeout(t); }, [search]);
+  const params = {
+    page, per_page: embedded ? 10 : 25, search_text: q || undefined, filter_by: filter || undefined, ...fixedParams,
+    date_start: resource.dated ? range.from || undefined : undefined, date_end: resource.dated ? range.to || undefined : undefined,
+    sort_column: sort?.key, sort_order: sort?.dir,
+  };
+  const list = useQuery({ queryKey: ['books', org.id, 'list', resource.entity, params], queryFn: () => booksApi.org(org.id).list(resource.entity, params), placeholderData: keepPreviousData });
+  const cur = org.currency_code;
+  const allowCreate = resource.Form && resource.createPerm && can[resource.createPerm];
+  const onRow = (r: ZRecord) => (resource.detailPath && !embedded ? navigate(`${resource.detailPath}/${r[resource.idField]}`) : setOpen(String(r[resource.idField])));
+
+  const body = (
+    <Section title={embedded ? resource.title : undefined}>
+      {!embedded ? (
+        <div className="flex flex-wrap items-end gap-2 px-4 py-3 border-b border-border">
+          <div className="w-full sm:w-64"><TextInput value={search} onChange={setSearch} placeholder={`Search ${resource.title.toLowerCase()}…`} aria-label="Search" /></div>
+          {resource.filters ? <div className="w-44"><Select value={filter} onChange={(v) => { setFilter(v); setPage(1); }} options={resource.filters} /></div> : null}
+          {resource.dated ? <>
+            <div className="w-40"><TextInput type="date" value={range.from} onChange={(v) => { setRange({ ...range, from: v }); setPage(1); }} aria-label="From date" /></div>
+            <div className="w-40"><TextInput type="date" value={range.to} onChange={(v) => { setRange({ ...range, to: v }); setPage(1); }} aria-label="To date" /></div>
+          </> : null}
+          {list.isFetching && !list.isLoading ? <span className="text-12 text-inkMuted pb-2">Updating…</span> : null}
+        </div>
+      ) : null}
+      {list.isLoading ? <Skeleton rows={embedded ? 3 : 8} /> : list.isError ? <ErrorState error={errorText(list.error)} onRetry={() => list.refetch()} /> : list.data!.items.length === 0 ? <Empty title={resource.empty} /> : (
+        <>
+          <Table cols={resource.columns} sort={sort} onSort={(key) => { setSort((s) => (s?.key === key ? { key, dir: s.dir === 'A' ? 'D' : 'A' } : { key, dir: 'A' })); setPage(1); }} minWidth={embedded ? 560 : 820}>
+            {list.data!.items.map((r) => (
+              <Row key={r[resource.idField]} onClick={() => onRow(r)}>
+                {resource.columns.map((c, i) => <Cell key={i} right={c.right}>{c.render(r, cur)}</Cell>)}
+              </Row>
+            ))}
+          </Table>
+          <Pager page={page} hasMore={list.data!.has_more} onPage={setPage} loading={list.isFetching} />
+        </>
+      )}
+    </Section>
+  );
+
+  return (
+    <div>
+      {!embedded ? <PageHeader title={resource.title} subtitle={resource.subtitle} right={allowCreate ? <Btn variant="primary" onClick={() => setCreating(true)}><Plus size={14} />New {resource.singular}</Btn> : null} /> : null}
+      {body}
+      {open ? <DetailDrawer resource={resource} id={open} onClose={() => setOpen(null)} /> : null}
+      {creating && resource.Form ? <resource.Form onClose={() => setCreating(false)} onSaved={(r) => { setCreating(false); if (r?.[resource.idField]) onRow(r); }} /> : null}
+    </div>
+  );
+}
+
+// ── detail ────────────────────────────────────────────────────────────────
+export function DetailDrawer({ resource, id, onClose }: { resource: Resource; id: string; onClose: () => void }) {
+  const org = useOrg();
+  const q = useQuery({ queryKey: ['books', org.id, 'record', resource.entity, id], queryFn: () => booksApi.org(org.id).get(resource.entity, id) });
+  const r = q.data;
+  return (
+    <Drawer title={r ? `${resource.singular[0].toUpperCase()}${resource.singular.slice(1)} ${r[resource.nameField] ?? ''}` : 'Loading…'} onClose={onClose} actions={r ? <RecordActions resource={resource} record={r} onClose={onClose} /> : null}>
+      {q.isLoading ? <Skeleton rows={6} /> : q.isError ? <ErrorState error={errorText(q.error)} onRetry={() => q.refetch()} /> : r ? <RecordBody resource={resource} record={r} /> : null}
+    </Drawer>
+  );
+}
+
+export function RecordBody({ resource, record: r }: { resource: Resource; record: ZRecord }) {
+  const org = useOrg();
+  const cur = org.currency_code;
+  const lines = (r.line_items as ZRecord[] | undefined) ?? [];
+  return (
+    <div className="space-y-5">
+      <KV items={resource.detail(r, cur)} />
+      {lines.length ? (
+        <div className="border border-border rounded">
+          <Table cols={[{ label: 'Item' }, { label: 'Qty', right: true }, { label: 'Rate', right: true }, { label: 'Discount', right: true }, { label: 'Tax' }, { label: 'Amount', right: true }]} minWidth={560}>
+            {lines.map((l, i) => (
+              <Row key={l.line_item_id ?? i}>
+                <Cell><div className="font-medium">{l.name || l.account_name || '—'}</div>{l.description ? <div className="text-12 text-inkMuted whitespace-pre-line">{l.description}</div> : null}</Cell>
+                <Cell right>{l.quantity}{l.unit ? ` ${l.unit}` : ''}</Cell>
+                <Cell right>{m(l.rate, r, cur)}</Cell>
+                <Cell right muted>{l.discount ? String(l.discount) : '—'}</Cell>
+                <Cell muted>{l.tax_name ? `${l.tax_name}` : '—'}</Cell>
+                <Cell right>{m(l.item_total, r, cur)}</Cell>
+              </Row>
+            ))}
+          </Table>
+          <div className="px-4 py-3 border-t border-border ml-auto max-w-[320px] space-y-1 text-13">
+            {[['Sub-total', r.sub_total], ['Discount', r.discount_total || null], ...(((r.taxes as ZRecord[]) ?? []).map((t) => [t.tax_name, t.tax_amount])), ['Adjustment', r.adjustment || null], ['Total', r.total], ['Balance', r.balance]].filter(([, v]) => v !== null && v !== undefined).map(([k, v]) => (
+              <div key={String(k)} className={`flex justify-between ${k === 'Total' ? 'font-semibold' : ''}`}><span className="text-inkMuted">{k}</span><span className="tabular-nums">{m(v, r, cur)}</span></div>
+            ))}
+          </div>
+        </div>
+      ) : null}
+      {r.notes ? <div><div className="text-11 uppercase tracking-[0.06em] text-inkMuted">Notes</div><p className="text-13 whitespace-pre-line mt-1">{r.notes}</p></div> : null}
+      {r.terms ? <div><div className="text-11 uppercase tracking-[0.06em] text-inkMuted">Terms</div><p className="text-13 whitespace-pre-line mt-1">{r.terms}</p></div> : null}
+      {Array.isArray(r.payments) && r.payments.length ? (
+        <div>
+          <div className="text-11 uppercase tracking-[0.06em] text-inkMuted mb-1">Payments</div>
+          {(r.payments as ZRecord[]).map((p, i) => <div key={i} className="text-13 flex justify-between border-b border-border py-1"><span>{date(p.date)} · {p.payment_mode} {p.reference_number ? `· ${p.reference_number}` : ''}</span><span className="tabular-nums">{m(p.amount, r, cur)}</span></div>)}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+interface Act { key: string; label: string; perm: Perm; show: boolean; danger?: boolean; confirm?: string; run: () => void }
+
+export function RecordActions({ resource, record: r, onClose }: { resource: Resource; record: ZRecord; onClose: () => void }) {
+  const org = useOrg();
+  const { can } = useBooks();
+  const qc = useQueryClient();
+  const toast = useToast();
+  const e = resource.entity;
+  const id = String(r[resource.idField]);
+  const [modal, setModal] = useState<ReactNode>(null);
+  const [confirm, setConfirm] = useState<Act | null>(null);
+  const done = () => { setModal(null); void qc.invalidateQueries({ queryKey: ['books', org.id] }); };
+  const act = useMutation({
+    mutationFn: (a: string) => booksApi.org(org.id).action(e, id, a),
+    onSuccess: (x) => { setConfirm(null); done(); toast.push('success', x.message || 'Done.'); },
+    onError: (err) => { setConfirm(null); toast.push('error', errorText(err)); },
+  });
+  const del = useMutation({
+    mutationFn: () => booksApi.org(org.id).remove(e, id),
+    onSuccess: () => { setConfirm(null); void qc.invalidateQueries({ queryKey: ['books', org.id] }); toast.push('success', `Deleted from Zoho Books.`); onClose(); },
+    onError: (err) => { setConfirm(null); toast.push('error', errorText(err)); },
+  });
+  const status = String(r.status ?? '');
+  const balance = Number(r.balance ?? 0);
+  const close = () => setModal(null);
+  const email = () => setModal(<ActionForm title={`Email ${resource.singular}`} entity={e} id={id} action="email" onClose={close} onDone={done}
+    fields={[{ key: 'to_mail_ids', label: 'To (comma-separated)' }, { key: 'subject', label: 'Subject' }, { key: 'body', label: 'Message', type: 'textarea' }]}
+    initial={{ to_mail_ids: ((r.contact_persons_details as ZRecord[]) ?? []).map((p) => p.email).filter(Boolean).join(', ') || r.email || '', subject: `${resource.singular[0].toUpperCase()}${resource.singular.slice(1)} ${r[resource.nameField] ?? ''} from ${org.name}`, body: `Dear ${r.customer_name ?? r.vendor_name ?? 'customer'},\n\nPlease find the ${resource.singular} attached.\n\nRegards,\n${org.name}` }} />);
+
+  const status_ = (a: string, label: string, when: boolean, perm: Perm = 'manage', danger = false): Act => ({ key: a, label, perm, show: when, danger, confirm: danger ? `${label}? This is recorded in Zoho Books.` : undefined, run: () => act.mutate(a) });
+  const acts: Act[] = [];
+  const Form = resource.Form;
+  if (Form && resource.editPerm) acts.push({ key: 'edit', label: 'Edit', perm: resource.editPerm, show: status !== 'void', run: () => setModal(<Form record={r} onClose={close} onSaved={done} />) });
+  if (e === 'customers' || e === 'vendors' || e === 'items') {
+    acts.push(status_('inactive', 'Mark inactive', status === 'active'), status_('active', 'Mark active', status === 'inactive'));
+  }
+  if (e === 'bankaccounts') acts.push(status_('inactive', 'Mark inactive', r.is_active !== false, 'accountant'), status_('active', 'Mark active', r.is_active === false, 'accountant'));
+  if (e === 'estimates') acts.push(
+    status_('sent', 'Mark as sent', status === 'draft'), status_('accepted', 'Mark accepted', ['sent', 'draft'].includes(status)), status_('declined', 'Mark declined', ['sent'].includes(status)),
+    { key: 'convert', label: 'Create invoice', perm: 'manage', show: !['declined', 'invoiced'].includes(status), run: () => setModal(<TxnEditor spec={TXN.invoices} prefill={r} onClose={close} onSaved={done} />) },
+  );
+  if (e === 'salesorders') acts.push(status_('open', 'Mark as open', status === 'draft'),
+    { key: 'convert', label: 'Create invoice', perm: 'manage', show: ['open', 'confirmed'].includes(status), run: () => setModal(<TxnEditor spec={TXN.invoices} prefill={r} onClose={close} onSaved={done} />) },
+    status_('void', 'Void', status !== 'void', 'accountant', true));
+  if (e === 'invoices') acts.push(status_('sent', 'Mark as sent', status === 'draft'),
+    { key: 'pay', label: 'Record payment', perm: 'accountant', show: balance > 0 && !['draft', 'void'].includes(status), run: () => setModal(<PaymentForm side="customer" against={r} onClose={close} onSaved={done} />) },
+    status_('draft', 'Revert to draft', status === 'sent' && balance === Number(r.total)), status_('void', 'Void', !['void', 'paid'].includes(status), 'accountant', true));
+  if (e === 'purchaseorders') acts.push(status_('open', 'Mark as open', status === 'draft'),
+    { key: 'convert', label: 'Create bill', perm: 'manage', show: ['open', 'issued', 'partially_billed'].includes(status), run: () => setModal(<TxnEditor spec={TXN.bills} prefill={{ ...r, reference_number: r.purchaseorder_number }} onClose={close} onSaved={done} />) },
+    status_('billed', 'Mark as billed', ['open', 'issued'].includes(status)), status_('cancelled', 'Cancel', ['open', 'issued', 'draft'].includes(status), 'accountant', true));
+  if (e === 'bills') acts.push(status_('open', 'Mark as open', status === 'draft'),
+    { key: 'pay', label: 'Record payment', perm: 'accountant', show: balance > 0 && !['draft', 'void'].includes(status), run: () => setModal(<PaymentForm side="vendor" against={r} onClose={close} onSaved={done} />) },
+    status_('void', 'Void', !['void', 'paid'].includes(status), 'accountant', true));
+  if (e === 'creditnotes' || e === 'vendorcredits') acts.push(status_('open', 'Mark as open', status === 'draft'),
+    { key: 'apply', label: e === 'creditnotes' ? 'Apply to invoices' : 'Apply to bills', perm: 'accountant', show: status === 'open' && balance > 0, run: () => setModal(<ApplyCreditForm entity={e} record={r} onClose={close} onDone={done} />) },
+    { key: 'refund', label: 'Refund', perm: 'accountant', show: status === 'open' && balance > 0, run: () => setModal(<ActionForm title="Record refund" entity={e} id={id} action="refund" onClose={close} onDone={done}
+      fields={[{ key: 'date', label: 'Date', type: 'date' }, { key: 'amount', label: 'Amount', type: 'number' }, { key: 'refund_mode', label: 'Mode' }, { key: e === 'creditnotes' ? 'from_account_id' : 'account_id', label: e === 'creditnotes' ? 'Paid from account' : 'Deposit to account', type: 'account' }, { key: 'reference_number', label: 'Reference' }, { key: 'description', label: 'Notes', type: 'textarea' }]}
+      initial={{ date: new Date().toISOString().slice(0, 10), amount: balance, refund_mode: 'Bank Transfer' }} />) },
+    status_('void', 'Void', status !== 'void', 'accountant', true));
+  if (['estimates', 'salesorders', 'invoices', 'purchaseorders', 'creditnotes'].includes(e)) acts.push({ key: 'email', label: 'Email', perm: 'manage', show: status !== 'void' && status !== 'draft', run: email });
+  if (resource.deletePerm) acts.push({ key: 'delete', label: 'Delete', perm: resource.deletePerm, show: true, danger: true, confirm: `Delete this ${resource.singular} from Zoho Books? Zoho refuses if it is referenced by other records.`, run: () => del.mutate() });
+
+  const visible = acts.filter((a) => a.show && can[a.perm]);
+  return (
+    <>
+      {resource.pdf ? <a className="h-9 px-3 text-13 font-medium rounded inline-flex items-center gap-1.5 bg-surface text-ink border border-border hover:bg-canvas" href={booksApi.org(org.id).pdfUrl(e, id)} target="_blank" rel="noreferrer"><FileText size={14} />PDF</a> : null}
+      {visible.map((a) => <Btn key={a.key} variant={a.danger ? 'danger' : 'secondary'} loading={(act.isPending && act.variables === a.key) || (a.key === 'delete' && del.isPending)} onClick={() => (a.confirm ? setConfirm(a) : a.run())}>{a.label}</Btn>)}
+      {e === 'expenses' && can.manage ? <ReceiptUpload expenseId={id} /> : null}
+      {modal}
+      {confirm ? (
+        <Modal title={confirm.label} onClose={() => setConfirm(null)} footer={<><Btn onClick={() => setConfirm(null)}>Cancel</Btn><Btn variant="danger" loading={act.isPending || del.isPending} onClick={confirm.run}>{confirm.label}</Btn></>}>
+          <p className="text-13 text-ink">{confirm.confirm}</p>
+        </Modal>
+      ) : null}
+    </>
+  );
+}
+
+function ReceiptUpload({ expenseId }: { expenseId: string }) {
+  const org = useOrg();
+  const qc = useQueryClient();
+  const toast = useToast();
+  const up = useMutation({
+    mutationFn: (f: File) => booksApi.org(org.id).attachReceipt(expenseId, f),
+    onSuccess: () => { void qc.invalidateQueries({ queryKey: ['books', org.id, 'record', 'expenses', expenseId] }); toast.push('success', 'Receipt attached in Zoho Books.'); },
+    onError: (e) => toast.push('error', errorText(e)),
+  });
+  return (
+    <label className="h-9 px-3 text-13 font-medium rounded inline-flex items-center gap-1.5 bg-surface text-ink border border-border hover:bg-canvas cursor-pointer">
+      {up.isPending ? 'Uploading…' : 'Attach receipt'}
+      <input type="file" className="hidden" accept="application/pdf,image/png,image/jpeg,image/gif" onChange={(ev) => { const f = ev.target.files?.[0]; if (f) up.mutate(f); ev.target.value = ''; }} />
+    </label>
+  );
+}

@@ -48,11 +48,11 @@ const MANAGE = ['workstation.service.manage'] as const
 const q = (req: { query: Record<string, unknown> }, key: string) =>
   (typeof req.query[key] === 'string' && req.query[key] !== '' ? (req.query[key] as string) : null)
 
-/** Books is opened by client — one set of books per client (BooksOrganisation.clientId). */
+/** Books is opened by client — the Zoho Books organisation mapped to it (BooksZohoOrganization.clientId). */
 async function booksOrgIdFor(clientIds: string[]): Promise<Map<string, string>> {
   if (clientIds.length === 0) return new Map()
-  const rows = await prisma.booksOrganisation.findMany({
-    where: { clientId: { in: clientIds } },
+  const rows = await prisma.booksZohoOrganization.findMany({
+    where: { clientId: { in: clientIds }, isActive: true },
     select: { id: true, clientId: true },
   })
   return new Map(rows.flatMap((r) => (r.clientId ? [[r.clientId, r.id] as const] : [])))

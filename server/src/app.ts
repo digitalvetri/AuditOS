@@ -53,8 +53,8 @@ import { checklistRouter } from './modules/checklist/routes.js'
 // GST compliance — Workstation → Services → Registration → GST Registration.
 import { gstRouter as gstComplianceRouter } from './modules/gst/routes.js'
 import { gstPortalRouter } from './modules/gst-portal/routes.js'
-// Books — native bookkeeping, one set of books per client (docs/accounting-module).
-import { booksRouter } from './modules/books/routes.js'
+// Books — Zoho Books integration under TOOLS (docs/books-zoho/README.md).
+import { booksRouter, booksCallbackRouter } from './modules/books/routes.js'
 // Zoho Payments (docs/zoho-payments/README.md) — firm-collections integration.
 // Callback is public (state-signed); the rest is behind the finance permission.
 import { zpayRouter, zpayCallbackRouter } from './modules/zpay/routes.js'
@@ -120,6 +120,9 @@ export function createApp() {
   // count on the session cookie surviving cross-site — the signed `state`
   // param is what authorises the call.
   app.use('/api/zpay', zpayCallbackRouter)
+  // Zoho Books OAuth callback: a browser redirect from Zoho, authenticated by
+  // the signed state parameter rather than the session cookie.
+  app.use('/api/books', booksCallbackRouter)
 
   // Fake Zoho, in-process. Mounted OUTSIDE /api so it never inherits the
   // authenticate middleware; only when ZPAY_MODE=fake. The boot-safe check

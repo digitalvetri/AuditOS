@@ -19,6 +19,15 @@
  */
 import type { ZpayConfig } from './config.js'
 
+/**
+ * The slice of a Zoho OAuth client these helpers read. Zoho Payments passes
+ * its full ZpayConfig; the Books integration (modules/books) passes its own
+ * config, which is why this is structural rather than ZpayConfig itself.
+ */
+export type ZohoOAuthClient = Pick<ZpayConfig, 'clientId' | 'clientSecret' | 'redirectUri' | 'accountsBase'> & {
+  readonly scopes: readonly string[]
+}
+
 export interface AuthorizeUrlInput {
   state: string
   /**
@@ -34,7 +43,7 @@ export interface AuthorizeUrlInput {
   prompt?: 'consent'
 }
 
-export function buildAuthorizeUrl(config: ZpayConfig, input: AuthorizeUrlInput): string {
+export function buildAuthorizeUrl(config: ZohoOAuthClient, input: AuthorizeUrlInput): string {
   const params = new URLSearchParams({
     response_type: 'code',
     client_id: config.clientId,
@@ -87,7 +96,7 @@ export class ZohoOAuthError extends Error {
  * (which it does, e.g. `invalid_code` reads 200 in some versions).
  */
 export async function exchangeCodeForTokens(
-  config: ZpayConfig,
+  config: ZohoOAuthClient,
   code: string,
   fetchImpl: FetchLike = fetch as unknown as FetchLike,
 ): Promise<ZohoTokenResponse> {
@@ -138,7 +147,7 @@ export async function exchangeCodeForTokens(
  * 5xx — is transient and should be retried later.
  */
 export async function exchangeRefreshTokenForAccess(
-  config: ZpayConfig,
+  config: ZohoOAuthClient,
   refreshToken: string,
   fetchImpl: FetchLike = fetch as unknown as FetchLike,
 ): Promise<Omit<ZohoTokenResponse, 'refresh_token'>> {

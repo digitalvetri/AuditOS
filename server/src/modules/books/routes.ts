@@ -1,300 +1,389 @@
-import { Router, type Request } from 'express'
-import { z } from 'zod'
-import { prisma } from '../../lib/prisma.js'
-import { ApiError, handler } from '../../lib/http.js'
-import { can, requireSession } from '../../platform/auth.js'
-import { writeAudit } from '../../platform/audit.js'
-import { okB } from './serialize.js'
-import { contextFor, listBooksForSession, requireArea, requireWrite, resolveBooksContext, type Area } from './scope.js'
-import type { BooksContext } from './engine/context.js'
-import { createBooksOrganisation } from './engine/organisation.js'
-import { GST_STATES } from './engine/chart.js'
-import { setPrefix } from './engine/numbering.js'
-import { booksAudit } from './engine/audit.js'
-import { withBooksTx } from './engine/posting.js'
-import { Contacts, Items, TaxRates, Chart } from './services/masters.js'
-import { Documents, type DocKind } from './services/documents.js'
-import { Payments } from './services/payments.js'
-import { Journals } from './services/journals.js'
-import { Banking } from './services/banking.js'
-import { FX } from './services/fx.js'
-import { Recurring } from './services/recurring.js'
-import { Reports } from './services/reports.js'
-
 /**
- * BOOKS HTTP SURFACE — everything under /api/books.
+ * Books HTTP surface — Tools → Books, backed by Zoho Books.
  *
- * Every route inside a set of books starts with `ctx(req)`, which is the
- * only way to obtain a BooksContext: it resolves the caller's firm, the set
- * of books, and the caller's membership role, and refuses with 403/404
- * otherwise. Areas (settings / reports / accountant) narrow further.
+ *   booksCallbackRouter   public GET /api/books/callback (Zoho's browser
+ *                         redirect; the signed state is the authorisation)
+ *   booksRouter           everything else; requires books.access, then a
+ *                         per-route grant:
+ *                           books.settings    connect / disconnect / activate / map
+ *                           books.manage      create & edit, sync
+ *                           books.accountant  delete, void, payments, banking
+ *                           books.reports     reports
+ *
+ * Tenant isolation: every organisation is looked up by (firm, id), so one
+ * firm can never address another firm's Zoho organisation or tokens.
+ * Tokens never appear in a response — the serialisers below list fields
+ * explicitly.
  */
+import { Router, type NextFunction, type Request, type Response } from 'express'
+import multer from 'multer'
+import { ApiError, ok } from '../../lib/http.js'
+import { prisma } from '../../lib/prisma.js'
+import { can, requirePermission, requireSession } from '../../platform/auth.js'
+import { writeAudit } from '../../platform/audit.js'
+import type { PermissionCode } from '../../platform/rbac/matrix.js'
+import { BooksNotConfigured, booksConfig, booksConfigured } from './config.js'
+import { toApiError, zohoRequest, ZohoBooksError, type ZohoContext } from './client.js'
+import { beginConnect, completeConnect, disconnect, refreshOrganizations } from './connection.js'
+import { ENTITIES, isZohoId, type EntityDef } from './entities.js'
+import { computeDashboard, REPORTS, runReport } from './insights.js'
+
 export const booksRouter = Router()
+export const booksCallbackRouter = Router()
 
-const KINDS: DocKind[] = ['estimate', 'sales_order', 'invoice', 'retainer_invoice', 'credit_note', 'purchase_order', 'bill', 'vendor_credit']
-const kindOf = (s: string): DocKind => { if (!KINDS.includes(s as DocKind)) throw ApiError.notFound('No such document kind.'); return s as DocKind }
-const str = (v: unknown) => (typeof v === 'string' ? v : undefined)
-const ctx = (req: Request) => resolveBooksContext(req, req.params.orgId)
-const body = (req: Request) => (req.body ?? {}) as Record<string, unknown>
-const area = (req: Request, c: BooksContext, a: Area) => requireArea(c, requireSession(req), a)
-
-// ── Sets of books ─────────────────────────────────────────────────────────
-booksRouter.get('/', handler(async (req, res) => {
-  const session = requireSession(req)
-  const rows = await listBooksForSession(session)
-  const firmWide = can(session, 'books.access', 'organisation')
-  okB(res, {
-    items: rows.map((o) => ({ ...o, my_role: firmWide ? 'admin' : o.memberships.find((m) => m.userId === session.userId)?.role ?? null, member_count: o.memberships.length, memberships: undefined })),
-    can_manage: can(session, 'books.manage', 'self'),
-    states: GST_STATES,
-  })
-}))
-
-booksRouter.post('/', handler(async (req, res) => {
-  const session = requireSession(req)
-  if (!can(session, 'books.manage', 'self')) throw ApiError.forbidden('You cannot create sets of books.')
-  const b = z.object({
-    name: z.string().trim().min(1), legal_name: z.string().nullable().optional(), gstin: z.string().nullable().optional(), pan: z.string().nullable().optional(),
-    state_code: z.string().nullable().optional(), base_currency: z.string().length(3).optional(), fiscal_year_start_month: z.number().int().min(1).max(12).optional(),
-    client_id: z.string().nullable().optional(), address_line1: z.string().nullable().optional(), city: z.string().nullable().optional(), pincode: z.string().nullable().optional(),
-  }).safeParse(req.body ?? {})
-  if (!b.success) throw ApiError.badRequest('name is required.', b.error.flatten().fieldErrors)
-  const user = await prisma.user.findUniqueOrThrow({ where: { id: session.userId } })
-  const org = await createBooksOrganisation(prisma, {
-    organisationId: user.organisationId, userId: session.userId, name: b.data.name, legalName: b.data.legal_name ?? null, gstin: b.data.gstin?.toUpperCase() ?? null, pan: b.data.pan?.toUpperCase() ?? null,
-    stateCode: b.data.state_code ?? (b.data.gstin ? b.data.gstin.slice(0, 2) : null), stateName: b.data.state_code ? GST_STATES[b.data.state_code] ?? null : b.data.gstin ? GST_STATES[b.data.gstin.slice(0, 2)] ?? null : null,
-    baseCurrency: b.data.base_currency ?? 'INR', fiscalYearStartMonth: b.data.fiscal_year_start_month ?? 4, clientId: b.data.client_id ?? null, addressLine1: b.data.address_line1 ?? null, city: b.data.city ?? null, pincode: b.data.pincode ?? null,
-  })
-  await writeAudit({ actorUserId: session.userId, action: 'books.organisation.created', entityType: 'BooksOrganisation', entityId: org.id, after: { name: org.name }, req })
-  okB(res, org, 201)
-}))
-
-/** Firm users, for the membership picker. */
-booksRouter.get('/users', handler(async (req, res) => {
-  const session = requireSession(req)
-  if (!can(session, 'books.manage', 'self')) throw ApiError.forbidden()
-  const me = await prisma.user.findUniqueOrThrow({ where: { id: session.userId } })
-  const users = await prisma.user.findMany({ where: { organisationId: me.organisationId, isActive: true, deletedAt: null }, include: { employee: true, role: true }, orderBy: { email: 'asc' } })
-  okB(res, { items: users.map((u) => ({ id: u.id, email: u.email, name: u.employee?.fullName ?? u.email, role: u.role.name })) })
-}))
-
-booksRouter.get('/:orgId', handler(async (req, res) => {
-  const c = await ctx(req)
-  const org = await prisma.booksOrganisation.findUniqueOrThrow({ where: { id: c.booksOrgId } })
-  const [contacts, invoices, bills] = await Promise.all([
-    prisma.booksContact.count({ where: { booksOrgId: c.booksOrgId, deletedAt: null } }),
-    prisma.booksDocument.count({ where: { booksOrgId: c.booksOrgId, kind: 'invoice' } }),
-    prisma.booksDocument.count({ where: { booksOrgId: c.booksOrgId, kind: 'bill' } }),
-  ])
-  okB(res, { ...org, my_role: c.role, areas: { settings: c.role === 'admin', reports: c.role === 'admin', accountant: c.role === 'admin' }, counts: { contacts, invoices, bills } })
-}))
-
-booksRouter.patch('/:orgId', handler(async (req, res) => {
-  const c = await ctx(req); area(req, c, 'settings')
-  const b = body(req)
-  const before = await prisma.booksOrganisation.findUniqueOrThrow({ where: { id: c.booksOrgId } })
-  const org = await withBooksTx(prisma, async (tx) => {
-    const u = await tx.booksOrganisation.update({
-      where: { id: c.booksOrgId },
-      data: {
-        ...(str(b.name) ? { name: str(b.name)!.trim() } : {}), ...('legal_name' in b ? { legalName: str(b.legal_name) ?? null } : {}), ...('gstin' in b ? { gstin: str(b.gstin)?.toUpperCase() ?? null } : {}),
-        ...('pan' in b ? { pan: str(b.pan)?.toUpperCase() ?? null } : {}), ...('state_code' in b ? { stateCode: str(b.state_code) ?? null, stateName: str(b.state_code) ? GST_STATES[str(b.state_code)!] ?? null : null } : {}),
-        ...('address_line1' in b ? { addressLine1: str(b.address_line1) ?? null } : {}), ...('city' in b ? { city: str(b.city) ?? null } : {}), ...('pincode' in b ? { pincode: str(b.pincode) ?? null } : {}),
-        ...(typeof b.tds_enabled === 'boolean' ? { tdsEnabled: b.tds_enabled } : {}), ...(typeof b.fiscal_year_start_month === 'number' ? { fiscalYearStartMonth: b.fiscal_year_start_month } : {}),
-        ...(typeof b.is_active === 'boolean' ? { isActive: b.is_active } : {}), updatedBy: c.userId,
-      },
-    })
-    if (b.prefixes && typeof b.prefixes === 'object') for (const [kind, prefix] of Object.entries(b.prefixes as Record<string, string>)) if (typeof prefix === 'string' && prefix.length <= 12) await setPrefix(tx, c.booksOrgId, kind, prefix)
-    await booksAudit(tx, c, { entityType: 'organisation', entityId: c.booksOrgId, action: 'organisation.updated', before: { name: before.name, gstin: before.gstin, state: before.stateCode }, after: { name: u.name, gstin: u.gstin, state: u.stateCode } })
-    return u
-  })
-  okB(res, org)
-}))
-
-booksRouter.get('/:orgId/sequences', handler(async (req, res) => { const c = await ctx(req); area(req, c, 'settings'); okB(res, { items: await prisma.booksNumberSequence.findMany({ where: { booksOrgId: c.booksOrgId } }) }) }))
-
-// ── Members ───────────────────────────────────────────────────────────────
-booksRouter.get('/:orgId/members', handler(async (req, res) => {
-  const c = await ctx(req); area(req, c, 'settings')
-  const rows = await prisma.booksMembership.findMany({ where: { booksOrgId: c.booksOrgId } })
-  const users = await prisma.user.findMany({ where: { id: { in: rows.map((r) => r.userId) } }, include: { employee: true } })
-  okB(res, { items: rows.map((r) => { const u = users.find((x) => x.id === r.userId); return { ...r, name: u?.employee?.fullName ?? u?.email ?? r.userId, email: u?.email ?? null } }) })
-}))
-booksRouter.post('/:orgId/members', handler(async (req, res) => {
-  const c = await ctx(req); area(req, c, 'settings')
-  const b = z.object({ user_id: z.string().min(1), role: z.enum(['admin', 'staff', 'viewer']) }).safeParse(req.body ?? {})
-  if (!b.success) throw ApiError.badRequest('user_id and role are required.')
-  const user = await prisma.user.findFirst({ where: { id: b.data.user_id, organisationId: c.organisationId, deletedAt: null } })
-  if (!user) throw ApiError.notFound('User not found in this firm.')
-  const m = await withBooksTx(prisma, async (tx) => {
-    const row = await tx.booksMembership.upsert({ where: { booksOrgId_userId: { booksOrgId: c.booksOrgId, userId: user.id } }, update: { role: b.data.role }, create: { booksOrgId: c.booksOrgId, userId: user.id, role: b.data.role, createdBy: c.userId } })
-    await booksAudit(tx, c, { entityType: 'membership', entityId: row.id, action: 'membership.set', after: { user_id: user.id, role: b.data.role } })
-    return row
-  })
-  okB(res, m, 201)
-}))
-booksRouter.delete('/:orgId/members/:userId', handler(async (req, res) => {
-  const c = await ctx(req); area(req, c, 'settings')
-  await withBooksTx(prisma, async (tx) => {
-    await tx.booksMembership.deleteMany({ where: { booksOrgId: c.booksOrgId, userId: req.params.userId } })
-    await booksAudit(tx, c, { entityType: 'membership', entityId: req.params.userId, action: 'membership.removed' })
-  })
-  res.status(204).end()
-}))
-
-// ── Dashboard ─────────────────────────────────────────────────────────────
-booksRouter.get('/:orgId/dashboard', handler(async (req, res) => {
-  const c = await ctx(req)
-  const today = new Date().toISOString().slice(0, 10)
-  const monthStart = `${today.slice(0, 7)}-01`
-  const [openInv, openBills, cash, pl, recent] = await Promise.all([
-    prisma.booksBill.aggregate({ where: { booksOrgId: c.booksOrgId, side: 'debit', status: 'open', billType: 'new_ref' }, _sum: { balance: true }, _count: true }),
-    prisma.booksBill.aggregate({ where: { booksOrgId: c.booksOrgId, side: 'credit', status: 'open', billType: 'new_ref' }, _sum: { balance: true }, _count: true }),
-    Banking.accounts(prisma, c),
-    Reports.profitAndLoss(prisma, c, monthStart, today),
-    prisma.booksJournal.findMany({ where: { booksOrgId: c.booksOrgId, status: { in: ['posted', 'void'] } }, orderBy: { createdAt: 'desc' }, take: 8 }),
-  ])
-  const overdue = await prisma.booksBill.aggregate({ where: { booksOrgId: c.booksOrgId, side: 'debit', status: 'open', billType: 'new_ref', dueDate: { lt: today } }, _sum: { balance: true } })
-  okB(res, {
-    receivables: { total: openInv._sum.balance ?? 0n, count: openInv._count, overdue: overdue._sum.balance ?? 0n },
-    payables: { total: openBills._sum.balance ?? 0n, count: openBills._count },
-    cash: cash.map((a) => ({ id: a.id, name: a.name, balance: a.balance })),
-    month: { from: monthStart, to: today, income: pl.total_income, expense: pl.total_expense, net: pl.net_profit },
-    recent,
-  })
-}))
-
-// ── Masters ───────────────────────────────────────────────────────────────
-booksRouter.get('/:orgId/contacts', handler(async (req, res) => { const c = await ctx(req); okB(res, { items: await Contacts.list(prisma, c, { type: str(req.query.type), q: str(req.query.q) }) }) }))
-booksRouter.post('/:orgId/contacts', handler(async (req, res) => { const c = await ctx(req); requireWrite(c); okB(res, await Contacts.create(prisma, c, body(req) as never), 201) }))
-booksRouter.get('/:orgId/contacts/:id', handler(async (req, res) => {
-  const c = await ctx(req)
-  const contact = await Contacts.get(prisma, c, req.params.id)
-  const [docs, open] = await Promise.all([
-    prisma.booksDocument.findMany({ where: { booksOrgId: c.booksOrgId, contactId: contact.id }, orderBy: { date: 'desc' }, take: 50 }),
-    prisma.booksBill.findMany({ where: { booksOrgId: c.booksOrgId, contactId: contact.id, status: 'open' } }),
-  ])
-  okB(res, { contact, documents: docs, open_items: open, receivable: open.filter((b) => b.side === 'debit').reduce((t, b) => t + b.balance, 0n), payable: open.filter((b) => b.side === 'credit').reduce((t, b) => t + b.balance, 0n) })
-}))
-booksRouter.patch('/:orgId/contacts/:id', handler(async (req, res) => { const c = await ctx(req); requireWrite(c); okB(res, await Contacts.update(prisma, c, req.params.id, body(req) as never)) }))
-booksRouter.post('/:orgId/contacts/:id/status', handler(async (req, res) => { const c = await ctx(req); requireWrite(c); okB(res, await Contacts.deactivate(prisma, c, req.params.id, body(req).is_active !== false)) }))
-
-booksRouter.get('/:orgId/items', handler(async (req, res) => { const c = await ctx(req); okB(res, { items: await Items.list(prisma, c, { q: str(req.query.q) }) }) }))
-booksRouter.post('/:orgId/items', handler(async (req, res) => { const c = await ctx(req); requireWrite(c); okB(res, await Items.create(prisma, c, body(req) as never), 201) }))
-booksRouter.patch('/:orgId/items/:id', handler(async (req, res) => { const c = await ctx(req); requireWrite(c); okB(res, await Items.update(prisma, c, req.params.id, body(req) as never)) }))
-
-booksRouter.get('/:orgId/tax-rates', handler(async (req, res) => { const c = await ctx(req); okB(res, { items: await TaxRates.list(prisma, c, str(req.query.type)) }) }))
-booksRouter.post('/:orgId/tax-rates', handler(async (req, res) => { const c = await ctx(req); area(req, c, 'settings'); okB(res, await TaxRates.create(prisma, c, body(req) as never), 201) }))
-booksRouter.patch('/:orgId/tax-rates/:id', handler(async (req, res) => { const c = await ctx(req); area(req, c, 'settings'); okB(res, await TaxRates.update(prisma, c, req.params.id, body(req) as never)) }))
-
-booksRouter.get('/:orgId/chart/groups', handler(async (req, res) => { const c = await ctx(req); okB(res, { items: await Chart.groups(prisma, c) }) }))
-booksRouter.post('/:orgId/chart/groups', handler(async (req, res) => { const c = await ctx(req); area(req, c, 'settings'); okB(res, await Chart.createGroup(prisma, c, body(req) as never), 201) }))
-booksRouter.get('/:orgId/chart/ledgers', handler(async (req, res) => { const c = await ctx(req); okB(res, { items: await Chart.ledgers(prisma, c, { root: str(req.query.root), q: str(req.query.q), bank: req.query.bank === '1' }) }) }))
-booksRouter.post('/:orgId/chart/ledgers', handler(async (req, res) => { const c = await ctx(req); area(req, c, 'settings'); okB(res, await Chart.createLedger(prisma, c, body(req) as never), 201) }))
-booksRouter.get('/:orgId/chart/ledgers/:id', handler(async (req, res) => { const c = await ctx(req); okB(res, await Chart.getLedger(prisma, c, req.params.id)) }))
-booksRouter.patch('/:orgId/chart/ledgers/:id', handler(async (req, res) => { const c = await ctx(req); area(req, c, 'settings'); okB(res, await Chart.updateLedger(prisma, c, req.params.id, body(req) as never)) }))
-booksRouter.delete('/:orgId/chart/ledgers/:id', handler(async (req, res) => { const c = await ctx(req); area(req, c, 'settings'); await Chart.deleteLedger(prisma, c, req.params.id); res.status(204).end() }))
-
-// ── Documents ─────────────────────────────────────────────────────────────
-booksRouter.get('/:orgId/documents/:kind', handler(async (req, res) => {
-  const c = await ctx(req)
-  okB(res, { items: await Documents.list(prisma, c, kindOf(req.params.kind), { status: str(req.query.status), contact_id: str(req.query.contact_id), from: str(req.query.from), to: str(req.query.to), q: str(req.query.q) }) })
-}))
-booksRouter.post('/:orgId/documents/:kind', handler(async (req, res) => { const c = await ctx(req); requireWrite(c); okB(res, await Documents.create(prisma, c, kindOf(req.params.kind), body(req) as never), 201) }))
-booksRouter.get('/:orgId/documents/:kind/:id', handler(async (req, res) => {
-  const c = await ctx(req)
-  const d = await Documents.get(prisma, c, req.params.id)
-  if (d.kind !== req.params.kind) throw ApiError.notFound('Document not found.')
-  const [contact, journal, bill, applications, audit] = await Promise.all([
-    prisma.booksContact.findUnique({ where: { id: d.contactId } }),
-    d.journalId ? prisma.booksJournal.findUnique({ where: { id: d.journalId }, include: { lines: { include: { ledger: { select: { name: true } } }, orderBy: { lineNo: 'asc' } } } }) : null,
-    prisma.booksBill.findFirst({ where: { booksOrgId: c.booksOrgId, sourceType: d.kind, sourceId: d.id } }),
-    prisma.booksBillAllocation.findMany({ where: { booksOrgId: c.booksOrgId, bill: { sourceType: d.kind, sourceId: d.id }, type: { in: ['against_ref', 'revalue'] } }, include: { journal: { select: { id: true, number: true, date: true, voucherType: true, status: true, narration: true } } } }),
-    Journals.audit(prisma, c, d.kind, d.id),
-  ])
-  okB(res, { document: d, contact, journal, open_item: bill, applications, audit })
-}))
-booksRouter.patch('/:orgId/documents/:kind/:id', handler(async (req, res) => { const c = await ctx(req); requireWrite(c); okB(res, await Documents.update(prisma, c, req.params.id, body(req) as never)) }))
-booksRouter.post('/:orgId/documents/:kind/:id/post', handler(async (req, res) => { const c = await ctx(req); requireWrite(c); okB(res, await Documents.post(prisma, c, req.params.id)) }))
-booksRouter.post('/:orgId/documents/:kind/:id/void', handler(async (req, res) => { const c = await ctx(req); requireWrite(c); okB(res, await Documents.void(prisma, c, req.params.id, str(body(req).reason) ?? null)) }))
-booksRouter.post('/:orgId/documents/:kind/:id/status', handler(async (req, res) => { const c = await ctx(req); requireWrite(c); okB(res, await Documents.setStatus(prisma, c, req.params.id, String(body(req).status ?? ''))) }))
-booksRouter.post('/:orgId/documents/:kind/:id/convert', handler(async (req, res) => { const c = await ctx(req); requireWrite(c); okB(res, await Documents.convert(prisma, c, req.params.id, kindOf(String(body(req).to ?? ''))), 201) }))
-booksRouter.post('/:orgId/documents/:kind/:id/apply-credit', handler(async (req, res) => { const c = await ctx(req); requireWrite(c); okB(res, await Documents.applyCredit(prisma, c, req.params.id, (body(req).applications as never) ?? [], str(body(req).date))) }))
-booksRouter.post('/:orgId/documents/:kind/:id/apply-retainer', handler(async (req, res) => { const c = await ctx(req); requireWrite(c); okB(res, await Documents.applyRetainer(prisma, c, req.params.id, (body(req).applications as never) ?? [], str(body(req).date))) }))
-
-/** Open items for the allocation pickers. */
-booksRouter.get('/:orgId/open-items', handler(async (req, res) => {
-  const c = await ctx(req)
-  const side = req.query.side === 'credit' ? 'credit' : 'debit'
-  const bills = await prisma.booksBill.findMany({ where: { booksOrgId: c.booksOrgId, status: 'open', side, ...(str(req.query.contact_id) ? { contactId: str(req.query.contact_id) } : {}) }, orderBy: { date: 'asc' } })
-  const docs = await prisma.booksDocument.findMany({ where: { booksOrgId: c.booksOrgId, id: { in: bills.map((b) => b.sourceId) } }, select: { id: true, kind: true, number: true, date: true, dueDate: true, total: true, balanceDue: true, currency: true, contactId: true } })
-  okB(res, { items: bills.map((b) => ({ ...b, document: docs.find((d) => d.id === b.sourceId) ?? null })) })
-}))
-
-// ── Payments ──────────────────────────────────────────────────────────────
-const pkind = (s: string) => { if (s !== 'received' && s !== 'made') throw ApiError.notFound('No such payment kind.'); return s }
-booksRouter.get('/:orgId/payments/:kind', handler(async (req, res) => { const c = await ctx(req); okB(res, { items: await Payments.list(prisma, c, pkind(req.params.kind), { contact_id: str(req.query.contact_id), from: str(req.query.from), to: str(req.query.to) }) }) }))
-booksRouter.post('/:orgId/payments/:kind', handler(async (req, res) => { const c = await ctx(req); requireWrite(c); okB(res, await Payments.create(prisma, c, pkind(req.params.kind), body(req) as never), 201) }))
-booksRouter.get('/:orgId/payments/:kind/:id', handler(async (req, res) => { const c = await ctx(req); const p = await Payments.get(prisma, c, req.params.id); okB(res, { ...p, audit: await Journals.audit(prisma, c, `payment_${p.payment.kind}`, p.payment.id) }) }))
-booksRouter.post('/:orgId/payments/:kind/:id/void', handler(async (req, res) => { const c = await ctx(req); requireWrite(c); okB(res, await Payments.void(prisma, c, req.params.id, str(body(req).reason) ?? null)) }))
-
-// ── Journals (accountant) ─────────────────────────────────────────────────
-booksRouter.get('/:orgId/journals', handler(async (req, res) => { const c = await ctx(req); okB(res, { items: await Journals.list(prisma, c, { status: str(req.query.status), voucher_type: str(req.query.voucher_type), from: str(req.query.from), to: str(req.query.to), q: str(req.query.q), limit: Number(req.query.limit) || undefined }) }) }))
-booksRouter.post('/:orgId/journals', handler(async (req, res) => { const c = await ctx(req); area(req, c, 'accountant'); const b = body(req); okB(res, b.draft ? await Journals.saveDraft(prisma, c, b as never) : await Journals.create(prisma, c, b as never), 201) }))
-booksRouter.get('/:orgId/journals/:id', handler(async (req, res) => { const c = await ctx(req); const j = await Journals.get(prisma, c, req.params.id); okB(res, { ...j, audit: await Journals.audit(prisma, c, 'journal', j.id) }) }))
-booksRouter.patch('/:orgId/journals/:id', handler(async (req, res) => { const c = await ctx(req); area(req, c, 'accountant'); okB(res, await Journals.saveDraft(prisma, c, body(req) as never, req.params.id)) }))
-booksRouter.post('/:orgId/journals/:id/post', handler(async (req, res) => { const c = await ctx(req); area(req, c, 'accountant'); okB(res, await Journals.postDraft(prisma, c, req.params.id)) }))
-booksRouter.post('/:orgId/journals/:id/void', handler(async (req, res) => { const c = await ctx(req); area(req, c, 'accountant'); okB(res, await Journals.void(prisma, c, req.params.id, str(body(req).reason) ?? null)) }))
-booksRouter.delete('/:orgId/journals/:id', handler(async (req, res) => { const c = await ctx(req); area(req, c, 'accountant'); await Journals.deleteDraft(prisma, c, req.params.id); res.status(204).end() }))
-booksRouter.get('/:orgId/audit', handler(async (req, res) => { const c = await ctx(req); okB(res, { items: await prisma.booksAuditEvent.findMany({ where: { booksOrgId: c.booksOrgId, ...(str(req.query.entity_type) ? { entityType: str(req.query.entity_type) } : {}), ...(str(req.query.entity_id) ? { entityId: str(req.query.entity_id) } : {}) }, orderBy: { createdAt: 'desc' }, take: 200 }) }) }))
-
-// ── Banking ───────────────────────────────────────────────────────────────
-booksRouter.get('/:orgId/banking/accounts', handler(async (req, res) => { const c = await ctx(req); okB(res, { items: await Banking.accounts(prisma, c) }) }))
-booksRouter.get('/:orgId/banking/transfers', handler(async (req, res) => { const c = await ctx(req); okB(res, { items: await Banking.transfers(prisma, c) }) }))
-booksRouter.post('/:orgId/banking/transfers', handler(async (req, res) => { const c = await ctx(req); requireWrite(c); okB(res, await Banking.transfer(prisma, c, body(req) as never), 201) }))
-booksRouter.post('/:orgId/banking/transfers/:id/void', handler(async (req, res) => { const c = await ctx(req); requireWrite(c); okB(res, await Banking.voidTransfer(prisma, c, req.params.id, str(body(req).reason) ?? null)) }))
-booksRouter.get('/:orgId/banking/:ledgerId/reconciliation', handler(async (req, res) => { const c = await ctx(req); area(req, c, 'accountant'); okB(res, await Banking.reconciliation(prisma, c, req.params.ledgerId, { from: str(req.query.from), to: str(req.query.to) })) }))
-booksRouter.post('/:orgId/banking/:ledgerId/statement-lines', handler(async (req, res) => { const c = await ctx(req); area(req, c, 'accountant'); okB(res, { items: await Banking.addStatementLines(prisma, c, req.params.ledgerId, (body(req).lines as never) ?? []) }, 201) }))
-booksRouter.delete('/:orgId/banking/statement-lines/:id', handler(async (req, res) => { const c = await ctx(req); area(req, c, 'accountant'); await Banking.deleteStatementLine(prisma, c, req.params.id); res.status(204).end() }))
-booksRouter.post('/:orgId/banking/match', handler(async (req, res) => { const c = await ctx(req); area(req, c, 'accountant'); await Banking.match(prisma, c, String(body(req).statement_line_id ?? ''), String(body(req).journal_line_id ?? '')); res.status(204).end() }))
-booksRouter.post('/:orgId/banking/unmatch', handler(async (req, res) => { const c = await ctx(req); area(req, c, 'accountant'); await Banking.unmatch(prisma, c, String(body(req).statement_line_id ?? '')); res.status(204).end() }))
-
-// ── FX ────────────────────────────────────────────────────────────────────
-booksRouter.get('/:orgId/fx/rates', handler(async (req, res) => { const c = await ctx(req); okB(res, { items: await FX.rates(prisma, c, str(req.query.currency)) }) }))
-booksRouter.post('/:orgId/fx/rates', handler(async (req, res) => { const c = await ctx(req); area(req, c, 'accountant'); okB(res, await FX.setRate(prisma, c, body(req) as never), 201) }))
-booksRouter.get('/:orgId/fx/exposure', handler(async (req, res) => { const c = await ctx(req); area(req, c, 'accountant'); okB(res, { items: await FX.exposure(prisma, c, String(req.query.currency ?? ''), req.query.rate ? Number(req.query.rate) : undefined) }) }))
-booksRouter.post('/:orgId/fx/revalue', handler(async (req, res) => { const c = await ctx(req); area(req, c, 'accountant'); okB(res, await FX.revalue(prisma, c, body(req) as never), 201) }))
-booksRouter.get('/:orgId/fx/revaluations', handler(async (req, res) => { const c = await ctx(req); area(req, c, 'accountant'); okB(res, { items: await FX.revaluations(prisma, c) }) }))
-booksRouter.post('/:orgId/fx/revaluations/:id/void', handler(async (req, res) => { const c = await ctx(req); area(req, c, 'accountant'); await FX.voidRevaluation(prisma, c, req.params.id); res.status(204).end() }))
-
-// ── Recurring ─────────────────────────────────────────────────────────────
-booksRouter.get('/:orgId/recurring', handler(async (req, res) => { const c = await ctx(req); okB(res, { items: await Recurring.list(prisma, c, str(req.query.kind)) }) }))
-booksRouter.post('/:orgId/recurring', handler(async (req, res) => { const c = await ctx(req); requireWrite(c); okB(res, await Recurring.create(prisma, c, body(req) as never), 201) }))
-booksRouter.post('/:orgId/recurring/:id/status', handler(async (req, res) => { const c = await ctx(req); requireWrite(c); okB(res, await Recurring.setStatus(prisma, c, req.params.id, String(body(req).status) as never)) }))
-booksRouter.post('/:orgId/recurring/run', handler(async (req, res) => { const c = await ctx(req); requireWrite(c); okB(res, { created: await Recurring.runDue(prisma, c, str(body(req).today) ?? new Date().toISOString().slice(0, 10)) }) }))
-
-// ── Reports ───────────────────────────────────────────────────────────────
-booksRouter.get('/:orgId/reports/:name', handler(async (req, res) => {
-  const c = await ctx(req); area(req, c, 'reports')
-  const today = new Date().toISOString().slice(0, 10)
-  const org = await prisma.booksOrganisation.findUniqueOrThrow({ where: { id: c.booksOrgId } })
-  const fy = (() => { const [y, m] = today.split('-').map(Number); return `${m >= org.fiscalYearStartMonth ? y : y - 1}-${String(org.fiscalYearStartMonth).padStart(2, '0')}-01` })()
-  const from = str(req.query.from) ?? fy
-  const to = str(req.query.to) ?? today
-  const asOf = str(req.query.as_of) ?? to
-  switch (req.params.name) {
-    case 'trial-balance': return okB(res, await Reports.trialBalance(prisma, c, asOf))
-    case 'profit-and-loss': return okB(res, await Reports.profitAndLoss(prisma, c, from, to))
-    case 'balance-sheet': return okB(res, await Reports.balanceSheet(prisma, c, asOf))
-    case 'cash-flow': return okB(res, await Reports.cashFlow(prisma, c, from, to))
-    case 'general-ledger': return okB(res, await Reports.generalLedger(prisma, c, String(req.query.ledger_id ?? ''), from, to))
-    case 'ar-ageing': return okB(res, await Reports.ageing(prisma, c, 'receivable', asOf))
-    case 'ap-ageing': return okB(res, await Reports.ageing(prisma, c, 'payable', asOf))
-    case 'gstr-1': return okB(res, await Reports.gstr1(prisma, c, from, to))
-    case 'gstr-3b': return okB(res, await Reports.gstr3b(prisma, c, from, to))
-    case 'tds': return okB(res, { items: await Reports.tdsSummary(prisma, c, from, to) })
-    default: throw ApiError.notFound('No such report.')
+// ── helpers ──────────────────────────────────────────────────────────────
+function translate(err: unknown): unknown {
+  if (err instanceof ZohoBooksError) return toApiError(err)
+  if (err instanceof BooksNotConfigured) return new ApiError(503, 'books_not_configured', err.message)
+  return err
+}
+/** handler() that maps Zoho/config errors to clean API errors. `pass` = middleware: call next() on success. */
+const h = (fn: (req: Request, res: Response) => Promise<unknown>, pass = false) =>
+  (req: Request, res: Response, next: NextFunction) => {
+    fn(req, res).then(() => { if (pass) next() }, (e) => next(translate(e)))
   }
+
+function need(req: Request, perm: PermissionCode) {
+  if (!can(requireSession(req), perm, 'organisation')) throw ApiError.forbidden('Your role does not allow this Books action.')
+}
+
+async function firmOf(req: Request): Promise<{ userId: string; organisationId: string }> {
+  const s = requireSession(req)
+  const u = await prisma.user.findUniqueOrThrow({ where: { id: s.userId }, select: { organisationId: true } })
+  return { userId: s.userId, organisationId: u.organisationId }
+}
+
+function cleanBody(body: unknown): Record<string, unknown> {
+  if (!body || typeof body !== 'object' || Array.isArray(body)) throw ApiError.badRequest('A JSON object body is required.')
+  if (JSON.stringify(body).length > 200_000) throw ApiError.badRequest('The request is too large.')
+  const out = { ...(body as Record<string, unknown>) }
+  for (const k of Object.keys(out)) if (!/^[a-z0-9_]+$/.test(k) || k === 'organization_id') delete out[k]
+  return out
+}
+
+function entityOf(req: Request): EntityDef {
+  const def = ENTITIES[req.params.entity]
+  if (!def) throw ApiError.notFound('Unknown Books resource.')
+  return def
+}
+function idOf(req: Request): string {
+  if (!isZohoId(req.params.id)) throw ApiError.badRequest('Invalid Zoho Books id.')
+  return req.params.id
+}
+
+function serializeOrg(o: {
+  id: string; zohoOrgId: string; name: string; currencyCode: string | null; countryCode: string | null; isActive: boolean
+  clientId: string | null; connectionId: string; syncStatus: string; lastSyncAt: Date | null; lastSyncAttemptAt: Date | null
+  lastSyncError: string | null; activatedAt: Date | null; autoRefreshMinutes: number
+}, extra: Record<string, unknown> = {}) {
+  return {
+    id: o.id, zoho_org_id: o.zohoOrgId, name: o.name, currency_code: o.currencyCode, country: o.countryCode,
+    is_active: o.isActive, client_id: o.clientId, connection_id: o.connectionId, sync_status: o.syncStatus,
+    last_sync_at: o.lastSyncAt, last_sync_attempt_at: o.lastSyncAttemptAt, last_sync_error: o.lastSyncError,
+    activated_at: o.activatedAt, auto_refresh_minutes: o.autoRefreshMinutes, ...extra,
+  }
+}
+
+// ── OAuth callback (public) ──────────────────────────────────────────────
+booksCallbackRouter.get('/callback', async (req, res) => {
+  const back = (() => { try { return booksConfig().webReturnUrl } catch { return '/books/settings' } })()
+  const q = (k: string) => (typeof req.query[k] === 'string' ? (req.query[k] as string) : null)
+  const go = (params: Record<string, string>) => res.redirect(302, `${back}?${new URLSearchParams(params)}`)
+  if (q('error')) return go({ zoho: 'error', reason: q('error')!.slice(0, 60) })
+  const code = q('code'); const state = q('state')
+  if (!code || !state) return go({ zoho: 'error', reason: 'missing_parameters' })
+  try {
+    const r = await completeConnect({ code, state, accountsServer: q('accounts-server') })
+    await writeAudit({ actorUserId: r.userId, action: 'books.zoho.connected', entityType: 'books.connection', entityId: r.connectionId, after: { organizations: r.organizations }, req })
+    return go({ zoho: 'connected' })
+  } catch (e) {
+    const t = translate(e)
+    const reason = t instanceof ApiError ? t.code : 'oauth_failed'
+    console.warn('[books] callback failed', reason)
+    return go({ zoho: 'error', reason })
+  }
+})
+
+// ── connection & organisations ───────────────────────────────────────────
+booksRouter.use(requirePermission('books.access', 'organisation'))
+
+booksRouter.get('/status', h(async (req, res) => {
+  const { organisationId } = await firmOf(req)
+  const session = requireSession(req)
+  const [connections, orgs] = await Promise.all([
+    prisma.booksZohoConnection.findMany({ where: { organisationId, deletedAt: null }, orderBy: { createdAt: 'asc' } }),
+    prisma.booksZohoOrganization.findMany({ where: { organisationId }, orderBy: { name: 'asc' } }),
+  ])
+  const clientIds = orgs.flatMap((o) => (o.clientId ? [o.clientId] : []))
+  const clients = clientIds.length ? await prisma.client.findMany({ where: { id: { in: clientIds } }, select: { id: true, companyName: true } }) : []
+  const clientName = new Map(clients.map((c) => [c.id, c.companyName]))
+  const connStatus = new Map(connections.map((c) => [c.id, c.status]))
+  const visible = connections.filter((c) => c.status !== 'disconnected' || orgs.some((o) => o.connectionId === c.id))
+  ok(res, {
+    configured: booksConfigured(),
+    connections: visible.map((c) => ({
+      id: c.id, status: c.status, connected_at: c.connectedAt, last_error_code: c.lastErrorCode,
+      last_error_at: c.lastErrorAt, scopes: c.scopesGranted, data_center: c.accountsServer,
+    })),
+    organizations: orgs.map((o) => serializeOrg(o, { client_name: o.clientId ? clientName.get(o.clientId) ?? null : null, connection_status: connStatus.get(o.connectionId) ?? 'disconnected' })),
+    permissions: {
+      manage: can(session, 'books.manage', 'organisation'), accountant: can(session, 'books.accountant', 'organisation'),
+      settings: can(session, 'books.settings', 'organisation'), reports: can(session, 'books.reports', 'organisation'),
+    },
+  })
 }))
 
-export { contextFor }
+booksRouter.post('/connect', h(async (req, res) => {
+  need(req, 'books.settings')
+  const { userId, organisationId } = await firmOf(req)
+  ok(res, await beginConnect({ organisationId, userId }))
+}))
+
+booksRouter.post('/connections/:id/reconnect', h(async (req, res) => {
+  need(req, 'books.settings')
+  const { userId, organisationId } = await firmOf(req)
+  ok(res, await beginConnect({ organisationId, userId, connectionId: req.params.id }))
+}))
+
+booksRouter.post('/connections/:id/disconnect', h(async (req, res) => {
+  need(req, 'books.settings')
+  const { userId, organisationId } = await firmOf(req)
+  await disconnect({ organisationId, userId, connectionId: req.params.id })
+  await writeAudit({ actorUserId: userId, action: 'books.zoho.disconnected', entityType: 'books.connection', entityId: req.params.id, req })
+  ok(res, { disconnected: true })
+}))
+
+booksRouter.post('/connections/:id/organizations/refresh', h(async (req, res) => {
+  need(req, 'books.settings')
+  const { organisationId } = await firmOf(req)
+  const conn = await prisma.booksZohoConnection.findFirst({ where: { id: req.params.id, organisationId, deletedAt: null } })
+  if (!conn) throw ApiError.notFound('No such Zoho Books connection.')
+  ok(res, { organizations: await refreshOrganizations(conn, organisationId) })
+}))
+
+booksRouter.get('/clients', h(async (req, res) => {
+  need(req, 'books.settings')
+  const { organisationId } = await firmOf(req)
+  const rows = await prisma.client.findMany({ where: { organisationId }, select: { id: true, companyName: true, clientCode: true }, orderBy: { companyName: 'asc' } })
+  ok(res, { items: rows.map((c) => ({ id: c.id, name: c.companyName, code: c.clientCode })) })
+}))
+
+booksRouter.patch('/organizations/:id', h(async (req, res) => {
+  need(req, 'books.settings')
+  const { userId, organisationId } = await firmOf(req)
+  const org = await prisma.booksZohoOrganization.findFirst({ where: { id: req.params.id, organisationId }, include: { connection: true } })
+  if (!org) throw ApiError.notFound('No such Zoho Books organisation.')
+  const body = (req.body ?? {}) as { is_active?: unknown; client_id?: unknown; auto_refresh_minutes?: unknown }
+  const data: { isActive?: boolean; activatedAt?: Date; activatedBy?: string; clientId?: string | null; autoRefreshMinutes?: number } = {}
+
+  if (body.is_active !== undefined) {
+    if (typeof body.is_active !== 'boolean') throw ApiError.badRequest('is_active must be true or false.')
+    if (body.is_active && org.connection.status !== 'connected') throw ApiError.conflict('books_reconnect_required', 'Reconnect Zoho Books before activating this organisation.')
+    data.isActive = body.is_active
+    if (body.is_active && !org.isActive) { data.activatedAt = new Date(); data.activatedBy = userId }
+  }
+  if (body.client_id !== undefined) {
+    if (body.client_id === null || body.client_id === '') data.clientId = null
+    else {
+      if (typeof body.client_id !== 'string') throw ApiError.badRequest('client_id must be a string.')
+      const client = await prisma.client.findFirst({ where: { id: body.client_id, organisationId }, select: { id: true } })
+      if (!client) throw ApiError.badRequest('No such client.')
+      const other = await prisma.booksZohoOrganization.findFirst({ where: { organisationId, clientId: body.client_id, id: { not: org.id } }, select: { name: true } })
+      if (other) throw ApiError.conflict('books_client_already_mapped', `This client is already mapped to the Zoho Books organisation "${other.name}".`)
+      data.clientId = body.client_id
+    }
+  }
+  if (body.auto_refresh_minutes !== undefined) {
+    const n = Number(body.auto_refresh_minutes)
+    if (!Number.isInteger(n) || n < 0 || n > 1440) throw ApiError.badRequest('auto_refresh_minutes must be 0–1440.')
+    data.autoRefreshMinutes = n
+  }
+  const updated = await prisma.booksZohoOrganization.update({ where: { id: org.id }, data })
+  await writeAudit({ actorUserId: userId, action: 'books.organization.updated', entityType: 'books.organization', entityId: org.id, before: { is_active: org.isActive, client_id: org.clientId }, after: { is_active: updated.isActive, client_id: updated.clientId, zoho_org_id: org.zohoOrgId }, req })
+  ok(res, serializeOrg(updated))
+}))
+
+// ── one active organisation ──────────────────────────────────────────────
+async function loadOrg(organisationId: string, id: string) {
+  return prisma.booksZohoOrganization.findFirst({ where: { id, organisationId }, include: { connection: true } })
+}
+interface Loc { org: NonNullable<Awaited<ReturnType<typeof loadOrg>>>; userId: string; ctx: ZohoContext }
+const loc = (res: Response) => res.locals.books as Loc
+
+const orgRouter = Router()
+booksRouter.use('/o/:ref', h(async (req, res) => {
+  const { organisationId, userId } = await firmOf(req)
+  const org = await loadOrg(organisationId, req.params.ref)
+  if (!org || !org.isActive) throw ApiError.notFound('This Zoho Books organisation is not active in Audit OS.')
+  if (org.connection.status !== 'connected') throw ApiError.conflict('books_reconnect_required', 'The Zoho Books connection has expired or was revoked. Reconnect it in Books → Settings.')
+  res.locals.books = { org, userId, ctx: { conn: org.connection, zohoOrgId: org.zohoOrgId } } satisfies Loc
+}, true), orgRouter)
+
+// Sync: one at a time per organisation (a stale claim older than 5 min is reclaimable).
+async function runSync(res: Response, trigger: 'manual' | 'auto', req: Request) {
+  const { org, userId, ctx } = loc(res)
+  const claim = await prisma.booksZohoOrganization.updateMany({
+    where: { id: org.id, OR: [{ syncStatus: { not: 'syncing' } }, { lastSyncAttemptAt: { lt: new Date(Date.now() - 5 * 60_000) } }] },
+    data: { syncStatus: 'syncing', lastSyncAttemptAt: new Date() },
+  })
+  if (claim.count === 0) throw ApiError.conflict('books_sync_in_progress', 'A sync is already running for this organisation.')
+  const log = await prisma.booksSyncLog.create({ data: { zohoOrgRef: org.id, trigger, status: 'running', startedBy: userId } })
+  const counter = { calls: 0 }
+  try {
+    const snapshot = await computeDashboard({ ...ctx, counter }, org.currencyCode)
+    const now = new Date()
+    await prisma.booksZohoOrganization.update({ where: { id: org.id }, data: { syncStatus: 'synced', lastSyncAt: now, lastSyncError: null, snapshotJson: JSON.stringify(snapshot) } })
+    await prisma.booksSyncLog.update({ where: { id: log.id }, data: { status: 'succeeded', finishedAt: now, apiCalls: counter.calls } })
+    if (trigger === 'manual') await writeAudit({ actorUserId: userId, action: 'books.sync.completed', entityType: 'books.organization', entityId: org.id, after: { api_calls: counter.calls }, req })
+    return { snapshot, lastSyncAt: now }
+  } catch (e) {
+    const t = translate(e)
+    const message = t instanceof ApiError ? t.message : 'Sync failed.'
+    await prisma.booksZohoOrganization.update({ where: { id: org.id }, data: { syncStatus: 'failed', lastSyncError: message } })
+    await prisma.booksSyncLog.update({ where: { id: log.id }, data: { status: 'failed', finishedAt: new Date(), error: message, apiCalls: counter.calls } })
+    await writeAudit({ actorUserId: userId, action: 'books.sync.failed', entityType: 'books.organization', entityId: org.id, after: { error: message }, req })
+    throw e
+  }
+}
+
+orgRouter.get('/dashboard', h(async (req, res) => {
+  const { org } = loc(res)
+  const stale = !org.snapshotJson || (org.autoRefreshMinutes > 0 && (!org.lastSyncAt || Date.now() - org.lastSyncAt.getTime() > org.autoRefreshMinutes * 60_000))
+  if (stale && org.syncStatus !== 'syncing') {
+    try {
+      const r = await runSync(res, 'auto', req)
+      return ok(res, { snapshot: r.snapshot, last_sync_at: r.lastSyncAt, sync_status: 'synced', last_sync_error: null })
+    } catch (e) {
+      if (!org.snapshotJson) throw translate(e)
+      const t = translate(e)
+      return ok(res, { snapshot: JSON.parse(org.snapshotJson), last_sync_at: org.lastSyncAt, sync_status: 'failed', last_sync_error: t instanceof ApiError ? t.message : 'Sync failed.' })
+    }
+  }
+  ok(res, { snapshot: org.snapshotJson ? JSON.parse(org.snapshotJson) : null, last_sync_at: org.lastSyncAt, sync_status: org.syncStatus, last_sync_error: org.lastSyncError })
+}))
+
+orgRouter.post('/sync', h(async (req, res) => {
+  need(req, 'books.manage')
+  await writeAudit({ actorUserId: loc(res).userId, action: 'books.sync.started', entityType: 'books.organization', entityId: loc(res).org.id, req })
+  const r = await runSync(res, 'manual', req)
+  ok(res, { snapshot: r.snapshot, last_sync_at: r.lastSyncAt, sync_status: 'synced', last_sync_error: null })
+}))
+
+orgRouter.get('/sync-logs', h(async (_req, res) => {
+  const rows = await prisma.booksSyncLog.findMany({ where: { zohoOrgRef: loc(res).org.id }, orderBy: { startedAt: 'desc' }, take: 20 })
+  ok(res, { items: rows.map((r) => ({ id: r.id, trigger: r.trigger, status: r.status, error: r.error, api_calls: r.apiCalls, started_at: r.startedAt, finished_at: r.finishedAt })) })
+}))
+
+orgRouter.get('/organization', h(async (_req, res) => {
+  const { ctx, org } = loc(res)
+  const r = await zohoRequest<{ organization?: Record<string, unknown> }>(ctx, { path: `organizations/${org.zohoOrgId}` })
+  ok(res, r.organization ?? null)
+}))
+
+orgRouter.get('/reports', h(async (req, res) => { need(req, 'books.reports'); ok(res, { items: REPORTS }) }))
+orgRouter.get('/reports/:report', h(async (req, res) => {
+  need(req, 'books.reports')
+  if (!REPORTS.some((r) => r.id === req.params.report)) throw ApiError.notFound('Unknown report.')
+  const date = (k: string, d: string) => { const v = req.query[k]; return typeof v === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(v) ? v : d }
+  const now = new Date()
+  const fyStart = `${now.getUTCMonth() >= 3 ? now.getUTCFullYear() : now.getUTCFullYear() - 1}-04-01`
+  ok(res, await runReport(loc(res).ctx, req.params.report, date('from', fyStart), date('to', now.toISOString().slice(0, 10))))
+}))
+
+// Bank match suggestions for an uncategorised transaction.
+orgRouter.get('/e/banktransactions/:id/match', h(async (req, res) => {
+  const r = await zohoRequest(loc(res).ctx, { path: `banktransactions/uncategorized/${idOf(req)}/match`, cache: false })
+  ok(res, { items: (r as Record<string, unknown>).matching_transactions ?? [] })
+}))
+
+// ── generic resources ────────────────────────────────────────────────────
+orgRouter.get('/e/:entity', h(async (req, res) => {
+  const def = entityOf(req)
+  const query: Record<string, string> = { ...(def.baseQuery ?? {}) }
+  for (const p of def.listParams) {
+    const v = req.query[p]
+    if (typeof v === 'string' && v.length <= 200) query[p] = v
+  }
+  query.per_page = String(Math.min(Math.max(Number(query.per_page) || 25, 1), 200))
+  const r = await zohoRequest<Record<string, unknown>>(loc(res).ctx, { path: def.path, query })
+  const pc = (r.page_context ?? {}) as { page?: number; per_page?: number; has_more_page?: boolean }
+  ok(res, { items: (r[def.listKey] as unknown[]) ?? [], page: pc.page ?? Number(query.page ?? 1), per_page: pc.per_page ?? Number(query.per_page), has_more: Boolean(pc.has_more_page) })
+}))
+
+orgRouter.get('/e/:entity/:id', h(async (req, res) => {
+  const def = entityOf(req)
+  const r = await zohoRequest<Record<string, unknown>>(loc(res).ctx, { path: `${def.path}/${idOf(req)}` })
+  if (!r[def.key]) throw ApiError.notFound('This record no longer exists in Zoho Books.')
+  ok(res, r[def.key])
+}))
+
+orgRouter.get('/e/:entity/:id/pdf', h(async (req, res) => {
+  const def = entityOf(req)
+  if (!def.pdf) throw ApiError.notFound('PDF is not available for this record type.')
+  const buf = await zohoRequest<Buffer>(loc(res).ctx, { path: `${def.path}/${idOf(req)}`, query: { accept: 'pdf' }, binary: true })
+  res.setHeader('Content-Type', 'application/pdf')
+  res.setHeader('Content-Disposition', `inline; filename="${req.params.entity}-${req.params.id}.pdf"`)
+  res.setHeader('Cache-Control', 'private, no-store')
+  res.end(buf)
+}))
+
+async function audit(req: Request, res: Response, def: EntityDef, verb: string, zohoId: string, record?: Record<string, unknown>) {
+  const number = def.numberField && record ? record[def.numberField] : record?.contact_name ?? record?.name ?? undefined
+  await writeAudit({ actorUserId: loc(res).userId, action: `books.${req.params.entity}.${verb}`, entityType: `books.${req.params.entity}`, entityId: zohoId, after: { zoho_org_id: loc(res).org.zohoOrgId, ...(number ? { ref: number } : {}) }, req })
+}
+
+orgRouter.post('/e/:entity', h(async (req, res) => {
+  const def = entityOf(req)
+  if (!def.create) throw ApiError.notFound('Creating this record type is not supported.')
+  need(req, def.create)
+  const body = { ...cleanBody(req.body), ...(def.createDefaults ?? {}) }
+  const query = def.numberField && typeof body[def.numberField] === 'string' && body[def.numberField] ? { ignore_auto_number_generation: 'true' } : undefined
+  const r = await zohoRequest<Record<string, unknown>>(loc(res).ctx, { method: 'POST', path: def.path, body, query })
+  const rec = r[def.key] as Record<string, unknown> | undefined
+  if (!rec) throw new ZohoBooksError('bad_response', 'create returned no record')
+  await audit(req, res, def, 'created', String(rec[def.idField]), rec)
+  ok(res, rec, 201)
+}))
+
+orgRouter.put('/e/:entity/:id', h(async (req, res) => {
+  const def = entityOf(req)
+  if (!def.update) throw ApiError.notFound('Editing this record type is not supported.')
+  need(req, def.update)
+  const r = await zohoRequest<Record<string, unknown>>(loc(res).ctx, { method: 'PUT', path: `${def.path}/${idOf(req)}`, body: cleanBody(req.body) })
+  const rec = r[def.key] as Record<string, unknown> | undefined
+  await audit(req, res, def, 'updated', req.params.id, rec)
+  ok(res, rec ?? null)
+}))
+
+orgRouter.delete('/e/:entity/:id', h(async (req, res) => {
+  const def = entityOf(req)
+  if (!def.remove) throw ApiError.notFound('Deleting this record type is not supported.')
+  need(req, def.remove)
+  await zohoRequest(loc(res).ctx, { method: 'DELETE', path: `${def.path}/${idOf(req)}` })
+  await audit(req, res, def, 'deleted', req.params.id)
+  ok(res, { deleted: true })
+}))
+
+orgRouter.post('/e/:entity/:id/a/:action', h(async (req, res) => {
+  const def = entityOf(req)
+  const action = def.actions?.[req.params.action]
+  if (!action) throw ApiError.notFound('This action is not supported for this record type.')
+  need(req, action.perm)
+  const r = await zohoRequest<Record<string, unknown>>(loc(res).ctx, {
+    method: action.method, path: `${action.root ?? def.path}/${idOf(req)}/${action.sub}`, body: action.body ? cleanBody(req.body) : undefined,
+  })
+  await audit(req, res, def, req.params.action, req.params.id)
+  ok(res, { message: typeof r.message === 'string' ? r.message : 'Done.' })
+}))
+
+const receiptUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024, files: 1 } })
+orgRouter.post('/e/expenses/:id/receipt', receiptUpload.single('receipt'), h(async (req, res) => {
+  need(req, 'books.manage')
+  if (!req.file) throw ApiError.badRequest('Attach a receipt file.')
+  if (!/^(image\/(png|jpe?g|gif)|application\/pdf)$/.test(req.file.mimetype)) throw ApiError.badRequest('Receipts must be a PDF or an image.')
+  const form = new FormData()
+  form.append('receipt', new Blob([req.file.buffer], { type: req.file.mimetype }), req.file.originalname.replace(/[^\w.-]/g, '_'))
+  await zohoRequest(loc(res).ctx, { method: 'POST', path: `expenses/${idOf(req)}/receipt`, form })
+  await writeAudit({ actorUserId: loc(res).userId, action: 'books.expenses.receipt_attached', entityType: 'books.expenses', entityId: req.params.id, req })
+  ok(res, { attached: true })
+}))

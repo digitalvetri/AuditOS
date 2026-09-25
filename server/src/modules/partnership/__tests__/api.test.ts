@@ -9,7 +9,7 @@ vi.hoisted(() => {
 
 import { createApp } from '../../../app.js'
 import { signToken } from '../../../platform/auth.js'
-import { prisma, uid } from '../../books/__tests__/helpers.js'
+import { prisma, uid } from '../../../__tests__/helpers.js'
 import { MATRIX } from '../../../platform/rbac/matrix.js'
 import { seedPartnership } from '../../../../prisma/seed-partnership.js'
 import { MASTER_TEMPLATE } from '../template.js'

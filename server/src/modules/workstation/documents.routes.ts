@@ -144,11 +144,35 @@ documentsRouter.post('/:id/versions', handler(async (req, res) => {
   const v = new FieldErrors()
   const notes = v.str('notes', b.notes, { required: false, max: 500 })
   const sizeBytes = typeof b.size_bytes === 'number' && b.size_bytes > 0 ? Math.round(b.size_bytes) : 52_000
+
+  // Optional, all three default to "the next version, by me, now" — the
+  // Documents page's Add form lets the user record them as they were.
+  let requestedVersion: number | null = null
+  if (b.version !== undefined && b.version !== null && b.version !== '') {
+    const n = Number(b.version)
+    if (!Number.isInteger(n) || n < 1 || n > 999) v.add('version', 'Version must be a whole number from 1 to 999.')
+    else if (n <= doc.currentVersion) v.add('version', `This document is already at v${doc.currentVersion}; the new version must be higher.`)
+    else requestedVersion = n
+  }
+  let uploadedAt: Date | null = null
+  if (b.uploaded_at !== undefined && b.uploaded_at !== null && b.uploaded_at !== '') {
+    const d = typeof b.uploaded_at === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(b.uploaded_at) ? new Date(`${b.uploaded_at}T12:00:00`) : null
+    if (!d || Number.isNaN(d.getTime())) v.add('uploaded_at', 'Enter a valid date.')
+    else if (d.getTime() > Date.now() + 24 * 3600 * 1000) v.add('uploaded_at', 'The upload date cannot be in the future.')
+    else uploadedAt = d
+  }
+  let uploader: string | null = null
+  if (typeof b.uploaded_by_employee_id === 'string' && b.uploaded_by_employee_id) {
+    const me = await prisma.user.findUnique({ where: { id: session.userId }, select: { organisationId: true } })
+    const emp = await prisma.employee.findFirst({ where: { id: b.uploaded_by_employee_id, organisationId: me?.organisationId, ...alive }, select: { id: true } })
+    if (!emp) v.add('uploaded_by_employee_id', 'Select an employee from your firm.')
+    else uploader = emp.id
+  }
   v.throwIfAny()
 
   const updated = await prisma.$transaction(async (tx) => {
     const current = await tx.clientDocument.findUniqueOrThrow({ where: { id: doc.id } })
-    const nextVersion = current.currentVersion + 1
+    const nextVersion = requestedVersion ?? current.currentVersion + 1
     const previous = await tx.clientDocumentVersion.findFirst({
       where: { documentId: doc.id }, orderBy: { version: 'desc' }, select: { id: true },
     })
@@ -157,7 +181,8 @@ documentsRouter.post('/:id/versions', handler(async (req, res) => {
         documentId: doc.id,
         version: nextVersion,
         fileKey: `workstation/${doc.clientId}/${doc.id}/v${nextVersion}`,
-        uploadedBy: session.employeeId ?? session.userId,
+        uploadedBy: uploader ?? session.employeeId ?? session.userId,
+        ...(uploadedAt ? { uploadedAt } : {}),
         sizeBytes,
         notes: notes ?? null,
         previousVersionId: previous?.id ?? null,

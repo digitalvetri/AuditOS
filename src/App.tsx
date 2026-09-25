@@ -104,10 +104,6 @@ import { GstClients } from '@/pages/workstation/registration/gst/GstClients';
 // chain nodes open the shared PartnershipCase directly.
 import { GstTemplateHub } from '@/pages/workstation/registration/gst/GstTemplateHub';
 import { RegistrationServiceDetail } from '@/pages/workstation/registration/RegistrationServiceDetail';
-// E-Invoice & E-Way Bill monitoring page (E-INVOICE-EWAYBILL.md). Both
-// sidebar entries route here, but `mode` splits them: each screen shows only
-// its own monitors, setup row and reconciliation column.
-import EInvoiceEwbPage from '@/pages/workstation/einvoice-ewb/EInvoiceEwbPage';
 
 // TDS — copied from the GST page structure per TDS-PAGE-PROMPT.md.
 // Client + FY + TAN scope in the URL; six sub-services (Registration,
@@ -115,16 +111,11 @@ import EInvoiceEwbPage from '@/pages/workstation/einvoice-ewb/EInvoiceEwbPage';
 import { TdsServicesLanding } from '@/pages/workstation/tds/TdsServicesLanding';
 import { TdsServiceHandoff } from '@/pages/workstation/tds/TdsServiceHandoff';
 
-// Books — native bookkeeping, one set of books per client.
-import { BooksListPage } from '@/pages/books/BooksList';
+// Books — Tools → Books, an Audit OS UI over Zoho Books (docs/books-zoho).
 import { BooksShell } from '@/pages/books/BooksShell';
-import { BooksOverviewPage } from '@/pages/books/BooksOverview';
-import { BooksDocumentsPage } from '@/pages/books/BooksDocuments';
-import { BooksContactsPage } from '@/pages/books/BooksContacts';
-import { BooksJournalsPage } from '@/pages/books/BooksJournals';
-import { BooksBankingPage } from '@/pages/books/BooksBanking';
-import { BooksReportsPage } from '@/pages/books/BooksReports';
+import { BooksDashboardPage } from '@/pages/books/BooksDashboard';
 import { BooksSettingsPage } from '@/pages/books/BooksSettings';
+import { BankingPage, ContactDetailPage, PaymentsPage, ReconciliationPage, ReportsPage as BooksReportsPage, ResourcePage, TaxesPage } from '@/pages/books/BooksPages';
 import { AttendancePage } from '@/pages/hrms/Attendance';
 import { LeavePage } from '@/pages/hrms/Leave';
 import { EmployeesPage } from '@/pages/hrms/Employees';
@@ -274,11 +265,13 @@ export default function App() {
                   :category catch-all below. */}
               <Route path="workstation/services/tds" element={<TdsServicesLanding />} />
               <Route path="workstation/services/tds/:slug" element={<TdsServiceHandoff />} />
-              {/* E-Invoice & E-Way Bill — one page for both sidebar entries.
-                  Declared BEFORE the :category catch-all so both slugs resolve
-                  here instead of the generic Services page. */}
-              <Route path="workstation/services/e-invoice" element={<EInvoiceEwbPage mode="einvoice" />} />
-              <Route path="workstation/services/e-way-bill" element={<EInvoiceEwbPage mode="ewb" />} />
+              {/* Services → E-Invoice and Services → E-Way Bill were removed.
+                  Their old addresses are pinned to Not Found so the :category
+                  catch-all below cannot serve them as a generic Services page.
+                  Registration → E-Invoice / E-Way Bill live under
+                  workstation/services/registration/… and are unaffected. */}
+              <Route path="workstation/services/e-invoice" element={<NotFoundPage />} />
+              <Route path="workstation/services/e-way-bill" element={<NotFoundPage />} />
               {/* Service categories (TDS) — nav structure only for now, so
                   every remaining slug resolves to the same Services page. */}
               {/* Registration category — declared BEFORE the :category
@@ -418,16 +411,27 @@ export default function App() {
                 <Route path="reports/:reportId" element={<TallyReportPage />} />
               </Route>
 
-              {/* Books — the client list, then one shell per set of books
-                  whose tabs are nested routes so each is deep-linkable. */}
-              <Route path="books" element={<BooksListPage />} />
-              <Route path="books/:orgId" element={<BooksShell />}>
-                <Route index element={<BooksOverviewPage />} />
-                <Route path="sales" element={<BooksDocumentsPage side="sales" />} />
-                <Route path="purchases" element={<BooksDocumentsPage side="purchases" />} />
-                <Route path="contacts" element={<BooksContactsPage />} />
-                <Route path="banking" element={<BooksBankingPage />} />
-                <Route path="journals" element={<BooksJournalsPage />} />
+              {/* Books — Zoho Books through Audit OS. One shell; every
+                  section is a nested route so each is deep-linkable. */}
+              <Route path="books" element={<BooksShell />}>
+                <Route index element={<BooksDashboardPage />} />
+                <Route path="customers" element={<ResourcePage entity="customers" />} />
+                <Route path="customers/:id" element={<ContactDetailPage kind="customer" />} />
+                <Route path="vendors" element={<ResourcePage entity="vendors" />} />
+                <Route path="vendors/:id" element={<ContactDetailPage kind="vendor" />} />
+                <Route path="items" element={<ResourcePage entity="items" />} />
+                <Route path="sales/estimates" element={<ResourcePage entity="estimates" />} />
+                <Route path="sales/salesorders" element={<ResourcePage entity="salesorders" />} />
+                <Route path="sales/invoices" element={<ResourcePage entity="invoices" />} />
+                <Route path="purchases/purchaseorders" element={<ResourcePage entity="purchaseorders" />} />
+                <Route path="purchases/bills" element={<ResourcePage entity="bills" />} />
+                <Route path="expenses" element={<ResourcePage entity="expenses" />} />
+                <Route path="payments" element={<PaymentsPage />} />
+                <Route path="credit-notes" element={<ResourcePage entity="creditnotes" />} />
+                <Route path="debit-notes" element={<ResourcePage entity="vendorcredits" />} />
+                <Route path="banking" element={<BankingPage />} />
+                <Route path="reconciliation" element={<ReconciliationPage />} />
+                <Route path="taxes" element={<TaxesPage />} />
                 <Route path="reports" element={<BooksReportsPage />} />
                 <Route path="settings" element={<BooksSettingsPage />} />
               </Route>
