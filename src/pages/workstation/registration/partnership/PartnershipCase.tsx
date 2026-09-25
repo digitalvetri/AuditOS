@@ -9,6 +9,7 @@ import { CASE_STATUS_OPTIONS, DueChip, EmployeeSelect, ProgressBar, useSvc } fro
 import { CaseChecklist } from './CaseChecklist';
 import { CaseDocuments } from './CaseDocuments';
 import { CaseDetails } from './CaseDetails';
+import { PortalStrip } from './PortalStrip';
 
 const TAB_KEYS = ['checklist', 'documents', 'details', 'activity'] as const;
 type TabKey = (typeof TAB_KEYS)[number];
@@ -149,6 +150,12 @@ function CaseHeader({ c }: { c: CaseDetail }) {
             : <span className="text-neutral-900">{c.approver?.full_name}</span>}
         </div>
       ) : null}
+      {/* §5.4 Portal Access strip — user + OTP contact + password reveal.
+          Renders on any case whose client has a GST profile: return kinds
+          use it every filing, GST Registration uses it for portal look-ups
+          during REG-01. The component itself hides when there's no record
+          or the caller lacks permission. */}
+      {c.client.gst_profile_id ? <PortalStrip gstProfileId={c.client.gst_profile_id} /> : null}
     </section>
   );
 }

@@ -97,7 +97,14 @@ function dueState(due: string | null, done: boolean): string | null {
 const ref = (m: EmployeeLookup, id: string | null | undefined) => (id ? m.get(id) ?? null : null)
 
 async function loadCase(session: Session, scope: Scope, id: string, kind: RegistrationKind) {
-  const c = await prisma.partnershipCase.findFirst({ where: { id, kind, deletedAt: null }, include: { client: true } })
+  const c = await prisma.partnershipCase.findFirst({
+    where: { id, kind, deletedAt: null },
+    // gstProfile is pulled through the client so the case-detail response
+    // can surface a `gst_profile_id` — that's what powers the portal-access
+    // strip on the case header (§9-5). A client without a GST profile just
+    // hides the strip.
+    include: { client: { include: { gstProfile: { select: { id: true } } } } },
+  })
   if (!c) throw ApiError.notFound('Registration case not found.')
   await assertCanSeeClient(session, scope, c.clientId)
   return c
@@ -116,7 +123,7 @@ function mustCan(session: Session, perm: Parameters<typeof can>[1]) {
   if (!can(session, perm, 'self')) throw ApiError.forbidden()
 }
 
-type CaseRow = Prisma.PartnershipCaseGetPayload<{ include: { client: true } }>
+type CaseRow = Prisma.PartnershipCaseGetPayload<{ include: { client: { include: { gstProfile: { select: { id: true } } } } } }>
 
 function caseSummary(c: CaseRow, m: EmployeeLookup) {
   const done = c.status === 'COMPLETED'
@@ -124,7 +131,15 @@ function caseSummary(c: CaseRow, m: EmployeeLookup) {
     id: c.id,
     case_code: c.caseCode,
     kind: c.kind,
-    client: { id: c.client.id, name: c.client.companyName, code: c.client.clientCode },
+    client: {
+      id: c.client.id,
+      name: c.client.companyName,
+      code: c.client.clientCode,
+      /** GST profile for this client, when one exists — surfaces the portal
+       *  access strip on the case header (§9-5). Null for clients with no
+       *  GST profile. */
+      gst_profile_id: c.client.gstProfile?.id ?? null,
+    },
     status: c.status,
     stage: c.stage,
     assigned: ref(m, c.assignedEmployeeId),
@@ -333,7 +348,7 @@ partnershipRouter.get('/cases', handler(async (req, res) => {
   const pageSize = Math.min(100, Math.max(1, Number(q.page_size) || 50))
   const where = { AND: and }
   const [rows, count] = await Promise.all([
-    prisma.partnershipCase.findMany({ where, include: { client: true }, orderBy, skip: (page - 1) * pageSize, take: pageSize }),
+    prisma.partnershipCase.findMany({ where, include: { client: { include: { gstProfile: { select: { id: true } } } } }, orderBy, skip: (page - 1) * pageSize, take: pageSize }),
     prisma.partnershipCase.count({ where }),
   ])
   const m = await employeeMap(rows.flatMap(caseEmployeeIds))

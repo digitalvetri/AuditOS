@@ -49,7 +49,7 @@ export interface CaseSummary {
   id: string;
   case_code: string;
   kind: RegistrationKind;
-  client: { id: string; name: string; code: string };
+  client: { id: string; name: string; code: string; gst_profile_id: string | null };
   status: CaseStatus;
   stage: CaseStage;
   assigned: EmployeeRef | null;

@@ -13,6 +13,7 @@
  */
 import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { PortalAccessSection } from './PortalAccessSection';
 import {
   Card, PageHeader, QueryState, Table, Row, Cell, Status,
   Modal, Field, inputClass,
@@ -211,6 +212,12 @@ export function GstClients() {
             </select>
           </Field>
         </div>
+
+        {/* Portal Access section (§9-5) — sits inside the same modal so an
+            admin sets credentials in the same visit that fills GSTIN/PAN.
+            Own permission gates read/reveal server-side; the section
+            silently hides if the caller lacks workstation.gst.portal.view. */}
+        {editing ? <PortalAccessSection gstProfileId={editing.id} /> : null}
       </Modal>
     </div>
   );
