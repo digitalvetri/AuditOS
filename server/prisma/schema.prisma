@@ -6684,12 +6684,11 @@ model PartnershipCase {
   dueDate            String?
   /// RENTED | OWNED — decides which office-proof items apply
   premisesType       String?
-  /// PROPRIETORSHIP | PARTNERSHIP | LLP | LLP_COMPANY | PVT_LTD — the
-  /// client's entity type for GST Registration and Private Limited
-  /// Incorporation. Decides which document section applies.
+  /// PROPRIETORSHIP | PARTNERSHIP | LLP | PVT_LTD — the client's entity type
+  /// for GST Registration. Decides which of the six §7.1 categories apply.
   entityType         String?
   /// The return period the case belongs to, for GSTR* kinds only. Null for
-  /// the one-time registrations. 'YYYY-MM' for monthly filers, or
+  /// the three one-time registrations. 'YYYY-MM' for monthly filers, or
   /// 'YYYY-Q1'..'YYYY-Q4' for quarterly. Together with (clientId, kind) it
   /// is the natural identity of a return-cycle case — GST-RETURNS-CASE-
   /// SCREEN §6.

@@ -480,12 +480,14 @@ export const GSTR3B_TEMPLATE: TemplateCategorySeed[] = [
 ];
 
 /** Private Limited: the source defines no stages — collect, then incorporate. */
-export const PVT_STAGES = ['DOCUMENTS', 'COMPLETED'] as const;
+export const PVT_STAGES = ['DOCUMENTS', 'COMPLETED'] as const
 
 /**
  * Private Limited Incorporation — SOURCE: "Private Limited Incorporation
- * Documents .pdf" (Registration folder). Section 1 is per person; section 2
- * splits by rented / owned office; section 3 is information.
+ * Documents .pdf" (Registration folder), "DOCUMENT CHECKLIST FOR PRIVATE
+ * LIMITED COMPANY REGISTRATION". Section 1 is per person (every director and
+ * shareholder); "Any One" proofs are ONE requirement with a document-type
+ * choice; section 2 splits by rented / owned office; section 3 is information.
  */
 export const PVT_TEMPLATE: TemplateCategorySeed[] = [
   {
@@ -508,7 +510,7 @@ export const PVT_TEMPLATE: TemplateCategorySeed[] = [
     stage: 'DOCUMENTS',
     items: [
       { name: 'Valid Rent Agreement / Lease Deed', description: 'If Rented / Leased Premises', requirement: 'CONDITIONAL', kind: 'DOCUMENT', condition: 'RENTED' },
-      { name: 'No Objection Certificate (NOC) from the Property Owner', description: 'If Rented / Leased Premises', requirement: 'CONDITIONAL', kind: 'DOCUMENT', condition: 'RENTED' },
+      { name: 'No Objection Certificate (NOC) from the Property Owner', description: 'If Rented / Leased Premises — stating they have no objection to the company using the address', requirement: 'CONDITIONAL', kind: 'DOCUMENT', condition: 'RENTED' },
       { name: 'Recent Utility Bill', description: "If Rented / Leased Premises — Electricity Bill / Gas Bill / Property Tax Receipt in the Owner's name, not older than 2 months", requirement: 'CONDITIONAL', kind: 'DOCUMENT', condition: 'RENTED', docTypeOptions: ['Electricity Bill', 'Gas Bill', 'Property Tax Receipt'], maxAgeDays: 60 },
       { name: 'Ownership Deed / Sale Deed', description: 'If Owned Premises', requirement: 'CONDITIONAL', kind: 'DOCUMENT', condition: 'OWNED' },
       { name: 'Recent Electricity Bill or Property Tax Receipt', description: 'If Owned Premises', requirement: 'CONDITIONAL', kind: 'DOCUMENT', condition: 'OWNED', docTypeOptions: ['Electricity Bill', 'Property Tax Receipt'] },
@@ -524,4 +526,4 @@ export const PVT_TEMPLATE: TemplateCategorySeed[] = [
       { name: 'Shareholding Pattern', description: 'How many shares will be allocated to each shareholder/director', requirement: 'REQUIRED', kind: 'INFO' },
     ],
   },
-];
+]

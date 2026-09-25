@@ -2,7 +2,7 @@ import { createContext, useContext, type ReactNode } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { workstationApi } from '@/modules/workstation/api';
 import {
-  gstRegApi, gstr1Api, gstr2bApi, gstr3bApi, llpApi, makeRegistrationKeys, partnershipApi,
+  gstRegApi, gstr1Api, gstr2bApi, gstr3bApi, privateLimitedApi, llpApi, makeRegistrationKeys, partnershipApi,
   type CaseStatus, type DueState, type EntityType, type RegistrationApi, type RegistrationKeys, type RegistrationKind, type RequirementType,
 } from '@/modules/partnership/api';
 import { fmtDate } from '@/lib/format';
@@ -51,6 +51,11 @@ const PARTNERSHIP_STAGES = [
   { value: 'REGISTERED', label: 'Registered' },
 ];
 /** The LLP source says only "two stages", so they carry no invented names. */
+const PVT_STAGES = [
+  { value: 'DOCUMENTS', label: 'Document Collection' },
+  { value: 'COMPLETED', label: 'Completed' },
+];
+
 const LLP_STAGES = [
   { value: 'STAGE_1', label: 'Stage 1' },
   { value: 'STAGE_2', label: 'Stage 2' },
@@ -83,6 +88,16 @@ const GSTR3B_STAGES = [
   { value: 'PAYMENT', label: 'Payment' },
   { value: 'FILING', label: 'Filing' },
 ];
+
+
+/** Label for an entity type named in a checklist condition (GST Registration). */
+export const ENTITY_LABEL: Record<string, string> = {
+  PROPRIETORSHIP: 'Proprietorship',
+  PARTNERSHIP: 'Partnership Firm',
+  LLP: 'LLP',
+  PVT_LTD: 'Private Limited Company',
+  LLP_OR_PVT_LTD: 'LLP / Private Limited Company',
+};
 
 export const SERVICES: Record<RegistrationKind, RegistrationService> = {
   PARTNERSHIP: {
@@ -165,6 +180,18 @@ export const SERVICES: Record<RegistrationKind, RegistrationService> = {
     caseUrl: (id) => `/workstation/services/registration/gst/gstr3b/cases/${id}`,
     isReturnKind: true,
   },
+  PRIVATE_LIMITED: {
+    kind: 'PRIVATE_LIMITED',
+    label: 'Private Limited Incorporation',
+    base: '/workstation/services/registration/private-limited',
+    api: privateLimitedApi,
+    keys: makeRegistrationKeys('private-limited'),
+    stageOptions: PVT_STAGES,
+    stageLabel: stageLabeller(PVT_STAGES),
+    detailsLabel: 'Registration Details',
+    caseUrl: (id) => `/workstation/services/registration/private-limited/clients/${id}`,
+    isReturnKind: false,
+  },
 };
 
 const ServiceContext = createContext<RegistrationService>(SERVICES.PARTNERSHIP);
@@ -198,7 +225,8 @@ export function RequirementTag({ value, condition }: { value: RequirementType; c
     value === 'REQUIRED' ? 'text-neutral-900 border-neutral-400'
     : value === 'CONDITIONAL' ? 'text-amber border-amber'
     : 'text-neutral-500 border-neutral-300';
-  const text = value === 'CONDITIONAL' && condition ? `Conditional · ${condition === 'RENTED' ? 'Rented' : 'Owned'}` : value.charAt(0) + value.slice(1).toLowerCase();
+  const when = condition === 'RENTED' ? 'Rented' : condition === 'OWNED' ? 'Owned' : condition ? ENTITY_LABEL[condition] : '';
+  const text = value === 'CONDITIONAL' && condition ? `Conditional · ${when}` : value.charAt(0) + value.slice(1).toLowerCase();
   return <span className={`inline-block px-1.5 h-5 leading-5 text-11 border rounded ${cls}`}>{text}</span>;
 }
 

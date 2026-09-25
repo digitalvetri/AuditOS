@@ -31,6 +31,8 @@ export const ITEM_KINDS = ['INFO', 'DOCUMENT', 'ACTION'] as const
 export const PREMISES = ['RENTED', 'OWNED'] as const
 /** Entity types a GST Registration case can be scoped to (spec §7.1). */
 export const ENTITY_TYPES = ['PROPRIETORSHIP', 'PARTNERSHIP', 'LLP', 'PVT_LTD'] as const
+/** Anything an item's own `condition` may name: premises, or an entity type. */
+export const CONDITIONS = [...PREMISES, ...ENTITY_TYPES] as const
 /** Per-version review outcome. */
 export const REVIEW_STATUSES = ['uploaded', 'under_review', 'verified', 'rejected', 'replacement_required'] as const
 export type ReviewStatus = (typeof REVIEW_STATUSES)[number]
@@ -61,8 +63,13 @@ export async function nextCaseCode(tx: Tx, codePrefix: string, year: number): Pr
   return `${prefix}${String(max + 1).padStart(4, '0')}`
 }
 
-export function conditionApplies(condition: string | null, premises: string | null): boolean {
-  return !condition || condition === premises
+/** What decides applicability on a case: premises type, and (GST) business type. */
+export interface CaseConditions { premisesType: string | null; entityType: string | null }
+
+export function conditionApplies(condition: string | null, c: CaseConditions): boolean {
+  if (!condition) return true
+  if (condition === 'RENTED' || condition === 'OWNED') return condition === c.premisesType
+  return condition === c.entityType
 }
 
 /**
@@ -323,8 +330,15 @@ export function latestVersion(r: ReqWithDoc) {
 }
 
 /** PENDING | UPLOADED | UNDER_REVIEW | VERIFIED | REJECTED | REPLACEMENT_REQUIRED | NOT_APPLICABLE */
-export function requirementStatus(r: ReqWithDoc, premises: string | null): string {
-  if (r.notApplicable || !conditionApplies(r.condition, premises)) return 'NOT_APPLICABLE'
+export function requirementStatus(r: ReqWithDoc & ReqEntityScope, c: CaseConditions): string {
+  if (r.notApplicable || !conditionApplies(r.condition, c)) return 'NOT_APPLICABLE'
+  // GST Registration: a document belongs to a checklist item, whose own entity
+  // condition and its category's decide whether this entity type needs it
+  // (e.g. Partner KYC only for a Partnership). Same rule as the items.
+  if (r.item && (
+    !entityConditionApplies(r.item.entityCondition ?? null, c.entityType)
+    || !entityConditionApplies(r.item.category?.entityCondition ?? null, c.entityType)
+  )) return 'NOT_APPLICABLE'
   const v = latestVersion(r)
   if (!v) return 'PENDING'
   return (v.reviewStatus ?? 'uploaded').toUpperCase()
@@ -333,7 +347,11 @@ export function requirementStatus(r: ReqWithDoc, premises: string | null): strin
 export const requirementInclude = {
   clientDocument: { include: { versions: { orderBy: { version: 'desc' as const } } } },
   partner: true,
+  item: { select: { entityCondition: true, category: { select: { entityCondition: true } } } },
 } satisfies Prisma.PartnershipDocRequirementInclude
+
+/** The entity scope a document requirement inherits from its checklist item. */
+type ReqEntityScope = { item?: { entityCondition: string | null; category: { entityCondition: string | null } | null } | null }
 
 /** Recompute and store the case's progress counters. Call after every write. */
 export async function recompute(caseId: string) {
@@ -355,7 +373,7 @@ export async function recompute(caseId: string) {
   const applicable = items.filter((i) => (
     !isPartnerTemplateRow(i)
     && i.status !== 'NOT_APPLICABLE'
-    && conditionApplies(i.condition, c.premisesType)
+    && conditionApplies(i.condition, c)
     && entityConditionApplies(i.category.entityCondition ?? null, c.entityType)
     && entityConditionApplies(i.entityCondition ?? null, c.entityType)
   ))
@@ -365,7 +383,7 @@ export async function recompute(caseId: string) {
 
   const reqStatuses = reqs
     .filter((r) => r.requirement !== 'OPTIONAL')
-    .map((r) => requirementStatus(r, c.premisesType))
+    .map((r) => requirementStatus(r, c))
     .filter((s) => s !== 'NOT_APPLICABLE')
   const uploaded = reqStatuses.filter((s) => s !== 'PENDING').length
   const verified = reqStatuses.filter((s) => s === 'VERIFIED').length
