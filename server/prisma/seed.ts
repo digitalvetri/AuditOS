@@ -29,6 +29,7 @@ import { seedBooks } from './seed-books.js'
 import { seedBookkeeping } from './seed-bookkeeping.js'
 import { seedRegistration } from './seed-registration.js'
 import { seedPartnership } from './seed-partnership.js'
+import { migrateGstReturnCases } from './seed-gst-return-cases.js'
 import { seedGst } from './seed-gst.js'
 
 const prisma = new PrismaClient()
@@ -976,6 +977,10 @@ async function main() {
   const bookkeeping = await seedBookkeeping(prisma, org.id)
   const registration = await seedRegistration(prisma, org.id)
   await seedPartnership(prisma, org.id)
+  // Batch-open case-per-period rows for the demo GstCompliancePeriod data so
+  // §9-3's per-return client lists have something to render. Idempotent —
+  // only opens what is still missing.
+  const returnCases = await migrateGstReturnCases(prisma)
   const gst = await seedGst(prisma)
 
   const counts = {
@@ -993,6 +998,7 @@ async function main() {
   console.log('GST periods:', gstPeriods)
   console.log('Bookkeeping:', bookkeeping)
   console.log('Registration:', registration)
+  console.log('GST return cases (migrated to partnership engine):', returnCases)
   console.log('GST reference:', gst)
   console.log('Demo logins: ravi@auditos.local/md · priya@auditos.local/hr · anitha@auditos.local/fin · vikram@auditos.local/mgr · meera@auditos.local/emp · karthik@auditos.local/art')
 }

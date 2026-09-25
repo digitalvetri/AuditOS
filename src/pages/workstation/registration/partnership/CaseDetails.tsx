@@ -1,5 +1,5 @@
 import { useState, type ReactNode } from 'react';
-import { type CaseDetail, type Partner, type RegistrationDetails, type LlpDetails, type PvtDetails } from '@/modules/partnership/api';
+import { type CaseDetail, type Partner, type RegistrationDetails, type LlpDetails, type PvtDetails, type ReturnDetails } from '@/modules/partnership/api';
 import { Card, Field, Modal, fieldErrors, inputClass, textareaClass } from '@/modules/workstation/components';
 import { Button } from '@/components/Button';
 import { ENTITY_TYPE_OPTIONS, useSvc } from './shared';
@@ -11,11 +11,12 @@ import { useCaseMutation } from './PartnershipCase';
  * master data (name, GSTIN, contact) stays on the client record.
  *
  * The switch on kind is BY DESIGN — a case's Details form is
- * service-specific, and Partnership, LLP and GST Registration each ask for
- * different things. The rest of the case screens (header, checklist,
- * documents, activity) stay generic.
+ * service-specific, and Partnership, LLP, GST Registration and the three
+ * GST returns each ask for different things. The rest of the case screens
+ * (header, checklist, documents, activity) stay generic.
  */
 export function CaseDetails({ c }: { c: CaseDetail }) {
+  if (c.kind === 'GSTR1' || c.kind === 'GSTR2B' || c.kind === 'GSTR3B') return <ReturnCaseDetails c={c} />;
   if (c.kind === 'GST') return <GstCaseDetails c={c} />;
   if (c.kind === 'PRIVATE_LIMITED') return <PvtCaseDetails c={c} />;
   if (c.kind === 'LLP') return <LlpCaseDetails c={c} />;
@@ -26,7 +27,7 @@ function PartnershipDetails({ c }: { c: CaseDetail }) {
   const { api: regApi } = useSvc();
   const [d, setD] = useState<RegistrationDetails>(() => normalise(c.details));
   const [dirty, setDirty] = useState(false);
-  const save = useCaseMutation(() => regApi.saveDetails(c.id, d), 'Registration details saved');
+  const save = useCaseMutation(() => regApi.saveDetails(c.id, d), 'Details saved');
   const premises = useCaseMutation((v: string) => regApi.updateCase(c.id, { premises_type: v || null }), 'Premises updated');
   const ro = !c.permissions.manage;
   const set = <K extends keyof RegistrationDetails>(k: K, v: RegistrationDetails[K]) => { setD((s) => ({ ...s, [k]: v })); setDirty(true); };
@@ -131,7 +132,7 @@ function LlpCaseDetails({ c }: { c: CaseDetail }) {
     total_contribution: c.details.total_contribution ?? '',
   }));
   const [dirty, setDirty] = useState(false);
-  const save = useCaseMutation(() => regApi.saveDetails(c.id, d as never), 'Registration details saved');
+  const save = useCaseMutation(() => regApi.saveDetails(c.id, d as never), 'Details saved');
   const office = useCaseMutation((v: string) => regApi.updateCase(c.id, { premises_type: v || null }), 'Office type updated');
   const ro = !c.permissions.manage;
   const set = (patch: Partial<LlpDetails>) => { setD((s) => ({ ...s, ...patch })); setDirty(true); };
@@ -279,6 +280,111 @@ function PvtCaseDetails({ c }: { c: CaseDetail }) {
       </Section>
 
       <Partners c={c} />
+
+      {!ro ? (
+        <div className="sticky bottom-0 bg-white border-t border-neutral-200 py-2 flex justify-end gap-2">
+          {dirty ? <span className="text-12 text-amber self-center">Unsaved changes</span> : null}
+          <Button variant="primary" disabled={!dirty || save.isPending} onClick={() => save.mutate(undefined, { onSuccess: () => setDirty(false) })}>Save details</Button>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+/**
+ * Return Details — GST-RETURNS-CASE-SCREEN §7.4. The pre-rebuild flat panel
+ * asked for ARN, taxable value, tax, filing date and due date; those fields
+ * live here now. Return type, period and frequency are readonly (they come
+ * from the case's identity). Money is edited in rupees and stored as
+ * integer paise — per the spec's "money is integer paise" rule.
+ */
+function ReturnCaseDetails({ c }: { c: CaseDetail }) {
+  const { api: regApi, label } = useSvc();
+  const [d, setD] = useState<ReturnDetails>(() => ({
+    arn: c.details.arn ?? null,
+    taxable_value_paise: c.details.taxable_value_paise ?? null,
+    tax_paise: c.details.tax_paise ?? null,
+    itc_finalised_paise: c.details.itc_finalised_paise ?? null,
+    filed_at: c.details.filed_at ?? null,
+    filed_by_user_id: c.details.filed_by_user_id ?? null,
+    receipt_document_id: c.details.receipt_document_id ?? null,
+  }));
+  const [dirty, setDirty] = useState(false);
+  const save = useCaseMutation(() => regApi.saveDetails(c.id, d), 'Details saved');
+  const dueDate = useCaseMutation((v: string | null) => regApi.updateCase(c.id, { due_date: v }), 'Due date updated');
+  const ro = !c.permissions.manage;
+
+  const set = <K extends keyof ReturnDetails>(k: K, v: ReturnDetails[K]) => { setD((s) => ({ ...s, [k]: v })); setDirty(true); };
+
+  // 4218900 paise → "42,189.00" for the input; blank when null.
+  const paiseToRupees = (paise: number | null) => paise === null ? '' : (paise / 100).toFixed(2);
+  const rupeesToPaise = (rupees: string) => {
+    const trimmed = rupees.replace(/[₹,\s]/g, '').trim();
+    if (trimmed === '') return null;
+    const n = Number(trimmed);
+    return Number.isFinite(n) && n >= 0 ? Math.round(n * 100) : null;
+  };
+
+  // Only the two ITC-relevant kinds show the ITC field; only GSTR-2B is the
+  // one that writes it (the others read it — enforced by §9-6 in a later PR).
+  const showItc = c.kind === 'GSTR2B' || c.kind === 'GSTR3B';
+  const showLiabilityBanner = c.kind === 'GSTR3B';
+
+  return (
+    <div className="space-y-4">
+      <Section title="Return">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-x-3">
+          <Field label="Return type"><input className={inputClass} disabled value={label} /></Field>
+          <Field label="Period"><input className={inputClass} disabled value={c.period ?? ''} /></Field>
+          <Field label="Filing frequency"><input className={inputClass} disabled value={c.period_type ?? ''} /></Field>
+          <Field label="Due date">
+            <input type="date" className={inputClass} disabled={ro || dueDate.isPending} value={c.due_date ?? ''}
+              onChange={(e) => dueDate.mutate(e.target.value || null)} />
+          </Field>
+        </div>
+      </Section>
+
+      <Section title="Figures">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-x-3">
+          <Field label="Taxable value (₹)" hint="Stored in integer paise. Total value of outward supplies for the period.">
+            <input className={inputClass} inputMode="decimal" disabled={ro}
+              value={paiseToRupees(d.taxable_value_paise)}
+              onChange={(e) => set('taxable_value_paise', rupeesToPaise(e.target.value))} />
+          </Field>
+          <Field label="Tax (₹)" hint="Total tax across CGST / SGST / IGST.">
+            <input className={inputClass} inputMode="decimal" disabled={ro}
+              value={paiseToRupees(d.tax_paise)}
+              onChange={(e) => set('tax_paise', rupeesToPaise(e.target.value))} />
+          </Field>
+          {showItc ? (
+            <Field label="ITC finalised (₹)" hint={showLiabilityBanner
+              ? 'Read from the IMS + 2B case for this period. GSTR-3B does not recompute it.'
+              : 'Locked here when the 2B reconciliation is complete. Flows into GSTR-3B unchanged.'}>
+              <input className={inputClass} inputMode="decimal" disabled={ro || showLiabilityBanner}
+                value={paiseToRupees(d.itc_finalised_paise)}
+                onChange={(e) => set('itc_finalised_paise', rupeesToPaise(e.target.value))} />
+            </Field>
+          ) : null}
+        </div>
+        {showLiabilityBanner ? (
+          <div className="mt-2 text-12 text-amber border-l-2 border-amber pl-3 py-1">
+            The auto-populated outward liability figure is locked and cannot be edited here — GSTR-1A is the only correction route. §5.1.
+          </div>
+        ) : null}
+      </Section>
+
+      <Section title="Filing">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-x-3">
+          <Field label="ARN" hint="The acknowledgement reference number captured on portal filing.">
+            <input className={inputClass} disabled={ro} value={d.arn ?? ''}
+              onChange={(e) => set('arn', e.target.value || null)} />
+          </Field>
+          <Field label="Filed on">
+            <input type="date" className={inputClass} disabled={ro} value={d.filed_at ?? ''}
+              onChange={(e) => set('filed_at', e.target.value || null)} />
+          </Field>
+        </div>
+      </Section>
 
       {!ro ? (
         <div className="sticky bottom-0 bg-white border-t border-neutral-200 py-2 flex justify-end gap-2">

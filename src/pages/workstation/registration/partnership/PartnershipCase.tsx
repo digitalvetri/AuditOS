@@ -9,23 +9,28 @@ import { CASE_STATUS_OPTIONS, DueChip, EmployeeSelect, ProgressBar, useSvc } fro
 import { CaseChecklist } from './CaseChecklist';
 import { CaseDocuments } from './CaseDocuments';
 import { CaseDetails } from './CaseDetails';
+import { PortalStrip } from './PortalStrip';
 
-const TABS = [
-  { key: 'checklist', label: 'Checklist' },
-  { key: 'documents', label: 'Documents' },
-  { key: 'details', label: 'Registration Details' },
-  { key: 'activity', label: 'Activity' },
-] as const;
+const TAB_KEYS = ['checklist', 'documents', 'details', 'activity'] as const;
+type TabKey = (typeof TAB_KEYS)[number];
 
 /**
- * PARTNERSHIP REGISTRATION — <client>. Opens straight onto the checklist;
- * the generic client profile is one link away, never in the way.
+ * Case screen shared by all six services: Partnership / LLP / GST
+ * Registration and the three GST returns. The third tab's label comes
+ * from the service (Registration Details vs Return Details) — same slot,
+ * different data — per GST-RETURNS-CASE-SCREEN §2.
  */
 export function PartnershipCase() {
-  const { api: regApi, keys: regKeys, base, label } = useSvc();
+  const { api: regApi, keys: regKeys, base, label, detailsLabel } = useSvc();
   const { caseId = '' } = useParams();
   const [params, setParams] = useSearchParams();
-  const tab = (params.get('tab') ?? 'checklist') as (typeof TABS)[number]['key'];
+  const tab = (params.get('tab') ?? 'checklist') as TabKey;
+  const tabs: { key: TabKey; label: string }[] = [
+    { key: 'checklist', label: 'Checklist' },
+    { key: 'documents', label: 'Documents' },
+    { key: 'details', label: detailsLabel },
+    { key: 'activity', label: 'Activity' },
+  ];
   const q = useQuery({ queryKey: regKeys.case(caseId), queryFn: () => regApi.getCase(caseId) });
 
   return (
@@ -36,7 +41,7 @@ export function PartnershipCase() {
           <>
             <CaseHeader c={c} />
             <nav className="flex gap-1 border-b border-neutral-200 mb-4 overflow-x-auto">
-              {TABS.map((t) => (
+              {tabs.map((t) => (
                 <button
                   key={t.key}
                   type="button"
@@ -87,7 +92,12 @@ function CaseHeader({ c }: { c: CaseDetail }) {
     <section className="mt-2 mb-4 bg-white border border-neutral-200 rounded">
       <div className="px-4 py-3 flex flex-wrap items-start gap-x-6 gap-y-3 border-b border-neutral-200">
         <div className="min-w-0">
-          <div className="text-11 uppercase tracking-[0.06em] text-neutral-500">{label}</div>
+          {/* Return cases lead with "GSTR-1 · SEPTEMBER 2026" per
+              GST-RETURNS-CASE-SCREEN §7.3 mockup. Registrations show just
+              the service label. */}
+          <div className="text-11 uppercase tracking-[0.06em] text-neutral-500">
+            {label}{c.period ? ` · ${c.period}` : ''}
+          </div>
           <h1 className="text-20 font-semibold text-neutral-900">{c.client.name}</h1>
           <div className="text-13 text-neutral-500">
             {c.case_code} · Created {fmtDate(c.created_at)} ·{' '}
@@ -111,7 +121,7 @@ function CaseHeader({ c }: { c: CaseDetail }) {
 
       <div className="px-4 py-3 grid grid-cols-2 md:grid-cols-6 gap-4">
         <div className="col-span-2">
-          <div className="text-11 uppercase tracking-[0.06em] text-neutral-500 mb-1">Registration progress</div>
+          <div className="text-11 uppercase tracking-[0.06em] text-neutral-500 mb-1">Progress</div>
           <ProgressBar pct={p.pct} className="w-full" />
           <div className="text-12 text-neutral-500 mt-1">
             Completed {p.items_done} / {p.items_total} · Remaining {p.items_pending} · Required items {p.items_required_done} / {p.items_required}
@@ -140,6 +150,12 @@ function CaseHeader({ c }: { c: CaseDetail }) {
             : <span className="text-neutral-900">{c.approver?.full_name}</span>}
         </div>
       ) : null}
+      {/* §5.4 Portal Access strip — user + OTP contact + password reveal.
+          Renders on any case whose client has a GST profile: return kinds
+          use it every filing, GST Registration uses it for portal look-ups
+          during REG-01. The component itself hides when there's no record
+          or the caller lacks permission. */}
+      {c.client.gst_profile_id ? <PortalStrip gstProfileId={c.client.gst_profile_id} /> : null}
     </section>
   );
 }

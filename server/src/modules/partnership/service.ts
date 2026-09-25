@@ -118,6 +118,16 @@ export async function logActivity(
 /**
  * Open a case for an existing client: enrol (ClientService), snapshot the
  * master template, create the non-partner document requirements.
+ *
+ * `period` and `periodType` only apply to return kinds (GSTR1/2B/3B) and
+ * bind the case to a specific tax cycle. Registration kinds pass them as
+ * null. The (clientId, kind, period) uniqueness index on PartnershipCase
+ * catches accidental duplicates at the DB layer; the route-level idempotent
+ * upsert is what callers should reach for.
+ *
+ * Return kinds skip the ClientService enrolment: their "sellable" ancestor
+ * is the GST Compliance enrolment, not a new service per return type. That
+ * mirrors the seed's hasCaseFlow=false choice on the GSTR kinds.
  */
 export async function openCase(session: Session, kind: RegistrationKind, input: {
   clientId: string
@@ -126,26 +136,30 @@ export async function openCase(session: Session, kind: RegistrationKind, input: 
   approverEmployeeId: string | null
   dueDate: string | null
   entityType?: string | null
+  period?: string | null
+  periodType?: string | null
 }) {
   const start = today()
   return prisma.$transaction(async (tx) => {
     const cfg = KINDS[kind]
-    const service = await tx.service.findUnique({ where: { code: cfg.serviceCode } })
-    if (!service) throw new Error(`${cfg.label} service is not seeded.`)
 
     const owner = input.assignedEmployeeId ?? session.employeeId
-    const enrolment = owner
-      ? await tx.clientService.create({
-          data: {
-            clientId: input.clientId,
-            serviceId: service.id,
-            assignedEmployeeId: owner,
-            managerId: input.reviewerEmployeeId,
-            dueDate: input.dueDate,
-            status: 'not_started',
-            createdBy: session.userId,
-          },
-        })
+    const enrolment = cfg.hasCaseFlow && owner
+      ? await (async () => {
+          const service = await tx.service.findUnique({ where: { code: cfg.serviceCode } })
+          if (!service) throw new Error(`${cfg.label} service is not seeded.`)
+          return tx.clientService.create({
+            data: {
+              clientId: input.clientId,
+              serviceId: service.id,
+              assignedEmployeeId: owner,
+              managerId: input.reviewerEmployeeId,
+              dueDate: input.dueDate,
+              status: 'not_started',
+              createdBy: session.userId,
+            },
+          })
+        })()
       : null
 
     const caseCode = await nextCaseCode(tx, cfg.codePrefix, Number(start.slice(0, 4)))
@@ -161,6 +175,8 @@ export async function openCase(session: Session, kind: RegistrationKind, input: 
         reviewerEmployeeId: input.reviewerEmployeeId,
         approverEmployeeId: input.approverEmployeeId,
         dueDate: input.dueDate,
+        period: input.period ?? null,
+        periodType: input.periodType ?? null,
         createdBy: session.userId,
         lastActivityAt: new Date(),
       },
@@ -197,6 +213,7 @@ export async function openCase(session: Session, kind: RegistrationKind, input: 
             kind: it.kind, perPartner: it.perPartner, docKey: it.docKey, condition: it.condition,
             entityCondition: it.entityCondition,
             docTypeOptions: it.docTypeOptions, maxAgeDays: it.maxAgeDays,
+            gateRule: it.gateRule,
             assignedEmployeeId: assignee, dueDate: due, sortOrder: it.sortOrder,
             createdBy: session.userId,
           },

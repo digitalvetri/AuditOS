@@ -49,6 +49,15 @@ export interface TemplateItemSeed {
   /** "Any one" of these satisfies the item — the uploader picks which. */
   docTypeOptions?: string[];
   maxAgeDays?: number;
+  /**
+   * Cross-case gate rule (GST-RETURNS-CASE-SCREEN §9-6). Non-null items are
+   * auto-checked from the state of another case for the same client and
+   * period. The frontend renders them disabled with the reason and a link
+   * to the case that unblocks it; the service layer 422s a manual PATCH.
+   *
+   * Supported today: 'gstr1.filed:same_period', 'gstr2b.itc_finalised:same_period'.
+   */
+  gateRule?: string;
 }
 
 export interface TemplateCategorySeed {
@@ -434,8 +443,8 @@ export const GSTR3B_TEMPLATE: TemplateCategorySeed[] = [
     description: 'Auto-checked. GSTR-1 must be filed and the ITC figure finalised from 2B before this return can be filed.',
     stage: 'PREREQUISITES',
     items: [
-      { name: 'GSTR-1 filed for this period', description: 'Gate — checked automatically.', requirement: 'REQUIRED', kind: 'ACTION' },
-      { name: 'ITC figure finalised from 2B', description: 'Gate — checked automatically.', requirement: 'REQUIRED', kind: 'ACTION' },
+      { name: 'GSTR-1 filed for this period', description: 'Gate — checked automatically.', requirement: 'REQUIRED', kind: 'ACTION', gateRule: 'gstr1.filed:same_period' },
+      { name: 'ITC figure finalised from 2B', description: 'Gate — checked automatically.', requirement: 'REQUIRED', kind: 'ACTION', gateRule: 'gstr2b.itc_finalised:same_period' },
     ],
   },
   {

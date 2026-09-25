@@ -97,7 +97,14 @@ function dueState(due: string | null, done: boolean): string | null {
 const ref = (m: EmployeeLookup, id: string | null | undefined) => (id ? m.get(id) ?? null : null)
 
 async function loadCase(session: Session, scope: Scope, id: string, kind: RegistrationKind) {
-  const c = await prisma.partnershipCase.findFirst({ where: { id, kind, deletedAt: null }, include: { client: true } })
+  const c = await prisma.partnershipCase.findFirst({
+    where: { id, kind, deletedAt: null },
+    // gstProfile is pulled through the client so the case-detail response
+    // can surface a `gst_profile_id` — that's what powers the portal-access
+    // strip on the case header (§9-5). A client without a GST profile just
+    // hides the strip.
+    include: { client: { include: { gstProfile: { select: { id: true } } } } },
+  })
   if (!c) throw ApiError.notFound('Registration case not found.')
   await assertCanSeeClient(session, scope, c.clientId)
   return c
@@ -116,7 +123,7 @@ function mustCan(session: Session, perm: Parameters<typeof can>[1]) {
   if (!can(session, perm, 'self')) throw ApiError.forbidden()
 }
 
-type CaseRow = Prisma.PartnershipCaseGetPayload<{ include: { client: true } }>
+type CaseRow = Prisma.PartnershipCaseGetPayload<{ include: { client: { include: { gstProfile: { select: { id: true } } } } } }>
 
 function caseSummary(c: CaseRow, m: EmployeeLookup) {
   const done = c.status === 'COMPLETED'
@@ -124,7 +131,15 @@ function caseSummary(c: CaseRow, m: EmployeeLookup) {
     id: c.id,
     case_code: c.caseCode,
     kind: c.kind,
-    client: { id: c.client.id, name: c.client.companyName, code: c.client.clientCode },
+    client: {
+      id: c.client.id,
+      name: c.client.companyName,
+      code: c.client.clientCode,
+      /** GST profile for this client, when one exists — surfaces the portal
+       *  access strip on the case header (§9-5). Null for clients with no
+       *  GST profile. */
+      gst_profile_id: c.client.gstProfile?.id ?? null,
+    },
     status: c.status,
     stage: c.stage,
     assigned: ref(m, c.assignedEmployeeId),
@@ -134,6 +149,8 @@ function caseSummary(c: CaseRow, m: EmployeeLookup) {
     due_state: dueState(c.dueDate, done),
     premises_type: c.premisesType,
     entity_type: c.entityType,
+    period: c.period,
+    period_type: c.periodType,
     progress: {
       pct: c.progressPct,
       items_total: c.itemsTotal,
@@ -177,6 +194,27 @@ function parseDetails(raw: unknown, kind: RegistrationKind = 'PARTNERSHIP') {
     // "2 unique names in order of preference"
     out.company_names = (Array.isArray(b.company_names) ? b.company_names : []).slice(0, 2).map((x) => (typeof x === 'string' ? x.slice(0, 200) : ''))
     return out
+  }
+  if (kind === 'GSTR1' || kind === 'GSTR2B' || kind === 'GSTR3B') {
+    // Return Details — GST-RETURNS-CASE-SCREEN §6 / §7.4. Money lives in
+    // INTEGER paise on the wire and in storage; the frontend does the
+    // rupees ↔ paise conversion. Everything is nullable — a case is opened
+    // long before ARN or figures exist.
+    const money = (v: unknown) => {
+      if (v === null || v === undefined || v === '') return null
+      const n = typeof v === 'string' ? Number(v.replace(/[₹,\s]/g, '')) : Number(v)
+      return Number.isFinite(n) && n >= 0 ? Math.round(n) : null
+    }
+    const str = (v: unknown, max: number) => (typeof v === 'string' ? v.slice(0, max) : '') || null
+    return {
+      arn: str(b.arn, 30),
+      taxable_value_paise: money(b.taxable_value_paise),
+      tax_paise: money(b.tax_paise),
+      itc_finalised_paise: money(b.itc_finalised_paise),
+      filed_at: str(b.filed_at, 20),
+      filed_by_user_id: str(b.filed_by_user_id, 50),
+      receipt_document_id: str(b.receipt_document_id, 50),
+    }
   }
   if (kind === 'LLP') {
     const out: Record<string, unknown> = {}
@@ -271,6 +309,9 @@ partnershipRouter.get('/cases', handler(async (req, res) => {
   if (q.assignee) and.push({ assignedEmployeeId: q.assignee === 'unassigned' ? null : q.assignee })
   if (q.reviewer) and.push({ reviewerEmployeeId: q.reviewer })
   if (q.client_id) and.push({ clientId: q.client_id })
+  // Return cases live per period; this filter is the period selector on the
+  // GSTR-1 / 2B / 3B tabs. Registration cases have period=null and ignore it.
+  if (q.period) and.push({ period: q.period })
   const pmin = Number(q.progress_min); const pmax = Number(q.progress_max)
   if (q.progress_min && Number.isFinite(pmin)) and.push({ progressPct: { gte: pmin } })
   if (q.progress_max && Number.isFinite(pmax)) and.push({ progressPct: { lte: pmax } })
@@ -318,7 +359,7 @@ partnershipRouter.get('/cases', handler(async (req, res) => {
   const pageSize = Math.min(100, Math.max(1, Number(q.page_size) || 50))
   const where = { AND: and }
   const [rows, count] = await Promise.all([
-    prisma.partnershipCase.findMany({ where, include: { client: true }, orderBy, skip: (page - 1) * pageSize, take: pageSize }),
+    prisma.partnershipCase.findMany({ where, include: { client: { include: { gstProfile: { select: { id: true } } } } }, orderBy, skip: (page - 1) * pageSize, take: pageSize }),
     prisma.partnershipCase.count({ where }),
   ])
   const m = await employeeMap(rows.flatMap(caseEmployeeIds))
@@ -373,6 +414,185 @@ partnershipRouter.post('/cases', handler(async (req, res) => {
   ok(res, { id: c.id, case_code: c.caseCode }, 201)
 }))
 
+/**
+ * POST /api/{gstr1|gstr2b|gstr3b}/cases/for-period — idempotent.
+ *
+ * Return-cycle cases live per (client, kind, period). Clicking a client
+ * row on a return tab for a period we've not touched should just work —
+ * the case is opened if it doesn't exist, and returned if it does. This
+ * is where the master template is snapshotted for the period.
+ *
+ * Registration kinds have no period and use POST /cases instead — hitting
+ * this endpoint against a non-return mount returns 400.
+ */
+partnershipRouter.post('/cases/for-period', handler(async (req, res) => {
+  const session = requireSession(req)
+  const scope = requireWorkstation(session, ...MANAGE)
+  const kind = kindOf(res)
+  if (KINDS[kind].hasCaseFlow) {
+    throw ApiError.badRequest('not_a_return_kind', 'This endpoint is only for GSTR return kinds.')
+  }
+  const b = body(req)
+  const e = new FieldErrors()
+  const clientId = e.str('client_id', b.client_id)
+  const period = e.str('period', b.period)
+  const periodType = oneOf(e, 'period_type', b.period_type, ['monthly', 'quarterly'] as const) ?? 'monthly'
+  const dueDate = e.date('due_date', b.due_date)
+  const assigned = await employeeField(e, 'assigned_employee_id', b.assigned_employee_id)
+  const reviewer = await employeeField(e, 'reviewer_employee_id', b.reviewer_employee_id)
+  e.throwIfAny()
+
+  const client = await prisma.client.findFirst({ where: { id: clientId!, deletedAt: null } })
+  if (!client) throw ApiError.notFound('Client not found.')
+  await assertCanSeeClient(session, scope, client.id)
+
+  const existing = await prisma.partnershipCase.findFirst({
+    where: { clientId: client.id, kind, period: period!, deletedAt: null },
+    select: { id: true, caseCode: true },
+  })
+  if (existing) {
+    ok(res, { id: existing.id, case_code: existing.caseCode, created: false })
+    return
+  }
+
+  const c = await openCase(session, kind, {
+    clientId: client.id,
+    assignedEmployeeId: assigned ?? null,
+    reviewerEmployeeId: reviewer ?? null,
+    approverEmployeeId: null,
+    dueDate: dueDate ?? null,
+    period: period!,
+    periodType,
+  })
+
+  // Lazy migration — the pre-rebuild flat panel stored ARN + figures on
+  // GstFiling rows tied to the same (client, period, returnType) triple.
+  // Carry those onto the new case's Return Details so nothing is lost when
+  // the old panel is retired. GST-RETURNS-CASE-SCREEN §9-2 "DO NOT LOSE
+  // THE DATA IT CAPTURED".
+  const migrated = await migrateLegacyReturnDetails(c.id, kind, client.id, period!)
+
+  await recompute(c.id)
+  const counts = await prisma.partnershipCaseItem.count({ where: { caseId: c.id } })
+  await logActivity(c.id, session, 'case.created', `${KINDS[kind].label} case ${c.caseCode} opened for ${period}`)
+  await logActivity(c.id, session, 'checklist.initialized', `Checklist initialised from the master template (${counts} items)`)
+  if (migrated) await logActivity(c.id, session, 'details.migrated', `Return Details carried over from the legacy flat panel (source ${migrated})`)
+  await writeActivity({
+    session, subjectType: 'client', subjectId: client.id, action: `${kind.toLowerCase()}.opened`,
+    description: `${KINDS[kind].label} ${period} opened (${c.caseCode})`, entityType: 'partnership_case', entityId: c.id,
+  })
+  await writeAudit({ actorUserId: session.userId, action: 'partnership_case.create', entityType: 'partnership_case', entityId: c.id, after: { caseCode: c.caseCode, clientId: client.id, period }, req })
+  ok(res, { id: c.id, case_code: c.caseCode, created: true }, 201)
+}))
+
+/**
+ * Look for a pre-rebuild GstFiling / GstR2BRecord that matches this case's
+ * (client, period, kind) triple and copy the ARN + figures onto the case's
+ * detailsJson. Returns the legacy source identifier when data was found, or
+ * null when the case starts blank. Never throws — the case is more
+ * important than its historical carry-over.
+ */
+/**
+ * Evaluate a checklist item's gate rule — GST-RETURNS-CASE-SCREEN §9-6.
+ * Returns `met:true` when the gating case has satisfied its condition,
+ * or `met:false` with a human-readable reason and a link to the case
+ * that needs work. Two rules today; add more when more prerequisites
+ * enter the spec.
+ */
+async function evaluateGate(rule: string, c: { clientId: string; period: string | null }): Promise<{ met: boolean; reason?: string; openCase?: { kind: RegistrationKind; id: string; period: string; case_code: string } }> {
+  if (!c.period) return { met: false, reason: 'This case has no period — the gate cannot be evaluated.' }
+  if (rule === 'gstr1.filed:same_period') {
+    const target = await prisma.partnershipCase.findFirst({
+      where: { clientId: c.clientId, kind: 'GSTR1', period: c.period, deletedAt: null },
+      select: { id: true, status: true, caseCode: true, period: true },
+    })
+    if (!target) return { met: false, reason: `Blocked — GSTR-1 case for ${c.period} not opened yet.` }
+    if (target.status !== 'COMPLETED') {
+      return { met: false, reason: `Blocked — GSTR-1 not filed for ${c.period}.`, openCase: { kind: 'GSTR1', id: target.id, period: target.period ?? c.period, case_code: target.caseCode } }
+    }
+    return { met: true }
+  }
+  if (rule === 'gstr2b.itc_finalised:same_period') {
+    const target = await prisma.partnershipCase.findFirst({
+      where: { clientId: c.clientId, kind: 'GSTR2B', period: c.period, deletedAt: null },
+      select: { id: true, detailsJson: true, caseCode: true, period: true },
+    })
+    if (!target) return { met: false, reason: `Blocked — IMS + 2B case for ${c.period} not opened yet.` }
+    let itc: unknown = null
+    try { itc = target.detailsJson ? JSON.parse(target.detailsJson).itc_finalised_paise : null } catch {}
+    if (typeof itc !== 'number') {
+      return { met: false, reason: `Blocked — 2B reconciliation not complete for ${c.period}.`, openCase: { kind: 'GSTR2B', id: target.id, period: target.period ?? c.period, case_code: target.caseCode } }
+    }
+    return { met: true }
+  }
+  // Unknown rule — fail closed rather than silently allow.
+  return { met: false, reason: `Unknown gate rule: ${rule}` }
+}
+
+async function migrateLegacyReturnDetails(caseId: string, kind: RegistrationKind, clientId: string, period: string): Promise<string | null> {
+  try {
+    if (kind === 'GSTR1' || kind === 'GSTR3B') {
+      const returnType = kind === 'GSTR1' ? 'GSTR-1' : 'GSTR-3B'
+      const filing = await prisma.gstFiling.findFirst({
+        where: { period, returnType, deletedAt: null, gstProfile: { clientId } },
+      })
+      if (!filing) return null
+      const paise = (n: bigint | null) => (n === null ? null : Number(n))
+      const details: Record<string, unknown> = {
+        arn: filing.arn ?? null,
+        filed_at: filing.filedAt ? filing.filedAt.toISOString().slice(0, 10) : null,
+        filed_by_user_id: filing.filedByUserId ?? null,
+        receipt_document_id: null,
+        taxable_value_paise: null,
+        tax_paise: null,
+        itc_finalised_paise: null,
+      }
+      if (kind === 'GSTR1') {
+        details.taxable_value_paise = paise(filing.taxableValue)
+        details.tax_paise = paise(filing.taxAmount)
+      } else {
+        // GSTR-3B carries the liability trio: liability, ITC, net payable.
+        // The Return Details form shows tax = liability (what was declared),
+        // and ITC as the finalised figure from the 2B case for the same period.
+        details.tax_paise = paise(filing.taxLiability)
+        details.itc_finalised_paise = paise(filing.eligibleItc)
+      }
+      const dueDate = filing.dueDate ?? null
+      await prisma.partnershipCase.update({
+        where: { id: caseId },
+        data: {
+          detailsJson: JSON.stringify(details),
+          ...(dueDate ? { dueDate } : {}),
+        },
+      })
+      return `GstFiling:${filing.id}`
+    }
+    if (kind === 'GSTR2B') {
+      const period2b = await prisma.gstR2BRecord.findFirst({
+        where: { deletedAt: null, compliancePeriod: { period, gstProfile: { clientId } } },
+      })
+      if (!period2b) return null
+      const paise = (n: bigint) => Number(n)
+      const itc = paise(period2b.totalItcCgst) + paise(period2b.totalItcSgst) + paise(period2b.totalItcIgst) + paise(period2b.totalItcCess)
+      const details: Record<string, unknown> = {
+        arn: null,
+        taxable_value_paise: null,
+        tax_paise: null,
+        itc_finalised_paise: period2b.status === 'reconciliation_completed' ? itc : null,
+        filed_at: null,
+        filed_by_user_id: null,
+        receipt_document_id: null,
+      }
+      await prisma.partnershipCase.update({ where: { id: caseId }, data: { detailsJson: JSON.stringify(details) } })
+      return `GstR2BRecord:${period2b.id}`
+    }
+    return null
+  } catch (err) {
+    console.error('[partnership] legacy migration failed', err instanceof Error ? err.message : err)
+    return null
+  }
+}
+
 // GET /api/partnership/cases/:id — everything the workspace shows.
 partnershipRouter.get('/cases/:id', handler(async (req, res) => {
   const session = requireSession(req)
@@ -399,6 +619,12 @@ partnershipRouter.get('/cases/:id', handler(async (req, res) => {
     ...reqs.flatMap((r) => (r.clientDocument?.versions ?? []).flatMap((v) => [v.uploadedBy, v.reviewedByEmployeeId])),
   ]
   const m = await employeeMap(ids)
+
+  // §9-6 — evaluate each distinct gate rule once, then attach the result to
+  // every item that carries the rule. Two DB reads at most per case today.
+  const gateRules = Array.from(new Set(categories.flatMap((cat) => cat.items.map((i) => i.gateRule).filter((r): r is string => !!r))))
+  const gateResults = new Map<string, Awaited<ReturnType<typeof evaluateGate>>>()
+  for (const rule of gateRules) gateResults.set(rule, await evaluateGate(rule, c))
 
   const reqApi = reqs.map((r) => {
     const v = latestVersion(r)
@@ -481,6 +707,18 @@ partnershipRouter.get('/cases/:id', handler(async (req, res) => {
         max_age_days: i.maxAgeDays,
         condition: i.condition,
         entity_condition: i.entityCondition,
+        gate_rule: i.gateRule,
+        gate: i.gateRule ? (() => {
+          const g = gateResults.get(i.gateRule)
+          if (!g) return null
+          return {
+            met: g.met,
+            reason: g.reason ?? null,
+            unblock_case: g.openCase
+              ? { id: g.openCase.id, kind: g.openCase.kind, case_code: g.openCase.case_code, period: g.openCase.period }
+              : null,
+          }
+        })() : null,
         applicable: (
           conditionApplies(i.condition, c)
           && entityConditionApplies(cat.entityCondition ?? null, c.entityType)
@@ -776,6 +1014,20 @@ partnershipRouter.patch('/cases/:id/items/:itemId', handler(async (req, res) => 
   const data: Prisma.PartnershipCaseItemUpdateInput = { updatedBy: session.userId }
   const log: [string, string][] = []
   if (status && status !== item.status) {
+    // §9-6 — a gated item cannot be marked COMPLETED manually; the state is
+    // owned by the case that unblocks it. Other transitions (PENDING, N/A)
+    // are still allowed so an operator can hide the item if it's genuinely
+    // not applicable.
+    if (item.gateRule && status === 'COMPLETED') {
+      const gate = await evaluateGate(item.gateRule, c)
+      if (!gate.met) {
+        throw ApiError.unprocessable('item_gated', gate.reason ?? 'This item is gated by another case and cannot be completed manually.', {
+          gate_rule: item.gateRule,
+          unblock_case_id: gate.openCase?.id ?? null,
+          unblock_case_kind: gate.openCase?.kind ?? null,
+        })
+      }
+    }
     data.status = status
     if (status === 'COMPLETED') {
       data.completedAt = new Date()
@@ -1103,13 +1355,21 @@ function requireTemplateAdmin(session: Session) {
 partnershipRouter.get('/template', handler(async (req, res) => {
   const session = requireSession(req)
   requireWorkstation(session, ...READ)
-  const cats = await prisma.partnershipTemplateCategory.findMany({
-    where: { kind: kindOf(res), deletedAt: null }, orderBy: { sortOrder: 'asc' },
-    include: { items: { where: { deletedAt: null }, orderBy: { sortOrder: 'asc' } } },
-  })
+  const kind = kindOf(res)
+  const [cats, openCases] = await Promise.all([
+    prisma.partnershipTemplateCategory.findMany({
+      where: { kind, deletedAt: null }, orderBy: { sortOrder: 'asc' },
+      include: { items: { where: { deletedAt: null }, orderBy: { sortOrder: 'asc' } } },
+    }),
+    // §9-8 pinning message: how many cases are currently reading their own
+    // copy of the template. Editing here won't touch them — a case snapshots
+    // the template rows at creation and never re-reads.
+    prisma.partnershipCase.count({ where: { kind, deletedAt: null, status: { not: 'COMPLETED' } } }),
+  ])
   ok(res, {
     can_manage: can(session, 'workstation.registration.template.manage', 'organisation'),
-    stages: KINDS[kindOf(res)].stages,
+    stages: KINDS[kind].stages,
+    open_case_count: openCases,
     categories: cats.map((cat) => ({
       id: cat.id, name: cat.name, description: cat.description, stage: cat.stage, sort_order: cat.sortOrder,
       per_partner: cat.perPartner, entity_condition: cat.entityCondition,
@@ -1118,7 +1378,9 @@ partnershipRouter.get('/template', handler(async (req, res) => {
         per_partner: i.perPartner, doc_key: i.docKey, condition: i.condition,
         entity_condition: i.entityCondition,
         doc_type_options: i.docTypeOptions ? i.docTypeOptions.split('|') : null, max_age_days: i.maxAgeDays,
-        default_due_days: i.defaultDueDays, default_assignee: i.defaultAssignee, sort_order: i.sortOrder,
+        default_due_days: i.defaultDueDays, default_assignee: i.defaultAssignee,
+        gate_rule: i.gateRule,
+        sort_order: i.sortOrder,
       })),
     })),
   })

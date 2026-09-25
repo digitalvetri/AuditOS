@@ -13,13 +13,14 @@ import { useAuth } from '@/platform/auth/AuthContext';
 import { can } from '@/platform/rbac/can';
 import type { ApiError } from '@/services/api';
 import { CASE_STATUS_OPTIONS, DueChip, EmployeeSelect, ENTITY_TYPE_OPTIONS, ProgressBar, useEmployees, useSvc } from './shared';
+import { recentPeriods, periodLabel } from '@/modules/workstation/gst/api';
 
 /**
  * Only clients ENROLLED in Partnership Firm Registration — one row per case.
  * Every filter and the search go to the server; nothing is filtered here.
  */
 export function PartnershipClients() {
-  const { api: regApi, keys: regKeys, base, stageOptions, stageLabel, label } = useSvc();
+  const { api: regApi, keys: regKeys, stageOptions, stageLabel, label, caseUrl, isReturnKind } = useSvc();
   const navigate = useNavigate();
   const [params, setParams] = useSearchParams();
   const { session } = useAuth();
@@ -36,6 +37,10 @@ export function PartnershipClients() {
     if (v) next.set(k, v); else next.delete(k);
     setParams(next, { replace: true });
   };
+  // Return kinds need a period selector; registrations don't. The default
+  // is the current calendar month, unless the URL already carries one.
+  const defaultPeriod = new Date().toISOString().slice(0, 7);
+  const currentPeriod = isReturnKind ? (get('period') || defaultPeriod) : '';
   const progress = get('progress');
   const [pmin, pmax] = progress ? progress.split('-') : ['', ''];
   const filters: CaseFilters = {
@@ -50,16 +55,35 @@ export function PartnershipClients() {
     progress_max: pmax || undefined,
     sort: get('sort') || 'recent',
     dir: get('dir') || 'asc',
+    period: isReturnKind ? currentPeriod : undefined,
   };
   const list = useQuery({ queryKey: regKeys.cases(filters), queryFn: () => regApi.listCases(filters) });
+
+  const periodOptions = isReturnKind ? recentPeriods(12) : [];
+  const bumpPeriod = (dir: -1 | 1) => {
+    const idx = periodOptions.findIndex((p) => p.value === currentPeriod);
+    const next = periodOptions[idx + (dir === 1 ? -1 : 1)];
+    if (next) set('period', next.value);
+  };
 
   return (
     <>
       <PageHeader
-        title={`${label} Clients`}
-        subtitle={`Clients enrolled for ${label}. Open one to work its checklist and documents.`}
-        action={canManage ? <Button variant="primary" onClick={() => set('add', '1')}>+ Add Client</Button> : undefined}
+        title={isReturnKind ? `${label} Clients — ${periodLabel(currentPeriod)}` : `${label} Clients`}
+        subtitle={isReturnKind
+          ? 'Open a client to work its checklist and documents.'
+          : `Clients enrolled for ${label}. Open one to work its checklist and documents.`}
+        action={canManage && !isReturnKind ? <Button variant="primary" onClick={() => set('add', '1')}>+ Add Client</Button> : undefined}
       />
+      {isReturnKind ? (
+        <div className="flex items-center gap-2 mb-3">
+          <Button size="sm" onClick={() => bumpPeriod(-1)} aria-label="Previous period">◂</Button>
+          <select className={inputClass + ' h-9 max-w-[220px]'} value={currentPeriod} onChange={(e) => set('period', e.target.value)}>
+            {periodOptions.map((p) => <option key={p.value} value={p.value}>{p.label}</option>)}
+          </select>
+          <Button size="sm" onClick={() => bumpPeriod(1)} aria-label="Next period">▸</Button>
+        </div>
+      ) : null}
       <FilterBar>
         <SearchInput value={q} onChange={setQ} placeholder="Client, case ID, employee, document" />
         <Select label="Status" value={get('status')} onChange={(v) => set('status', v)} options={CASE_STATUS_OPTIONS} />
@@ -103,7 +127,7 @@ export function PartnershipClients() {
             <>
               <Table head={['Client', 'Status', 'Stage', 'Progress', 'Documents', 'Assigned', 'Next Due', '']}>
                 {d.items.map((c) => (
-                  <Row key={c.id} status={c.status.toLowerCase()} onClick={() => navigate(`${base}/clients/${c.id}`)}>
+                  <Row key={c.id} status={c.status.toLowerCase()} onClick={() => navigate(caseUrl(c.id))}>
                     <Cell>
                       <div className="font-medium">{c.client.name}</div>
                       <div className="text-12 text-neutral-500">{c.case_code}</div>
@@ -134,7 +158,7 @@ export function PartnershipClients() {
  * picker reads the Clients module; a new client is added there first.
  */
 function AddClientModal({ open, onClose }: { open: boolean; onClose: () => void }) {
-  const { api: regApi, keys: regKeys, base, label, kind } = useSvc();
+  const { api: regApi, keys: regKeys, caseUrl, label, kind } = useSvc();
   const navigate = useNavigate();
   const qc = useQueryClient();
   const toast = useToast();
@@ -163,13 +187,13 @@ function AddClientModal({ open, onClose }: { open: boolean; onClose: () => void 
     onSuccess: (r) => {
       void qc.invalidateQueries({ queryKey: regKeys.all });
       toast.push('success', `Case ${r.case_code} opened`);
-      navigate(`${base}/clients/${r.id}`);
+      navigate(caseUrl(r.id));
     },
     onError: (e: ApiError) => {
       const existing = (e.details as { case_id?: string } | undefined)?.case_id;
       if (e.code === 'case_exists' && existing) {
         toast.push('info', e.message);
-        navigate(`${base}/clients/${existing}`);
+        navigate(caseUrl(existing));
       } else toast.push('error', e.message);
     },
   });

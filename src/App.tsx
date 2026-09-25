@@ -93,13 +93,15 @@ import { PartnershipShell } from '@/pages/workstation/registration/partnership/P
 import { PartnershipDashboard } from '@/pages/workstation/registration/partnership/PartnershipDashboard';
 import { PartnershipClients } from '@/pages/workstation/registration/partnership/PartnershipClients';
 import { PartnershipCase } from '@/pages/workstation/registration/partnership/PartnershipCase';
+import { ServiceProvider } from '@/pages/workstation/registration/partnership/shared';
 import { PartnershipTemplate } from '@/pages/workstation/registration/partnership/PartnershipTemplate';
 import { GstShell } from '@/pages/workstation/registration/gst/GstShell';
 import { GstRegistrationTab } from '@/pages/workstation/registration/gst/GstRegistrationTab';
 import { GstDashboard } from '@/pages/workstation/registration/gst/GstDashboard';
 import { GstClients } from '@/pages/workstation/registration/gst/GstClients';
-import { Gstr1Page, Gstr2bPage, Gstr3bPage } from '@/pages/workstation/registration/gst/GstStagePage';
-import { GstPeriodDetail } from '@/pages/workstation/registration/gst/GstPeriodDetail';
+// GstStagePage + GstPeriodDetail deleted in §9-4 — the return tabs
+// render PartnershipClients, and the dashboard's 1 › 2B › Recon › 3B
+// chain nodes open the shared PartnershipCase directly.
 import { GstTemplateHub } from '@/pages/workstation/registration/gst/GstTemplateHub';
 import { RegistrationServiceDetail } from '@/pages/workstation/registration/RegistrationServiceDetail';
 // E-Invoice & E-Way Bill monitoring page (E-INVOICE-EWAYBILL.md). Both
@@ -302,16 +304,26 @@ export default function App() {
                     so PartnershipClients.navigate hits the right route. */}
                 <Route path="registration/clients/:caseId" element={<PartnershipCase />} />
                 <Route path="clients" element={<GstClients />} />
-                <Route path="gstr1" element={<Gstr1Page />} />
-                <Route path="gstr2b" element={<Gstr2bPage />} />
-                <Route path="gstr3b" element={<Gstr3bPage />} />
+                {/* Return-cycle client lists (§9-3). PartnershipClients is
+                    service-agnostic and reads the per-return service via
+                    ServiceProvider; the period selector switches on
+                    isReturnKind so registration lists stay period-less. */}
+                <Route path="gstr1" element={<ServiceProvider kind="GSTR1"><PartnershipClients /></ServiceProvider>} />
+                <Route path="gstr2b" element={<ServiceProvider kind="GSTR2B"><PartnershipClients /></ServiceProvider>} />
+                <Route path="gstr3b" element={<ServiceProvider kind="GSTR3B"><PartnershipClients /></ServiceProvider>} />
+                {/* Return-cycle cases (§9-2). The shared PartnershipCase
+                    renders inside a per-return ServiceProvider so useSvc()
+                    resolves to the right template, api and detailsLabel.
+                    GstShell wraps the whole route tree in kind=GST — the
+                    innermost provider wins. */}
+                <Route path="gstr1/cases/:caseId" element={<ServiceProvider kind="GSTR1"><PartnershipCase /></ServiceProvider>} />
+                <Route path="gstr2b/cases/:caseId" element={<ServiceProvider kind="GSTR2B"><PartnershipCase /></ServiceProvider>} />
+                <Route path="gstr3b/cases/:caseId" element={<ServiceProvider kind="GSTR3B"><PartnershipCase /></ServiceProvider>} />
                 {/* Checklist Template editor — hub with a sub-nav to switch
                     between GST Registration and the three return templates
                     (§7.2, §7.3, §7.4). Each uses the shared PartnershipTemplate
                     re-rooted in a ServiceProvider for the chosen kind. */}
                 <Route path="template" element={<GstTemplateHub />} />
-                {/* Every list row navigates here — the one place work is done. */}
-                <Route path="periods/:periodId" element={<GstPeriodDetail />} />
               </Route>
               {/* Partnership Firm Registration — a real case module, so it is
                   declared BEFORE the :slug catch-all, the same way GST is. */}
@@ -333,15 +345,6 @@ export default function App() {
                 <Route path="template" element={<PartnershipTemplate />} />
                 <Route path="registration" element={<RegistrationServiceDetail slug="llp" embedded />} />
                 <Route path="about" element={<Navigate to="../registration" replace />} />
-              </Route>
-              {/* Private Limited Incorporation — the same case engine, its own checklist. */}
-              <Route path="workstation/services/registration/private-limited" element={<PartnershipShell kind="PRIVATE_LIMITED" />}>
-                <Route index element={<Navigate to="dashboard" replace />} />
-                <Route path="dashboard" element={<PartnershipDashboard />} />
-                <Route path="clients" element={<PartnershipClients />} />
-                <Route path="clients/:caseId" element={<PartnershipCase />} />
-                <Route path="template" element={<PartnershipTemplate />} />
-                <Route path="registration" element={<RegistrationServiceDetail slug="private-limited" embedded />} />
               </Route>
               <Route path="workstation/services/registration/:slug" element={<RegistrationServiceDetail />} />
               <Route path="workstation/services/:category" element={<ServicesPage />} />

@@ -52,7 +52,7 @@ export interface CaseSummary {
   id: string;
   case_code: string;
   kind: RegistrationKind;
-  client: { id: string; name: string; code: string };
+  client: { id: string; name: string; code: string; gst_profile_id: string | null };
   status: CaseStatus;
   stage: CaseStage;
   assigned: EmployeeRef | null;
@@ -62,10 +62,28 @@ export interface CaseSummary {
   due_state: DueState;
   premises_type: 'RENTED' | 'OWNED' | null;
   entity_type: EntityType | null;
+  /** For GSTR* kinds — 'YYYY-MM' monthly, 'YYYY-Q1' quarterly. null for the three registration kinds. */
+  period: string | null;
+  period_type: 'monthly' | 'quarterly' | null;
   progress: CaseProgress;
   created_at: string;
   last_activity_at: string | null;
   completed_at: string | null;
+}
+
+/**
+ * Return Details — the fields the pre-rebuild flat panel captured, now
+ * on the third tab of the shared case screen. Money is INTEGER paise on
+ * the wire; the form converts rupees ↔ paise. GST-RETURNS-CASE-SCREEN §6.
+ */
+export interface ReturnDetails {
+  arn: string | null;
+  taxable_value_paise: number | null;
+  tax_paise: number | null;
+  itc_finalised_paise: number | null;
+  filed_at: string | null;
+  filed_by_user_id: string | null;
+  receipt_document_id: string | null;
 }
 
 export interface CaseItem {
@@ -80,6 +98,17 @@ export interface CaseItem {
   max_age_days: number | null;
   condition: 'RENTED' | 'OWNED' | null;
   entity_condition: EntityCondition | null;
+  /** §9-6 — 'gstr1.filed:same_period' | 'gstr2b.itc_finalised:same_period' | null. */
+  gate_rule: string | null;
+  /**
+   * Server-evaluated state of gate_rule. Null for non-gated items. When
+   * met is false, unblock_case points at the case that satisfies the gate.
+   */
+  gate: {
+    met: boolean;
+    reason: string | null;
+    unblock_case: { id: string; kind: RegistrationKind; case_code: string; period: string } | null;
+  } | null;
   applicable: boolean;
   status: ItemStatus;
   assigned: EmployeeRef | null;
@@ -193,7 +222,7 @@ export interface PvtDetails {
 }
 
 export interface CaseDetail extends CaseSummary {
-  details: RegistrationDetails & Partial<LlpDetails> & Partial<PvtDetails>;
+  details: RegistrationDetails & Partial<LlpDetails> & Partial<PvtDetails> & Partial<ReturnDetails>;
   stages: string[];
   stage_progress: { stage: string; done: number; total: number }[];
   partner_progress: { partner_id: string; name: string; done: number; total: number; docs_pending: number }[];
@@ -263,6 +292,8 @@ export interface CaseFilters {
   sort?: string;
   dir?: string;
   page?: number;
+  /** Only meaningful for return kinds — the period selector on the GSTR-1/2B/3B tabs. */
+  period?: string;
 }
 
 function qs(params: Record<string, string | number | undefined>): string {
@@ -284,9 +315,19 @@ export function makeRegistrationApi(base: string) {
       api.get<{ items: CaseSummary[]; count: number; page: number; page_size: number }>(`${base}/cases${qs({ ...f })}`),
     createCase: (input: { client_id: string; assigned_employee_id?: string; reviewer_employee_id?: string; approver_employee_id?: string; due_date?: string; entity_type?: EntityType | null }) =>
       api.post<{ id: string; case_code: string }>(`${base}/cases`, input),
+    /**
+     * Idempotent open-or-return for a GSTR return-cycle case. Only the three
+     * GSTR kinds accept this call; registration kinds return 400.
+     * `created:true` when a fresh case was opened, `false` when the existing
+     * one for that (client, period) was returned as-is.
+     */
+    openForPeriod: (input: {
+      client_id: string; period: string; period_type?: 'monthly' | 'quarterly';
+      assigned_employee_id?: string; reviewer_employee_id?: string; due_date?: string;
+    }) => api.post<{ id: string; case_code: string; created: boolean }>(`${base}/cases/for-period`, input),
     getCase: (id: string) => api.get<CaseDetail>(c(id)),
     updateCase: (id: string, input: Record<string, unknown>) => api.patch<{ id: string }>(c(id), input),
-    saveDetails: (id: string, details: RegistrationDetails) => api.put<{ details: RegistrationDetails }>(`${c(id)}/details`, { details }),
+    saveDetails: (id: string, details: RegistrationDetails | LlpDetails | ReturnDetails) => api.put<{ details: unknown }>(`${c(id)}/details`, { details }),
 
     addPartner: (id: string, input: Record<string, unknown>) => api.post<{ id: string }>(`${c(id)}/partners`, input),
     updatePartner: (id: string, pid: string, input: Record<string, unknown>) => api.patch<{ id: string }>(`${c(id)}/partners/${pid}`, input),
@@ -309,7 +350,7 @@ export function makeRegistrationApi(base: string) {
 
     activity: (id: string) => api.get<{ items: ActivityEntry[] }>(`${c(id)}/activity`),
 
-    template: () => api.get<{ can_manage: boolean; stages: string[]; categories: TemplateCategory[] }>(`${base}/template`),
+    template: () => api.get<{ can_manage: boolean; stages: string[]; categories: TemplateCategory[]; open_case_count: number }>(`${base}/template`),
     addTemplateCategory: (input: Record<string, unknown>) => api.post<{ id: string }>(`${base}/template/categories`, input),
     updateTemplateCategory: (cid: string, input: Record<string, unknown>) => api.patch<{ id: string }>(`${base}/template/categories/${cid}`, input),
     deleteTemplateCategory: (cid: string) => api.delete<{ id: string }>(`${base}/template/categories/${cid}`),

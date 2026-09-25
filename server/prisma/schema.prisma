@@ -1533,6 +1533,69 @@ model GstProfile {
   client  Client                @relation(fields: [clientId], references: [id])
   filings GstFiling[]
   periods GstCompliancePeriod[]
+  portalAccess GstPortalAccess?
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  createdBy String?
+  updatedBy String?
+  deletedAt DateTime?
+}
+
+/// GST portal + e-invoice + e-way bill credentials, one row per GSTIN.
+/// GST-RETURNS-CASE-SCREEN §5 and §9-5.
+///
+/// The most valuable field is NOT the password. It is otpContactName +
+/// otpContactNumber — MFA on the GST portal sends an OTP to the registered
+/// mobile, so a filer at 6pm needs to know whose phone to call, immediately,
+/// from the case screen. Rules:
+///   - The three *_passwordCiphertext fields are AES-256-GCM ciphertext
+///     produced by the portalCrypto helper. Never stored in plaintext,
+///     never returned by GET — only via POST /reveal, which writes an
+///     audit row scoped to a single field
+///   - passwordHeldBy = 'client' means the firm doesn't hold the GST
+///     portal password; the UI hides the field and the ciphertext MUST
+///     be null (server-side invariant)
+///   - Viewing this record is its own permission
+///     (workstation.gst.portal.view), separate from workstation.service.read
+model GstPortalAccess {
+  id                   String  @id @default(uuid())
+  gstProfileId         String  @unique
+
+  /// Portal login name — not secret, needed every login.
+  portalUsername       String?
+  /// AES-256-GCM ciphertext of the portal password. Null when the client
+  /// holds it (passwordHeldBy=client) or the record was never filled in.
+  portalPasswordCiphertext String?
+  /// firm | client — who holds the portal password. Drives UI + is the
+  /// invariant behind the "ciphertext must be null when client" rule.
+  passwordHeldBy       String  @default("firm")
+
+  /// Number that receives the MFA OTP, masked at rest ('98••••4471').
+  /// Full number is not stored — the firm rings the OTP contact instead.
+  registeredMobileMasked String?
+  /// Person to phone when an OTP is needed. Usually the client or an
+  /// employee at the client's office.
+  otpContactName       String?
+  otpContactNumber     String?
+
+  /// otp_mobile | authenticator | none
+  mfaMethod            String  @default("otp_mobile")
+
+  /// E-Way Bill portal — separate credentials, same crypto rules.
+  ewbUsername          String?
+  ewbPasswordCiphertext String?
+
+  /// Invoice Registration Portal — six IRPs exist, which one matters.
+  irpName              String?
+  irpUsername          String?
+  irpPasswordCiphertext String?
+
+  /// Last time an operator verified the credentials still work.
+  lastVerifiedAt       DateTime?
+  lastVerifiedByEmployeeId String?
+
+  gstProfile GstProfile @relation(fields: [gstProfileId], references: [id])
 
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt
@@ -6582,6 +6645,13 @@ model PartnershipTemplateItem {
   defaultDueDays Int?
   /// Default assignee role on the case: ASSIGNEE | REVIEWER
   defaultAssignee String?
+  /// Cross-case dependency rule — GST-RETURNS-CASE-SCREEN §9-6. Null means
+  /// the item is completed manually. When set, the service layer evaluates
+  /// the rule and either 422s a manual PATCH or auto-marks the item
+  /// COMPLETED when the referenced case has satisfied it. Format is
+  /// 'target:scope' where target is one of gstr1.filed | gstr2b.itc_finalised
+  /// and scope is same_period.
+  gateRule       String?
   sortOrder      Int     @default(0)
 
   category PartnershipTemplateCategory @relation(fields: [categoryId], references: [id])
@@ -6598,7 +6668,7 @@ model PartnershipTemplateItem {
 model PartnershipCase {
   id                 String    @id @default(uuid())
   caseCode           String    @unique
-  /// PARTNERSHIP | LLP
+  /// PARTNERSHIP | LLP | GST | GSTR1 | GSTR2B | GSTR3B
   kind               String    @default("PARTNERSHIP")
   clientId           String
   /// The enrolment: ClientService row for the PARTNERSHIP_FIRM_REGISTRATION
@@ -6617,7 +6687,17 @@ model PartnershipCase {
   /// PROPRIETORSHIP | PARTNERSHIP | LLP | PVT_LTD — the client's entity type
   /// for GST Registration. Decides which of the six §7.1 categories apply.
   entityType         String?
-  /// Registration Details form (fields from the source PDF, Part A)
+  /// The return period the case belongs to, for GSTR* kinds only. Null for
+  /// the three one-time registrations. 'YYYY-MM' for monthly filers, or
+  /// 'YYYY-Q1'..'YYYY-Q4' for quarterly. Together with (clientId, kind) it
+  /// is the natural identity of a return-cycle case — GST-RETURNS-CASE-
+  /// SCREEN §6.
+  period             String?
+  /// monthly | quarterly. Copied from the client's GST profile at creation
+  /// so a later frequency change does not silently rewrite closed cases.
+  periodType         String?
+  /// Registration Details (one-time kinds) OR Return Details (return
+  /// kinds — ARN, taxable value, tax, filed_at). Same slot, different data.
   detailsJson        String?
   completedAt        DateTime?
 
@@ -6652,6 +6732,13 @@ model PartnershipCase {
   @@index([status])
   @@index([assignedEmployeeId])
   @@index([dueDate])
+  /// A client has at most one case per (return kind, period). Registration
+  /// kinds set period=null so this constraint is vacuous for them — one
+  /// client can still hold multiple registration cases. Nullable columns
+  /// participate in uniqueness in Postgres by treating NULL as distinct,
+  /// which is the behaviour we want.
+  @@unique([clientId, kind, period])
+  @@index([period])
 }
 
 model PartnershipPartner {
@@ -6740,6 +6827,8 @@ model PartnershipCaseItem {
   completedByUserId     String?
   isCustom              Boolean   @default(false)
   sortOrder             Int       @default(0)
+  /// Snapshot of PartnershipTemplateItem.gateRule at case creation (§9-6).
+  gateRule              String?
 
   case     PartnershipCase         @relation(fields: [caseId], references: [id])
   category PartnershipCaseCategory @relation(fields: [categoryId], references: [id])

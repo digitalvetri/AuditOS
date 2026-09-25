@@ -7,21 +7,34 @@
  * parameters, so narrowing the view re-queries rather than hiding rows.
  */
 import { useMemo, useState } from 'react';
-import { useQuery } from '@tanstack/react-query';
+import { useMutation, useQuery } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
 import { Check, Circle, AlertTriangle, ChevronRight } from 'lucide-react';
 import {
   Card, PageHeader, QueryState, Table, Row, Cell, Status, FilterBar, Select, SearchInput,
 } from '@/modules/workstation/components';
 import { gstApi, periodLabel, type GstPeriod, type PeriodFilters } from '@/modules/workstation/gst/api';
+import { SERVICES } from '../partnership/shared';
+import type { RegistrationKind } from '@/modules/partnership/api';
+
+/** Each chain node in the 1 › 2B › Recon › 3B flow opens the matching case (§9-4). */
+type ChainNode = { kind: RegistrationKind; label: '1' | '2B' | 'Recon' | '3B'; status: string };
 
 /** §10 — a stage reads as an icon AND a word, never colour alone. */
-function StageChip({ label, status }: { label: string; status: string }) {
+function StageChip({ label, status, onClick, disabled }: { label: string; status: string; onClick?: () => void; disabled?: boolean }) {
   const done = ['filed', 'completed', 'reconciliation_completed', 'completed_with_exceptions'].includes(status);
   const problem = ['exceptions_found', 'rework_required', 'overdue'].includes(status);
   const Icon = done ? Check : problem ? AlertTriangle : Circle;
   return (
-    <span className="inline-flex items-center gap-1 whitespace-nowrap">
+    <button
+      type="button"
+      onClick={onClick ? (e) => { e.stopPropagation(); onClick(); } : undefined}
+      disabled={disabled || !onClick}
+      className={
+        'inline-flex items-center gap-1 whitespace-nowrap ' +
+        (onClick ? 'hover:bg-neutral-100 rounded px-1 -mx-1 cursor-pointer disabled:cursor-wait disabled:opacity-60' : '')
+      }
+    >
       <Icon
         size={13}
         strokeWidth={2}
@@ -29,22 +42,30 @@ function StageChip({ label, status }: { label: string; status: string }) {
         aria-hidden
       />
       <span className="text-12 text-neutral-500">{label}</span>
-    </span>
+    </button>
   );
 }
 
-/** The §10 flow, laid out left-to-right with the arrow between stages. */
-function StageFlow({ p }: { p: GstPeriod }) {
+/** The §10 flow, laid out left-to-right with the arrow between stages.
+    Each chip is a link into the matching case for that period (§9-4). */
+function StageFlow({ p, onOpen, busy }: { p: GstPeriod; onOpen: (n: ChainNode) => void; busy: boolean }) {
   const s = p.stage_status;
+  const nodes: ChainNode[] = [
+    { kind: 'GSTR1', label: '1', status: s.gstr1 },
+    { kind: 'GSTR2B', label: '2B', status: s.gstr2b },
+    // Reconciliation is a stage inside the GSTR-2B case (§7.3), not its
+    // own kind. The chip still routes there but reads a different status.
+    { kind: 'GSTR2B', label: 'Recon', status: s.reconciliation },
+    { kind: 'GSTR3B', label: '3B', status: s.gstr3b },
+  ];
   return (
     <span className="inline-flex items-center gap-1.5 flex-wrap">
-      <StageChip label="1" status={s.gstr1} />
-      <ChevronRight size={11} className="text-neutral-300" aria-hidden />
-      <StageChip label="2B" status={s.gstr2b} />
-      <ChevronRight size={11} className="text-neutral-300" aria-hidden />
-      <StageChip label="Recon" status={s.reconciliation} />
-      <ChevronRight size={11} className="text-neutral-300" aria-hidden />
-      <StageChip label="3B" status={s.gstr3b} />
+      {nodes.map((n, i) => (
+        <span key={`${n.label}-${i}`} className="inline-flex items-center gap-1.5">
+          <StageChip label={n.label} status={n.status} onClick={p.client_id ? () => onOpen(n) : undefined} disabled={busy} />
+          {i < nodes.length - 1 ? <ChevronRight size={11} className="text-neutral-300" aria-hidden /> : null}
+        </span>
+      ))}
     </span>
   );
 }
@@ -84,6 +105,34 @@ export function GstDashboard() {
     queryFn: () => gstApi.periods(filters),
   });
 
+  /**
+   * Open (or return) the case for a client × return kind × period and
+   * navigate to it. Same open-or-return semantics as GstStagePage — this
+   * is what powers the 1 › 2B › Recon › 3B chain (§9-4) and replaces the
+   * pre-rebuild "click the row → flat panel" flow.
+   */
+  const openChainCase = useMutation({
+    mutationFn: async ({ p, node }: { p: GstPeriod; node: ChainNode }) => {
+      const svc = SERVICES[node.kind];
+      const r = await svc.api.openForPeriod({
+        client_id: p.client_id!, period: p.period,
+        period_type: p.period_type === 'quarterly' ? 'quarterly' : 'monthly',
+        assigned_employee_id: p.assigned_employee_id ?? undefined,
+        reviewer_employee_id: p.reviewer_employee_id ?? undefined,
+      });
+      return { url: svc.caseUrl(r.id) };
+    },
+    onSuccess: (r) => navigate(r.url),
+    onError: (e) => window.alert(e instanceof Error ? e.message : 'Could not open case'),
+  });
+
+  /** Deep link into a return tab pre-filtered — the whole point of §9-4. */
+  const goReturn = (kind: 'gstr1' | 'gstr2b' | 'gstr3b', query: Record<string, string> = {}) => {
+    const period = filters.period ?? new Date().toISOString().slice(0, 7);
+    const qs = new URLSearchParams({ period, ...query }).toString();
+    navigate(`../${kind}?${qs}`);
+  };
+
   // Financial years and periods offered by the data itself — §36 forbids
   // hardcoding a year, so the options come from what exists.
   const { years, periodOptions } = useMemo(() => {
@@ -119,28 +168,38 @@ export function GstDashboard() {
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-3">
               <Card title="GSTR-1">
                 <div className="grid grid-cols-3 gap-2 p-3">
-                  <Metric label="Filed" value={o.gstr1.filed} tone="good" />
-                  <Metric label="Pending" value={o.gstr1.pending} />
-                  <Metric label="Overdue" value={o.gstr1.overdue} tone={o.gstr1.overdue ? 'bad' : 'plain'} />
+                  <Metric label="Filed" value={o.gstr1.filed} tone="good"
+                          onClick={() => goReturn('gstr1', { status: 'COMPLETED' })} />
+                  <Metric label="Pending" value={o.gstr1.pending}
+                          onClick={() => goReturn('gstr1', { status: 'IN_PROGRESS' })} />
+                  <Metric label="Overdue" value={o.gstr1.overdue} tone={o.gstr1.overdue ? 'bad' : 'plain'}
+                          onClick={() => goReturn('gstr1', { due: 'overdue' })} />
                 </div>
               </Card>
               {/* §4: GSTR-2B is never "filed" — it is an auto-drafted ITC
                   statement, so its vocabulary is availability and recon. */}
               <Card title="GSTR-2B — auto-drafted, not filed">
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-2 p-3">
-                  <Metric label="Available" value={o.gstr2b.available} />
-                  <Metric label="Pending" value={o.gstr2b.pending} />
-                  <Metric label="Recon pending" value={o.gstr2b.reconciliation_pending} />
-                  <Metric label="Reconciled" value={o.gstr2b.reconciled} tone="good" />
+                  <Metric label="Available" value={o.gstr2b.available} onClick={() => goReturn('gstr2b')} />
+                  <Metric label="Pending" value={o.gstr2b.pending}
+                          onClick={() => goReturn('gstr2b', { status: 'NOT_STARTED' })} />
+                  <Metric label="Recon pending" value={o.gstr2b.reconciliation_pending}
+                          onClick={() => goReturn('gstr2b', { stage: 'RECONCILIATION' })} />
+                  <Metric label="Reconciled" value={o.gstr2b.reconciled} tone="good"
+                          onClick={() => goReturn('gstr2b', { stage: 'FINALISE' })} />
                 </div>
               </Card>
               <Card title="GSTR-3B">
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-2 p-3">
-                  <Metric label="Filed" value={o.gstr3b.filed} tone="good" />
-                  <Metric label="Pending" value={o.gstr3b.pending} />
+                  <Metric label="Filed" value={o.gstr3b.filed} tone="good"
+                          onClick={() => goReturn('gstr3b', { status: 'COMPLETED' })} />
+                  <Metric label="Pending" value={o.gstr3b.pending}
+                          onClick={() => goReturn('gstr3b', { status: 'IN_PROGRESS' })} />
                   <Metric label="Payment pending" value={o.gstr3b.payment_pending}
-                          tone={o.gstr3b.payment_pending ? 'warn' : 'plain'} />
-                  <Metric label="Overdue" value={o.gstr3b.overdue} tone={o.gstr3b.overdue ? 'bad' : 'plain'} />
+                          tone={o.gstr3b.payment_pending ? 'warn' : 'plain'}
+                          onClick={() => goReturn('gstr3b', { stage: 'PAYMENT' })} />
+                  <Metric label="Overdue" value={o.gstr3b.overdue} tone={o.gstr3b.overdue ? 'bad' : 'plain'}
+                          onClick={() => goReturn('gstr3b', { due: 'overdue' })} />
                 </div>
               </Card>
             </div>
@@ -219,12 +278,14 @@ export function GstDashboard() {
                   <Row
                     key={p.id}
                     status={p.overall_status}
-                    onClick={() => navigate(`../periods/${p.id}`)}
+                    /* Row is intentionally not clickable — each chain node
+                        below is the click target (§7.1 mockup). Opening a
+                        case is a decision per return, not per row. */
                   >
                     <Cell>{p.client_name ?? '—'}</Cell>
                     <Cell muted><span className="font-mono text-12">{p.gstin}</span></Cell>
                     <Cell>{periodLabel(p.period)}</Cell>
-                    <Cell><StageFlow p={p} /></Cell>
+                    <Cell><StageFlow p={p} busy={openChainCase.isPending} onOpen={(node) => openChainCase.mutate({ p, node })} /></Cell>
                     <Cell><Status value={p.overall_status} /></Cell>
                     <Cell muted>{p.assigned_employee_name ?? '—'}</Cell>
                     <Cell muted>{p.reviewer_employee_name ?? '—'}</Cell>

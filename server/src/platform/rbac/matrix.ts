@@ -59,6 +59,13 @@ export type PermissionCode =
   | 'workstation.doc.manage'
   | 'workstation.gst.read'
   | 'workstation.gst.manage'
+  // GST portal credentials — own permission per GST-RETURNS-CASE-SCREEN
+  // §5.3 / §9-5. `.view` shows the record with passwords masked; `.reveal`
+  // decrypts one field at a time and writes an audit row per reveal.
+  // Neither is implied by workstation.service.read — the intent is that
+  // an operator can work a case without ever seeing credentials.
+  | 'workstation.gst.portal.view'
+  | 'workstation.gst.portal.reveal'
   | 'workstation.eway.read'
   | 'workstation.eway.generate'
   | 'workstation.eway.cancel'
@@ -257,6 +264,11 @@ export const MATRIX: Record<RoleCode, Grant[]> = {
     { permission: 'workstation.registration.template.manage', scope: 'organisation' },
     { permission: 'workstation.gst.read', scope: 'organisation' },
     { permission: 'workstation.gst.manage', scope: 'organisation' },
+    // Portal credentials — this role sees + reveals firm-wide. Junior
+    // roles do not carry either grant by default; add them per-role when
+    // the firm decides who fills at 6pm needs the OTP contact.
+    { permission: 'workstation.gst.portal.view', scope: 'organisation' },
+    { permission: 'workstation.gst.portal.reveal', scope: 'organisation' },
     { permission: 'workstation.eway.read', scope: 'organisation' },
     { permission: 'workstation.eway.generate', scope: 'organisation' },
     { permission: 'workstation.eway.cancel', scope: 'organisation' },
@@ -415,6 +427,11 @@ export const MATRIX: Record<RoleCode, Grant[]> = {
     { permission: 'workstation.registration.template.manage', scope: 'organisation' },
     { permission: 'workstation.gst.read', scope: 'organisation' },
     { permission: 'workstation.gst.manage', scope: 'organisation' },
+    // Portal credentials — this role sees + reveals firm-wide. Junior
+    // roles do not carry either grant by default; add them per-role when
+    // the firm decides who fills at 6pm needs the OTP contact.
+    { permission: 'workstation.gst.portal.view', scope: 'organisation' },
+    { permission: 'workstation.gst.portal.reveal', scope: 'organisation' },
     { permission: 'workstation.eway.read', scope: 'organisation' },
     { permission: 'workstation.eway.generate', scope: 'organisation' },
     { permission: 'workstation.eway.cancel', scope: 'organisation' },
@@ -547,6 +564,8 @@ export const PERMISSION_DESCRIPTIONS: Record<string, string> = {
   'workstation.registration.template.manage': 'Edit the master checklist a new registration case starts from',
   'workstation.gst.read': 'View GST profiles and filings',
   'workstation.gst.manage': 'Update GST filing status',
+  'workstation.gst.portal.view': 'See a client’s GST portal credentials record (passwords stay masked)',
+  'workstation.gst.portal.reveal': 'Decrypt a portal / e-way bill / IRP password field — writes an audit row per reveal',
   'workstation.eway.read': 'View e-way bills',
   'workstation.eway.generate': 'Generate a (simulated) e-way bill',
   'workstation.eway.cancel': 'Cancel a (simulated) e-way bill',
