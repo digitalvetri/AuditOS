@@ -37,6 +37,12 @@ export function CaseChecklist({ c, onOpenDocuments, onOpenDetails }: { c: CaseDe
             <strong>Registration Details</strong> — until then those items are left out of the progress count.
           </div>
         ) : null}
+        {c.kind === 'GST' && !c.entity_type ? (
+          <div className="mb-3 border-l-2 border-amber pl-3 text-13 text-neutral-700">
+            The documents depend on the business type. Set it under{' '}
+            <button type="button" className="underline font-medium" onClick={onOpenDetails}>Registration Details</button> — until then those sections are not counted.
+          </div>
+        ) : null}
         <div className="flex items-center mb-2">
           <span className="text-11 uppercase tracking-[0.06em] text-neutral-500">Checklist</span>
           <div className="flex-1" />
@@ -166,7 +172,7 @@ function ItemRow({ c, item, reqById, onUpload }: {
           </div>
           {item.description ? <div className="text-12 text-neutral-500">{item.description}</div> : null}
           {item.doc_type_options ? <div className="text-12 text-neutral-500">Any one: {item.doc_type_options.join(' / ')}</div> : null}
-          {!item.applicable ? <div className="text-12 text-neutral-500">Not applicable — premises are {c.premises_type === 'OWNED' ? 'owned' : 'rented'}.</div> : null}
+          {!item.applicable ? <div className="text-12 text-neutral-500">Not applicable to this case{item.condition === 'RENTED' || item.condition === 'OWNED' ? "'s premises" : "'s business type"}.</div> : null}
           {done && item.completed_at ? (
             <div className="text-12 text-neutral-500">Completed {fmtDate(item.completed_at)}{item.completed_by ? ` by ${item.completed_by.full_name}` : ''}</div>
           ) : null}

@@ -14,17 +14,19 @@ import { ServiceProvider } from './shared';
  */
 export function PartnershipShell({ kind = 'PARTNERSHIP' }: { kind?: RegistrationKind }) {
   const { session } = useAuth();
+  const gst = kind === 'GST';
   const tabs = [
-    { to: 'dashboard', label: 'Dashboard' },
+    // GST has its own dashboard one level up, in the GST module.
+    ...(gst ? [] : [{ to: 'dashboard', label: 'Dashboard' }]),
     { to: 'clients', label: 'Clients' },
     ...(can(session?.role.code, 'workstation.registration.template.manage', 'organisation')
       ? [{ to: 'template', label: 'Checklist Template' }]
       : []),
-    { to: 'registration', label: 'Registration' },
+    { to: 'registration', label: gst ? 'Reference' : 'Registration' },
   ];
   return (
     <ServiceProvider kind={kind}>
-    <div className="m-page">
+    <div className={gst ? '' : 'm-page'}>
       <nav className="m-rail flex gap-1 border-b border-neutral-200 mb-4 overflow-x-auto">
         {tabs.map((t) => (
           <NavLink

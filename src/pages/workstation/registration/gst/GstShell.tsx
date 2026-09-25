@@ -21,7 +21,7 @@ const TABS: { to: string; label: string; end?: boolean }[] = [
   { to: 'gstr2b', label: 'GSTR-2B' },
   { to: 'gstr3b', label: 'GSTR-3B' },
   { to: 'clients', label: 'Clients' },
-  { to: 'registration', label: 'Registration' },
+  { to: 'registration', label: 'GST Registration' },
 ];
 
 export function GstShell() {

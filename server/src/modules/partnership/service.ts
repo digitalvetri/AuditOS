@@ -29,6 +29,8 @@ export const PRIORITIES = ['LOW', 'MEDIUM', 'HIGH'] as const
 export const REQUIREMENT_TYPES = ['REQUIRED', 'OPTIONAL', 'CONDITIONAL'] as const
 export const ITEM_KINDS = ['INFO', 'DOCUMENT', 'ACTION'] as const
 export const PREMISES = ['RENTED', 'OWNED'] as const
+/** Anything an item may be conditional on: premises, or the GST business type. */
+export const CONDITIONS = [...PREMISES, 'PROPRIETORSHIP', 'PARTNERSHIP', 'LLP_COMPANY'] as const
 /** Per-version review outcome. */
 export const REVIEW_STATUSES = ['uploaded', 'under_review', 'verified', 'rejected', 'replacement_required'] as const
 export type ReviewStatus = (typeof REVIEW_STATUSES)[number]
@@ -59,8 +61,13 @@ export async function nextCaseCode(tx: Tx, codePrefix: string, year: number): Pr
   return `${prefix}${String(max + 1).padStart(4, '0')}`
 }
 
-export function conditionApplies(condition: string | null, premises: string | null): boolean {
-  return !condition || condition === premises
+/** What decides applicability on a case: premises type, and (GST) business type. */
+export interface CaseConditions { premisesType: string | null; entityType: string | null }
+
+export function conditionApplies(condition: string | null, c: CaseConditions): boolean {
+  if (!condition) return true
+  if (condition === 'RENTED' || condition === 'OWNED') return condition === c.premisesType
+  return condition === c.entityType
 }
 
 /** Append to the case trail and bump lastActivityAt. Never throws into the request. */
@@ -283,8 +290,8 @@ export function latestVersion(r: ReqWithDoc) {
 }
 
 /** PENDING | UPLOADED | UNDER_REVIEW | VERIFIED | REJECTED | REPLACEMENT_REQUIRED | NOT_APPLICABLE */
-export function requirementStatus(r: ReqWithDoc, premises: string | null): string {
-  if (r.notApplicable || !conditionApplies(r.condition, premises)) return 'NOT_APPLICABLE'
+export function requirementStatus(r: ReqWithDoc, c: CaseConditions): string {
+  if (r.notApplicable || !conditionApplies(r.condition, c)) return 'NOT_APPLICABLE'
   const v = latestVersion(r)
   if (!v) return 'PENDING'
   return (v.reviewStatus ?? 'uploaded').toUpperCase()
@@ -309,14 +316,14 @@ export async function recompute(caseId: string) {
       include: requirementInclude,
     }),
   ])
-  const applicable = items.filter((i) => !isPartnerTemplateRow(i) && i.status !== 'NOT_APPLICABLE' && conditionApplies(i.condition, c.premisesType))
+  const applicable = items.filter((i) => !isPartnerTemplateRow(i) && i.status !== 'NOT_APPLICABLE' && conditionApplies(i.condition, c))
   const done = applicable.filter((i) => i.status === 'COMPLETED')
   const required = applicable.filter((i) => i.requirement !== 'OPTIONAL')
   const requiredDone = required.filter((i) => i.status === 'COMPLETED')
 
   const reqStatuses = reqs
     .filter((r) => r.requirement !== 'OPTIONAL')
-    .map((r) => requirementStatus(r, c.premisesType))
+    .map((r) => requirementStatus(r, c))
     .filter((s) => s !== 'NOT_APPLICABLE')
   const uploaded = reqStatuses.filter((s) => s !== 'PENDING').length
   const verified = reqStatuses.filter((s) => s === 'VERIFIED').length

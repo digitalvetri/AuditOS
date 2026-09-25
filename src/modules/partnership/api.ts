@@ -11,7 +11,10 @@ export interface EmployeeRef { id: string; full_name: string; employee_code: str
 export type CaseStatus =
   | 'NOT_STARTED' | 'IN_PROGRESS' | 'DOCUMENTS_PENDING' | 'UNDER_REVIEW'
   | 'SUBMITTED' | 'QUERY' | 'COMPLETED' | 'ON_HOLD';
-export type RegistrationKind = 'PARTNERSHIP' | 'LLP';
+export type RegistrationKind = 'PARTNERSHIP' | 'LLP' | 'GST' | 'PRIVATE_LIMITED';
+/** Premises, or (GST) the business type an item applies to. */
+export type Condition = 'RENTED' | 'OWNED' | 'PROPRIETORSHIP' | 'PARTNERSHIP' | 'LLP_COMPANY';
+export type EntityType = 'PROPRIETORSHIP' | 'PARTNERSHIP' | 'LLP_COMPANY';
 /** Partnership: INFO_COLLECTION | DEED | ROF_FILING | REGISTERED. LLP: STAGE_1 | STAGE_2 | COMPLETED. */
 export type CaseStage = string;
 export type ItemStatus = 'PENDING' | 'IN_PROGRESS' | 'COMPLETED' | 'NOT_APPLICABLE' | 'BLOCKED';
@@ -48,6 +51,7 @@ export interface CaseSummary {
   due_date: string | null;
   due_state: DueState;
   premises_type: 'RENTED' | 'OWNED' | null;
+  entity_type: EntityType | null;
   progress: CaseProgress;
   created_at: string;
   last_activity_at: string | null;
@@ -64,7 +68,7 @@ export interface CaseItem {
   partner: { id: string; name: string } | null;
   doc_type_options: string[] | null;
   max_age_days: number | null;
-  condition: 'RENTED' | 'OWNED' | null;
+  condition: Condition | null;
   applicable: boolean;
   status: ItemStatus;
   assigned: EmployeeRef | null;
@@ -112,7 +116,7 @@ export interface DocRequirement {
   name: string;
   category_name: string | null;
   requirement: RequirementType;
-  condition: 'RENTED' | 'OWNED' | null;
+  condition: Condition | null;
   doc_key: string | null;
   doc_type_options: string[] | null;
   max_age_days: number | null;
@@ -138,6 +142,9 @@ export interface Partner {
   capital: string | null;
   profit_share: string | null;
   remuneration: string | null;
+  /** Private Limited only. */
+  role: 'DIRECTOR' | 'SHAREHOLDER' | 'BOTH' | null;
+  shares: number | null;
 }
 
 export interface RegistrationDetails {
@@ -163,8 +170,17 @@ export interface LlpDetails {
   total_contribution: string;
 }
 
+/** Private Limited source, section 3 — "Basic Company Details Needed". */
+export interface PvtDetails {
+  company_names: string[];
+  name_significance: string;
+  main_objective: string;
+  authorized_capital: string;
+  paid_up_capital: string;
+}
+
 export interface CaseDetail extends CaseSummary {
-  details: RegistrationDetails & Partial<LlpDetails>;
+  details: RegistrationDetails & Partial<LlpDetails> & Partial<PvtDetails>;
   stages: string[];
   stage_progress: { stage: string; done: number; total: number }[];
   partner_progress: { partner_id: string; name: string; done: number; total: number; docs_pending: number }[];
@@ -202,7 +218,7 @@ export interface TemplateItem {
   kind: ItemKind;
   per_partner: boolean;
   doc_key: string | null;
-  condition: 'RENTED' | 'OWNED' | null;
+  condition: Condition | null;
   default_due_days: number | null;
   default_assignee: 'ASSIGNEE' | 'REVIEWER' | null;
   doc_type_options: string[] | null;
@@ -257,8 +273,8 @@ export function makeRegistrationApi(base: string) {
     updateCase: (id: string, input: Record<string, unknown>) => api.patch<{ id: string }>(c(id), input),
     saveDetails: (id: string, details: RegistrationDetails) => api.put<{ details: RegistrationDetails }>(`${c(id)}/details`, { details }),
 
-    addPartner: (id: string, input: Partial<Partner>) => api.post<{ id: string }>(`${c(id)}/partners`, input),
-    updatePartner: (id: string, pid: string, input: Partial<Partner>) => api.patch<{ id: string }>(`${c(id)}/partners/${pid}`, input),
+    addPartner: (id: string, input: Record<string, unknown>) => api.post<{ id: string }>(`${c(id)}/partners`, input),
+    updatePartner: (id: string, pid: string, input: Record<string, unknown>) => api.patch<{ id: string }>(`${c(id)}/partners/${pid}`, input),
     removePartner: (id: string, pid: string) => api.delete<{ id: string }>(`${c(id)}/partners/${pid}`),
 
     addCategory: (id: string, input: { name: string; description?: string }) => api.post<{ id: string }>(`${c(id)}/categories`, input),
@@ -291,6 +307,8 @@ export type RegistrationApi = ReturnType<typeof makeRegistrationApi>;
 
 export const partnershipApi = makeRegistrationApi('/api/partnership');
 export const llpApi = makeRegistrationApi('/api/llp');
+export const gstRegistrationApi = makeRegistrationApi('/api/gst-registration');
+export const privateLimitedApi = makeRegistrationApi('/api/private-limited');
 
 /** Query keys, namespaced per service so the two never share a cache entry. */
 export function makeRegistrationKeys(ns: string) {

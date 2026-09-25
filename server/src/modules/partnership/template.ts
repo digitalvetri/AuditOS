@@ -27,7 +27,8 @@
 
 export type RequirementType = 'REQUIRED' | 'OPTIONAL' | 'CONDITIONAL';
 export type ItemKind = 'INFO' | 'DOCUMENT' | 'ACTION';
-export type PremisesCondition = 'RENTED' | 'OWNED';
+/** Premises (RENTED/OWNED) or, for GST, the business type the item applies to. */
+export type PremisesCondition = 'RENTED' | 'OWNED' | 'PROPRIETORSHIP' | 'PARTNERSHIP' | 'LLP_COMPANY';
 
 export interface TemplateItemSeed {
   name: string;
@@ -210,3 +211,118 @@ export const LLP_TEMPLATE: TemplateCategorySeed[] = [
     ],
   },
 ];
+
+/** GST: the source defines no stages — collect the documents, then the GSTIN. */
+export const GST_STAGES = ['DOCUMENTS', 'REGISTERED'] as const
+
+/**
+ * GST Registration — SOURCE: "GST Registration .pdf" (Registration folder),
+ * "DOCUMENTS REQUIRED FOR GST REGISTRATION", "based on your business type".
+ * Sections 1–3 apply by business type; section 4 is "Mandatory for All" and
+ * splits by owned / rented property. "PAN & Aadhaar of all Partners" is two
+ * files per partner, so it is two items carrying the source line as description.
+ */
+const P = 'PARTNERSHIP' as const
+const L = 'LLP_COMPANY' as const
+export const GST_TEMPLATE: TemplateCategorySeed[] = [
+  {
+    name: 'Individual / Proprietorship',
+    stage: 'DOCUMENTS',
+    items: [
+      { name: "Owner's PAN Card", requirement: 'CONDITIONAL', kind: 'DOCUMENT', condition: 'PROPRIETORSHIP' },
+      { name: "Owner's Aadhaar Card", requirement: 'CONDITIONAL', kind: 'DOCUMENT', condition: 'PROPRIETORSHIP' },
+      { name: "Owner's Passport Size Photo", requirement: 'CONDITIONAL', kind: 'DOCUMENT', condition: 'PROPRIETORSHIP' },
+      { name: 'Valid Email ID & Mobile Number', description: 'Linked with Aadhaar', requirement: 'CONDITIONAL', kind: 'INFO', condition: 'PROPRIETORSHIP' },
+      { name: 'Bank Account Details', description: 'Cancel Cheque / Bank Statement / Passbook front page', requirement: 'CONDITIONAL', kind: 'DOCUMENT', condition: 'PROPRIETORSHIP', docTypeOptions: ['Cancel Cheque', 'Bank Statement', 'Passbook front page'] },
+    ],
+  },
+  {
+    name: 'Partnership Firm',
+    stage: 'DOCUMENTS',
+    items: [
+      { name: "Firm's PAN Card", requirement: 'CONDITIONAL', kind: 'DOCUMENT', condition: P },
+      { name: 'Partnership Deed', requirement: 'CONDITIONAL', kind: 'DOCUMENT', condition: P },
+      { name: 'PAN of all Partners', description: 'PAN & Aadhaar of all Partners', requirement: 'CONDITIONAL', kind: 'DOCUMENT', condition: P, perPartner: true, docKey: 'GST_P_PAN' },
+      { name: 'Aadhaar of all Partners', description: 'PAN & Aadhaar of all Partners', requirement: 'CONDITIONAL', kind: 'DOCUMENT', condition: P, perPartner: true, docKey: 'GST_P_AADHAAR' },
+      { name: 'Photos of all Partners', requirement: 'CONDITIONAL', kind: 'DOCUMENT', condition: P, perPartner: true, docKey: 'GST_P_PHOTO' },
+      { name: 'Authorized Signatory Proof', description: 'Letter of Authorization / Board Resolution', requirement: 'CONDITIONAL', kind: 'DOCUMENT', condition: P, docTypeOptions: ['Letter of Authorization', 'Board Resolution'] },
+      { name: 'Valid Email ID & Mobile Number of all partners', requirement: 'CONDITIONAL', kind: 'INFO', condition: P },
+      { name: "Firm's Bank Account Details", description: 'Cancel Cheque / Statement', requirement: 'CONDITIONAL', kind: 'DOCUMENT', condition: P, docTypeOptions: ['Cancel Cheque', 'Statement'] },
+    ],
+  },
+  {
+    name: 'LLP / Private Limited Company',
+    stage: 'DOCUMENTS',
+    items: [
+      { name: 'Company / LLP PAN Card', requirement: 'CONDITIONAL', kind: 'DOCUMENT', condition: L },
+      { name: 'Certificate of Incorporation (COI)', requirement: 'CONDITIONAL', kind: 'DOCUMENT', condition: L },
+      { name: 'MoA & AoA (for Co.) / LLP Agreement (for LLP)', requirement: 'CONDITIONAL', kind: 'DOCUMENT', condition: L, docTypeOptions: ['MoA & AoA', 'LLP Agreement'] },
+      { name: 'PAN of all Directors / Partners', description: 'PAN & Aadhaar of all Directors / Partners', requirement: 'CONDITIONAL', kind: 'DOCUMENT', condition: L, perPartner: true, docKey: 'GST_D_PAN' },
+      { name: 'Aadhaar of all Directors / Partners', description: 'PAN & Aadhaar of all Directors / Partners', requirement: 'CONDITIONAL', kind: 'DOCUMENT', condition: L, perPartner: true, docKey: 'GST_D_AADHAAR' },
+      { name: 'Photos of all Directors / Partners', requirement: 'CONDITIONAL', kind: 'DOCUMENT', condition: L, perPartner: true, docKey: 'GST_D_PHOTO' },
+      { name: 'Board Resolution / Letter of Authorization for Authorized Signatory', requirement: 'CONDITIONAL', kind: 'DOCUMENT', condition: L, docTypeOptions: ['Board Resolution', 'Letter of Authorization'] },
+      { name: 'Valid Email ID & Mobile Number of Authorized Signatory', requirement: 'CONDITIONAL', kind: 'INFO', condition: L },
+      { name: 'Company Bank Account Details', description: 'Cancel Cheque / Statement', requirement: 'CONDITIONAL', kind: 'DOCUMENT', condition: L, docTypeOptions: ['Cancel Cheque', 'Statement'] },
+    ],
+  },
+  {
+    name: 'Business Place Proof',
+    description: 'Mandatory for All',
+    stage: 'DOCUMENTS',
+    items: [
+      { name: 'Property Tax Receipt / Ownership Deed / Copy of Electricity Bill', description: 'If Owned Property', requirement: 'CONDITIONAL', kind: 'DOCUMENT', condition: 'OWNED', docTypeOptions: ['Property Tax Receipt', 'Ownership Deed', 'Copy of Electricity Bill'] },
+      { name: 'Valid Rent Agreement / Lease Deed', description: 'If Rented / Leased Property', requirement: 'CONDITIONAL', kind: 'DOCUMENT', condition: 'RENTED' },
+      { name: 'Electricity Bill', description: "If Rented / Leased Property — recent copy in Owner's name", requirement: 'CONDITIONAL', kind: 'DOCUMENT', condition: 'RENTED' },
+      { name: 'NOC (No Objection Certificate) from the Property Owner', description: 'If Rented / Leased Property', requirement: 'CONDITIONAL', kind: 'DOCUMENT', condition: 'RENTED' },
+    ],
+  },
+]
+
+/** Private Limited: the source defines no stages — collect, then incorporate. */
+export const PVT_STAGES = ['DOCUMENTS', 'COMPLETED'] as const
+
+/**
+ * Private Limited Incorporation — SOURCE: "Private Limited Incorporation
+ * Documents .pdf" (Registration folder), "DOCUMENT CHECKLIST FOR PRIVATE
+ * LIMITED COMPANY REGISTRATION". Section 1 is per person (every director and
+ * shareholder); "Any One" proofs are ONE requirement with a document-type
+ * choice; section 2 splits by rented / owned office; section 3 is information.
+ */
+export const PVT_TEMPLATE: TemplateCategorySeed[] = [
+  {
+    name: 'Documents of All Directors & Shareholders',
+    stage: 'DOCUMENTS',
+    perPartner: true,
+    items: [
+      { name: 'PAN Card', description: 'Mandatory for all Indian nationals (Name must match exactly with Aadhaar)', requirement: 'REQUIRED', kind: 'DOCUMENT' },
+      { name: 'Identity Proof', description: 'Any One: Passport, Voter ID, or Driving License', requirement: 'REQUIRED', kind: 'DOCUMENT', docTypeOptions: ['Passport', 'Voter ID', 'Driving License'] },
+      { name: 'Address Proof', description: 'Any One — must not be older than 2 months and name must match PAN exactly: Bank Statement, Electricity Bill, or Mobile/Broadband Bill', requirement: 'REQUIRED', kind: 'DOCUMENT', docTypeOptions: ['Bank Statement', 'Electricity Bill', 'Mobile/Broadband Bill'], maxAgeDays: 60 },
+      { name: 'Aadhaar Card', description: 'Mandatory for verification', requirement: 'REQUIRED', kind: 'DOCUMENT' },
+      { name: 'Passport Size Photo', description: 'Recent, with a clear background', requirement: 'REQUIRED', kind: 'DOCUMENT' },
+      { name: 'Mobile Number', description: 'Separate for each Director (for OTP verification)', requirement: 'REQUIRED', kind: 'INFO' },
+      { name: 'Email ID', description: 'Separate for each Director (for OTP verification)', requirement: 'REQUIRED', kind: 'INFO' },
+      { name: 'Signature for EPF Application', description: 'Please sign in a white plain paper for EPF application', requirement: 'REQUIRED', kind: 'DOCUMENT' },
+    ],
+  },
+  {
+    name: 'Registered Office Proof of the Company',
+    stage: 'DOCUMENTS',
+    items: [
+      { name: 'Valid Rent Agreement / Lease Deed', description: 'If Rented / Leased Premises', requirement: 'CONDITIONAL', kind: 'DOCUMENT', condition: 'RENTED' },
+      { name: 'No Objection Certificate (NOC) from the Property Owner', description: 'If Rented / Leased Premises — stating they have no objection to the company using the address', requirement: 'CONDITIONAL', kind: 'DOCUMENT', condition: 'RENTED' },
+      { name: 'Recent Utility Bill', description: "If Rented / Leased Premises — Electricity Bill / Gas Bill / Property Tax Receipt in the Owner's name, not older than 2 months", requirement: 'CONDITIONAL', kind: 'DOCUMENT', condition: 'RENTED', docTypeOptions: ['Electricity Bill', 'Gas Bill', 'Property Tax Receipt'], maxAgeDays: 60 },
+      { name: 'Ownership Deed / Sale Deed', description: 'If Owned Premises', requirement: 'CONDITIONAL', kind: 'DOCUMENT', condition: 'OWNED' },
+      { name: 'Recent Electricity Bill or Property Tax Receipt', description: 'If Owned Premises', requirement: 'CONDITIONAL', kind: 'DOCUMENT', condition: 'OWNED', docTypeOptions: ['Electricity Bill', 'Property Tax Receipt'] },
+    ],
+  },
+  {
+    name: 'Basic Company Details Needed',
+    stage: 'DOCUMENTS',
+    items: [
+      { name: 'Proposed Company Names', description: '2 unique names in order of preference (along with the significance of the word/name chosen)', requirement: 'REQUIRED', kind: 'INFO' },
+      { name: 'Main Objective', description: 'A brief description of the primary business activities you plan to conduct', requirement: 'REQUIRED', kind: 'INFO' },
+      { name: 'Capital Structure', description: 'Total Proposed Authorized Capital & Paid-up Capital (e.g., Rs. 1,00,000)', requirement: 'REQUIRED', kind: 'INFO' },
+      { name: 'Shareholding Pattern', description: 'How many shares will be allocated to each shareholder/director', requirement: 'REQUIRED', kind: 'INFO' },
+    ],
+  },
+]

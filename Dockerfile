@@ -14,6 +14,11 @@ RUN npm ci
 COPY tsconfig.json tsconfig.node.json vite.config.ts postcss.config.js tailwind.config.ts index.html ./
 COPY public ./public
 COPY src ./src
+# .env is dockerignored, so Vite never sees it here. Anything the bundle reads
+# at build time arrives as a build arg instead. Off unless compose passes it on,
+# so a deployed image never advertises the development logins.
+ARG VITE_SHOW_DEMO_LOGINS=false
+ENV VITE_SHOW_DEMO_LOGINS=$VITE_SHOW_DEMO_LOGINS
 # `npm run build` is `tsc -b && vite build` — a type error fails the image.
 RUN npm run build
 
