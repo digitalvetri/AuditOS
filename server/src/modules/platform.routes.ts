@@ -236,7 +236,11 @@ dashboardRouter.get('/activity', handler(async (req, res) => {
   if (!can(session, 'audit.read.all', 'organisation') && !can(session, 'audit.read.hr', 'organisation')) {
     throw ApiError.forbidden()
   }
-  const rows = await prisma.auditLog.findMany({ orderBy: { createdAt: 'desc' }, take: 20 })
+  // Sign-ins are the bulk of the log and say nothing about the firm's work.
+  const rows = await prisma.auditLog.findMany({
+    where: { NOT: { action: { startsWith: 'auth.' } } },
+    orderBy: { createdAt: 'desc' }, take: 20,
+  })
   const actorIds = [...new Set(rows.map((r) => r.actorUserId).filter((x): x is string => !!x))]
   const actors = await prisma.user.findMany({
     where: { id: { in: actorIds } }, include: { employee: true },
