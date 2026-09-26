@@ -54,25 +54,25 @@ import { TdsJobsListPage } from '@/pages/tools/TdsJobsList';
 import { TdsNewReconPage } from '@/pages/tools/TdsNewRecon';
 import { TdsReconDetailPage } from '@/pages/tools/TdsReconDetail';
 // Tally — native double-entry accounting (Preview, Slice 1: Foundation).
-import { TallyHome } from '@/pages/tools/tally/TallyHome';
-import { TallyCompanies } from '@/pages/tools/tally/TallyCompanies';
-import { TallyWorkspace } from '@/pages/tools/tally/TallyWorkspace';
-import { TallyGroups } from '@/pages/tools/tally/TallyGroups';
-import { TallyLedgers } from '@/pages/tools/tally/TallyLedgers';
-import { TallyDashboard } from '@/pages/tools/tally/TallyDashboard';
-import { TallyVouchers } from '@/pages/tools/tally/TallyVouchers';
-import { TallyVoucherEditor } from '@/pages/tools/tally/TallyVoucherEditor';
-import { TallyVoucherDetail } from '@/pages/tools/tally/TallyVoucherDetail';
-import { TallyReports } from '@/pages/tools/tally/TallyReports';
-import { TallyReportPage, TallyRegisterPage, TallyBookPage, TallyLedgerStatement } from '@/pages/tools/tally/TallyReportPage';
-import { TallyInventory, TallyStockItemPage } from '@/pages/tools/tally/TallyInventory';
-import { TallyBanking } from '@/pages/tools/tally/TallyBanking';
-import { TallyGst } from '@/pages/tools/tally/TallyGst';
-import { TallyTrade } from '@/pages/tools/tally/TallyTrade';
-import { TallyPayroll } from '@/pages/tools/tally/TallyPayroll';
-import { TallyAudit } from '@/pages/tools/tally/TallyAudit';
-import { TallyUtilities } from '@/pages/tools/tally/TallyUtilities';
-import { TallySettings } from '@/pages/tools/tally/TallySettings';
+import { TallyHome } from '@/pages/workstation/services/bookkeeping/TallyHome';
+import { TallyCompanies } from '@/pages/workstation/services/bookkeeping/TallyCompanies';
+import { TallyWorkspace } from '@/pages/workstation/services/bookkeeping/TallyWorkspace';
+import { TallyGroups } from '@/pages/workstation/services/bookkeeping/TallyGroups';
+import { TallyLedgers } from '@/pages/workstation/services/bookkeeping/TallyLedgers';
+import { TallyDashboard } from '@/pages/workstation/services/bookkeeping/TallyDashboard';
+import { TallyVouchers } from '@/pages/workstation/services/bookkeeping/TallyVouchers';
+import { TallyVoucherEditor } from '@/pages/workstation/services/bookkeeping/TallyVoucherEditor';
+import { TallyVoucherDetail } from '@/pages/workstation/services/bookkeeping/TallyVoucherDetail';
+import { TallyReports } from '@/pages/workstation/services/bookkeeping/TallyReports';
+import { TallyReportPage, TallyRegisterPage, TallyBookPage, TallyLedgerStatement } from '@/pages/workstation/services/bookkeeping/TallyReportPage';
+import { TallyInventory, TallyStockItemPage } from '@/pages/workstation/services/bookkeeping/TallyInventory';
+import { TallyBanking } from '@/pages/workstation/services/bookkeeping/TallyBanking';
+import { TallyGst } from '@/pages/workstation/services/bookkeeping/TallyGst';
+import { TallyTrade } from '@/pages/workstation/services/bookkeeping/TallyTrade';
+import { TallyPayroll } from '@/pages/workstation/services/bookkeeping/TallyPayroll';
+import { TallyAudit } from '@/pages/workstation/services/bookkeeping/TallyAudit';
+import { TallyUtilities } from '@/pages/workstation/services/bookkeeping/TallyUtilities';
+import { TallySettings } from '@/pages/workstation/services/bookkeeping/TallySettings';
 // GST — dedicated landing page + per-service AssistedHandoff detail +
 // shape-based workspace dispatcher (recurring period board / project case
 // pipeline) + weekly notice-check discovery workflow.
@@ -371,9 +371,9 @@ export default function App() {
 
               {/* Tally — native double-entry accounting. Sits alongside
                   Tools, Repotic and Books in the TOOLS sidebar section. */}
-              <Route path="tally" element={<TallyHome />} />
-              <Route path="tally/companies" element={<TallyCompanies />} />
-              <Route path="tally/companies/:companyId" element={<TallyWorkspace />}>
+              <Route path="workstation/services/bookkeeping" element={<TallyHome />} />
+              <Route path="workstation/services/bookkeeping/companies" element={<TallyCompanies />} />
+              <Route path="workstation/services/bookkeeping/companies/:companyId" element={<TallyWorkspace />}>
                 <Route index element={<TallyDashboard />} />
                 <Route path="masters/groups" element={<TallyGroups />} />
                 <Route path="masters/ledgers" element={<TallyLedgers />} />
