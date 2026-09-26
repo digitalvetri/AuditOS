@@ -57,7 +57,7 @@ function GstSummaryTab({ companyId, from, to }: { companyId: string; from: strin
   if (q.isLoading) return <Loading />;
   if (q.isError) return <ErrorNote message={(q.error as Error).message} />;
   const d = q.data!;
-  const base = `/tally/companies/${companyId}`;
+  const base = `/workstation/services/bookkeeping/companies/${companyId}`;
   return (
     <div className="space-y-4">
       <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
@@ -120,7 +120,7 @@ function Gstr1Tab({ companyId, from, to }: { companyId: string; from: string; to
     hsn: { hsnCode: string; description: string; uqc: string; qtyMilli: number; rateBp: number; taxableValuePaise: number; cgstPaise: number; sgstPaise: number; igstPaise: number }[];
     exceptions: { voucherId: string; voucherNumber: string; issue: string }[];
   };
-  const base = `/tally/companies/${companyId}`;
+  const base = `/workstation/services/bookkeeping/companies/${companyId}`;
   return (
     <div className="space-y-4">
       <div className="flex items-center gap-2 flex-wrap">
@@ -246,7 +246,7 @@ function ExceptionsTab({ companyId, from, to }: { companyId: string; from: strin
   const q = useQuery({ queryKey: ['tally.gstExceptions', companyId, from, to], queryFn: () => bookkeepingAccountingApi.gstExceptions(companyId, from, to) });
   if (q.isLoading) return <Loading />;
   if (q.isError) return <ErrorNote message={(q.error as Error).message} />;
-  const base = `/tally/companies/${companyId}`;
+  const base = `/workstation/services/bookkeeping/companies/${companyId}`;
   const d = q.data!;
   if (!d.total) return <Panel><div className="px-3 py-6 text-13 text-emerald-700">No GST exceptions in this period.</div></Panel>;
   return (

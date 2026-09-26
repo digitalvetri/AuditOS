@@ -3987,6 +3987,98 @@ model BookkeepingBackup {
 }
 
 // ============================================================
+// TALLY EXPORT (docs/tally-export/README.md)
+// ============================================================
+//
+// A file generator: bank statement rows in, a TallyPrime-format Excel
+// voucher file out. NO live Tally connection, NO port-9000 agent — the
+// operator downloads the file and imports it in Tally themselves.
+//
+// The two tables here support the mapping layer that turns bank-row
+// descriptions into Tally ledger names, and the audit trail of what
+// was exported when. The generated file itself lives under the signed
+// download surface; only the pointer + checksum live here.
+
+/// Ledger-mapping rule. Turns a bank-row description into a Tally
+/// ledger name, and optionally pins the voucher type when a rule needs
+/// to override the auto-selection from spec §4.2.
+///
+/// Client-scoped rules (clientId set) take priority over global rules
+/// (clientId null). Within a scope, higher `priority` wins. Ties break
+/// by earlier `createdAt` — the rule the operator wrote first.
+model TallyLedgerRule {
+  id           String   @id @default(uuid())
+  /// Null = global rule available to every client of the firm. Non-null
+  /// scopes the rule to a single client — that client's rules always
+  /// beat global ones.
+  companyId    String?
+  /// contains | regex | exact
+  matchType    String
+  /// The bank-row description pattern. Contains: lower-cased substring.
+  /// Regex: JS regex source, matched case-insensitive. Exact: match the
+  /// whole description as-typed (used sparingly).
+  pattern      String
+  /// The Tally ledger name to write into the voucher's counter line.
+  ledgerName   String
+  /// Override the voucher type auto-selection. payment | receipt |
+  /// contra | journal. Null = keep the auto-selected type.
+  voucherType  String?
+  /// Higher wins first.
+  priority     Int      @default(0)
+  /// Bumped every time this rule matches a row. Cheap analytics for
+  /// deciding which rules earn their keep.
+  hitCount     Int      @default(0)
+
+  createdBy    String?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+  deletedAt    DateTime?
+
+  @@index([companyId, priority])
+  @@index([companyId, matchType])
+}
+
+/// Tally Export audit trail. One row per generated file, so "what was
+/// sent to Tally in October" is a row and not a memory — and the
+/// duplicate-guard in §7 has something to check against.
+///
+/// The exact set of statement lines that went into the file lives in
+/// `scopeJson` as a JSON array of BookkeepingBankStatementLine ids,
+/// which is how §7 detects "these rows were exported before."
+model TallyExport {
+  id            String   @id @default(uuid())
+  companyId     String
+  /// BookkeepingLedger id of the bank account.
+  bankLedgerId  String
+  /// Inclusive from date, YYYY-MM-DD.
+  periodFrom    String
+  /// Inclusive to date, YYYY-MM-DD.
+  periodTo      String
+  /// vouchers | ledger_master — vouchers is the voucher sheet; ledger_master
+  /// is the smaller sheet that creates missing ledgers in Tally so the
+  /// voucher import lands cleanly (spec §6, §7).
+  kind          String
+  /// Statement-line count in scope. Zero for a ledger_master file.
+  rowCount      Int
+  /// Voucher count in the generated file. Zero for a ledger_master file.
+  voucherCount  Int
+  /// Signed-file id; the download URL is minted from this at request time.
+  fileId        String?
+  /// SHA-256 of the file bytes. Identity check for re-download and
+  /// the duplicate-detection message.
+  checksum      String?
+  /// JSON array of BookkeepingBankStatementLine ids. Small (a few KB at
+  /// most for a month) and lets §7 spot exact-scope duplicates.
+  scopeJson     String
+
+  generatedBy   String?
+  generatedAt   DateTime @default(now())
+
+  @@index([companyId, bankLedgerId, periodFrom])
+  @@index([generatedAt])
+}
+
+// ============================================================
 // BOOKS — Zoho Books integration (docs/books-zoho/README.md)
 // ============================================================
 //

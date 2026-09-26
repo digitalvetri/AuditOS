@@ -21,7 +21,7 @@ export function BookkeepingBanking() {
   const { from, to } = usePeriod();
   const [selected, setSelected] = useState<string>('');
   const [tab, setTab] = useState<'book' | 'statement' | 'reconcile'>('book');
-  const base = `/tally/companies/${companyId}`;
+  const base = `/workstation/services/bookkeeping/companies/${companyId}`;
 
   const accountsQ = useQuery({
     queryKey: ['tally.bankAccounts', companyId, to],

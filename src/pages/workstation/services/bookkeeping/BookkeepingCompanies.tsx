@@ -97,7 +97,7 @@ function CompaniesTable({ companies }: { companies: BookkeepingCompany[] }) {
                 )}
               </td>
               <td className="px-3 py-2 text-right">
-                <Link to={`/tally/companies/${c.id}/masters/ledgers`} className="text-12 text-gold font-medium">
+                <Link to={`/workstation/services/bookkeeping/companies/${c.id}/masters/ledgers`} className="text-12 text-gold font-medium">
                   Open →
                 </Link>
               </td>

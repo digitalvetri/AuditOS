@@ -18,7 +18,7 @@ export function BookkeepingVoucherDetail() {
   const navigate = useNavigate();
   const qc = useQueryClient();
   const toast = useToast();
-  const base = `/tally/companies/${companyId}`;
+  const base = `/workstation/services/bookkeeping/companies/${companyId}`;
   const [showEInvoice, setShowEInvoice] = useState(false);
 
   const q = useQuery({

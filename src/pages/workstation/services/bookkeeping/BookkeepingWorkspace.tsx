@@ -120,7 +120,7 @@ function CompanySearch({ companyId }: { companyId: string }) {
 interface NavRow { to: string; label: string; icon: LucideIcon; end?: boolean }
 
 function SecondaryNav({ companyId }: { companyId: string }) {
-  const base = `/tally/companies/${companyId}`;
+  const base = `/workstation/services/bookkeeping/companies/${companyId}`;
   const sections: { heading: string; rows: NavRow[] }[] = [
     {
       heading: 'Overview',

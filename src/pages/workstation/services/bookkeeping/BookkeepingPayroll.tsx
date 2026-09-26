@@ -22,7 +22,7 @@ export function BookkeepingPayroll() {
   const toast = useToast();
   const [period, setPeriod] = useState(() => new Date().toISOString().slice(0, 7));
   const [openRunId, setOpenRunId] = useState<string | null>(null);
-  const base = `/tally/companies/${companyId}`;
+  const base = `/workstation/services/bookkeeping/companies/${companyId}`;
 
   const employeesQ = useQuery({ queryKey: ['tally.employees', companyId], queryFn: () => bookkeepingAccountingApi.listEmployees(companyId) });
   const headsQ = useQuery({ queryKey: ['tally.payHeads', companyId], queryFn: () => bookkeepingAccountingApi.listPayHeads(companyId) });

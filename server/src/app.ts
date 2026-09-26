@@ -54,6 +54,8 @@ import { gstRouter as gstComplianceRouter } from './modules/gst/routes.js'
 import { gstPortalRouter } from './modules/gst-portal/routes.js'
 import { tdsPortalRouter } from './modules/tds-portal/routes.js'
 import { tdsServiceRouter } from './modules/tds/routes.js'
+// Tally Export — bank statement → TallyPrime Excel file (docs/tally-export/README.md).
+import { tallyExportRouter } from './modules/tally-export/routes.js'
 // Books — Zoho Books integration under TOOLS (docs/books-zoho/README.md).
 import { booksRouter, booksCallbackRouter } from './modules/books/routes.js'
 // Zoho Payments (docs/zoho-payments/README.md) — firm-collections integration.
@@ -215,6 +217,9 @@ export function createApp() {
 
   // ── Tally (native double-entry accounting) ─────────────────────────────
   app.use('/api/bookkeeping', bookkeepingRouter)
+  // Tally Export — bank statement rows out as a TallyPrime Excel file.
+  // File generator only; no live Tally connection (docs/tally-export/README.md).
+  app.use('/api/tally-export', tallyExportRouter)
   // Workstation → Task: assignment plus server-side work-time tracking.
   app.use('/api/tasks', tasksRouter)
   app.use('/api/quotations', quotationsRouter)
