@@ -240,7 +240,21 @@ export function InvoiceBuilderPage() {
       e.items = 'HSN/SAC must be 4 to 8 digits.';
     }
     setErrors(e);
-    return Object.keys(e).length === 0;
+    // The Save draft button lives at the top; a client / date / items error
+    // would render further down the form and often below the fold, so the
+    // user saw the click do "nothing." Toast + scroll makes the failure
+    // reason visible without having to hunt.
+    if (Object.keys(e).length > 0) {
+      const first = Object.keys(e)[0];
+      toast.push('error', e[first] ?? 'Fill in the highlighted fields before saving.');
+      // requestAnimationFrame so the DOM has painted the highlight state.
+      requestAnimationFrame(() => {
+        const el = document.querySelector<HTMLElement>(`[data-field="${first}"]`);
+        el?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      });
+      return false;
+    }
+    return true;
   }
 
   function payload() {
@@ -359,7 +373,7 @@ export function InvoiceBuilderPage() {
       ) : null}
 
       {err('items') ? (
-        <div className="border-l-2 border-red pl-3 text-13 mb-3 qdoc-screen-only">{err('items')}</div>
+        <div data-field="items" className="border-l-2 border-red pl-3 text-13 mb-3 qdoc-screen-only">{err('items')}</div>
       ) : null}
 
       <div className="md:hidden flex gap-2 mb-3 qdoc-screen-only">
@@ -582,17 +596,21 @@ function DetailsTab(p: {
 }) {
   return (
     <div>
-      <Field label="Client" error={p.err('client_id')}>
-        <select className={inputClass} value={p.clientId} onChange={(e) => p.chooseClient(e.target.value)}>
-          <option value="">Select a client…</option>
-          {p.clients.map((c) => <option key={c.id} value={c.id}>{c.company_name}</option>)}
-        </select>
-      </Field>
+      <div data-field="client_id">
+        <Field label="Client" error={p.err('client_id')}>
+          <select className={inputClass} value={p.clientId} onChange={(e) => p.chooseClient(e.target.value)}>
+            <option value="">Select a client…</option>
+            {p.clients.map((c) => <option key={c.id} value={c.id}>{c.company_name}</option>)}
+          </select>
+        </Field>
+      </div>
 
       <Two>
-        <Field label="Invoice date" error={p.err('invoice_date')}>
-          <input type="date" className={inputClass} value={p.invoiceDate} onChange={(e) => p.setInvoiceDate(e.target.value)} />
-        </Field>
+        <div data-field="invoice_date">
+          <Field label="Invoice date" error={p.err('invoice_date')}>
+            <input type="date" className={inputClass} value={p.invoiceDate} onChange={(e) => p.setInvoiceDate(e.target.value)} />
+          </Field>
+        </div>
         <Field label="Terms">
           <select className={inputClass} value={p.terms} onChange={(e) => p.setTerms(e.target.value as Term)}>
             {(Object.keys(TERM_LABEL) as Term[]).map((t) => <option key={t} value={t}>{TERM_LABEL[t]}</option>)}
