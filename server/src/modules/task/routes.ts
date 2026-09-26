@@ -54,6 +54,8 @@ tasksRouter.get('/', handler(async (req, res) => {
     employee_id: z.string().optional(),
     client_id: z.string().optional(),
     project_id: z.string().optional(),
+    // Comma-separated GST return-cycle case ids — GST-CLIENT-DASHBOARD-TASKS §4.
+    partnership_case_ids: z.string().optional(),
     due_from: ISO_DATE.optional(),
     due_to: ISO_DATE.optional(),
     created_from: ISO_DATE.optional(),
@@ -65,9 +67,17 @@ tasksRouter.get('/', handler(async (req, res) => {
     offset: z.coerce.number().int().nonnegative().optional(),
   }), req.query, 'Invalid task filter.')
 
+  // Split the CSV once here; the service takes the array. An empty CSV
+  // (`?partnership_case_ids=`) already becomes undefined via Zod's optional
+  // so this branch only runs when at least one id is present.
+  const partnershipCaseIdIn = q.partnership_case_ids
+    ? q.partnership_case_ids.split(',').map((s) => s.trim()).filter(Boolean)
+    : undefined
+
   ok(res, await TaskService.list(session, scope, {
     status: q.status, priority: q.priority, employeeId: q.employee_id,
     clientId: q.client_id, clientServiceId: q.project_id,
+    partnershipCaseIdIn,
     dueFrom: q.due_from, dueTo: q.due_to, createdFrom: q.created_from, createdTo: q.created_to,
     overdueOnly: q.overdue, q: q.q, sort: q.sort, limit: q.limit, offset: q.offset,
   }))

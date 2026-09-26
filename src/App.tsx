@@ -99,6 +99,7 @@ import { GstShell } from '@/pages/workstation/registration/gst/GstShell';
 import { GstRegistrationTab } from '@/pages/workstation/registration/gst/GstRegistrationTab';
 import { GstDashboard } from '@/pages/workstation/registration/gst/GstDashboard';
 import { GstClients } from '@/pages/workstation/registration/gst/GstClients';
+import { GstClientView } from '@/pages/workstation/registration/gst/GstClientView';
 // GstStagePage + GstPeriodDetail deleted in §9-4 — the return tabs
 // render PartnershipClients, and the dashboard's 1 › 2B › Recon › 3B
 // chain nodes open the shared PartnershipCase directly.
@@ -297,6 +298,9 @@ export default function App() {
                     so PartnershipClients.navigate hits the right route. */}
                 <Route path="registration/clients/:caseId" element={<PartnershipCase />} />
                 <Route path="clients" element={<GstClients />} />
+                {/* Row-click landing from the client dashboard —
+                    GST-CLIENT-DASHBOARD-TASKS §2. */}
+                <Route path="clients/:clientId" element={<GstClientView />} />
                 {/* Return-cycle client lists (§9-3). PartnershipClients is
                     service-agnostic and reads the per-return service via
                     ServiceProvider; the period selector switches on
