@@ -53,26 +53,26 @@ import { GstReconDetailPage } from '@/pages/tools/GstReconDetail';
 import { TdsJobsListPage } from '@/pages/tools/TdsJobsList';
 import { TdsNewReconPage } from '@/pages/tools/TdsNewRecon';
 import { TdsReconDetailPage } from '@/pages/tools/TdsReconDetail';
-// Tally — native double-entry accounting (Preview, Slice 1: Foundation).
-import { TallyHome } from '@/pages/workstation/services/bookkeeping/TallyHome';
-import { TallyCompanies } from '@/pages/workstation/services/bookkeeping/TallyCompanies';
-import { TallyWorkspace } from '@/pages/workstation/services/bookkeeping/TallyWorkspace';
-import { TallyGroups } from '@/pages/workstation/services/bookkeeping/TallyGroups';
-import { TallyLedgers } from '@/pages/workstation/services/bookkeeping/TallyLedgers';
-import { TallyDashboard } from '@/pages/workstation/services/bookkeeping/TallyDashboard';
-import { TallyVouchers } from '@/pages/workstation/services/bookkeeping/TallyVouchers';
-import { TallyVoucherEditor } from '@/pages/workstation/services/bookkeeping/TallyVoucherEditor';
-import { TallyVoucherDetail } from '@/pages/workstation/services/bookkeeping/TallyVoucherDetail';
-import { TallyReports } from '@/pages/workstation/services/bookkeeping/TallyReports';
-import { TallyReportPage, TallyRegisterPage, TallyBookPage, TallyLedgerStatement } from '@/pages/workstation/services/bookkeeping/TallyReportPage';
-import { TallyInventory, TallyStockItemPage } from '@/pages/workstation/services/bookkeeping/TallyInventory';
-import { TallyBanking } from '@/pages/workstation/services/bookkeeping/TallyBanking';
-import { TallyGst } from '@/pages/workstation/services/bookkeeping/TallyGst';
-import { TallyTrade } from '@/pages/workstation/services/bookkeeping/TallyTrade';
-import { TallyPayroll } from '@/pages/workstation/services/bookkeeping/TallyPayroll';
-import { TallyAudit } from '@/pages/workstation/services/bookkeeping/TallyAudit';
-import { TallyUtilities } from '@/pages/workstation/services/bookkeeping/TallyUtilities';
-import { TallySettings } from '@/pages/workstation/services/bookkeeping/TallySettings';
+// Bookkeeping — native double-entry accounting (formerly Tally engine).
+import { BookkeepingHome } from '@/pages/workstation/services/bookkeeping/BookkeepingHome';
+import { BookkeepingCompanies } from '@/pages/workstation/services/bookkeeping/BookkeepingCompanies';
+import { BookkeepingWorkspace } from '@/pages/workstation/services/bookkeeping/BookkeepingWorkspace';
+import { BookkeepingGroups } from '@/pages/workstation/services/bookkeeping/BookkeepingGroups';
+import { BookkeepingLedgers } from '@/pages/workstation/services/bookkeeping/BookkeepingLedgers';
+import { BookkeepingDashboard } from '@/pages/workstation/services/bookkeeping/BookkeepingDashboard';
+import { BookkeepingVouchers } from '@/pages/workstation/services/bookkeeping/BookkeepingVouchers';
+import { BookkeepingVoucherEditor } from '@/pages/workstation/services/bookkeeping/BookkeepingVoucherEditor';
+import { BookkeepingVoucherDetail } from '@/pages/workstation/services/bookkeeping/BookkeepingVoucherDetail';
+import { BookkeepingReports } from '@/pages/workstation/services/bookkeeping/BookkeepingReports';
+import { BookkeepingReportPage, BookkeepingRegisterPage, BookkeepingBookPage, BookkeepingLedgerStatement } from '@/pages/workstation/services/bookkeeping/BookkeepingReportPage';
+import { BookkeepingInventory, BookkeepingStockItemPage } from '@/pages/workstation/services/bookkeeping/BookkeepingInventory';
+import { BookkeepingBanking } from '@/pages/workstation/services/bookkeeping/BookkeepingBanking';
+import { BookkeepingGst } from '@/pages/workstation/services/bookkeeping/BookkeepingGst';
+import { BookkeepingTrade } from '@/pages/workstation/services/bookkeeping/BookkeepingTrade';
+import { BookkeepingPayroll } from '@/pages/workstation/services/bookkeeping/BookkeepingPayroll';
+import { BookkeepingAudit } from '@/pages/workstation/services/bookkeeping/BookkeepingAudit';
+import { BookkeepingUtilities } from '@/pages/workstation/services/bookkeeping/BookkeepingUtilities';
+import { BookkeepingSettings } from '@/pages/workstation/services/bookkeeping/BookkeepingSettings';
 // GST — dedicated landing page + per-service AssistedHandoff detail +
 // shape-based workspace dispatcher (recurring period board / project case
 // pipeline) + weekly notice-check discovery workflow.
@@ -369,33 +369,33 @@ export default function App() {
               <Route path="audit-automation/tds/new" element={<TdsNewReconPage />} />
               <Route path="audit-automation/tds/jobs/:jobId" element={<TdsReconDetailPage />} />
 
-              {/* Tally — native double-entry accounting. Sits alongside
-                  Tools, Repotic and Books in the TOOLS sidebar section. */}
-              <Route path="workstation/services/bookkeeping" element={<TallyHome />} />
-              <Route path="workstation/services/bookkeeping/companies" element={<TallyCompanies />} />
-              <Route path="workstation/services/bookkeeping/companies/:companyId" element={<TallyWorkspace />}>
-                <Route index element={<TallyDashboard />} />
-                <Route path="masters/groups" element={<TallyGroups />} />
-                <Route path="masters/ledgers" element={<TallyLedgers />} />
-                <Route path="vouchers" element={<TallyVouchers />} />
-                <Route path="vouchers/new" element={<TallyVoucherEditor />} />
-                <Route path="vouchers/:voucherId" element={<TallyVoucherDetail />} />
-                <Route path="vouchers/:voucherId/edit" element={<TallyVoucherEditor />} />
-                <Route path="sales" element={<TallyTrade mode="sales" />} />
-                <Route path="purchase" element={<TallyTrade mode="purchase" />} />
-                <Route path="inventory" element={<TallyInventory />} />
-                <Route path="inventory/items/:itemId" element={<TallyStockItemPage />} />
-                <Route path="banking" element={<TallyBanking />} />
-                <Route path="gst" element={<TallyGst />} />
-                <Route path="payroll" element={<TallyPayroll />} />
-                <Route path="audit" element={<TallyAudit />} />
-                <Route path="utilities" element={<TallyUtilities />} />
-                <Route path="settings" element={<TallySettings />} />
-                <Route path="reports" element={<TallyReports />} />
-                <Route path="reports/ledger/:ledgerId" element={<TallyLedgerStatement />} />
-                <Route path="reports/register/:typeCode" element={<TallyRegisterPage />} />
-                <Route path="reports/book/:kind" element={<TallyBookPage />} />
-                <Route path="reports/:reportId" element={<TallyReportPage />} />
+              {/* Bookkeeping (formerly Tally engine) — native double-entry accounting.
+                  Now under Services alongside TDS and Registration. */}
+              <Route path="workstation/services/bookkeeping" element={<BookkeepingHome />} />
+              <Route path="workstation/services/bookkeeping/companies" element={<BookkeepingCompanies />} />
+              <Route path="workstation/services/bookkeeping/companies/:companyId" element={<BookkeepingWorkspace />}>
+                <Route index element={<BookkeepingDashboard />} />
+                <Route path="masters/groups" element={<BookkeepingGroups />} />
+                <Route path="masters/ledgers" element={<BookkeepingLedgers />} />
+                <Route path="vouchers" element={<BookkeepingVouchers />} />
+                <Route path="vouchers/new" element={<BookkeepingVoucherEditor />} />
+                <Route path="vouchers/:voucherId" element={<BookkeepingVoucherDetail />} />
+                <Route path="vouchers/:voucherId/edit" element={<BookkeepingVoucherEditor />} />
+                <Route path="sales" element={<BookkeepingTrade mode="sales" />} />
+                <Route path="purchase" element={<BookkeepingTrade mode="purchase" />} />
+                <Route path="inventory" element={<BookkeepingInventory />} />
+                <Route path="inventory/items/:itemId" element={<BookkeepingStockItemPage />} />
+                <Route path="banking" element={<BookkeepingBanking />} />
+                <Route path="gst" element={<BookkeepingGst />} />
+                <Route path="payroll" element={<BookkeepingPayroll />} />
+                <Route path="audit" element={<BookkeepingAudit />} />
+                <Route path="utilities" element={<BookkeepingUtilities />} />
+                <Route path="settings" element={<BookkeepingSettings />} />
+                <Route path="reports" element={<BookkeepingReports />} />
+                <Route path="reports/ledger/:ledgerId" element={<BookkeepingLedgerStatement />} />
+                <Route path="reports/register/:typeCode" element={<BookkeepingRegisterPage />} />
+                <Route path="reports/book/:kind" element={<BookkeepingBookPage />} />
+                <Route path="reports/:reportId" element={<BookkeepingReportPage />} />
               </Route>
 
               {/* Books — Zoho Books through Audit OS. One shell; every

@@ -43,41 +43,73 @@ export async function shareDocumentPdf(o: {
   phone?: string;
   email?: string | null;
 }): Promise<void> {
-  const { url } = await o.issueUrl();
-  const absolute = new URL(url, window.location.origin).href;
-  const res = await fetch(absolute);
-  if (!res.ok) throw new Error('The PDF could not be generated.');
-  const blob = await res.blob();
-  const file = new File([blob], o.fileName, { type: 'application/pdf' });
+  // The popup-blocker trap: `window.open(...)` invoked AFTER an async gap
+  // (fetch + File assembly) is treated as "not a user gesture" by Chrome
+  // and modern Firefox — the wa.me / mailto tab is silently blocked and
+  // the WhatsApp/Email button appears to do nothing. Reserve the target
+  // tab synchronously while we still have the click-derived user gesture,
+  // then navigate it once the PDF has been assembled and saved.
+  //
+  // The download-only path doesn't need a reserved window because
+  // `a.click()` on an anchor with `download` is always a user-gesture
+  // action, even inside a promise resolution.
+  const openedWindow: Window | null =
+    o.channel === 'whatsapp' || o.channel === 'email'
+      ? window.open('about:blank', '_blank', 'noopener')
+      : null;
 
-  const save = () => {
-    const href = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = href;
-    a.download = o.fileName;
-    a.click();
-    URL.revokeObjectURL(href);
-  };
+  try {
+    const { url } = await o.issueUrl();
+    const absolute = new URL(url, window.location.origin).href;
+    const res = await fetch(absolute);
+    if (!res.ok) throw new Error('The PDF could not be generated.');
+    const blob = await res.blob();
+    const file = new File([blob], o.fileName, { type: 'application/pdf' });
 
-  if (o.channel === 'download') { save(); return; }
+    const save = () => {
+      const href = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = href;
+      a.download = o.fileName;
+      a.click();
+      URL.revokeObjectURL(href);
+    };
 
-  if (navigator.canShare?.({ files: [file] })) {
-    try {
-      await navigator.share({ files: [file], title: o.fileName, text: o.message });
-      return;
-    } catch (err) {
-      // Dismissing the share sheet is a choice, not a failure.
-      if ((err as { name?: string })?.name === 'AbortError') return;
+    if (o.channel === 'download') { save(); return; }
+
+    if (navigator.canShare?.({ files: [file] })) {
+      try {
+        await navigator.share({ files: [file], title: o.fileName, text: o.message });
+        openedWindow?.close();
+        return;
+      } catch (err) {
+        // Dismissing the share sheet is a choice, not a failure.
+        if ((err as { name?: string })?.name === 'AbortError') {
+          openedWindow?.close();
+          return;
+        }
+      }
     }
-  }
 
-  // Desktop path: save the file so the sender can attach it themselves,
-  // then open the channel with the covering text only. No PDF link.
-  save();
-  if (o.channel === 'whatsapp') {
-    window.open(`https://wa.me/${o.phone ?? ''}?text=${encodeURIComponent(o.message)}`, '_blank', 'noopener');
-  } else {
-    window.location.href = `mailto:${o.email ?? ''}`
-      + `?subject=${encodeURIComponent(o.subject)}&body=${encodeURIComponent(o.message)}`;
+    // Desktop path: save the file so the sender can attach it themselves,
+    // then navigate the reserved tab to the channel URL. No PDF link.
+    save();
+    const target = o.channel === 'whatsapp'
+      ? `https://wa.me/${o.phone ?? ''}?text=${encodeURIComponent(o.message)}`
+      : `mailto:${o.email ?? ''}?subject=${encodeURIComponent(o.subject)}`
+        + `&body=${encodeURIComponent(o.message)}`;
+
+    if (openedWindow) {
+      openedWindow.location.href = target;
+    } else {
+      // Popup was blocked entirely — fall back to same-tab navigation for
+      // mailto (browsers handle it as a protocol handler either way) or a
+      // best-effort window.open for wa.me.
+      if (o.channel === 'email') window.location.href = target;
+      else window.open(target, '_blank', 'noopener');
+    }
+  } catch (err) {
+    openedWindow?.close();
+    throw err;
   }
 }

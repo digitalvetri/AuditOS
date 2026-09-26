@@ -68,7 +68,7 @@ model Organisation {
   aaTdsBooks          AaTdsBooks[]
   aaTdsReconJobs      AaTdsReconJob[]
   checklistItems      ClientChecklistItem[]
-  tallyCompanies      TallyCompany[]
+  tallyCompanies      BookkeepingCompany[]
 
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt
@@ -3172,7 +3172,7 @@ model AaTdsReconRow {
 
 /// One accounting company (Tally-equivalent). A user's Organisation
 /// may hold many companies; each is fully isolated from the others.
-model TallyCompany {
+model BookkeepingCompany {
   id                  String  @id @default(uuid())
   organisationId      String
   name                String
@@ -3197,25 +3197,25 @@ model TallyCompany {
   active              Boolean @default(true)
 
   organisation   Organisation         @relation(fields: [organisationId], references: [id])
-  financialYears TallyFinancialYear[]
-  groups         TallyGroup[]
-  ledgers        TallyLedger[]
+  financialYears BookkeepingFinancialYear[]
+  groups         BookkeepingGroup[]
+  ledgers        BookkeepingLedger[]
 
-  voucherTypes    TallyVoucherType[]
-  vouchers        TallyVoucher[]
-  stockGroups     TallyStockGroup[]
-  stockCategories TallyStockCategory[]
-  units           TallyUnit[]
-  godowns         TallyGodown[]
-  stockItems      TallyStockItem[]
-  statementLines  TallyBankStatementLine[]
-  reconciliations TallyBankReconciliation[]
-  taxRates        TallyTaxRate[]
-  settings        TallySetting[]
-  employees       TallyEmployee[]
-  payHeads        TallyPayHead[]
-  payrollRuns     TallyPayrollRun[]
-  backups         TallyBackup[]
+  voucherTypes    BookkeepingVoucherType[]
+  vouchers        BookkeepingVoucher[]
+  stockGroups     BookkeepingStockGroup[]
+  stockCategories BookkeepingStockCategory[]
+  units           BookkeepingUnit[]
+  godowns         BookkeepingGodown[]
+  stockItems      BookkeepingStockItem[]
+  statementLines  BookkeepingBankStatementLine[]
+  reconciliations BookkeepingBankReconciliation[]
+  taxRates        BookkeepingTaxRate[]
+  settings        BookkeepingSetting[]
+  employees       BookkeepingEmployee[]
+  payHeads        BookkeepingPayHead[]
+  payrollRuns     BookkeepingPayrollRun[]
+  backups         BookkeepingBackup[]
 
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt
@@ -3227,7 +3227,7 @@ model TallyCompany {
 
 /// Financial year for a Tally company. Every future voucher will
 /// belong to exactly one FY; posting into a closed FY is rejected.
-model TallyFinancialYear {
+model BookkeepingFinancialYear {
   id             String  @id @default(uuid())
   tallyCompanyId String
   /// Human label, e.g. "2026-27".
@@ -3236,9 +3236,9 @@ model TallyFinancialYear {
   endDate        String
   closed         Boolean @default(false)
 
-  company        TallyCompany   @relation(fields: [tallyCompanyId], references: [id])
-  ledgersOpening TallyLedger[]  @relation("LedgerOpeningInFY")
-  vouchers       TallyVoucher[]
+  company        BookkeepingCompany   @relation(fields: [tallyCompanyId], references: [id])
+  ledgersOpening BookkeepingLedger[]  @relation("LedgerOpeningInFY")
+  vouchers       BookkeepingVoucher[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -3250,7 +3250,7 @@ model TallyFinancialYear {
 /// Group of ledgers — the top of the account tree. Seeded with 17
 /// primary groups per company at creation time (Capital, Sundry
 /// Debtors, etc.). Sub-groups reference `parentGroupId`.
-model TallyGroup {
+model BookkeepingGroup {
   id             String  @id @default(uuid())
   tallyCompanyId String
   name           String
@@ -3262,10 +3262,10 @@ model TallyGroup {
   /// Primary groups are seeded and cannot be deleted.
   isPrimary      Boolean @default(false)
 
-  company     TallyCompany  @relation(fields: [tallyCompanyId], references: [id])
-  parentGroup TallyGroup?   @relation("TallyGroupParent", fields: [parentGroupId], references: [id])
-  children    TallyGroup[]  @relation("TallyGroupParent")
-  ledgers     TallyLedger[]
+  company     BookkeepingCompany  @relation(fields: [tallyCompanyId], references: [id])
+  parentGroup BookkeepingGroup?   @relation("TallyGroupParent", fields: [parentGroupId], references: [id])
+  children    BookkeepingGroup[]  @relation("TallyGroupParent")
+  ledgers     BookkeepingLedger[]
 
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt
@@ -3278,7 +3278,7 @@ model TallyGroup {
 
 /// A ledger — the leaves of the account tree. Opening balances land
 /// here; posted voucher lines (Slice 2+) reference these.
-model TallyLedger {
+model BookkeepingLedger {
   id                     String  @id @default(uuid())
   tallyCompanyId         String
   name                   String
@@ -3304,16 +3304,16 @@ model TallyLedger {
   taxConfigJson          String?
   active                 Boolean @default(true)
 
-  company            TallyCompany        @relation(fields: [tallyCompanyId], references: [id])
-  group              TallyGroup          @relation(fields: [groupId], references: [id])
-  openingBalanceAsOf TallyFinancialYear? @relation("LedgerOpeningInFY", fields: [openingBalanceAsOfFyId], references: [id])
+  company            BookkeepingCompany        @relation(fields: [tallyCompanyId], references: [id])
+  group              BookkeepingGroup          @relation(fields: [groupId], references: [id])
+  openingBalanceAsOf BookkeepingFinancialYear? @relation("LedgerOpeningInFY", fields: [openingBalanceAsOfFyId], references: [id])
 
-  entries         TallyVoucherEntry[]
-  partyVouchers   TallyVoucher[]            @relation("TallyVoucherParty")
-  allocations     TallyBillAllocation[]
-  statementLines  TallyBankStatementLine[]
-  reconciliations TallyBankReconciliation[]
-  payHeads        TallyPayHead[]
+  entries         BookkeepingVoucherEntry[]
+  partyVouchers   BookkeepingVoucher[]            @relation("TallyVoucherParty")
+  allocations     BookkeepingBillAllocation[]
+  statementLines  BookkeepingBankStatementLine[]
+  reconciliations BookkeepingBankReconciliation[]
+  payHeads        BookkeepingPayHead[]
 
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt
@@ -3329,13 +3329,13 @@ model TallyLedger {
 // banking, GST, payroll, audit.
 // ============================================================
 //
-// THE ONE WRITER of financial state is TallyVoucher + TallyVoucherEntry,
+// THE ONE WRITER of financial state is BookkeepingVoucher + BookkeepingVoucherEntry,
 // written only through engine/posting.ts inside a Prisma transaction.
 // Every report (trial balance, P&L, balance sheet, outstandings, stock,
-// GST) is DERIVED from those rows plus TallyLedger opening balances —
+// GST) is DERIVED from those rows plus BookkeepingLedger opening balances —
 // nothing anywhere caches or recomputes a total by hand.
 //
-// MONEY: integer PAISE (matching TallyLedger.openingBalancePaise).
+// MONEY: integer PAISE (matching BookkeepingLedger.openingBalancePaise).
 // QUANTITY: integer MILLI-UNITS (qty x 1000) so 0.001 of a unit is
 // representable without floats.
 // DATES: calendar dates are IST-stable 'YYYY-MM-DD' strings.
@@ -3344,7 +3344,7 @@ model TallyLedger {
 /// users may add their own (e.g. "Cash Sales") under a parent type.
 /// Numbering state lives here — `currentNumber` is bumped inside the
 /// same transaction that writes the voucher, so numbers never collide.
-model TallyVoucherType {
+model BookkeepingVoucherType {
   id              String  @id @default(uuid())
   tallyCompanyId  String
   name            String
@@ -3369,8 +3369,8 @@ model TallyVoucherType {
   isDefault       Boolean @default(false)
   active          Boolean @default(true)
 
-  company  TallyCompany   @relation(fields: [tallyCompanyId], references: [id])
-  vouchers TallyVoucher[]
+  company  BookkeepingCompany   @relation(fields: [tallyCompanyId], references: [id])
+  vouchers BookkeepingVoucher[]
 
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt
@@ -3381,10 +3381,10 @@ model TallyVoucherType {
 }
 
 /// A voucher — the transaction header. Accounting lines hang off
-/// TallyVoucherEntry, stock lines off TallyVoucherItem. A voucher whose
+/// BookkeepingVoucherEntry, stock lines off BookkeepingVoucherItem. A voucher whose
 /// type affectsAccounts is rejected at post time unless total debit ==
 /// total credit (integrity rule 1).
-model TallyVoucher {
+model BookkeepingVoucher {
   id                String  @id @default(uuid())
   tallyCompanyId    String
   financialYearId   String
@@ -3415,7 +3415,7 @@ model TallyVoucher {
   grandTotalPaise   Int     @default(0)
   dueDate           String?
   /// Optimistic-lock / edit counter. Every alteration writes a
-  /// TallyVoucherRevision and bumps this.
+  /// BookkeepingVoucherRevision and bumps this.
   version           Int     @default(1)
 
   createdByUserId   String?
@@ -3424,14 +3424,14 @@ model TallyVoucher {
   cancelledAt       DateTime?
   cancelReason      String?
 
-  company       TallyCompany           @relation(fields: [tallyCompanyId], references: [id])
-  financialYear TallyFinancialYear     @relation(fields: [financialYearId], references: [id])
-  voucherType   TallyVoucherType       @relation(fields: [voucherTypeId], references: [id])
-  partyLedger   TallyLedger?           @relation("TallyVoucherParty", fields: [partyLedgerId], references: [id])
-  entries       TallyVoucherEntry[]
-  items         TallyVoucherItem[]
-  allocations   TallyBillAllocation[]
-  revisions     TallyVoucherRevision[]
+  company       BookkeepingCompany           @relation(fields: [tallyCompanyId], references: [id])
+  financialYear BookkeepingFinancialYear     @relation(fields: [financialYearId], references: [id])
+  voucherType   BookkeepingVoucherType       @relation(fields: [voucherTypeId], references: [id])
+  partyLedger   BookkeepingLedger?           @relation("TallyVoucherParty", fields: [partyLedgerId], references: [id])
+  entries       BookkeepingVoucherEntry[]
+  items         BookkeepingVoucherItem[]
+  allocations   BookkeepingBillAllocation[]
+  revisions     BookkeepingVoucherRevision[]
 
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt
@@ -3446,7 +3446,7 @@ model TallyVoucher {
 
 /// One debit or credit line of a voucher. The sole source of every
 /// ledger balance in the system.
-model TallyVoucherEntry {
+model BookkeepingVoucherEntry {
   id             String  @id @default(uuid())
   tallyCompanyId String
   voucherId      String
@@ -3466,10 +3466,10 @@ model TallyVoucherEntry {
   reconciledByUserId  String?
   bankStatementLineId String?   @unique
 
-  voucher       TallyVoucher            @relation(fields: [voucherId], references: [id], onDelete: Cascade)
-  ledger        TallyLedger             @relation(fields: [ledgerId], references: [id])
-  allocations   TallyBillAllocation[]
-  statementLine TallyBankStatementLine? @relation(fields: [bankStatementLineId], references: [id])
+  voucher       BookkeepingVoucher            @relation(fields: [voucherId], references: [id], onDelete: Cascade)
+  ledger        BookkeepingLedger             @relation(fields: [ledgerId], references: [id])
+  allocations   BookkeepingBillAllocation[]
+  statementLine BookkeepingBankStatementLine? @relation(fields: [bankStatementLineId], references: [id])
 
   createdAt DateTime @default(now())
 
@@ -3480,7 +3480,7 @@ model TallyVoucherEntry {
 
 /// Bill-wise allocation — what an invoice creates and what a payment
 /// settles. Outstanding = sum(new) - sum(against) per bill reference.
-model TallyBillAllocation {
+model BookkeepingBillAllocation {
   id             String  @id @default(uuid())
   tallyCompanyId String
   voucherId      String
@@ -3495,9 +3495,9 @@ model TallyBillAllocation {
   /// 'YYYY-MM-DD' of the voucher, copied for ageing without a join.
   date           String
 
-  voucher      TallyVoucher      @relation(fields: [voucherId], references: [id], onDelete: Cascade)
-  voucherEntry TallyVoucherEntry @relation(fields: [voucherEntryId], references: [id], onDelete: Cascade)
-  ledger       TallyLedger       @relation(fields: [ledgerId], references: [id])
+  voucher      BookkeepingVoucher      @relation(fields: [voucherId], references: [id], onDelete: Cascade)
+  voucherEntry BookkeepingVoucherEntry @relation(fields: [voucherEntryId], references: [id], onDelete: Cascade)
+  ledger       BookkeepingLedger       @relation(fields: [ledgerId], references: [id])
 
   createdAt DateTime @default(now())
 
@@ -3508,7 +3508,7 @@ model TallyBillAllocation {
 /// A stock line of a voucher: what moved, how much, at what rate, and
 /// the tax that line carried. Stock reports read these (joined to an
 /// active voucher) — quantities are never stored as a running total.
-model TallyVoucherItem {
+model BookkeepingVoucherItem {
   id             String  @id @default(uuid())
   tallyCompanyId String
   voucherId      String
@@ -3535,10 +3535,10 @@ model TallyVoucherItem {
   description    String?
   position       Int     @default(0)
 
-  voucher   TallyVoucher     @relation(fields: [voucherId], references: [id], onDelete: Cascade)
-  stockItem TallyStockItem   @relation(fields: [stockItemId], references: [id])
-  godown    TallyGodown?     @relation(fields: [godownId], references: [id])
-  batch     TallyStockBatch? @relation(fields: [batchId], references: [id])
+  voucher   BookkeepingVoucher     @relation(fields: [voucherId], references: [id], onDelete: Cascade)
+  stockItem BookkeepingStockItem   @relation(fields: [stockItemId], references: [id])
+  godown    BookkeepingGodown?     @relation(fields: [godownId], references: [id])
+  batch     BookkeepingStockBatch? @relation(fields: [batchId], references: [id])
 
   createdAt DateTime @default(now())
 
@@ -3549,7 +3549,7 @@ model TallyVoucherItem {
 
 /// Append-only history of every alteration to a voucher. Lets an
 /// auditor diff old vs new; never rewritten, never deleted from the UI.
-model TallyVoucherRevision {
+model BookkeepingVoucherRevision {
   id             String  @id @default(uuid())
   tallyCompanyId String
   voucherId      String
@@ -3561,7 +3561,7 @@ model TallyVoucherRevision {
   actorUserId    String?
   note           String?
 
-  voucher TallyVoucher @relation(fields: [voucherId], references: [id], onDelete: Cascade)
+  voucher BookkeepingVoucher @relation(fields: [voucherId], references: [id], onDelete: Cascade)
 
   createdAt DateTime @default(now())
 
@@ -3571,16 +3571,16 @@ model TallyVoucherRevision {
 
 // ── Inventory masters ────────────────────────────────────────────────
 
-model TallyStockGroup {
+model BookkeepingStockGroup {
   id             String  @id @default(uuid())
   tallyCompanyId String
   name           String
   parentId       String?
 
-  company  TallyCompany      @relation(fields: [tallyCompanyId], references: [id])
-  parent   TallyStockGroup?  @relation("TallyStockGroupParent", fields: [parentId], references: [id])
-  children TallyStockGroup[] @relation("TallyStockGroupParent")
-  items    TallyStockItem[]
+  company  BookkeepingCompany      @relation(fields: [tallyCompanyId], references: [id])
+  parent   BookkeepingStockGroup?  @relation("TallyStockGroupParent", fields: [parentId], references: [id])
+  children BookkeepingStockGroup[] @relation("TallyStockGroupParent")
+  items    BookkeepingStockItem[]
 
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt
@@ -3590,13 +3590,13 @@ model TallyStockGroup {
   @@index([tallyCompanyId])
 }
 
-model TallyStockCategory {
+model BookkeepingStockCategory {
   id             String @id @default(uuid())
   tallyCompanyId String
   name           String
 
-  company TallyCompany     @relation(fields: [tallyCompanyId], references: [id])
-  items   TallyStockItem[]
+  company BookkeepingCompany     @relation(fields: [tallyCompanyId], references: [id])
+  items   BookkeepingStockItem[]
 
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt
@@ -3605,15 +3605,15 @@ model TallyStockCategory {
   @@unique([tallyCompanyId, name])
 }
 
-model TallyUnit {
+model BookkeepingUnit {
   id             String @id @default(uuid())
   tallyCompanyId String
   name           String
   /// Decimal places allowed when entering a quantity in this unit.
   decimals       Int    @default(0)
 
-  company TallyCompany     @relation(fields: [tallyCompanyId], references: [id])
-  items   TallyStockItem[]
+  company BookkeepingCompany     @relation(fields: [tallyCompanyId], references: [id])
+  items   BookkeepingStockItem[]
 
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt
@@ -3622,18 +3622,18 @@ model TallyUnit {
   @@unique([tallyCompanyId, name])
 }
 
-model TallyGodown {
+model BookkeepingGodown {
   id             String  @id @default(uuid())
   tallyCompanyId String
   name           String
   address        String?
   parentId       String?
 
-  company  TallyCompany        @relation(fields: [tallyCompanyId], references: [id])
-  parent   TallyGodown?        @relation("TallyGodownParent", fields: [parentId], references: [id])
-  children TallyGodown[]       @relation("TallyGodownParent")
-  items    TallyVoucherItem[]
-  openings TallyStockOpening[]
+  company  BookkeepingCompany        @relation(fields: [tallyCompanyId], references: [id])
+  parent   BookkeepingGodown?        @relation("TallyGodownParent", fields: [parentId], references: [id])
+  children BookkeepingGodown[]       @relation("TallyGodownParent")
+  items    BookkeepingVoucherItem[]
+  openings BookkeepingStockOpening[]
 
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt
@@ -3642,7 +3642,7 @@ model TallyGodown {
   @@unique([tallyCompanyId, name])
 }
 
-model TallyStockItem {
+model BookkeepingStockItem {
   id                 String  @id @default(uuid())
   tallyCompanyId     String
   name               String
@@ -3661,13 +3661,13 @@ model TallyStockItem {
   batchTracking      Boolean @default(false)
   active             Boolean @default(true)
 
-  company      TallyCompany        @relation(fields: [tallyCompanyId], references: [id])
-  stockGroup   TallyStockGroup?    @relation(fields: [stockGroupId], references: [id])
-  category     TallyStockCategory? @relation(fields: [categoryId], references: [id])
-  unit         TallyUnit?          @relation(fields: [unitId], references: [id])
-  batches      TallyStockBatch[]
-  openings     TallyStockOpening[]
-  voucherItems TallyVoucherItem[]
+  company      BookkeepingCompany        @relation(fields: [tallyCompanyId], references: [id])
+  stockGroup   BookkeepingStockGroup?    @relation(fields: [stockGroupId], references: [id])
+  category     BookkeepingStockCategory? @relation(fields: [categoryId], references: [id])
+  unit         BookkeepingUnit?          @relation(fields: [unitId], references: [id])
+  batches      BookkeepingStockBatch[]
+  openings     BookkeepingStockOpening[]
+  voucherItems BookkeepingVoucherItem[]
 
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt
@@ -3680,7 +3680,7 @@ model TallyStockItem {
 /// Opening stock per item (optionally per godown/batch). Kept separate
 /// from the item master so a multi-godown opening is representable and
 /// so closing stock is always opening + movements.
-model TallyStockOpening {
+model BookkeepingStockOpening {
   id              String  @id @default(uuid())
   tallyCompanyId  String
   stockItemId     String
@@ -3691,9 +3691,9 @@ model TallyStockOpening {
   ratePaise       Int     @default(0)
   valuePaise      Int     @default(0)
 
-  stockItem TallyStockItem   @relation(fields: [stockItemId], references: [id], onDelete: Cascade)
-  godown    TallyGodown?     @relation(fields: [godownId], references: [id])
-  batch     TallyStockBatch? @relation(fields: [batchId], references: [id])
+  stockItem BookkeepingStockItem   @relation(fields: [stockItemId], references: [id], onDelete: Cascade)
+  godown    BookkeepingGodown?     @relation(fields: [godownId], references: [id])
+  batch     BookkeepingStockBatch? @relation(fields: [batchId], references: [id])
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -3701,7 +3701,7 @@ model TallyStockOpening {
   @@index([tallyCompanyId, stockItemId])
 }
 
-model TallyStockBatch {
+model BookkeepingStockBatch {
   id             String  @id @default(uuid())
   tallyCompanyId String
   stockItemId    String
@@ -3709,9 +3709,9 @@ model TallyStockBatch {
   mfgDate        String?
   expiryDate     String?
 
-  stockItem TallyStockItem      @relation(fields: [stockItemId], references: [id], onDelete: Cascade)
-  items     TallyVoucherItem[]
-  openings  TallyStockOpening[]
+  stockItem BookkeepingStockItem      @relation(fields: [stockItemId], references: [id], onDelete: Cascade)
+  items     BookkeepingVoucherItem[]
+  openings  BookkeepingStockOpening[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -3724,7 +3724,7 @@ model TallyStockBatch {
 
 /// One line of an imported bank statement. Matching a line to a voucher
 /// entry sets both sides (entry.bankStatementLineId + line.status).
-model TallyBankStatementLine {
+model BookkeepingBankStatementLine {
   id              String    @id @default(uuid())
   tallyCompanyId  String
   bankLedgerId    String
@@ -3740,9 +3740,9 @@ model TallyBankStatementLine {
   matchedAt       DateTime?
   matchedByUserId String?
 
-  company    TallyCompany       @relation(fields: [tallyCompanyId], references: [id])
-  bankLedger TallyLedger        @relation(fields: [bankLedgerId], references: [id])
-  entry      TallyVoucherEntry?
+  company    BookkeepingCompany       @relation(fields: [tallyCompanyId], references: [id])
+  bankLedger BookkeepingLedger        @relation(fields: [bankLedgerId], references: [id])
+  entry      BookkeepingVoucherEntry?
 
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt
@@ -3753,7 +3753,7 @@ model TallyBankStatementLine {
 
 /// A saved reconciliation as at a statement date — the evidence an
 /// auditor looks for: book balance, statement balance, difference.
-model TallyBankReconciliation {
+model BookkeepingBankReconciliation {
   id                    String  @id @default(uuid())
   tallyCompanyId        String
   bankLedgerId          String
@@ -3766,8 +3766,8 @@ model TallyBankReconciliation {
   notes                 String?
   reconciledByUserId    String?
 
-  company    TallyCompany @relation(fields: [tallyCompanyId], references: [id])
-  bankLedger TallyLedger  @relation(fields: [bankLedgerId], references: [id])
+  company    BookkeepingCompany @relation(fields: [tallyCompanyId], references: [id])
+  bankLedger BookkeepingLedger  @relation(fields: [bankLedgerId], references: [id])
 
   createdAt DateTime @default(now())
 
@@ -3778,7 +3778,7 @@ model TallyBankReconciliation {
 
 /// Data-driven statutory rates. Nothing in the engine hardcodes a rate;
 /// it reads these rows (or the rate carried on the stock item / entry).
-model TallyTaxRate {
+model BookkeepingTaxRate {
   id             String  @id @default(uuid())
   tallyCompanyId String
   /// gst | tds | tcs
@@ -3796,7 +3796,7 @@ model TallyTaxRate {
   effectiveFrom  String?
   active         Boolean @default(true)
 
-  company TallyCompany @relation(fields: [tallyCompanyId], references: [id])
+  company BookkeepingCompany @relation(fields: [tallyCompanyId], references: [id])
 
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt
@@ -3808,13 +3808,13 @@ model TallyTaxRate {
 
 /// Per-company configuration. One row per key; the value is JSON so a
 /// settings page can grow without a migration.
-model TallySetting {
+model BookkeepingSetting {
   id             String @id @default(uuid())
   tallyCompanyId String
   key            String
   valueJson      String
 
-  company TallyCompany @relation(fields: [tallyCompanyId], references: [id])
+  company BookkeepingCompany @relation(fields: [tallyCompanyId], references: [id])
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -3824,7 +3824,7 @@ model TallySetting {
 
 // ── Payroll ──────────────────────────────────────────────────────────
 
-model TallyEmployee {
+model BookkeepingEmployee {
   id                String  @id @default(uuid())
   tallyCompanyId    String
   name              String
@@ -3838,10 +3838,10 @@ model TallyEmployee {
   bankIfsc          String?
   active            Boolean @default(true)
 
-  company        TallyCompany               @relation(fields: [tallyCompanyId], references: [id])
-  structureLines TallySalaryStructureLine[]
-  attendance     TallyAttendanceRecord[]
-  payrollLines   TallyPayrollLine[]
+  company        BookkeepingCompany               @relation(fields: [tallyCompanyId], references: [id])
+  structureLines BookkeepingSalaryStructureLine[]
+  attendance     BookkeepingAttendanceRecord[]
+  payrollLines   BookkeepingPayrollLine[]
 
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt
@@ -3854,7 +3854,7 @@ model TallyEmployee {
 /// A pay head — one component of a payslip, mapped to the ledger it
 /// posts to. Statutory heads (PF/ESI/PT) are ordinary rows whose rate
 /// lives in `percentBp`, so a rate change is data, not code.
-model TallyPayHead {
+model BookkeepingPayHead {
   id             String  @id @default(uuid())
   tallyCompanyId String
   name           String
@@ -3870,10 +3870,10 @@ model TallyPayHead {
   ledgerId       String?
   active         Boolean @default(true)
 
-  company        TallyCompany               @relation(fields: [tallyCompanyId], references: [id])
-  ledger         TallyLedger?               @relation(fields: [ledgerId], references: [id])
-  structureLines TallySalaryStructureLine[]
-  payrollLines   TallyPayrollLine[]
+  company        BookkeepingCompany               @relation(fields: [tallyCompanyId], references: [id])
+  ledger         BookkeepingLedger?               @relation(fields: [ledgerId], references: [id])
+  structureLines BookkeepingSalaryStructureLine[]
+  payrollLines   BookkeepingPayrollLine[]
 
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt
@@ -3882,7 +3882,7 @@ model TallyPayHead {
   @@unique([tallyCompanyId, name])
 }
 
-model TallySalaryStructureLine {
+model BookkeepingSalaryStructureLine {
   id             String  @id @default(uuid())
   tallyCompanyId String
   employeeId     String
@@ -3891,8 +3891,8 @@ model TallySalaryStructureLine {
   percentBp      Int     @default(0)
   effectiveFrom  String?
 
-  employee TallyEmployee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
-  payHead  TallyPayHead  @relation(fields: [payHeadId], references: [id])
+  employee BookkeepingEmployee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  payHead  BookkeepingPayHead  @relation(fields: [payHeadId], references: [id])
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -3901,7 +3901,7 @@ model TallySalaryStructureLine {
   @@index([tallyCompanyId])
 }
 
-model TallyAttendanceRecord {
+model BookkeepingAttendanceRecord {
   id             String @id @default(uuid())
   tallyCompanyId String
   employeeId     String
@@ -3911,7 +3911,7 @@ model TallyAttendanceRecord {
   presentDays    Int    @default(0)
   lopDays        Int    @default(0)
 
-  employee TallyEmployee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  employee BookkeepingEmployee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -3920,7 +3920,7 @@ model TallyAttendanceRecord {
   @@index([tallyCompanyId, period])
 }
 
-model TallyPayrollRun {
+model BookkeepingPayrollRun {
   id                String  @id @default(uuid())
   tallyCompanyId    String
   /// 'YYYY-MM'
@@ -3934,8 +3934,8 @@ model TallyPayrollRun {
   voucherId         String?
   processedByUserId String?
 
-  company TallyCompany       @relation(fields: [tallyCompanyId], references: [id])
-  lines   TallyPayrollLine[]
+  company BookkeepingCompany       @relation(fields: [tallyCompanyId], references: [id])
+  lines   BookkeepingPayrollLine[]
 
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt
@@ -3944,7 +3944,7 @@ model TallyPayrollRun {
   @@unique([tallyCompanyId, period])
 }
 
-model TallyPayrollLine {
+model BookkeepingPayrollLine {
   id             String @id @default(uuid())
   tallyCompanyId String
   payrollRunId   String
@@ -3954,9 +3954,9 @@ model TallyPayrollLine {
   headType       String
   amountPaise    Int
 
-  run      TallyPayrollRun @relation(fields: [payrollRunId], references: [id], onDelete: Cascade)
-  employee TallyEmployee   @relation(fields: [employeeId], references: [id])
-  payHead  TallyPayHead    @relation(fields: [payHeadId], references: [id])
+  run      BookkeepingPayrollRun @relation(fields: [payrollRunId], references: [id], onDelete: Cascade)
+  employee BookkeepingEmployee   @relation(fields: [employeeId], references: [id])
+  payHead  BookkeepingPayHead    @relation(fields: [payHeadId], references: [id])
 
   createdAt DateTime @default(now())
 
@@ -3968,7 +3968,7 @@ model TallyPayrollLine {
 
 /// A point-in-time JSON snapshot of one company's data. Restoring is an
 /// explicit, permissioned action that never runs without confirmation.
-model TallyBackup {
+model BookkeepingBackup {
   id              String  @id @default(uuid())
   tallyCompanyId  String
   label           String
@@ -3979,7 +3979,7 @@ model TallyBackup {
   ledgerCount     Int     @default(0)
   createdByUserId String?
 
-  company TallyCompany @relation(fields: [tallyCompanyId], references: [id])
+  company BookkeepingCompany @relation(fields: [tallyCompanyId], references: [id])
 
   createdAt DateTime @default(now())
 
