@@ -7,7 +7,7 @@
  * the shape is the same, the values live here, and components only read
  * them through the helpers exported below.
  *
- * Every date rule is marked [VERIFY] where the spec flagged it.
+ * Statutory dates cite their Income-tax Rule; portal-specific values (allotment wait, Form 49B field limits) stay marked [VERIFY].
  */
 
 export interface ChallanDueRule {
@@ -19,11 +19,13 @@ export interface ChallanDueRule {
   note?: string;
 }
 
-export const CHALLAN_DUE_DAY_DEFAULT = 7; // [VERIFY]
+/** Rule 30(2)(b), IT Rules: non-government deductors deposit by the 7th of the next month.
+ *  (Government deductors paying without a challan deposit the same day — not modelled.) */
+export const CHALLAN_DUE_DAY_DEFAULT = 7;
 
-/** March deductions have a different deadline. [VERIFY current rule] */
+/** Rule 30(2)(a): tax deducted in March is due by 30 April. */
 export const CHALLAN_DUE_RULES: ChallanDueRule[] = [
-  { deductionMonth: 2 /* March */, dueDayOfNextMonth: 30, note: 'March differs — 30th of April [VERIFY]' },
+  { deductionMonth: 2 /* March */, dueDayOfNextMonth: 30, note: 'March differs — 30th of April (Rule 30(2)(a))' },
 ];
 
 export interface QuarterlyReturnDue {
@@ -36,7 +38,7 @@ export interface QuarterlyReturnDue {
   monthsAfterEnd: number;
 }
 
-/** Quarterly return dues (24Q / 26Q / 27Q / 27EQ). [VERIFY]. */
+/** Quarterly statement dues (24Q / 26Q / 27Q / 27EQ) — Rule 31A(2). */
 export const QUARTERLY_RETURN_DUE: QuarterlyReturnDue[] = [
   { quarter: 'Q1', endMonth: 5,  monthsAfterEnd: 1, dueDayOfNextQuarter: 31 }, // Jun end → Jul 31
   { quarter: 'Q2', endMonth: 8,  monthsAfterEnd: 1, dueDayOfNextQuarter: 31 }, // Sep end → Oct 31
@@ -44,10 +46,11 @@ export const QUARTERLY_RETURN_DUE: QuarterlyReturnDue[] = [
   { quarter: 'Q4', endMonth: 2,  monthsAfterEnd: 2, dueDayOfNextQuarter: 31 }, // Mar end → May 31
 ];
 
-/** Form 16A quarterly, after the return is processed. [VERIFY]. */
+/** Form 16A / 27D: within 15 days of the quarter's statement due date — Rule 31(3)(b) / 37D.
+ *  (status.ts computes it exactly as statement due + 15 days; this constant is the ≈ equivalent.) */
 export const FORM_16A_DUE_DAYS_AFTER_QUARTER_END = 45;
 
-/** Form 16 annually, after Q4. [VERIFY]. */
+/** Form 16: by 15 June after the FY — Rule 31(3)(a). */
 export const FORM_16_DUE_DAY = 15;
 export const FORM_16_DUE_MONTH = 5; // June, 0-based
 

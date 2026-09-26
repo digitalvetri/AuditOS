@@ -10,7 +10,7 @@
  * is shareable and every screen the operator opens from here inherits
  * the same scope.
  */
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { ChevronRight, ExternalLink, Users } from 'lucide-react';
@@ -22,16 +22,13 @@ import {
   correctionStatus,
   form16Status,
   noticesStatus,
-  placeholderDeductorType,
-  placeholderHasFiledReturn,
-  placeholderHasOriginalToken,
-  placeholderResponsiblePerson,
-  placeholderTans,
   registrationStatus,
   returnFilingStatus,
   type SubServiceStatus,
-} from './placeholder';
-import { readNoticeLog, noticeKey } from './noticeCheckStore';
+} from './status';
+import { tdsApi, type TdsData } from '@/modules/tds/api';
+import { TdsCredentialsCard } from './TdsCredentialsCard';
+import { tdsPortalApi } from '@/modules/tdsPortal/api';
 
 const STATUS_TINT: Record<SubServiceStatus['key'], { bg: string; fg: string }> = {
   not_registered:  { bg: '#EEF0F3', fg: '#475569' },
@@ -52,44 +49,55 @@ export function TdsServicesLanding() {
   const [params, setParams] = useSearchParams();
   const clientId = params.get('client') ?? '';
   const fyLabel = params.get('fy') ?? fyLabelForDate(new Date());
-  const selectedTan = params.get('tan') ?? '';
 
   const clientsQuery = useQuery({
     queryKey: ['workstation', 'clients', { for: 'tds-landing' }],
     queryFn: () => workstationApi.listClients({}),
   });
   const clients = clientsQuery.data?.items ?? [];
+  // Configured / not-configured per client — ids only, never secrets. A 403
+  // (no TDS credential permission) just leaves the markers off.
+  const credStatusQuery = useQuery({
+    queryKey: ['tds-portal', 'status'],
+    queryFn: () => tdsPortalApi.status(),
+    retry: false,
+  });
+  const configured = useMemo(
+    () => (credStatusQuery.data ? new Set(credStatusQuery.data.items.map((i) => i.client_id)) : null),
+    [credStatusQuery.data],
+  );
+  const [clientSearch, setClientSearch] = useState('');
+  const visibleClients = useMemo(() => {
+    const q = clientSearch.trim().toLowerCase();
+    const list = q
+      ? clients.filter((c) => [c.company_name, c.gstin, c.tan].some((v) => v?.toLowerCase().includes(q)))
+      : clients;
+    // Keep the selected client in the list even when the search hides it.
+    return clientId && !list.some((c) => c.id === clientId)
+      ? [...clients.filter((c) => c.id === clientId), ...list]
+      : list;
+  }, [clients, clientSearch, clientId]);
   const selectedClient = useMemo(
     () => clients.find((c) => c.id === clientId) ?? null,
     [clientId, clients],
   );
 
-  const tans = selectedClient ? placeholderTans(selectedClient.id) : [];
-  const effectiveTan = tans.length === 0
-    ? null
-    : tans.length === 1
-      ? tans[0]
-      : (selectedTan && tans.includes(selectedTan) ? selectedTan : tans[0]);
+  const tanParam = params.get('tan') ?? '';
+  const tdsQuery = useQuery({
+    queryKey: ['tds', clientId, fyLabel, tanParam],
+    queryFn: () => tdsApi.get(clientId, fyLabel, tanParam || null),
+    enabled: !!clientId,
+  });
+  const tds = tdsQuery.data ?? null;
+  // Primary TAN lives on the client record; branches on the TDS profile.
+  const tans = tds?.client.tans ?? [];
+  const effectiveTan = tds?.active_tan ?? selectedClient?.tan ?? null;
 
   const setParam = (key: string, value: string) => {
     const next = new URLSearchParams(params);
     if (value) next.set(key, value); else next.delete(key);
     setParams(next, { replace: true });
   };
-
-  // Placeholder derived state — the engine will provide these from real
-  // records once the backend lands.
-  const incorporating = false; // Wire when the incorporation module exposes a hook here.
-  const hasFiledReturn = selectedClient
-    ? placeholderHasFiledReturn(selectedClient.id, effectiveTan, fyLabel)
-    : false;
-  const hasOriginalToken = selectedClient
-    ? placeholderHasOriginalToken(selectedClient.id, effectiveTan, fyLabel)
-    : false;
-  const log = readNoticeLog();
-  const lastNoticeCheckAt = selectedClient
-    ? log[noticeKey(selectedClient.id, effectiveTan)]?.lastCheckedAt
-    : undefined;
 
   return (
     <div className="space-y-4">
@@ -114,17 +122,35 @@ export function TdsServicesLanding() {
       {/* Sticky selector strip */}
       <section className="sticky top-0 z-10 bg-white border border-neutral-200 rounded-lg shadow-card">
         <div className="flex flex-wrap items-center gap-3 px-4 py-3">
+          <SelectorField label="Search" htmlFor="tds-client-search">
+            <input
+              id="tds-client-search"
+              type="search"
+              value={clientSearch}
+              onChange={(e) => setClientSearch(e.target.value)}
+              placeholder="Search client…"
+              className="h-9 px-3 text-13 bg-white border border-neutral-300 rounded-md focus:outline-none focus:border-gold w-[180px]"
+            />
+          </SelectorField>
+
           <SelectorField label="Client" htmlFor="tds-client">
             <select
               id="tds-client"
               value={clientId}
-              onChange={(e) => setParam('client', e.target.value)}
+              onChange={(e) => {
+                // A new client has its own TANs — drop the old TAN choice.
+                const next = new URLSearchParams(params);
+                if (e.target.value) next.set('client', e.target.value); else next.delete('client');
+                next.delete('tan');
+                setParams(next, { replace: true });
+              }}
               disabled={clientsQuery.isLoading}
               className="h-9 px-3 text-13 bg-white border border-neutral-300 rounded-md focus:outline-none focus:border-gold min-w-[240px]"
             >
               <option value="">— Select a client —</option>
-              {clients.map((c) => (
+              {visibleClients.map((c) => (
                 <option key={c.id} value={c.id}>
+                  {configured ? (configured.has(c.id) ? '● ' : '○ ') : ''}
                   {c.company_name}{c.gstin ? ' · ' + c.gstin : ''}
                 </option>
               ))}
@@ -145,42 +171,37 @@ export function TdsServicesLanding() {
           </SelectorField>
 
           <SelectorField label="TAN" htmlFor="tds-tan">
-            {tans.length === 0 ? (
-              <span className="inline-flex items-center h-9 px-3 text-13 text-neutral-500 border border-dashed border-neutral-300 rounded-md">
-                No TAN registered
-              </span>
-            ) : tans.length === 1 ? (
-              <span className="inline-flex items-center h-9 px-3 text-13 font-mono text-neutral-900 border border-neutral-200 rounded-md bg-neutral-50">
-                {tans[0]}
-              </span>
-            ) : (
+            {tans.length > 1 ? (
               <select
                 id="tds-tan"
                 value={effectiveTan ?? ''}
-                onChange={(e) => setParam('tan', e.target.value)}
+                onChange={(e) => setParam('tan', e.target.value === tds?.client.tan ? '' : e.target.value)}
                 className="h-9 px-3 text-13 font-mono bg-white border border-neutral-300 rounded-md focus:outline-none focus:border-gold"
               >
                 {tans.map((t) => (
-                  <option key={t} value={t}>{t}</option>
+                  <option key={t} value={t}>{t}{t === tds?.client.tan ? ' (primary)' : ''}</option>
                 ))}
               </select>
+            ) : effectiveTan ? (
+              <span className="inline-flex items-center h-9 px-3 text-13 font-mono text-neutral-900 border border-neutral-200 rounded-md bg-neutral-50">
+                {effectiveTan}
+              </span>
+            ) : (
+              <span className="inline-flex items-center h-9 px-3 text-13 text-neutral-500 border border-dashed border-neutral-300 rounded-md">
+                No TAN registered
+              </span>
             )}
           </SelectorField>
         </div>
 
         {/* Deductor context strip */}
-        {selectedClient && effectiveTan ? (
+        {selectedClient && effectiveTan && tds ? (
           <div className="flex flex-wrap items-center gap-x-6 gap-y-1 px-4 py-2 border-t border-neutral-100 text-12 text-neutral-500">
-            <ContextItem label="Deductor">{placeholderDeductorType(selectedClient.id, effectiveTan)}</ContextItem>
-            <ContextItem label="Responsible person">{placeholderResponsiblePerson(selectedClient.id, effectiveTan)}</ContextItem>
-            <ContextItem label="e-Filing">
-              <span className="inline-flex items-center gap-1 text-neutral-900">
-                <span className="inline-block w-1.5 h-1.5 rounded-sm" style={{ backgroundColor: '#166534' }} aria-hidden />
-                Registered
-              </span>
-            </ContextItem>
+            <ContextItem label="Deductor">{deductorLabel(tds.profile.deductor_type)}</ContextItem>
+            <ContextItem label="Responsible person">{tds.profile.responsible_person ?? '—'}</ContextItem>
+            <ContextItem label="Returns">{tds.profile.return_forms.join(' · ')}</ContextItem>
             <ContextItem label="TRACES">
-              {hasFiledReturn ? (
+              {tds.any_filed_return ? (
                 <span className="inline-flex items-center gap-1 text-neutral-900">
                   <span className="inline-block w-1.5 h-1.5 rounded-sm" style={{ backgroundColor: '#166534' }} aria-hidden />
                   Registered
@@ -200,18 +221,18 @@ export function TdsServicesLanding() {
         <EmptyState />
       ) : (
         <>
+          {/* Keyed by client so no credential state survives a client switch. */}
+          <TdsCredentialsCard key={selectedClient.id} client={selectedClient} />
+
           <section className="bg-white border border-neutral-200 rounded-lg shadow-card overflow-hidden">
+            {!tds ? (
+              <div className="px-4 py-6 text-13 text-neutral-500">
+                {tdsQuery.isError ? (tdsQuery.error as Error).message : 'Loading TDS records…'}
+              </div>
+            ) : (
             <ul>
               {TDS_SUB_SERVICES.map((s, i) => {
-                const status = statusFor(s, {
-                  clientId: selectedClient.id,
-                  tan: effectiveTan,
-                  fyLabel,
-                  incorporating,
-                  hasFiledReturn,
-                  hasOriginalToken,
-                  lastNoticeCheckAt,
-                });
+                const status = statusFor(s, tds, fyLabel);
                 return (
                   <SubServiceRow
                     key={s.slug}
@@ -223,12 +244,9 @@ export function TdsServicesLanding() {
                 );
               })}
             </ul>
+            )}
           </section>
 
-          <p className="text-11 text-neutral-500">
-            {TDS_SUB_SERVICES.length} sub-services · Status placeholders until the engine ships ·
-            Spec at <code className="text-neutral-700">TDS-PAGE-PROMPT.md</code>
-          </p>
         </>
       )}
     </div>
@@ -241,7 +259,7 @@ function EmptyState() {
       <div className="inline-flex items-center justify-center w-10 h-10 rounded-md bg-neutral-100 text-neutral-500 mb-3" aria-hidden>
         <Users size={20} strokeWidth={1.75} />
       </div>
-      <div className="text-14 font-medium text-neutral-900">Pick a client to begin</div>
+      <div className="text-14 font-medium text-neutral-900">Select a client to view TDS details.</div>
       <p className="text-12 text-neutral-500 mt-1 max-w-[400px] mx-auto">
         Nothing renders until a client is selected — TDS work is always TAN-scoped.
       </p>
@@ -271,25 +289,23 @@ function ContextItem({ label, children }: { label: string; children: React.React
   );
 }
 
-interface StatusCtx {
-  clientId: string;
-  tan: string | null;
-  fyLabel: string;
-  incorporating: boolean;
-  hasFiledReturn: boolean;
-  hasOriginalToken: boolean;
-  lastNoticeCheckAt?: string;
+function statusFor(service: TdsSubService, data: TdsData, fy: string): SubServiceStatus {
+  switch (service.slug) {
+    case 'registration':        return registrationStatus(data);
+    case 'challan-payment':     return challanStatus(data, fy);
+    case 'return-filing':       return returnFilingStatus(data, fy);
+    case 'correction-filing':   return correctionStatus(data);
+    case 'form-16':             return form16Status(data, fy);
+    case 'notices':             return noticesStatus(data);
+  }
 }
 
-function statusFor(service: TdsSubService, ctx: StatusCtx): SubServiceStatus {
-  switch (service.slug) {
-    case 'registration':        return registrationStatus(ctx);
-    case 'challan-payment':     return challanStatus(ctx);
-    case 'return-filing':       return returnFilingStatus(ctx);
-    case 'correction-filing':   return correctionStatus(ctx);
-    case 'form-16':             return form16Status(ctx);
-    case 'notices':             return noticesStatus(ctx);
-  }
+const DEDUCTOR_LABELS: Record<string, string> = {
+  company: 'Company', firm: 'Firm / LLP', individual: 'Individual / HUF', government: 'Government',
+  trust: 'Trust', aop: 'AOP / BOI', other: 'Other',
+};
+export function deductorLabel(t: string | null): string {
+  return t ? DEDUCTOR_LABELS[t] ?? t : 'Not set';
 }
 
 function SubServiceRow({

@@ -42,7 +42,7 @@ ENV NODE_ENV=development
 # The legacy-Books drop runs first: the old native ledger's tables are gone
 # from the schema, and `db push` refuses to drop tables that hold data. It
 # names those 23 tables only and is a no-op once they are gone.
-CMD ["sh", "-c", "npx prisma db execute --schema prisma/schema.prisma --file prisma/sql/drop-legacy-books.postgresql.sql && npx prisma db push --skip-generate && npx tsx prisma/seed.ts"]
+CMD ["sh", "-c", "npx prisma db execute --schema prisma/schema.prisma --file prisma/sql/drop-legacy-books.postgresql.sql && npx tsx prisma/safe-push.ts && npx tsx prisma/seed.ts"]
 
 # ── Runtime ───────────────────────────────────────────────────────────────
 FROM base AS runtime

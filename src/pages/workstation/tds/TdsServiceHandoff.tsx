@@ -1,9 +1,10 @@
 /**
  * TDS per-service handoff — Workstation → Services → TDS → :slug.
  *
- * Same single-card structure as the GST handoff. Reuses the GST module's
- * CredentialVault verbatim (spec §4: "Portal credentials, if stored,
- * follow the same masking and audit-logging as the GST page"). Adds the
+ * Same single-card structure as the GST handoff. Post-login services show
+ * the client's saved TDS portal credentials (TdsCredentialsCard — encrypted,
+ * reveal audited). "Record back after filing" persists through
+ * TdsRecordsPanel. Adds the
  * TDS-specific guardrails: SPICe+ block on Registration when an
  * Incorporation case is open, TRACES caveat on Form 16/16A, correction
  * requires an original token, format validation on TAN and 14-digit ack,
@@ -24,18 +25,27 @@ import {
   Info,
 } from 'lucide-react';
 import { workstationApi } from '@/modules/workstation/api';
-import { CredentialVault, CredentialsNotNeededNote, type VaultClient } from './CredentialVault';
+import { TdsCredentialsCard } from './TdsCredentialsCard';
+import { TdsRecordsPanel } from './TdsRecordsPanel';
+import { tdsApi, type ProfileTextKey, type TdsProfile } from '@/modules/tds/api';
+
+/** Field-sheet label (lower-case) → TDS profile field. */
+const PROFILE_FIELD_BY_LABEL: Record<string, ProfileTextKey> = {
+  'responsible person name': 'responsible_person',
+  'responsible person designation': 'rp_designation',
+  'responsible person pan': 'rp_pan',
+  'responsible person email': 'rp_email',
+  'responsible person mobile': 'rp_mobile',
+  'flat / door / block no.': 'addr_flat',
+  'building name': 'addr_building',
+  'road / street': 'addr_road',
+  'area / locality': 'addr_area',
+  'city / district': 'addr_city',
+  'pin code': 'addr_pin',
+  'ao code': 'ao_code',
+};
 import { findTdsSubService, type TdsSubService } from './services';
-import {
-  fyLabelForDate,
-  REG_ACK_PATTERN,
-  TAN_PATTERN,
-} from './config';
-import {
-  placeholderHasFiledReturn,
-  placeholderHasOriginalToken,
-  placeholderTans,
-} from './placeholder';
+import { fyLabelForDate } from './config';
 
 export function TdsServiceHandoff() {
   const { slug } = useParams<{ slug: string }>();
@@ -55,24 +65,14 @@ export function TdsServiceHandoff() {
     return c ?? null;
   }, [clientId, clients]);
 
-  const tans = selectedClient ? placeholderTans(selectedClient.id) : [];
-  const tanFromUrl = params.get('tan') ?? '';
-  const effectiveTan = tans.length === 0
-    ? null
-    : tans.length === 1
-      ? tans[0]
-      : (tans.includes(tanFromUrl) ? tanFromUrl : tans[0]);
-
-  const vaultClient = useMemo<VaultClient | null>(() => {
-    if (!selectedClient) return null;
-    return { id: selectedClient.id, name: selectedClient.company_name, gstin: selectedClient.gstin };
-  }, [selectedClient]);
-
-  const setParam = (key: string, value: string) => {
-    const next = new URLSearchParams(params);
-    if (value) next.set(key, value); else next.delete(key);
-    setParams(next, { replace: true });
-  };
+  const tanParam = params.get('tan') ?? '';
+  const tdsQuery = useQuery({
+    queryKey: ['tds', clientId, fyLabel, tanParam],
+    queryFn: () => tdsApi.get(clientId, fyLabel, tanParam || null),
+    enabled: !!clientId,
+  });
+  const tds = tdsQuery.data ?? null;
+  const effectiveTan = tds?.active_tan ?? selectedClient?.tan ?? null;
 
   if (!service) {
     return <Navigate to="/workstation/services/tds" replace />;
@@ -80,14 +80,9 @@ export function TdsServiceHandoff() {
 
   const Icon = service.icon;
 
-  // Placeholder eligibility derived from the same generators the landing uses.
-  const incorporating = false;
-  const hasFiledReturn = selectedClient
-    ? placeholderHasFiledReturn(selectedClient.id, effectiveTan, fyLabel)
-    : false;
-  const hasOriginalToken = selectedClient
-    ? placeholderHasOriginalToken(selectedClient.id, effectiveTan, fyLabel)
-    : false;
+  const incorporating = false; // Wire when the incorporation module exposes a hook here.
+  const hasFiledReturn = !!tds?.any_filed_return;
+  const hasOriginalToken = hasFiledReturn;
 
   const block = decideBlock(service, {
     incorporating,
@@ -140,6 +135,10 @@ export function TdsServiceHandoff() {
       {/* Guardrail blocks — hard stops when the action shouldn't be taken */}
       {block ? <BlockNotice block={block} /> : null}
 
+      {!service.portal.preLogin && selectedClient ? (
+        <TdsCredentialsCard key={selectedClient.id} client={selectedClient} />
+      ) : null}
+
       <section className="bg-white border border-neutral-200 rounded-lg shadow-card divide-y divide-neutral-100">
         {/* Client + FY + TAN */}
         <div className="p-5">
@@ -150,7 +149,12 @@ export function TdsServiceHandoff() {
             <select
               id="tds-handoff-client"
               value={clientId}
-              onChange={(e) => setParam('client', e.target.value)}
+              onChange={(e) => {
+                const next = new URLSearchParams(params);
+                if (e.target.value) next.set('client', e.target.value); else next.delete('client');
+                next.delete('tan');
+                setParams(next, { replace: true });
+              }}
               disabled={clientsQuery.isLoading}
               className="flex-1 min-w-[220px] h-9 px-3 text-14 bg-white border border-neutral-300 rounded-md focus:outline-none focus:border-gold"
             >
@@ -175,11 +179,9 @@ export function TdsServiceHandoff() {
         </div>
 
         {/* Credentials */}
-        <div className="p-5">
-          {service.portal.preLogin
-            ? <CredentialsNotNeededNote />
-            : <CredentialVault client={vaultClient} />}
-        </div>
+        {service.portal.preLogin ? (
+          <div className="p-5"><CredentialsNotNeededNote /></div>
+        ) : null}
 
         {/* Portal note (e.g. "This is Protean, not incometax.gov.in") */}
         {service.portal.note ? (
@@ -245,7 +247,7 @@ export function TdsServiceHandoff() {
               <CopyAllButton
                 fields={service.fieldSheet.map((f) => ({
                   label: f.label,
-                  value: resolveFieldValue(f.label, selectedClient, effectiveTan, fyLabel),
+                  value: resolveFieldValue(f.label, selectedClient, effectiveTan, fyLabel, tds?.profile ?? null),
                 }))}
                 serviceName={service.name}
                 clientName={selectedClient?.company_name}
@@ -261,27 +263,28 @@ export function TdsServiceHandoff() {
                   client={selectedClient}
                   tan={effectiveTan}
                   fyLabel={fyLabel}
+                  profile={tds?.profile ?? null}
                 />
               ))}
             </ul>
           </div>
         ) : null}
 
-        {/* Capture — with format validation */}
-        {service.capture.length ? (
-          <div className="p-5">
-            <div className="text-13 font-medium text-neutral-900 mb-3">Record back after filing</div>
-            <ul className="space-y-3">
-              {service.capture.map((c) => (
-                <CaptureRow key={c.key} field={c} />
-              ))}
-            </ul>
-            <p className="text-11 text-neutral-500 mt-3">
-              Evidence capture is a gate — no reference number recorded means status stays
-              unchanged. Real persistence with the engine.
-            </p>
-          </div>
-        ) : null}
+        {/* Record back after filing — persisted */}
+        <div className="p-5">
+          <div className="text-13 font-medium text-neutral-900 mb-3">Record back after filing</div>
+          {!selectedClient ? (
+            <div className="text-13 text-neutral-500">Select a client to record TDS work.</div>
+          ) : !tds ? (
+            <div className="text-13 text-neutral-500">
+              {tdsQuery.isError ? (tdsQuery.error as Error).message : 'Loading TDS records…'}
+            </div>
+          ) : service.slug !== 'registration' && !tds.active_tan ? (
+            <div className="text-13 text-neutral-500">Record the TAN under TDS Registration first.</div>
+          ) : (
+            <TdsRecordsPanel key={`${selectedClient.id}-${fyLabel}-${tds.active_tan}`} slug={service.slug} data={tds} fy={fyLabel} />
+          )}
+        </div>
       </section>
     </div>
   );
@@ -374,8 +377,13 @@ function resolveFieldValue(
   client: { company_name: string; gstin: string | null; pan: string | null } | null,
   tan: string | null,
   fyLabel: string,
+  profile: TdsProfile | null,
 ): string | null {
   const lc = label.toLowerCase();
+  // Form 49B details live on the TDS profile (Registration page).
+  const fromProfile = profile ? PROFILE_FIELD_BY_LABEL[lc] : undefined;
+  if (fromProfile) return profile![fromProfile] || null;
+  if (lc === 'form type' && profile) return profile.return_forms.join(' · ') || null;
   if (lc.includes('assessment year')) {
     // Assessment year for TDS FY YYYY-YY is the FY that follows it.
     const start = Number(fyLabel.split('-')[0]);
@@ -392,7 +400,7 @@ function resolveFieldValue(
 }
 
 function FieldSheetRow({
-  label, hint, limit, client, tan, fyLabel,
+  label, hint, limit, client, tan, fyLabel, profile,
 }: {
   label: string;
   hint?: string;
@@ -400,8 +408,9 @@ function FieldSheetRow({
   client: { company_name: string; gstin: string | null; pan: string | null } | null;
   tan: string | null;
   fyLabel: string;
+  profile: TdsProfile | null;
 }) {
-  const value = resolveFieldValue(label, client, tan, fyLabel);
+  const value = resolveFieldValue(label, client, tan, fyLabel, profile);
   const canCopy = !!value;
   const [copied, setCopied] = useState(false);
   const onCopy = async () => {
@@ -441,42 +450,6 @@ function FieldSheetRow({
   );
 }
 
-function CaptureRow({ field }: { field: TdsSubService['capture'][number] }) {
-  const [value, setValue] = useState('');
-  const patternErr =
-    field.pattern === 'tan' && value && !TAN_PATTERN.test(value.trim())
-      ? 'TAN must be 4 letters, 5 digits, 1 letter — e.g. CHEK09876B'
-      : field.pattern === 'reg_ack_14' && value && !REG_ACK_PATTERN.test(value.trim())
-        ? 'Acknowledgement must be exactly 14 digits'
-        : null;
-  return (
-    <li>
-      <div className="flex items-center gap-3 flex-wrap">
-        <label className="text-13 text-neutral-900 w-64 shrink-0">
-          {field.label}
-          {field.required ? (
-            <span className="text-11 uppercase tracking-[0.06em] text-danger ml-1">req</span>
-          ) : null}
-        </label>
-        <input
-          type="text"
-          value={value}
-          onChange={(e) => setValue(e.target.value)}
-          placeholder={field.hint ?? ''}
-          className={
-            'flex-1 min-w-[200px] h-9 px-3 text-13 font-mono bg-white border rounded-md focus:outline-none ' +
-            (patternErr ? 'border-danger' : 'border-neutral-300 focus:border-gold')
-          }
-        />
-      </div>
-      {patternErr ? (
-        <div className="text-11 text-danger mt-1 pl-64">{patternErr}</div>
-      ) : field.hint ? (
-        <div className="text-11 text-neutral-500 mt-1 pl-64">{field.hint}</div>
-      ) : null}
-    </li>
-  );
-}
 
 function CopyAllButton({
   fields, serviceName, clientName,
@@ -529,4 +502,13 @@ function buildSuffix(parts: { client: string; fy: string; tan: string | null }):
   if (parts.tan) p.set('tan', parts.tan);
   const s = p.toString();
   return s ? `?${s}` : '';
+}
+
+function CredentialsNotNeededNote() {
+  return (
+    <div className="flex items-start gap-2 text-12 text-neutral-500">
+      <Info size={14} strokeWidth={1.75} className="mt-0.5 shrink-0" />
+      <span>This destination is pre-login — no client credentials required.</span>
+    </div>
+  );
 }

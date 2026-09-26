@@ -66,6 +66,8 @@ export type PermissionCode =
   // an operator can work a case without ever seeing credentials.
   | 'workstation.gst.portal.view'
   | 'workstation.gst.portal.reveal'
+  | 'workstation.tds.portal.view'
+  | 'workstation.tds.portal.reveal'
   | 'workstation.eway.read'
   | 'workstation.eway.generate'
   | 'workstation.eway.cancel'
@@ -264,6 +266,8 @@ export const MATRIX: Record<RoleCode, Grant[]> = {
     // the firm decides who fills at 6pm needs the OTP contact.
     { permission: 'workstation.gst.portal.view', scope: 'organisation' },
     { permission: 'workstation.gst.portal.reveal', scope: 'organisation' },
+    { permission: 'workstation.tds.portal.view', scope: 'organisation' },
+    { permission: 'workstation.tds.portal.reveal', scope: 'organisation' },
     { permission: 'workstation.eway.read', scope: 'organisation' },
     { permission: 'workstation.eway.generate', scope: 'organisation' },
     { permission: 'workstation.eway.cancel', scope: 'organisation' },
@@ -427,6 +431,8 @@ export const MATRIX: Record<RoleCode, Grant[]> = {
     // the firm decides who fills at 6pm needs the OTP contact.
     { permission: 'workstation.gst.portal.view', scope: 'organisation' },
     { permission: 'workstation.gst.portal.reveal', scope: 'organisation' },
+    { permission: 'workstation.tds.portal.view', scope: 'organisation' },
+    { permission: 'workstation.tds.portal.reveal', scope: 'organisation' },
     { permission: 'workstation.eway.read', scope: 'organisation' },
     { permission: 'workstation.eway.generate', scope: 'organisation' },
     { permission: 'workstation.eway.cancel', scope: 'organisation' },
@@ -560,6 +566,8 @@ export const PERMISSION_DESCRIPTIONS: Record<string, string> = {
   'workstation.gst.read': 'View GST profiles and filings',
   'workstation.gst.manage': 'Update GST filing status',
   'workstation.gst.portal.view': 'See a client’s GST portal credentials record (passwords stay masked)',
+  'workstation.tds.portal.view': 'See a client’s TDS portal User ID (TAN) and whether a password is saved; add / edit / delete the record',
+  'workstation.tds.portal.reveal': 'Decrypt a client’s TDS portal password — writes an audit row per reveal',
   'workstation.gst.portal.reveal': 'Decrypt a portal / e-way bill / IRP password field — writes an audit row per reveal',
   'workstation.eway.read': 'View e-way bills',
   'workstation.eway.generate': 'Generate a (simulated) e-way bill',
