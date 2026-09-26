@@ -159,6 +159,13 @@ function Body({ inv }: { inv: Invoice }) {
               {mayWrite && inv.balance_due_paise > 0 && inv.stored_status !== 'draft' && inv.stored_status !== 'cancelled' ? (
                 <Button variant="primary" onClick={() => setPayOpen(true)}>Record payment</Button>
               ) : null}
+              <Button
+                disabled={sharing || !phone}
+                title={phone ? undefined : 'No contact number on the client record'}
+                onClick={() => share('whatsapp')}
+              >
+                <MessageCircle size={14} /> WhatsApp
+              </Button>
               <ActionsMenu
                 inv={inv}
                 sharing={sharing}
