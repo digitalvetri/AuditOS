@@ -324,10 +324,24 @@ describe('Books — resources', () => {
   it('rejects unknown resources, actions and malformed ids before calling Zoho', async () => {
     const ref = await connectAndActivate()
     const before = calls.length
-    expect((await api(`/api/books/o/${ref}/e/journals`, { cookie: admin.cookie })).status).toBe(404)
+    expect((await api(`/api/books/o/${ref}/e/payrollruns`, { cookie: admin.cookie })).status).toBe(404)
     expect((await api(`/api/books/o/${ref}/e/invoices/..%2Fsettings`, { cookie: admin.cookie })).status).toBe(400)
     expect((await api(`/api/books/o/${ref}/e/invoices/1/a/explode`, { method: 'POST', cookie: admin.cookie })).status).toBe(404)
     expect(calls.length).toBe(before)
+  })
+
+  it('exposes the rest of Zoho Books\' navigation as resources (read + delete only)', async () => {
+    const ref = await connectAndActivate()
+    for (const e of ['recurringinvoices', 'retainerinvoices', 'deliverychallans', 'salesreceipts', 'recurringexpenses', 'recurringbills', 'projects', 'timeentries', 'journals', 'currencyadjustments', 'budgets', 'documents', 'pricebooks', 'inventoryadjustments', 'accounts']) {
+      // Known resource: the list call is forwarded to Zoho (an unknown one is rejected before).
+      const before = calls.length
+      await api(`/api/books/o/${ref}/e/${e}`, { cookie: admin.cookie })
+      expect(calls.length, e).toBe(before + 1)
+      // Created in Zoho Books itself — no create through Audit OS, and Zoho is not called.
+      const beforeCreate = calls.length
+      expect((await api(`/api/books/o/${ref}/e/${e}`, { method: 'POST', cookie: admin.cookie, body: { x: 1 } })).status).not.toBe(200)
+      expect(calls.length, `${e} create`).toBe(beforeCreate)
+    }
   })
 
   it('maps Zoho outages to a clean error', async () => {

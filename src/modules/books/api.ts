@@ -122,5 +122,7 @@ export function errorText(e: unknown): string {
   const err = e as { status?: number; message?: string } | null;
   if (!err) return 'Something went wrong.';
   if (err.status === 403) return err.message || 'Your role does not allow this.';
-  return err.message || 'Something went wrong.';
+  if (err.message) return err.message;
+  // No message at all usually means the API itself was unreachable or restarting.
+  return err.status ? `Something went wrong (HTTP ${err.status}). If the server was restarting, reload the page and try again.` : 'Could not reach the server. Check that it is running, then reload the page.';
 }

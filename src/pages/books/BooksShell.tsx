@@ -13,13 +13,52 @@ import { NoZohoOrganisations } from './BooksSettings';
  * data sit behind the organisation gate; Settings is always reachable so a
  * user can connect in the first place.
  */
+/** Mirrors Zoho Books' own sidebar — same sections, order and names. */
 const NAV: { group?: string; items: { to: string; label: string; perm?: 'reports' }[] }[] = [
-  { items: [{ to: '/books', label: 'Dashboard' }] },
-  { items: [{ to: '/books/customers', label: 'Customers' }, { to: '/books/vendors', label: 'Vendors' }, { to: '/books/items', label: 'Items' }] },
-  { group: 'Sales', items: [{ to: '/books/sales/estimates', label: 'Estimates' }, { to: '/books/sales/salesorders', label: 'Sales Orders' }, { to: '/books/sales/invoices', label: 'Invoices' }] },
-  { group: 'Purchases', items: [{ to: '/books/purchases/purchaseorders', label: 'Purchase Orders' }, { to: '/books/purchases/bills', label: 'Bills' }] },
-  { items: [{ to: '/books/expenses', label: 'Expenses' }, { to: '/books/payments', label: 'Payments' }, { to: '/books/credit-notes', label: 'Credit Notes' }, { to: '/books/debit-notes', label: 'Debit Notes' }] },
-  { items: [{ to: '/books/banking', label: 'Banking' }, { to: '/books/reconciliation', label: 'Reconciliation' }, { to: '/books/taxes', label: 'Taxes' }, { to: '/books/reports', label: 'Reports', perm: 'reports' }] },
+  { items: [{ to: '/books', label: 'Home' }] },
+  { group: 'Items', items: [
+    { to: '/books/items', label: 'Items' },
+    { to: '/books/pricelists', label: 'Price Lists' },
+    { to: '/books/inventory-adjustments', label: 'Inventory Adjustments' },
+  ] },
+  { items: [{ to: '/books/banking', label: 'Banking' }] },
+  { group: 'Sales', items: [
+    { to: '/books/customers', label: 'Customers' },
+    { to: '/books/sales/estimates', label: 'Quotes' },
+    { to: '/books/sales/retainerinvoices', label: 'Retainer Invoices' },
+    { to: '/books/sales/salesorders', label: 'Sales Orders' },
+    { to: '/books/sales/deliverychallans', label: 'Delivery Challans' },
+    { to: '/books/sales/invoices', label: 'Invoices' },
+    { to: '/books/sales/salesreceipts', label: 'Sales Receipts' },
+    { to: '/books/sales/paymentsreceived', label: 'Payments Received' },
+    { to: '/books/sales/recurringinvoices', label: 'Recurring Invoices' },
+    { to: '/books/credit-notes', label: 'Credit Notes' },
+    { to: '/books/sales/ewaybills', label: 'e-Way Bills' },
+  ] },
+  { group: 'Purchases', items: [
+    { to: '/books/vendors', label: 'Vendors' },
+    { to: '/books/expenses', label: 'Expenses' },
+    { to: '/books/purchases/recurringexpenses', label: 'Recurring Expenses' },
+    { to: '/books/purchases/purchaseorders', label: 'Purchase Orders' },
+    { to: '/books/purchases/bills', label: 'Bills' },
+    { to: '/books/purchases/paymentsmade', label: 'Payments Made' },
+    { to: '/books/purchases/recurringbills', label: 'Recurring Bills' },
+    { to: '/books/debit-notes', label: 'Vendor Credits' },
+  ] },
+  { group: 'Time Tracking', items: [
+    { to: '/books/timetracking/projects', label: 'Projects' },
+    { to: '/books/timetracking/timesheet', label: 'Timesheet' },
+  ] },
+  { group: 'Accountant', items: [
+    { to: '/books/accountant/manualjournals', label: 'Manual Journals' },
+    { to: '/books/accountant/bulkupdate', label: 'Bulk Update' },
+    { to: '/books/accountant/currencyadjustments', label: 'Currency Adjustments' },
+    { to: '/books/accountant/chartofaccounts', label: 'Chart of Accounts' },
+    { to: '/books/accountant/budgets', label: 'Budgets' },
+    { to: '/books/accountant/transactionlocking', label: 'Transaction Locking' },
+  ] },
+  { items: [{ to: '/books/reports', label: 'Reports', perm: 'reports' }] },
+  { items: [{ to: '/books/documents', label: 'Documents' }] },
   { items: [{ to: '/books/settings', label: 'Settings' }] },
 ];
 

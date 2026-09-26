@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useToast } from '@/components/Toast';
 import { booksApi, errorText, type BooksConnection, type BooksOrg } from '@/modules/books/api';
@@ -45,7 +45,10 @@ export function BooksSettingsPage() {
   return (
     <div className="space-y-4">
       <PageHeader title="Settings" subtitle="Zoho Books connection, organisations and sync." right={can.settings && status.configured ? (
+        <div className="flex flex-wrap gap-2 justify-end">
+        <Link to="/books/taxes" className="h-9 px-3 text-13 font-medium rounded inline-flex items-center bg-surface text-ink border border-border hover:bg-canvas">Taxes</Link>
         <Btn variant="primary" onClick={() => setCodeOpen(true)}>{conns.some((c) => c.status === 'connected') ? 'Connect another Zoho account' : 'Connect Zoho Books'}</Btn>
+        </div>
       ) : null} />
       {codeOpen ? (
         <ConnectWithCodeModal

@@ -84,6 +84,31 @@ organisation in that data centre. Books and Settings say so and offer **Open Zoh
 6. **Disconnect.** Audit OS revokes the refresh token at Zoho (best effort), deletes both tokens locally
    and deactivates that connection's organisations. Nothing in Zoho is deleted.
 
+## Navigation (mirrors Zoho Books)
+
+The Books sidebar follows Zoho Books' own navigation: the same sections, order and names.
+
+| Group | Items |
+|---|---|
+| Home | Dashboard of the active organisation |
+| Items | Items · Price Lists · Inventory Adjustments |
+| Banking | Bank accounts and transactions. Reconciliation opens from inside Banking, as in Zoho |
+| Sales | Customers · Quotes · Retainer Invoices · Sales Orders · Delivery Challans · Invoices · Sales Receipts · Payments Received · Recurring Invoices · Credit Notes · e-Way Bills |
+| Purchases | Vendors · Expenses · Recurring Expenses · Purchase Orders · Bills · Payments Made · Recurring Bills · Vendor Credits |
+| Time Tracking | Projects · Timesheet |
+| Accountant | Manual Journals · Bulk Update · Currency Adjustments · Chart of Accounts · Budgets · Transaction Locking |
+| Reports · Documents | as in Zoho |
+| Settings | Zoho connection and organisations. Taxes open from here, as in Zoho |
+
+Three items have no Zoho API and open the same screen in Zoho Books instead of faking it:
+**Bulk Update** and **Transaction Locking** (not in the API), and **e-Way Bills** (Zoho lists them
+only once e-Way Bills are enabled for the organisation).
+
+**GST fields.** Zoho rejects every GST field (`gst_treatment`, `gst_no`, `place_of_contact`,
+`hsn_or_sac`) with "Invalid Element …" on an organisation that is not registered for GST. The
+contact and item forms therefore read `is_registered_for_gst` from `GET /organization` and show or
+send those fields only when it is true. INR currency alone is not enough.
+
 ## What is supported
 
 The resources are defined in `server/src/modules/books/entities.ts`, and the routes are generic over that table.
@@ -104,6 +129,21 @@ The resources are defined in `server/src/modules/books/entities.ts`, and the rou
 | Banking | `bankaccounts`, `banktransactions` | accounts CRUD, transactions list/add |
 | Reconciliation | `banktransactions/uncategorized/*` | match suggestions, match, categorize, exclude/restore, unmatch, uncategorize |
 | Taxes | `settings/taxes` | list, create, edit, delete |
+| Recurring Invoices / Expenses / Bills | `recurringinvoices`, `recurringexpenses`, `recurringbills` | list, view, stop, resume, delete |
+| Retainer Invoices | `retainerinvoices` | list, view, mark sent, void, delete |
+| Delivery Challans | `deliverychallans` | list, view, mark open / delivered, delete |
+| Sales Receipts | `salesreceipts` | list, view, delete |
+| Projects / Timesheet | `projects`, `projects/timeentries` | list, view, active / inactive (projects), delete |
+| Manual Journals | `journals` | list, view, publish, delete |
+| Currency Adjustments | `basecurrencyadjustment` | list, view, delete |
+| Chart of Accounts | `chartofaccounts` | list, view, active / inactive |
+| Budgets, Documents | `budgets`, `documents` | list, view, delete |
+| Price Lists | `pricebooks` | list, view, active / inactive, delete |
+| Inventory Adjustments | `inventoryadjustments` | list, view, delete |
+
+The sections added to mirror Zoho's navigation are created and edited in Zoho Books: their
+"New … in Zoho Books ↗" and "Open in Zoho Books ↗" buttons deep-link into the Zoho web app for the
+active organisation on its data centre.
 
 "Create invoice from estimate / sales order" and "create bill from PO" open a new document
 prefilled with the source's party and lines. The source number goes into the reference field.

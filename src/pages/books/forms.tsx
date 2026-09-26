@@ -118,6 +118,24 @@ function FormModal({ title, onClose, onSubmit, saving, error, children, wide }: 
 const s = (v: unknown) => (v === null || v === undefined ? '' : String(v));
 const n = (v: string) => (v.trim() === '' ? undefined : Number(v));
 
+/**
+ * Whether the Zoho organisation is registered for GST. Zoho rejects every GST
+ * field (gst_treatment, gst_no, place_of_contact, hsn_or_sac…) with
+ * "Invalid Element" on an organisation that is not — INR currency alone is
+ * not enough. Unknown while loading, so GST fields stay hidden until known.
+ */
+export function useGstRegistered(): boolean {
+  const org = useOrg();
+  const q = useQuery({ queryKey: ['books', org.id, 'organization'], queryFn: () => booksApi.org(org.id).organization(), staleTime: 5 * 60_000 });
+  return q.data?.is_registered_for_gst === true;
+}
+
+const NoGstNote = () => (
+  <p className="text-12 text-inkMuted md:col-span-2">
+    GST fields are hidden: this Zoho Books organisation is not registered for GST. Turn GST on in Zoho Books → Settings → Taxes → GST Settings, then they appear here.
+  </p>
+);
+
 // ── contacts ──────────────────────────────────────────────────────────────
 const GST_TREATMENTS = [
   { value: 'business_gst', label: 'Registered business (GST)' }, { value: 'business_none', label: 'Unregistered business' },
@@ -143,6 +161,7 @@ function Address({ label, value, onChange }: { label: string; value: ZRecord; on
 export function ContactForm({ kind, record, onClose, onSaved }: { kind: 'customer' | 'vendor'; record?: ZRecord; onClose: () => void; onSaved: (r: ZRecord) => void }) {
   const org = useOrg();
   const india = org.currency_code === 'INR';
+  const gst = useGstRegistered();
   const primary = (record?.contact_persons as ZRecord[] | undefined)?.find((p) => p.is_primary_contact) ?? {};
   const [v, setV] = useState({
     contact_name: s(record?.contact_name), company_name: s(record?.company_name), website: s(record?.website),
@@ -162,7 +181,7 @@ export function ContactForm({ kind, record, onClose, onSaved }: { kind: 'custome
       contact_name: v.contact_name.trim(), company_name: v.company_name || undefined, website: v.website || undefined,
       payment_terms: n(v.payment_terms), notes: v.notes || undefined, billing_address: billing, shipping_address: shipping,
     };
-    if (india && v.gst_treatment) Object.assign(body, { gst_treatment: v.gst_treatment, gst_no: v.gst_no.toUpperCase() || undefined, place_of_contact: v.place_of_contact || undefined });
+    if (gst && v.gst_treatment) Object.assign(body, { gst_treatment: v.gst_treatment, gst_no: v.gst_no.toUpperCase() || undefined, place_of_contact: v.place_of_contact || undefined });
     // Contact persons are only sent on create: on update Zoho matches them by
     // id, and replacing the list could drop people added in Zoho.
     if (!record && (v.email || v.phone)) body.contact_persons = [{ first_name: v.contact_name.trim(), email: v.email || undefined, phone: v.phone || undefined, is_primary_contact: true }];
@@ -177,10 +196,11 @@ export function ContactForm({ kind, record, onClose, onSaved }: { kind: 'custome
         <Field label="Phone"><TextInput value={v.phone} onChange={set('phone')} disabled={Boolean(record)} /></Field>
         <Field label="Website"><TextInput value={v.website} onChange={set('website')} /></Field>
         <Field label="Payment terms (days)"><NumberInput value={v.payment_terms} onChange={set('payment_terms')} /></Field>
-        {india ? <>
+        {india && !gst ? <NoGstNote /> : null}
+        {gst ? <>
           <Field label="GST treatment"><Select value={v.gst_treatment} onChange={set('gst_treatment')} options={GST_TREATMENTS} placeholder="—" /></Field>
           <Field label="GSTIN"><TextInput value={v.gst_no} onChange={set('gst_no')} maxLength={15} /></Field>
-          <Field label="Place of supply (state code)" hint="Two-letter code as used in Zoho, e.g. TN"><TextInput value={v.place_of_contact} onChange={set('place_of_contact')} maxLength={3} /></Field>
+          <Field label="Place of supply (state code)" hint="Two-letter state code, e.g. TN (Tamil Nadu), KA, MH, DL"><TextInput value={v.place_of_contact} onChange={set('place_of_contact')} maxLength={3} /></Field>
         </> : null}
       </div>
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -197,7 +217,7 @@ export function ContactForm({ kind, record, onClose, onSaved }: { kind: 'custome
 
 // ── items ─────────────────────────────────────────────────────────────────
 export function ItemForm({ record, onClose, onSaved }: { record?: ZRecord; onClose: () => void; onSaved: (r: ZRecord) => void }) {
-  const org = useOrg();
+  const gst = useGstRegistered();
   const taxes = useTaxOptions();
   const income = useAccountOptions(isIncomeAcct);
   const expense = useAccountOptions(isExpenseAcct);
@@ -216,7 +236,7 @@ export function ItemForm({ record, onClose, onSaved }: { record?: ZRecord; onClo
     save.mutate({
       name: v.name.trim(), sku: v.sku || undefined, unit: v.unit || undefined, product_type: v.product_type, description: v.description || undefined,
       rate: Number(v.rate), purchase_rate: n(v.purchase_rate), purchase_description: v.purchase_description || undefined, tax_id: v.tax_id || undefined,
-      hsn_or_sac: v.hsn_or_sac || undefined, account_id: v.account_id || undefined, purchase_account_id: v.purchase_account_id || undefined,
+      hsn_or_sac: gst ? v.hsn_or_sac || undefined : undefined, account_id: v.account_id || undefined, purchase_account_id: v.purchase_account_id || undefined,
     });
   };
   return (
@@ -226,7 +246,7 @@ export function ItemForm({ record, onClose, onSaved }: { record?: ZRecord; onClo
         <Field label="Type"><Select value={v.product_type} onChange={set('product_type')} options={[{ value: 'service', label: 'Service' }, { value: 'goods', label: 'Goods' }]} /></Field>
         <Field label="SKU"><TextInput value={v.sku} onChange={set('sku')} /></Field>
         <Field label="Unit"><TextInput value={v.unit} onChange={set('unit')} placeholder="e.g. pcs, hrs" /></Field>
-        {org.currency_code === 'INR' ? <Field label={v.product_type === 'goods' ? 'HSN code' : 'SAC code'}><TextInput value={v.hsn_or_sac} onChange={set('hsn_or_sac')} /></Field> : <div />}
+        {gst ? <Field label={v.product_type === 'goods' ? 'HSN code' : 'SAC code'}><TextInput value={v.hsn_or_sac} onChange={set('hsn_or_sac')} /></Field> : <div />}
         <Field label="Selling price *"><NumberInput value={v.rate} onChange={set('rate')} /></Field>
         <Field label="Sales account"><Select value={v.account_id} onChange={set('account_id')} options={income} placeholder="Zoho default" /></Field>
         <Field label="Tax"><Select value={v.tax_id} onChange={set('tax_id')} options={taxes} placeholder="None" /></Field>

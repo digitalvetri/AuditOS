@@ -22,7 +22,20 @@ export interface Resource {
   columns: Col[]; Form?: (p: FormProps) => JSX.Element; createPerm?: Perm; editPerm?: Perm; deletePerm?: Perm;
   detail: (r: ZRecord, cur: string | null) => [string, ReactNode][];
   detailPath?: string; empty: string; pdf?: boolean;
+  /** Zoho Books web-app route (after `#/`) — create / edit happen there when there is no in-app Form. */
+  zohoPath?: string;
 }
+
+/** Deep link into the Zoho Books web app for the active organisation, on its data centre. */
+export function useZohoWebUrl(): (path: string) => string {
+  const { status } = useBooks();
+  const org = useOrg();
+  const dc = status.connections.find((c) => c.status === 'connected')?.data_center ?? 'https://accounts.zoho.in';
+  const host = dc.replace('://accounts.', '://books.').replace(/\/$/, '');
+  return (path) => `${host}/app/${org.zoho_org_id}#/${path}`;
+}
+
+const zohoLinkCls = 'h-9 px-3 text-13 font-medium rounded inline-flex items-center gap-1.5 bg-surface text-ink border border-border hover:bg-canvas';
 
 const m = (v: unknown, r: ZRecord, cur: string | null) => money(v, r.currency_code ?? cur);
 const num = (field: string): Col => ({ label: 'Number', sortKey: field, render: (r) => <span className="font-medium">{r[field] ?? '—'}</span> });
@@ -30,6 +43,15 @@ const col = (label: string, field: string, sortKey?: string): Col => ({ label, s
 const dcol = (label: string, field: string, sortKey?: string): Col => ({ label, sortKey, render: (r) => date(r[field]) });
 const mcol = (label: string, field: string, sortKey?: string): Col => ({ label, right: true, sortKey, render: (r, c) => m(r[field], r, c) });
 const status: Col = { label: 'Status', render: (r) => <Badge status={r.status} /> };
+const firstOf = (r: ZRecord, fields: string[]) => fields.map((f) => r[f]).find((v) => v !== undefined && v !== null && v !== '');
+const any = (label: string, ...fields: string[]): Col => ({ label, render: (r) => { const v = firstOf(r, fields); return v === undefined ? <span className="text-inkFaint">—</span> : String(v).replace(/_/g, ' '); } });
+const anyD = (label: string, ...fields: string[]): Col => ({ label, render: (r) => date(firstOf(r, fields)) });
+const activeCol: Col = { label: 'Status', render: (r) => <Badge status={r.status ?? (r.is_active === false ? 'inactive' : 'active')} /> };
+type KvSpec = [label: string, fields: string | string[], kind?: 'm' | 'd' | 's'];
+const kv = (...spec: KvSpec[]) => (r: ZRecord, cur: string | null): [string, ReactNode][] => spec.map(([label, f, kind]) => {
+  const v = firstOf(r, Array.isArray(f) ? f : [f]);
+  return [label, kind === 'm' ? (v === undefined ? null : m(v, r, cur)) : kind === 'd' ? date(v) : kind === 's' ? <Badge status={v ?? (r.is_active === false ? 'inactive' : 'active')} /> : (v === undefined ? null : String(v).replace(/_/g, ' '))];
+});
 const st = (...xs: [string, string][]) => xs.map(([value, label]) => ({ value, label }));
 
 const txnDetail = (party: string, numberField: string, second?: [string, string]) => (r: ZRecord, cur: string | null): [string, ReactNode][] => [
@@ -63,7 +85,7 @@ export const RESOURCES: Record<string, Resource> = {
     detail: (r, c) => [['Name', r.name], ['Type', r.product_type], ['SKU', r.sku], ['Unit', r.unit], ['HSN / SAC', r.hsn_or_sac], ['Status', <Badge status={r.status} />], ['Selling price', m(r.rate, r, c)], ['Cost price', r.purchase_rate != null ? m(r.purchase_rate, r, c) : null], ['Sales account', r.account_name], ['Purchase account', r.purchase_account_name], ['Tax', r.tax_name ? `${r.tax_name} (${r.tax_percentage}%)` : null], ['Stock on hand', r.stock_on_hand], ['Description', r.description]],
   },
   estimates: {
-    entity: 'estimates', title: 'Estimates', singular: 'estimate', idField: 'estimate_id', nameField: 'estimate_number', empty: 'No estimates found.', dated: true, pdf: true,
+    entity: 'estimates', title: 'Quotes', singular: 'quote', idField: 'estimate_id', nameField: 'estimate_number', empty: 'No quotes found.', dated: true, pdf: true,
     filters: st(['Status.All', 'All'], ['Status.Draft', 'Draft'], ['Status.Sent', 'Sent'], ['Status.Accepted', 'Accepted'], ['Status.Declined', 'Declined'], ['Status.Invoiced', 'Invoiced'], ['Status.Expired', 'Expired']),
     columns: [dcol('Date', 'date', 'date'), num('estimate_number'), col('Customer', 'customer_name', 'customer_name'), col('Reference', 'reference_number'), status, mcol('Amount', 'total', 'total')],
     Form: (p) => <TxnEditor spec={TXN.estimates} {...p} />, createPerm: 'manage', editPerm: 'manage', deletePerm: 'accountant', detail: txnDetail('customer_name', 'estimate_number', ['expiry_date', 'Expiry date']),
@@ -100,13 +122,13 @@ export const RESOURCES: Record<string, Resource> = {
     detail: (r, c) => [['Date', date(r.date)], ['Expense account', r.account_name], ['Amount', m(r.total ?? r.amount, r, c)], ['Paid through', r.paid_through_account_name], ['Vendor', r.vendor_name], ['Customer', r.customer_name], ['Billable', r.is_billable ? 'Yes' : 'No'], ['Tax', r.tax_name], ['Reference', r.reference_number], ['Receipt', r.receipt_name], ['Description', r.description], ['Status', <Badge status={r.status} />]],
   },
   customerpayments: {
-    entity: 'customerpayments', title: 'Payments received', singular: 'payment', idField: 'payment_id', nameField: 'payment_number', empty: 'No payments found.',
+    entity: 'customerpayments', title: 'Payments Received', singular: 'payment', idField: 'payment_id', nameField: 'payment_number', empty: 'No payments found.',
     columns: [dcol('Date', 'date', 'date'), num('payment_number'), col('Customer', 'customer_name', 'customer_name'), col('Mode', 'payment_mode'), col('Reference', 'reference_number'), col('Invoices', 'invoice_numbers'), mcol('Amount', 'amount', 'amount'), mcol('Unused', 'unused_amount')],
     Form: (p) => <PaymentForm side="customer" {...p} />, createPerm: 'accountant', editPerm: 'accountant', deletePerm: 'accountant',
     detail: (r, c) => [['Number', r.payment_number], ['Customer', r.customer_name], ['Date', date(r.date)], ['Amount', m(r.amount, r, c)], ['Mode', r.payment_mode], ['Reference', r.reference_number], ['Deposited to', r.account_name], ['Unused', m(r.unused_amount, r, c)], ['Applied to', ((r.invoices as ZRecord[]) ?? []).map((i) => `${i.invoice_number} (${m(i.amount_applied, r, c)})`).join(', ')], ['Notes', r.description]],
   },
   vendorpayments: {
-    entity: 'vendorpayments', title: 'Payments made', singular: 'payment', idField: 'payment_id', nameField: 'payment_number', empty: 'No payments found.',
+    entity: 'vendorpayments', title: 'Payments Made', singular: 'payment', idField: 'payment_id', nameField: 'payment_number', empty: 'No payments found.',
     columns: [dcol('Date', 'date', 'date'), num('payment_number'), col('Vendor', 'vendor_name', 'vendor_name'), col('Mode', 'payment_mode'), col('Reference', 'reference_number'), col('Bills', 'bill_numbers'), mcol('Amount', 'amount', 'amount')],
     Form: (p) => <PaymentForm side="vendor" {...p} />, createPerm: 'accountant', editPerm: 'accountant', deletePerm: 'accountant',
     detail: (r, c) => [['Number', r.payment_number], ['Vendor', r.vendor_name], ['Date', date(r.date)], ['Amount', m(r.amount, r, c)], ['Mode', r.payment_mode], ['Reference', r.reference_number], ['Paid through', r.paid_through_account_name], ['Applied to', ((r.bills as ZRecord[]) ?? []).map((b) => `${b.bill_number} (${m(b.amount_applied, r, c)})`).join(', ')], ['Notes', r.description]],
@@ -118,8 +140,8 @@ export const RESOURCES: Record<string, Resource> = {
     Form: (p) => <TxnEditor spec={TXN.creditnotes} {...p} />, createPerm: 'manage', editPerm: 'manage', deletePerm: 'accountant', detail: txnDetail('customer_name', 'creditnote_number'),
   },
   vendorcredits: {
-    entity: 'vendorcredits', title: 'Debit Notes', singular: 'debit note', idField: 'vendor_credit_id', nameField: 'vendor_credit_number', empty: 'No debit notes found.', dated: true,
-    subtitle: 'Purchase-side debit notes (vendor credits in Zoho Books).',
+    entity: 'vendorcredits', title: 'Vendor Credits', singular: 'vendor credit', idField: 'vendor_credit_id', nameField: 'vendor_credit_number', empty: 'No vendor credits found.', dated: true,
+    subtitle: 'Credits from vendors (purchase-side debit notes).',
     filters: st(['Status.All', 'All'], ['Status.Draft', 'Draft'], ['Status.Open', 'Open'], ['Status.Closed', 'Closed'], ['Status.Void', 'Void']),
     columns: [dcol('Date', 'date', 'date'), num('vendor_credit_number'), col('Vendor', 'vendor_name', 'vendor_name'), col('Reference', 'reference_number'), status, mcol('Amount', 'total', 'total'), mcol('Balance', 'balance', 'balance')],
     Form: (p) => <TxnEditor spec={TXN.vendorcredits} {...p} />, createPerm: 'manage', editPerm: 'manage', deletePerm: 'accountant', detail: txnDetail('vendor_name', 'vendor_credit_number'),
@@ -130,6 +152,89 @@ export const RESOURCES: Record<string, Resource> = {
     columns: [col('Name', 'tax_name'), { label: 'Rate', right: true, render: (r) => `${r.tax_percentage}%` }, { label: 'Type', render: (r) => String(r.tax_type ?? '—').replace(/_/g, ' ') }, { label: 'Component', render: (r) => r.tax_specific_type ? String(r.tax_specific_type).toUpperCase() : '—' }, { label: 'Status', render: (r) => <Badge status={r.status ?? (r.is_inactive ? 'inactive' : 'active')} /> }],
     Form: TaxForm, createPerm: 'settings', editPerm: 'settings', deletePerm: 'settings',
     detail: (r) => [['Name', r.tax_name], ['Rate', `${r.tax_percentage}%`], ['Type', r.tax_type], ['Component', r.tax_specific_type], ['Authority', r.tax_authority_name], ['Default', r.is_default_tax ? 'Yes' : null]],
+  },
+  recurringinvoices: {
+    entity: 'recurringinvoices', title: 'Recurring Invoices', singular: 'recurring invoice', idField: 'recurring_invoice_id', nameField: 'recurrence_name', empty: 'No recurring invoices found.', zohoPath: 'recurringinvoices',
+    filters: st(['Status.All', 'All'], ['Status.Active', 'Active'], ['Status.Stopped', 'Stopped'], ['Status.Expired', 'Expired']),
+    columns: [any('Profile name', 'recurrence_name'), col('Customer', 'customer_name', 'customer_name'), any('Frequency', 'recurrence_frequency', 'frequency'), anyD('Last invoice', 'last_sent_date'), anyD('Next invoice', 'next_invoice_date'), status, mcol('Amount', 'total')],
+    deletePerm: 'accountant', detail: kv(['Profile name', 'recurrence_name'], ['Customer', 'customer_name'], ['Status', 'status', 's'], ['Frequency', ['recurrence_frequency', 'frequency']], ['Repeats every', 'repeat_every'], ['Starts', 'start_date', 'd'], ['Ends', 'end_date', 'd'], ['Last invoice', 'last_sent_date', 'd'], ['Next invoice', 'next_invoice_date', 'd'], ['Amount', 'total', 'm']),
+  },
+  retainerinvoices: {
+    entity: 'retainerinvoices', title: 'Retainer Invoices', singular: 'retainer invoice', idField: 'retainerinvoice_id', nameField: 'retainerinvoice_number', empty: 'No retainer invoices found.', dated: true, zohoPath: 'retainerinvoices',
+    filters: st(['Status.All', 'All'], ['Status.Draft', 'Draft'], ['Status.Sent', 'Sent'], ['Status.Paid', 'Paid'], ['Status.Void', 'Void']),
+    columns: [dcol('Date', 'date', 'date'), num('retainerinvoice_number'), col('Customer', 'customer_name', 'customer_name'), col('Reference', 'reference_number'), status, mcol('Amount', 'total', 'total'), mcol('Balance', 'balance')],
+    deletePerm: 'accountant', detail: txnDetail('customer_name', 'retainerinvoice_number'),
+  },
+  deliverychallans: {
+    entity: 'deliverychallans', title: 'Delivery Challans', singular: 'delivery challan', idField: 'deliverychallan_id', nameField: 'deliverychallan_number', empty: 'No delivery challans found.', dated: true, zohoPath: 'deliverychallans',
+    filters: st(['Status.All', 'All'], ['Status.Draft', 'Draft'], ['Status.Open', 'Open'], ['Status.Delivered', 'Delivered'], ['Status.Invoiced', 'Invoiced'], ['Status.Returned', 'Returned']),
+    columns: [dcol('Date', 'date', 'date'), num('deliverychallan_number'), col('Customer', 'customer_name', 'customer_name'), any('Challan type', 'challan_type'), status, mcol('Amount', 'total', 'total')],
+    deletePerm: 'accountant', detail: txnDetail('customer_name', 'deliverychallan_number'),
+  },
+  salesreceipts: {
+    entity: 'salesreceipts', title: 'Sales Receipts', singular: 'sales receipt', idField: 'sales_receipt_id', nameField: 'sales_receipt_number', empty: 'No sales receipts found.', dated: true, zohoPath: 'salesreceipts',
+    columns: [dcol('Date', 'date', 'date'), any('Number', 'sales_receipt_number', 'receipt_number'), col('Customer', 'customer_name', 'customer_name'), any('Payment mode', 'payment_mode'), status, mcol('Amount', 'total', 'total')],
+    deletePerm: 'accountant', detail: kv(['Number', ['sales_receipt_number', 'receipt_number']], ['Customer', 'customer_name'], ['Date', 'date', 'd'], ['Payment mode', 'payment_mode'], ['Deposit to', 'account_name'], ['Reference', 'reference_number'], ['Amount', 'total', 'm']),
+  },
+  recurringexpenses: {
+    entity: 'recurringexpenses', title: 'Recurring Expenses', singular: 'recurring expense', idField: 'recurring_expense_id', nameField: 'recurrence_name', empty: 'No recurring expenses found.', zohoPath: 'recurringexpenses',
+    filters: st(['Status.All', 'All'], ['Status.Active', 'Active'], ['Status.Stopped', 'Stopped'], ['Status.Expired', 'Expired']),
+    columns: [any('Profile name', 'recurrence_name'), any('Expense account', 'account_name'), any('Vendor', 'vendor_name'), any('Frequency', 'recurrence_frequency', 'frequency'), anyD('Next expense', 'next_expense_date'), status, mcol('Amount', 'total')],
+    deletePerm: 'accountant', detail: kv(['Profile name', 'recurrence_name'], ['Expense account', 'account_name'], ['Vendor', 'vendor_name'], ['Status', 'status', 's'], ['Frequency', ['recurrence_frequency', 'frequency']], ['Starts', 'start_date', 'd'], ['Ends', 'end_date', 'd'], ['Next expense', 'next_expense_date', 'd'], ['Amount', 'total', 'm']),
+  },
+  recurringbills: {
+    entity: 'recurringbills', title: 'Recurring Bills', singular: 'recurring bill', idField: 'recurring_bill_id', nameField: 'recurrence_name', empty: 'No recurring bills found.', zohoPath: 'recurringbills',
+    filters: st(['Status.All', 'All'], ['Status.Active', 'Active'], ['Status.Stopped', 'Stopped'], ['Status.Expired', 'Expired']),
+    columns: [any('Profile name', 'recurrence_name'), col('Vendor', 'vendor_name', 'vendor_name'), any('Frequency', 'recurrence_frequency', 'frequency'), anyD('Last bill', 'last_sent_date'), anyD('Next bill', 'next_bill_date'), status, mcol('Amount', 'total')],
+    deletePerm: 'accountant', detail: kv(['Profile name', 'recurrence_name'], ['Vendor', 'vendor_name'], ['Status', 'status', 's'], ['Frequency', ['recurrence_frequency', 'frequency']], ['Starts', 'start_date', 'd'], ['Ends', 'end_date', 'd'], ['Next bill', 'next_bill_date', 'd'], ['Amount', 'total', 'm']),
+  },
+  projects: {
+    entity: 'projects', title: 'Projects', singular: 'project', idField: 'project_id', nameField: 'project_name', empty: 'No projects found.', zohoPath: 'timesheet/projects',
+    filters: st(['Status.All', 'All'], ['Status.Active', 'Active'], ['Status.Inactive', 'Inactive']),
+    columns: [col('Project', 'project_name', 'project_name'), col('Customer', 'customer_name', 'customer_name'), any('Billing method', 'billing_type'), any('Budget', 'budget_type'), activeCol],
+    deletePerm: 'accountant', detail: kv(['Project', 'project_name'], ['Customer', 'customer_name'], ['Status', 'status', 's'], ['Billing method', 'billing_type'], ['Rate', 'rate', 'm'], ['Budget', 'budget_type'], ['Budget amount', 'budget_amount', 'm'], ['Description', 'description']),
+  },
+  timeentries: {
+    entity: 'timeentries', title: 'Timesheet', singular: 'time entry', idField: 'time_entry_id', nameField: 'log_date', empty: 'No time entries found.', zohoPath: 'timesheet/timeentries',
+    columns: [anyD('Date', 'log_date'), any('Project', 'project_name'), any('Task', 'task_name'), any('User', 'user_name'), any('Time', 'log_time'), { label: 'Billable', render: (r) => (r.is_billable ? 'Yes' : 'No') }, any('Status', 'billed_status')],
+    deletePerm: 'accountant', detail: kv(['Date', 'log_date', 'd'], ['Project', 'project_name'], ['Customer', 'customer_name'], ['Task', 'task_name'], ['User', 'user_name'], ['Time', 'log_time'], ['Status', 'billed_status'], ['Notes', 'notes']),
+  },
+  journals: {
+    entity: 'journals', title: 'Manual Journals', singular: 'journal', idField: 'journal_id', nameField: 'entry_number', empty: 'No manual journals found.', dated: true, zohoPath: 'journals',
+    filters: st(['JournalDate.All', 'All'], ['Status.Draft', 'Draft'], ['Status.Published', 'Published']),
+    columns: [anyD('Date', 'journal_date'), any('Journal #', 'entry_number'), col('Reference', 'reference_number'), any('Notes', 'notes'), status, mcol('Amount', 'total')],
+    deletePerm: 'accountant', detail: kv(['Journal #', 'entry_number'], ['Date', 'journal_date', 'd'], ['Status', 'status', 's'], ['Reference', 'reference_number'], ['Type', 'journal_type'], ['Amount', 'total', 'm'], ['Notes', 'notes']),
+  },
+  currencyadjustments: {
+    entity: 'currencyadjustments', title: 'Currency Adjustments', singular: 'currency adjustment', idField: 'base_currency_adjustment_id', nameField: 'adjustment_date', empty: 'No currency adjustments found.', zohoPath: 'currencyadjustments',
+    columns: [anyD('Date', 'adjustment_date'), any('Currency', 'currency_code'), any('Exchange rate', 'exchange_rate'), mcol('Gain / loss', 'gain_or_loss'), any('Notes', 'notes')],
+    deletePerm: 'accountant', detail: kv(['Date', 'adjustment_date', 'd'], ['Currency', 'currency_code'], ['Exchange rate', 'exchange_rate'], ['Gain / loss', 'gain_or_loss', 'm'], ['Notes', 'notes']),
+  },
+  accounts: {
+    entity: 'accounts', title: 'Chart of Accounts', singular: 'account', idField: 'account_id', nameField: 'account_name', empty: 'No accounts found.', zohoPath: 'chartofaccounts',
+    filters: st(['AccountType.All', 'All'], ['AccountType.Active', 'Active'], ['AccountType.Inactive', 'Inactive'], ['AccountType.Asset', 'Assets'], ['AccountType.Liability', 'Liabilities'], ['AccountType.Equity', 'Equity'], ['AccountType.Income', 'Income'], ['AccountType.Expense', 'Expenses']),
+    columns: [col('Account', 'account_name', 'account_name'), col('Code', 'account_code', 'account_code'), any('Type', 'account_type'), any('Parent', 'parent_account_name'), activeCol],
+    detail: kv(['Account', 'account_name'], ['Code', 'account_code'], ['Type', 'account_type'], ['Parent', 'parent_account_name'], ['Currency', 'currency_code'], ['Status', 'is_active', 's'], ['System account', 'is_system_account'], ['Description', 'description']),
+  },
+  budgets: {
+    entity: 'budgets', title: 'Budgets', singular: 'budget', idField: 'budget_id', nameField: 'name', empty: 'No budgets found.', zohoPath: 'budgets',
+    columns: [any('Name', 'name', 'budget_name'), any('Fiscal year', 'fiscal_year'), any('Period', 'period', 'budget_period'), anyD('Start', 'start_date'), anyD('End', 'end_date')],
+    deletePerm: 'accountant', detail: kv(['Name', ['name', 'budget_name']], ['Fiscal year', 'fiscal_year'], ['Period', ['period', 'budget_period']], ['Start', 'start_date', 'd'], ['End', 'end_date', 'd']),
+  },
+  documents: {
+    entity: 'documents', title: 'Documents', singular: 'document', idField: 'document_id', nameField: 'file_name', empty: 'No documents in Zoho Books.', zohoPath: 'documents',
+    columns: [any('File', 'file_name'), any('Type', 'file_type'), any('Size', 'file_size_formatted', 'file_size'), any('Uploaded by', 'uploaded_by'), anyD('Uploaded', 'uploaded_on_date', 'created_time')],
+    deletePerm: 'accountant', detail: kv(['File', 'file_name'], ['Type', 'file_type'], ['Size', ['file_size_formatted', 'file_size']], ['Uploaded by', 'uploaded_by'], ['Uploaded', ['uploaded_on_date', 'created_time'], 'd']),
+  },
+  pricebooks: {
+    entity: 'pricebooks', title: 'Price Lists', singular: 'price list', idField: 'pricebook_id', nameField: 'name', empty: 'No price lists found.', zohoPath: 'pricebooks',
+    columns: [col('Name', 'name', 'name'), any('Type', 'pricebook_type'), any('Currency', 'currency_code'), any('Markup / markdown', 'percentage', 'rounding_type'), activeCol],
+    deletePerm: 'accountant', detail: kv(['Name', 'name'], ['Type', 'pricebook_type'], ['Currency', 'currency_code'], ['Percentage', 'percentage'], ['Rounding', 'rounding_type'], ['Status', 'status', 's'], ['Description', 'description']),
+  },
+  inventoryadjustments: {
+    entity: 'inventoryadjustments', title: 'Inventory Adjustments', singular: 'inventory adjustment', idField: 'inventory_adjustment_id', nameField: 'reference_number', empty: 'No inventory adjustments found.', dated: true, zohoPath: 'inventoryadjustments',
+    columns: [dcol('Date', 'date', 'date'), col('Reference', 'reference_number'), any('Reason', 'reason'), any('Type', 'adjustment_type'), status],
+    deletePerm: 'accountant', detail: kv(['Date', 'date', 'd'], ['Reference', 'reference_number'], ['Reason', 'reason'], ['Type', 'adjustment_type'], ['Status', 'status', 's'], ['Description', 'description']),
   },
   bankaccounts: {
     entity: 'bankaccounts', title: 'Bank accounts', singular: 'bank account', idField: 'account_id', nameField: 'account_name', empty: 'No bank accounts in Zoho Books.',
@@ -162,6 +267,7 @@ export function EntityListPage({ resource, fixedParams, embedded = false }: { re
   const list = useQuery({ queryKey: ['books', org.id, 'list', resource.entity, params], queryFn: () => booksApi.org(org.id).list(resource.entity, params), placeholderData: keepPreviousData });
   const cur = org.currency_code;
   const allowCreate = resource.Form && resource.createPerm && can[resource.createPerm];
+  const zohoUrl = useZohoWebUrl();
   const onRow = (r: ZRecord) => (resource.detailPath && !embedded ? navigate(`${resource.detailPath}/${r[resource.idField]}`) : setOpen(String(r[resource.idField])));
 
   const body = (
@@ -194,7 +300,8 @@ export function EntityListPage({ resource, fixedParams, embedded = false }: { re
 
   return (
     <div>
-      {!embedded ? <PageHeader title={resource.title} subtitle={resource.subtitle} right={allowCreate ? <Btn variant="primary" onClick={() => setCreating(true)}><Plus size={14} />New {resource.singular}</Btn> : null} /> : null}
+      {!embedded ? <PageHeader title={resource.title} subtitle={resource.subtitle} right={allowCreate ? <Btn variant="primary" onClick={() => setCreating(true)}><Plus size={14} />New {resource.singular}</Btn>
+        : resource.zohoPath && can.manage ? <a className={zohoLinkCls} href={zohoUrl(resource.zohoPath)} target="_blank" rel="noopener noreferrer"><Plus size={14} />New {resource.singular} in Zoho Books ↗</a> : null} /> : null}
       {body}
       {open ? <DetailDrawer resource={resource} id={open} onClose={() => setOpen(null)} /> : null}
       {creating && resource.Form ? <resource.Form onClose={() => setCreating(false)} onSaved={(r) => { setCreating(false); if (r?.[resource.idField]) onRow(r); }} /> : null}
@@ -287,7 +394,12 @@ export function RecordActions({ resource, record: r, onClose }: { resource: Reso
   const acts: Act[] = [];
   const Form = resource.Form;
   if (Form && resource.editPerm) acts.push({ key: 'edit', label: 'Edit', perm: resource.editPerm, show: status !== 'void', run: () => setModal(<Form record={r} onClose={close} onSaved={done} />) });
-  if (e === 'customers' || e === 'vendors' || e === 'items') {
+  if (['recurringinvoices', 'recurringexpenses', 'recurringbills'].includes(e)) acts.push(status_('stop', 'Stop', status === 'active'), status_('resume', 'Resume', status === 'stopped'));
+  if (e === 'retainerinvoices') acts.push(status_('sent', 'Mark as sent', status === 'draft'), status_('void', 'Void', !['void', 'paid'].includes(status), 'accountant', true));
+  if (e === 'deliverychallans') acts.push(status_('open', 'Mark as open', status === 'draft'), status_('delivered', 'Mark as delivered', status === 'open'));
+  if (e === 'journals') acts.push(status_('publish', 'Publish', status === 'draft', 'accountant'));
+  if (e === 'accounts') acts.push(status_('inactive', 'Mark inactive', r.is_active !== false, 'accountant'), status_('active', 'Mark active', r.is_active === false, 'accountant'));
+  if (e === 'customers' || e === 'vendors' || e === 'items' || e === 'projects' || e === 'pricebooks') {
     acts.push(status_('inactive', 'Mark inactive', status === 'active'), status_('active', 'Mark active', status === 'inactive'));
   }
   if (e === 'bankaccounts') acts.push(status_('inactive', 'Mark inactive', r.is_active !== false, 'accountant'), status_('active', 'Mark active', r.is_active === false, 'accountant'));
@@ -317,8 +429,10 @@ export function RecordActions({ resource, record: r, onClose }: { resource: Reso
   if (resource.deletePerm) acts.push({ key: 'delete', label: 'Delete', perm: resource.deletePerm, show: true, danger: true, confirm: `Delete this ${resource.singular} from Zoho Books? Zoho refuses if it is referenced by other records.`, run: () => del.mutate() });
 
   const visible = acts.filter((a) => a.show && can[a.perm]);
+  const zohoUrl = useZohoWebUrl();
   return (
     <>
+      {resource.zohoPath ? <a className={zohoLinkCls} href={zohoUrl(`${resource.zohoPath}/${id}`)} target="_blank" rel="noopener noreferrer">Open in Zoho Books ↗</a> : null}
       {resource.pdf ? <a className="h-9 px-3 text-13 font-medium rounded inline-flex items-center gap-1.5 bg-surface text-ink border border-border hover:bg-canvas" href={booksApi.org(org.id).pdfUrl(e, id)} target="_blank" rel="noreferrer"><FileText size={14} />PDF</a> : null}
       {visible.map((a) => <Btn key={a.key} variant={a.danger ? 'danger' : 'secondary'} loading={(act.isPending && act.variables === a.key) || (a.key === 'delete' && del.isPending)} onClick={() => (a.confirm ? setConfirm(a) : a.run())}>{a.label}</Btn>)}
       {e === 'expenses' && can.manage ? <ReceiptUpload expenseId={id} /> : null}

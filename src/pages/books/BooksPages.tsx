@@ -6,7 +6,7 @@ import { useToast } from '@/components/Toast';
 import { booksApi, errorText, type ZRecord } from '@/modules/books/api';
 import { useBooks, useOrg } from '@/modules/books/context';
 import { Badge, Btn, Cell, Empty, ErrorState, Field, KV, Modal, Notice, NumberInput, PageHeader, Pager, Row, Section, Select, Skeleton, Table, TextInput, date, money, today } from '@/modules/books/ui';
-import { DetailDrawer, EntityListPage, RecordActions, RESOURCES } from './EntityList';
+import { DetailDrawer, EntityListPage, RecordActions, RESOURCES, useZohoWebUrl } from './EntityList';
 import { isCashAcct, useAccountOptions, useLookup } from './forms';
 
 /** A resource list page, e.g. /books/sales/invoices → RESOURCES.invoices. */
@@ -21,8 +21,8 @@ export function ContactDetailPage({ kind }: { kind: 'customer' | 'vendor' }) {
   const resource = RESOURCES[kind === 'customer' ? 'customers' : 'vendors'];
   const q = useQuery({ queryKey: ['books', org.id, 'record', resource.entity, id], queryFn: () => booksApi.org(org.id).get(resource.entity, id) });
   const tabs = kind === 'customer'
-    ? [['invoices', 'Invoices'], ['estimates', 'Estimates'], ['salesorders', 'Sales Orders'], ['customerpayments', 'Payments'], ['creditnotes', 'Credit Notes']]
-    : [['bills', 'Bills'], ['purchaseorders', 'Purchase Orders'], ['vendorpayments', 'Payments'], ['expenses', 'Expenses'], ['vendorcredits', 'Debit Notes']];
+    ? [['invoices', 'Invoices'], ['estimates', 'Quotes'], ['salesorders', 'Sales Orders'], ['customerpayments', 'Payments Received'], ['creditnotes', 'Credit Notes']]
+    : [['bills', 'Bills'], ['purchaseorders', 'Purchase Orders'], ['vendorpayments', 'Payments Made'], ['expenses', 'Expenses'], ['vendorcredits', 'Vendor Credits']];
   const [tab, setTab] = useState(tabs[0][0]);
   const back = kind === 'customer' ? '/books/customers' : '/books/vendors';
   if (q.isLoading) return <Skeleton rows={6} />;
@@ -82,6 +82,10 @@ export function BankingPage() {
   const chosen = account || String(accounts.data?.items[0]?.account_id ?? '');
   return (
     <div className="space-y-4">
+      {/* Zoho Books keeps reconciliation inside Banking — so does the sidebar here. */}
+      <div className="flex justify-end">
+        <Link to="/books/reconciliation" className="h-9 px-3 text-13 font-medium rounded inline-flex items-center bg-surface text-ink border border-border hover:bg-canvas">Reconcile accounts →</Link>
+      </div>
       <EntityListPage resource={RESOURCES.bankaccounts} />
       <PageHeader title="Bank transactions" subtitle="Transactions recorded or imported into Zoho Books for the selected account." right={can.accountant && chosen ? <Btn onClick={() => setAdding(true)}><Plus size={14} />Add transaction</Btn> : null} />
       <div className="flex flex-wrap gap-2">
@@ -351,6 +355,26 @@ export function ReportsPage() {
             ) : null}
         </Section>
       ) : null}
+    </div>
+  );
+}
+
+/**
+ * A Zoho Books section that Zoho does not expose through its API (Bulk
+ * Update, Transaction Locking) or that the organisation has not enabled
+ * (e-Way Bills). It keeps its place in the sidebar, says so plainly and
+ * opens the same screen in Zoho Books — nothing is faked here.
+ */
+export function ZohoOnlyPage({ title, zohoPath, why }: { title: string; zohoPath: string; why: string }) {
+  const zohoUrl = useZohoWebUrl();
+  const open = (
+    <a className="h-9 px-3 text-13 font-medium rounded inline-flex items-center gap-1.5 bg-primary text-white hover:bg-primaryHover"
+      href={zohoUrl(zohoPath)} target="_blank" rel="noopener noreferrer">Open {title} in Zoho Books ↗</a>
+  );
+  return (
+    <div className="space-y-4">
+      <PageHeader title={title} right={open} />
+      <Section><Empty title={`${title} is managed in Zoho Books`}>{why}</Empty></Section>
     </div>
   );
 }
