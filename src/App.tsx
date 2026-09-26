@@ -67,7 +67,7 @@ import { BookkeepingReports } from '@/pages/workstation/services/bookkeeping/Boo
 import { BookkeepingReportPage, BookkeepingRegisterPage, BookkeepingBookPage, BookkeepingLedgerStatement } from '@/pages/workstation/services/bookkeeping/BookkeepingReportPage';
 import { BookkeepingInventory, BookkeepingStockItemPage } from '@/pages/workstation/services/bookkeeping/BookkeepingInventory';
 import { BookkeepingBanking } from '@/pages/workstation/services/bookkeeping/BookkeepingBanking';
-import { BookkeepingTallyExport } from '@/pages/workstation/services/bookkeeping/BookkeepingTallyExport';
+import { TallyExportPage } from '@/pages/workstation/services/tally-export/TallyExportPage';
 import { BookkeepingGst } from '@/pages/workstation/services/bookkeeping/BookkeepingGst';
 import { BookkeepingTrade } from '@/pages/workstation/services/bookkeeping/BookkeepingTrade';
 import { BookkeepingPayroll } from '@/pages/workstation/services/bookkeeping/BookkeepingPayroll';
@@ -238,6 +238,8 @@ export default function App() {
                   :category catch-all below. */}
               <Route path="workstation/services/tds" element={<TdsServicesLanding />} />
               <Route path="workstation/services/tds/:slug" element={<TdsServiceHandoff />} />
+              {/* Tally Export — its own Services module (docs/tally-export/README.md). */}
+              <Route path="workstation/services/tally-export" element={<TallyExportPage />} />
               {/* Services → E-Invoice and Services → E-Way Bill were removed.
                   Their old addresses are pinned to Not Found so the :category
                   catch-all below cannot serve them as a generic Services page.
@@ -398,7 +400,6 @@ export default function App() {
                 <Route path="inventory" element={<BookkeepingInventory />} />
                 <Route path="inventory/items/:itemId" element={<BookkeepingStockItemPage />} />
                 <Route path="banking" element={<BookkeepingBanking />} />
-                <Route path="tally-export" element={<BookkeepingTallyExport />} />
                 <Route path="gst" element={<BookkeepingGst />} />
                 <Route path="payroll" element={<BookkeepingPayroll />} />
                 <Route path="audit" element={<BookkeepingAudit />} />

@@ -17,12 +17,11 @@
  * the review UI grows Apply-to-similar / Save-as-rule inline actions,
  * the Preview tab can lift into its own file.
  */
-import { useMemo, useState } from 'react';
-import { useParams } from 'react-router-dom';
+import { useEffect, useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { AlertTriangle, Check, Info, Trash2 } from 'lucide-react';
 import { rupees, ReportHeader, Panel, Loading, ErrorNote } from '@/modules/tools/bookkeeping/ui';
-import { bookkeepingAccountingApi } from '@/modules/tools/audit-automation/bookkeeping';
+import { bookkeepingApi, bookkeepingAccountingApi } from '@/modules/tools/audit-automation/bookkeeping';
 import {
   tallyExportApi, MATCH_TYPES, VOUCHER_TYPES,
   type MatchType, type VoucherType, type Rule, type PreviewRow, type PreflightReport, type Scope,
@@ -32,33 +31,80 @@ import { useToast } from '@/components/Toast';
 const inputCls =
   'h-9 w-full px-2 text-13 border border-neutral-300 rounded bg-white focus:outline-none focus:border-neutral-500';
 
-export function BookkeepingTallyExport() {
-  const { companyId = '' } = useParams();
+/**
+ * Tally Export as its own Services module — parallel to TDS, Bookkeeping
+ * and Registration in the sidebar. The bookkeeping company is picked at
+ * the top of this page (localStorage-remembered), not passed down from a
+ * workspace URL, so operators can run exports without navigating into a
+ * specific company's books first.
+ */
+const LAST_COMPANY_KEY = 'tallyExport.lastCompanyId';
+
+export function TallyExportPage() {
   const [tab, setTab] = useState<'rules' | 'preview' | 'history'>('preview');
+  const [companyId, setCompanyId] = useState<string>(() => {
+    if (typeof window === 'undefined') return '';
+    return window.localStorage.getItem(LAST_COMPANY_KEY) ?? '';
+  });
+
+  const companiesQ = useQuery({
+    queryKey: ['tally.companies'],
+    queryFn: () => bookkeepingApi.listCompanies(),
+  });
+  const companies = companiesQ.data?.items ?? [];
+
+  // Default to the first available company if nothing is remembered.
+  useEffect(() => {
+    if (!companyId && companies.length > 0) setCompanyId(companies[0].id);
+  }, [companyId, companies]);
+  useEffect(() => {
+    if (companyId) window.localStorage.setItem(LAST_COMPANY_KEY, companyId);
+  }, [companyId]);
 
   return (
     <div>
       <ReportHeader title="Tally Export" subtitle="Bank statement rows → TallyPrime Excel file." />
 
-      <div className="border-b border-neutral-200 mb-3 flex gap-1">
-        {(['preview', 'rules', 'history'] as const).map((k) => (
-          <button
-            key={k}
-            type="button"
-            onClick={() => setTab(k)}
-            className={
-              'px-3 h-9 text-13 border-b-2 -mb-px '
-              + (tab === k ? 'border-gold text-neutral-900 font-medium' : 'border-transparent text-neutral-500 hover:text-neutral-900')
-            }
-          >
-            {k === 'preview' ? 'Preview & Preflight' : k === 'rules' ? 'Rules' : 'History'}
-          </button>
-        ))}
+      <div className="mb-3 flex flex-wrap items-end gap-3">
+        <label className="text-13 min-w-[240px]">
+          <div className="text-11 uppercase tracking-[0.06em] text-neutral-500 mb-1">Company</div>
+          <select className={inputCls} value={companyId} onChange={(e) => setCompanyId(e.target.value)} disabled={companiesQ.isLoading}>
+            {companiesQ.isLoading ? <option>Loading…</option>
+              : companies.length === 0 ? <option value="">— no bookkeeping companies —</option>
+              : companies.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+          </select>
+        </label>
       </div>
 
-      {tab === 'preview' ? <PreviewPanel companyId={companyId} />
-        : tab === 'rules' ? <RulesPanel companyId={companyId} />
-        : <HistoryPanel companyId={companyId} />}
+      {!companyId ? (
+        <Panel>
+          <div className="px-3 py-6 text-13 text-neutral-500">
+            No bookkeeping company selected. Create one under Services → Bookkeeping first, then come back here to run a Tally export.
+          </div>
+        </Panel>
+      ) : (
+        <>
+          <div className="border-b border-neutral-200 mb-3 flex gap-1">
+            {(['preview', 'rules', 'history'] as const).map((k) => (
+              <button
+                key={k}
+                type="button"
+                onClick={() => setTab(k)}
+                className={
+                  'px-3 h-9 text-13 border-b-2 -mb-px '
+                  + (tab === k ? 'border-gold text-neutral-900 font-medium' : 'border-transparent text-neutral-500 hover:text-neutral-900')
+                }
+              >
+                {k === 'preview' ? 'Preview & Preflight' : k === 'rules' ? 'Rules' : 'History'}
+              </button>
+            ))}
+          </div>
+
+          {tab === 'preview' ? <PreviewPanel companyId={companyId} />
+            : tab === 'rules' ? <RulesPanel companyId={companyId} />
+            : <HistoryPanel companyId={companyId} />}
+        </>
+      )}
     </div>
   );
 }

@@ -141,7 +141,6 @@ function SecondaryNav({ companyId }: { companyId: string }) {
         { to: `${base}/sales`, label: 'Sales', icon: TrendingUp },
         { to: `${base}/purchase`, label: 'Purchase', icon: ShoppingCart },
         { to: `${base}/banking`, label: 'Banking', icon: Landmark },
-        { to: `${base}/tally-export`, label: 'Tally Export', icon: FileText },
         { to: `${base}/payroll`, label: 'Payroll', icon: Users },
       ],
     },
