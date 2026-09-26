@@ -120,7 +120,6 @@ export function Sidebar({ mobileOpen, onMobileClose }: Props) {
       { to: '/workstation/services',    label: 'Services',   icon: Briefcase,     end: true, visible: can(role, 'workstation.service.read', 'self'),
         children: [
           { to: '/workstation/services/tds',           label: 'TDS' },
-          { to: '/workstation/services/bookkeeping',   label: 'Bookkeeping' },
           { to: '/workstation/services/registration',  label: 'Registration',
             children: REGISTRATION_SERVICES.map((r) => ({
               to: `/workstation/services/registration/${r.slug}`,

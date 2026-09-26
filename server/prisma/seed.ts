@@ -25,7 +25,6 @@ import { seedWorkstation } from './seed-workstation.js'
 import { backfillPeriods } from '../src/modules/gst/service.js'
 import { seedTools } from './seed-tools.js'
 import { seedAuditAutomation } from './seed-audit-automation.js'
-import { seedBookkeeping } from './seed-bookkeeping.js'
 import { seedRegistration } from './seed-registration.js'
 import { seedPartnership } from './seed-partnership.js'
 import { migrateGstReturnCases } from './seed-gst-return-cases.js'
@@ -972,7 +971,6 @@ async function main() {
   const gstPeriods = await backfillPeriods()
   await seedTools(prisma)
   await seedAuditAutomation(prisma)
-  const bookkeeping = await seedBookkeeping(prisma, org.id)
   const registration = await seedRegistration(prisma, org.id)
   await seedPartnership(prisma, org.id)
   // Batch-open case-per-period rows for the demo GstCompliancePeriod data so
@@ -994,7 +992,6 @@ async function main() {
   console.log('Seed complete:', counts)
   console.log('Workstation:', workstation)
   console.log('GST periods:', gstPeriods)
-  console.log('Bookkeeping:', bookkeeping)
   console.log('Registration:', registration)
   console.log('GST return cases (migrated to partnership engine):', returnCases)
   console.log('GST reference:', gst)

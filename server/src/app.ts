@@ -22,7 +22,6 @@ import { signedRouter } from './modules/signed.routes.js'
 import { leadsRouter } from './modules/workstation/leads.routes.js'
 import { clientsRouter } from './modules/workstation/clients.routes.js'
 import { servicesRouter, serviceCatalogRouter } from './modules/workstation/services.routes.js'
-import { bookkeepingRouter } from './modules/bookkeeping/routes.js'
 import { forKind, partnershipRouter, partnershipSignedRouter } from './modules/partnership/routes.js'
 import { registrationsRouter } from './modules/registration/routes.js'
 import { followUpsRouter } from './modules/workstation/followups.routes.js'
@@ -171,8 +170,6 @@ export function createApp() {
   app.use('/api/services', servicesRouter)
   app.use('/api/service-catalog', serviceCatalogRouter)
   app.use('/api/follow-ups', followUpsRouter)
-  // Bookkeeping Service — the service-management layer over Books.
-  app.use('/api/bookkeeping', bookkeepingRouter)
   // Incorporation Service — case management for company/LLP/firm formation.
   // Calls no external portal: every government fact it holds was recorded by
   // an employee and is attributed to them.

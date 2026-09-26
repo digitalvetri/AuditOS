@@ -73,14 +73,6 @@ import { TallyPayroll } from '@/pages/tools/tally/TallyPayroll';
 import { TallyAudit } from '@/pages/tools/tally/TallyAudit';
 import { TallyUtilities } from '@/pages/tools/tally/TallyUtilities';
 import { TallySettings } from '@/pages/tools/tally/TallySettings';
-// Bookkeeping Service — Workstation → Services → Bookkeeping. Manages the
-// service workflow; all accounting stays in Books.
-import { BookkeepingShell } from '@/pages/workstation/bookkeeping/BookkeepingShell';
-import { BookkeepingOverviewPage } from '@/pages/workstation/bookkeeping/Overview';
-import { BookkeepingClientsPage, BookkeepingClientDetailPage } from '@/pages/workstation/bookkeeping/Clients';
-import { BookkeepingMonthlyWorkPage, BookkeepingPeriodDetailPage } from '@/pages/workstation/bookkeeping/MonthlyWork';
-import { BookkeepingSettingsPage } from '@/pages/workstation/bookkeeping/Lists';
-
 // GST — dedicated landing page + per-service AssistedHandoff detail +
 // shape-based workspace dispatcher (recurring period board / project case
 // pipeline) + weekly notice-check discovery workflow.
@@ -241,27 +233,6 @@ export default function App() {
               <Route path="workstation/clients/:id" element={<ClientWorkspacePage />} />
               <Route path="workstation/clients/:id/:tab" element={<ClientWorkspacePage />} />
               <Route path="workstation/services" element={<ServicesPage />} />
-              {/* Bookkeeping Service — a real module, so it is declared
-                  BEFORE the :category catch-all below that renders every
-                  other service slug as the placeholder Services page. */}
-              <Route path="workstation/services/bookkeeping" element={<BookkeepingShell />}>
-                <Route index element={<BookkeepingOverviewPage />} />
-                <Route path="clients" element={<BookkeepingClientsPage />} />
-                <Route path="clients/:clientId" element={<BookkeepingClientDetailPage />} />
-                <Route path="monthly-work" element={<BookkeepingMonthlyWorkPage />} />
-                <Route path="monthly-work/:periodId" element={<BookkeepingPeriodDetailPage />} />
-                <Route path="settings" element={<BookkeepingSettingsPage />} />
-                {/* Spec §3: the five retired tabs REDIRECT to their new home
-                    with the equivalent filter, so an old bookmark still
-                    lands somewhere meaningful rather than 404. Reminders had
-                    no in-module home (spec: "notifications, not a page") —
-                    it redirects to Overview without a filter. */}
-                <Route path="tasks" element={<Navigate to="..?group=task" replace />} />
-                <Route path="pending-items" element={<Navigate to="..?tile=blocked" replace />} />
-                <Route path="documents" element={<Navigate to="../monthly-work" replace />} />
-                <Route path="deliverables" element={<Navigate to="../monthly-work" replace />} />
-                <Route path="reminders" element={<Navigate to=".." replace />} />
-              </Route>
               {/* TDS module — copied from GST structure, wins over the
                   :category catch-all below. */}
               <Route path="workstation/services/tds" element={<TdsServicesLanding />} />
