@@ -301,13 +301,16 @@ export default function App() {
                 {/* Row-click landing from the client dashboard —
                     GST-CLIENT-DASHBOARD-TASKS §2. */}
                 <Route path="clients/:clientId" element={<GstClientView />} />
-                {/* Return-cycle client lists (§9-3). PartnershipClients is
-                    service-agnostic and reads the per-return service via
-                    ServiceProvider; the period selector switches on
-                    isReturnKind so registration lists stay period-less. */}
-                <Route path="gstr1" element={<ServiceProvider kind="GSTR1"><PartnershipClients /></ServiceProvider>} />
-                <Route path="gstr2b" element={<ServiceProvider kind="GSTR2B"><PartnershipClients /></ServiceProvider>} />
-                <Route path="gstr3b" element={<ServiceProvider kind="GSTR3B"><PartnershipClients /></ServiceProvider>} />
+                {/* Return-cycle client lists — unified with the dashboard so
+                    a row click lands on the same client view regardless of
+                    entry point, and the roster is every GST client (not just
+                    those with an existing case for the period). The three
+                    tabs render the same table as /dashboard with a header
+                    that names the return in focus. Case detail is still one
+                    click away from the client view's "Open case" action. */}
+                <Route path="gstr1" element={<GstDashboard focusKind="GSTR1" />} />
+                <Route path="gstr2b" element={<GstDashboard focusKind="GSTR2B" />} />
+                <Route path="gstr3b" element={<GstDashboard focusKind="GSTR3B" />} />
                 {/* Return-cycle cases (§9-2). The shared PartnershipCase
                     renders inside a per-return ServiceProvider so useSvc()
                     resolves to the right template, api and detailsLabel.

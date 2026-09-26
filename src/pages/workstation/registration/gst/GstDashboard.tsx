@@ -71,7 +71,20 @@ const STAGE_TO_KIND: Record<'gstr1' | 'gstr2b' | 'gstr3b', RegistrationKind> = {
   gstr1: 'GSTR1', gstr2b: 'GSTR2B', gstr3b: 'GSTR3B',
 };
 
-export function GstDashboard() {
+const FOCUS_LABEL: Record<'GSTR1' | 'GSTR2B' | 'GSTR3B', { title: string; subtitle: string }> = {
+  GSTR1: { title: 'GSTR-1 clients', subtitle: 'Every GST client with their GSTR-1 status for the selected period. Click a row to open the client view.' },
+  GSTR2B: { title: 'IMS + GSTR-2B clients', subtitle: 'Every GST client with their 2B reconciliation status for the selected period. Click a row to open the client view.' },
+  GSTR3B: { title: 'GSTR-3B clients', subtitle: 'Every GST client with their GSTR-3B status for the selected period. Click a row to open the client view.' },
+};
+
+/**
+ * @param focusKind — when set, the same table is shown but the header names
+ *   the specific return and the client view is the row-click target. This
+ *   is what lets `/gst/gstr1`, `/gst/gstr2b`, `/gst/gstr3b` and `/gst/dashboard`
+ *   converge on one component instead of the older case-list flow, so a
+ *   client shows the same details from every entry point.
+ */
+export function GstDashboard({ focusKind }: { focusKind?: 'GSTR1' | 'GSTR2B' | 'GSTR3B' } = {}) {
   const navigate = useNavigate();
   const periods = recentPeriods(12);
   const defaultPeriod = periods[0]?.value ?? new Date().toISOString().slice(0, 7);
@@ -125,7 +138,10 @@ export function GstDashboard() {
   return (
     <div className="m-gst space-y-4">
       <div className="flex items-start justify-between gap-3">
-        <PageHeader title="GST" subtitle="Every client's GSTR-1 → GSTR-2B → GSTR-3B for the selected period." />
+        <PageHeader
+          title={focusKind ? FOCUS_LABEL[focusKind].title : 'GST'}
+          subtitle={focusKind ? FOCUS_LABEL[focusKind].subtitle : "Every client's GSTR-1 → GSTR-2B → GSTR-3B for the selected period."}
+        />
         <div className="flex items-center gap-1 shrink-0">
           <button type="button" onClick={() => shifted(-1)} aria-label="Previous period"
                   className="h-9 w-9 text-13 border border-neutral-300 rounded hover:border-neutral-400">◂</button>
