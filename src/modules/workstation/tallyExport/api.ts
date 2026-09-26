@@ -121,6 +121,10 @@ export const tallyExportApi = {
     api.patch<Rule>(`/api/tally-export/rules/${id}`, patch),
   deleteRule: (id: string) =>
     api.delete<{ ok: true }>(`/api/tally-export/rules/${id}`),
+  bulkRules: (items: RuleInput[]) =>
+    api.post<{ created: Rule[]; errors: { index: number; message: string }[] }>(
+      '/api/tally-export/rules/bulk', { items },
+    ),
 
   preview: (scope: Scope) =>
     api.post<Preview>('/api/tally-export/preview', toBody(scope)),

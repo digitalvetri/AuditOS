@@ -126,6 +126,51 @@ export async function deleteRule(id: string): Promise<void> {
   await prisma.tallyLedgerRule.update({ where: { id }, data: { deletedAt: new Date() } })
 }
 
+export interface BulkRuleResult {
+  created: RuleApi[]
+  errors: { index: number; message: string }[]
+}
+
+/**
+ * Bulk-create rules. Each row is validated in isolation; a bad row does
+ * not stop the others. The returned `errors` array is indexed against
+ * the input so the UI can highlight the source rows the operator pasted.
+ *
+ * Runs one transaction — if any validation throws unexpectedly (as
+ * opposed to a caught FieldError), everything rolls back rather than
+ * leaving the client half-imported.
+ */
+export async function bulkCreateRules(
+  inputs: RuleInput[],
+  createdBy: string | null,
+): Promise<BulkRuleResult> {
+  const created: RuleApi[] = []
+  const errors: BulkRuleResult['errors'] = []
+  await prisma.$transaction(async (tx) => {
+    for (let i = 0; i < inputs.length; i++) {
+      const input = inputs[i]
+      try {
+        validateRuleInput(input)
+        const row = await tx.tallyLedgerRule.create({
+          data: {
+            companyId: input.companyId,
+            matchType: input.matchType,
+            pattern: input.pattern.trim(),
+            ledgerName: input.ledgerName.trim(),
+            voucherType: input.voucherType ?? null,
+            priority: input.priority ?? 0,
+            createdBy,
+          },
+        })
+        created.push(toRuleApi(row))
+      } catch (e) {
+        errors.push({ index: i, message: (e as Error).message })
+      }
+    }
+  })
+  return { created, errors }
+}
+
 // ── Rule matching ─────────────────────────────────────────────────────────
 
 interface CompiledRule {

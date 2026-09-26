@@ -20,7 +20,7 @@ import { ApiError, handler, ok } from '../../lib/http.js'
 import { requireSession } from '../../platform/auth.js'
 import { requireWorkstation } from '../../platform/workstation/scope.js'
 import {
-  buildPreview, computePreflight, createRule, deleteRule, listAllRules,
+  buildPreview, bulkCreateRules, computePreflight, createRule, deleteRule, listAllRules,
   listExportHistory, listRulesForClient, updateRule,
 } from './service.js'
 import { formatVouchersXml } from './xml.js'
@@ -81,6 +81,43 @@ tallyExportRouter.delete('/rules/:id', handler(async (req, res) => {
   requireWorkstation(session, ...MANAGE)
   await deleteRule(req.params.id)
   ok(res, { ok: true })
+}))
+
+/**
+ * POST /api/tally-export/rules/bulk
+ *
+ * Body: { items: [{ company_id, match_type, pattern, ledger_name,
+ *                    voucher_type?, priority? }, ...] }
+ *
+ * Runs one transaction; validates each row in isolation and returns
+ * both the created rows and the per-index error messages so the UI
+ * can highlight which pasted lines failed without losing the ones
+ * that succeeded.
+ */
+tallyExportRouter.post('/rules/bulk', handler(async (req, res) => {
+  const session = requireSession(req)
+  requireWorkstation(session, ...MANAGE)
+  const b = (req.body ?? {}) as Record<string, unknown>
+  const items = Array.isArray(b.items) ? b.items : null
+  if (!items || items.length === 0) {
+    throw ApiError.badRequest('items must be a non-empty array.')
+  }
+  if (items.length > 500) {
+    throw ApiError.badRequest('Refusing to import more than 500 rules at once.')
+  }
+  const parsed = items.map((raw) => {
+    const r = (raw ?? {}) as Record<string, unknown>
+    return {
+      companyId: str(r.company_id),
+      matchType: (str(r.match_type) ?? 'contains') as (typeof MATCH_TYPES)[number],
+      pattern: str(r.pattern) ?? '',
+      ledgerName: str(r.ledger_name) ?? '',
+      voucherType: (str(r.voucher_type) ?? null) as (typeof VOUCHER_TYPES)[number] | null,
+      priority: typeof r.priority === 'number' ? r.priority : 0,
+    }
+  })
+  const result = await bulkCreateRules(parsed, session.userId ?? null)
+  ok(res, result, 201)
 }))
 
 // ── Preview + preflight ──────────────────────────────────────────────────

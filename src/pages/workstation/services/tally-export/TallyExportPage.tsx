@@ -146,9 +146,32 @@ function RulesPanel({ companyId }: { companyId: string }) {
   });
 
   const rules = rulesQ.data?.items ?? [];
+  const [bulkOpen, setBulkOpen] = useState(false);
 
   return (
     <div className="space-y-3">
+      {bulkOpen ? (
+        <BulkImportDialog
+          companyId={companyId}
+          onClose={() => setBulkOpen(false)}
+          onDone={(n) => {
+            toast.push('success', `Imported ${n} rule${n === 1 ? '' : 's'}.`);
+            void qc.invalidateQueries({ queryKey: ['tallyExport.rules', companyId] });
+            setBulkOpen(false);
+          }}
+        />
+      ) : null}
+
+      <div className="flex justify-end">
+        <button
+          type="button"
+          onClick={() => setBulkOpen(true)}
+          className="h-9 px-3 text-13 border border-neutral-300 rounded bg-white hover:bg-neutral-50"
+        >
+          Bulk import from CSV / TSV
+        </button>
+      </div>
+
       <Panel title="New rule">
         <div className="p-3 grid grid-cols-1 md:grid-cols-6 gap-2 items-end">
           <label className="text-13">
@@ -507,5 +530,204 @@ function HistoryPanel({ companyId }: { companyId: string }) {
         </table>
       )}
     </Panel>
+  );
+}
+// ── Bulk import ──────────────────────────────────────────────────────────
+
+const SAMPLE_TSV = [
+  'match_type\tpattern\tledger_name\tvoucher_type\tpriority\tscope',
+  'contains\tSRI VARI TRADERS\tSri Vari Traders\t\t10\tcompany',
+  'contains\tMEENAKSHI AGENCIES\tMeenakshi Agencies\t\t10\tcompany',
+  'contains\tTRF TO SAVINGS\tHDFC Savings 5210\tcontra\t20\tcompany',
+  'contains\tATM WDL\tCash-in-Hand\tcontra\t20\tcompany',
+].join('\n');
+
+interface ParsedRow {
+  match_type: MatchType;
+  pattern: string;
+  ledger_name: string;
+  voucher_type: VoucherType | null;
+  priority: number;
+  scope: 'company' | 'global';
+  /** Non-null when the row could not be parsed. */
+  error: string | null;
+}
+
+function detectDelimiter(text: string): '\t' | ',' {
+  return text.indexOf('\t') >= 0 ? '\t' : ',';
+}
+
+/**
+ * Parse the pasted table. Column names come from the first row when it
+ * looks like a header (contains `match_type` or `pattern`); otherwise
+ * the columns are assumed to be, in order: match_type, pattern,
+ * ledger_name, voucher_type, priority, scope. Every non-blank line
+ * becomes a ParsedRow — validation errors are surfaced per-row rather
+ * than blocking the whole paste.
+ */
+function parseRuleTable(text: string): ParsedRow[] {
+  const delim = detectDelimiter(text);
+  const lines = text.split(/\r?\n/).map((l) => l.trim()).filter((l) => l.length > 0);
+  if (lines.length === 0) return [];
+  const first = lines[0].split(delim).map((c) => c.trim().toLowerCase());
+  const hasHeader = first.includes('pattern') || first.includes('match_type');
+  const cols = hasHeader ? first : ['match_type', 'pattern', 'ledger_name', 'voucher_type', 'priority', 'scope'];
+  const dataLines = hasHeader ? lines.slice(1) : lines;
+
+  const idx = (n: string): number => cols.indexOf(n);
+  const iMatch = idx('match_type');
+  const iPat = idx('pattern');
+  const iLed = idx('ledger_name');
+  const iVou = idx('voucher_type');
+  const iPri = idx('priority');
+  const iSco = idx('scope');
+
+  return dataLines.map((line) => {
+    const cells = line.split(delim).map((c) => c.trim());
+    const errors: string[] = [];
+    const matchTypeRaw = iMatch >= 0 ? cells[iMatch] : 'contains';
+    const match_type = (MATCH_TYPES as readonly string[]).includes(matchTypeRaw) ? (matchTypeRaw as MatchType) : 'contains';
+    if (iMatch >= 0 && matchTypeRaw && !(MATCH_TYPES as readonly string[]).includes(matchTypeRaw)) {
+      errors.push(`unknown match_type "${matchTypeRaw}"`);
+    }
+    const pattern = iPat >= 0 ? cells[iPat] ?? '' : '';
+    const ledger_name = iLed >= 0 ? cells[iLed] ?? '' : '';
+    if (!pattern) errors.push('pattern is required');
+    if (!ledger_name) errors.push('ledger_name is required');
+    const voucherRaw = iVou >= 0 ? (cells[iVou] ?? '').toLowerCase() : '';
+    let voucher_type: VoucherType | null = null;
+    if (voucherRaw) {
+      if ((VOUCHER_TYPES as readonly string[]).includes(voucherRaw)) voucher_type = voucherRaw as VoucherType;
+      else errors.push(`unknown voucher_type "${voucherRaw}"`);
+    }
+    const priority = iPri >= 0 && cells[iPri] ? Number(cells[iPri]) || 0 : 0;
+    const scopeRaw = iSco >= 0 ? (cells[iSco] ?? '').toLowerCase() : 'company';
+    const scope: 'company' | 'global' = scopeRaw === 'global' ? 'global' : 'company';
+
+    return { match_type, pattern, ledger_name, voucher_type, priority, scope, error: errors.length ? errors.join('; ') : null };
+  });
+}
+
+function BulkImportDialog({
+  companyId, onClose, onDone,
+}: {
+  companyId: string;
+  onClose: () => void;
+  onDone: (createdCount: number) => void;
+}) {
+  const toast = useToast();
+  const [text, setText] = useState('');
+  const parsed = useMemo(() => parseRuleTable(text), [text]);
+  const validCount = parsed.filter((r) => !r.error).length;
+  const errorCount = parsed.length - validCount;
+
+  const submit = useMutation({
+    mutationFn: () =>
+      tallyExportApi.bulkRules(
+        parsed.filter((r) => !r.error).map((r) => ({
+          company_id: r.scope === 'company' ? companyId : null,
+          match_type: r.match_type,
+          pattern: r.pattern,
+          ledger_name: r.ledger_name,
+          voucher_type: r.voucher_type,
+          priority: r.priority,
+        })),
+      ),
+    onSuccess: (r) => {
+      if (r.errors.length > 0) toast.push('error', `${r.errors.length} row(s) rejected by the server.`);
+      onDone(r.created.length);
+    },
+    onError: (e: Error) => toast.push('error', e.message),
+  });
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-start justify-center bg-black/40 p-4 overflow-y-auto" onClick={onClose}>
+      <div className="w-[820px] max-w-full bg-white rounded shadow-lg mt-8" onClick={(e) => e.stopPropagation()}>
+        <div className="px-4 py-3 border-b border-neutral-200 flex items-center gap-3">
+          <div className="flex-1">
+            <div className="text-15 font-semibold text-neutral-900">Bulk import rules</div>
+            <div className="text-12 text-neutral-500">
+              Paste CSV or TSV. Columns: match_type, pattern, ledger_name, voucher_type, priority, scope. Header row optional.
+            </div>
+          </div>
+          <button type="button" onClick={onClose} className="text-neutral-500 hover:text-neutral-900" aria-label="Close">✕</button>
+        </div>
+
+        <div className="p-4 space-y-3">
+          <div className="flex items-center gap-2 text-13">
+            <button
+              type="button"
+              onClick={() => setText(SAMPLE_TSV)}
+              className="h-8 px-2 text-12 border border-neutral-300 rounded bg-white hover:bg-neutral-50"
+            >
+              Load a small sample
+            </button>
+            <span className="text-12 text-neutral-500">
+              Tip: paste from a spreadsheet — the tabs come along and are detected automatically.
+            </span>
+          </div>
+
+          <textarea
+            className="w-full h-[220px] font-mono text-12 p-2 border border-neutral-300 rounded bg-neutral-50 focus:outline-none focus:border-neutral-500"
+            placeholder={SAMPLE_TSV}
+            value={text}
+            onChange={(e) => setText(e.target.value)}
+          />
+
+          {parsed.length > 0 ? (
+            <div className="border border-neutral-200 rounded max-h-[220px] overflow-y-auto">
+              <table className="w-full text-12">
+                <thead>
+                  <tr className="text-11 uppercase tracking-[0.06em] text-neutral-500 sticky top-0 bg-neutral-50">
+                    <th className="text-left px-2 py-1 w-6">#</th>
+                    <th className="text-left px-2 py-1">Match</th>
+                    <th className="text-left px-2 py-1">Pattern</th>
+                    <th className="text-left px-2 py-1">Ledger</th>
+                    <th className="text-left px-2 py-1">Type</th>
+                    <th className="text-right px-2 py-1">Pri</th>
+                    <th className="text-left px-2 py-1">Scope</th>
+                    <th className="text-left px-2 py-1">Issue</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {parsed.map((r, i) => (
+                    <tr key={i} className={'border-t border-neutral-100 ' + (r.error ? 'bg-red/[0.04]' : '')}>
+                      <td className="px-2 py-1 text-neutral-400 tabular-nums">{i + 1}</td>
+                      <td className="px-2 py-1">{r.match_type}</td>
+                      <td className="px-2 py-1 font-mono">{r.pattern || '—'}</td>
+                      <td className="px-2 py-1">{r.ledger_name || '—'}</td>
+                      <td className="px-2 py-1 text-neutral-500">{r.voucher_type ?? 'auto'}</td>
+                      <td className="px-2 py-1 text-right tabular-nums">{r.priority}</td>
+                      <td className="px-2 py-1 text-neutral-500">{r.scope}</td>
+                      <td className="px-2 py-1 text-red">{r.error ?? ''}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          ) : null}
+
+          <div className="text-13 text-neutral-700">
+            {parsed.length === 0 ? 'Paste rows above to preview them here.'
+              : errorCount === 0 ? `${validCount} rule${validCount === 1 ? '' : 's'} ready to import.`
+              : `${validCount} valid · ${errorCount} with issues (will be skipped).`}
+          </div>
+        </div>
+
+        <div className="px-4 py-3 border-t border-neutral-200 flex justify-end gap-2">
+          <button type="button" onClick={onClose} className="h-9 px-3 text-13 border border-neutral-300 rounded bg-white hover:bg-neutral-50">
+            Cancel
+          </button>
+          <button
+            type="button"
+            disabled={validCount === 0 || submit.isPending}
+            onClick={() => submit.mutate()}
+            className="h-9 px-3 text-13 border border-neutral-300 rounded bg-neutral-900 text-white hover:opacity-90 disabled:opacity-50"
+          >
+            {submit.isPending ? 'Importing…' : `Import ${validCount || ''}`}
+          </button>
+        </div>
+      </div>
+    </div>
   );
 }
