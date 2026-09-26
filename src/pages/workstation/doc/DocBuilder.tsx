@@ -10,6 +10,7 @@ import {
 import { inputClass } from '@/modules/workstation/components';
 import { workstationApi } from '@/modules/workstation/api';
 import { pageGeometry, type LayoutConfig } from '@/modules/workstation/quotations/document';
+import { clientHeader, type CompanyHeader, type HeaderField, type HeaderSource } from '@/modules/workstation/docs/model';
 import {
   caretOffset, serializeInline, splitAtCaret, textToInline, unitsIn,
 } from '@/modules/workstation/engagement/richtext';
@@ -250,9 +251,35 @@ export function DocBuilderPage() {
           if (f.from && !next.fields[f.key]) next.fields[f.key] = from[f.from] ?? '';
         }
       }
+      // The header is the client's letterhead: a different client means a
+      // different letterhead. Keep the on/off state and field ticks.
+      const hdr = (x.layout as LayoutConfig & { companyHeader?: CompanyHeader }).companyHeader;
+      if (hdr) {
+        const fresh = clientHeader(c ?? null);
+        next.layout = { ...x.layout, companyHeader: { ...fresh, enabled: hdr.enabled, show: { ...hdr.show, gstin: fresh.show.gstin } } } as LayoutConfig;
+      }
       return next;
     }, true);
   }, [clientsQ.data, t, update]);
+
+  /**
+   * The header always mirrors the linked client's record. Re-applied when the
+   * document opens or the client list loads, so a later change to the client
+   * (a new address, a GSTIN) reaches the letter; only writes when a value
+   * actually differs, and keeps the user's on/off and line choices.
+   */
+  const linkedClient = s.partyKind === 'client' ? (clientsQ.data?.items ?? []).find((c) => c.id === s.partyId) ?? null : null;
+  const headerSaved = (s.layout as LayoutConfig & { companyHeader?: CompanyHeader }).companyHeader;
+  useEffect(() => {
+    if (!headerSaved || !linkedClient) return;
+    const fresh = clientHeader(linkedClient);
+    const keys = ['name', 'address', 'email', 'phone', 'gstin'] as const;
+    if (keys.every((k) => (headerSaved[k] ?? '') === fresh[k])) return;
+    update((x) => ({
+      ...x,
+      layout: { ...x.layout, companyHeader: { ...fresh, enabled: headerSaved.enabled, show: { ...fresh.show, ...headerSaved.show, gstin: headerSaved.gstin ? (headerSaved.show?.gstin ?? true) && fresh.show.gstin : fresh.show.gstin } } } as LayoutConfig,
+    }));
+  }, [linkedClient, headerSaved, update]);
 
   useEffect(() => {
     if (isEdit || prefilled.current || !prefillClientId || !clientsQ.data) return;
@@ -581,7 +608,7 @@ function DetailsTab({ t, s, update, clients, chooseClient }: {
   t: DocTypeConfig;
   s: DocState;
   update: (fn: (s: DocState) => DocState, step?: boolean) => void;
-  clients: { id: string; company_name: string }[];
+  clients: ({ id: string } & HeaderSource)[];
   chooseClient: (id: string) => void;
 }) {
   const groups = [...new Set(t.fields.map((f) => f.group ?? 'Particulars'))];
@@ -611,6 +638,9 @@ function DetailsTab({ t, s, update, clients, chooseClient }: {
         </div>
       </div>
 
+      <CompanyHeaderSection s={s} update={update}
+        client={s.partyKind === 'client' ? clients.find((c) => c.id === s.partyId) ?? null : null} />
+
       {groups.map((g) => (
         <div key={g} className="space-y-2">
           <Label>{g}</Label>
@@ -634,6 +664,74 @@ function DetailsTab({ t, s, update, clients, chooseClient }: {
         straight onto the page — doing so makes that spot literal text, so it stops following
         the field.
       </p>
+    </div>
+  );
+}
+
+/**
+ * Company header controls (Details tab). Values start from the company
+ * profile and are stored on THIS document only (layout_config.companyHeader);
+ * turning the header off keeps the values, so turning it back on restores
+ * them.
+ */
+const HEADER_FIELDS: { key: HeaderField; label: string }[] = [
+  { key: 'name', label: 'Company Name' },
+  { key: 'address', label: 'Address' },
+  { key: 'email', label: 'Email' },
+  { key: 'phone', label: 'Phone' },
+  { key: 'gstin', label: 'GSTIN' },
+];
+
+function CompanyHeaderSection({ s, update, client }: {
+  s: DocState;
+  update: (fn: (s: DocState) => DocState, step?: boolean) => void;
+  /** The client linked to this document, whose letterhead the header is. */
+  client: HeaderSource | null;
+}) {
+  const saved = (s.layout as LayoutConfig & { companyHeader?: CompanyHeader }).companyHeader;
+  // Values always come from the linked client; only on/off and which lines
+  // show are the user's choice.
+  const fromClient = clientHeader(client);
+  const enabled = Boolean(saved?.enabled);
+  const show = { ...fromClient.show, ...(saved?.show ?? {}) };
+  const write = (next: Pick<CompanyHeader, 'enabled' | 'show'>) =>
+    update((x) => ({ ...x, layout: { ...x.layout, companyHeader: { ...clientHeader(client), ...next } } as LayoutConfig }), true);
+
+  return (
+    <div className="space-y-2">
+      <Label>Company header</Label>
+      <label className="flex items-center justify-between gap-3 text-13 text-neutral-800">
+        <span>Show the client's header at the top</span>
+        <button
+          type="button" role="switch" aria-checked={enabled}
+          onClick={() => write({ enabled: !enabled, show: saved?.show ?? fromClient.show })}
+          className={`relative inline-flex h-5 w-9 shrink-0 rounded-full transition-colors ${enabled ? 'bg-primary' : 'bg-neutral-300'}`}
+        >
+          <span className={`absolute top-0.5 h-4 w-4 rounded-full bg-white shadow transition-transform ${enabled ? 'translate-x-4' : 'translate-x-0.5'}`} />
+          <span className="sr-only">{enabled ? 'On' : 'Off'}</span>
+        </button>
+      </label>
+      {enabled ? (
+        <div className="space-y-1.5 border border-neutral-200 rounded p-2">
+          {!client ? (
+            <p className="text-12 text-amber">Link a client above — the header is filled from the client record.</p>
+          ) : null}
+          {HEADER_FIELDS.map((f) => {
+            const value = fromClient[f.key];
+            return (
+              <label key={f.key} className="flex items-start gap-2 text-12 text-neutral-700">
+                <input type="checkbox" className="mt-0.5" checked={show[f.key]} disabled={!value}
+                  onChange={(e) => write({ enabled: true, show: { ...show, [f.key]: e.target.checked } })} />
+                <span className="w-24 shrink-0">{f.label}</span>
+                <span className={`min-w-0 break-words whitespace-pre-line ${value ? 'text-neutral-900' : 'text-neutral-400 italic'}`}>
+                  {value || (client ? 'Not on the client record' : '—')}
+                </span>
+              </label>
+            );
+          })}
+          {client ? <p className="text-11 text-neutral-500 pt-1">From the client record. To change a value, update the client.</p> : null}
+        </div>
+      ) : null}
     </div>
   );
 }

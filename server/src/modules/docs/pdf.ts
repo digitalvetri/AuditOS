@@ -236,6 +236,32 @@ export function streamDocPdf(res: Response, d: Row) {
     return cy
   }
 
+  // Optional company header (layout_config.companyHeader, set per document in
+  // the builder's Details tab): centred, above the letter, ruled off. Same
+  // visible-line rule as the browser (docs/model.ts companyHeaderLines) — a
+  // field that is off or empty prints nothing, not a blank line.
+  const ch = (d.layoutConfig as { companyHeader?: Record<string, unknown> } | null)?.companyHeader
+  if (ch && ch.enabled === true) {
+    const show = (ch.show ?? {}) as Record<string, boolean>
+    const val = (k: string) => (show[k] !== false && typeof ch[k] === 'string' ? (ch[k] as string).trim() : '')
+    const name = val('name')
+    const lines = [
+      ...val('address').split('\n').map((l) => l.trim()).filter(Boolean),
+      ...(val('email') ? [`Mail – ${val('email')}`] : []),
+      ...(val('phone') ? [`Phone – ${val('phone')}`] : []),
+      ...(val('gstin') ? [`GSTIN – ${val('gstin')}`] : []),
+    ]
+    if (name || lines.length) {
+      if (name) text(name, { font: F.bold, size: B * 1.35, align: 'center' })
+      for (const l of lines) text(l, { size: B * 0.95, align: 'center' })
+      doc.moveDown(0.3)
+      home()
+      doc.moveTo(left, doc.y).lineTo(left + width, doc.y).strokeColor(RULE).lineWidth(0.8).stroke()
+      doc.moveDown(1)
+      home()
+    }
+  }
+
   const blocks = ((d.blockConfig as Block[] | null) ?? []).filter((x) => x && x.enabled !== false)
 
   for (const b of blocks) {

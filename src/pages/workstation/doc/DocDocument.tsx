@@ -6,8 +6,9 @@ import {
 } from '@/modules/workstation/quotations/document';
 import { caretOffset, setCaret } from '@/modules/workstation/engagement/richtext';
 import {
-  fill, fmtLong, lineIsEmpty, type DBlock, type KVRow, type Line, type Person,
+  companyHeaderOf, fill, fmtLong, lineIsEmpty, type DBlock, type KVRow, type Line, type Person,
 } from '@/modules/workstation/docs/model';
+import { CompanyHeaderBlock } from './CompanyHeader';
 import { DateField, PlainField, RichLine } from '@/pages/workstation/engagement/Editable';
 
 /**
@@ -58,7 +59,13 @@ export function DocDocument({ doc, scale, edit }: { doc: DocModel; scale?: numbe
   const geo = pageGeometry(doc.layout);
   const editing = Boolean(edit);
   const blocks = doc.blocks.filter((b) => b.enabled !== false);
-  const units = blocks.flatMap((b) => unitsOf(b, doc, edit));
+  // Optional company header: the first unit, so it is measured and paginated
+  // like any block and the letter always starts below it.
+  const header = companyHeaderOf(doc.layout);
+  const units: Unit[] = [
+    ...(header ? [{ id: 'company-header', blockId: '', first: false, node: () => <CompanyHeaderBlock header={header} /> }] : []),
+    ...blocks.flatMap((b) => unitsOf(b, doc, edit)),
+  ];
   const ids = units.map((u) => u.id);
 
   const signature = JSON.stringify({ ids, doc, editing });
