@@ -58,6 +58,10 @@ COPY --from=build /app/node_modules/.prisma ./node_modules/.prisma
 # compiled loader, which is where task invariants.ts resolves it from.
 COPY --from=build /app/dist ./dist
 COPY prisma/schema.prisma ./prisma/schema.prisma
+# PDF generation (invoice / quotation / engagement) reads the firm logo from
+# disk when the layout config points at a public path like `/jns-logo-tight.png`.
+# Bake the same asset the web bundle serves so downloaded PDFs match the preview.
+COPY assets ./assets
 
 # Uploaded files land under ./uploads (resolved from the working directory by
 # the storage adapters), so that path is a volume in compose.

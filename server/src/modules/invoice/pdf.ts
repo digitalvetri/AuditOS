@@ -3,6 +3,7 @@ import type { Response } from 'express'
 import type { Prisma } from '@prisma/client'
 import QRCode from 'qrcode'
 import { invoiceAmountInWords } from './totals.js'
+import { resolveLogoBuffer } from '../pdf/logo.js'
 
 /**
  * INVOICE PDF — the file a client actually receives.
@@ -80,6 +81,9 @@ function readBlocks(raw: unknown): BlockSpec[] {
 interface Company {
   name?: string; addressLine1?: string; addressLine2?: string; city?: string
   state?: string; pin?: string; phone?: string; email?: string; website?: string; gstin?: string
+  /** Path (`/file.png`) or data-URL for the letterhead logo. Draws at the
+   *  top of the header when present; skipped silently when missing. */
+  logo?: string
 }
 
 /**
@@ -97,6 +101,9 @@ const FALLBACK_COMPANY: Company = {
   email: 'jnsacctax@gmail.com',
   website: 'www.jnsacctax.in',
   gstin: '33AWHPN2628Q1Z2',
+  // Matches the frontend DEFAULT_COMPANY so a fresh invoice with no stored
+  // layoutConfig still renders with the firm's logo.
+  logo: '/jns-logo-tight.png',
 }
 
 interface Bank {
@@ -134,7 +141,20 @@ export async function streamInvoicePdf(res: Response, inv: InvoicePdfRow) {
   if (on('company_header') || on('invoice_title')) {
     const top = doc.y
     if (on('company_header')) {
-      doc.fillColor(NAVY).font('Helvetica-Bold').fontSize(16).text(company.name ?? '', left, top, { width: width * 0.62 })
+      // Logo above the company name, when the stored logo path resolves.
+      // A missing or unreachable logo is a silent skip so the header still
+      // renders with the firm's name and address; a broken URL is never a
+      // reason to fail the download. Mirrors the on-screen preview's
+      // maxHeight: 44 so print + PDF land at the same visual weight.
+      const logoBuffer = resolveLogoBuffer(company.logo)
+      let headTop = top
+      if (logoBuffer) {
+        try {
+          doc.image(logoBuffer, left, headTop, { height: 44 })
+          headTop += 50
+        } catch { /* invalid image bytes — skip and let the text header run */ }
+      }
+      doc.fillColor(NAVY).font('Helvetica-Bold').fontSize(16).text(company.name ?? '', left, headTop, { width: width * 0.62 })
       doc.fillColor(INK).font('Helvetica').fontSize(8.5)
       const lines = [
         company.addressLine1, company.addressLine2,
