@@ -24,7 +24,7 @@ import { writeAudit } from '../../platform/audit.js'
 import type { PermissionCode } from '../../platform/rbac/matrix.js'
 import { BooksNotConfigured, booksConfig, booksConfigured } from './config.js'
 import { toApiError, zohoRequest, ZohoBooksError, type ZohoContext } from './client.js'
-import { beginConnect, completeConnect, disconnect, refreshOrganizations } from './connection.js'
+import { beginConnect, completeConnect, connectWithCode, disconnect, refreshOrganizations } from './connection.js'
 import { ENTITIES, isZohoId, type EntityDef } from './entities.js'
 import { computeDashboard, REPORTS, runReport } from './insights.js'
 
@@ -137,6 +137,21 @@ booksRouter.post('/connect', h(async (req, res) => {
   need(req, 'books.settings')
   const { userId, organisationId } = await firmOf(req)
   ok(res, await beginConnect({ organisationId, userId }))
+}))
+
+// Connect with a grant code pasted from the Zoho API console (Self Client).
+// No browser redirect — works whatever redirect URI the Zoho client has.
+booksRouter.post('/connect/code', h(async (req, res) => {
+  need(req, 'books.settings')
+  const { userId, organisationId } = await firmOf(req)
+  const b = (req.body ?? {}) as { code?: unknown; data_center?: unknown }
+  const code = typeof b.code === 'string' ? b.code.trim() : ''
+  if (!/^1000\.[A-Za-z0-9.]{20,200}$/.test(code)) {
+    throw ApiError.badRequest('Paste the whole code from Zoho — it starts with "1000." and looks like 1000.abc…', { code: 'Invalid code format.' })
+  }
+  const dc = typeof b.data_center === 'string' && b.data_center ? b.data_center : null
+  const r = await connectWithCode({ organisationId, userId, code, accountsServer: dc })
+  ok(res, r)
 }))
 
 booksRouter.post('/connections/:id/reconnect', h(async (req, res) => {
