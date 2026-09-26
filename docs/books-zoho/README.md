@@ -18,14 +18,19 @@ The browser never sees a Zoho client secret, access token or refresh token.
 
 ## Setup
 
-1. In the Zoho API console for your data centre (e.g. https://api-console.zoho.in), create a
-   **Server-based Application**. Set its redirect URI to `https://<api-host>/api/books/callback`.
+1. In the Zoho API console for your data centre (e.g. https://api-console.zoho.in), create a client.
+   Either type works:
+   - **Self Client** (simplest). No redirect URI is involved. You connect by pasting a one-time
+     code (see *Connect with a code* below).
+   - **Server-based Application**. Set its redirect URI to exactly `https://<api-host>/api/books/callback`
+     (locally `http://localhost:<api-port>/api/books/callback`). Any difference, including a trailing
+     slash, `https` vs `http` or another port, makes Zoho answer "Invalid Redirect Uri".
 2. Set these variables on the API server (see `server/.env.example`):
 
    | Variable | Purpose |
    |---|---|
    | `ZBOOKS_CLIENT_ID`, `ZBOOKS_CLIENT_SECRET` | App credentials (required) |
-   | `ZBOOKS_REDIRECT_URI` | Must equal the redirect registered in Zoho |
+   | `ZBOOKS_REDIRECT_URI` | Server-based clients only: must equal the redirect registered in Zoho |
    | `ZBOOKS_ENCRYPTION_KEY` | base64 32-byte AES-256-GCM key for tokens at rest (required in production; falls back to `ZPAY_ENCRYPTION_KEY`) |
    | `ZBOOKS_ACCOUNTS_BASE` | Where consent starts (default `https://accounts.zoho.in`) |
    | `ZBOOKS_SCOPES` | Default `ZohoBooks.fullaccess.all` |
@@ -37,7 +42,30 @@ The browser never sees a Zoho client secret, access token or refresh token.
    does both automatically. Then open
    **Tools → Books → Settings → Connect Zoho Books**.
 
+## Connect with a code (Self Client)
+
+**Tools → Books → Settings → Connect Zoho Books** opens a dialog that needs no browser redirect,
+so it works whatever redirect URI the Zoho client has, including none.
+
+1. In the Zoho API console, open the client and go to **Generate Code**. Scope
+   `ZohoBooks.fullaccess.all`, time duration 10 minutes, any description, then **Create**.
+2. Paste the code (it starts with `1000.`) into the dialog, pick the data centre and click **Connect**.
+   A code works once and only for a few minutes.
+3. `POST /api/books/connect/code` exchanges the code on that data centre. No `redirect_uri` is sent,
+   since a Self Client code is issued without one. It stores the encrypted tokens and lists the
+   organisations, reusing an unfinished connection rather than adding rows. From here it is the
+   same as the browser flow (step 3 below).
+
+Errors are shown in plain words: `invalid_code` (wrong, used or expired code), `invalid_client`
+(wrong data centre or client credentials), `invalid_redirect_uri`. The dialog also links to the
+browser sign-in for Server-based clients.
+
+If the connection succeeds but Zoho lists no organisation, the Zoho login used has no Zoho Books
+organisation in that data centre. Books and Settings say so and offer **Open Zoho Books** and
+**Refresh organisations**. Create an organisation, or have the owner invite this login, then refresh.
+
 ## Flow
+
 
 1. **Connect.** `POST /api/books/connect` creates a connection row in `consent_pending` and returns
    Zoho's authorize URL. `state` is a JWT signed with `JWT_SECRET`, expires after 10 minutes, and carries a purpose tag.

@@ -516,7 +516,11 @@ zpayCallbackRouter.get('/callback', handler(async (req, res) => {
     )
   } catch (err) {
     const errCode = err instanceof ApiError ? err.code : 'oauth_failed'
-    const message = err instanceof Error ? err.message : 'The consent flow could not be completed.'
+    // A stale link (refreshed tab, >10 min, reused callback) is the common
+    // case — say what to do rather than surfacing a bare verification error.
+    const message = errCode === 'invalid_state'
+      ? 'This sign-in link has expired or was already used. Links are valid for 10 minutes and only once.\n\nGo back to Settings → Zoho Payments and click Connect again.'
+      : err instanceof Error ? err.message : 'The consent flow could not be completed.'
     return respondHtml(res, 400, `Connection failed (${errCode}).\n\n${message}`)
   }
 }))

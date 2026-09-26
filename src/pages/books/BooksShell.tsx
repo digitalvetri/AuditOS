@@ -5,6 +5,7 @@ import { useToast } from '@/components/Toast';
 import { booksApi, errorText } from '@/modules/books/api';
 import { BooksProvider, statusKey, useBooks } from '@/modules/books/context';
 import { Btn, Empty, ErrorState, Select, Skeleton, dateTime } from '@/modules/books/ui';
+import { NoZohoOrganisations } from './BooksSettings';
 
 /**
  * Tools → Books. The frame every Books screen renders in: the organisation
@@ -129,6 +130,8 @@ function NotReady() {
         <Empty title="Zoho Books is not configured">
           The server has no Zoho Books API credentials yet. An administrator must set ZBOOKS_CLIENT_ID and ZBOOKS_CLIENT_SECRET (see docs/books-zoho/README.md).
         </Empty>
+      ) : connected && status.organizations.length === 0 ? (
+        <NoZohoOrganisations />
       ) : connected ? (
         <Empty title="Select a Zoho Books organisation">
           Your Zoho account is connected. Choose which organisation to use in Books → Settings.

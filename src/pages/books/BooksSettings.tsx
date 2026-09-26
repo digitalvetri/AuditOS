@@ -4,7 +4,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useToast } from '@/components/Toast';
 import { booksApi, errorText, type BooksConnection, type BooksOrg } from '@/modules/books/api';
 import { statusKey, useBooks } from '@/modules/books/context';
-import { Badge, Btn, Cell, Empty, Modal, Notice, PageHeader, Row, Section, Select, Table, dateTime } from '@/modules/books/ui';
+import { Badge, Btn, Cell, Empty, Field, Modal, Notice, PageHeader, Row, Section, Select, Table, TextInput, dateTime } from '@/modules/books/ui';
 
 const REASONS: Record<string, string> = {
   invalid_state: 'The sign-in link expired or was not started here. Try connecting again.',
@@ -19,6 +19,7 @@ export function BooksSettingsPage() {
   const toast = useToast();
   const [params, setParams] = useSearchParams();
   const [confirm, setConfirm] = useState<BooksConnection | null>(null);
+  const [codeOpen, setCodeOpen] = useState(false);
 
   // Result of the OAuth round-trip, reported once.
   useEffect(() => {
@@ -33,7 +34,6 @@ export function BooksSettingsPage() {
   const refresh = () => qc.invalidateQueries({ queryKey: statusKey });
   const go = (p: Promise<{ authorizeUrl: string }>) => p.then((r) => { window.location.assign(r.authorizeUrl); });
   const connect = useMutation({ mutationFn: () => go(booksApi.connect()), onError: (e) => toast.push('error', errorText(e)) });
-  const reconnect = useMutation({ mutationFn: (id: string) => go(booksApi.reconnect(id)), onError: (e) => toast.push('error', errorText(e)) });
   const disconnect = useMutation({
     mutationFn: (id: string) => booksApi.disconnect(id),
     onSuccess: () => { setConfirm(null); void refresh(); toast.push('success', 'Zoho Books disconnected.'); },
@@ -44,7 +44,16 @@ export function BooksSettingsPage() {
   const conns = status.connections;
   return (
     <div className="space-y-4">
-      <PageHeader title="Settings" subtitle="Zoho Books connection, organisations and sync." right={can.settings && status.configured ? <Btn variant="primary" loading={connect.isPending} onClick={() => connect.mutate()}>{conns.some((c) => c.status === 'connected') ? 'Connect another Zoho account' : 'Connect Zoho Books'}</Btn> : null} />
+      <PageHeader title="Settings" subtitle="Zoho Books connection, organisations and sync." right={can.settings && status.configured ? (
+        <Btn variant="primary" onClick={() => setCodeOpen(true)}>{conns.some((c) => c.status === 'connected') ? 'Connect another Zoho account' : 'Connect Zoho Books'}</Btn>
+      ) : null} />
+      {codeOpen ? (
+        <ConnectWithCodeModal
+          onClose={() => setCodeOpen(false)}
+          onDone={() => { setCodeOpen(false); void refresh(); }}
+          browserSignIn={{ loading: connect.isPending, start: () => connect.mutate() }}
+        />
+      ) : null}
 
       {!status.configured ? <Notice tone="warn">Zoho Books API credentials are not configured on the server (ZBOOKS_CLIENT_ID, ZBOOKS_CLIENT_SECRET, ZBOOKS_REDIRECT_URI). See docs/books-zoho/README.md.</Notice> : null}
       {!can.settings ? <Notice>You can view Books settings. Changing them needs the Books settings permission.</Notice> : null}
@@ -62,7 +71,7 @@ export function BooksSettingsPage() {
                   {can.settings ? (
                     <div className="flex justify-end gap-2">
                       {c.status === 'connected' ? <Btn variant="ghost" loading={reload.isPending} onClick={() => reload.mutate(c.id)}>Refresh organisations</Btn> : null}
-                      <Btn variant="ghost" loading={reconnect.isPending} onClick={() => reconnect.mutate(c.id)}>Reconnect</Btn>
+                      <Btn variant="ghost" onClick={() => setCodeOpen(true)}>Reconnect</Btn>
                       {c.status !== 'disconnected' ? <Btn variant="danger" onClick={() => setConfirm(c)}>Disconnect</Btn> : null}
                     </div>
                   ) : null}
@@ -99,7 +108,9 @@ function OrganizationsSection() {
   const mapped = new Set(orgs.flatMap((o) => (o.client_id ? [o.client_id] : [])));
   return (
     <Section title="Zoho Books organisations">
-      {orgs.length === 0 ? <Empty title="No organisations yet">Organisations appear here once a Zoho account is connected.</Empty> : (
+      {orgs.length === 0 ? (status.connections.some((c) => c.status === 'connected')
+        ? <NoZohoOrganisations />
+        : <Empty title="No organisations yet">Organisations appear here once a Zoho account is connected.</Empty>) : (
         <Table cols={[{ label: 'Organisation' }, { label: 'Zoho org ID' }, { label: 'Currency' }, { label: 'Audit OS client' }, { label: 'Connection' }, { label: 'Use in Books' }]} minWidth={860}>
           {orgs.map((o: BooksOrg) => (
             <Row key={o.id}>
@@ -168,5 +179,101 @@ function SyncSection({ org }: { org: BooksOrg }) {
         {logs.data && logs.data.items.length === 0 ? <Row><Cell colSpan={5} muted>No syncs yet.</Cell></Row> : null}
       </Table>
     </Section>
+  );
+}
+
+const DATA_CENTRES = [
+  { value: 'https://accounts.zoho.in', label: 'India — zoho.in' },
+  { value: 'https://accounts.zoho.com', label: 'US — zoho.com' },
+  { value: 'https://accounts.zoho.eu', label: 'Europe — zoho.eu' },
+  { value: 'https://accounts.zoho.com.au', label: 'Australia — zoho.com.au' },
+  { value: 'https://accounts.zoho.jp', label: 'Japan — zoho.jp' },
+  { value: 'https://accounts.zohocloud.ca', label: 'Canada — zohocloud.ca' },
+  { value: 'https://accounts.zoho.sa', label: 'Saudi Arabia — zoho.sa' },
+];
+
+/**
+ * Connect without the browser redirect: the firm generates a one-time grant
+ * code in the Zoho API console (Self Client → Generate Code) and pastes it.
+ * Works whatever redirect URI the Zoho client has, including none.
+ */
+function ConnectWithCodeModal({ onClose, onDone, browserSignIn }: { onClose: () => void; onDone: () => void; browserSignIn: { loading: boolean; start: () => void } }) {
+  const toast = useToast();
+  const [code, setCode] = useState('');
+  const [dc, setDc] = useState(DATA_CENTRES[0].value);
+  const [error, setError] = useState<string | null>(null);
+  const submit = useMutation({
+    mutationFn: () => booksApi.connectWithCode(code.trim(), dc),
+    onSuccess: (r) => {
+      toast.push('success', `Zoho Books connected — ${r.organizations} organisation${r.organizations === 1 ? '' : 's'} found. Activate the ones to use below.`);
+      onDone();
+    },
+    onError: (e) => setError(errorText(e)),
+  });
+  const console_ = dc.replace('accounts.', 'api-console.');
+  return (
+    <Modal title="Connect Zoho Books" onClose={onClose} footer={<><Btn onClick={onClose}>Cancel</Btn><Btn variant="primary" disabled={!code.trim()} loading={submit.isPending} onClick={() => { setError(null); submit.mutate(); }}>Connect</Btn></>}>
+      <div className="space-y-3 text-13 text-ink">
+        <ol className="list-decimal pl-5 space-y-1 text-inkMuted">
+          <li>Open <a className="text-primary underline" href={console_} target="_blank" rel="noopener noreferrer">{console_.replace('https://', '')}</a> and choose the client whose Client ID is set on this server (a <strong>Self Client</strong> works).</li>
+          <li>Go to <strong>Generate Code</strong>. Scope: <code className="font-mono text-ink">ZohoBooks.fullaccess.all</code> · Time duration: <strong>10 minutes</strong> · any description → <strong>Create</strong>.</li>
+          <li>Copy the code (starts with <code className="font-mono">1000.</code>) and paste it below within 10 minutes. Each code works once.</li>
+        </ol>
+        <Field label="Data centre"><Select value={dc} onChange={setDc} options={DATA_CENTRES} /></Field>
+        <Field label="Code from Zoho" error={error}>
+          <TextInput value={code} onChange={setCode} placeholder="1000.xxxxxxxx.xxxxxxxx" className="font-mono" autoComplete="off" spellCheck={false} />
+        </Field>
+        <p className="text-12 text-inkMuted border-t border-border pt-3">
+          Using a <strong>Server-based</strong> Zoho client with this server’s redirect URI registered?{' '}
+          <button type="button" className="text-primary underline disabled:opacity-50" disabled={browserSignIn.loading} onClick={browserSignIn.start}>
+            Sign in through Zoho instead
+          </button>
+        </p>
+      </div>
+    </Modal>
+  );
+}
+
+/**
+ * Connected, but Zoho lists no Books organisation for that Zoho login — the
+ * account has never created Zoho Books, or its books belong to another login.
+ * Says so plainly (instead of "choose an organisation" over an empty list)
+ * and offers the two things that change it.
+ */
+export function NoZohoOrganisations() {
+  const { status, can } = useBooks();
+  const qc = useQueryClient();
+  const toast = useToast();
+  const conn = status.connections.find((c) => c.status === 'connected');
+  const booksUrl = (conn?.data_center ?? 'https://accounts.zoho.in').replace('accounts.', 'books.');
+  const refresh = useMutation({
+    mutationFn: async () => {
+      await booksApi.refreshOrgs(conn!.id);
+      await qc.invalidateQueries({ queryKey: statusKey });
+      return (await booksApi.status()).organizations.length;
+    },
+    onSuccess: (n) => toast.push(n ? 'success' : 'error', n
+      ? `${n} organisation${n === 1 ? '' : 's'} found — activate the ones to use in Books → Settings.`
+      : 'Zoho still lists no Books organisation for this Zoho login.'),
+    onError: (e) => toast.push('error', errorText(e)),
+  });
+  return (
+    <Empty title="This Zoho account has no Zoho Books organisation">
+      <span className="block">
+        Zoho Books is connected, but the Zoho login you connected with doesn’t own or belong to any Zoho Books organisation in {booksUrl.replace('https://', '')}.
+      </span>
+      <span className="block mt-2">
+        Create one in Zoho Books, or have the account that owns your books invite this login (Zoho Books → Settings → Users &amp; Roles). Then refresh.
+      </span>
+      {can.settings && conn ? (
+        <span className="flex flex-wrap justify-center gap-2 mt-3">
+          <a href={booksUrl} target="_blank" rel="noopener noreferrer"
+            className="inline-flex items-center h-9 px-4 rounded text-13 font-medium bg-surface text-ink border border-border hover:bg-canvas">
+            Open Zoho Books
+          </a>
+          <Btn variant="primary" loading={refresh.isPending} onClick={() => refresh.mutate()}>Refresh organisations</Btn>
+        </span>
+      ) : null}
+    </Empty>
   );
 }
