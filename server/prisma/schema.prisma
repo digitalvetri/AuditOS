@@ -4011,7 +4011,7 @@ model TallyLedgerRule {
   /// Null = global rule available to every client of the firm. Non-null
   /// scopes the rule to a single client — that client's rules always
   /// beat global ones.
-  clientId     String?
+  companyId    String?
   /// contains | regex | exact
   matchType    String
   /// The bank-row description pattern. Contains: lower-cased substring.
@@ -4034,8 +4034,8 @@ model TallyLedgerRule {
   updatedAt    DateTime  @updatedAt
   deletedAt    DateTime?
 
-  @@index([clientId, priority])
-  @@index([clientId, matchType])
+  @@index([companyId, priority])
+  @@index([companyId, matchType])
 }
 
 /// Tally Export audit trail. One row per generated file, so "what was
@@ -4047,7 +4047,7 @@ model TallyLedgerRule {
 /// which is how §7 detects "these rows were exported before."
 model TallyExport {
   id            String   @id @default(uuid())
-  clientId      String
+  companyId     String
   /// BookkeepingLedger id of the bank account.
   bankLedgerId  String
   /// Inclusive from date, YYYY-MM-DD.
@@ -4074,7 +4074,7 @@ model TallyExport {
   generatedBy   String?
   generatedAt   DateTime @default(now())
 
-  @@index([clientId, bankLedgerId, periodFrom])
+  @@index([companyId, bankLedgerId, periodFrom])
   @@index([generatedAt])
 }
 
