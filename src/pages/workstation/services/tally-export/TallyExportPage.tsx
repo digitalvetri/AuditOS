@@ -268,15 +268,20 @@ function PreviewPanel({ companyId }: { companyId: string }) {
   const generate = useMutation({
     mutationFn: () => tallyExportApi.generateXml(effectiveScope),
     onSuccess: ({ blob, filename }) => {
-      // Trigger a browser download; the click happens inside a user
-      // gesture (the button) so no popup-blocker heuristic applies.
+      // Trigger a browser download. The <a> must be in the DOM before
+      // click() on some browsers, and the object URL must NOT be revoked
+      // in the same tick — Firefox and Safari abort the download when
+      // the URL is freed before the stream starts. Give it a beat.
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
       a.download = filename;
+      a.rel = 'noopener';
+      document.body.appendChild(a);
       a.click();
-      URL.revokeObjectURL(url);
-      toast.push('success', `Generated ${filename}.`);
+      document.body.removeChild(a);
+      setTimeout(() => URL.revokeObjectURL(url), 5000);
+      toast.push('success', `Downloaded ${filename}.`);
     },
     onError: (e: Error) => toast.push('error', e.message),
   });
