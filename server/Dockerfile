@@ -32,14 +32,17 @@ RUN npx prisma generate
 COPY tsconfig.json vitest.config.ts ./
 COPY src ./src
 # `npm run build`, not a bare `tsc`: the script also copies prisma/sql beside
-# the compiled output, and the Books invariants loader reads it from there.
+# the compiled output, and the Task invariants loader reads it from there.
 RUN npm run build
 
 # ── Toolchain: schema push + seed ─────────────────────────────────────────
 # Runs to completion and exits; the API waits on it via depends_on.
 FROM build AS toolchain
 ENV NODE_ENV=development
-CMD ["sh", "-c", "npx prisma db push --skip-generate && npx tsx prisma/seed.ts"]
+# The legacy-Books drop runs first: the old native ledger's tables are gone
+# from the schema, and `db push` refuses to drop tables that hold data. It
+# names those 23 tables only and is a no-op once they are gone.
+CMD ["sh", "-c", "npx prisma db execute --schema prisma/schema.prisma --file prisma/sql/drop-legacy-books.postgresql.sql && npx prisma db push --skip-generate && npx tsx prisma/seed.ts"]
 
 # ── Runtime ───────────────────────────────────────────────────────────────
 FROM base AS runtime
@@ -52,7 +55,7 @@ RUN npm ci --omit=dev && npm cache clean --force
 # the engine binaries match.
 COPY --from=build /app/node_modules/.prisma ./node_modules/.prisma
 # dist already carries prisma/sql — the build script copies it beside the
-# compiled loader, which is where invariants.ts resolves it from.
+# compiled loader, which is where task invariants.ts resolves it from.
 COPY --from=build /app/dist ./dist
 COPY prisma/schema.prisma ./prisma/schema.prisma
 

@@ -232,29 +232,23 @@ build shows nothing.
 | **Settings** | `/hrms/settings` | `/api/settings` | Departments, designations, locations, holidays, leave types, expense categories, statutory rates (supersede + audited in-place correction), role matrix |
 | **Tools** | `/tools` | `/api/tools`, `/api/tool-jobs`, `/api/tool-documents` | Registry-driven converters (12 live, 6 compliance cards "coming soon"), one shared workspace, every output saved to `/tools/documents` with an audit trail |
 | **Doc** | `/workstation/doc` | `/api/workstation-docs` | Thirteen statutory / secretarial document types (consent, DIR-8, resignations, board and shareholders' resolutions, authorised-signatory declaration, GST and incorporation NOCs, LLP agreement, partnership deed) on one editor engine: two-sided workspace, direct editing on the A4 page, multi-page flow, PDF and print |
-| **Books** | `/books` | `/api/books` | Native bookkeeping, one set of books per client: double-entry ledger with database-enforced invariants, sales and purchase chains, GST/TDS, multi-currency, reports |
+| **Books** | `/books` | `/api/books` | Tools → Books: Audit OS UI over Zoho Books via OAuth — customers, vendors, items, sales, purchases, expenses, payments, credit/debit notes, banking, reconciliation, taxes, reports |
 
-### Books (accounting)
+### Books (Tools → Books, Zoho Books)
 
-Our own equivalent of Zoho Books, built into the platform — no Zoho API, no
-SDK, no dependency on their service. One `BooksOrganisation` per end client,
-firm staff assigned per set of books, and hard separation between them.
-
-Every financial record is a journal; invoices, bills, payments and credits
-are wrappers over one posting function. The balance invariant, the
-immutability of posted entries and the append-only audit trail are enforced
-by **database triggers**, not only by service code
-(`server/prisma/sql/books-invariants.*.sql`).
+An Audit OS interface over the firm's Zoho Books organisations. Zoho Books is
+the source of truth. Audit OS holds the encrypted OAuth grant, which
+organisations are active (each optionally mapped to one client), and a cached
+dashboard snapshot. All Zoho calls go through the backend; tokens never reach
+the browser. Where Zoho's API offers no data (P&L, balance sheet, statement
+reconciliation), Books says so rather than approximating.
 
 ```bash
-npm --prefix server run seed:books    # demo books for two clients
-npm --prefix server run books:reset   # wipe and re-seed (development only)
-npm --prefix server test              # 41 unit, golden-dataset and API tests
-node scripts/verify-books.mjs         # browser verification
+# server/.env: ZBOOKS_CLIENT_ID, ZBOOKS_CLIENT_SECRET, ZBOOKS_REDIRECT_URI, ZBOOKS_ENCRYPTION_KEY
+npm --prefix server test -- src/modules/books   # OAuth, tokens, RBAC, resources, sync, reports
 ```
 
-Full documentation: `docs/accounting-module/README.md`, with the stack
-decision and the list of open questions beside it.
+Full documentation: `docs/books-zoho/README.md`.
 
 ### Tools (Converters & Utilities)
 
@@ -506,7 +500,6 @@ node scripts/verify-payroll.mjs       # stage machine, snapshot, immutability
 node scripts/verify-expenses.mjs      # Draft→Paid, contra-ledger
 node scripts/verify-accounts.mjs      # append-only ledger, reverse
 node scripts/verify-tools.mjs         # all 12 tools, search, Documents, scope
-node scripts/verify-books.mjs         # Books: posting, reports, scoping
 ```
 
 Screenshots land in `scripts/shots/` (git-ignored).

@@ -9,7 +9,7 @@
  *   HRMS        — 10 items
  *   WORKSTATION — 6 items
  *   TOOLS       — 3 items: Tools (converters), Repotic (bank/GST/TDS),
- *                 Books (native bookkeeping). One section, three siblings.
+ *                 Books (Zoho Books). One section, sibling rows.
  */
 import { NavLink, useLocation } from 'react-router-dom';
 import { useEffect, useMemo, useState } from 'react';
@@ -120,8 +120,6 @@ export function Sidebar({ mobileOpen, onMobileClose }: Props) {
       { to: '/workstation/services',    label: 'Services',   icon: Briefcase,     end: true, visible: can(role, 'workstation.service.read', 'self'),
         children: [
           { to: '/workstation/services/tds',           label: 'TDS' },
-          { to: '/workstation/services/e-invoice',     label: 'E-Invoice' },
-          { to: '/workstation/services/e-way-bill',    label: 'E-Way Bill' },
           { to: '/workstation/services/bookkeeping',   label: 'Bookkeeping' },
           { to: '/workstation/services/registration',  label: 'Registration',
             children: REGISTRATION_SERVICES.map((r) => ({
@@ -135,7 +133,7 @@ export function Sidebar({ mobileOpen, onMobileClose }: Props) {
     // TOOLS is one labelled section — a sibling of Workstation — holding
     // four tool modules as siblings inside it: Tools (converters), Repotic
     // (bank / GST / TDS pipelines), Tally (native double-entry accounting)
-    // and Books (native bookkeeping). Each row keeps its own grant, so a
+    // and Books (Zoho Books integration). Each row keeps its own grant, so a
     // role with only one of them still sees just that row.
     const toolsItems: NavItem[] = [
       { to: '/tools', label: 'Tools', icon: Wrench,
@@ -145,7 +143,7 @@ export function Sidebar({ mobileOpen, onMobileClose }: Props) {
       { to: '/tally', label: 'Tally', icon: Calculator,
         visible: can(role, 'tools.audit_automation.tally.access', 'self') },
       { to: '/books', label: 'Books', icon: Wallet,
-        visible: can(role, 'books.access', 'self') },
+        visible: can(role, 'books.access', 'organisation') },
     ];
     // INTEGRATIONS — third-party services the firm connects to (Zoho
     // Payments today; Books/Tally/banking as they land). Sibling of

@@ -25,7 +25,6 @@ import { seedWorkstation } from './seed-workstation.js'
 import { backfillPeriods } from '../src/modules/gst/service.js'
 import { seedTools } from './seed-tools.js'
 import { seedAuditAutomation } from './seed-audit-automation.js'
-import { seedBooks } from './seed-books.js'
 import { seedBookkeeping } from './seed-bookkeeping.js'
 import { seedRegistration } from './seed-registration.js'
 import { seedPartnership } from './seed-partnership.js'
@@ -973,7 +972,6 @@ async function main() {
   const gstPeriods = await backfillPeriods()
   await seedTools(prisma)
   await seedAuditAutomation(prisma)
-  await seedBooks(prisma, org.id)
   const bookkeeping = await seedBookkeeping(prisma, org.id)
   const registration = await seedRegistration(prisma, org.id)
   await seedPartnership(prisma, org.id)
