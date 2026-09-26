@@ -18,14 +18,19 @@ The browser never sees a Zoho client secret, access token or refresh token.
 
 ## Setup
 
-1. In the Zoho API console for your data centre (e.g. https://api-console.zoho.in), create a
-   **Server-based Application**. Set its redirect URI to `https://<api-host>/api/books/callback`.
+1. In the Zoho API console for your data centre (e.g. https://api-console.zoho.in), create a client.
+   Either type works:
+   - **Self Client** (simplest). No redirect URI is involved. You connect by pasting a one-time
+     code (see *Connect with a code* below).
+   - **Server-based Application**. Set its redirect URI to exactly `https://<api-host>/api/books/callback`
+     (locally `http://localhost:<api-port>/api/books/callback`). Any difference, including a trailing
+     slash, `https` vs `http` or another port, makes Zoho answer "Invalid Redirect Uri".
 2. Set these variables on the API server (see `server/.env.example`):
 
    | Variable | Purpose |
    |---|---|
    | `ZBOOKS_CLIENT_ID`, `ZBOOKS_CLIENT_SECRET` | App credentials (required) |
-   | `ZBOOKS_REDIRECT_URI` | Must equal the redirect registered in Zoho |
+   | `ZBOOKS_REDIRECT_URI` | Server-based clients only: must equal the redirect registered in Zoho |
    | `ZBOOKS_ENCRYPTION_KEY` | base64 32-byte AES-256-GCM key for tokens at rest (required in production; falls back to `ZPAY_ENCRYPTION_KEY`) |
    | `ZBOOKS_ACCOUNTS_BASE` | Where consent starts (default `https://accounts.zoho.in`) |
    | `ZBOOKS_SCOPES` | Default `ZohoBooks.fullaccess.all` |
@@ -37,7 +42,30 @@ The browser never sees a Zoho client secret, access token or refresh token.
    does both automatically. Then open
    **Tools → Books → Settings → Connect Zoho Books**.
 
+## Connect with a code (Self Client)
+
+**Tools → Books → Settings → Connect Zoho Books** opens a dialog that needs no browser redirect,
+so it works whatever redirect URI the Zoho client has, including none.
+
+1. In the Zoho API console, open the client and go to **Generate Code**. Scope
+   `ZohoBooks.fullaccess.all`, time duration 10 minutes, any description, then **Create**.
+2. Paste the code (it starts with `1000.`) into the dialog, pick the data centre and click **Connect**.
+   A code works once and only for a few minutes.
+3. `POST /api/books/connect/code` exchanges the code on that data centre. No `redirect_uri` is sent,
+   since a Self Client code is issued without one. It stores the encrypted tokens and lists the
+   organisations, reusing an unfinished connection rather than adding rows. From here it is the
+   same as the browser flow (step 3 below).
+
+Errors are shown in plain words: `invalid_code` (wrong, used or expired code), `invalid_client`
+(wrong data centre or client credentials), `invalid_redirect_uri`. The dialog also links to the
+browser sign-in for Server-based clients.
+
+If the connection succeeds but Zoho lists no organisation, the Zoho login used has no Zoho Books
+organisation in that data centre. Books and Settings say so and offer **Open Zoho Books** and
+**Refresh organisations**. Create an organisation, or have the owner invite this login, then refresh.
+
 ## Flow
+
 
 1. **Connect.** `POST /api/books/connect` creates a connection row in `consent_pending` and returns
    Zoho's authorize URL. `state` is a JWT signed with `JWT_SECRET`, expires after 10 minutes, and carries a purpose tag.
@@ -55,6 +83,31 @@ The browser never sees a Zoho client secret, access token or refresh token.
    (`invalid_code` / `invalid_grant`), the connection is marked `revoked` and the UI asks the user to reconnect.
 6. **Disconnect.** Audit OS revokes the refresh token at Zoho (best effort), deletes both tokens locally
    and deactivates that connection's organisations. Nothing in Zoho is deleted.
+
+## Navigation (mirrors Zoho Books)
+
+The Books sidebar follows Zoho Books' own navigation: the same sections, order and names.
+
+| Group | Items |
+|---|---|
+| Home | Dashboard of the active organisation |
+| Items | Items · Price Lists · Inventory Adjustments |
+| Banking | Bank accounts and transactions. Reconciliation opens from inside Banking, as in Zoho |
+| Sales | Customers · Quotes · Retainer Invoices · Sales Orders · Delivery Challans · Invoices · Sales Receipts · Payments Received · Recurring Invoices · Credit Notes · e-Way Bills |
+| Purchases | Vendors · Expenses · Recurring Expenses · Purchase Orders · Bills · Payments Made · Recurring Bills · Vendor Credits |
+| Time Tracking | Projects · Timesheet |
+| Accountant | Manual Journals · Bulk Update · Currency Adjustments · Chart of Accounts · Budgets · Transaction Locking |
+| Reports · Documents | as in Zoho |
+| Settings | Zoho connection and organisations. Taxes open from here, as in Zoho |
+
+Three items have no Zoho API and open the same screen in Zoho Books instead of faking it:
+**Bulk Update** and **Transaction Locking** (not in the API), and **e-Way Bills** (Zoho lists them
+only once e-Way Bills are enabled for the organisation).
+
+**GST fields.** Zoho rejects every GST field (`gst_treatment`, `gst_no`, `place_of_contact`,
+`hsn_or_sac`) with "Invalid Element …" on an organisation that is not registered for GST. The
+contact and item forms therefore read `is_registered_for_gst` from `GET /organization` and show or
+send those fields only when it is true. INR currency alone is not enough.
 
 ## What is supported
 
@@ -76,6 +129,21 @@ The resources are defined in `server/src/modules/books/entities.ts`, and the rou
 | Banking | `bankaccounts`, `banktransactions` | accounts CRUD, transactions list/add |
 | Reconciliation | `banktransactions/uncategorized/*` | match suggestions, match, categorize, exclude/restore, unmatch, uncategorize |
 | Taxes | `settings/taxes` | list, create, edit, delete |
+| Recurring Invoices / Expenses / Bills | `recurringinvoices`, `recurringexpenses`, `recurringbills` | list, view, stop, resume, delete |
+| Retainer Invoices | `retainerinvoices` | list, view, mark sent, void, delete |
+| Delivery Challans | `deliverychallans` | list, view, mark open / delivered, delete |
+| Sales Receipts | `salesreceipts` | list, view, delete |
+| Projects / Timesheet | `projects`, `projects/timeentries` | list, view, active / inactive (projects), delete |
+| Manual Journals | `journals` | list, view, publish, delete |
+| Currency Adjustments | `basecurrencyadjustment` | list, view, delete |
+| Chart of Accounts | `chartofaccounts` | list, view, active / inactive |
+| Budgets, Documents | `budgets`, `documents` | list, view, delete |
+| Price Lists | `pricebooks` | list, view, active / inactive, delete |
+| Inventory Adjustments | `inventoryadjustments` | list, view, delete |
+
+The sections added to mirror Zoho's navigation are created and edited in Zoho Books: their
+"New … in Zoho Books ↗" and "Open in Zoho Books ↗" buttons deep-link into the Zoho web app for the
+active organisation on its data centre.
 
 "Create invoice from estimate / sales order" and "create bill from PO" open a new document
 prefilled with the source's party and lines. The source number goes into the reference field.

@@ -104,9 +104,11 @@ export async function exchangeCodeForTokens(
     grant_type: 'authorization_code',
     client_id: config.clientId,
     client_secret: config.clientSecret,
-    redirect_uri: config.redirectUri,
     code,
   })
+  // A Self Client grant code was issued without a redirect, so none is sent
+  // with it; a browser-flow code must repeat the redirect it was issued for.
+  if (config.redirectUri) body.set('redirect_uri', config.redirectUri)
   const url = `${config.accountsBase}/oauth/v2/token`
   const res = await fetchImpl(url, {
     method: 'POST',

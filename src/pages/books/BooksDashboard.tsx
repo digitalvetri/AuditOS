@@ -64,7 +64,7 @@ export function BooksDashboardPage() {
       <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
         <Recent title="Recent invoices" to="/books/sales/invoices" rows={s.recent.invoices} cols={['invoice_number', 'customer_name', 'date']} amount="total" status m={m} />
         <Recent title="Recent bills" to="/books/purchases/bills" rows={s.recent.bills} cols={['bill_number', 'vendor_name', 'date']} amount="total" status m={m} />
-        <Recent title="Recent payments received" to="/books/payments" rows={s.recent.payments} cols={['payment_number', 'customer_name', 'date']} amount="amount" m={m} />
+        <Recent title="Recent payments received" to="/books/sales/paymentsreceived" rows={s.recent.payments} cols={['payment_number', 'customer_name', 'date']} amount="amount" m={m} />
         <Recent title="Recent expenses" to="/books/expenses" rows={s.recent.expenses} cols={['account_name', 'vendor_name', 'date']} amount="amount_total" m={m} />
       </div>
       {s.bank_accounts.length ? (

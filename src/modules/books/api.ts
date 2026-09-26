@@ -83,6 +83,9 @@ export const booksApi = {
   status: () => api.get<BooksStatus>('/api/books/status'),
   connect: () => api.post<{ connectionId: string; authorizeUrl: string }>('/api/books/connect'),
   reconnect: (id: string) => api.post<{ authorizeUrl: string }>(`/api/books/connections/${id}/reconnect`),
+  /** Self Client grant code from the Zoho API console — no browser redirect. */
+  connectWithCode: (code: string, dataCenter: string) =>
+    api.post<{ connectionId: string; organizations: number }>('/api/books/connect/code', { code, data_center: dataCenter }),
   disconnect: (id: string) => api.post(`/api/books/connections/${id}/disconnect`),
   refreshOrgs: (id: string) => api.post(`/api/books/connections/${id}/organizations/refresh`),
   clients: () => api.get<{ items: { id: string; name: string; code: string }[] }>('/api/books/clients'),
@@ -119,5 +122,7 @@ export function errorText(e: unknown): string {
   const err = e as { status?: number; message?: string } | null;
   if (!err) return 'Something went wrong.';
   if (err.status === 403) return err.message || 'Your role does not allow this.';
-  return err.message || 'Something went wrong.';
+  if (err.message) return err.message;
+  // No message at all usually means the API itself was unreachable or restarting.
+  return err.status ? `Something went wrong (HTTP ${err.status}). If the server was restarting, reload the page and try again.` : 'Could not reach the server. Check that it is running, then reload the page.';
 }

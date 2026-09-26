@@ -43,7 +43,8 @@ export function booksConfigured(): boolean {
 }
 
 function readKey(): Buffer {
-  const raw = process.env.ZBOOKS_ENCRYPTION_KEY ?? process.env.ZPAY_ENCRYPTION_KEY
+  // `||`, not `??`: an empty `ZBOOKS_ENCRYPTION_KEY=` line must still fall back.
+  const raw = process.env.ZBOOKS_ENCRYPTION_KEY || process.env.ZPAY_ENCRYPTION_KEY
   if (raw) {
     const buf = Buffer.from(raw, 'base64')
     if (buf.length !== 32) throw new Error('ZBOOKS_ENCRYPTION_KEY must decode to exactly 32 bytes')

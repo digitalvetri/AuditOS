@@ -54,9 +54,10 @@ const FRIENDLY: Partial<Record<ZohoErrorKind, string>> = {
 
 /** A clean API error for the browser. Validation messages are Zoho's own user-facing text. */
 export function toApiError(err: ZohoBooksError): ApiError {
-  const message = err.kind === 'validation' || err.kind === 'not_found' || err.kind === 'permission'
-    ? err.message
-    : FRIENDLY[err.kind] ?? err.message
+  const passthrough = err.kind === 'validation' || err.kind === 'not_found' || err.kind === 'permission'
+  // Zoho occasionally sends a code with no message; never let that surface as a blank / generic error.
+  const message = (passthrough ? err.message : FRIENDLY[err.kind] ?? err.message)
+    || `Zoho Books rejected this request${err.zohoCode ? ` (Zoho code ${err.zohoCode})` : ''}. Check the fields and try again.`
   return new ApiError(STATUS[err.kind], CODE[err.kind], message, err.zohoCode ? { zoho_code: err.zohoCode } : undefined)
 }
 
@@ -252,7 +253,8 @@ export async function zohoRequest<T = Record<string, unknown>>(ctx: ZohoContext,
     }
 
     const err = classify(res.status, zohoCode, typeof payload.message === 'string' ? payload.message : '')
-    console.warn('[books] zoho', method, req.path, res.status, zohoCode ?? '-', err.kind)
+    // Zoho's message names the offending field ("Invalid value passed for …") — no secrets, and it is what diagnoses a 4xx.
+    console.warn('[books] zoho', method, req.path, res.status, zohoCode ?? '-', err.kind, typeof payload.message === 'string' ? JSON.stringify(payload.message.slice(0, 200)) : '')
     if (err.kind === 'reconnect' && !forcedRefresh) {
       // Zoho can revoke an access token before its stated expiry; one forced
       // refresh tells a stale token from a revoked grant.
