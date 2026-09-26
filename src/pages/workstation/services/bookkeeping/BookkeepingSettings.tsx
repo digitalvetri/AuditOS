@@ -18,7 +18,7 @@ const LABELS: Record<string, string> = {
   invoice: 'Invoice printing', payroll: 'Payroll statutory rates', audit: 'Audit', security: 'Security',
 };
 
-export function TallySettings() {
+export function BookkeepingSettings() {
   const { companyId = '' } = useParams();
   const qc = useQueryClient();
   const toast = useToast();

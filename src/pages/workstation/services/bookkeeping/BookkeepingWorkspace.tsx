@@ -10,13 +10,13 @@ import { PeriodProvider, PeriodBar } from '@/modules/tools/tally/ui';
 import type { LucideIcon } from 'lucide-react';
 
 /**
- * Tally company workspace — the shell every company screen lives in.
+ * Bookkeeping company workspace — the shell every company screen lives in.
  *
  * It owns the two things every child needs: which company, and which
  * period. The period lives in the URL (?fy=&from=&to=) so a report a
  * user sends to a colleague opens on the same dates.
  */
-export function TallyWorkspace() {
+export function BookkeepingWorkspace() {
   const { companyId = '' } = useParams();
   const companyQ = useQuery({
     queryKey: ['tally.company', companyId],

@@ -11,7 +11,7 @@ import { DataTable, Money, Panel, Loading, usePeriod, ReportHeader, ExportButton
  * Filter by type, date, ledger, status or free text; open any row to the
  * voucher, or start a new one in any configured voucher type.
  */
-export function TallyVouchers() {
+export function BookkeepingVouchers() {
   const { companyId = '' } = useParams();
   const navigate = useNavigate();
   const { from, to } = usePeriod();

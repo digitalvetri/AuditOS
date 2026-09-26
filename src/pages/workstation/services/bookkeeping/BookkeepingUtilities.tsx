@@ -26,7 +26,7 @@ const ENTITIES = [
   { key: 'vouchers', label: 'Vouchers (one row per line)', columns: 'voucher_key, voucher_type, date, voucher_number, ledger, dr_cr, amount, narration' },
 ];
 
-export function TallyUtilities() {
+export function BookkeepingUtilities() {
   const { companyId = '' } = useParams();
   const { from, to } = usePeriod();
   const qc = useQueryClient();

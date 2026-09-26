@@ -18,7 +18,7 @@ import {
  * sheet → group → ledger → voucher, with no dead ends.
  */
 
-export function TallyReportPage() {
+export function BookkeepingReportPage() {
   const { reportId = '' } = useParams();
   switch (reportId) {
     case 'day-book': return <DayBook />;
@@ -292,7 +292,7 @@ function GroupSummaryReport() {
 }
 
 // ── Registers ────────────────────────────────────────────────────────
-export function TallyRegisterPage() {
+export function BookkeepingRegisterPage() {
   const { companyId = '', typeCode = '' } = useParams();
   const { from, to } = usePeriod();
   const base = `/tally/companies/${companyId}`;
@@ -435,7 +435,7 @@ function OutstandingsReport() {
 }
 
 // ── Cash / bank book ─────────────────────────────────────────────────
-export function TallyBookPage() {
+export function BookkeepingBookPage() {
   const { companyId = '', kind = 'cash' } = useParams();
   const { from, to } = usePeriod();
   const base = `/tally/companies/${companyId}`;
@@ -479,7 +479,7 @@ export function TallyBookPage() {
 }
 
 // ── Ledger statement ─────────────────────────────────────────────────
-export function TallyLedgerStatement() {
+export function BookkeepingLedgerStatement() {
   const { companyId = '', ledgerId = '' } = useParams();
   const { from, to } = usePeriod();
   const base = `/tally/companies/${companyId}`;

@@ -16,7 +16,7 @@ import type { ApiError } from '@/services/api';
  * It never edits an amount: a genuine difference stays visible as a
  * reconciling item, which is the only useful kind of reconciliation.
  */
-export function TallyBanking() {
+export function BookkeepingBanking() {
   const { companyId = '' } = useParams();
   const { from, to } = usePeriod();
   const [selected, setSelected] = useState<string>('');

@@ -49,7 +49,7 @@ const emptyItem = (): ItemDraft => ({ key: uid(), stockItemId: '', qty: '', rate
 const toPaise = (v: string) => Math.round((Number(String(v).replace(/[₹,\s]/g, '')) || 0) * 100);
 const toMilli = (v: string) => Math.round((Number(String(v).replace(/[,\s]/g, '')) || 0) * 1000);
 
-export function TallyVoucherEditor() {
+export function BookkeepingVoucherEditor() {
   const { companyId = '', voucherId } = useParams();
   const [params] = useSearchParams();
   const navigate = useNavigate();

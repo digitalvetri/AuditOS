@@ -12,7 +12,7 @@ import type { ApiError } from '@/services/api';
  * Creating a company seeds its own primary groups + first FY on the
  * server; nothing to do on the client after create.
  */
-export function TallyCompanies() {
+export function BookkeepingCompanies() {
   const toast = useToast();
   const [showNew, setShowNew] = useState(false);
 
@@ -25,7 +25,7 @@ export function TallyCompanies() {
     <div className="max-w-[1200px] mx-auto" data-testid="tally-companies">
       <div className="mb-4">
         <Link to="/workstation/services/bookkeeping" className="inline-flex items-center gap-1 text-13 text-neutral-500 hover:text-neutral-900">
-          <ArrowLeft size={14} strokeWidth={1.75} /> Tally
+          <ArrowLeft size={14} strokeWidth={1.75} /> Bookkeeping
         </Link>
       </div>
 
@@ -152,7 +152,7 @@ function NewCompanyModal({ onClose, onCreated }: {
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
       <form onSubmit={submit} className="bg-white rounded shadow-lg w-full max-w-[560px] max-h-[90vh] overflow-y-auto">
         <div className="px-5 py-3 border-b border-neutral-200 flex items-center justify-between sticky top-0 bg-white">
-          <h2 className="text-14 font-semibold text-neutral-900">New Tally company</h2>
+          <h2 className="text-14 font-semibold text-neutral-900">New Bookkeeping company</h2>
           <button type="button" onClick={onClose} aria-label="Close" className="text-neutral-400 hover:text-neutral-700">
             <X size={16} strokeWidth={1.75} />
           </button>

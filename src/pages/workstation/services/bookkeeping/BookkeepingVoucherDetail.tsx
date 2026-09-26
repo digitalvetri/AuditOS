@@ -13,7 +13,7 @@ import type { ApiError } from '@/services/api';
  * lines, and its revision history. Every ledger name links to that
  * ledger's statement — the last step of the drill-down chain.
  */
-export function TallyVoucherDetail() {
+export function BookkeepingVoucherDetail() {
   const { companyId = '', voucherId = '' } = useParams();
   const navigate = useNavigate();
   const qc = useQueryClient();

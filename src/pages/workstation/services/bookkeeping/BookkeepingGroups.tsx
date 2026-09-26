@@ -12,7 +12,7 @@ import type { ApiError } from '@/services/api';
  * — expandable group tree, seeded with 17 primaries per company.
  * Primary groups can't be renamed or deleted.
  */
-export function TallyGroups() {
+export function BookkeepingGroups() {
   const { companyId = '' } = useParams();
   const [showNew, setShowNew] = useState<{ parentId?: string; parentName?: string } | null>(null);
 

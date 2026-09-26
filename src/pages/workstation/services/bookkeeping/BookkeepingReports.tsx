@@ -57,7 +57,7 @@ const SECTIONS = [
   },
 ];
 
-export function TallyReports() {
+export function BookkeepingReports() {
   const { companyId = '' } = useParams();
   const { from, to } = usePeriod();
   const base = `/tally/companies/${companyId}/reports`;

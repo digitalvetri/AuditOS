@@ -16,7 +16,7 @@ import type { ApiError } from '@/services/api';
  * a salary journal through the same engine as every other voucher, so it
  * balances or it does not save.
  */
-export function TallyPayroll() {
+export function BookkeepingPayroll() {
   const { companyId = '' } = useParams();
   const qc = useQueryClient();
   const toast = useToast();

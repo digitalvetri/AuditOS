@@ -16,7 +16,7 @@ import type { ApiError } from '@/services/api';
  * clamped to zero: a warehouse that owes stock it never received is
  * exactly what an auditor needs to see.
  */
-export function TallyInventory() {
+export function BookkeepingInventory() {
   const { companyId = '' } = useParams();
   const { from, to } = usePeriod();
   const navigate = useNavigate();
@@ -212,7 +212,7 @@ function L({ label, required, children }: { label: string; required?: boolean; c
 }
 
 /** /inventory/items/:itemId — stock movement for one item. */
-export function TallyStockItemPage() {
+export function BookkeepingStockItemPage() {
   const { companyId = '', itemId = '' } = useParams();
   const { from, to } = usePeriod();
   const base = `/tally/companies/${companyId}`;

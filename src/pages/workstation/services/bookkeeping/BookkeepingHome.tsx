@@ -13,7 +13,7 @@ import { tallyApi } from '@/modules/tools/audit-automation/tally';
  * companies + FY + groups + ledgers. Vouchers / inventory / reports
  * come in follow-on slices.
  */
-export function TallyHome() {
+export function BookkeepingHome() {
   const companiesQ = useQuery({
     queryKey: ['tally.companies'],
     queryFn: () => tallyApi.listCompanies(),
@@ -24,7 +24,7 @@ export function TallyHome() {
       <header className="flex items-start justify-between gap-4 mb-5">
         <div>
           <div className="flex items-center gap-2">
-            <h1 className="text-20 font-semibold text-neutral-900">Tally</h1>
+            <h1 className="text-20 font-semibold text-neutral-900">Bookkeeping</h1>
             <span className="text-11 px-1.5 py-0.5 rounded bg-amber-50 text-amber-700 font-medium">Preview</span>
           </div>
           <p className="text-13 text-neutral-500 mt-1">
@@ -65,7 +65,7 @@ function EmptyState() {
       </div>
       <div className="text-14 font-medium text-neutral-900">No companies yet</div>
       <p className="text-13 text-neutral-500 mt-1 mb-4 max-w-[420px] mx-auto">
-        Every Tally session runs against one company at a time. Create your first
+        Every Bookkeeping session runs against one company at a time. Create your first
         company to get started — primary groups and the current financial year
         are set up automatically.
       </p>

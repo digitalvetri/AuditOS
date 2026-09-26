@@ -13,7 +13,7 @@ import { DataTable, Money, Panel, Loading, ErrorNote, usePeriod, ReportHeader, E
  * documents in that cycle. Every figure comes from the same vouchers the
  * reports read.
  */
-export function TallyTrade({ mode }: { mode: 'sales' | 'purchase' }) {
+export function BookkeepingTrade({ mode }: { mode: 'sales' | 'purchase' }) {
   const { companyId = '' } = useParams();
   const { from, to } = usePeriod();
   const navigate = useNavigate();

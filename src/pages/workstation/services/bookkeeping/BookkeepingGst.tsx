@@ -14,7 +14,7 @@ import { Button } from '@/components/Button';
  */
 type Tab = 'summary' | 'gstr1' | 'gstr3b' | 'exceptions' | 'tds';
 
-export function TallyGst() {
+export function BookkeepingGst() {
   const { companyId = '' } = useParams();
   const { from, to } = usePeriod();
   const [tab, setTab] = useState<Tab>('summary');

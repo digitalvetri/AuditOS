@@ -7,13 +7,13 @@ import { DataTable, Money, Panel, Loading, ErrorNote, usePeriod, ReportHeader, S
 /**
  * /audit — the verification surface.
  *
- * Audit OS is an audit product, so the Tally module keeps an append-only
+ * Audit OS is an audit product, so the Bookkeeping module keeps an append-only
  * record of every create, alter, cancel and restore, with the before and
  * after of each change. Nothing on this screen can delete anything.
  */
 type Tab = 'exceptions' | 'trail' | 'altered' | 'cancelled' | 'activity';
 
-export function TallyAudit() {
+export function BookkeepingAudit() {
   const { companyId = '' } = useParams();
   const { from, to } = usePeriod();
   const [tab, setTab] = useState<Tab>('exceptions');
@@ -179,7 +179,7 @@ function ActivityTab({ companyId }: { companyId: string }) {
           { key: 'entity', label: 'Entity', value: (r) => r.entity_type },
           { key: 'ip', label: 'IP', value: (r) => r.ip ?? '', render: (r) => <span className="text-12 text-neutral-500">{r.ip ?? '—'}</span> },
         ]}
-        empty="No Tally activity recorded yet."
+        empty="No Bookkeeping activity recorded yet."
       />
     </Panel>
   );

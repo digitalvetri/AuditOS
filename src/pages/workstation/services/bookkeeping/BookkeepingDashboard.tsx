@@ -12,7 +12,7 @@ import type { DayBookRow, Outstandings } from '@/modules/tools/audit-automation/
  * the report it came from. Nothing on this screen is a placeholder or a
  * sample figure; an empty company shows zeros, honestly.
  */
-export function TallyDashboard() {
+export function BookkeepingDashboard() {
   const { companyId = '' } = useParams();
   const { from, to } = usePeriod();
   const base = `/tally/companies/${companyId}`;

@@ -11,7 +11,7 @@ import type { ApiError } from '@/services/api';
  * /tally/companies/:companyId/masters/ledgers
  * — ledger list with search + New ledger modal.
  */
-export function TallyLedgers() {
+export function BookkeepingLedgers() {
   const { companyId = '' } = useParams();
   const [q, setQ] = useState('');
   const [showNew, setShowNew] = useState(false);
