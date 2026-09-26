@@ -26,8 +26,8 @@ export const BookkeepingDashboardService = {
     let fyLabel: string | null = null
     if (!from || !to) {
       const fy = opts.fyId
-        ? await prisma.tallyFinancialYear.findFirst({ where: { id: opts.fyId, tallyCompanyId: companyId } })
-        : await prisma.tallyFinancialYear.findFirst({ where: { tallyCompanyId: companyId }, orderBy: { startDate: 'desc' } })
+        ? await prisma.bookkeepingFinancialYear.findFirst({ where: { id: opts.fyId, tallyCompanyId: companyId } })
+        : await prisma.bookkeepingFinancialYear.findFirst({ where: { tallyCompanyId: companyId }, orderBy: { startDate: 'desc' } })
       if (fy) { from = from ?? fy.startDate; to = to ?? fy.endDate; fyLabel = fy.label }
     }
     const period = { from, to }
@@ -43,7 +43,7 @@ export const BookkeepingDashboardService = {
       BookkeepingReportService.register(session, companyId, 'sales', period),
       BookkeepingReportService.register(session, companyId, 'purchase', period),
       BookkeepingAuditService.exceptions(session, companyId, { from: from ?? undefined, to: to ?? undefined }),
-      prisma.tallyVoucher.count({ where: { tallyCompanyId: companyId, ...alive, status: 'active', ...(from && to ? { date: { gte: from, lte: to } } : {}) } }),
+      prisma.bookkeepingVoucher.count({ where: { tallyCompanyId: companyId, ...alive, status: 'active', ...(from && to ? { date: { gte: from, lte: to } } : {}) } }),
     ])
 
     const sumGroup = (name: string) => balances.filter((b) => b.primaryGroupName === name).reduce((s, b) => s + b.closingPaise, 0)

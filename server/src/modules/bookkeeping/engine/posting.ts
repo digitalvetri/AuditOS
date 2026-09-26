@@ -100,7 +100,7 @@ export function parseTaxConfig(json: string | null | undefined): LedgerTaxConfig
 
 /** Resolve the open FY that contains `date`, or explain why none does. */
 export async function resolveFinancialYear(tx: Tx, companyId: string, date: string) {
-  const fys = await tx.tallyFinancialYear.findMany({ where: { tallyCompanyId: companyId } })
+  const fys = await tx.bookkeepingFinancialYear.findMany({ where: { tallyCompanyId: companyId } })
   const fy = fys.find((f) => date >= f.startDate && date <= f.endDate)
   if (!fy) {
     throw ApiError.unprocessable(
@@ -135,7 +135,7 @@ export async function allocateVoucherNumber(
     // but never advances the counter.
     return manual.trim()
   }
-  const updated = await tx.tallyVoucherType.update({
+  const updated = await tx.bookkeepingVoucherType.update({
     where: { id: voucherType.id },
     data: { currentNumber: Math.max(voucherType.currentNumber + 1, voucherType.startNumber) },
     select: { currentNumber: true },
@@ -189,7 +189,7 @@ async function validateAndRollUp(
     ...(input.partyLedgerId ? [input.partyLedgerId] : []),
   ]))
   const ledgers = ledgerIds.length
-    ? await tx.tallyLedger.findMany({
+    ? await tx.bookkeepingLedger.findMany({
         where: { id: { in: ledgerIds }, tallyCompanyId: companyId, ...alive },
         select: { id: true, name: true, taxConfigJson: true, active: true, group: { select: { name: true, nature: true, affectsPL: true } } },
       })
@@ -206,7 +206,7 @@ async function validateAndRollUp(
   // ── Stock masters: existence + company ownership ────────────────────
   if (items.length) {
     const itemIds = Array.from(new Set(items.map((i) => i.stockItemId)))
-    const stock = await tx.tallyStockItem.findMany({
+    const stock = await tx.bookkeepingStockItem.findMany({
       where: { id: { in: itemIds }, tallyCompanyId: companyId, ...alive }, select: { id: true },
     })
     if (stock.length !== itemIds.length) {
@@ -214,7 +214,7 @@ async function validateAndRollUp(
     }
     const godownIds = Array.from(new Set(items.map((i) => i.godownId).filter((x): x is string => Boolean(x))))
     if (godownIds.length) {
-      const gds = await tx.tallyGodown.findMany({
+      const gds = await tx.bookkeepingGodown.findMany({
         where: { id: { in: godownIds }, tallyCompanyId: companyId, ...alive }, select: { id: true },
       })
       if (gds.length !== godownIds.length) {
@@ -223,7 +223,7 @@ async function validateAndRollUp(
     }
     const batchIds = Array.from(new Set(items.map((i) => i.batchId).filter((x): x is string => Boolean(x))))
     if (batchIds.length) {
-      const bs = await tx.tallyStockBatch.findMany({
+      const bs = await tx.bookkeepingStockBatch.findMany({
         where: { id: { in: batchIds }, tallyCompanyId: companyId }, select: { id: true },
       })
       if (bs.length !== batchIds.length) {
@@ -327,7 +327,7 @@ export async function postVoucher(
   actorUserId: string | null,
 ): Promise<PostedVoucher> {
   assertDate(input.date)
-  const company = await prisma.tallyCompany.findFirst({
+  const company = await prisma.bookkeepingCompany.findFirst({
     where: { id: companyId, ...alive }, select: { id: true, booksBeginFrom: true },
   })
   if (!company) throw ApiError.notFound('No such company.')
@@ -337,8 +337,8 @@ export async function postVoucher(
 
   return prisma.$transaction(async (tx) => {
     const type = input.voucherTypeId
-      ? await tx.tallyVoucherType.findFirst({ where: { id: input.voucherTypeId, tallyCompanyId: companyId, ...alive } })
-      : await tx.tallyVoucherType.findFirst({
+      ? await tx.bookkeepingVoucherType.findFirst({ where: { id: input.voucherTypeId, tallyCompanyId: companyId, ...alive } })
+      : await tx.bookkeepingVoucherType.findFirst({
           where: { tallyCompanyId: companyId, code: input.voucherTypeCode ?? '', ...alive },
           orderBy: { createdAt: 'asc' },
         })
@@ -349,13 +349,13 @@ export async function postVoucher(
     const rolled = await validateAndRollUp(tx, companyId, type, input)
     const voucherNumber = await allocateVoucherNumber(tx, type, input.voucherNumber)
 
-    const clash = await tx.tallyVoucher.findFirst({
+    const clash = await tx.bookkeepingVoucher.findFirst({
       where: { tallyCompanyId: companyId, voucherTypeId: type.id, voucherNumber },
       select: { id: true },
     })
     if (clash) throw ApiError.conflict('duplicate_voucher_number', `Voucher number ${voucherNumber} already exists for ${type.name}.`)
 
-    const voucher = await tx.tallyVoucher.create({
+    const voucher = await tx.bookkeepingVoucher.create({
       data: {
         tallyCompanyId: companyId,
         financialYearId: fy.id,
@@ -384,7 +384,7 @@ export async function postVoucher(
 
     await writeLines(tx, companyId, voucher.id, voucher.date, rolled)
 
-    await tx.tallyVoucherRevision.create({
+    await tx.bookkeepingVoucherRevision.create({
       data: {
         tallyCompanyId: companyId,
         voucherId: voucher.id,
@@ -403,7 +403,7 @@ export async function postVoucher(
 async function writeLines(tx: Tx, companyId: string, voucherId: string, date: string, rolled: ValidatedLines) {
   let position = 0
   for (const e of rolled.entries) {
-    const entry = await tx.tallyVoucherEntry.create({
+    const entry = await tx.bookkeepingVoucherEntry.create({
       data: {
         tallyCompanyId: companyId,
         voucherId,
@@ -419,7 +419,7 @@ async function writeLines(tx: Tx, companyId: string, voucherId: string, date: st
     })
     for (const b of e.billAllocations ?? []) {
       if (!b.billRef?.trim()) throw ApiError.badRequest('A bill allocation needs a bill reference.')
-      await tx.tallyBillAllocation.create({
+      await tx.bookkeepingBillAllocation.create({
         data: {
           tallyCompanyId: companyId,
           voucherId,
@@ -439,7 +439,7 @@ async function writeLines(tx: Tx, companyId: string, voucherId: string, date: st
   for (const i of rolled.items) {
     const gross = Math.round(((i.ratePaise ?? 0) * i.qtyMilli) / 1000)
     const discount = i.discountPaise ?? Math.round((gross * (i.discountPct ?? 0)) / 100)
-    await tx.tallyVoucherItem.create({
+    await tx.bookkeepingVoucherItem.create({
       data: {
         tallyCompanyId: companyId,
         voucherId,
@@ -491,7 +491,7 @@ export async function alterVoucher(
 ): Promise<PostedVoucher> {
   assertDate(input.date)
   return prisma.$transaction(async (tx) => {
-    const existing = await tx.tallyVoucher.findFirst({
+    const existing = await tx.bookkeepingVoucher.findFirst({
       where: { id: voucherId, tallyCompanyId: companyId, ...alive },
       include: { entries: true, items: true, voucherType: true },
     })
@@ -512,11 +512,11 @@ export async function alterVoucher(
       items: existing.items.map((i) => ({ stock_item_id: i.stockItemId, direction: i.direction, qty_milli: i.qtyMilli, rate_paise: i.ratePaise })),
     }
 
-    await tx.tallyBillAllocation.deleteMany({ where: { voucherId } })
-    await tx.tallyVoucherEntry.deleteMany({ where: { voucherId } })
-    await tx.tallyVoucherItem.deleteMany({ where: { voucherId } })
+    await tx.bookkeepingBillAllocation.deleteMany({ where: { voucherId } })
+    await tx.bookkeepingVoucherEntry.deleteMany({ where: { voucherId } })
+    await tx.bookkeepingVoucherItem.deleteMany({ where: { voucherId } })
 
-    const voucher = await tx.tallyVoucher.update({
+    const voucher = await tx.bookkeepingVoucher.update({
       where: { id: voucherId },
       data: {
         financialYearId: fy.id,
@@ -542,7 +542,7 @@ export async function alterVoucher(
       },
     })
     await writeLines(tx, companyId, voucher.id, voucher.date, rolled)
-    await tx.tallyVoucherRevision.create({
+    await tx.bookkeepingVoucherRevision.create({
       data: {
         tallyCompanyId: companyId,
         voucherId,
@@ -569,10 +569,10 @@ export async function cancelVoucher(
   actorUserId: string | null,
 ) {
   return prisma.$transaction(async (tx) => {
-    const v = await tx.tallyVoucher.findFirst({ where: { id: voucherId, tallyCompanyId: companyId, ...alive } })
+    const v = await tx.bookkeepingVoucher.findFirst({ where: { id: voucherId, tallyCompanyId: companyId, ...alive } })
     if (!v) throw ApiError.notFound('No such voucher.')
     if (v.status === 'cancelled') return v
-    const updated = await tx.tallyVoucher.update({
+    const updated = await tx.bookkeepingVoucher.update({
       where: { id: voucherId },
       data: {
         status: 'cancelled',
@@ -582,7 +582,7 @@ export async function cancelVoucher(
         version: { increment: 1 },
       },
     })
-    await tx.tallyVoucherRevision.create({
+    await tx.bookkeepingVoucherRevision.create({
       data: {
         tallyCompanyId: companyId, voucherId, version: updated.version, action: 'cancelled',
         beforeJson: JSON.stringify({ status: 'active' }),
@@ -597,16 +597,16 @@ export async function cancelVoucher(
 /** Restore a cancelled voucher — the effect comes back, the history stays. */
 export async function restoreVoucher(companyId: string, voucherId: string, actorUserId: string | null) {
   return prisma.$transaction(async (tx) => {
-    const v = await tx.tallyVoucher.findFirst({ where: { id: voucherId, tallyCompanyId: companyId, ...alive } })
+    const v = await tx.bookkeepingVoucher.findFirst({ where: { id: voucherId, tallyCompanyId: companyId, ...alive } })
     if (!v) throw ApiError.notFound('No such voucher.')
     if (v.status !== 'cancelled') return v
-    const fy = await tx.tallyFinancialYear.findUnique({ where: { id: v.financialYearId } })
+    const fy = await tx.bookkeepingFinancialYear.findUnique({ where: { id: v.financialYearId } })
     if (fy?.closed) throw ApiError.unprocessable('financial_year_closed', `Financial year ${fy.label} is closed.`)
-    const updated = await tx.tallyVoucher.update({
+    const updated = await tx.bookkeepingVoucher.update({
       where: { id: voucherId },
       data: { status: 'active', cancelledAt: null, cancelledByUserId: null, cancelReason: null, version: { increment: 1 } },
     })
-    await tx.tallyVoucherRevision.create({
+    await tx.bookkeepingVoucherRevision.create({
       data: {
         tallyCompanyId: companyId, voucherId, version: updated.version, action: 'restored',
         beforeJson: JSON.stringify({ status: 'cancelled' }), afterJson: JSON.stringify({ status: 'active' }), actorUserId,

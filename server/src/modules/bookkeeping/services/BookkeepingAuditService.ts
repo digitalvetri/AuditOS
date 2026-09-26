@@ -23,7 +23,7 @@ export const BookkeepingAuditService = {
   /** Full trail for a company, newest first. */
   async trail(session: Session, companyId: string, filter: { action?: string; voucherId?: string; from?: string; to?: string; limit?: number } = {}) {
     await BookkeepingCompanyService.requireOwned(session, companyId)
-    const rows = await prisma.tallyVoucherRevision.findMany({
+    const rows = await prisma.bookkeepingVoucherRevision.findMany({
       where: {
         tallyCompanyId: companyId,
         ...(filter.action && filter.action !== 'all' ? { action: filter.action } : {}),
@@ -62,7 +62,7 @@ export const BookkeepingAuditService = {
   /** The old/new comparison for one revision. */
   async revision(session: Session, companyId: string, revisionId: string) {
     await BookkeepingCompanyService.requireOwned(session, companyId)
-    const r = await prisma.tallyVoucherRevision.findFirst({ where: { id: revisionId, tallyCompanyId: companyId } })
+    const r = await prisma.bookkeepingVoucherRevision.findFirst({ where: { id: revisionId, tallyCompanyId: companyId } })
     if (!r) throw ApiError.notFound('No such revision.')
     const safeParse = (s: string | null) => { if (!s) return null; try { return JSON.parse(s) as unknown } catch { return { raw: s } } }
     return {
@@ -76,7 +76,7 @@ export const BookkeepingAuditService = {
   /** Vouchers that have been altered since they were first posted. */
   async alteredVouchers(session: Session, companyId: string, filter: { from?: string; to?: string } = {}) {
     await BookkeepingCompanyService.requireOwned(session, companyId)
-    const rows = await prisma.tallyVoucher.findMany({
+    const rows = await prisma.bookkeepingVoucher.findMany({
       where: {
         tallyCompanyId: companyId, ...alive, version: { gt: 1 },
         ...(filter.from || filter.to
@@ -102,7 +102,7 @@ export const BookkeepingAuditService = {
   /** Cancelled vouchers — they are never removed, only marked. */
   async cancelledVouchers(session: Session, companyId: string, filter: { from?: string; to?: string } = {}) {
     await BookkeepingCompanyService.requireOwned(session, companyId)
-    const rows = await prisma.tallyVoucher.findMany({
+    const rows = await prisma.bookkeepingVoucher.findMany({
       where: {
         tallyCompanyId: companyId, ...alive, status: 'cancelled',
         ...(filter.from || filter.to
@@ -153,17 +153,17 @@ export const BookkeepingAuditService = {
     const [tb, stock, noNarration, backdated, negativeCash, cancelled, altered, unreconciled] = await Promise.all([
       trialBalance(companyId, range),
       stockPositions(companyId, range),
-      prisma.tallyVoucher.count({ where: { tallyCompanyId: companyId, ...alive, status: 'active', narration: null, ...dateWhere } }),
-      prisma.tallyVoucher.count({
+      prisma.bookkeepingVoucher.count({ where: { tallyCompanyId: companyId, ...alive, status: 'active', narration: null, ...dateWhere } }),
+      prisma.bookkeepingVoucher.count({
         where: { tallyCompanyId: companyId, ...alive, status: 'active', ...dateWhere },
       }),
       (async () => {
         const rows = await import('../engine/balances.js').then((m) => m.ledgerBalances(companyId, range))
         return rows.filter((r) => (r.primaryGroupName === 'Cash-in-Hand' || r.primaryGroupName === 'Bank Accounts') && r.closingPaise < 0)
       })(),
-      prisma.tallyVoucher.count({ where: { tallyCompanyId: companyId, ...alive, status: 'cancelled', ...dateWhere } }),
-      prisma.tallyVoucher.count({ where: { tallyCompanyId: companyId, ...alive, version: { gt: 1 }, ...dateWhere } }),
-      prisma.tallyBankStatementLine.count({ where: { tallyCompanyId: companyId, ...alive, status: 'unmatched' } }),
+      prisma.bookkeepingVoucher.count({ where: { tallyCompanyId: companyId, ...alive, status: 'cancelled', ...dateWhere } }),
+      prisma.bookkeepingVoucher.count({ where: { tallyCompanyId: companyId, ...alive, version: { gt: 1 }, ...dateWhere } }),
+      prisma.bookkeepingBankStatementLine.count({ where: { tallyCompanyId: companyId, ...alive, status: 'unmatched' } }),
     ])
 
     const items = [

@@ -66,7 +66,7 @@ export const BookkeepingSettingsService = {
   /** Every group, with stored overrides folded onto the defaults. */
   async getAll(session: Session, companyId: string) {
     await BookkeepingCompanyService.requireOwned(session, companyId)
-    const rows = await prisma.tallySetting.findMany({ where: { tallyCompanyId: companyId } })
+    const rows = await prisma.bookkeepingSetting.findMany({ where: { tallyCompanyId: companyId } })
     const stored = new Map(rows.map((r) => {
       let value: unknown
       try { value = JSON.parse(r.valueJson) } catch { value = null }
@@ -82,7 +82,7 @@ export const BookkeepingSettingsService = {
 
   /** Read one group — what the engine and the UI both call. */
   async get(companyId: string, group: SettingGroupKey): Promise<Record<string, unknown>> {
-    const row = await prisma.tallySetting.findUnique({ where: { tallyCompanyId_key: { tallyCompanyId: companyId, key: group } } })
+    const row = await prisma.bookkeepingSetting.findUnique({ where: { tallyCompanyId_key: { tallyCompanyId: companyId, key: group } } })
     let override: Record<string, unknown> = {}
     if (row) { try { override = JSON.parse(row.valueJson) as Record<string, unknown> } catch { override = {} } }
     return { ...(SETTING_GROUPS[group] as Record<string, unknown>), ...override }
@@ -96,7 +96,7 @@ export const BookkeepingSettingsService = {
     if (unknownKeys.length) throw ApiError.badRequest(`Unknown setting(s): ${unknownKeys.join(', ')}.`)
     const current = await BookkeepingSettingsService.get(companyId, group as SettingGroupKey)
     const next = { ...current, ...patch }
-    await prisma.tallySetting.upsert({
+    await prisma.bookkeepingSetting.upsert({
       where: { tallyCompanyId_key: { tallyCompanyId: companyId, key: group } },
       create: { tallyCompanyId: companyId, key: group, valueJson: JSON.stringify(next) },
       update: { valueJson: JSON.stringify(next) },

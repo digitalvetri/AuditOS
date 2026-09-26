@@ -78,14 +78,14 @@ export interface CreateLedgerInput {
 }
 
 async function assertGroupInCompany(companyId: string, groupId: string) {
-  const group = await prisma.tallyGroup.findFirst({
+  const group = await prisma.bookkeepingGroup.findFirst({
     where: { id: groupId, tallyCompanyId: companyId, ...alive },
   })
   if (!group) throw ApiError.badRequest('Group does not belong to this company.')
 }
 
 async function assertFyInCompany(companyId: string, fyId: string) {
-  const fy = await prisma.tallyFinancialYear.findFirst({
+  const fy = await prisma.bookkeepingFinancialYear.findFirst({
     where: { id: fyId, tallyCompanyId: companyId },
   })
   if (!fy) throw ApiError.badRequest('Financial year does not belong to this company.')
@@ -99,13 +99,13 @@ export const BookkeepingLedgerService = {
     const where: Record<string, unknown> = { tallyCompanyId: companyId, ...alive }
     if (filter.groupId) where.groupId = filter.groupId
     if (filter.q) where.name = { contains: filter.q }
-    const rows = await prisma.tallyLedger.findMany({ where, orderBy: [{ name: 'asc' }] })
+    const rows = await prisma.bookkeepingLedger.findMany({ where, orderBy: [{ name: 'asc' }] })
     return rows.map(toApi)
   },
 
   async get(session: Session, companyId: string, id: string): Promise<LedgerApi> {
     await BookkeepingCompanyService.requireOwned(session, companyId)
-    const row = await prisma.tallyLedger.findFirst({
+    const row = await prisma.bookkeepingLedger.findFirst({
       where: { id, tallyCompanyId: companyId, ...alive },
     })
     if (!row) throw ApiError.notFound('No such ledger.')
@@ -118,7 +118,7 @@ export const BookkeepingLedgerService = {
     if (!name) throw ApiError.badRequest('Ledger name is required.')
     await assertGroupInCompany(companyId, input.groupId)
     if (input.openingBalanceAsOfFyId) await assertFyInCompany(companyId, input.openingBalanceAsOfFyId)
-    const clash = await prisma.tallyLedger.findFirst({
+    const clash = await prisma.bookkeepingLedger.findFirst({
       where: { tallyCompanyId: companyId, name, ...alive }, select: { id: true },
     })
     if (clash) throw ApiError.conflict('duplicate_name', `A ledger named "${name}" already exists.`)
@@ -126,7 +126,7 @@ export const BookkeepingLedgerService = {
     const opening = Math.max(0, Math.round(input.openingBalancePaise ?? 0))
     const openingType = input.openingBalanceType === 'cr' ? 'cr' : 'dr'
 
-    const row = await prisma.tallyLedger.create({
+    const row = await prisma.bookkeepingLedger.create({
       data: {
         tallyCompanyId: companyId,
         name,
@@ -152,7 +152,7 @@ export const BookkeepingLedgerService = {
 
   async update(session: Session, companyId: string, id: string, patch: Partial<CreateLedgerInput> & { active?: boolean }): Promise<LedgerApi> {
     await BookkeepingCompanyService.requireOwned(session, companyId)
-    const existing = await prisma.tallyLedger.findFirst({
+    const existing = await prisma.bookkeepingLedger.findFirst({
       where: { id, tallyCompanyId: companyId, ...alive },
     })
     if (!existing) throw ApiError.notFound('No such ledger.')
@@ -160,7 +160,7 @@ export const BookkeepingLedgerService = {
     if (patch.name !== undefined) {
       const name = patch.name.trim()
       if (!name) throw ApiError.badRequest('Ledger name is required.')
-      const clash = await prisma.tallyLedger.findFirst({
+      const clash = await prisma.bookkeepingLedger.findFirst({
         where: { tallyCompanyId: companyId, name, ...alive, NOT: { id } }, select: { id: true },
       })
       if (clash) throw ApiError.conflict('duplicate_name', `A ledger named "${name}" already exists.`)
@@ -186,18 +186,18 @@ export const BookkeepingLedgerService = {
     if (patch.taxConfig !== undefined) data.taxConfigJson = patch.taxConfig ? JSON.stringify(patch.taxConfig) : null
     if (patch.active !== undefined) data.active = patch.active
 
-    const updated = await prisma.tallyLedger.update({ where: { id }, data })
+    const updated = await prisma.bookkeepingLedger.update({ where: { id }, data })
     return toApi(updated)
   },
 
   async softDelete(session: Session, companyId: string, id: string): Promise<void> {
     await BookkeepingCompanyService.requireOwned(session, companyId)
-    const existing = await prisma.tallyLedger.findFirst({
+    const existing = await prisma.bookkeepingLedger.findFirst({
       where: { id, tallyCompanyId: companyId, ...alive },
     })
     if (!existing) throw ApiError.notFound('No such ledger.')
     // Slice 2+ will block this if any posted voucher lines reference the ledger.
     // For Slice 1 there are no vouchers yet, so soft-delete is unconditional.
-    await prisma.tallyLedger.update({ where: { id }, data: { deletedAt: new Date(), active: false } })
+    await prisma.bookkeepingLedger.update({ where: { id }, data: { deletedAt: new Date(), active: false } })
   },
 }

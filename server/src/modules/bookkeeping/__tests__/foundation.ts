@@ -50,18 +50,18 @@ async function loadSession(email: string): Promise<Session> {
 }
 
 async function cleanup(organisationId: string) {
-  const cos = await prisma.tallyCompany.findMany({ where: { organisationId, name: { startsWith: 'FIXTURE-' } } })
+  const cos = await prisma.bookkeepingCompany.findMany({ where: { organisationId, name: { startsWith: 'FIXTURE-' } } })
   for (const c of cos) {
     // Scaffolding seeded with every company (voucher types, GST ledgers,
     // units, the default godown) has to go before the company itself.
-    await prisma.tallyVoucherType.deleteMany({ where: { tallyCompanyId: c.id } })
-    await prisma.tallySetting.deleteMany({ where: { tallyCompanyId: c.id } })
-    await prisma.tallyUnit.deleteMany({ where: { tallyCompanyId: c.id } })
-    await prisma.tallyGodown.deleteMany({ where: { tallyCompanyId: c.id } })
-    await prisma.tallyLedger.deleteMany({ where: { tallyCompanyId: c.id } })
-    await prisma.tallyGroup.deleteMany({ where: { tallyCompanyId: c.id } })
-    await prisma.tallyFinancialYear.deleteMany({ where: { tallyCompanyId: c.id } })
-    await prisma.tallyCompany.delete({ where: { id: c.id } })
+    await prisma.bookkeepingVoucherType.deleteMany({ where: { tallyCompanyId: c.id } })
+    await prisma.bookkeepingSetting.deleteMany({ where: { tallyCompanyId: c.id } })
+    await prisma.bookkeepingUnit.deleteMany({ where: { tallyCompanyId: c.id } })
+    await prisma.bookkeepingGodown.deleteMany({ where: { tallyCompanyId: c.id } })
+    await prisma.bookkeepingLedger.deleteMany({ where: { tallyCompanyId: c.id } })
+    await prisma.bookkeepingGroup.deleteMany({ where: { tallyCompanyId: c.id } })
+    await prisma.bookkeepingFinancialYear.deleteMany({ where: { tallyCompanyId: c.id } })
+    await prisma.bookkeepingCompany.delete({ where: { id: c.id } })
   }
 }
 
@@ -82,11 +82,11 @@ async function main() {
     pan: 'AAAPA1234A',
     gstin: '33AAAPA1234A1Z5',
   })
-  const aGroupCount = await prisma.tallyGroup.count({ where: { tallyCompanyId: a.id } })
+  const aGroupCount = await prisma.bookkeepingGroup.count({ where: { tallyCompanyId: a.id } })
   if (aGroupCount !== PRIMARY_GROUPS.length) {
     fail(`Company A seeded ${PRIMARY_GROUPS.length} primary groups`, `got ${aGroupCount}`)
   }
-  const aFyCount = await prisma.tallyFinancialYear.count({ where: { tallyCompanyId: a.id } })
+  const aFyCount = await prisma.bookkeepingFinancialYear.count({ where: { tallyCompanyId: a.id } })
   if (aFyCount !== 1) fail('Company A seeded 1 FY', `got ${aFyCount}`)
   pass(`Company A: ${PRIMARY_GROUPS.length} primary groups + 1 FY seeded atomically`)
 
@@ -97,7 +97,7 @@ async function main() {
     state: 'Karnataka',
     pan: 'AABPB5678B',
   })
-  const bGroupCount = await prisma.tallyGroup.count({ where: { tallyCompanyId: b.id } })
+  const bGroupCount = await prisma.bookkeepingGroup.count({ where: { tallyCompanyId: b.id } })
   if (bGroupCount !== PRIMARY_GROUPS.length) fail('Company B primary groups', String(bGroupCount))
   pass('Company B: independent primaries + FY (no shared groups)')
 
@@ -112,7 +112,7 @@ async function main() {
   }
 
   // ── 4. Create a ledger in Company A ──────────────────────────────────
-  const cashGroup = await prisma.tallyGroup.findFirstOrThrow({
+  const cashGroup = await prisma.bookkeepingGroup.findFirstOrThrow({
     where: { tallyCompanyId: a.id, name: 'Cash-in-Hand' },
   })
   const cash = await BookkeepingLedgerService.create(md, a.id, {
@@ -142,7 +142,7 @@ async function main() {
   }
 
   // ── 7. Same ledger name allowed in Company B (isolation) ─────────────
-  const bCashGroup = await prisma.tallyGroup.findFirstOrThrow({
+  const bCashGroup = await prisma.bookkeepingGroup.findFirstOrThrow({
     where: { tallyCompanyId: b.id, name: 'Cash-in-Hand' },
   })
   await BookkeepingLedgerService.create(md, b.id, { name: 'Main Cash', groupId: bCashGroup.id })
@@ -159,7 +159,7 @@ async function main() {
   }
 
   // ── 9. Group deletion rules ──────────────────────────────────────────
-  const capital = await prisma.tallyGroup.findFirstOrThrow({
+  const capital = await prisma.bookkeepingGroup.findFirstOrThrow({
     where: { tallyCompanyId: a.id, name: 'Capital Account' },
   })
   try {

@@ -25,7 +25,7 @@ export const BookkeepingPayrollService = {
   // ── Masters ────────────────────────────────────────────────────────
   async listEmployees(session: Session, companyId: string) {
     await BookkeepingCompanyService.requireOwned(session, companyId)
-    const rows = await prisma.tallyEmployee.findMany({
+    const rows = await prisma.bookkeepingEmployee.findMany({
       where: { tallyCompanyId: companyId, ...alive },
       include: { structureLines: { include: { payHead: { select: { name: true, headType: true } } } } },
       orderBy: { name: 'asc' },
@@ -47,9 +47,9 @@ export const BookkeepingPayrollService = {
     await BookkeepingCompanyService.requireOwned(session, companyId)
     const name = input.name.trim()
     if (!name) throw ApiError.badRequest('Employee name is required.')
-    const clash = await prisma.tallyEmployee.findFirst({ where: { tallyCompanyId: companyId, name, ...alive } })
+    const clash = await prisma.bookkeepingEmployee.findFirst({ where: { tallyCompanyId: companyId, name, ...alive } })
     if (clash) throw ApiError.conflict('duplicate_name', `An employee named "${name}" already exists.`)
-    const e = await prisma.tallyEmployee.create({
+    const e = await prisma.bookkeepingEmployee.create({
       data: {
         tallyCompanyId: companyId, name, code: input.code ?? null, employeeGroup: input.employeeGroup ?? null,
         designation: input.designation ?? null, dateOfJoining: input.dateOfJoining ?? null,
@@ -61,7 +61,7 @@ export const BookkeepingPayrollService = {
 
   async listPayHeads(session: Session, companyId: string) {
     await BookkeepingCompanyService.requireOwned(session, companyId)
-    const rows = await prisma.tallyPayHead.findMany({
+    const rows = await prisma.bookkeepingPayHead.findMany({
       where: { tallyCompanyId: companyId, ...alive },
       include: { ledger: { select: { id: true, name: true } } },
       orderBy: [{ headType: 'asc' }, { name: 'asc' }],
@@ -84,12 +84,12 @@ export const BookkeepingPayrollService = {
       throw ApiError.badRequest('Head type must be earning, deduction or employer_contribution.')
     }
     if (input.ledgerId) {
-      const l = await prisma.tallyLedger.findFirst({ where: { id: input.ledgerId, tallyCompanyId: companyId, ...alive } })
+      const l = await prisma.bookkeepingLedger.findFirst({ where: { id: input.ledgerId, tallyCompanyId: companyId, ...alive } })
       if (!l) throw ApiError.badRequest('That ledger does not belong to this company.')
     }
-    const clash = await prisma.tallyPayHead.findFirst({ where: { tallyCompanyId: companyId, name, ...alive } })
+    const clash = await prisma.bookkeepingPayHead.findFirst({ where: { tallyCompanyId: companyId, name, ...alive } })
     if (clash) throw ApiError.conflict('duplicate_name', `A pay head named "${name}" already exists.`)
-    const p = await prisma.tallyPayHead.create({
+    const p = await prisma.bookkeepingPayHead.create({
       data: {
         tallyCompanyId: companyId, name, headType: input.headType, calcType: input.calcType ?? 'flat',
         valuePaise: input.valuePaise ?? 0, percentBp: input.percentBp ?? 0,
@@ -101,16 +101,16 @@ export const BookkeepingPayrollService = {
 
   async setStructure(session: Session, companyId: string, employeeId: string, lines: { payHeadId: string; valuePaise?: number; percentBp?: number }[]) {
     await BookkeepingCompanyService.requireOwned(session, companyId)
-    const emp = await prisma.tallyEmployee.findFirst({ where: { id: employeeId, tallyCompanyId: companyId, ...alive } })
+    const emp = await prisma.bookkeepingEmployee.findFirst({ where: { id: employeeId, tallyCompanyId: companyId, ...alive } })
     if (!emp) throw ApiError.notFound('No such employee.')
-    const heads = await prisma.tallyPayHead.findMany({ where: { tallyCompanyId: companyId, id: { in: lines.map((l) => l.payHeadId) }, ...alive } })
+    const heads = await prisma.bookkeepingPayHead.findMany({ where: { tallyCompanyId: companyId, id: { in: lines.map((l) => l.payHeadId) }, ...alive } })
     if (heads.length !== new Set(lines.map((l) => l.payHeadId)).size) {
       throw ApiError.badRequest('A pay head in this structure does not belong to this company.')
     }
     await prisma.$transaction(async (tx) => {
-      await tx.tallySalaryStructureLine.deleteMany({ where: { employeeId } })
+      await tx.bookkeepingSalaryStructureLine.deleteMany({ where: { employeeId } })
       for (const l of lines) {
-        await tx.tallySalaryStructureLine.create({
+        await tx.bookkeepingSalaryStructureLine.create({
           data: {
             tallyCompanyId: companyId, employeeId, payHeadId: l.payHeadId,
             valuePaise: l.valuePaise ?? 0, percentBp: l.percentBp ?? 0,
@@ -125,7 +125,7 @@ export const BookkeepingPayrollService = {
     await BookkeepingCompanyService.requireOwned(session, companyId)
     if (!MONTH_RE.test(period)) throw ApiError.badRequest('Period must be YYYY-MM.')
     for (const r of rows) {
-      await prisma.tallyAttendanceRecord.upsert({
+      await prisma.bookkeepingAttendanceRecord.upsert({
         where: { employeeId_period: { employeeId: r.employeeId, period } },
         create: {
           tallyCompanyId: companyId, employeeId: r.employeeId, period,
@@ -141,7 +141,7 @@ export const BookkeepingPayrollService = {
 
   async getAttendance(session: Session, companyId: string, period: string) {
     await BookkeepingCompanyService.requireOwned(session, companyId)
-    const rows = await prisma.tallyAttendanceRecord.findMany({
+    const rows = await prisma.bookkeepingAttendanceRecord.findMany({
       where: { tallyCompanyId: companyId, period },
       include: { employee: { select: { name: true } } },
     })
@@ -159,16 +159,16 @@ export const BookkeepingPayrollService = {
   async process(session: Session, companyId: string, period: string) {
     await BookkeepingCompanyService.requireOwned(session, companyId)
     if (!MONTH_RE.test(period)) throw ApiError.badRequest('Period must be YYYY-MM.')
-    const existing = await prisma.tallyPayrollRun.findFirst({ where: { tallyCompanyId: companyId, period, ...alive } })
+    const existing = await prisma.bookkeepingPayrollRun.findFirst({ where: { tallyCompanyId: companyId, period, ...alive } })
     if (existing?.status === 'posted') throw ApiError.conflict('already_posted', `Payroll for ${period} is already posted.`)
 
     const [settings, employees, attendance] = await Promise.all([
       BookkeepingSettingsService.get(companyId, 'payroll'),
-      prisma.tallyEmployee.findMany({
+      prisma.bookkeepingEmployee.findMany({
         where: { tallyCompanyId: companyId, ...alive, active: true },
         include: { structureLines: { include: { payHead: true } } },
       }),
-      prisma.tallyAttendanceRecord.findMany({ where: { tallyCompanyId: companyId, period } }),
+      prisma.bookkeepingAttendanceRecord.findMany({ where: { tallyCompanyId: companyId, period } }),
     ])
     const attendanceBy = new Map(attendance.map((a) => [a.employeeId, a]))
 
@@ -201,20 +201,20 @@ export const BookkeepingPayrollService = {
 
     const run = await prisma.$transaction(async (tx) => {
       const r = existing
-        ? await tx.tallyPayrollRun.update({
+        ? await tx.bookkeepingPayrollRun.update({
             where: { id: existing.id },
             data: { status: 'processed', grossPaise: gross, deductionsPaise: deductions, netPaise: gross - deductions, processedByUserId: session.userId },
           })
-        : await tx.tallyPayrollRun.create({
+        : await tx.bookkeepingPayrollRun.create({
             data: {
               tallyCompanyId: companyId, period, status: 'processed',
               grossPaise: gross, deductionsPaise: deductions, netPaise: gross - deductions,
               processedByUserId: session.userId,
             },
           })
-      await tx.tallyPayrollLine.deleteMany({ where: { payrollRunId: r.id } })
+      await tx.bookkeepingPayrollLine.deleteMany({ where: { payrollRunId: r.id } })
       for (const l of lines) {
-        await tx.tallyPayrollLine.create({
+        await tx.bookkeepingPayrollLine.create({
           data: { tallyCompanyId: companyId, payrollRunId: r.id, employeeId: l.employeeId, payHeadId: l.payHeadId, headType: l.headType, amountPaise: l.amountPaise },
         })
       }
@@ -226,7 +226,7 @@ export const BookkeepingPayrollService = {
 
   async getRun(session: Session, companyId: string, runId: string) {
     await BookkeepingCompanyService.requireOwned(session, companyId)
-    const run = await prisma.tallyPayrollRun.findFirst({
+    const run = await prisma.bookkeepingPayrollRun.findFirst({
       where: { id: runId, tallyCompanyId: companyId, ...alive },
       include: { lines: { include: { employee: { select: { name: true } }, payHead: { select: { name: true, headType: true, ledgerId: true } } } } },
     })
@@ -254,7 +254,7 @@ export const BookkeepingPayrollService = {
 
   async listRuns(session: Session, companyId: string) {
     await BookkeepingCompanyService.requireOwned(session, companyId)
-    const rows = await prisma.tallyPayrollRun.findMany({ where: { tallyCompanyId: companyId, ...alive }, orderBy: { period: 'desc' } })
+    const rows = await prisma.bookkeepingPayrollRun.findMany({ where: { tallyCompanyId: companyId, ...alive }, orderBy: { period: 'desc' } })
     return rows.map((r) => ({
       id: r.id, period: r.period, status: r.status, gross_paise: r.grossPaise,
       deductions_paise: r.deductionsPaise, net_paise: r.netPaise, voucher_id: r.voucherId,
@@ -270,7 +270,7 @@ export const BookkeepingPayrollService = {
    */
   async post(session: Session, companyId: string, runId: string, input: { date: string; paymentLedgerId: string; defaultExpenseLedgerId?: string }) {
     await BookkeepingCompanyService.requireOwned(session, companyId)
-    const run = await prisma.tallyPayrollRun.findFirst({
+    const run = await prisma.bookkeepingPayrollRun.findFirst({
       where: { id: runId, tallyCompanyId: companyId, ...alive },
       include: { lines: { include: { payHead: true } } },
     })
@@ -307,7 +307,7 @@ export const BookkeepingPayrollService = {
       entries,
     }, session.userId)
 
-    await prisma.tallyPayrollRun.update({ where: { id: runId }, data: { status: 'posted', voucherId: posted.id } })
+    await prisma.bookkeepingPayrollRun.update({ where: { id: runId }, data: { status: 'posted', voucherId: posted.id } })
     return BookkeepingPayrollService.getRun(session, companyId, runId)
   },
 }

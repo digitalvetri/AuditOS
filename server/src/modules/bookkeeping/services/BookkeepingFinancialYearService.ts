@@ -32,7 +32,7 @@ export const BookkeepingFinancialYearService = {
 
   async list(session: Session, companyId: string): Promise<FinancialYearApi[]> {
     await BookkeepingCompanyService.requireOwned(session, companyId)
-    const rows = await prisma.tallyFinancialYear.findMany({
+    const rows = await prisma.bookkeepingFinancialYear.findMany({
       where: { tallyCompanyId: companyId },
       orderBy: [{ startDate: 'desc' }],
     })
@@ -51,11 +51,11 @@ export const BookkeepingFinancialYearService = {
       throw ApiError.badRequest('Dates must be YYYY-MM-DD.')
     }
     if (input.startDate >= input.endDate) throw ApiError.badRequest('Start date must be before end date.')
-    const clash = await prisma.tallyFinancialYear.findFirst({
+    const clash = await prisma.bookkeepingFinancialYear.findFirst({
       where: { tallyCompanyId: companyId, label },
     })
     if (clash) throw ApiError.conflict('duplicate_label', `FY "${label}" already exists.`)
-    const row = await prisma.tallyFinancialYear.create({
+    const row = await prisma.bookkeepingFinancialYear.create({
       data: { tallyCompanyId: companyId, label, startDate: input.startDate, endDate: input.endDate },
     })
     return toApi(row)
@@ -63,11 +63,11 @@ export const BookkeepingFinancialYearService = {
 
   async close(session: Session, companyId: string, fyId: string): Promise<FinancialYearApi> {
     await BookkeepingCompanyService.requireOwned(session, companyId)
-    const row = await prisma.tallyFinancialYear.findFirst({
+    const row = await prisma.bookkeepingFinancialYear.findFirst({
       where: { id: fyId, tallyCompanyId: companyId },
     })
     if (!row) throw ApiError.notFound('No such financial year.')
-    const updated = await prisma.tallyFinancialYear.update({
+    const updated = await prisma.bookkeepingFinancialYear.update({
       where: { id: fyId }, data: { closed: true },
     })
     return toApi(updated)

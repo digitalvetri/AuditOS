@@ -41,7 +41,7 @@ export interface StockPositionRow {
 const STOCK_VOUCHER_FILTER = { status: 'active', deletedAt: null, voucherType: { affectsStock: true, isOrder: false } }
 
 export async function stockPositions(companyId: string, filter: StockFilter = {}): Promise<StockPositionRow[]> {
-  const items = await prisma.tallyStockItem.findMany({
+  const items = await prisma.bookkeepingStockItem.findMany({
     where: {
       tallyCompanyId: companyId, ...alive,
       ...(filter.stockItemIds ? { id: { in: filter.stockItemIds } } : {}),
@@ -71,13 +71,13 @@ export async function stockPositions(companyId: string, filter: StockFilter = {}
   // Lines before the period fold into opening; lines inside it are the movement.
   const [priorLines, periodLines] = await Promise.all([
     filter.from
-      ? prisma.tallyVoucherItem.groupBy({
+      ? prisma.bookkeepingVoucherItem.groupBy({
           by: ['stockItemId', 'direction'],
           where: { ...scope, voucher: { ...STOCK_VOUCHER_FILTER, date: { lt: filter.from } } },
           _sum: { qtyMilli: true, amountPaise: true },
         })
       : Promise.resolve([] as { stockItemId: string; direction: string; _sum: { qtyMilli: number | null; amountPaise: number | null } }[]),
-    prisma.tallyVoucherItem.groupBy({
+    prisma.bookkeepingVoucherItem.groupBy({
       by: ['stockItemId', 'direction'],
       where: {
         ...scope,
@@ -157,7 +157,7 @@ export interface StockMovementRow {
 
 /** Item-wise movement — the drill-down under a stock summary row. */
 export async function stockMovement(companyId: string, stockItemId: string, filter: StockFilter = {}): Promise<StockMovementRow[]> {
-  const rows = await prisma.tallyVoucherItem.findMany({
+  const rows = await prisma.bookkeepingVoucherItem.findMany({
     where: {
       tallyCompanyId: companyId, stockItemId,
       ...(filter.godownId ? { godownId: filter.godownId } : {}),
@@ -204,12 +204,12 @@ export interface GodownStockRow {
 /** Godown-wise closing quantities (value is reported at item level). */
 export async function godownStock(companyId: string, filter: StockFilter = {}): Promise<GodownStockRow[]> {
   const [godowns, openings, lines] = await Promise.all([
-    prisma.tallyGodown.findMany({ where: { tallyCompanyId: companyId, ...alive }, select: { id: true, name: true } }),
-    prisma.tallyStockOpening.findMany({
+    prisma.bookkeepingGodown.findMany({ where: { tallyCompanyId: companyId, ...alive }, select: { id: true, name: true } }),
+    prisma.bookkeepingStockOpening.findMany({
       where: { tallyCompanyId: companyId },
       select: { godownId: true, stockItemId: true, qtyMilli: true, stockItem: { select: { name: true } } },
     }),
-    prisma.tallyVoucherItem.groupBy({
+    prisma.bookkeepingVoucherItem.groupBy({
       by: ['godownId', 'stockItemId', 'direction'],
       where: {
         tallyCompanyId: companyId,
@@ -236,7 +236,7 @@ export async function godownStock(companyId: string, filter: StockFilter = {}): 
 
   const missing = Array.from(acc.values()).filter((r) => !r.stockItemName).map((r) => r.stockItemId)
   if (missing.length) {
-    const rows = await prisma.tallyStockItem.findMany({ where: { id: { in: missing } }, select: { id: true, name: true } })
+    const rows = await prisma.bookkeepingStockItem.findMany({ where: { id: { in: missing } }, select: { id: true, name: true } })
     const m = new Map(rows.map((r) => [r.id, r.name]))
     for (const r of acc.values()) if (!r.stockItemName) r.stockItemName = m.get(r.stockItemId) ?? ''
   }

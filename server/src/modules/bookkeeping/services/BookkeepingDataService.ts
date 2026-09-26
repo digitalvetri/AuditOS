@@ -50,14 +50,14 @@ export const BookkeepingDataService = {
     if (entity === 'groups' || entity === 'ledgers' || entity === 'stock_items') {
       const existingNames = new Set(
         entity === 'groups'
-          ? (await prisma.tallyGroup.findMany({ where: { tallyCompanyId: companyId, ...alive }, select: { name: true } })).map((r) => r.name.toLowerCase())
+          ? (await prisma.bookkeepingGroup.findMany({ where: { tallyCompanyId: companyId, ...alive }, select: { name: true } })).map((r) => r.name.toLowerCase())
           : entity === 'ledgers'
-            ? (await prisma.tallyLedger.findMany({ where: { tallyCompanyId: companyId, ...alive }, select: { name: true } })).map((r) => r.name.toLowerCase())
-            : (await prisma.tallyStockItem.findMany({ where: { tallyCompanyId: companyId, ...alive }, select: { name: true } })).map((r) => r.name.toLowerCase()),
+            ? (await prisma.bookkeepingLedger.findMany({ where: { tallyCompanyId: companyId, ...alive }, select: { name: true } })).map((r) => r.name.toLowerCase())
+            : (await prisma.bookkeepingStockItem.findMany({ where: { tallyCompanyId: companyId, ...alive }, select: { name: true } })).map((r) => r.name.toLowerCase()),
       )
       const seen = new Set<string>()
       const groupNames = new Map(
-        (await prisma.tallyGroup.findMany({ where: { tallyCompanyId: companyId, ...alive }, select: { id: true, name: true } }))
+        (await prisma.bookkeepingGroup.findMany({ where: { tallyCompanyId: companyId, ...alive }, select: { id: true, name: true } }))
           .map((g) => [g.name.toLowerCase(), g.id]),
       )
       rows.forEach((r, i) => {
@@ -97,7 +97,7 @@ export const BookkeepingDataService = {
 
     if (entity === 'opening_balances') {
       const ledgers = new Map(
-        (await prisma.tallyLedger.findMany({ where: { tallyCompanyId: companyId, ...alive }, select: { id: true, name: true } }))
+        (await prisma.bookkeepingLedger.findMany({ where: { tallyCompanyId: companyId, ...alive }, select: { id: true, name: true } }))
           .map((l) => [l.name.toLowerCase(), l.id]),
       )
       rows.forEach((r, i) => {
@@ -111,10 +111,10 @@ export const BookkeepingDataService = {
 
     if (entity === 'vouchers') {
       const ledgers = new Map(
-        (await prisma.tallyLedger.findMany({ where: { tallyCompanyId: companyId, ...alive }, select: { id: true, name: true } }))
+        (await prisma.bookkeepingLedger.findMany({ where: { tallyCompanyId: companyId, ...alive }, select: { id: true, name: true } }))
           .map((l) => [l.name.toLowerCase(), l.id]),
       )
-      const types = new Set((await prisma.tallyVoucherType.findMany({ where: { tallyCompanyId: companyId, ...alive }, select: { code: true } })).map((t) => t.code))
+      const types = new Set((await prisma.bookkeepingVoucherType.findMany({ where: { tallyCompanyId: companyId, ...alive }, select: { code: true } })).map((t) => t.code))
       // A voucher import row is one LINE; rows sharing a voucher_key form one voucher.
       const byKey = new Map<string, { rows: number[]; dr: number; cr: number }>()
       rows.forEach((r, i) => {
@@ -166,14 +166,14 @@ export const BookkeepingDataService = {
     const usable = rows.filter((_, i) => !badRows.has(i))
 
     if (entity === 'groups') {
-      const groups = new Map((await prisma.tallyGroup.findMany({ where: { tallyCompanyId: companyId, ...alive }, select: { id: true, name: true, nature: true, affectsPL: true } })).map((g) => [g.name.toLowerCase(), g]))
+      const groups = new Map((await prisma.bookkeepingGroup.findMany({ where: { tallyCompanyId: companyId, ...alive }, select: { id: true, name: true, nature: true, affectsPL: true } })).map((g) => [g.name.toLowerCase(), g]))
       let created = 0, skipped = 0
       for (const r of usable) {
         const name = String(r.name).trim()
         if (groups.has(name.toLowerCase())) { skipped++; continue }
         const parentName = String(r.under ?? r.parent ?? '').trim()
         const parent = parentName ? groups.get(parentName.toLowerCase()) : undefined
-        const row = await prisma.tallyGroup.create({
+        const row = await prisma.bookkeepingGroup.create({
           data: {
             tallyCompanyId: companyId, name,
             parentGroupId: parent?.id ?? null,
@@ -188,14 +188,14 @@ export const BookkeepingDataService = {
     }
 
     if (entity === 'ledgers') {
-      const groups = new Map((await prisma.tallyGroup.findMany({ where: { tallyCompanyId: companyId, ...alive }, select: { id: true, name: true } })).map((g) => [g.name.toLowerCase(), g.id]))
-      const existing = new Set((await prisma.tallyLedger.findMany({ where: { tallyCompanyId: companyId, ...alive }, select: { name: true } })).map((l) => l.name.toLowerCase()))
+      const groups = new Map((await prisma.bookkeepingGroup.findMany({ where: { tallyCompanyId: companyId, ...alive }, select: { id: true, name: true } })).map((g) => [g.name.toLowerCase(), g.id]))
+      const existing = new Set((await prisma.bookkeepingLedger.findMany({ where: { tallyCompanyId: companyId, ...alive }, select: { name: true } })).map((l) => l.name.toLowerCase()))
       let created = 0, skipped = 0
       for (const r of usable) {
         const name = String(r.name).trim()
         if (existing.has(name.toLowerCase())) { skipped++; continue }
         const groupId = groups.get(String(r.under ?? r.group).trim().toLowerCase())!
-        await prisma.tallyLedger.create({
+        await prisma.bookkeepingLedger.create({
           data: {
             tallyCompanyId: companyId, name, groupId,
             openingBalancePaise: Math.round(Number(r.opening_balance ?? 0) * 100),
@@ -215,13 +215,13 @@ export const BookkeepingDataService = {
     }
 
     if (entity === 'stock_items') {
-      const existing = new Set((await prisma.tallyStockItem.findMany({ where: { tallyCompanyId: companyId, ...alive }, select: { name: true } })).map((l) => l.name.toLowerCase()))
-      const units = new Map((await prisma.tallyUnit.findMany({ where: { tallyCompanyId: companyId, ...alive }, select: { id: true, name: true } })).map((u) => [u.name.toLowerCase(), u.id]))
+      const existing = new Set((await prisma.bookkeepingStockItem.findMany({ where: { tallyCompanyId: companyId, ...alive }, select: { name: true } })).map((l) => l.name.toLowerCase()))
+      const units = new Map((await prisma.bookkeepingUnit.findMany({ where: { tallyCompanyId: companyId, ...alive }, select: { id: true, name: true } })).map((u) => [u.name.toLowerCase(), u.id]))
       let created = 0, skipped = 0
       for (const r of usable) {
         const name = String(r.name).trim()
         if (existing.has(name.toLowerCase())) { skipped++; continue }
-        const item = await prisma.tallyStockItem.create({
+        const item = await prisma.bookkeepingStockItem.create({
           data: {
             tallyCompanyId: companyId, name,
             unitId: units.get(String(r.unit ?? 'Nos').toLowerCase()) ?? null,
@@ -235,7 +235,7 @@ export const BookkeepingDataService = {
         const openQty = Math.round(Number(r.opening_qty ?? 0) * 1000)
         if (openQty) {
           const rate = Math.round(Number(r.opening_rate ?? 0) * 100)
-          await prisma.tallyStockOpening.create({
+          await prisma.bookkeepingStockOpening.create({
             data: { tallyCompanyId: companyId, stockItemId: item.id, qtyMilli: openQty, ratePaise: rate, valuePaise: Math.round((openQty * rate) / 1000) },
           })
         }
@@ -246,11 +246,11 @@ export const BookkeepingDataService = {
     }
 
     if (entity === 'opening_balances') {
-      const ledgers = new Map((await prisma.tallyLedger.findMany({ where: { tallyCompanyId: companyId, ...alive }, select: { id: true, name: true } })).map((l) => [l.name.toLowerCase(), l.id]))
+      const ledgers = new Map((await prisma.bookkeepingLedger.findMany({ where: { tallyCompanyId: companyId, ...alive }, select: { id: true, name: true } })).map((l) => [l.name.toLowerCase(), l.id]))
       let updated = 0
       for (const r of usable) {
         const id = ledgers.get(String(r.ledger ?? r.name).trim().toLowerCase())!
-        await prisma.tallyLedger.update({
+        await prisma.bookkeepingLedger.update({
           where: { id },
           data: { openingBalancePaise: Math.round(Number(r.amount) * 100), openingBalanceType: String(r.dr_cr).toLowerCase() },
         })
@@ -260,7 +260,7 @@ export const BookkeepingDataService = {
     }
 
     // vouchers — group the lines by voucher_key and post each through the engine
-    const ledgers = new Map((await prisma.tallyLedger.findMany({ where: { tallyCompanyId: companyId, ...alive }, select: { id: true, name: true } })).map((l) => [l.name.toLowerCase(), l.id]))
+    const ledgers = new Map((await prisma.bookkeepingLedger.findMany({ where: { tallyCompanyId: companyId, ...alive }, select: { id: true, name: true } })).map((l) => [l.name.toLowerCase(), l.id]))
     const groupsByKey = new Map<string, Record<string, unknown>[]>()
     for (const r of usable) {
       const key = String(r.voucher_key ?? r.voucher_number ?? '').trim()
@@ -298,18 +298,18 @@ export const BookkeepingDataService = {
   async exportJson(session: Session, companyId: string, opts: { includeVouchers?: boolean } = {}) {
     const company = await BookkeepingCompanyService.requireOwned(session, companyId)
     const [financialYears, groups, ledgers, voucherTypes, stockItems, units, godowns, openings, taxRates, settings] = await Promise.all([
-      prisma.tallyFinancialYear.findMany({ where: { tallyCompanyId: companyId } }),
-      prisma.tallyGroup.findMany({ where: { tallyCompanyId: companyId, ...alive } }),
-      prisma.tallyLedger.findMany({ where: { tallyCompanyId: companyId, ...alive } }),
-      prisma.tallyVoucherType.findMany({ where: { tallyCompanyId: companyId, ...alive } }),
-      prisma.tallyStockItem.findMany({ where: { tallyCompanyId: companyId, ...alive } }),
-      prisma.tallyUnit.findMany({ where: { tallyCompanyId: companyId, ...alive } }),
-      prisma.tallyGodown.findMany({ where: { tallyCompanyId: companyId, ...alive } }),
-      prisma.tallyStockOpening.findMany({ where: { tallyCompanyId: companyId } }),
-      prisma.tallyTaxRate.findMany({ where: { tallyCompanyId: companyId, ...alive } }),
-      prisma.tallySetting.findMany({ where: { tallyCompanyId: companyId } }),
+      prisma.bookkeepingFinancialYear.findMany({ where: { tallyCompanyId: companyId } }),
+      prisma.bookkeepingGroup.findMany({ where: { tallyCompanyId: companyId, ...alive } }),
+      prisma.bookkeepingLedger.findMany({ where: { tallyCompanyId: companyId, ...alive } }),
+      prisma.bookkeepingVoucherType.findMany({ where: { tallyCompanyId: companyId, ...alive } }),
+      prisma.bookkeepingStockItem.findMany({ where: { tallyCompanyId: companyId, ...alive } }),
+      prisma.bookkeepingUnit.findMany({ where: { tallyCompanyId: companyId, ...alive } }),
+      prisma.bookkeepingGodown.findMany({ where: { tallyCompanyId: companyId, ...alive } }),
+      prisma.bookkeepingStockOpening.findMany({ where: { tallyCompanyId: companyId } }),
+      prisma.bookkeepingTaxRate.findMany({ where: { tallyCompanyId: companyId, ...alive } }),
+      prisma.bookkeepingSetting.findMany({ where: { tallyCompanyId: companyId } }),
     ])
-    const vouchers = opts.includeVouchers === false ? [] : await prisma.tallyVoucher.findMany({
+    const vouchers = opts.includeVouchers === false ? [] : await prisma.bookkeepingVoucher.findMany({
       where: { tallyCompanyId: companyId, ...alive },
       include: { entries: { include: { allocations: true } }, items: true },
       orderBy: { date: 'asc' },
@@ -345,7 +345,7 @@ export const BookkeepingDataService = {
    */
   async exportVoucherXml(session: Session, companyId: string, filter: { from?: string; to?: string } = {}) {
     const company = await BookkeepingCompanyService.requireOwned(session, companyId)
-    const vouchers = await prisma.tallyVoucher.findMany({
+    const vouchers = await prisma.bookkeepingVoucher.findMany({
       where: {
         tallyCompanyId: companyId, ...alive, status: 'active',
         ...(filter.from || filter.to ? { date: { ...(filter.from ? { gte: filter.from } : {}), ...(filter.to ? { lte: filter.to } : {}) } } : {}),
@@ -391,7 +391,7 @@ ${v.entries.map((e) => `          <ALLLEDGERENTRIES.LIST>
     const company = await BookkeepingCompanyService.requireOwned(session, companyId)
     const payload = await BookkeepingDataService.exportJson(session, companyId)
     const json = JSON.stringify(payload)
-    const row = await prisma.tallyBackup.create({
+    const row = await prisma.bookkeepingBackup.create({
       data: {
         tallyCompanyId: companyId,
         label: label?.trim() || `${company.name} — ${new Date().toISOString().slice(0, 16).replace('T', ' ')}`,
@@ -407,7 +407,7 @@ ${v.entries.map((e) => `          <ALLLEDGERENTRIES.LIST>
 
   async listBackups(session: Session, companyId: string) {
     await BookkeepingCompanyService.requireOwned(session, companyId)
-    const rows = await prisma.tallyBackup.findMany({
+    const rows = await prisma.bookkeepingBackup.findMany({
       where: { tallyCompanyId: companyId }, orderBy: { createdAt: 'desc' },
       select: { id: true, label: true, sizeBytes: true, voucherCount: true, ledgerCount: true, createdAt: true, createdByUserId: true },
     })
@@ -419,7 +419,7 @@ ${v.entries.map((e) => `          <ALLLEDGERENTRIES.LIST>
 
   async downloadBackup(session: Session, companyId: string, backupId: string) {
     await BookkeepingCompanyService.requireOwned(session, companyId)
-    const row = await prisma.tallyBackup.findFirst({ where: { id: backupId, tallyCompanyId: companyId } })
+    const row = await prisma.bookkeepingBackup.findFirst({ where: { id: backupId, tallyCompanyId: companyId } })
     if (!row) throw ApiError.notFound('No such backup.')
     return { label: row.label, payload: row.payloadJson }
   },
@@ -431,7 +431,7 @@ ${v.entries.map((e) => `          <ALLLEDGERENTRIES.LIST>
    */
   async restoreBackup(session: Session, companyId: string, backupId: string, newCompanyName: string) {
     await BookkeepingCompanyService.requireOwned(session, companyId)
-    const row = await prisma.tallyBackup.findFirst({ where: { id: backupId, tallyCompanyId: companyId } })
+    const row = await prisma.bookkeepingBackup.findFirst({ where: { id: backupId, tallyCompanyId: companyId } })
     if (!row) throw ApiError.notFound('No such backup.')
     const name = newCompanyName.trim()
     if (!name) throw ApiError.badRequest('A name for the restored company is required.')
@@ -452,12 +452,12 @@ ${v.entries.map((e) => `          <ALLLEDGERENTRIES.LIST>
 
     // Map old ids to new ones as each layer is recreated.
     const groupMap = new Map<string, string>()
-    const existingGroups = await prisma.tallyGroup.findMany({ where: { tallyCompanyId: created.id, ...alive }, select: { id: true, name: true } })
+    const existingGroups = await prisma.bookkeepingGroup.findMany({ where: { tallyCompanyId: created.id, ...alive }, select: { id: true, name: true } })
     const byName = new Map(existingGroups.map((g) => [g.name, g.id]))
     for (const g of payload.groups) {
       const already = byName.get(g.name)
       if (already) { groupMap.set(g.id, already); continue }
-      const row2 = await prisma.tallyGroup.create({
+      const row2 = await prisma.bookkeepingGroup.create({
         data: {
           tallyCompanyId: created.id, name: g.name, nature: g.nature, affectsPL: g.affectsPL,
           parentGroupId: g.parentGroupId ? groupMap.get(g.parentGroupId) ?? null : null,
@@ -467,9 +467,9 @@ ${v.entries.map((e) => `          <ALLLEDGERENTRIES.LIST>
     }
     const ledgerMap = new Map<string, string>()
     for (const l of payload.ledgers) {
-      const existing = await prisma.tallyLedger.findFirst({ where: { tallyCompanyId: created.id, name: l.name, ...alive }, select: { id: true } })
+      const existing = await prisma.bookkeepingLedger.findFirst({ where: { tallyCompanyId: created.id, name: l.name, ...alive }, select: { id: true } })
       if (existing) { ledgerMap.set(l.id, existing.id); continue }
-      const row2 = await prisma.tallyLedger.create({
+      const row2 = await prisma.bookkeepingLedger.create({
         data: {
           tallyCompanyId: created.id, name: l.name, groupId: groupMap.get(l.groupId)!,
           openingBalancePaise: l.openingBalancePaise, openingBalanceType: l.openingBalanceType,

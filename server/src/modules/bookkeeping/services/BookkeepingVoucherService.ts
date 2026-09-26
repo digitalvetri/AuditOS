@@ -157,7 +157,7 @@ export const BookkeepingVoucherService = {
   async listVoucherTypes(session: Session, companyId: string) {
     await BookkeepingCompanyService.requireOwned(session, companyId)
     await BookkeepingBootstrapService.ensure(companyId)
-    const rows = await prisma.tallyVoucherType.findMany({
+    const rows = await prisma.bookkeepingVoucherType.findMany({
       where: { tallyCompanyId: companyId, ...alive }, orderBy: [{ isDefault: 'desc' }, { name: 'asc' }],
     })
     return rows.map((t) => ({
@@ -173,9 +173,9 @@ export const BookkeepingVoucherService = {
     startNumber?: number; active?: boolean
   }) {
     await BookkeepingCompanyService.requireOwned(session, companyId)
-    const existing = await prisma.tallyVoucherType.findFirst({ where: { id: typeId, tallyCompanyId: companyId, ...alive } })
+    const existing = await prisma.bookkeepingVoucherType.findFirst({ where: { id: typeId, tallyCompanyId: companyId, ...alive } })
     if (!existing) throw ApiError.notFound('No such voucher type.')
-    const row = await prisma.tallyVoucherType.update({
+    const row = await prisma.bookkeepingVoucherType.update({
       where: { id: typeId },
       data: {
         ...(patch.name !== undefined ? { name: patch.name.trim() } : {}),
@@ -213,19 +213,19 @@ export const BookkeepingVoucherService = {
     }
     const take = Math.min(filter.limit ?? 100, 500)
     const [rows, total] = await Promise.all([
-      prisma.tallyVoucher.findMany({
+      prisma.bookkeepingVoucher.findMany({
         where, select: LIST_SELECT,
         orderBy: [{ date: 'desc' }, { createdAt: 'desc' }],
         take, skip: filter.offset ?? 0,
       }),
-      prisma.tallyVoucher.count({ where }),
+      prisma.bookkeepingVoucher.count({ where }),
     ])
     return { items: rows.map(toApi), total, limit: take, offset: filter.offset ?? 0 }
   },
 
   async get(session: Session, companyId: string, voucherId: string): Promise<VoucherApi> {
     await BookkeepingCompanyService.requireOwned(session, companyId)
-    const v = await prisma.tallyVoucher.findFirst({
+    const v = await prisma.bookkeepingVoucher.findFirst({
       where: { id: voucherId, tallyCompanyId: companyId, ...alive },
       include: {
         partyLedger: { select: { name: true } },

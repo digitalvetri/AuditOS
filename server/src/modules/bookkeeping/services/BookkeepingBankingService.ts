@@ -18,7 +18,7 @@ import { daysBetween } from '../engine/primitives.js'
 const ACTIVE = { status: 'active', ...alive }
 
 async function bankLedgerOf(companyId: string, bankLedgerId: string) {
-  const l = await prisma.tallyLedger.findFirst({
+  const l = await prisma.bookkeepingLedger.findFirst({
     where: { id: bankLedgerId, tallyCompanyId: companyId, ...alive },
     select: { id: true, name: true, group: { select: { name: true } } },
   })
@@ -32,12 +32,12 @@ export const BookkeepingBankingService = {
     await BookkeepingCompanyService.requireOwned(session, companyId)
     const balances = (await ledgerBalances(companyId, { to: asOf ?? null }))
       .filter((b) => b.primaryGroupName === 'Bank Accounts')
-    const details = await prisma.tallyLedger.findMany({
+    const details = await prisma.bookkeepingLedger.findMany({
       where: { id: { in: balances.map((b) => b.ledgerId) } },
       select: { id: true, bankAccountName: true, bankAccountNumber: true, bankIfsc: true },
     })
     const byId = new Map(details.map((d) => [d.id, d]))
-    const unmatched = await prisma.tallyBankStatementLine.groupBy({
+    const unmatched = await prisma.bookkeepingBankStatementLine.groupBy({
       by: ['bankLedgerId'],
       where: { tallyCompanyId: companyId, status: 'unmatched', ...alive },
       _count: { _all: true },
@@ -63,7 +63,7 @@ export const BookkeepingBankingService = {
     await BookkeepingCompanyService.requireOwned(session, companyId)
     const ledger = await bankLedgerOf(companyId, bankLedgerId)
     const [balance] = await ledgerBalances(companyId, { ...filter, ledgerIds: [bankLedgerId] })
-    const entries = await prisma.tallyVoucherEntry.findMany({
+    const entries = await prisma.bookkeepingVoucherEntry.findMany({
       where: {
         tallyCompanyId: companyId, ledgerId: bankLedgerId,
         voucher: {
@@ -114,7 +114,7 @@ export const BookkeepingBankingService = {
     await BookkeepingCompanyService.requireOwned(session, companyId)
     await bankLedgerOf(companyId, bankLedgerId)
     const batch = `imp-${Date.now()}`
-    const existing = await prisma.tallyBankStatementLine.findMany({
+    const existing = await prisma.bookkeepingBankStatementLine.findMany({
       where: { tallyCompanyId: companyId, bankLedgerId, ...alive },
       select: { date: true, refNumber: true, debitPaise: true, creditPaise: true, description: true },
     })
@@ -128,7 +128,7 @@ export const BookkeepingBankingService = {
       fresh.push(r)
     }
     if (fresh.length) {
-      await prisma.tallyBankStatementLine.createMany({
+      await prisma.bookkeepingBankStatementLine.createMany({
         data: fresh.map((r) => ({
           tallyCompanyId: companyId, bankLedgerId,
           date: r.date, description: r.description, refNumber: r.refNumber ?? null,
@@ -142,7 +142,7 @@ export const BookkeepingBankingService = {
 
   async listStatementLines(session: Session, companyId: string, bankLedgerId: string, filter: { status?: string; from?: string; to?: string } = {}) {
     await BookkeepingCompanyService.requireOwned(session, companyId)
-    const rows = await prisma.tallyBankStatementLine.findMany({
+    const rows = await prisma.bookkeepingBankStatementLine.findMany({
       where: {
         tallyCompanyId: companyId, bankLedgerId, ...alive,
         ...(filter.status && filter.status !== 'all' ? { status: filter.status } : {}),
@@ -168,11 +168,11 @@ export const BookkeepingBankingService = {
    */
   async suggestMatches(session: Session, companyId: string, statementLineId: string, windowDays = 7) {
     await BookkeepingCompanyService.requireOwned(session, companyId)
-    const line = await prisma.tallyBankStatementLine.findFirst({ where: { id: statementLineId, tallyCompanyId: companyId, ...alive } })
+    const line = await prisma.bookkeepingBankStatementLine.findFirst({ where: { id: statementLineId, tallyCompanyId: companyId, ...alive } })
     if (!line) throw ApiError.notFound('No such statement line.')
     const wantType = line.debitPaise > 0 ? 'cr' : 'dr' // a bank debit is money leaving = credit in books
     const amount = line.debitPaise > 0 ? line.debitPaise : line.creditPaise
-    const candidates = await prisma.tallyVoucherEntry.findMany({
+    const candidates = await prisma.bookkeepingVoucherEntry.findMany({
       where: {
         tallyCompanyId: companyId, ledgerId: line.bankLedgerId, entryType: wantType,
         amountPaise: amount, bankStatementLineId: null, voucher: ACTIVE,
@@ -201,10 +201,10 @@ export const BookkeepingBankingService = {
   async match(session: Session, companyId: string, statementLineId: string, entryId: string) {
     await BookkeepingCompanyService.requireOwned(session, companyId)
     return prisma.$transaction(async (tx) => {
-      const line = await tx.tallyBankStatementLine.findFirst({ where: { id: statementLineId, tallyCompanyId: companyId, ...alive } })
+      const line = await tx.bookkeepingBankStatementLine.findFirst({ where: { id: statementLineId, tallyCompanyId: companyId, ...alive } })
       if (!line) throw ApiError.notFound('No such statement line.')
       if (line.status === 'matched') throw ApiError.conflict('already_matched', 'This statement line is already matched.')
-      const entry = await tx.tallyVoucherEntry.findFirst({ where: { id: entryId, tallyCompanyId: companyId, ledgerId: line.bankLedgerId } })
+      const entry = await tx.bookkeepingVoucherEntry.findFirst({ where: { id: entryId, tallyCompanyId: companyId, ledgerId: line.bankLedgerId } })
       if (!entry) throw ApiError.notFound('No such bank entry on this account.')
       if (entry.bankStatementLineId) throw ApiError.conflict('already_matched', 'That book entry is already reconciled.')
       const bookAmount = entry.entryType === 'dr' ? entry.amountPaise : -entry.amountPaise
@@ -212,11 +212,11 @@ export const BookkeepingBankingService = {
       if (bookAmount !== stmtAmount) {
         throw ApiError.unprocessable('amount_mismatch', 'The statement line and the book entry are for different amounts.')
       }
-      await tx.tallyVoucherEntry.update({
+      await tx.bookkeepingVoucherEntry.update({
         where: { id: entryId },
         data: { bankStatementLineId: statementLineId, bankDate: line.date, reconciledAt: new Date(), reconciledByUserId: session.userId },
       })
-      await tx.tallyBankStatementLine.update({
+      await tx.bookkeepingBankStatementLine.update({
         where: { id: statementLineId },
         data: { status: 'matched', matchedAt: new Date(), matchedByUserId: session.userId },
       })
@@ -227,15 +227,15 @@ export const BookkeepingBankingService = {
   async unmatch(session: Session, companyId: string, statementLineId: string) {
     await BookkeepingCompanyService.requireOwned(session, companyId)
     return prisma.$transaction(async (tx) => {
-      const line = await tx.tallyBankStatementLine.findFirst({ where: { id: statementLineId, tallyCompanyId: companyId, ...alive }, include: { entry: true } })
+      const line = await tx.bookkeepingBankStatementLine.findFirst({ where: { id: statementLineId, tallyCompanyId: companyId, ...alive }, include: { entry: true } })
       if (!line) throw ApiError.notFound('No such statement line.')
       if (line.entry) {
-        await tx.tallyVoucherEntry.update({
+        await tx.bookkeepingVoucherEntry.update({
           where: { id: line.entry.id },
           data: { bankStatementLineId: null, reconciledAt: null, reconciledByUserId: null },
         })
       }
-      await tx.tallyBankStatementLine.update({ where: { id: statementLineId }, data: { status: 'unmatched', matchedAt: null, matchedByUserId: null } })
+      await tx.bookkeepingBankStatementLine.update({ where: { id: statementLineId }, data: { status: 'unmatched', matchedAt: null, matchedByUserId: null } })
       return { statement_line_id: statementLineId, status: 'unmatched' }
     })
   },
@@ -244,7 +244,7 @@ export const BookkeepingBankingService = {
   async reconciliation(session: Session, companyId: string, bankLedgerId: string, statementDate: string) {
     await BookkeepingCompanyService.requireOwned(session, companyId)
     const book = await BookkeepingBankingService.bankBook(session, companyId, bankLedgerId, { to: statementDate })
-    const lines = await prisma.tallyBankStatementLine.findMany({
+    const lines = await prisma.bookkeepingBankStatementLine.findMany({
       where: { tallyCompanyId: companyId, bankLedgerId, ...alive, date: { lte: statementDate } },
       select: { id: true, status: true, debitPaise: true, creditPaise: true, balancePaise: true, date: true, description: true },
       orderBy: { date: 'asc' },
@@ -273,7 +273,7 @@ export const BookkeepingBankingService = {
   /** Freeze a reconciliation as evidence. */
   async saveReconciliation(session: Session, companyId: string, bankLedgerId: string, statementDate: string, notes?: string | null) {
     const r = await BookkeepingBankingService.reconciliation(session, companyId, bankLedgerId, statementDate)
-    const row = await prisma.tallyBankReconciliation.create({
+    const row = await prisma.bookkeepingBankReconciliation.create({
       data: {
         tallyCompanyId: companyId, bankLedgerId, statementDate,
         bookBalancePaise: r.book_balance_paise,
@@ -290,7 +290,7 @@ export const BookkeepingBankingService = {
 
   async listReconciliations(session: Session, companyId: string, bankLedgerId?: string) {
     await BookkeepingCompanyService.requireOwned(session, companyId)
-    const rows = await prisma.tallyBankReconciliation.findMany({
+    const rows = await prisma.bookkeepingBankReconciliation.findMany({
       where: { tallyCompanyId: companyId, ...(bankLedgerId ? { bankLedgerId } : {}) },
       include: { bankLedger: { select: { name: true } } },
       orderBy: { createdAt: 'desc' }, take: 100,

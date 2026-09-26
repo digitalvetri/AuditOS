@@ -25,15 +25,15 @@ export const BookkeepingSearchService = {
     const base = `/tally/companies/${companyId}`
 
     const [ledgers, groups, vouchers, items, employees] = await Promise.all([
-      prisma.tallyLedger.findMany({
+      prisma.bookkeepingLedger.findMany({
         where: { tallyCompanyId: companyId, ...alive, OR: [{ name: like }, { gstin: like }, { pan: like }] },
         select: { id: true, name: true, group: { select: { name: true } } }, take: limit,
       }),
-      prisma.tallyGroup.findMany({
+      prisma.bookkeepingGroup.findMany({
         where: { tallyCompanyId: companyId, ...alive, name: like },
         select: { id: true, name: true, nature: true }, take: limit,
       }),
-      prisma.tallyVoucher.findMany({
+      prisma.bookkeepingVoucher.findMany({
         where: {
           tallyCompanyId: companyId, ...alive,
           OR: [{ voucherNumber: like }, { narration: like }, { referenceNumber: like }, { partyLedger: { name: like } }],
@@ -41,11 +41,11 @@ export const BookkeepingSearchService = {
         select: { id: true, voucherNumber: true, date: true, voucherTypeCode: true, grandTotalPaise: true, partyLedger: { select: { name: true } } },
         orderBy: { date: 'desc' }, take: limit,
       }),
-      prisma.tallyStockItem.findMany({
+      prisma.bookkeepingStockItem.findMany({
         where: { tallyCompanyId: companyId, ...alive, OR: [{ name: like }, { hsnCode: like }] },
         select: { id: true, name: true, hsnCode: true }, take: limit,
       }),
-      prisma.tallyEmployee.findMany({
+      prisma.bookkeepingEmployee.findMany({
         where: { tallyCompanyId: companyId, ...alive, OR: [{ name: like }, { code: like }] },
         select: { id: true, name: true, designation: true }, take: limit,
       }),

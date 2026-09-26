@@ -84,7 +84,7 @@ export const BookkeepingCompanyService = {
 
   async listForOrg(session: Session): Promise<CompanyApi[]> {
     const organisationId = await organisationIdOf(session)
-    const rows = await prisma.tallyCompany.findMany({
+    const rows = await prisma.bookkeepingCompany.findMany({
       where: { organisationId, ...alive },
       orderBy: [{ createdAt: 'asc' }],
     })
@@ -93,7 +93,7 @@ export const BookkeepingCompanyService = {
 
   async get(session: Session, id: string): Promise<CompanyApi> {
     const organisationId = await organisationIdOf(session)
-    const row = await prisma.tallyCompany.findFirst({
+    const row = await prisma.bookkeepingCompany.findFirst({
       where: { id, organisationId, ...alive },
     })
     if (!row) throw ApiError.notFound('No such company.')
@@ -107,7 +107,7 @@ export const BookkeepingCompanyService = {
    */
   async requireOwned(session: Session, companyId: string) {
     const organisationId = await organisationIdOf(session)
-    const row = await prisma.tallyCompany.findFirst({
+    const row = await prisma.bookkeepingCompany.findFirst({
       where: { id: companyId, organisationId, ...alive },
     })
     if (!row) throw ApiError.notFound('No such company.')
@@ -138,7 +138,7 @@ export const BookkeepingCompanyService = {
       throw ApiError.badRequest('Books begin date must be YYYY-MM-DD.')
     }
     // Uniqueness within the org (also enforced by the @@unique on the model)
-    const clash = await prisma.tallyCompany.findFirst({
+    const clash = await prisma.bookkeepingCompany.findFirst({
       where: { organisationId, name, ...alive }, select: { id: true },
     })
     if (clash) throw ApiError.conflict('duplicate_name', `A company named "${name}" already exists.`)
@@ -147,7 +147,7 @@ export const BookkeepingCompanyService = {
     const fy = fyRangeFor(input.booksBeginFrom, fyBeginMonth)
 
     const created = await prisma.$transaction(async (tx) => {
-      const company = await tx.tallyCompany.create({
+      const company = await tx.bookkeepingCompany.create({
         data: {
           organisationId,
           name,
@@ -167,7 +167,7 @@ export const BookkeepingCompanyService = {
         },
       })
       // Seed the 17 primary groups.
-      await tx.tallyGroup.createMany({
+      await tx.bookkeepingGroup.createMany({
         data: PRIMARY_GROUPS.map((g) => ({
           tallyCompanyId: company.id,
           name: g.name,
@@ -177,7 +177,7 @@ export const BookkeepingCompanyService = {
         })),
       })
       // Seed the first FY.
-      await tx.tallyFinancialYear.create({
+      await tx.bookkeepingFinancialYear.create({
         data: {
           tallyCompanyId: company.id,
           label: fy.label,
@@ -224,7 +224,7 @@ export const BookkeepingCompanyService = {
     if (patch.pan !== undefined) data.pan = patch.pan?.trim() || null
     if (patch.tan !== undefined) data.tan = patch.tan?.trim() || null
     if (patch.active !== undefined) data.active = patch.active
-    const updated = await prisma.tallyCompany.update({ where: { id }, data })
+    const updated = await prisma.bookkeepingCompany.update({ where: { id }, data })
     return toApi(updated)
   },
 
@@ -233,6 +233,6 @@ export const BookkeepingCompanyService = {
     // Never hard-delete posted financial data (spec §2.1 rule 8).
     // Slice 1 has no vouchers yet, but the soft-delete pattern is the
     // right shape now so we never accidentally start hard-deleting.
-    await prisma.tallyCompany.update({ where: { id }, data: { deletedAt: new Date(), active: false } })
+    await prisma.bookkeepingCompany.update({ where: { id }, data: { deletedAt: new Date(), active: false } })
   },
 }

@@ -37,7 +37,7 @@ export const BookkeepingGroupService = {
 
   async list(session: Session, companyId: string): Promise<GroupApi[]> {
     await BookkeepingCompanyService.requireOwned(session, companyId)
-    const rows = await prisma.tallyGroup.findMany({
+    const rows = await prisma.bookkeepingGroup.findMany({
       where: { tallyCompanyId: companyId, ...alive },
       orderBy: [{ isPrimary: 'desc' }, { name: 'asc' }],
     })
@@ -68,7 +68,7 @@ export const BookkeepingGroupService = {
     await BookkeepingCompanyService.requireOwned(session, companyId)
     const name = input.name.trim()
     if (!name) throw ApiError.badRequest('Group name is required.')
-    const clash = await prisma.tallyGroup.findFirst({
+    const clash = await prisma.bookkeepingGroup.findFirst({
       where: { tallyCompanyId: companyId, name, ...alive },
       select: { id: true },
     })
@@ -79,7 +79,7 @@ export const BookkeepingGroupService = {
     let nature = input.nature
     let affectsPL = input.affectsPL
     if (input.parentGroupId) {
-      const parent = await prisma.tallyGroup.findFirst({
+      const parent = await prisma.bookkeepingGroup.findFirst({
         where: { id: input.parentGroupId, tallyCompanyId: companyId, ...alive },
       })
       if (!parent) throw ApiError.badRequest('Parent group does not belong to this company.')
@@ -90,7 +90,7 @@ export const BookkeepingGroupService = {
     if (!['assets', 'liabilities', 'income', 'expenses'].includes(nature)) {
       throw ApiError.badRequest('Nature must be assets, liabilities, income, or expenses.')
     }
-    const row = await prisma.tallyGroup.create({
+    const row = await prisma.bookkeepingGroup.create({
       data: {
         tallyCompanyId: companyId,
         name,
@@ -109,7 +109,7 @@ export const BookkeepingGroupService = {
     affectsPL?: boolean
   }): Promise<GroupApi> {
     await BookkeepingCompanyService.requireOwned(session, companyId)
-    const existing = await prisma.tallyGroup.findFirst({
+    const existing = await prisma.bookkeepingGroup.findFirst({
       where: { id: groupId, tallyCompanyId: companyId, ...alive },
     })
     if (!existing) throw ApiError.notFound('No such group.')
@@ -121,7 +121,7 @@ export const BookkeepingGroupService = {
       if (existing.isPrimary && name !== existing.name) {
         throw ApiError.badRequest('Primary group names cannot be changed.')
       }
-      const clash = await prisma.tallyGroup.findFirst({
+      const clash = await prisma.bookkeepingGroup.findFirst({
         where: { tallyCompanyId: companyId, name, ...alive, NOT: { id: groupId } },
         select: { id: true },
       })
@@ -132,7 +132,7 @@ export const BookkeepingGroupService = {
       if (existing.isPrimary) throw ApiError.badRequest('Primary groups cannot be re-parented.')
       if (patch.parentGroupId === groupId) throw ApiError.badRequest('A group cannot be its own parent.')
       if (patch.parentGroupId) {
-        const parent = await prisma.tallyGroup.findFirst({
+        const parent = await prisma.bookkeepingGroup.findFirst({
           where: { id: patch.parentGroupId, tallyCompanyId: companyId, ...alive },
         })
         if (!parent) throw ApiError.badRequest('Parent group does not belong to this company.')
@@ -141,29 +141,29 @@ export const BookkeepingGroupService = {
     }
     if (patch.affectsPL !== undefined) data.affectsPL = patch.affectsPL
 
-    const updated = await prisma.tallyGroup.update({ where: { id: groupId }, data })
+    const updated = await prisma.bookkeepingGroup.update({ where: { id: groupId }, data })
     return toApi(updated)
   },
 
   async softDelete(session: Session, companyId: string, groupId: string): Promise<void> {
     await BookkeepingCompanyService.requireOwned(session, companyId)
-    const existing = await prisma.tallyGroup.findFirst({
+    const existing = await prisma.bookkeepingGroup.findFirst({
       where: { id: groupId, tallyCompanyId: companyId, ...alive },
     })
     if (!existing) throw ApiError.notFound('No such group.')
     if (existing.isPrimary) throw ApiError.badRequest('Primary groups cannot be deleted.')
-    const ledgerCount = await prisma.tallyLedger.count({
+    const ledgerCount = await prisma.bookkeepingLedger.count({
       where: { groupId, ...alive },
     })
     if (ledgerCount > 0) {
       throw ApiError.badRequest(`Cannot delete: ${ledgerCount} ledger(s) belong to this group.`)
     }
-    const childCount = await prisma.tallyGroup.count({
+    const childCount = await prisma.bookkeepingGroup.count({
       where: { parentGroupId: groupId, ...alive },
     })
     if (childCount > 0) {
       throw ApiError.badRequest(`Cannot delete: ${childCount} sub-group(s) belong to this group.`)
     }
-    await prisma.tallyGroup.update({ where: { id: groupId }, data: { deletedAt: new Date() } })
+    await prisma.bookkeepingGroup.update({ where: { id: groupId }, data: { deletedAt: new Date() } })
   },
 }

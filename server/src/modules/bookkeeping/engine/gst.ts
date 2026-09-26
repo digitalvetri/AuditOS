@@ -49,7 +49,7 @@ export interface GstSummary {
 /** Ledger-level GST position for a period — the heart of GST reporting. */
 export async function gstSummary(companyId: string, filter: { from?: string | null; to?: string | null } = {}): Promise<GstSummary> {
   const [ledgerRows, balances] = await Promise.all([
-    prisma.tallyLedger.findMany({
+    prisma.bookkeepingLedger.findMany({
       where: { tallyCompanyId: companyId, ...alive, NOT: { taxConfigJson: null } },
       select: { id: true, name: true, taxConfigJson: true },
     }),
@@ -82,11 +82,11 @@ export async function gstSummary(companyId: string, filter: { from?: string | nu
     ? { date: { ...(filter.from ? { gte: filter.from } : {}), ...(filter.to ? { lte: filter.to } : {}) } }
     : {}
   const [outward, inward] = await Promise.all([
-    prisma.tallyVoucher.aggregate({
+    prisma.bookkeepingVoucher.aggregate({
       where: { tallyCompanyId: companyId, status: 'active', ...alive, voucherTypeCode: { in: ['sales', 'credit_note'] }, ...dateFilter },
       _sum: { taxableValuePaise: true },
     }),
-    prisma.tallyVoucher.aggregate({
+    prisma.bookkeepingVoucher.aggregate({
       where: { tallyCompanyId: companyId, status: 'active', ...alive, voucherTypeCode: { in: ['purchase', 'debit_note'] }, ...dateFilter },
       _sum: { taxableValuePaise: true },
     }),
@@ -160,7 +160,7 @@ const B2CL_THRESHOLD_PAISE = 250_000_00
  * are surfaced rather than silently defaulted.
  */
 export async function gstr1(companyId: string, from: string, to: string): Promise<Gstr1> {
-  const vouchers = await prisma.tallyVoucher.findMany({
+  const vouchers = await prisma.bookkeepingVoucher.findMany({
     where: {
       tallyCompanyId: companyId, status: 'active', ...alive,
       voucherTypeCode: { in: ['sales', 'credit_note'] },

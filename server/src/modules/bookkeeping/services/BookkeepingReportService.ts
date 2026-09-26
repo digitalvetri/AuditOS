@@ -37,7 +37,7 @@ export const BookkeepingReportService = {
   /** Day Book — every voucher in a date range, newest first. */
   async dayBook(session: Session, companyId: string, filter: { from?: string; to?: string; typeCodes?: string[]; limit?: number; includeCancelled?: boolean } = {}) {
     await BookkeepingCompanyService.requireOwned(session, companyId)
-    const rows = await prisma.tallyVoucher.findMany({
+    const rows = await prisma.bookkeepingVoucher.findMany({
       where: {
         tallyCompanyId: companyId, ...alive,
         ...(filter.includeCancelled ? {} : { status: 'active' }),
@@ -85,14 +85,14 @@ export const BookkeepingReportService = {
    */
   async ledgerStatement(session: Session, companyId: string, ledgerId: string, filter: PeriodFilter = {}) {
     await BookkeepingCompanyService.requireOwned(session, companyId)
-    const ledger = await prisma.tallyLedger.findFirst({
+    const ledger = await prisma.bookkeepingLedger.findFirst({
       where: { id: ledgerId, tallyCompanyId: companyId, ...alive },
       select: { id: true, name: true, group: { select: { id: true, name: true, nature: true } } },
     })
     if (!ledger) throw ApiError.notFound('No such ledger.')
 
     const [balance] = await ledgerBalances(companyId, { ...filter, ledgerIds: [ledgerId] })
-    const entries = await prisma.tallyVoucherEntry.findMany({
+    const entries = await prisma.bookkeepingVoucherEntry.findMany({
       where: {
         tallyCompanyId: companyId, ledgerId,
         voucher: {
@@ -168,7 +168,7 @@ export const BookkeepingReportService = {
   /** Sales / Purchase / Payment / Receipt / Journal / Contra register. */
   async register(session: Session, companyId: string, typeCode: string, filter: { from?: string | null; to?: string | null } = {}) {
     await BookkeepingCompanyService.requireOwned(session, companyId)
-    const rows = await prisma.tallyVoucher.findMany({
+    const rows = await prisma.bookkeepingVoucher.findMany({
       where: {
         tallyCompanyId: companyId, ...ACTIVE, voucherTypeCode: typeCode,
         ...(filter.from || filter.to
@@ -231,7 +231,7 @@ export const BookkeepingReportService = {
       .filter((b) => (opts.ledgerId ? b.ledgerId === opts.ledgerId : true))
       .filter((b) => b.closingPaise !== 0)
 
-    const allocations = await prisma.tallyBillAllocation.findMany({
+    const allocations = await prisma.bookkeepingBillAllocation.findMany({
       where: {
         tallyCompanyId: companyId,
         ledgerId: { in: balances.map((b) => b.ledgerId) },
@@ -329,7 +329,7 @@ export const BookkeepingReportService = {
     const cashBank = balances.filter((b) => b.primaryGroupName === 'Cash-in-Hand' || b.primaryGroupName === 'Bank Accounts')
     const cashBankIds = new Set(cashBank.map((b) => b.ledgerId))
 
-    const entries = await prisma.tallyVoucherEntry.findMany({
+    const entries = await prisma.bookkeepingVoucherEntry.findMany({
       where: {
         tallyCompanyId: companyId,
         ledgerId: { in: Array.from(cashBankIds) },

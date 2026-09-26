@@ -18,7 +18,7 @@ async function own(session: Session, companyId: string) {
   await BookkeepingBootstrapService.ensure(companyId)
 }
 
-async function assertUniqueName(model: 'tallyStockGroup' | 'tallyStockCategory' | 'tallyUnit' | 'tallyGodown' | 'tallyStockItem', companyId: string, name: string, excludeId?: string) {
+async function assertUniqueName(model: 'bookkeepingStockGroup' | 'bookkeepingStockCategory' | 'bookkeepingUnit' | 'bookkeepingGodown' | 'bookkeepingStockItem', companyId: string, name: string, excludeId?: string) {
   const delegate = prisma[model] as unknown as { findFirst: (a: unknown) => Promise<{ id: string } | null> }
   const clash = await delegate.findFirst({
     where: { tallyCompanyId: companyId, name, ...alive, ...(excludeId ? { NOT: { id: excludeId } } : {}) },
@@ -31,64 +31,64 @@ export const BookkeepingInventoryService = {
   // ── Stock groups ───────────────────────────────────────────────────
   async listStockGroups(session: Session, companyId: string) {
     await own(session, companyId)
-    const rows = await prisma.tallyStockGroup.findMany({ where: { tallyCompanyId: companyId, ...alive }, orderBy: { name: 'asc' } })
+    const rows = await prisma.bookkeepingStockGroup.findMany({ where: { tallyCompanyId: companyId, ...alive }, orderBy: { name: 'asc' } })
     return rows.map((r) => ({ id: r.id, name: r.name, parent_id: r.parentId }))
   },
   async createStockGroup(session: Session, companyId: string, input: { name: string; parentId?: string | null }) {
     await own(session, companyId)
     const name = input.name.trim()
     if (!name) throw ApiError.badRequest('Name is required.')
-    await assertUniqueName('tallyStockGroup', companyId, name)
+    await assertUniqueName('bookkeepingStockGroup', companyId, name)
     if (input.parentId) {
-      const parent = await prisma.tallyStockGroup.findFirst({ where: { id: input.parentId, tallyCompanyId: companyId, ...alive } })
+      const parent = await prisma.bookkeepingStockGroup.findFirst({ where: { id: input.parentId, tallyCompanyId: companyId, ...alive } })
       if (!parent) throw ApiError.badRequest('Parent stock group does not belong to this company.')
     }
-    const r = await prisma.tallyStockGroup.create({ data: { tallyCompanyId: companyId, name, parentId: input.parentId ?? null } })
+    const r = await prisma.bookkeepingStockGroup.create({ data: { tallyCompanyId: companyId, name, parentId: input.parentId ?? null } })
     return { id: r.id, name: r.name, parent_id: r.parentId }
   },
 
   // ── Categories ─────────────────────────────────────────────────────
   async listCategories(session: Session, companyId: string) {
     await own(session, companyId)
-    const rows = await prisma.tallyStockCategory.findMany({ where: { tallyCompanyId: companyId, ...alive }, orderBy: { name: 'asc' } })
+    const rows = await prisma.bookkeepingStockCategory.findMany({ where: { tallyCompanyId: companyId, ...alive }, orderBy: { name: 'asc' } })
     return rows.map((r) => ({ id: r.id, name: r.name }))
   },
   async createCategory(session: Session, companyId: string, name: string) {
     await own(session, companyId)
     const n = name.trim()
     if (!n) throw ApiError.badRequest('Name is required.')
-    await assertUniqueName('tallyStockCategory', companyId, n)
-    const r = await prisma.tallyStockCategory.create({ data: { tallyCompanyId: companyId, name: n } })
+    await assertUniqueName('bookkeepingStockCategory', companyId, n)
+    const r = await prisma.bookkeepingStockCategory.create({ data: { tallyCompanyId: companyId, name: n } })
     return { id: r.id, name: r.name }
   },
 
   // ── Units ──────────────────────────────────────────────────────────
   async listUnits(session: Session, companyId: string) {
     await own(session, companyId)
-    const rows = await prisma.tallyUnit.findMany({ where: { tallyCompanyId: companyId, ...alive }, orderBy: { name: 'asc' } })
+    const rows = await prisma.bookkeepingUnit.findMany({ where: { tallyCompanyId: companyId, ...alive }, orderBy: { name: 'asc' } })
     return rows.map((r) => ({ id: r.id, name: r.name, decimals: r.decimals }))
   },
   async createUnit(session: Session, companyId: string, input: { name: string; decimals?: number }) {
     await own(session, companyId)
     const name = input.name.trim()
     if (!name) throw ApiError.badRequest('Name is required.')
-    await assertUniqueName('tallyUnit', companyId, name)
-    const r = await prisma.tallyUnit.create({ data: { tallyCompanyId: companyId, name, decimals: input.decimals ?? 0 } })
+    await assertUniqueName('bookkeepingUnit', companyId, name)
+    const r = await prisma.bookkeepingUnit.create({ data: { tallyCompanyId: companyId, name, decimals: input.decimals ?? 0 } })
     return { id: r.id, name: r.name, decimals: r.decimals }
   },
 
   // ── Godowns ────────────────────────────────────────────────────────
   async listGodowns(session: Session, companyId: string) {
     await own(session, companyId)
-    const rows = await prisma.tallyGodown.findMany({ where: { tallyCompanyId: companyId, ...alive }, orderBy: { name: 'asc' } })
+    const rows = await prisma.bookkeepingGodown.findMany({ where: { tallyCompanyId: companyId, ...alive }, orderBy: { name: 'asc' } })
     return rows.map((r) => ({ id: r.id, name: r.name, address: r.address, parent_id: r.parentId }))
   },
   async createGodown(session: Session, companyId: string, input: { name: string; address?: string | null; parentId?: string | null }) {
     await own(session, companyId)
     const name = input.name.trim()
     if (!name) throw ApiError.badRequest('Name is required.')
-    await assertUniqueName('tallyGodown', companyId, name)
-    const r = await prisma.tallyGodown.create({
+    await assertUniqueName('bookkeepingGodown', companyId, name)
+    const r = await prisma.bookkeepingGodown.create({
       data: { tallyCompanyId: companyId, name, address: input.address ?? null, parentId: input.parentId ?? null },
     })
     return { id: r.id, name: r.name, address: r.address, parent_id: r.parentId }
@@ -97,7 +97,7 @@ export const BookkeepingInventoryService = {
   // ── Stock items ────────────────────────────────────────────────────
   async listItems(session: Session, companyId: string, filter: { q?: string; stockGroupId?: string } = {}) {
     await own(session, companyId)
-    const rows = await prisma.tallyStockItem.findMany({
+    const rows = await prisma.bookkeepingStockItem.findMany({
       where: {
         tallyCompanyId: companyId, ...alive,
         ...(filter.stockGroupId ? { stockGroupId: filter.stockGroupId } : {}),
@@ -126,10 +126,10 @@ export const BookkeepingInventoryService = {
     await own(session, companyId)
     const name = input.name.trim()
     if (!name) throw ApiError.badRequest('Item name is required.')
-    await assertUniqueName('tallyStockItem', companyId, name)
+    await assertUniqueName('bookkeepingStockItem', companyId, name)
 
     return prisma.$transaction(async (tx) => {
-      const item = await tx.tallyStockItem.create({
+      const item = await tx.bookkeepingStockItem.create({
         data: {
           tallyCompanyId: companyId, name,
           stockGroupId: input.stockGroupId ?? null,
@@ -146,7 +146,7 @@ export const BookkeepingInventoryService = {
       })
       if (input.openingQtyMilli) {
         const rate = input.openingRatePaise ?? 0
-        await tx.tallyStockOpening.create({
+        await tx.bookkeepingStockOpening.create({
           data: {
             tallyCompanyId: companyId, stockItemId: item.id,
             godownId: input.openingGodownId ?? null,
@@ -162,25 +162,25 @@ export const BookkeepingInventoryService = {
 
   async updateItem(session: Session, companyId: string, itemId: string, patch: Record<string, unknown>) {
     await own(session, companyId)
-    const existing = await prisma.tallyStockItem.findFirst({ where: { id: itemId, tallyCompanyId: companyId, ...alive } })
+    const existing = await prisma.bookkeepingStockItem.findFirst({ where: { id: itemId, tallyCompanyId: companyId, ...alive } })
     if (!existing) throw ApiError.notFound('No such stock item.')
-    if (typeof patch.name === 'string') await assertUniqueName('tallyStockItem', companyId, patch.name.trim(), itemId)
-    const row = await prisma.tallyStockItem.update({ where: { id: itemId }, data: patch })
+    if (typeof patch.name === 'string') await assertUniqueName('bookkeepingStockItem', companyId, patch.name.trim(), itemId)
+    const row = await prisma.bookkeepingStockItem.update({ where: { id: itemId }, data: patch })
     return { id: row.id, name: row.name }
   },
 
   async setOpeningStock(session: Session, companyId: string, itemId: string, input: { qtyMilli: number; ratePaise: number; godownId?: string | null; batchId?: string | null }) {
     await own(session, companyId)
-    const item = await prisma.tallyStockItem.findFirst({ where: { id: itemId, tallyCompanyId: companyId, ...alive } })
+    const item = await prisma.bookkeepingStockItem.findFirst({ where: { id: itemId, tallyCompanyId: companyId, ...alive } })
     if (!item) throw ApiError.notFound('No such stock item.')
-    const existing = await prisma.tallyStockOpening.findFirst({
+    const existing = await prisma.bookkeepingStockOpening.findFirst({
       where: { tallyCompanyId: companyId, stockItemId: itemId, godownId: input.godownId ?? null, batchId: input.batchId ?? null },
     })
     const value = Math.round((input.qtyMilli * input.ratePaise) / 1000)
     if (existing) {
-      await prisma.tallyStockOpening.update({ where: { id: existing.id }, data: { qtyMilli: input.qtyMilli, ratePaise: input.ratePaise, valuePaise: value } })
+      await prisma.bookkeepingStockOpening.update({ where: { id: existing.id }, data: { qtyMilli: input.qtyMilli, ratePaise: input.ratePaise, valuePaise: value } })
     } else {
-      await prisma.tallyStockOpening.create({
+      await prisma.bookkeepingStockOpening.create({
         data: {
           tallyCompanyId: companyId, stockItemId: itemId,
           godownId: input.godownId ?? null, batchId: input.batchId ?? null,
@@ -193,9 +193,9 @@ export const BookkeepingInventoryService = {
 
   async createBatch(session: Session, companyId: string, itemId: string, input: { name: string; mfgDate?: string | null; expiryDate?: string | null }) {
     await own(session, companyId)
-    const item = await prisma.tallyStockItem.findFirst({ where: { id: itemId, tallyCompanyId: companyId, ...alive } })
+    const item = await prisma.bookkeepingStockItem.findFirst({ where: { id: itemId, tallyCompanyId: companyId, ...alive } })
     if (!item) throw ApiError.notFound('No such stock item.')
-    const r = await prisma.tallyStockBatch.create({
+    const r = await prisma.bookkeepingStockBatch.create({
       data: { tallyCompanyId: companyId, stockItemId: itemId, name: input.name.trim(), mfgDate: input.mfgDate ?? null, expiryDate: input.expiryDate ?? null },
     })
     return { id: r.id, name: r.name, stock_item_id: r.stockItemId }
@@ -203,7 +203,7 @@ export const BookkeepingInventoryService = {
 
   async listBatches(session: Session, companyId: string, itemId: string) {
     await own(session, companyId)
-    const rows = await prisma.tallyStockBatch.findMany({ where: { tallyCompanyId: companyId, stockItemId: itemId }, orderBy: { name: 'asc' } })
+    const rows = await prisma.bookkeepingStockBatch.findMany({ where: { tallyCompanyId: companyId, stockItemId: itemId }, orderBy: { name: 'asc' } })
     return rows.map((r) => ({ id: r.id, name: r.name, mfg_date: r.mfgDate, expiry_date: r.expiryDate }))
   },
 

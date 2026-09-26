@@ -63,7 +63,7 @@ export function primaryAncestor(groups: Map<string, GroupRow>, groupId: string):
 }
 
 export async function loadGroups(companyId: string): Promise<Map<string, GroupRow>> {
-  const rows = await prisma.tallyGroup.findMany({
+  const rows = await prisma.bookkeepingGroup.findMany({
     where: { tallyCompanyId: companyId, ...alive },
     select: { id: true, name: true, parentGroupId: true, nature: true, affectsPL: true, isPrimary: true },
   })
@@ -78,7 +78,7 @@ export async function loadGroups(companyId: string): Promise<Map<string, GroupRo
  */
 export async function ledgerBalances(companyId: string, filter: PeriodFilter = {}): Promise<LedgerBalanceRow[]> {
   const [ledgers, groups] = await Promise.all([
-    prisma.tallyLedger.findMany({
+    prisma.bookkeepingLedger.findMany({
       where: { tallyCompanyId: companyId, ...alive, ...(filter.ledgerIds ? { id: { in: filter.ledgerIds } } : {}) },
       select: {
         id: true, name: true, groupId: true,
@@ -94,7 +94,7 @@ export async function ledgerBalances(companyId: string, filter: PeriodFilter = {
 
   // Movement strictly before the period start (folds into opening).
   const priorAgg = filter.from
-    ? await prisma.tallyVoucherEntry.groupBy({
+    ? await prisma.bookkeepingVoucherEntry.groupBy({
         by: ['ledgerId', 'entryType'],
         where: { tallyCompanyId: companyId, voucher: { ...activeVoucher, date: { lt: filter.from } } },
         _sum: { amountPaise: true },
@@ -102,7 +102,7 @@ export async function ledgerBalances(companyId: string, filter: PeriodFilter = {
     : []
 
   // Movement inside the period.
-  const periodAgg = await prisma.tallyVoucherEntry.groupBy({
+  const periodAgg = await prisma.bookkeepingVoucherEntry.groupBy({
     by: ['ledgerId', 'entryType'],
     where: {
       tallyCompanyId: companyId,

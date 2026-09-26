@@ -13,13 +13,13 @@ import { VOUCHER_TYPE_SEEDS, GST_LEDGER_SEEDS } from '../engine/voucherTypes.js'
  */
 export const BookkeepingBootstrapService = {
   async ensure(companyId: string): Promise<{ voucherTypesCreated: number; gstLedgersCreated: number }> {
-    const existingTypes = await prisma.tallyVoucherType.findMany({
+    const existingTypes = await prisma.bookkeepingVoucherType.findMany({
       where: { tallyCompanyId: companyId, ...alive }, select: { code: true },
     })
     const haveCodes = new Set(existingTypes.map((t) => t.code))
     const missing = VOUCHER_TYPE_SEEDS.filter((s) => !haveCodes.has(s.code))
     if (missing.length) {
-      await prisma.tallyVoucherType.createMany({
+      await prisma.bookkeepingVoucherType.createMany({
         data: missing.map((s) => ({
           tallyCompanyId: companyId,
           name: s.name,
@@ -38,18 +38,18 @@ export const BookkeepingBootstrapService = {
     // taxConfigJson — that JSON, not the ledger name, is what the engine
     // and the GST reports key off.
     let gstLedgersCreated = 0
-    const duties = await prisma.tallyGroup.findFirst({
+    const duties = await prisma.bookkeepingGroup.findFirst({
       where: { tallyCompanyId: companyId, name: 'Duties & Taxes', ...alive }, select: { id: true },
     })
     if (duties) {
-      const have = await prisma.tallyLedger.findMany({
+      const have = await prisma.bookkeepingLedger.findMany({
         where: { tallyCompanyId: companyId, name: { in: GST_LEDGER_SEEDS.map((g) => g.name) }, ...alive },
         select: { name: true },
       })
       const haveNames = new Set(have.map((l) => l.name))
       const toCreate = GST_LEDGER_SEEDS.filter((g) => !haveNames.has(g.name))
       if (toCreate.length) {
-        await prisma.tallyLedger.createMany({
+        await prisma.bookkeepingLedger.createMany({
           data: toCreate.map((g) => ({
             tallyCompanyId: companyId,
             name: g.name,
@@ -62,9 +62,9 @@ export const BookkeepingBootstrapService = {
       }
     }
 
-    const unitCount = await prisma.tallyUnit.count({ where: { tallyCompanyId: companyId, ...alive } })
+    const unitCount = await prisma.bookkeepingUnit.count({ where: { tallyCompanyId: companyId, ...alive } })
     if (unitCount === 0) {
-      await prisma.tallyUnit.createMany({
+      await prisma.bookkeepingUnit.createMany({
         data: [
           { tallyCompanyId: companyId, name: 'Nos', decimals: 0 },
           { tallyCompanyId: companyId, name: 'Kg', decimals: 3 },
@@ -74,9 +74,9 @@ export const BookkeepingBootstrapService = {
         skipDuplicates: true,
       })
     }
-    const godownCount = await prisma.tallyGodown.count({ where: { tallyCompanyId: companyId, ...alive } })
+    const godownCount = await prisma.bookkeepingGodown.count({ where: { tallyCompanyId: companyId, ...alive } })
     if (godownCount === 0) {
-      await prisma.tallyGodown.create({ data: { tallyCompanyId: companyId, name: 'Main Location' } })
+      await prisma.bookkeepingGodown.create({ data: { tallyCompanyId: companyId, name: 'Main Location' } })
     }
 
     return { voucherTypesCreated: missing.length, gstLedgersCreated }

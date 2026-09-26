@@ -66,37 +66,37 @@ async function loadSession(): Promise<Session> {
 }
 
 async function cleanup(organisationId: string) {
-  const cos = await prisma.tallyCompany.findMany({ where: { organisationId, name: { startsWith: 'FIXTURE-' } } })
+  const cos = await prisma.bookkeepingCompany.findMany({ where: { organisationId, name: { startsWith: 'FIXTURE-' } } })
   for (const c of cos) {
     const id = c.id
-    await prisma.tallyBillAllocation.deleteMany({ where: { tallyCompanyId: id } })
-    await prisma.tallyVoucherItem.deleteMany({ where: { tallyCompanyId: id } })
-    await prisma.tallyVoucherEntry.deleteMany({ where: { tallyCompanyId: id } })
-    await prisma.tallyVoucherRevision.deleteMany({ where: { tallyCompanyId: id } })
-    await prisma.tallyVoucher.deleteMany({ where: { tallyCompanyId: id } })
-    await prisma.tallyVoucherType.deleteMany({ where: { tallyCompanyId: id } })
-    await prisma.tallyStockOpening.deleteMany({ where: { tallyCompanyId: id } })
-    await prisma.tallyStockBatch.deleteMany({ where: { tallyCompanyId: id } })
-    await prisma.tallyStockItem.deleteMany({ where: { tallyCompanyId: id } })
-    await prisma.tallyStockGroup.deleteMany({ where: { tallyCompanyId: id } })
-    await prisma.tallyStockCategory.deleteMany({ where: { tallyCompanyId: id } })
-    await prisma.tallyGodown.deleteMany({ where: { tallyCompanyId: id } })
-    await prisma.tallyUnit.deleteMany({ where: { tallyCompanyId: id } })
-    await prisma.tallyBankStatementLine.deleteMany({ where: { tallyCompanyId: id } })
-    await prisma.tallyBankReconciliation.deleteMany({ where: { tallyCompanyId: id } })
-    await prisma.tallyTaxRate.deleteMany({ where: { tallyCompanyId: id } })
-    await prisma.tallySetting.deleteMany({ where: { tallyCompanyId: id } })
-    await prisma.tallyPayrollLine.deleteMany({ where: { tallyCompanyId: id } })
-    await prisma.tallyPayrollRun.deleteMany({ where: { tallyCompanyId: id } })
-    await prisma.tallySalaryStructureLine.deleteMany({ where: { tallyCompanyId: id } })
-    await prisma.tallyAttendanceRecord.deleteMany({ where: { tallyCompanyId: id } })
-    await prisma.tallyPayHead.deleteMany({ where: { tallyCompanyId: id } })
-    await prisma.tallyEmployee.deleteMany({ where: { tallyCompanyId: id } })
-    await prisma.tallyBackup.deleteMany({ where: { tallyCompanyId: id } })
-    await prisma.tallyLedger.deleteMany({ where: { tallyCompanyId: id } })
-    await prisma.tallyGroup.deleteMany({ where: { tallyCompanyId: id } })
-    await prisma.tallyFinancialYear.deleteMany({ where: { tallyCompanyId: id } })
-    await prisma.tallyCompany.delete({ where: { id } })
+    await prisma.bookkeepingBillAllocation.deleteMany({ where: { tallyCompanyId: id } })
+    await prisma.bookkeepingVoucherItem.deleteMany({ where: { tallyCompanyId: id } })
+    await prisma.bookkeepingVoucherEntry.deleteMany({ where: { tallyCompanyId: id } })
+    await prisma.bookkeepingVoucherRevision.deleteMany({ where: { tallyCompanyId: id } })
+    await prisma.bookkeepingVoucher.deleteMany({ where: { tallyCompanyId: id } })
+    await prisma.bookkeepingVoucherType.deleteMany({ where: { tallyCompanyId: id } })
+    await prisma.bookkeepingStockOpening.deleteMany({ where: { tallyCompanyId: id } })
+    await prisma.bookkeepingStockBatch.deleteMany({ where: { tallyCompanyId: id } })
+    await prisma.bookkeepingStockItem.deleteMany({ where: { tallyCompanyId: id } })
+    await prisma.bookkeepingStockGroup.deleteMany({ where: { tallyCompanyId: id } })
+    await prisma.bookkeepingStockCategory.deleteMany({ where: { tallyCompanyId: id } })
+    await prisma.bookkeepingGodown.deleteMany({ where: { tallyCompanyId: id } })
+    await prisma.bookkeepingUnit.deleteMany({ where: { tallyCompanyId: id } })
+    await prisma.bookkeepingBankStatementLine.deleteMany({ where: { tallyCompanyId: id } })
+    await prisma.bookkeepingBankReconciliation.deleteMany({ where: { tallyCompanyId: id } })
+    await prisma.bookkeepingTaxRate.deleteMany({ where: { tallyCompanyId: id } })
+    await prisma.bookkeepingSetting.deleteMany({ where: { tallyCompanyId: id } })
+    await prisma.bookkeepingPayrollLine.deleteMany({ where: { tallyCompanyId: id } })
+    await prisma.bookkeepingPayrollRun.deleteMany({ where: { tallyCompanyId: id } })
+    await prisma.bookkeepingSalaryStructureLine.deleteMany({ where: { tallyCompanyId: id } })
+    await prisma.bookkeepingAttendanceRecord.deleteMany({ where: { tallyCompanyId: id } })
+    await prisma.bookkeepingPayHead.deleteMany({ where: { tallyCompanyId: id } })
+    await prisma.bookkeepingEmployee.deleteMany({ where: { tallyCompanyId: id } })
+    await prisma.bookkeepingBackup.deleteMany({ where: { tallyCompanyId: id } })
+    await prisma.bookkeepingLedger.deleteMany({ where: { tallyCompanyId: id } })
+    await prisma.bookkeepingGroup.deleteMany({ where: { tallyCompanyId: id } })
+    await prisma.bookkeepingFinancialYear.deleteMany({ where: { tallyCompanyId: id } })
+    await prisma.bookkeepingCompany.delete({ where: { id } })
   }
 }
 
@@ -397,7 +397,7 @@ async function integritySuite(session: Session, ctx: Awaited<ReturnType<typeof m
   // ── Voucher cancellation ──────────────────────────────────────────
   console.log('\nCancellation, restore and the audit trail')
   const beforeCancel = (await ledgerBalances(company.id, {})).find((b) => b.ledgerName === 'Salary')!.closingPaise
-  const salaryVoucher = await prisma.tallyVoucher.findFirstOrThrow({
+  const salaryVoucher = await prisma.bookkeepingVoucher.findFirstOrThrow({
     where: { tallyCompanyId: company.id, narration: 'Salary April' },
   })
   await cancelVoucher(company.id, salaryVoucher.id, 'Duplicate entry', session.userId)
@@ -407,7 +407,7 @@ async function integritySuite(session: Session, ctx: Awaited<ReturnType<typeof m
   const tbCancelled = await trialBalance(company.id, {})
   check('Trial balance still balances after a cancellation', tbCancelled.totals.balanced, true)
 
-  const revisions = await prisma.tallyVoucherRevision.findMany({ where: { voucherId: salaryVoucher.id }, orderBy: { version: 'asc' } })
+  const revisions = await prisma.bookkeepingVoucherRevision.findMany({ where: { voucherId: salaryVoucher.id }, orderBy: { version: 'asc' } })
   check('Cancellation is recorded in the voucher history', revisions.at(-1)?.action, 'cancelled')
   check('Creation is still in the voucher history', revisions[0]?.action, 'created')
 
@@ -417,7 +417,7 @@ async function integritySuite(session: Session, ctx: Awaited<ReturnType<typeof m
   check('Restored voucher affects balances again', afterRestore, beforeCancel)
 
   // ── Alteration writes a before/after pair ─────────────────────────
-  const rentVoucher = await prisma.tallyVoucher.findFirstOrThrow({
+  const rentVoucher = await prisma.bookkeepingVoucher.findFirstOrThrow({
     where: { tallyCompanyId: company.id, narration: 'Office rent April' },
   })
   await BookkeepingVoucherService.update(session, company.id, rentVoucher.id, {
@@ -427,7 +427,7 @@ async function integritySuite(session: Session, ctx: Awaited<ReturnType<typeof m
       { ledgerId: id('HDFC Bank'), entryType: 'cr', amountPaise: L(22000) },
     ],
   })
-  const rentRevisions = await prisma.tallyVoucherRevision.findMany({ where: { voucherId: rentVoucher.id }, orderBy: { version: 'asc' } })
+  const rentRevisions = await prisma.bookkeepingVoucherRevision.findMany({ where: { voucherId: rentVoucher.id }, orderBy: { version: 'asc' } })
   check('Alteration is recorded with a before snapshot', Boolean(rentRevisions.at(-1)?.beforeJson), true)
   check('Alteration is recorded with an after snapshot', Boolean(rentRevisions.at(-1)?.afterJson), true)
   const rentAfter = (await ledgerBalances(company.id, {})).find((b) => b.ledgerName === 'Office Rent')!.closingPaise
@@ -457,12 +457,12 @@ async function inventorySuite(session: Session) {
     ['Sales Stock', 'Sales Accounts'],
   ])
   const id = (n: string) => ledgers.get(n)!
-  const unit = await prisma.tallyUnit.findFirstOrThrow({ where: { tallyCompanyId: company.id, name: 'Nos' } })
-  const godown = await prisma.tallyGodown.findFirstOrThrow({ where: { tallyCompanyId: company.id } })
-  const item = await prisma.tallyStockItem.create({
+  const unit = await prisma.bookkeepingUnit.findFirstOrThrow({ where: { tallyCompanyId: company.id, name: 'Nos' } })
+  const godown = await prisma.bookkeepingGodown.findFirstOrThrow({ where: { tallyCompanyId: company.id } })
+  const item = await prisma.bookkeepingStockItem.create({
     data: { tallyCompanyId: company.id, name: 'Widget', unitId: unit.id, hsnCode: '8471', gstRateBp: 1800, reorderLevelMilli: 5000 },
   })
-  await prisma.tallyStockOpening.create({
+  await prisma.bookkeepingStockOpening.create({
     data: { tallyCompanyId: company.id, stockItemId: item.id, godownId: godown.id, qtyMilli: 10_000, ratePaise: L(1000), valuePaise: L(10000) },
   })
 

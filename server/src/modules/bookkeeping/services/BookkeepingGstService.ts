@@ -51,7 +51,7 @@ export const BookkeepingGstService = {
   // ── Tax rate masters (data-driven statutory rates) ──────────────────
   async listTaxRates(session: Session, companyId: string, taxType?: string) {
     await BookkeepingCompanyService.requireOwned(session, companyId)
-    const rows = await prisma.tallyTaxRate.findMany({
+    const rows = await prisma.bookkeepingTaxRate.findMany({
       where: { tallyCompanyId: companyId, ...alive, ...(taxType ? { taxType } : {}) },
       orderBy: [{ taxType: 'asc' }, { name: 'asc' }],
     })
@@ -70,9 +70,9 @@ export const BookkeepingGstService = {
     const name = input.name.trim()
     if (!name) throw ApiError.badRequest('Name is required.')
     if (!['gst', 'tds', 'tcs'].includes(input.taxType)) throw ApiError.badRequest('Tax type must be gst, tds or tcs.')
-    const clash = await prisma.tallyTaxRate.findFirst({ where: { tallyCompanyId: companyId, taxType: input.taxType, name, ...alive } })
+    const clash = await prisma.bookkeepingTaxRate.findFirst({ where: { tallyCompanyId: companyId, taxType: input.taxType, name, ...alive } })
     if (clash) throw ApiError.conflict('duplicate_name', `A ${input.taxType.toUpperCase()} rate named "${name}" already exists.`)
-    const r = await prisma.tallyTaxRate.create({
+    const r = await prisma.bookkeepingTaxRate.create({
       data: {
         tallyCompanyId: companyId, taxType: input.taxType, name,
         rateBp: input.rateBp, cessBp: input.cessBp ?? 0,
@@ -91,12 +91,12 @@ export const BookkeepingGstService = {
   async statutorySummary(session: Session, companyId: string, taxType: 'tds' | 'tcs', filter: { from?: string; to?: string } = {}) {
     await BookkeepingCompanyService.requireOwned(session, companyId)
     const [ledgers, balances, rates] = await Promise.all([
-      prisma.tallyLedger.findMany({
+      prisma.bookkeepingLedger.findMany({
         where: { tallyCompanyId: companyId, ...alive, NOT: { taxConfigJson: null } },
         select: { id: true, name: true, taxConfigJson: true },
       }),
       ledgerBalances(companyId, filter),
-      prisma.tallyTaxRate.findMany({ where: { tallyCompanyId: companyId, taxType, ...alive } }),
+      prisma.bookkeepingTaxRate.findMany({ where: { tallyCompanyId: companyId, taxType, ...alive } }),
     ])
     const byId = new Map(balances.map((b) => [b.ledgerId, b]))
     const rows = ledgers
@@ -134,7 +134,7 @@ export const BookkeepingGstService = {
    */
   async eInvoicePayload(session: Session, companyId: string, voucherId: string) {
     const company = await BookkeepingCompanyService.requireOwned(session, companyId)
-    const v = await prisma.tallyVoucher.findFirst({
+    const v = await prisma.bookkeepingVoucher.findFirst({
       where: { id: voucherId, tallyCompanyId: companyId, ...alive, voucherTypeCode: 'sales' },
       include: {
         partyLedger: true,
@@ -207,7 +207,7 @@ export const BookkeepingGstService = {
     transportMode?: string | null; distanceKm?: number | null
   } = {}) {
     const company = await BookkeepingCompanyService.requireOwned(session, companyId)
-    const v = await prisma.tallyVoucher.findFirst({
+    const v = await prisma.bookkeepingVoucher.findFirst({
       where: { id: voucherId, tallyCompanyId: companyId, ...alive },
       include: { partyLedger: true, items: { include: { stockItem: true } } },
     })
