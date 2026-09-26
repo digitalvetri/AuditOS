@@ -1165,6 +1165,9 @@ model Client {
   aaTds26AS           AaTds26AS[]
   aaTdsBooks          AaTdsBooks[]
   aaTdsReconJobs      AaTdsReconJob[]
+  tdsPortalCredential TdsPortalCredential?
+  tdsProfile          TdsProfile?
+  tdsFilings          TdsFiling[]
 
   createdAt           DateTime              @default(now())
   updatedAt           DateTime              @updatedAt
@@ -1602,6 +1605,110 @@ model GstPortalAccess {
   createdBy String?
   updatedBy String?
   deletedAt DateTime?
+}
+
+/// TDS portal (e-Filing / TRACES) login for a client — one row per client.
+/// Same crypto + reveal rules as GstPortalAccess: the password is AES-256-GCM
+/// ciphertext from portalCrypto, never returned by GET, only via POST /reveal
+/// which writes an audit row. Delete is a soft delete (deletedAt) and clears
+/// the ciphertext so no secret outlives the record.
+model TdsPortalCredential {
+  id                 String  @id @default(uuid())
+  clientId           String  @unique
+  /// User ID on the portal — usually the TAN. Not secret.
+  userId             String
+  passwordCiphertext String?
+
+  client Client @relation(fields: [clientId], references: [id])
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  createdBy String?
+  updatedBy String?
+  deletedAt DateTime?
+}
+
+/// Per-client TDS settings. The TAN itself stays on Client.tan — one source.
+model TdsProfile {
+  id                String  @id @default(uuid())
+  clientId          String  @unique
+  /// Comma-separated quarterly return forms this deductor files: 24Q,26Q,27Q,27EQ.
+  returnForms       String  @default("26Q")
+  /// company | firm | individual | government | trust | aop | other
+  deductorType      String?
+  responsiblePerson String?
+
+  // Form 49B details — fed to the Registration field sheet. Stored as the
+  // firm types them; the UI warns (never truncates) when over portal limits.
+  rpDesignation String?
+  rpPan         String?
+  rpEmail       String?
+  rpMobile      String?
+  addrFlat      String?
+  addrBuilding  String?
+  addrRoad      String?
+  addrArea      String?
+  addrCity      String?
+  addrPin       String?
+  /// 'Area code · AO type · Range code · AO number', e.g. 'CHE W 51 1'.
+  aoCode        String?
+  /// Extra TANs (branches / divisions), comma-separated. Client.tan is the primary.
+  additionalTans String?
+
+  client Client @relation(fields: [clientId], references: [id])
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  createdBy String?
+  updatedBy String?
+}
+
+/// One captured TDS event for a client — the "record back after filing" rows.
+///   kind         period      formType             reference
+///   registration —           —                    14-digit Form 49B ack
+///   challan      YYYY-MM     —                    challan serial (with BSR in bsrCode)
+///   return       Q1..Q4      24Q/26Q/27Q/27EQ     15-digit token
+///   correction   Q1..Q4      24Q/26Q/27Q/27EQ     new token; originalId → the return
+///   certificate  Q1..Q4|FY   16A/16/27D           —
+///   notice_check —           —                    —   (eventDate = checked on)
+///   notice       —           —                    notice / default reference
+/// Status is what the firm recorded; due/overdue is derived from dates.
+model TdsFiling {
+  id         String  @id @default(uuid())
+  clientId   String
+  /// The TAN this row belongs to. Null = the client's primary TAN (Client.tan).
+  tan        String?
+  kind       String
+  /// FY label '2026-27'; null for registration.
+  fy         String?
+  period     String?
+  formType   String?
+  /// pending | in_progress | done   (done = paid / filed / issued / closed)
+  status     String  @default("done")
+  reference  String?
+  bsrCode    String?
+  /// 'YYYY-MM-DD' — deposit / filing / issue / submission / check date.
+  eventDate  String?
+  /// Rupees, as entered. Tracked, never calculated.
+  amountTax      Decimal? @db.Decimal(14, 2)
+  amountInterest Decimal? @db.Decimal(14, 2)
+  amountFee      Decimal? @db.Decimal(14, 2)
+  filedBy    String?
+  notes      String?
+  originalId String?
+  /// Receipt / acknowledgement / certificate file, kept in the client's
+  /// document store (ClientDocument, category 'tds'); versions on replace.
+  documentId String?
+
+  client Client @relation(fields: [clientId], references: [id])
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  createdBy String?
+  updatedBy String?
+  deletedAt DateTime?
+
+  @@index([clientId, kind, fy])
 }
 
 model GstFiling {
