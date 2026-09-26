@@ -184,7 +184,17 @@ gstPortalRouter.put('/:gstProfileId', handler(async (req, res) => {
   ok(res, { record: toMaskedApi(saved) })
 }))
 
-// POST /api/gst-portal/:gstProfileId/reveal { field: 'portal_password' | 'ewb_password' | 'irp_password' }
+// POST /api/gst-portal/:gstProfileId/reveal
+//   body: { field: 'portal_password' | 'ewb_password' | 'irp_password',
+//           action?: 'show' | 'copy' }
+//
+// The single decrypt endpoint. The `action` is optional metadata that lets
+// the audit trail distinguish "operator looked at the screen" from
+// "operator put the value on the clipboard" — same permission cost, same
+// server work, just a stronger audit record.
+const ACCESS_ACTIONS = ['show', 'copy'] as const
+type AccessAction = (typeof ACCESS_ACTIONS)[number]
+
 gstPortalRouter.post('/:gstProfileId/reveal', handler(async (req, res) => {
   const session = requireSession(req)
   const scope = requireWorkstation(session, ...REVEAL)
@@ -197,6 +207,12 @@ gstPortalRouter.post('/:gstProfileId/reveal', handler(async (req, res) => {
     e.add('field', `Must be one of ${PASSWORD_FIELDS.join(', ')}.`)
     e.throwIfAny()
   }
+  const rawAction = b.action
+  const action: AccessAction =
+    rawAction === 'copy' ? 'copy' : rawAction === 'show' || rawAction === undefined || rawAction === null
+      ? 'show'
+      : (e.add('action', `Must be one of ${ACCESS_ACTIONS.join(', ')}.`), 'show')
+  e.throwIfAny()
 
   const row = await prisma.gstPortalAccess.findFirst({ where: { gstProfileId: req.params.gstProfileId, deletedAt: null } })
   if (!row) throw ApiError.notFound('No portal record for this GST profile.')
@@ -216,8 +232,52 @@ gstPortalRouter.post('/:gstProfileId/reveal', handler(async (req, res) => {
     entityType: 'gst_portal_access',
     entityId: row.id,
     // The audit row NEVER contains the plaintext — only the metadata.
-    after: { field, gstProfileId: profile.id, clientId: profile.clientId },
+    after: { field, action, gstProfileId: profile.id, clientId: profile.clientId },
     req,
   })
-  ok(res, { field, value: plain })
+  ok(res, { field, action, value: plain })
+}))
+
+// POST /api/gst-portal/:gstProfileId/log-access
+//   body: { field: 'portal_username', action: 'copy' }
+//
+// The username is not a secret — it comes back in the GET response in the
+// clear — so copying it doesn't need the `.reveal` permission. But the
+// PortalPanel spec wants "EVERY Copy writes an access-log row", so this
+// endpoint exists at `.view` level to record the intent. No decryption
+// happens; the endpoint only writes the audit row.
+const USERNAME_FIELDS = ['portal_username'] as const
+
+gstPortalRouter.post('/:gstProfileId/log-access', handler(async (req, res) => {
+  const session = requireSession(req)
+  const scope = requireWorkstation(session, ...VIEW)
+  const profile = await assertCanSeeGstProfile(session, scope, req.params.gstProfileId)
+
+  const b = body(req)
+  const e = new FieldErrors()
+  const field = b.field
+  if (typeof field !== 'string' || !(USERNAME_FIELDS as readonly string[]).includes(field)) {
+    e.add('field', `Must be one of ${USERNAME_FIELDS.join(', ')}.`)
+  }
+  const rawAction = b.action
+  const action: AccessAction =
+    rawAction === 'copy' ? 'copy' : rawAction === 'show' ? 'show'
+      : (e.add('action', `Must be one of ${ACCESS_ACTIONS.join(', ')}.`), 'copy')
+  e.throwIfAny()
+
+  const row = await prisma.gstPortalAccess.findFirst({
+    where: { gstProfileId: req.params.gstProfileId, deletedAt: null },
+    select: { id: true },
+  })
+  if (!row) throw ApiError.notFound('No portal record for this GST profile.')
+
+  await writeAudit({
+    actorUserId: session.userId,
+    action: 'gst_portal_access.access',
+    entityType: 'gst_portal_access',
+    entityId: row.id,
+    after: { field, action, gstProfileId: profile.id, clientId: profile.clientId },
+    req,
+  })
+  ok(res, { field, action, logged: true })
 }))

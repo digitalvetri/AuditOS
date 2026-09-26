@@ -3,12 +3,15 @@
  *
  * Lands here from the client dashboard's row click. Layout (top → bottom):
  *   1. Header — client name + GSTIN + filing type + FY + Visit portal
- *   2. Portal credentials strip (§3 — Show/Copy with 30s auto-hide, via
- *      the shared PortalStrip component)
- *   3. This period's three returns with state + due + [ Open case ]
- *   4. Tasks — one row per return per period, generated on demand by the
+ *   2. GST Portal Login Credentials panel (Show/Copy/30s auto-hide, Edit,
+ *      Delete, Add). Placed above the period selector because credentials
+ *      are per-GSTIN, not per-period, and reaching for them is the first
+ *      thing a filer does when starting work.
+ *   3. Period selector
+ *   4. This period's three returns with state + due + [ Open case ]
+ *   5. Tasks — one row per return per period, generated on demand by the
  *      Generate tasks button (§4). Each row links to the Task module.
- *   5. Earlier periods — collapsed row-per-period with three ticks
+ *   6. Earlier periods — collapsed row-per-period with three ticks
  */
 import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
@@ -20,7 +23,7 @@ import {
   type ClientViewCell, type ClientViewResponse,
 } from '@/modules/workstation/gst/api';
 import { SERVICES } from '../partnership/shared';
-import { PortalStrip } from '../partnership/PortalStrip';
+import { PortalPanel } from './PortalPanel';
 import { useToast } from '@/components/Toast';
 import { tasksApi, PRIORITY_LABEL, STATUS_LABEL, type Task } from '@/modules/workstation/tasks/api';
 import type { RegistrationKind } from '@/modules/partnership/api';
@@ -250,11 +253,14 @@ export function GstClientView() {
                 title={d.client.name}
                 subtitle={`${d.gst_profile.gstin} · ${d.gst_profile.filing_frequency === 'monthly' ? 'Monthly' : 'Quarterly'} · ${d.gst_profile.state ?? ''}`.trim()}
               />
-              <a href="https://services.gst.gov.in/services/login" target="_blank" rel="noopener noreferrer"
+              <a href="https://www.gst.gov.in" target="_blank" rel="noopener noreferrer"
                  className="inline-flex items-center gap-1 h-9 px-3 text-13 border border-neutral-300 rounded hover:border-neutral-400 shrink-0">
                 <ExternalLink size={14} /> Visit portal
               </a>
             </div>
+
+            {/* Portal credentials — the first thing needed when starting work. */}
+            <PortalPanel gstProfileId={d.gst_profile.id} />
 
             <div className="flex items-center gap-1 self-start">
               <button type="button" onClick={() => {
@@ -272,9 +278,6 @@ export function GstClientView() {
                 if (next) setPeriod(next.value);
               }} className="h-8 w-8 text-13 border border-neutral-300 rounded" aria-label="Next">▸</button>
             </div>
-
-            {/* Credentials strip — Show/Copy with 30s auto-hide (§3). */}
-            <PortalStrip gstProfileId={d.gst_profile.id} />
 
             <Card title={periodLabel(period)}>
               <div>
