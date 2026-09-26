@@ -4,7 +4,7 @@ import { useNavigate, useParams } from 'react-router-dom';
 import {
   invoicesApi, TERM_LABEL, type Invoice,
 } from '@/modules/workstation/invoices/api';
-import { downloadFile } from '@/modules/workstation/invoices/download';
+import { shareDocumentPdf, waNumber, type ShareChannel } from '@/modules/workstation/share';
 import {
   DEFAULT_COMPANY, DEFAULT_LAYOUT, computeTotals, defaultBlocks, inrAmount, lineKey, stateName,
   type BlockSpec, type CompanyInfo, type LayoutConfig,
@@ -109,11 +109,28 @@ function Body({ inv }: { inv: Invoice }) {
     onSuccess: after('Invoice sent. Its figures are now fixed.'),
     onError: (e: Error) => toast.push('error', e.message),
   });
-  const pdf = useMutation({
-    mutationFn: () => invoicesApi.pdfUrl(inv.id),
-    onSuccess: (r) => downloadFile(r.url, `${inv.invoice_number ?? 'invoice'}.pdf`),
-    onError: (e: Error) => toast.push('error', e.message),
-  });
+  const [sharing, setSharing] = useState(false);
+  const phone = waNumber(inv.client_contact_number);
+  const shareMessage = (link: string) =>
+    `Invoice ${inv.invoice_number}\n${inv.billing_name ?? inv.client_name ?? ''}\n`
+    + `Dated ${fmtDate(inv.invoice_date)} · Due ${fmtDate(inv.due_date)}\n`
+    + `\nInvoice PDF:\n${link}`;
+  const share = async (channel: ShareChannel) => {
+    setSharing(true);
+    try {
+      await shareDocumentPdf({
+        issueUrl: () => invoicesApi.pdfUrl(inv.id),
+        fileName: `${inv.invoice_number ?? 'invoice'}.pdf`,
+        subject: `Invoice ${inv.invoice_number}`,
+        message: shareMessage,
+        channel, phone, email: inv.client_email,
+      });
+    } catch (e) {
+      toast.push('error', (e as { message?: string })?.message ?? 'The PDF could not be sent.');
+    } finally {
+      setSharing(false);
+    }
+  };
 
   function printDocument() {
     document.documentElement.classList.add('qdoc-printing');
@@ -144,7 +161,17 @@ function Body({ inv }: { inv: Invoice }) {
               ) : null}
               <Button onClick={() => navigate(`/workstation/invoices/${inv.id}/preview`)}>Preview</Button>
               <Button onClick={printDocument}>Print</Button>
-              <Button disabled={pdf.isPending} onClick={() => pdf.mutate()}>Download PDF</Button>
+              <Button disabled={sharing} onClick={() => share('download')}>Download PDF</Button>
+              <Button
+                disabled={sharing || !phone}
+                title={phone ? undefined : 'No contact number on the client record'}
+                onClick={() => share('whatsapp')}
+              >WhatsApp</Button>
+              <Button
+                disabled={sharing || !inv.client_email}
+                title={inv.client_email ? undefined : 'No email on the client record'}
+                onClick={() => share('email')}
+              >Email</Button>
               {mayWrite && inv.stored_status !== 'cancelled' && inv.stored_status !== 'paid' ? (
                 <Button onClick={() => setCancelOpen(true)}>Cancel</Button>
               ) : null}

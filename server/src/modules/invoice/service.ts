@@ -158,6 +158,11 @@ function serialize(inv: Row, emp: Map<string, { id: string; full_name: string; e
     invoice_number: inv.invoiceNumber,
     client_id: inv.clientId,
     client_name: inv.client?.companyName ?? null,
+    // Contact fields for share-as-PDF via WhatsApp/email on InvoiceDetail —
+    // read from the client master, not the invoice snapshot, because these
+    // are how to REACH the client today, not what was on the invoice.
+    client_email: inv.client?.email ?? null,
+    client_contact_number: inv.client?.contactNumber ?? null,
     invoice_date: inv.invoiceDate,
     terms: inv.terms,
     due_date: inv.dueDate,
