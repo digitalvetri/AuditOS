@@ -111,10 +111,9 @@ function Body({ inv }: { inv: Invoice }) {
   });
   const [sharing, setSharing] = useState(false);
   const phone = waNumber(inv.client_contact_number);
-  const shareMessage = (link: string) =>
+  const shareMessage =
     `Invoice ${inv.invoice_number}\n${inv.billing_name ?? inv.client_name ?? ''}\n`
-    + `Dated ${fmtDate(inv.invoice_date)} · Due ${fmtDate(inv.due_date)}\n`
-    + `\nInvoice PDF:\n${link}`;
+    + `Dated ${fmtDate(inv.invoice_date)} · Due ${fmtDate(inv.due_date)}`;
   const share = async (channel: ShareChannel) => {
     setSharing(true);
     try {
