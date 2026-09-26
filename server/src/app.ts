@@ -53,6 +53,8 @@ import { checklistRouter } from './modules/checklist/routes.js'
 // GST compliance — Workstation → Services → Registration → GST Registration.
 import { gstRouter as gstComplianceRouter } from './modules/gst/routes.js'
 import { gstPortalRouter } from './modules/gst-portal/routes.js'
+import { tdsPortalRouter } from './modules/tds-portal/routes.js'
+import { tdsServiceRouter } from './modules/tds/routes.js'
 // Books — Zoho Books integration under TOOLS (docs/books-zoho/README.md).
 import { booksRouter, booksCallbackRouter } from './modules/books/routes.js'
 // Zoho Payments (docs/zoho-payments/README.md) — firm-collections integration.
@@ -231,6 +233,8 @@ export function createApp() {
   // GST portal access — credentials record per GstProfile. Its own permission
   // codes gate view and reveal. GST-RETURNS-CASE-SCREEN §9-5.
   app.use('/api/gst-portal', gstPortalRouter)
+  app.use('/api/tds-portal', tdsPortalRouter)
+  app.use('/api/tds', tdsServiceRouter)
 
   // ── Books ──────────────────────────────────────────────────────────────
   app.use('/api/books', booksRouter)

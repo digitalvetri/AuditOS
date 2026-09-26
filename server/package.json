@@ -17,6 +17,7 @@
     "test:scripts": "npm run test:audit-automation && npm run test:tally && npm run test:tasks && npm run test:zpay",
     "prisma:generate": "prisma generate",
     "prisma:push": "prisma db push --skip-generate",
+    "prisma:push:safe": "tsx prisma/safe-push.ts",
     "db:drop-legacy-books": "prisma db execute --schema prisma/schema.prisma --file prisma/sql/drop-legacy-books.postgresql.sql",
     "seed": "tsx prisma/seed.ts",
     "seed:tools": "tsx prisma/seed-tools.ts",
