@@ -307,10 +307,19 @@ export default function App() {
                     those with an existing case for the period). The three
                     tabs render the same table as /dashboard with a header
                     that names the return in focus. Case detail is still one
-                    click away from the client view's "Open case" action. */}
+                    click away from the client view's "Open case" action.
+
+                    `/clients` aliases exist because PartnershipCase's
+                    "Back to X Clients" link resolves to `${base}/clients`
+                    — for return kinds that URL had no route registered
+                    and 404'd from case detail. Both `/gst/gstr1` and
+                    `/gst/gstr1/clients` land on the same focused list. */}
                 <Route path="gstr1" element={<GstDashboard focusKind="GSTR1" />} />
+                <Route path="gstr1/clients" element={<GstDashboard focusKind="GSTR1" />} />
                 <Route path="gstr2b" element={<GstDashboard focusKind="GSTR2B" />} />
+                <Route path="gstr2b/clients" element={<GstDashboard focusKind="GSTR2B" />} />
                 <Route path="gstr3b" element={<GstDashboard focusKind="GSTR3B" />} />
+                <Route path="gstr3b/clients" element={<GstDashboard focusKind="GSTR3B" />} />
                 {/* Return-cycle cases (§9-2). The shared PartnershipCase
                     renders inside a per-return ServiceProvider so useSvc()
                     resolves to the right template, api and detailsLabel.
