@@ -1,10 +1,10 @@
 import { prisma, alive } from '../../../lib/prisma.js'
 import { ApiError } from '../../../lib/http.js'
 import type { Session } from '../../../platform/auth.js'
-import { TallyCompanyService } from './TallyCompanyService.js'
+import { BookkeepingCompanyService } from './BookkeepingCompanyService.js'
 
 /**
- * TallyGroupService — the group tree per company. Primary groups
+ * BookkeepingGroupService — the group tree per company. Primary groups
  * (seeded at company creation) can't be deleted; sub-groups can, but
  * only if no active ledgers belong to them.
  */
@@ -32,11 +32,11 @@ function toApi(row: {
   }
 }
 
-export const TallyGroupService = {
+export const BookkeepingGroupService = {
   toApi,
 
   async list(session: Session, companyId: string): Promise<GroupApi[]> {
-    await TallyCompanyService.requireOwned(session, companyId)
+    await BookkeepingCompanyService.requireOwned(session, companyId)
     const rows = await prisma.tallyGroup.findMany({
       where: { tallyCompanyId: companyId, ...alive },
       orderBy: [{ isPrimary: 'desc' }, { name: 'asc' }],
@@ -45,7 +45,7 @@ export const TallyGroupService = {
   },
 
   async tree(session: Session, companyId: string): Promise<GroupTreeNode[]> {
-    const flat = await TallyGroupService.list(session, companyId)
+    const flat = await BookkeepingGroupService.list(session, companyId)
     const byId = new Map<string, GroupTreeNode>()
     for (const g of flat) byId.set(g.id, { ...g, children: [] })
     const roots: GroupTreeNode[] = []
@@ -65,7 +65,7 @@ export const TallyGroupService = {
     nature?: string
     affectsPL?: boolean
   }): Promise<GroupApi> {
-    await TallyCompanyService.requireOwned(session, companyId)
+    await BookkeepingCompanyService.requireOwned(session, companyId)
     const name = input.name.trim()
     if (!name) throw ApiError.badRequest('Group name is required.')
     const clash = await prisma.tallyGroup.findFirst({
@@ -108,7 +108,7 @@ export const TallyGroupService = {
     parentGroupId?: string | null
     affectsPL?: boolean
   }): Promise<GroupApi> {
-    await TallyCompanyService.requireOwned(session, companyId)
+    await BookkeepingCompanyService.requireOwned(session, companyId)
     const existing = await prisma.tallyGroup.findFirst({
       where: { id: groupId, tallyCompanyId: companyId, ...alive },
     })
@@ -146,7 +146,7 @@ export const TallyGroupService = {
   },
 
   async softDelete(session: Session, companyId: string, groupId: string): Promise<void> {
-    await TallyCompanyService.requireOwned(session, companyId)
+    await BookkeepingCompanyService.requireOwned(session, companyId)
     const existing = await prisma.tallyGroup.findFirst({
       where: { id: groupId, tallyCompanyId: companyId, ...alive },
     })

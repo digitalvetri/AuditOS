@@ -11,7 +11,7 @@ import { VOUCHER_TYPE_SEEDS, GST_LEDGER_SEEDS } from '../engine/voucherTypes.js'
  * created before this slice existed pick up their voucher types without
  * a data migration and without ever double-seeding.
  */
-export const TallyBootstrapService = {
+export const BookkeepingBootstrapService = {
   async ensure(companyId: string): Promise<{ voucherTypesCreated: number; gstLedgersCreated: number }> {
     const existingTypes = await prisma.tallyVoucherType.findMany({
       where: { tallyCompanyId: companyId, ...alive }, select: { code: true },

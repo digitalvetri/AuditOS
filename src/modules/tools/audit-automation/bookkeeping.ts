@@ -108,9 +108,9 @@ export interface CreateBookkeepingLedgerInput {
 
 export const bookkeepingApi = {
   // Companies
-  listCompanies: () => api.get<{ items: BookkeepingCompany[] }>('/api/tally/companies'),
+  listCompanies: () => api.get<{ items: BookkeepingCompany[] }>('/api/bookkeeping/companies'),
   getCompany: (id: string) => api.get<BookkeepingCompany>(`/api/tally/companies/${id}`),
-  createCompany: (input: CreateBookkeepingCompanyInput) => api.post<BookkeepingCompany>('/api/tally/companies', input),
+  createCompany: (input: CreateBookkeepingCompanyInput) => api.post<BookkeepingCompany>('/api/bookkeeping/companies', input),
   updateCompany: (id: string, patch: Partial<CreateBookkeepingCompanyInput> & { active?: boolean }) =>
     api.patch<BookkeepingCompany>(`/api/tally/companies/${id}`, patch),
 

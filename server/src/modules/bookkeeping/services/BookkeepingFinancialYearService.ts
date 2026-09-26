@@ -1,11 +1,11 @@
 import { prisma } from '../../../lib/prisma.js'
 import { ApiError } from '../../../lib/http.js'
 import type { Session } from '../../../platform/auth.js'
-import { TallyCompanyService } from './TallyCompanyService.js'
+import { BookkeepingCompanyService } from './BookkeepingCompanyService.js'
 
 /**
- * TallyFinancialYearService — list / create / close FYs for a company.
- * The first FY is seeded at company creation (TallyCompanyService.create);
+ * BookkeepingFinancialYearService — list / create / close FYs for a company.
+ * The first FY is seeded at company creation (BookkeepingCompanyService.create);
  * subsequent FYs are added here.
  */
 
@@ -27,11 +27,11 @@ function toApi(row: {
   }
 }
 
-export const TallyFinancialYearService = {
+export const BookkeepingFinancialYearService = {
   toApi,
 
   async list(session: Session, companyId: string): Promise<FinancialYearApi[]> {
-    await TallyCompanyService.requireOwned(session, companyId)
+    await BookkeepingCompanyService.requireOwned(session, companyId)
     const rows = await prisma.tallyFinancialYear.findMany({
       where: { tallyCompanyId: companyId },
       orderBy: [{ startDate: 'desc' }],
@@ -44,7 +44,7 @@ export const TallyFinancialYearService = {
     startDate: string
     endDate: string
   }): Promise<FinancialYearApi> {
-    await TallyCompanyService.requireOwned(session, companyId)
+    await BookkeepingCompanyService.requireOwned(session, companyId)
     const label = input.label.trim()
     if (!label) throw ApiError.badRequest('Label is required.')
     if (!/^\d{4}-\d{2}-\d{2}$/.test(input.startDate) || !/^\d{4}-\d{2}-\d{2}$/.test(input.endDate)) {
@@ -62,7 +62,7 @@ export const TallyFinancialYearService = {
   },
 
   async close(session: Session, companyId: string, fyId: string): Promise<FinancialYearApi> {
-    await TallyCompanyService.requireOwned(session, companyId)
+    await BookkeepingCompanyService.requireOwned(session, companyId)
     const row = await prisma.tallyFinancialYear.findFirst({
       where: { id: fyId, tallyCompanyId: companyId },
     })

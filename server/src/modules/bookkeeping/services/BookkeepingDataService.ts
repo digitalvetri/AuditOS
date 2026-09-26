@@ -1,14 +1,14 @@
 import { prisma, alive } from '../../../lib/prisma.js'
 import { ApiError } from '../../../lib/http.js'
 import type { Session } from '../../../platform/auth.js'
-import { TallyCompanyService } from './TallyCompanyService.js'
-import { TallyBootstrapService } from './TallyBootstrapService.js'
+import { BookkeepingCompanyService } from './BookkeepingCompanyService.js'
+import { BookkeepingBootstrapService } from './BookkeepingBootstrapService.js'
 import { postVoucher } from '../engine/posting.js'
 import { ledgerBalances, trialBalance } from '../engine/balances.js'
 import { formatPaise } from '../engine/primitives.js'
 
 /**
- * TallyDataService — import, export, backup and restore.
+ * BookkeepingDataService — import, export, backup and restore.
  *
  * IMPORT IS TWO-PHASE. Phase 1 validates every row and reports what would
  * happen; phase 2 commits, in one transaction per entity type. A file with
@@ -36,10 +36,10 @@ const GSTIN_RE = /^\d{2}[A-Z]{5}\d{4}[A-Z][A-Z\d]Z[A-Z\d]$/
 const PAN_RE = /^[A-Z]{5}\d{4}[A-Z]$/
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/
 
-export const TallyDataService = {
+export const BookkeepingDataService = {
   /** Phase 1 — validate without writing anything. */
   async validateImport(session: Session, companyId: string, entity: ImportEntity, rows: Record<string, unknown>[]): Promise<ImportPreview> {
-    await TallyCompanyService.requireOwned(session, companyId)
+    await BookkeepingCompanyService.requireOwned(session, companyId)
     const issues: ImportIssue[] = []
     let duplicates = 0
     const invalid = new Set<number>()
@@ -156,9 +156,9 @@ export const TallyDataService = {
 
   /** Phase 2 — commit. Refuses outright if anything is invalid, unless skip_invalid. */
   async commitImport(session: Session, companyId: string, entity: ImportEntity, rows: Record<string, unknown>[], opts: { skipInvalid?: boolean } = {}) {
-    await TallyCompanyService.requireOwned(session, companyId)
-    await TallyBootstrapService.ensure(companyId)
-    const preview = await TallyDataService.validateImport(session, companyId, entity, rows)
+    await BookkeepingCompanyService.requireOwned(session, companyId)
+    await BookkeepingBootstrapService.ensure(companyId)
+    const preview = await BookkeepingDataService.validateImport(session, companyId, entity, rows)
     if (preview.invalid_rows > 0 && !opts.skipInvalid) {
       throw ApiError.unprocessable('invalid_rows', `${preview.invalid_rows} of ${preview.total_rows} rows are invalid. Fix them, or re-run with skip_invalid.`, preview.issues.slice(0, 50))
     }
@@ -296,7 +296,7 @@ export const TallyDataService = {
 
   /** A company's masters and vouchers as JSON — also the backup payload. */
   async exportJson(session: Session, companyId: string, opts: { includeVouchers?: boolean } = {}) {
-    const company = await TallyCompanyService.requireOwned(session, companyId)
+    const company = await BookkeepingCompanyService.requireOwned(session, companyId)
     const [financialYears, groups, ledgers, voucherTypes, stockItems, units, godowns, openings, taxRates, settings] = await Promise.all([
       prisma.tallyFinancialYear.findMany({ where: { tallyCompanyId: companyId } }),
       prisma.tallyGroup.findMany({ where: { tallyCompanyId: companyId, ...alive } }),
@@ -344,7 +344,7 @@ export const TallyDataService = {
    * it is an export format, not a certified integration.
    */
   async exportVoucherXml(session: Session, companyId: string, filter: { from?: string; to?: string } = {}) {
-    const company = await TallyCompanyService.requireOwned(session, companyId)
+    const company = await BookkeepingCompanyService.requireOwned(session, companyId)
     const vouchers = await prisma.tallyVoucher.findMany({
       where: {
         tallyCompanyId: companyId, ...alive, status: 'active',
@@ -388,8 +388,8 @@ ${v.entries.map((e) => `          <ALLLEDGERENTRIES.LIST>
   // ── Backup / restore ───────────────────────────────────────────────
 
   async createBackup(session: Session, companyId: string, label?: string) {
-    const company = await TallyCompanyService.requireOwned(session, companyId)
-    const payload = await TallyDataService.exportJson(session, companyId)
+    const company = await BookkeepingCompanyService.requireOwned(session, companyId)
+    const payload = await BookkeepingDataService.exportJson(session, companyId)
     const json = JSON.stringify(payload)
     const row = await prisma.tallyBackup.create({
       data: {
@@ -406,7 +406,7 @@ ${v.entries.map((e) => `          <ALLLEDGERENTRIES.LIST>
   },
 
   async listBackups(session: Session, companyId: string) {
-    await TallyCompanyService.requireOwned(session, companyId)
+    await BookkeepingCompanyService.requireOwned(session, companyId)
     const rows = await prisma.tallyBackup.findMany({
       where: { tallyCompanyId: companyId }, orderBy: { createdAt: 'desc' },
       select: { id: true, label: true, sizeBytes: true, voucherCount: true, ledgerCount: true, createdAt: true, createdByUserId: true },
@@ -418,7 +418,7 @@ ${v.entries.map((e) => `          <ALLLEDGERENTRIES.LIST>
   },
 
   async downloadBackup(session: Session, companyId: string, backupId: string) {
-    await TallyCompanyService.requireOwned(session, companyId)
+    await BookkeepingCompanyService.requireOwned(session, companyId)
     const row = await prisma.tallyBackup.findFirst({ where: { id: backupId, tallyCompanyId: companyId } })
     if (!row) throw ApiError.notFound('No such backup.')
     return { label: row.label, payload: row.payloadJson }
@@ -430,17 +430,17 @@ ${v.entries.map((e) => `          <ALLLEDGERENTRIES.LIST>
    * path in the UI, by design.
    */
   async restoreBackup(session: Session, companyId: string, backupId: string, newCompanyName: string) {
-    await TallyCompanyService.requireOwned(session, companyId)
+    await BookkeepingCompanyService.requireOwned(session, companyId)
     const row = await prisma.tallyBackup.findFirst({ where: { id: backupId, tallyCompanyId: companyId } })
     if (!row) throw ApiError.notFound('No such backup.')
     const name = newCompanyName.trim()
     if (!name) throw ApiError.badRequest('A name for the restored company is required.')
 
-    let payload: Awaited<ReturnType<typeof TallyDataService.exportJson>>
+    let payload: Awaited<ReturnType<typeof BookkeepingDataService.exportJson>>
     try { payload = JSON.parse(row.payloadJson) } catch { throw ApiError.unprocessable('corrupt_backup', 'This backup could not be parsed.') }
     if (payload.format !== 'auditos.tally.company.v1') throw ApiError.unprocessable('unknown_format', 'Unrecognised backup format.')
 
-    const created = await TallyCompanyService.create(session, {
+    const created = await BookkeepingCompanyService.create(session, {
       name,
       booksBeginFrom: payload.company.booksBeginFrom,
       fyBeginMonth: payload.company.fyBeginMonth,
@@ -518,8 +518,8 @@ ${v.entries.map((e) => `          <ALLLEDGERENTRIES.LIST>
 
   /** Post-restore proof: the two companies' trial balances should agree. */
   async verifyRestore(session: Session, sourceCompanyId: string, restoredCompanyId: string) {
-    await TallyCompanyService.requireOwned(session, sourceCompanyId)
-    await TallyCompanyService.requireOwned(session, restoredCompanyId)
+    await BookkeepingCompanyService.requireOwned(session, sourceCompanyId)
+    await BookkeepingCompanyService.requireOwned(session, restoredCompanyId)
     const [a, b] = await Promise.all([trialBalance(sourceCompanyId, {}), trialBalance(restoredCompanyId, {})])
     const [la, lb] = await Promise.all([ledgerBalances(sourceCompanyId, {}), ledgerBalances(restoredCompanyId, {})])
     const mapB = new Map(lb.map((l) => [l.ledgerName, l.closingPaise]))

@@ -1,12 +1,12 @@
 import { prisma, alive } from '../../../lib/prisma.js'
 import { ApiError } from '../../../lib/http.js'
 import type { Session } from '../../../platform/auth.js'
-import { TallyCompanyService } from './TallyCompanyService.js'
+import { BookkeepingCompanyService } from './BookkeepingCompanyService.js'
 import { trialBalance } from '../engine/balances.js'
 import { stockPositions } from '../engine/inventory.js'
 
 /**
- * TallyAuditService — the verification surface. Audit OS exists to look
+ * BookkeepingAuditService — the verification surface. Audit OS exists to look
  * at other people's books; this is the part that lets an auditor look at
  * these ones.
  *
@@ -19,10 +19,10 @@ import { stockPositions } from '../engine/inventory.js'
  * Nothing in the UI deletes from either.
  */
 
-export const TallyAuditService = {
+export const BookkeepingAuditService = {
   /** Full trail for a company, newest first. */
   async trail(session: Session, companyId: string, filter: { action?: string; voucherId?: string; from?: string; to?: string; limit?: number } = {}) {
-    await TallyCompanyService.requireOwned(session, companyId)
+    await BookkeepingCompanyService.requireOwned(session, companyId)
     const rows = await prisma.tallyVoucherRevision.findMany({
       where: {
         tallyCompanyId: companyId,
@@ -61,7 +61,7 @@ export const TallyAuditService = {
 
   /** The old/new comparison for one revision. */
   async revision(session: Session, companyId: string, revisionId: string) {
-    await TallyCompanyService.requireOwned(session, companyId)
+    await BookkeepingCompanyService.requireOwned(session, companyId)
     const r = await prisma.tallyVoucherRevision.findFirst({ where: { id: revisionId, tallyCompanyId: companyId } })
     if (!r) throw ApiError.notFound('No such revision.')
     const safeParse = (s: string | null) => { if (!s) return null; try { return JSON.parse(s) as unknown } catch { return { raw: s } } }
@@ -75,7 +75,7 @@ export const TallyAuditService = {
 
   /** Vouchers that have been altered since they were first posted. */
   async alteredVouchers(session: Session, companyId: string, filter: { from?: string; to?: string } = {}) {
-    await TallyCompanyService.requireOwned(session, companyId)
+    await BookkeepingCompanyService.requireOwned(session, companyId)
     const rows = await prisma.tallyVoucher.findMany({
       where: {
         tallyCompanyId: companyId, ...alive, version: { gt: 1 },
@@ -101,7 +101,7 @@ export const TallyAuditService = {
 
   /** Cancelled vouchers — they are never removed, only marked. */
   async cancelledVouchers(session: Session, companyId: string, filter: { from?: string; to?: string } = {}) {
-    await TallyCompanyService.requireOwned(session, companyId)
+    await BookkeepingCompanyService.requireOwned(session, companyId)
     const rows = await prisma.tallyVoucher.findMany({
       where: {
         tallyCompanyId: companyId, ...alive, status: 'cancelled',
@@ -124,7 +124,7 @@ export const TallyAuditService = {
 
   /** Who did what, from the platform audit log, filtered to Tally actions. */
   async userActivity(session: Session, companyId: string, limit = 200) {
-    await TallyCompanyService.requireOwned(session, companyId)
+    await BookkeepingCompanyService.requireOwned(session, companyId)
     const rows = await prisma.auditLog.findMany({
       where: { action: { startsWith: 'tally.' } },
       orderBy: { createdAt: 'desc' }, take: Math.min(limit, 500),
@@ -144,7 +144,7 @@ export const TallyAuditService = {
    * a real query against the posted data, not a placeholder.
    */
   async exceptions(session: Session, companyId: string, opts: { from?: string; to?: string } = {}) {
-    await TallyCompanyService.requireOwned(session, companyId)
+    await BookkeepingCompanyService.requireOwned(session, companyId)
     const range = { from: opts.from ?? null, to: opts.to ?? null }
     const dateWhere = range.from || range.to
       ? { date: { ...(range.from ? { gte: range.from } : {}), ...(range.to ? { lte: range.to } : {}) } }

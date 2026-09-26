@@ -14,9 +14,9 @@
  */
 import '../../../lib/env.js'
 import { PrismaClient } from '@prisma/client'
-import { TallyCompanyService } from '../services/TallyCompanyService.js'
-import { TallyGroupService } from '../services/TallyGroupService.js'
-import { TallyLedgerService } from '../services/TallyLedgerService.js'
+import { BookkeepingCompanyService } from '../services/BookkeepingCompanyService.js'
+import { BookkeepingGroupService } from '../services/BookkeepingGroupService.js'
+import { BookkeepingLedgerService } from '../services/BookkeepingLedgerService.js'
 import { PRIMARY_GROUPS } from '../services/primaryGroups.js'
 import type { Session } from '../../../platform/auth.js'
 
@@ -75,7 +75,7 @@ async function main() {
   await cleanup(organisationId)
 
   // ── 1. Create Company A → primary groups + first FY ──────────────────
-  const a = await TallyCompanyService.create(md, {
+  const a = await BookkeepingCompanyService.create(md, {
     name: 'FIXTURE-Alpha Traders',
     booksBeginFrom: '2026-04-01',
     state: 'Tamil Nadu',
@@ -91,7 +91,7 @@ async function main() {
   pass(`Company A: ${PRIMARY_GROUPS.length} primary groups + 1 FY seeded atomically`)
 
   // ── 2. Create Company B in the same org → own primaries, own FY ─────
-  const b = await TallyCompanyService.create(md, {
+  const b = await BookkeepingCompanyService.create(md, {
     name: 'FIXTURE-Bravo Consulting',
     booksBeginFrom: '2026-04-01',
     state: 'Karnataka',
@@ -103,7 +103,7 @@ async function main() {
 
   // ── 3. Duplicate company name in same org → 409 ──────────────────────
   try {
-    await TallyCompanyService.create(md, { name: 'FIXTURE-Alpha Traders', booksBeginFrom: '2026-04-01' })
+    await BookkeepingCompanyService.create(md, { name: 'FIXTURE-Alpha Traders', booksBeginFrom: '2026-04-01' })
     fail('duplicate company name refused', 'expected 409')
   } catch (err) {
     const code = (err as { code?: string }).code
@@ -115,7 +115,7 @@ async function main() {
   const cashGroup = await prisma.tallyGroup.findFirstOrThrow({
     where: { tallyCompanyId: a.id, name: 'Cash-in-Hand' },
   })
-  const cash = await TallyLedgerService.create(md, a.id, {
+  const cash = await BookkeepingLedgerService.create(md, a.id, {
     name: 'Main Cash', groupId: cashGroup.id,
     openingBalancePaise: 50000000, openingBalanceType: 'dr',
   })
@@ -124,16 +124,16 @@ async function main() {
   // ── 5. Isolation: listing Company B ledgers must not include A's ─────
   // Company B has only its OWN scaffolding (the six GST ledgers seeded
   // with every company) — none of Company A's ledgers.
-  const bLedgers = await TallyLedgerService.list(md, b.id)
+  const bLedgers = await BookkeepingLedgerService.list(md, b.id)
   if (bLedgers.some((l) => l.name === 'Main Cash')) fail("Company B must not see Company A's ledgers", 'Main Cash leaked into Company B')
   if (bLedgers.some((l) => l.id === cash.id)) fail('Company B ledger ids are its own', 'a Company A ledger id appeared')
-  const aLedgers = await TallyLedgerService.list(md, a.id)
+  const aLedgers = await BookkeepingLedgerService.list(md, a.id)
   if (!aLedgers.some((l) => l.id === cash.id)) fail('Company A ledger visible', 'not in list')
   pass('isolation: Company B does NOT see Company A ledgers, Company A does')
 
   // ── 6. Duplicate ledger name in Company A → 409 ──────────────────────
   try {
-    await TallyLedgerService.create(md, a.id, { name: 'Main Cash', groupId: cashGroup.id })
+    await BookkeepingLedgerService.create(md, a.id, { name: 'Main Cash', groupId: cashGroup.id })
     fail('duplicate ledger name refused', 'expected 409')
   } catch (err) {
     const code = (err as { code?: string }).code
@@ -145,12 +145,12 @@ async function main() {
   const bCashGroup = await prisma.tallyGroup.findFirstOrThrow({
     where: { tallyCompanyId: b.id, name: 'Cash-in-Hand' },
   })
-  await TallyLedgerService.create(md, b.id, { name: 'Main Cash', groupId: bCashGroup.id })
+  await BookkeepingLedgerService.create(md, b.id, { name: 'Main Cash', groupId: bCashGroup.id })
   pass('same ledger name allowed in Company B (isolation confirmed)')
 
   // ── 8. Cross-company access denied ───────────────────────────────────
   try {
-    await TallyLedgerService.list(md, 'not-a-real-company-id')
+    await BookkeepingLedgerService.list(md, 'not-a-real-company-id')
     fail('bogus company id refused', 'expected 404')
   } catch (err) {
     const code = (err as { code?: string }).code
@@ -163,7 +163,7 @@ async function main() {
     where: { tallyCompanyId: a.id, name: 'Capital Account' },
   })
   try {
-    await TallyGroupService.softDelete(md, a.id, capital.id)
+    await BookkeepingGroupService.softDelete(md, a.id, capital.id)
     fail('primary group deletion refused', 'expected 400')
   } catch (err) {
     const code = (err as { code?: string }).code
@@ -172,7 +172,7 @@ async function main() {
   }
   // Delete a group WITH a ledger → refused
   try {
-    await TallyGroupService.softDelete(md, a.id, cashGroup.id)
+    await BookkeepingGroupService.softDelete(md, a.id, cashGroup.id)
     fail('group-with-ledger deletion refused', 'expected 400')
   } catch (err) {
     pass('group with ledger cannot be deleted (400)')
@@ -180,7 +180,7 @@ async function main() {
 
   // ── 10. HR admin RBAC (no tally grants) ──────────────────────────────
   try {
-    await TallyCompanyService.listForOrg(hr) // service doesn't check RBAC — routes do
+    await BookkeepingCompanyService.listForOrg(hr) // service doesn't check RBAC — routes do
     // Route-level 403 is proven via curl in the e2e script; service list still works
     // because auditor role can be granted read-only in the future without service changes.
     pass('hr_admin can call service (RBAC enforced at route layer — e2e verifies 403)')

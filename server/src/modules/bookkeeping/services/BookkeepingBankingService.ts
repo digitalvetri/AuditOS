@@ -1,12 +1,12 @@
 import { prisma, alive } from '../../../lib/prisma.js'
 import { ApiError } from '../../../lib/http.js'
 import type { Session } from '../../../platform/auth.js'
-import { TallyCompanyService } from './TallyCompanyService.js'
+import { BookkeepingCompanyService } from './BookkeepingCompanyService.js'
 import { ledgerBalances } from '../engine/balances.js'
 import { daysBetween } from '../engine/primitives.js'
 
 /**
- * TallyBankingService — bank accounts, the bank book, statement import
+ * BookkeepingBankingService — bank accounts, the bank book, statement import
  * and reconciliation.
  *
  * Reconciliation NEVER changes an amount. Matching a statement line to a
@@ -26,10 +26,10 @@ async function bankLedgerOf(companyId: string, bankLedgerId: string) {
   return l
 }
 
-export const TallyBankingService = {
+export const BookkeepingBankingService = {
   /** Every ledger under Bank Accounts, with its book balance. */
   async listAccounts(session: Session, companyId: string, asOf?: string | null) {
-    await TallyCompanyService.requireOwned(session, companyId)
+    await BookkeepingCompanyService.requireOwned(session, companyId)
     const balances = (await ledgerBalances(companyId, { to: asOf ?? null }))
       .filter((b) => b.primaryGroupName === 'Bank Accounts')
     const details = await prisma.tallyLedger.findMany({
@@ -60,7 +60,7 @@ export const TallyBankingService = {
    * reconciling item: cheques issued or deposits not yet in the statement.
    */
   async bankBook(session: Session, companyId: string, bankLedgerId: string, filter: { from?: string | null; to?: string | null } = {}) {
-    await TallyCompanyService.requireOwned(session, companyId)
+    await BookkeepingCompanyService.requireOwned(session, companyId)
     const ledger = await bankLedgerOf(companyId, bankLedgerId)
     const [balance] = await ledgerBalances(companyId, { ...filter, ledgerIds: [bankLedgerId] })
     const entries = await prisma.tallyVoucherEntry.findMany({
@@ -111,7 +111,7 @@ export const TallyBankingService = {
   async importStatement(session: Session, companyId: string, bankLedgerId: string, rows: {
     date: string; description: string; refNumber?: string | null; debitPaise?: number; creditPaise?: number; balancePaise?: number | null
   }[]) {
-    await TallyCompanyService.requireOwned(session, companyId)
+    await BookkeepingCompanyService.requireOwned(session, companyId)
     await bankLedgerOf(companyId, bankLedgerId)
     const batch = `imp-${Date.now()}`
     const existing = await prisma.tallyBankStatementLine.findMany({
@@ -141,7 +141,7 @@ export const TallyBankingService = {
   },
 
   async listStatementLines(session: Session, companyId: string, bankLedgerId: string, filter: { status?: string; from?: string; to?: string } = {}) {
-    await TallyCompanyService.requireOwned(session, companyId)
+    await BookkeepingCompanyService.requireOwned(session, companyId)
     const rows = await prisma.tallyBankStatementLine.findMany({
       where: {
         tallyCompanyId: companyId, bankLedgerId, ...alive,
@@ -167,7 +167,7 @@ export const TallyBankingService = {
    * amount, within a window of days. Suggestions only — a human confirms.
    */
   async suggestMatches(session: Session, companyId: string, statementLineId: string, windowDays = 7) {
-    await TallyCompanyService.requireOwned(session, companyId)
+    await BookkeepingCompanyService.requireOwned(session, companyId)
     const line = await prisma.tallyBankStatementLine.findFirst({ where: { id: statementLineId, tallyCompanyId: companyId, ...alive } })
     if (!line) throw ApiError.notFound('No such statement line.')
     const wantType = line.debitPaise > 0 ? 'cr' : 'dr' // a bank debit is money leaving = credit in books
@@ -199,7 +199,7 @@ export const TallyBankingService = {
   },
 
   async match(session: Session, companyId: string, statementLineId: string, entryId: string) {
-    await TallyCompanyService.requireOwned(session, companyId)
+    await BookkeepingCompanyService.requireOwned(session, companyId)
     return prisma.$transaction(async (tx) => {
       const line = await tx.tallyBankStatementLine.findFirst({ where: { id: statementLineId, tallyCompanyId: companyId, ...alive } })
       if (!line) throw ApiError.notFound('No such statement line.')
@@ -225,7 +225,7 @@ export const TallyBankingService = {
   },
 
   async unmatch(session: Session, companyId: string, statementLineId: string) {
-    await TallyCompanyService.requireOwned(session, companyId)
+    await BookkeepingCompanyService.requireOwned(session, companyId)
     return prisma.$transaction(async (tx) => {
       const line = await tx.tallyBankStatementLine.findFirst({ where: { id: statementLineId, tallyCompanyId: companyId, ...alive }, include: { entry: true } })
       if (!line) throw ApiError.notFound('No such statement line.')
@@ -242,8 +242,8 @@ export const TallyBankingService = {
 
   /** The reconciliation statement: book balance → statement balance. */
   async reconciliation(session: Session, companyId: string, bankLedgerId: string, statementDate: string) {
-    await TallyCompanyService.requireOwned(session, companyId)
-    const book = await TallyBankingService.bankBook(session, companyId, bankLedgerId, { to: statementDate })
+    await BookkeepingCompanyService.requireOwned(session, companyId)
+    const book = await BookkeepingBankingService.bankBook(session, companyId, bankLedgerId, { to: statementDate })
     const lines = await prisma.tallyBankStatementLine.findMany({
       where: { tallyCompanyId: companyId, bankLedgerId, ...alive, date: { lte: statementDate } },
       select: { id: true, status: true, debitPaise: true, creditPaise: true, balancePaise: true, date: true, description: true },
@@ -272,7 +272,7 @@ export const TallyBankingService = {
 
   /** Freeze a reconciliation as evidence. */
   async saveReconciliation(session: Session, companyId: string, bankLedgerId: string, statementDate: string, notes?: string | null) {
-    const r = await TallyBankingService.reconciliation(session, companyId, bankLedgerId, statementDate)
+    const r = await BookkeepingBankingService.reconciliation(session, companyId, bankLedgerId, statementDate)
     const row = await prisma.tallyBankReconciliation.create({
       data: {
         tallyCompanyId: companyId, bankLedgerId, statementDate,
@@ -289,7 +289,7 @@ export const TallyBankingService = {
   },
 
   async listReconciliations(session: Session, companyId: string, bankLedgerId?: string) {
-    await TallyCompanyService.requireOwned(session, companyId)
+    await BookkeepingCompanyService.requireOwned(session, companyId)
     const rows = await prisma.tallyBankReconciliation.findMany({
       where: { tallyCompanyId: companyId, ...(bankLedgerId ? { bankLedgerId } : {}) },
       include: { bankLedger: { select: { name: true } } },

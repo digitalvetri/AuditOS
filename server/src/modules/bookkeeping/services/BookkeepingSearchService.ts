@@ -1,9 +1,9 @@
 import { prisma, alive } from '../../../lib/prisma.js'
 import type { Session } from '../../../platform/auth.js'
-import { TallyCompanyService } from './TallyCompanyService.js'
+import { BookkeepingCompanyService } from './BookkeepingCompanyService.js'
 
 /**
- * TallySearchService — one query across a company's masters and
+ * BookkeepingSearchService — one query across a company's masters and
  * transactions. Every hit carries the route that opens the record, so the
  * UI never has to map a type to a path.
  */
@@ -16,9 +16,9 @@ export interface SearchHit {
   route: string
 }
 
-export const TallySearchService = {
+export const BookkeepingSearchService = {
   async search(session: Session, companyId: string, q: string, limit = 8): Promise<{ query: string; hits: SearchHit[] }> {
-    await TallyCompanyService.requireOwned(session, companyId)
+    await BookkeepingCompanyService.requireOwned(session, companyId)
     const term = q.trim()
     if (term.length < 2) return { query: term, hits: [] }
     const like = { contains: term, mode: 'insensitive' as const }
@@ -80,7 +80,7 @@ export const TallySearchService = {
 
   /** Cross-company search used by the module home. */
   async searchCompanies(session: Session, q: string) {
-    const companies = await TallyCompanyService.listForOrg(session)
+    const companies = await BookkeepingCompanyService.listForOrg(session)
     const term = q.trim().toLowerCase()
     return companies
       .filter((c) => !term || c.name.toLowerCase().includes(term) || (c.gstin ?? '').toLowerCase().includes(term))

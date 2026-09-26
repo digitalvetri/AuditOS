@@ -3,11 +3,11 @@ import { z } from 'zod'
 import { ApiError, handler, ok } from '../../lib/http.js'
 import { can, requireSession, type Session } from '../../platform/auth.js'
 import { writeAudit } from '../../platform/audit.js'
-import { TallyCompanyService } from './services/TallyCompanyService.js'
-import { TallyFinancialYearService } from './services/TallyFinancialYearService.js'
-import { TallyGroupService } from './services/TallyGroupService.js'
-import { TallyLedgerService } from './services/TallyLedgerService.js'
-import { registerExtendedTallyRoutes } from './routes.extended.js'
+import { BookkeepingCompanyService } from './services/BookkeepingCompanyService.js'
+import { BookkeepingFinancialYearService } from './services/BookkeepingFinancialYearService.js'
+import { BookkeepingGroupService } from './services/BookkeepingGroupService.js'
+import { BookkeepingLedgerService } from './services/BookkeepingLedgerService.js'
+import { registerExtendedBookkeepingRoutes } from './routes.extended.js'
 
 /**
  * Tally HTTP surface (Slice 1: Foundation).
@@ -20,7 +20,7 @@ import { registerExtendedTallyRoutes } from './routes.extended.js'
  * Pipeline per request: authenticate → require tally.* permission →
  * Zod validate → service call → writeAudit for mutations.
  */
-export const tallyRouter = Router()
+export const bookkeepingRouter = Router()
 
 function requireAccess(session: Session) {
   if (!can(session, 'tools.audit_automation.tally.access', 'self')) {
@@ -44,19 +44,19 @@ function requireMasterManage(session: Session) {
 }
 
 // ── Companies ────────────────────────────────────────────────────────────
-tallyRouter.get('/companies', handler(async (req, res) => {
+bookkeepingRouter.get('/companies', handler(async (req, res) => {
   const session = requireSession(req)
   requireAccess(session)
-  ok(res, { items: await TallyCompanyService.listForOrg(session) })
+  ok(res, { items: await BookkeepingCompanyService.listForOrg(session) })
 }))
 
-tallyRouter.get('/companies/:id', handler(async (req, res) => {
+bookkeepingRouter.get('/companies/:id', handler(async (req, res) => {
   const session = requireSession(req)
   requireAccess(session)
-  ok(res, await TallyCompanyService.get(session, req.params.id))
+  ok(res, await BookkeepingCompanyService.get(session, req.params.id))
 }))
 
-tallyRouter.post('/companies', handler(async (req, res) => {
+bookkeepingRouter.post('/companies', handler(async (req, res) => {
   const session = requireSession(req)
   requireCompanyManage(session)
   const b = z.object({
@@ -76,7 +76,7 @@ tallyRouter.post('/companies', handler(async (req, res) => {
     books_begin_from: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
   }).safeParse(req.body)
   if (!b.success) throw ApiError.badRequest('name and books_begin_from are required.')
-  const created = await TallyCompanyService.create(session, {
+  const created = await BookkeepingCompanyService.create(session, {
     name: b.data.name,
     mailingName: b.data.mailing_name,
     address: b.data.address,
@@ -103,7 +103,7 @@ tallyRouter.post('/companies', handler(async (req, res) => {
   ok(res, created, 201)
 }))
 
-tallyRouter.patch('/companies/:id', handler(async (req, res) => {
+bookkeepingRouter.patch('/companies/:id', handler(async (req, res) => {
   const session = requireSession(req)
   requireCompanyManage(session)
   const b = z.object({
@@ -122,7 +122,7 @@ tallyRouter.patch('/companies/:id', handler(async (req, res) => {
     active: z.boolean().optional(),
   }).safeParse(req.body)
   if (!b.success) throw ApiError.badRequest('Invalid patch.')
-  const updated = await TallyCompanyService.update(session, req.params.id, {
+  const updated = await BookkeepingCompanyService.update(session, req.params.id, {
     name: b.data.name,
     mailingName: b.data.mailing_name ?? undefined,
     address: b.data.address ?? undefined,
@@ -149,13 +149,13 @@ tallyRouter.patch('/companies/:id', handler(async (req, res) => {
 }))
 
 // ── Financial years ─────────────────────────────────────────────────────
-tallyRouter.get('/companies/:id/financial-years', handler(async (req, res) => {
+bookkeepingRouter.get('/companies/:id/financial-years', handler(async (req, res) => {
   const session = requireSession(req)
   requireAccess(session)
-  ok(res, { items: await TallyFinancialYearService.list(session, req.params.id) })
+  ok(res, { items: await BookkeepingFinancialYearService.list(session, req.params.id) })
 }))
 
-tallyRouter.post('/companies/:id/financial-years', handler(async (req, res) => {
+bookkeepingRouter.post('/companies/:id/financial-years', handler(async (req, res) => {
   const session = requireSession(req)
   requireCompanyManage(session)
   const b = z.object({
@@ -164,7 +164,7 @@ tallyRouter.post('/companies/:id/financial-years', handler(async (req, res) => {
     end_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
   }).safeParse(req.body)
   if (!b.success) throw ApiError.badRequest('label, start_date, end_date required.')
-  const fy = await TallyFinancialYearService.create(session, req.params.id, {
+  const fy = await BookkeepingFinancialYearService.create(session, req.params.id, {
     label: b.data.label, startDate: b.data.start_date, endDate: b.data.end_date,
   })
   await writeAudit({
@@ -175,10 +175,10 @@ tallyRouter.post('/companies/:id/financial-years', handler(async (req, res) => {
   ok(res, fy, 201)
 }))
 
-tallyRouter.patch('/companies/:id/financial-years/:fyId/close', handler(async (req, res) => {
+bookkeepingRouter.patch('/companies/:id/financial-years/:fyId/close', handler(async (req, res) => {
   const session = requireSession(req)
   requireCompanyManage(session)
-  const closed = await TallyFinancialYearService.close(session, req.params.id, req.params.fyId)
+  const closed = await BookkeepingFinancialYearService.close(session, req.params.id, req.params.fyId)
   await writeAudit({
     actorUserId: session.userId, action: 'tally.fy_closed',
     entityType: 'TallyFinancialYear', entityId: closed.id,
@@ -188,15 +188,15 @@ tallyRouter.patch('/companies/:id/financial-years/:fyId/close', handler(async (r
 }))
 
 // ── Groups ──────────────────────────────────────────────────────────────
-tallyRouter.get('/companies/:id/groups', handler(async (req, res) => {
+bookkeepingRouter.get('/companies/:id/groups', handler(async (req, res) => {
   const session = requireSession(req)
   requireMasterRead(session)
   const tree = req.query.tree === '1'
-  if (tree) ok(res, { tree: await TallyGroupService.tree(session, req.params.id) })
-  else ok(res, { items: await TallyGroupService.list(session, req.params.id) })
+  if (tree) ok(res, { tree: await BookkeepingGroupService.tree(session, req.params.id) })
+  else ok(res, { items: await BookkeepingGroupService.list(session, req.params.id) })
 }))
 
-tallyRouter.post('/companies/:id/groups', handler(async (req, res) => {
+bookkeepingRouter.post('/companies/:id/groups', handler(async (req, res) => {
   const session = requireSession(req)
   requireMasterManage(session)
   const b = z.object({
@@ -206,7 +206,7 @@ tallyRouter.post('/companies/:id/groups', handler(async (req, res) => {
     affects_pl: z.boolean().optional(),
   }).safeParse(req.body)
   if (!b.success) throw ApiError.badRequest('name is required.')
-  const g = await TallyGroupService.create(session, req.params.id, {
+  const g = await BookkeepingGroupService.create(session, req.params.id, {
     name: b.data.name,
     parentGroupId: b.data.parent_group_id ?? undefined,
     nature: b.data.nature,
@@ -220,7 +220,7 @@ tallyRouter.post('/companies/:id/groups', handler(async (req, res) => {
   ok(res, g, 201)
 }))
 
-tallyRouter.patch('/companies/:id/groups/:groupId', handler(async (req, res) => {
+bookkeepingRouter.patch('/companies/:id/groups/:groupId', handler(async (req, res) => {
   const session = requireSession(req)
   requireMasterManage(session)
   const b = z.object({
@@ -229,7 +229,7 @@ tallyRouter.patch('/companies/:id/groups/:groupId', handler(async (req, res) => 
     affects_pl: z.boolean().optional(),
   }).safeParse(req.body)
   if (!b.success) throw ApiError.badRequest('Invalid patch.')
-  const g = await TallyGroupService.update(session, req.params.id, req.params.groupId, {
+  const g = await BookkeepingGroupService.update(session, req.params.id, req.params.groupId, {
     name: b.data.name,
     parentGroupId: b.data.parent_group_id ?? undefined,
     affectsPL: b.data.affects_pl,
@@ -242,10 +242,10 @@ tallyRouter.patch('/companies/:id/groups/:groupId', handler(async (req, res) => 
   ok(res, g)
 }))
 
-tallyRouter.delete('/companies/:id/groups/:groupId', handler(async (req, res) => {
+bookkeepingRouter.delete('/companies/:id/groups/:groupId', handler(async (req, res) => {
   const session = requireSession(req)
   requireMasterManage(session)
-  await TallyGroupService.softDelete(session, req.params.id, req.params.groupId)
+  await BookkeepingGroupService.softDelete(session, req.params.id, req.params.groupId)
   await writeAudit({
     actorUserId: session.userId, action: 'tally.group_deleted',
     entityType: 'TallyGroup', entityId: req.params.groupId,
@@ -255,7 +255,7 @@ tallyRouter.delete('/companies/:id/groups/:groupId', handler(async (req, res) =>
 }))
 
 // ── Ledgers ─────────────────────────────────────────────────────────────
-tallyRouter.get('/companies/:id/ledgers', handler(async (req, res) => {
+bookkeepingRouter.get('/companies/:id/ledgers', handler(async (req, res) => {
   const session = requireSession(req)
   requireMasterRead(session)
   const q = z.object({
@@ -263,18 +263,18 @@ tallyRouter.get('/companies/:id/ledgers', handler(async (req, res) => {
     q: z.string().optional(),
   }).safeParse(req.query)
   if (!q.success) throw ApiError.badRequest('Invalid filter.')
-  ok(res, { items: await TallyLedgerService.list(session, req.params.id, {
+  ok(res, { items: await BookkeepingLedgerService.list(session, req.params.id, {
     groupId: q.data.group_id, q: q.data.q,
   }) })
 }))
 
-tallyRouter.get('/companies/:id/ledgers/:ledgerId', handler(async (req, res) => {
+bookkeepingRouter.get('/companies/:id/ledgers/:ledgerId', handler(async (req, res) => {
   const session = requireSession(req)
   requireMasterRead(session)
-  ok(res, await TallyLedgerService.get(session, req.params.id, req.params.ledgerId))
+  ok(res, await BookkeepingLedgerService.get(session, req.params.id, req.params.ledgerId))
 }))
 
-tallyRouter.post('/companies/:id/ledgers', handler(async (req, res) => {
+bookkeepingRouter.post('/companies/:id/ledgers', handler(async (req, res) => {
   const session = requireSession(req)
   requireMasterManage(session)
   const b = z.object({
@@ -296,7 +296,7 @@ tallyRouter.post('/companies/:id/ledgers', handler(async (req, res) => {
     tax_config: z.unknown().optional(),
   }).safeParse(req.body)
   if (!b.success) throw ApiError.badRequest('name and group_id are required.')
-  const l = await TallyLedgerService.create(session, req.params.id, {
+  const l = await BookkeepingLedgerService.create(session, req.params.id, {
     name: b.data.name,
     groupId: b.data.group_id,
     openingBalancePaise: b.data.opening_balance_paise,
@@ -322,7 +322,7 @@ tallyRouter.post('/companies/:id/ledgers', handler(async (req, res) => {
   ok(res, l, 201)
 }))
 
-tallyRouter.patch('/companies/:id/ledgers/:ledgerId', handler(async (req, res) => {
+bookkeepingRouter.patch('/companies/:id/ledgers/:ledgerId', handler(async (req, res) => {
   const session = requireSession(req)
   requireMasterManage(session)
   const b = z.object({
@@ -345,7 +345,7 @@ tallyRouter.patch('/companies/:id/ledgers/:ledgerId', handler(async (req, res) =
     active: z.boolean().optional(),
   }).safeParse(req.body)
   if (!b.success) throw ApiError.badRequest('Invalid patch.')
-  const l = await TallyLedgerService.update(session, req.params.id, req.params.ledgerId, {
+  const l = await BookkeepingLedgerService.update(session, req.params.id, req.params.ledgerId, {
     name: b.data.name,
     groupId: b.data.group_id,
     openingBalancePaise: b.data.opening_balance_paise,
@@ -372,10 +372,10 @@ tallyRouter.patch('/companies/:id/ledgers/:ledgerId', handler(async (req, res) =
   ok(res, l)
 }))
 
-tallyRouter.delete('/companies/:id/ledgers/:ledgerId', handler(async (req, res) => {
+bookkeepingRouter.delete('/companies/:id/ledgers/:ledgerId', handler(async (req, res) => {
   const session = requireSession(req)
   requireMasterManage(session)
-  await TallyLedgerService.softDelete(session, req.params.id, req.params.ledgerId)
+  await BookkeepingLedgerService.softDelete(session, req.params.id, req.params.ledgerId)
   await writeAudit({
     actorUserId: session.userId, action: 'tally.ledger_deleted',
     entityType: 'TallyLedger', entityId: req.params.ledgerId,
@@ -388,4 +388,4 @@ tallyRouter.delete('/companies/:id/ledgers/:ledgerId', handler(async (req, res) 
 // Vouchers, reports, inventory, banking, GST, payroll, audit,
 // import/export, backup, settings, dashboard and search. Registered last
 // so the foundation routes above keep first claim on their paths.
-registerExtendedTallyRoutes(tallyRouter)
+registerExtendedBookkeepingRoutes(bookkeepingRouter)

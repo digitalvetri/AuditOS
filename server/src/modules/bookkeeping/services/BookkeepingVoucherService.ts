@@ -1,12 +1,12 @@
 import { prisma, alive } from '../../../lib/prisma.js'
 import { ApiError } from '../../../lib/http.js'
 import type { Session } from '../../../platform/auth.js'
-import { TallyCompanyService } from './TallyCompanyService.js'
-import { TallyBootstrapService } from './TallyBootstrapService.js'
+import { BookkeepingCompanyService } from './BookkeepingCompanyService.js'
+import { BookkeepingBootstrapService } from './BookkeepingBootstrapService.js'
 import { postVoucher, alterVoucher, cancelVoucher, restoreVoucher, type PostVoucherInput } from '../engine/posting.js'
 
 /**
- * TallyVoucherService — the HTTP-facing shape of a voucher. All the
+ * BookkeepingVoucherService — the HTTP-facing shape of a voucher. All the
  * accounting rules live in engine/posting.ts; this layer is scoping,
  * serialisation and query building.
  */
@@ -151,12 +151,12 @@ export interface VoucherListFilter {
   offset?: number
 }
 
-export const TallyVoucherService = {
+export const BookkeepingVoucherService = {
   toApi,
 
   async listVoucherTypes(session: Session, companyId: string) {
-    await TallyCompanyService.requireOwned(session, companyId)
-    await TallyBootstrapService.ensure(companyId)
+    await BookkeepingCompanyService.requireOwned(session, companyId)
+    await BookkeepingBootstrapService.ensure(companyId)
     const rows = await prisma.tallyVoucherType.findMany({
       where: { tallyCompanyId: companyId, ...alive }, orderBy: [{ isDefault: 'desc' }, { name: 'asc' }],
     })
@@ -172,7 +172,7 @@ export const TallyVoucherService = {
     name?: string; numberingMethod?: string; prefix?: string | null; suffix?: string | null
     startNumber?: number; active?: boolean
   }) {
-    await TallyCompanyService.requireOwned(session, companyId)
+    await BookkeepingCompanyService.requireOwned(session, companyId)
     const existing = await prisma.tallyVoucherType.findFirst({ where: { id: typeId, tallyCompanyId: companyId, ...alive } })
     if (!existing) throw ApiError.notFound('No such voucher type.')
     const row = await prisma.tallyVoucherType.update({
@@ -190,7 +190,7 @@ export const TallyVoucherService = {
   },
 
   async list(session: Session, companyId: string, filter: VoucherListFilter = {}) {
-    await TallyCompanyService.requireOwned(session, companyId)
+    await BookkeepingCompanyService.requireOwned(session, companyId)
     const where: Record<string, unknown> = {
       tallyCompanyId: companyId, ...alive,
       ...(filter.status && filter.status !== 'all' ? { status: filter.status } : {}),
@@ -224,7 +224,7 @@ export const TallyVoucherService = {
   },
 
   async get(session: Session, companyId: string, voucherId: string): Promise<VoucherApi> {
-    await TallyCompanyService.requireOwned(session, companyId)
+    await BookkeepingCompanyService.requireOwned(session, companyId)
     const v = await prisma.tallyVoucher.findFirst({
       where: { id: voucherId, tallyCompanyId: companyId, ...alive },
       include: {
@@ -283,28 +283,28 @@ export const TallyVoucherService = {
   },
 
   async create(session: Session, companyId: string, input: PostVoucherInput) {
-    await TallyCompanyService.requireOwned(session, companyId)
-    await TallyBootstrapService.ensure(companyId)
+    await BookkeepingCompanyService.requireOwned(session, companyId)
+    await BookkeepingBootstrapService.ensure(companyId)
     const posted = await postVoucher(companyId, input, session.userId)
-    return TallyVoucherService.get(session, companyId, posted.id)
+    return BookkeepingVoucherService.get(session, companyId, posted.id)
   },
 
   async update(session: Session, companyId: string, voucherId: string, input: PostVoucherInput) {
-    await TallyCompanyService.requireOwned(session, companyId)
+    await BookkeepingCompanyService.requireOwned(session, companyId)
     const posted = await alterVoucher(companyId, voucherId, input, session.userId)
-    return TallyVoucherService.get(session, companyId, posted.id)
+    return BookkeepingVoucherService.get(session, companyId, posted.id)
   },
 
   async cancel(session: Session, companyId: string, voucherId: string, reason: string | null) {
-    await TallyCompanyService.requireOwned(session, companyId)
+    await BookkeepingCompanyService.requireOwned(session, companyId)
     await cancelVoucher(companyId, voucherId, reason, session.userId)
-    return TallyVoucherService.get(session, companyId, voucherId)
+    return BookkeepingVoucherService.get(session, companyId, voucherId)
   },
 
   async restore(session: Session, companyId: string, voucherId: string) {
-    await TallyCompanyService.requireOwned(session, companyId)
+    await BookkeepingCompanyService.requireOwned(session, companyId)
     await restoreVoucher(companyId, voucherId, session.userId)
-    return TallyVoucherService.get(session, companyId, voucherId)
+    return BookkeepingVoucherService.get(session, companyId, voucherId)
   },
 
   /**
@@ -313,7 +313,7 @@ export const TallyVoucherService = {
    * duplicate is validated exactly like a hand-keyed voucher.
    */
   async duplicate(session: Session, companyId: string, voucherId: string, date?: string) {
-    const src = await TallyVoucherService.get(session, companyId, voucherId)
+    const src = await BookkeepingVoucherService.get(session, companyId, voucherId)
     const input: PostVoucherInput = {
       voucherTypeId: src.voucher_type_id,
       date: date ?? new Date().toISOString().slice(0, 10),
@@ -349,6 +349,6 @@ export const TallyVoucherService = {
       })),
     }
     const posted = await postVoucher(companyId, input, session.userId)
-    return TallyVoucherService.get(session, companyId, posted.id)
+    return BookkeepingVoucherService.get(session, companyId, posted.id)
   },
 }

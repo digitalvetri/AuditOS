@@ -1,14 +1,14 @@
 import { prisma, alive } from '../../../lib/prisma.js'
 import { ApiError } from '../../../lib/http.js'
 import type { Session } from '../../../platform/auth.js'
-import { TallyCompanyService } from './TallyCompanyService.js'
+import { BookkeepingCompanyService } from './BookkeepingCompanyService.js'
 import { gstSummary, gstr1, gstr3b } from '../engine/gst.js'
 import { parseTaxConfig } from '../engine/posting.js'
 import { ledgerBalances } from '../engine/balances.js'
 import { bpToPct } from '../engine/primitives.js'
 
 /**
- * TallyGstService — GST and other statutory reporting.
+ * BookkeepingGstService — GST and other statutory reporting.
  *
  * WHAT THIS MODULE DOES NOT DO: it does not file anything. There is no
  * GSTN, IRP or e-Way Bill portal integration here. A return or an
@@ -17,19 +17,19 @@ import { bpToPct } from '../engine/primitives.js'
  * claimed by this code.
  */
 
-export const TallyGstService = {
+export const BookkeepingGstService = {
   async summary(session: Session, companyId: string, filter: { from?: string; to?: string }) {
-    await TallyCompanyService.requireOwned(session, companyId)
+    await BookkeepingCompanyService.requireOwned(session, companyId)
     return gstSummary(companyId, filter)
   },
 
   async gstr1(session: Session, companyId: string, from: string, to: string) {
-    await TallyCompanyService.requireOwned(session, companyId)
+    await BookkeepingCompanyService.requireOwned(session, companyId)
     return gstr1(companyId, from, to)
   },
 
   async gstr3b(session: Session, companyId: string, from: string, to: string) {
-    await TallyCompanyService.requireOwned(session, companyId)
+    await BookkeepingCompanyService.requireOwned(session, companyId)
     return gstr3b(companyId, from, to)
   },
 
@@ -39,7 +39,7 @@ export const TallyGstService = {
    * taxable value with no tax posted.
    */
   async exceptions(session: Session, companyId: string, from: string, to: string) {
-    const r = await TallyGstService.gstr1(session, companyId, from, to)
+    const r = await BookkeepingGstService.gstr1(session, companyId, from, to)
     const grouped = new Map<string, { issue: string; vouchers: { voucher_id: string; voucher_number: string }[] }>()
     for (const e of r.exceptions) {
       if (!grouped.has(e.issue)) grouped.set(e.issue, { issue: e.issue, vouchers: [] })
@@ -50,7 +50,7 @@ export const TallyGstService = {
 
   // ── Tax rate masters (data-driven statutory rates) ──────────────────
   async listTaxRates(session: Session, companyId: string, taxType?: string) {
-    await TallyCompanyService.requireOwned(session, companyId)
+    await BookkeepingCompanyService.requireOwned(session, companyId)
     const rows = await prisma.tallyTaxRate.findMany({
       where: { tallyCompanyId: companyId, ...alive, ...(taxType ? { taxType } : {}) },
       orderBy: [{ taxType: 'asc' }, { name: 'asc' }],
@@ -66,7 +66,7 @@ export const TallyGstService = {
     taxType: string; name: string; rateBp: number; cessBp?: number; hsnCode?: string | null
     sacCode?: string | null; section?: string | null; thresholdPaise?: number | null; effectiveFrom?: string | null
   }) {
-    await TallyCompanyService.requireOwned(session, companyId)
+    await BookkeepingCompanyService.requireOwned(session, companyId)
     const name = input.name.trim()
     if (!name) throw ApiError.badRequest('Name is required.')
     if (!['gst', 'tds', 'tcs'].includes(input.taxType)) throw ApiError.badRequest('Tax type must be gst, tds or tcs.')
@@ -89,7 +89,7 @@ export const TallyGstService = {
    * never a code change.
    */
   async statutorySummary(session: Session, companyId: string, taxType: 'tds' | 'tcs', filter: { from?: string; to?: string } = {}) {
-    await TallyCompanyService.requireOwned(session, companyId)
+    await BookkeepingCompanyService.requireOwned(session, companyId)
     const [ledgers, balances, rates] = await Promise.all([
       prisma.tallyLedger.findMany({
         where: { tallyCompanyId: companyId, ...alive, NOT: { taxConfigJson: null } },
@@ -133,7 +133,7 @@ export const TallyGstService = {
    * and no IRN is obtained — that needs an approved GSP integration.
    */
   async eInvoicePayload(session: Session, companyId: string, voucherId: string) {
-    const company = await TallyCompanyService.requireOwned(session, companyId)
+    const company = await BookkeepingCompanyService.requireOwned(session, companyId)
     const v = await prisma.tallyVoucher.findFirst({
       where: { id: voucherId, tallyCompanyId: companyId, ...alive, voucherTypeCode: 'sales' },
       include: {
@@ -206,7 +206,7 @@ export const TallyGstService = {
     transporterId?: string | null; transporterName?: string | null; vehicleNumber?: string | null
     transportMode?: string | null; distanceKm?: number | null
   } = {}) {
-    const company = await TallyCompanyService.requireOwned(session, companyId)
+    const company = await BookkeepingCompanyService.requireOwned(session, companyId)
     const v = await prisma.tallyVoucher.findFirst({
       where: { id: voucherId, tallyCompanyId: companyId, ...alive },
       include: { partyLedger: true, items: { include: { stockItem: true } } },

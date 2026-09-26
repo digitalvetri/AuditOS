@@ -1,10 +1,10 @@
 import { prisma } from '../../../lib/prisma.js'
 import { ApiError } from '../../../lib/http.js'
 import type { Session } from '../../../platform/auth.js'
-import { TallyCompanyService } from './TallyCompanyService.js'
+import { BookkeepingCompanyService } from './BookkeepingCompanyService.js'
 
 /**
- * TallySettingsService — per-company configuration as key/JSON rows.
+ * BookkeepingSettingsService — per-company configuration as key/JSON rows.
  *
  * Business rules the user should be able to change live here rather than
  * in code: whether negative stock is allowed, the default GST rate for a
@@ -62,10 +62,10 @@ export const SETTING_GROUPS = {
 
 export type SettingGroupKey = keyof typeof SETTING_GROUPS
 
-export const TallySettingsService = {
+export const BookkeepingSettingsService = {
   /** Every group, with stored overrides folded onto the defaults. */
   async getAll(session: Session, companyId: string) {
-    await TallyCompanyService.requireOwned(session, companyId)
+    await BookkeepingCompanyService.requireOwned(session, companyId)
     const rows = await prisma.tallySetting.findMany({ where: { tallyCompanyId: companyId } })
     const stored = new Map(rows.map((r) => {
       let value: unknown
@@ -89,12 +89,12 @@ export const TallySettingsService = {
   },
 
   async update(session: Session, companyId: string, group: string, patch: Record<string, unknown>) {
-    await TallyCompanyService.requireOwned(session, companyId)
+    await BookkeepingCompanyService.requireOwned(session, companyId)
     if (!(group in SETTING_GROUPS)) throw ApiError.badRequest(`Unknown settings group "${group}".`)
     const defaults = SETTING_GROUPS[group as SettingGroupKey] as Record<string, unknown>
     const unknownKeys = Object.keys(patch).filter((k) => !(k in defaults))
     if (unknownKeys.length) throw ApiError.badRequest(`Unknown setting(s): ${unknownKeys.join(', ')}.`)
-    const current = await TallySettingsService.get(companyId, group as SettingGroupKey)
+    const current = await BookkeepingSettingsService.get(companyId, group as SettingGroupKey)
     const next = { ...current, ...patch }
     await prisma.tallySetting.upsert({
       where: { tallyCompanyId_key: { tallyCompanyId: companyId, key: group } },

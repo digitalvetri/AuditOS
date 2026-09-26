@@ -1,14 +1,14 @@
 import { prisma, alive } from '../../../lib/prisma.js'
 import type { Session } from '../../../platform/auth.js'
-import { TallyCompanyService } from './TallyCompanyService.js'
-import { TallyReportService } from './TallyReportService.js'
-import { TallyAuditService } from './TallyAuditService.js'
+import { BookkeepingCompanyService } from './BookkeepingCompanyService.js'
+import { BookkeepingReportService } from './BookkeepingReportService.js'
+import { BookkeepingAuditService } from './BookkeepingAuditService.js'
 import { ledgerBalances, profitAndLoss } from '../engine/balances.js'
 import { stockPositions } from '../engine/inventory.js'
 import { gstSummary } from '../engine/gst.js'
 
 /**
- * TallyDashboardService — the dashboard is a VIEW OF THE REPORTS, and
+ * BookkeepingDashboardService — the dashboard is a VIEW OF THE REPORTS, and
  * the reports are a view of the vouchers. Every tile below carries a
  * `drill` hint naming the report it came from, so a number on the
  * dashboard is one click from the transactions behind it.
@@ -16,9 +16,9 @@ import { gstSummary } from '../engine/gst.js'
  * No figure here is stored, cached, estimated or hardcoded.
  */
 
-export const TallyDashboardService = {
+export const BookkeepingDashboardService = {
   async overview(session: Session, companyId: string, opts: { from?: string; to?: string; fyId?: string } = {}) {
-    await TallyCompanyService.requireOwned(session, companyId)
+    await BookkeepingCompanyService.requireOwned(session, companyId)
 
     // Default to the financial year the company is currently in.
     let from = opts.from ?? null
@@ -37,12 +37,12 @@ export const TallyDashboardService = {
       profitAndLoss(companyId, period),
       stockPositions(companyId, period),
       gstSummary(companyId, period),
-      TallyReportService.outstandings(session, companyId, { side: 'receivable', asOf: to }),
-      TallyReportService.outstandings(session, companyId, { side: 'payable', asOf: to }),
-      TallyReportService.dayBook(session, companyId, { from: from ?? undefined, to: to ?? undefined, limit: 10 }),
-      TallyReportService.register(session, companyId, 'sales', period),
-      TallyReportService.register(session, companyId, 'purchase', period),
-      TallyAuditService.exceptions(session, companyId, { from: from ?? undefined, to: to ?? undefined }),
+      BookkeepingReportService.outstandings(session, companyId, { side: 'receivable', asOf: to }),
+      BookkeepingReportService.outstandings(session, companyId, { side: 'payable', asOf: to }),
+      BookkeepingReportService.dayBook(session, companyId, { from: from ?? undefined, to: to ?? undefined, limit: 10 }),
+      BookkeepingReportService.register(session, companyId, 'sales', period),
+      BookkeepingReportService.register(session, companyId, 'purchase', period),
+      BookkeepingAuditService.exceptions(session, companyId, { from: from ?? undefined, to: to ?? undefined }),
       prisma.tallyVoucher.count({ where: { tallyCompanyId: companyId, ...alive, status: 'active', ...(from && to ? { date: { gte: from, lte: to } } : {}) } }),
     ])
 

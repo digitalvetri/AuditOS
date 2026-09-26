@@ -1,10 +1,10 @@
 import { prisma, alive } from '../../../lib/prisma.js'
 import { ApiError } from '../../../lib/http.js'
 import type { Session } from '../../../platform/auth.js'
-import { TallyCompanyService } from './TallyCompanyService.js'
+import { BookkeepingCompanyService } from './BookkeepingCompanyService.js'
 
 /**
- * TallyLedgerService — the ledgers under a company. Opening balances
+ * BookkeepingLedgerService — the ledgers under a company. Opening balances
  * are captured in paise (Int); every voucher line written in Slice 2+
  * will reference these rows. Soft-delete is blocked in Slice 2+ once
  * posted voucher lines exist (spec §2.1 rule 8).
@@ -91,11 +91,11 @@ async function assertFyInCompany(companyId: string, fyId: string) {
   if (!fy) throw ApiError.badRequest('Financial year does not belong to this company.')
 }
 
-export const TallyLedgerService = {
+export const BookkeepingLedgerService = {
   toApi,
 
   async list(session: Session, companyId: string, filter: { groupId?: string; q?: string } = {}): Promise<LedgerApi[]> {
-    await TallyCompanyService.requireOwned(session, companyId)
+    await BookkeepingCompanyService.requireOwned(session, companyId)
     const where: Record<string, unknown> = { tallyCompanyId: companyId, ...alive }
     if (filter.groupId) where.groupId = filter.groupId
     if (filter.q) where.name = { contains: filter.q }
@@ -104,7 +104,7 @@ export const TallyLedgerService = {
   },
 
   async get(session: Session, companyId: string, id: string): Promise<LedgerApi> {
-    await TallyCompanyService.requireOwned(session, companyId)
+    await BookkeepingCompanyService.requireOwned(session, companyId)
     const row = await prisma.tallyLedger.findFirst({
       where: { id, tallyCompanyId: companyId, ...alive },
     })
@@ -113,7 +113,7 @@ export const TallyLedgerService = {
   },
 
   async create(session: Session, companyId: string, input: CreateLedgerInput): Promise<LedgerApi> {
-    await TallyCompanyService.requireOwned(session, companyId)
+    await BookkeepingCompanyService.requireOwned(session, companyId)
     const name = input.name.trim()
     if (!name) throw ApiError.badRequest('Ledger name is required.')
     await assertGroupInCompany(companyId, input.groupId)
@@ -151,7 +151,7 @@ export const TallyLedgerService = {
   },
 
   async update(session: Session, companyId: string, id: string, patch: Partial<CreateLedgerInput> & { active?: boolean }): Promise<LedgerApi> {
-    await TallyCompanyService.requireOwned(session, companyId)
+    await BookkeepingCompanyService.requireOwned(session, companyId)
     const existing = await prisma.tallyLedger.findFirst({
       where: { id, tallyCompanyId: companyId, ...alive },
     })
@@ -191,7 +191,7 @@ export const TallyLedgerService = {
   },
 
   async softDelete(session: Session, companyId: string, id: string): Promise<void> {
-    await TallyCompanyService.requireOwned(session, companyId)
+    await BookkeepingCompanyService.requireOwned(session, companyId)
     const existing = await prisma.tallyLedger.findFirst({
       where: { id, tallyCompanyId: companyId, ...alive },
     })

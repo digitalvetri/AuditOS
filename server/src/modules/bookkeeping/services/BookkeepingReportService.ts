@@ -1,7 +1,7 @@
 import { prisma, alive } from '../../../lib/prisma.js'
 import { ApiError } from '../../../lib/http.js'
 import type { Session } from '../../../platform/auth.js'
-import { TallyCompanyService } from './TallyCompanyService.js'
+import { BookkeepingCompanyService } from './BookkeepingCompanyService.js'
 import {
   ledgerBalances, trialBalance, profitAndLoss, balanceSheet, groupSummary,
   type PeriodFilter,
@@ -9,7 +9,7 @@ import {
 import { ageingBucketFor, daysBetween, AGEING_BUCKETS } from '../engine/primitives.js'
 
 /**
- * TallyReportService — every accounting, outstanding and financial report.
+ * BookkeepingReportService — every accounting, outstanding and financial report.
  *
  * Each one is a query over posted vouchers (status 'active') and ledger
  * opening balances. Nothing here stores a total, and every row carries the
@@ -33,10 +33,10 @@ export interface DayBookRow {
   ledgers: string[]
 }
 
-export const TallyReportService = {
+export const BookkeepingReportService = {
   /** Day Book — every voucher in a date range, newest first. */
   async dayBook(session: Session, companyId: string, filter: { from?: string; to?: string; typeCodes?: string[]; limit?: number; includeCancelled?: boolean } = {}) {
-    await TallyCompanyService.requireOwned(session, companyId)
+    await BookkeepingCompanyService.requireOwned(session, companyId)
     const rows = await prisma.tallyVoucher.findMany({
       where: {
         tallyCompanyId: companyId, ...alive,
@@ -84,7 +84,7 @@ export const TallyReportService = {
    * This is the bottom of every drill-down path except the voucher itself.
    */
   async ledgerStatement(session: Session, companyId: string, ledgerId: string, filter: PeriodFilter = {}) {
-    await TallyCompanyService.requireOwned(session, companyId)
+    await BookkeepingCompanyService.requireOwned(session, companyId)
     const ledger = await prisma.tallyLedger.findFirst({
       where: { id: ledgerId, tallyCompanyId: companyId, ...alive },
       select: { id: true, name: true, group: { select: { id: true, name: true, nature: true } } },
@@ -146,7 +146,7 @@ export const TallyReportService = {
 
   /** Cash Book / Bank Book — the ledger statement for cash or bank ledgers. */
   async cashOrBankBook(session: Session, companyId: string, kind: 'cash' | 'bank', filter: PeriodFilter = {}) {
-    await TallyCompanyService.requireOwned(session, companyId)
+    await BookkeepingCompanyService.requireOwned(session, companyId)
     const groupName = kind === 'cash' ? 'Cash-in-Hand' : 'Bank Accounts'
     const rows = (await ledgerBalances(companyId, filter)).filter((r) => r.primaryGroupName === groupName)
     return {
@@ -167,7 +167,7 @@ export const TallyReportService = {
 
   /** Sales / Purchase / Payment / Receipt / Journal / Contra register. */
   async register(session: Session, companyId: string, typeCode: string, filter: { from?: string | null; to?: string | null } = {}) {
-    await TallyCompanyService.requireOwned(session, companyId)
+    await BookkeepingCompanyService.requireOwned(session, companyId)
     const rows = await prisma.tallyVoucher.findMany({
       where: {
         tallyCompanyId: companyId, ...ACTIVE, voucherTypeCode: typeCode,
@@ -221,7 +221,7 @@ export const TallyReportService = {
    * two is reported as "on account" rather than quietly dropped.
    */
   async outstandings(session: Session, companyId: string, opts: { side: 'receivable' | 'payable'; asOf?: string | null; ledgerId?: string }) {
-    await TallyCompanyService.requireOwned(session, companyId)
+    await BookkeepingCompanyService.requireOwned(session, companyId)
     const asOf = opts.asOf ?? new Date().toISOString().slice(0, 10)
     const primaryGroup = opts.side === 'receivable' ? 'Sundry Debtors' : 'Sundry Creditors'
     const sign = opts.side === 'receivable' ? 1 : -1
@@ -299,22 +299,22 @@ export const TallyReportService = {
   },
 
   async trialBalance(session: Session, companyId: string, filter: PeriodFilter = {}) {
-    await TallyCompanyService.requireOwned(session, companyId)
+    await BookkeepingCompanyService.requireOwned(session, companyId)
     return trialBalance(companyId, filter)
   },
 
   async profitAndLoss(session: Session, companyId: string, filter: PeriodFilter = {}) {
-    await TallyCompanyService.requireOwned(session, companyId)
+    await BookkeepingCompanyService.requireOwned(session, companyId)
     return profitAndLoss(companyId, filter)
   },
 
   async balanceSheet(session: Session, companyId: string, opts: { asOf?: string | null; fyStart?: string | null } = {}) {
-    await TallyCompanyService.requireOwned(session, companyId)
+    await BookkeepingCompanyService.requireOwned(session, companyId)
     return balanceSheet(companyId, opts)
   },
 
   async groupSummary(session: Session, companyId: string, filter: PeriodFilter = {}) {
-    await TallyCompanyService.requireOwned(session, companyId)
+    await BookkeepingCompanyService.requireOwned(session, companyId)
     return groupSummary(companyId, filter)
   },
 
@@ -324,7 +324,7 @@ export const TallyReportService = {
    * entry. It reconciles to the change in cash + bank by construction.
    */
   async cashFlow(session: Session, companyId: string, filter: { from?: string | null; to?: string | null } = {}) {
-    await TallyCompanyService.requireOwned(session, companyId)
+    await BookkeepingCompanyService.requireOwned(session, companyId)
     const balances = await ledgerBalances(companyId, filter)
     const cashBank = balances.filter((b) => b.primaryGroupName === 'Cash-in-Hand' || b.primaryGroupName === 'Bank Accounts')
     const cashBankIds = new Set(cashBank.map((b) => b.ledgerId))
@@ -376,7 +376,7 @@ export const TallyReportService = {
    * a made-up "0.00" ratio is worse than an honest blank.
    */
   async ratios(session: Session, companyId: string, opts: { asOf?: string | null; fyStart?: string | null } = {}) {
-    await TallyCompanyService.requireOwned(session, companyId)
+    await BookkeepingCompanyService.requireOwned(session, companyId)
     const [bs, pl, balances] = await Promise.all([
       balanceSheet(companyId, opts),
       profitAndLoss(companyId, { from: opts.fyStart ?? null, to: opts.asOf ?? null }),

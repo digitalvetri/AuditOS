@@ -2,10 +2,10 @@ import { prisma, alive } from '../../../lib/prisma.js'
 import { ApiError } from '../../../lib/http.js'
 import type { Session } from '../../../platform/auth.js'
 import { PRIMARY_GROUPS } from './primaryGroups.js'
-import { TallyBootstrapService } from './TallyBootstrapService.js'
+import { BookkeepingBootstrapService } from './BookkeepingBootstrapService.js'
 
 /**
- * TallyCompanyService — the one place a TallyCompany is created,
+ * BookkeepingCompanyService — the one place a TallyCompany is created,
  * listed, read, updated, or soft-deleted. Strict (organisationId)
  * scoping on every read; nested company scoping is enforced by the
  * ledger/group services on top of this.
@@ -78,7 +78,7 @@ function fyRangeFor(booksBeginFrom: string, fyBeginMonth: number): { label: stri
   return { label, startDate, endDate }
 }
 
-export const TallyCompanyService = {
+export const BookkeepingCompanyService = {
   toApi,
   organisationIdOf,
 
@@ -190,7 +190,7 @@ export const TallyCompanyService = {
     // Voucher types, GST ledgers, units and the default godown. Kept out
     // of the transaction above so a scaffolding hiccup never loses the
     // company — it is idempotent and re-runs lazily on first use.
-    await TallyBootstrapService.ensure(created.id)
+    await BookkeepingBootstrapService.ensure(created.id)
     return toApi(created)
   },
 
@@ -209,7 +209,7 @@ export const TallyCompanyService = {
     tan: string | null
     active: boolean
   }>): Promise<CompanyApi> {
-    await TallyCompanyService.requireOwned(session, id)
+    await BookkeepingCompanyService.requireOwned(session, id)
     const data: Record<string, unknown> = {}
     if (patch.name !== undefined) data.name = patch.name.trim()
     if (patch.mailingName !== undefined) data.mailingName = patch.mailingName?.trim() || null
@@ -229,7 +229,7 @@ export const TallyCompanyService = {
   },
 
   async softDelete(session: Session, id: string): Promise<void> {
-    await TallyCompanyService.requireOwned(session, id)
+    await BookkeepingCompanyService.requireOwned(session, id)
     // Never hard-delete posted financial data (spec §2.1 rule 8).
     // Slice 1 has no vouchers yet, but the soft-delete pattern is the
     // right shape now so we never accidentally start hard-deleting.

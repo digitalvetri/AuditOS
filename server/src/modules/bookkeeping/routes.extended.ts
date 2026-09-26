@@ -3,17 +3,17 @@ import { z } from 'zod'
 import { ApiError, handler, ok } from '../../lib/http.js'
 import { can, requireSession, type Session } from '../../platform/auth.js'
 import { writeAudit } from '../../platform/audit.js'
-import { TallyVoucherService } from './services/TallyVoucherService.js'
-import { TallyReportService } from './services/TallyReportService.js'
-import { TallyInventoryService } from './services/TallyInventoryService.js'
-import { TallyBankingService } from './services/TallyBankingService.js'
-import { TallyGstService } from './services/TallyGstService.js'
-import { TallyPayrollService } from './services/TallyPayrollService.js'
-import { TallyAuditService } from './services/TallyAuditService.js'
-import { TallyDataService, type ImportEntity } from './services/TallyDataService.js'
-import { TallySettingsService } from './services/TallySettingsService.js'
-import { TallyDashboardService } from './services/TallyDashboardService.js'
-import { TallySearchService } from './services/TallySearchService.js'
+import { BookkeepingVoucherService } from './services/BookkeepingVoucherService.js'
+import { BookkeepingReportService } from './services/BookkeepingReportService.js'
+import { BookkeepingInventoryService } from './services/BookkeepingInventoryService.js'
+import { BookkeepingBankingService } from './services/BookkeepingBankingService.js'
+import { BookkeepingGstService } from './services/BookkeepingGstService.js'
+import { BookkeepingPayrollService } from './services/BookkeepingPayrollService.js'
+import { BookkeepingAuditService } from './services/BookkeepingAuditService.js'
+import { BookkeepingDataService, type ImportEntity } from './services/BookkeepingDataService.js'
+import { BookkeepingSettingsService } from './services/BookkeepingSettingsService.js'
+import { BookkeepingDashboardService } from './services/BookkeepingDashboardService.js'
+import { BookkeepingSearchService } from './services/BookkeepingSearchService.js'
 import type { PostVoucherInput } from './engine/posting.js'
 
 /**
@@ -151,13 +151,13 @@ function parse<T extends z.ZodTypeAny>(schema: T, data: unknown, message: string
   return r.data
 }
 
-export function registerExtendedTallyRoutes(router: Router): void {
+export function registerExtendedBookkeepingRoutes(router: Router): void {
   const C = '/companies/:id'
 
   // ══ Voucher types ═════════════════════════════════════════════════
   router.get(`${C}/voucher-types`, handler(async (req, res) => {
     const s = requireSession(req); requireVoucherRead(s)
-    ok(res, { items: await TallyVoucherService.listVoucherTypes(s, req.params.id) })
+    ok(res, { items: await BookkeepingVoucherService.listVoucherTypes(s, req.params.id) })
   }))
 
   router.patch(`${C}/voucher-types/:typeId`, handler(async (req, res) => {
@@ -170,7 +170,7 @@ export function registerExtendedTallyRoutes(router: Router): void {
       start_number: z.number().int().positive().optional(),
       active: z.boolean().optional(),
     }), req.body, 'Invalid voucher type patch.')
-    const out = await TallyVoucherService.updateVoucherType(s, req.params.id, req.params.typeId, {
+    const out = await BookkeepingVoucherService.updateVoucherType(s, req.params.id, req.params.typeId, {
       name: b.name, numberingMethod: b.numbering_method, prefix: b.prefix, suffix: b.suffix,
       startNumber: b.start_number, active: b.active,
     })
@@ -194,7 +194,7 @@ export function registerExtendedTallyRoutes(router: Router): void {
       limit: z.coerce.number().int().positive().optional(),
       offset: z.coerce.number().int().nonnegative().optional(),
     }), req.query, 'Invalid voucher filter.')
-    ok(res, await TallyVoucherService.list(s, req.params.id, {
+    ok(res, await BookkeepingVoucherService.list(s, req.params.id, {
       from: q.from, to: q.to,
       typeCodes: q.type_codes ? q.type_codes.split(',').filter(Boolean) : undefined,
       ledgerId: q.ledger_id, partyLedgerId: q.party_ledger_id,
@@ -204,14 +204,14 @@ export function registerExtendedTallyRoutes(router: Router): void {
 
   router.get(`${C}/vouchers/:voucherId`, handler(async (req, res) => {
     const s = requireSession(req); requireVoucherRead(s)
-    ok(res, await TallyVoucherService.get(s, req.params.id, req.params.voucherId))
+    ok(res, await BookkeepingVoucherService.get(s, req.params.id, req.params.voucherId))
   }))
 
   router.post(`${C}/vouchers`, handler(async (req, res) => {
     const s = requireSession(req); requireVoucherManage(s)
     const b = parse(voucherSchema, req.body, 'Invalid voucher.')
     if (!b.voucher_type_id && !b.voucher_type_code) throw ApiError.badRequest('voucher_type_id or voucher_type_code is required.')
-    const v = await TallyVoucherService.create(s, req.params.id, toPostInput(b))
+    const v = await BookkeepingVoucherService.create(s, req.params.id, toPostInput(b))
     await writeAudit({
       actorUserId: s.userId, action: 'tally.voucher_created', entityType: 'TallyVoucher', entityId: v.id,
       after: { company_id: req.params.id, voucher_number: v.voucher_number, type: v.voucher_type_code, date: v.date, total_paise: v.grand_total_paise },
@@ -223,8 +223,8 @@ export function registerExtendedTallyRoutes(router: Router): void {
   router.patch(`${C}/vouchers/:voucherId`, handler(async (req, res) => {
     const s = requireSession(req); requireVoucherManage(s)
     const b = parse(voucherSchema, req.body, 'Invalid voucher.')
-    const before = await TallyVoucherService.get(s, req.params.id, req.params.voucherId)
-    const v = await TallyVoucherService.update(s, req.params.id, req.params.voucherId, toPostInput(b))
+    const before = await BookkeepingVoucherService.get(s, req.params.id, req.params.voucherId)
+    const v = await BookkeepingVoucherService.update(s, req.params.id, req.params.voucherId, toPostInput(b))
     await writeAudit({
       actorUserId: s.userId, action: 'tally.voucher_updated', entityType: 'TallyVoucher', entityId: v.id,
       before: { voucher_number: before.voucher_number, date: before.date, total_paise: before.grand_total_paise },
@@ -237,7 +237,7 @@ export function registerExtendedTallyRoutes(router: Router): void {
   router.post(`${C}/vouchers/:voucherId/cancel`, handler(async (req, res) => {
     const s = requireSession(req); requireVoucherCancel(s)
     const b = parse(z.object({ reason: z.string().nullable().optional() }), req.body ?? {}, 'Invalid cancel request.')
-    const v = await TallyVoucherService.cancel(s, req.params.id, req.params.voucherId, b.reason ?? null)
+    const v = await BookkeepingVoucherService.cancel(s, req.params.id, req.params.voucherId, b.reason ?? null)
     await writeAudit({
       actorUserId: s.userId, action: 'tally.voucher_cancelled', entityType: 'TallyVoucher', entityId: v.id,
       before: { status: 'active' }, after: { company_id: req.params.id, status: 'cancelled', reason: b.reason ?? null }, req,
@@ -247,7 +247,7 @@ export function registerExtendedTallyRoutes(router: Router): void {
 
   router.post(`${C}/vouchers/:voucherId/restore`, handler(async (req, res) => {
     const s = requireSession(req); requireVoucherCancel(s)
-    const v = await TallyVoucherService.restore(s, req.params.id, req.params.voucherId)
+    const v = await BookkeepingVoucherService.restore(s, req.params.id, req.params.voucherId)
     await writeAudit({
       actorUserId: s.userId, action: 'tally.voucher_restored', entityType: 'TallyVoucher', entityId: v.id,
       before: { status: 'cancelled' }, after: { company_id: req.params.id, status: 'active' }, req,
@@ -258,7 +258,7 @@ export function registerExtendedTallyRoutes(router: Router): void {
   router.post(`${C}/vouchers/:voucherId/duplicate`, handler(async (req, res) => {
     const s = requireSession(req); requireVoucherManage(s)
     const b = parse(z.object({ date: ISO.optional() }), req.body ?? {}, 'Invalid duplicate request.')
-    const v = await TallyVoucherService.duplicate(s, req.params.id, req.params.voucherId, b.date)
+    const v = await BookkeepingVoucherService.duplicate(s, req.params.id, req.params.voucherId, b.date)
     await writeAudit({
       actorUserId: s.userId, action: 'tally.voucher_created', entityType: 'TallyVoucher', entityId: v.id,
       after: { company_id: req.params.id, voucher_number: v.voucher_number, duplicated_from: req.params.voucherId }, req,
@@ -273,7 +273,7 @@ export function registerExtendedTallyRoutes(router: Router): void {
       from: ISO.optional(), to: ISO.optional(), type_codes: z.string().optional(),
       limit: z.coerce.number().int().positive().optional(), include_cancelled: z.coerce.boolean().optional(),
     }), req.query, 'Invalid day book filter.')
-    ok(res, await TallyReportService.dayBook(s, req.params.id, {
+    ok(res, await BookkeepingReportService.dayBook(s, req.params.id, {
       from: q.from, to: q.to, limit: q.limit, includeCancelled: q.include_cancelled,
       typeCodes: q.type_codes ? q.type_codes.split(',').filter(Boolean) : undefined,
     }))
@@ -281,100 +281,100 @@ export function registerExtendedTallyRoutes(router: Router): void {
 
   router.get(`${C}/reports/ledger/:ledgerId`, handler(async (req, res) => {
     const s = requireSession(req); requireReportRead(s)
-    ok(res, await TallyReportService.ledgerStatement(s, req.params.id, req.params.ledgerId, periodOf(req.query)))
+    ok(res, await BookkeepingReportService.ledgerStatement(s, req.params.id, req.params.ledgerId, periodOf(req.query)))
   }))
 
   router.get(`${C}/reports/trial-balance`, handler(async (req, res) => {
     const s = requireSession(req); requireReportRead(s)
-    ok(res, await TallyReportService.trialBalance(s, req.params.id, periodOf(req.query)))
+    ok(res, await BookkeepingReportService.trialBalance(s, req.params.id, periodOf(req.query)))
   }))
 
   router.get(`${C}/reports/profit-and-loss`, handler(async (req, res) => {
     const s = requireSession(req); requireReportRead(s)
-    ok(res, await TallyReportService.profitAndLoss(s, req.params.id, periodOf(req.query)))
+    ok(res, await BookkeepingReportService.profitAndLoss(s, req.params.id, periodOf(req.query)))
   }))
 
   router.get(`${C}/reports/balance-sheet`, handler(async (req, res) => {
     const s = requireSession(req); requireReportRead(s)
     const p = periodOf(req.query)
-    ok(res, await TallyReportService.balanceSheet(s, req.params.id, { asOf: p.to, fyStart: p.from }))
+    ok(res, await BookkeepingReportService.balanceSheet(s, req.params.id, { asOf: p.to, fyStart: p.from }))
   }))
 
   router.get(`${C}/reports/group-summary`, handler(async (req, res) => {
     const s = requireSession(req); requireReportRead(s)
-    ok(res, { items: await TallyReportService.groupSummary(s, req.params.id, periodOf(req.query)) })
+    ok(res, { items: await BookkeepingReportService.groupSummary(s, req.params.id, periodOf(req.query)) })
   }))
 
   router.get(`${C}/reports/register/:typeCode`, handler(async (req, res) => {
     const s = requireSession(req); requireReportRead(s)
-    ok(res, await TallyReportService.register(s, req.params.id, req.params.typeCode, periodOf(req.query)))
+    ok(res, await BookkeepingReportService.register(s, req.params.id, req.params.typeCode, periodOf(req.query)))
   }))
 
   router.get(`${C}/reports/outstandings`, handler(async (req, res) => {
     const s = requireSession(req); requireReportRead(s)
     const q = parse(z.object({ side: z.enum(['receivable', 'payable']), as_of: ISO.optional(), ledger_id: z.string().optional() }), req.query, 'side must be receivable or payable.')
-    ok(res, await TallyReportService.outstandings(s, req.params.id, { side: q.side, asOf: q.as_of ?? null, ledgerId: q.ledger_id }))
+    ok(res, await BookkeepingReportService.outstandings(s, req.params.id, { side: q.side, asOf: q.as_of ?? null, ledgerId: q.ledger_id }))
   }))
 
   router.get(`${C}/reports/book/:kind`, handler(async (req, res) => {
     const s = requireSession(req); requireReportRead(s)
     const kind = req.params.kind
     if (kind !== 'cash' && kind !== 'bank') throw ApiError.badRequest('kind must be cash or bank.')
-    ok(res, await TallyReportService.cashOrBankBook(s, req.params.id, kind, periodOf(req.query)))
+    ok(res, await BookkeepingReportService.cashOrBankBook(s, req.params.id, kind, periodOf(req.query)))
   }))
 
   router.get(`${C}/reports/cash-flow`, handler(async (req, res) => {
     const s = requireSession(req); requireReportRead(s)
-    ok(res, await TallyReportService.cashFlow(s, req.params.id, periodOf(req.query)))
+    ok(res, await BookkeepingReportService.cashFlow(s, req.params.id, periodOf(req.query)))
   }))
 
   router.get(`${C}/reports/ratios`, handler(async (req, res) => {
     const s = requireSession(req); requireReportRead(s)
     const p = periodOf(req.query)
-    ok(res, await TallyReportService.ratios(s, req.params.id, { asOf: p.to, fyStart: p.from }))
+    ok(res, await BookkeepingReportService.ratios(s, req.params.id, { asOf: p.to, fyStart: p.from }))
   }))
 
   // ══ Inventory ═════════════════════════════════════════════════════
   router.get(`${C}/inventory/stock-groups`, handler(async (req, res) => {
     const s = requireSession(req); requireMasterRead(s)
-    ok(res, { items: await TallyInventoryService.listStockGroups(s, req.params.id) })
+    ok(res, { items: await BookkeepingInventoryService.listStockGroups(s, req.params.id) })
   }))
   router.post(`${C}/inventory/stock-groups`, handler(async (req, res) => {
     const s = requireSession(req); requireMasterManage(s)
     const b = parse(z.object({ name: z.string().min(1), parent_id: z.string().nullable().optional() }), req.body, 'Name is required.')
-    const out = await TallyInventoryService.createStockGroup(s, req.params.id, { name: b.name, parentId: b.parent_id })
+    const out = await BookkeepingInventoryService.createStockGroup(s, req.params.id, { name: b.name, parentId: b.parent_id })
     await writeAudit({ actorUserId: s.userId, action: 'tally.stock_group_created', entityType: 'TallyStockGroup', entityId: out.id, after: { company_id: req.params.id, name: out.name }, req })
     ok(res, out, 201)
   }))
 
   router.get(`${C}/inventory/categories`, handler(async (req, res) => {
     const s = requireSession(req); requireMasterRead(s)
-    ok(res, { items: await TallyInventoryService.listCategories(s, req.params.id) })
+    ok(res, { items: await BookkeepingInventoryService.listCategories(s, req.params.id) })
   }))
   router.post(`${C}/inventory/categories`, handler(async (req, res) => {
     const s = requireSession(req); requireMasterManage(s)
     const b = parse(z.object({ name: z.string().min(1) }), req.body, 'Name is required.')
-    ok(res, await TallyInventoryService.createCategory(s, req.params.id, b.name), 201)
+    ok(res, await BookkeepingInventoryService.createCategory(s, req.params.id, b.name), 201)
   }))
 
   router.get(`${C}/inventory/units`, handler(async (req, res) => {
     const s = requireSession(req); requireMasterRead(s)
-    ok(res, { items: await TallyInventoryService.listUnits(s, req.params.id) })
+    ok(res, { items: await BookkeepingInventoryService.listUnits(s, req.params.id) })
   }))
   router.post(`${C}/inventory/units`, handler(async (req, res) => {
     const s = requireSession(req); requireMasterManage(s)
     const b = parse(z.object({ name: z.string().min(1), decimals: z.number().int().min(0).max(4).optional() }), req.body, 'Name is required.')
-    ok(res, await TallyInventoryService.createUnit(s, req.params.id, b), 201)
+    ok(res, await BookkeepingInventoryService.createUnit(s, req.params.id, b), 201)
   }))
 
   router.get(`${C}/inventory/godowns`, handler(async (req, res) => {
     const s = requireSession(req); requireMasterRead(s)
-    ok(res, { items: await TallyInventoryService.listGodowns(s, req.params.id) })
+    ok(res, { items: await BookkeepingInventoryService.listGodowns(s, req.params.id) })
   }))
   router.post(`${C}/inventory/godowns`, handler(async (req, res) => {
     const s = requireSession(req); requireMasterManage(s)
     const b = parse(z.object({ name: z.string().min(1), address: z.string().nullable().optional(), parent_id: z.string().nullable().optional() }), req.body, 'Name is required.')
-    const out = await TallyInventoryService.createGodown(s, req.params.id, { name: b.name, address: b.address, parentId: b.parent_id })
+    const out = await BookkeepingInventoryService.createGodown(s, req.params.id, { name: b.name, address: b.address, parentId: b.parent_id })
     await writeAudit({ actorUserId: s.userId, action: 'tally.godown_created', entityType: 'TallyGodown', entityId: out.id, after: { company_id: req.params.id, name: out.name }, req })
     ok(res, out, 201)
   }))
@@ -382,7 +382,7 @@ export function registerExtendedTallyRoutes(router: Router): void {
   router.get(`${C}/inventory/items`, handler(async (req, res) => {
     const s = requireSession(req); requireMasterRead(s)
     const q = parse(z.object({ q: z.string().optional(), stock_group_id: z.string().optional() }), req.query, 'Invalid filter.')
-    ok(res, { items: await TallyInventoryService.listItems(s, req.params.id, { q: q.q, stockGroupId: q.stock_group_id }) })
+    ok(res, { items: await BookkeepingInventoryService.listItems(s, req.params.id, { q: q.q, stockGroupId: q.stock_group_id }) })
   }))
 
   router.post(`${C}/inventory/items`, handler(async (req, res) => {
@@ -403,7 +403,7 @@ export function registerExtendedTallyRoutes(router: Router): void {
       opening_rate_paise: z.number().int().nonnegative().optional(),
       opening_godown_id: z.string().nullable().optional(),
     }), req.body, 'Item name is required.')
-    const out = await TallyInventoryService.createItem(s, req.params.id, {
+    const out = await BookkeepingInventoryService.createItem(s, req.params.id, {
       name: b.name, stockGroupId: b.stock_group_id, categoryId: b.category_id, unitId: b.unit_id,
       hsnCode: b.hsn_code, gstRateBp: b.gst_rate_bp, reorderLevelMilli: b.reorder_level_milli,
       standardCostPaise: b.standard_cost_paise, standardPricePaise: b.standard_price_paise,
@@ -433,7 +433,7 @@ export function registerExtendedTallyRoutes(router: Router): void {
     if (b.standard_price_paise !== undefined) patch.standardPricePaise = b.standard_price_paise
     if (b.standard_cost_paise !== undefined) patch.standardCostPaise = b.standard_cost_paise
     if (b.active !== undefined) patch.active = b.active
-    const out = await TallyInventoryService.updateItem(s, req.params.id, req.params.itemId, patch)
+    const out = await BookkeepingInventoryService.updateItem(s, req.params.id, req.params.itemId, patch)
     await writeAudit({ actorUserId: s.userId, action: 'tally.stock_item_updated', entityType: 'TallyStockItem', entityId: out.id, after: { company_id: req.params.id, ...b }, req })
     ok(res, out)
   }))
@@ -444,7 +444,7 @@ export function registerExtendedTallyRoutes(router: Router): void {
       qty_milli: z.number().int(), rate_paise: z.number().int().nonnegative(),
       godown_id: z.string().nullable().optional(), batch_id: z.string().nullable().optional(),
     }), req.body, 'qty_milli and rate_paise are required.')
-    const out = await TallyInventoryService.setOpeningStock(s, req.params.id, req.params.itemId, {
+    const out = await BookkeepingInventoryService.setOpeningStock(s, req.params.id, req.params.itemId, {
       qtyMilli: b.qty_milli, ratePaise: b.rate_paise, godownId: b.godown_id, batchId: b.batch_id,
     })
     await writeAudit({ actorUserId: s.userId, action: 'tally.opening_stock_set', entityType: 'TallyStockItem', entityId: req.params.itemId, after: { company_id: req.params.id, ...out }, req })
@@ -453,41 +453,41 @@ export function registerExtendedTallyRoutes(router: Router): void {
 
   router.get(`${C}/inventory/items/:itemId/batches`, handler(async (req, res) => {
     const s = requireSession(req); requireMasterRead(s)
-    ok(res, { items: await TallyInventoryService.listBatches(s, req.params.id, req.params.itemId) })
+    ok(res, { items: await BookkeepingInventoryService.listBatches(s, req.params.id, req.params.itemId) })
   }))
   router.post(`${C}/inventory/items/:itemId/batches`, handler(async (req, res) => {
     const s = requireSession(req); requireMasterManage(s)
     const b = parse(z.object({ name: z.string().min(1), mfg_date: ISO.nullable().optional(), expiry_date: ISO.nullable().optional() }), req.body, 'Batch name is required.')
-    ok(res, await TallyInventoryService.createBatch(s, req.params.id, req.params.itemId, { name: b.name, mfgDate: b.mfg_date, expiryDate: b.expiry_date }), 201)
+    ok(res, await BookkeepingInventoryService.createBatch(s, req.params.id, req.params.itemId, { name: b.name, mfgDate: b.mfg_date, expiryDate: b.expiry_date }), 201)
   }))
 
   router.get(`${C}/inventory/summary`, handler(async (req, res) => {
     const s = requireSession(req); requireReportRead(s)
     const q = parse(z.object({ from: ISO.optional(), to: ISO.optional(), godown_id: z.string().optional() }), req.query, 'Invalid filter.')
-    ok(res, await TallyInventoryService.summary(s, req.params.id, { from: q.from, to: q.to, godownId: q.godown_id }))
+    ok(res, await BookkeepingInventoryService.summary(s, req.params.id, { from: q.from, to: q.to, godownId: q.godown_id }))
   }))
 
   router.get(`${C}/inventory/items/:itemId/movement`, handler(async (req, res) => {
     const s = requireSession(req); requireReportRead(s)
     const q = parse(z.object({ from: ISO.optional(), to: ISO.optional(), godown_id: z.string().optional() }), req.query, 'Invalid filter.')
-    ok(res, await TallyInventoryService.movement(s, req.params.id, req.params.itemId, { from: q.from, to: q.to, godownId: q.godown_id }))
+    ok(res, await BookkeepingInventoryService.movement(s, req.params.id, req.params.itemId, { from: q.from, to: q.to, godownId: q.godown_id }))
   }))
 
   router.get(`${C}/inventory/godown-summary`, handler(async (req, res) => {
     const s = requireSession(req); requireReportRead(s)
-    ok(res, await TallyInventoryService.godownSummary(s, req.params.id, periodOf(req.query)))
+    ok(res, await BookkeepingInventoryService.godownSummary(s, req.params.id, periodOf(req.query)))
   }))
 
   // ══ Banking ═══════════════════════════════════════════════════════
   router.get(`${C}/banking/accounts`, handler(async (req, res) => {
     const s = requireSession(req); requireReportRead(s)
     const q = parse(z.object({ as_of: ISO.optional() }), req.query, 'Invalid filter.')
-    ok(res, { items: await TallyBankingService.listAccounts(s, req.params.id, q.as_of ?? null) })
+    ok(res, { items: await BookkeepingBankingService.listAccounts(s, req.params.id, q.as_of ?? null) })
   }))
 
   router.get(`${C}/banking/accounts/:ledgerId/book`, handler(async (req, res) => {
     const s = requireSession(req); requireReportRead(s)
-    ok(res, await TallyBankingService.bankBook(s, req.params.id, req.params.ledgerId, periodOf(req.query)))
+    ok(res, await BookkeepingBankingService.bankBook(s, req.params.id, req.params.ledgerId, periodOf(req.query)))
   }))
 
   router.post(`${C}/banking/accounts/:ledgerId/statement`, handler(async (req, res) => {
@@ -500,7 +500,7 @@ export function registerExtendedTallyRoutes(router: Router): void {
         balance_paise: z.number().int().nullable().optional(),
       })).min(1),
     }), req.body, 'A statement needs at least one row.')
-    const out = await TallyBankingService.importStatement(s, req.params.id, req.params.ledgerId, b.rows.map((r) => ({
+    const out = await BookkeepingBankingService.importStatement(s, req.params.id, req.params.ledgerId, b.rows.map((r) => ({
       date: r.date, description: r.description, refNumber: r.ref_number,
       debitPaise: r.debit_paise, creditPaise: r.credit_paise, balancePaise: r.balance_paise,
     })))
@@ -511,25 +511,25 @@ export function registerExtendedTallyRoutes(router: Router): void {
   router.get(`${C}/banking/accounts/:ledgerId/statement-lines`, handler(async (req, res) => {
     const s = requireSession(req); requireReportRead(s)
     const q = parse(z.object({ status: z.string().optional(), from: ISO.optional(), to: ISO.optional() }), req.query, 'Invalid filter.')
-    ok(res, { items: await TallyBankingService.listStatementLines(s, req.params.id, req.params.ledgerId, q) })
+    ok(res, { items: await BookkeepingBankingService.listStatementLines(s, req.params.id, req.params.ledgerId, q) })
   }))
 
   router.get(`${C}/banking/statement-lines/:lineId/suggestions`, handler(async (req, res) => {
     const s = requireSession(req); requireReportRead(s)
-    ok(res, { items: await TallyBankingService.suggestMatches(s, req.params.id, req.params.lineId) })
+    ok(res, { items: await BookkeepingBankingService.suggestMatches(s, req.params.id, req.params.lineId) })
   }))
 
   router.post(`${C}/banking/statement-lines/:lineId/match`, handler(async (req, res) => {
     const s = requireSession(req); requireVoucherManage(s)
     const b = parse(z.object({ entry_id: z.string().min(1) }), req.body, 'entry_id is required.')
-    const out = await TallyBankingService.match(s, req.params.id, req.params.lineId, b.entry_id)
+    const out = await BookkeepingBankingService.match(s, req.params.id, req.params.lineId, b.entry_id)
     await writeAudit({ actorUserId: s.userId, action: 'tally.bank_line_matched', entityType: 'TallyBankStatementLine', entityId: req.params.lineId, after: { company_id: req.params.id, ...out }, req })
     ok(res, out)
   }))
 
   router.post(`${C}/banking/statement-lines/:lineId/unmatch`, handler(async (req, res) => {
     const s = requireSession(req); requireVoucherManage(s)
-    const out = await TallyBankingService.unmatch(s, req.params.id, req.params.lineId)
+    const out = await BookkeepingBankingService.unmatch(s, req.params.id, req.params.lineId)
     await writeAudit({ actorUserId: s.userId, action: 'tally.bank_line_unmatched', entityType: 'TallyBankStatementLine', entityId: req.params.lineId, after: { company_id: req.params.id }, req })
     ok(res, out)
   }))
@@ -537,13 +537,13 @@ export function registerExtendedTallyRoutes(router: Router): void {
   router.get(`${C}/banking/accounts/:ledgerId/reconciliation`, handler(async (req, res) => {
     const s = requireSession(req); requireReportRead(s)
     const q = parse(z.object({ statement_date: ISO }), req.query, 'statement_date is required.')
-    ok(res, await TallyBankingService.reconciliation(s, req.params.id, req.params.ledgerId, q.statement_date))
+    ok(res, await BookkeepingBankingService.reconciliation(s, req.params.id, req.params.ledgerId, q.statement_date))
   }))
 
   router.post(`${C}/banking/accounts/:ledgerId/reconciliation`, handler(async (req, res) => {
     const s = requireSession(req); requireVoucherManage(s)
     const b = parse(z.object({ statement_date: ISO, notes: z.string().nullable().optional() }), req.body, 'statement_date is required.')
-    const out = await TallyBankingService.saveReconciliation(s, req.params.id, req.params.ledgerId, b.statement_date, b.notes)
+    const out = await BookkeepingBankingService.saveReconciliation(s, req.params.id, req.params.ledgerId, b.statement_date, b.notes)
     await writeAudit({ actorUserId: s.userId, action: 'tally.bank_reconciled', entityType: 'TallyBankReconciliation', entityId: out.id, after: { company_id: req.params.id, ...out }, req })
     ok(res, out, 201)
   }))
@@ -551,38 +551,38 @@ export function registerExtendedTallyRoutes(router: Router): void {
   router.get(`${C}/banking/reconciliations`, handler(async (req, res) => {
     const s = requireSession(req); requireReportRead(s)
     const q = parse(z.object({ ledger_id: z.string().optional() }), req.query, 'Invalid filter.')
-    ok(res, { items: await TallyBankingService.listReconciliations(s, req.params.id, q.ledger_id) })
+    ok(res, { items: await BookkeepingBankingService.listReconciliations(s, req.params.id, q.ledger_id) })
   }))
 
   // ══ GST / statutory ═══════════════════════════════════════════════
   router.get(`${C}/gst/summary`, handler(async (req, res) => {
     const s = requireSession(req); requireReportRead(s)
     const q = parse(z.object({ from: ISO.optional(), to: ISO.optional() }), req.query, 'Invalid period.')
-    ok(res, await TallyGstService.summary(s, req.params.id, q))
+    ok(res, await BookkeepingGstService.summary(s, req.params.id, q))
   }))
 
   router.get(`${C}/gst/gstr1`, handler(async (req, res) => {
     const s = requireSession(req); requireReportRead(s)
     const q = parse(z.object({ from: ISO, to: ISO }), req.query, 'from and to are required.')
-    ok(res, await TallyGstService.gstr1(s, req.params.id, q.from, q.to))
+    ok(res, await BookkeepingGstService.gstr1(s, req.params.id, q.from, q.to))
   }))
 
   router.get(`${C}/gst/gstr3b`, handler(async (req, res) => {
     const s = requireSession(req); requireReportRead(s)
     const q = parse(z.object({ from: ISO, to: ISO }), req.query, 'from and to are required.')
-    ok(res, await TallyGstService.gstr3b(s, req.params.id, q.from, q.to))
+    ok(res, await BookkeepingGstService.gstr3b(s, req.params.id, q.from, q.to))
   }))
 
   router.get(`${C}/gst/exceptions`, handler(async (req, res) => {
     const s = requireSession(req); requireReportRead(s)
     const q = parse(z.object({ from: ISO, to: ISO }), req.query, 'from and to are required.')
-    ok(res, await TallyGstService.exceptions(s, req.params.id, q.from, q.to))
+    ok(res, await BookkeepingGstService.exceptions(s, req.params.id, q.from, q.to))
   }))
 
   router.get(`${C}/gst/tax-rates`, handler(async (req, res) => {
     const s = requireSession(req); requireMasterRead(s)
     const q = parse(z.object({ tax_type: z.enum(['gst', 'tds', 'tcs']).optional() }), req.query, 'Invalid filter.')
-    ok(res, { items: await TallyGstService.listTaxRates(s, req.params.id, q.tax_type) })
+    ok(res, { items: await BookkeepingGstService.listTaxRates(s, req.params.id, q.tax_type) })
   }))
 
   router.post(`${C}/gst/tax-rates`, handler(async (req, res) => {
@@ -594,7 +594,7 @@ export function registerExtendedTallyRoutes(router: Router): void {
       section: z.string().nullable().optional(), threshold_paise: z.number().int().nullable().optional(),
       effective_from: ISO.nullable().optional(),
     }), req.body, 'tax_type, name and rate_bp are required.')
-    const out = await TallyGstService.createTaxRate(s, req.params.id, {
+    const out = await BookkeepingGstService.createTaxRate(s, req.params.id, {
       taxType: b.tax_type, name: b.name, rateBp: b.rate_bp, cessBp: b.cess_bp,
       hsnCode: b.hsn_code, sacCode: b.sac_code, section: b.section,
       thresholdPaise: b.threshold_paise, effectiveFrom: b.effective_from,
@@ -607,12 +607,12 @@ export function registerExtendedTallyRoutes(router: Router): void {
     const s = requireSession(req); requireReportRead(s)
     const t = req.params.taxType
     if (t !== 'tds' && t !== 'tcs') throw ApiError.badRequest('taxType must be tds or tcs.')
-    ok(res, await TallyGstService.statutorySummary(s, req.params.id, t, periodOf(req.query) as { from?: string; to?: string }))
+    ok(res, await BookkeepingGstService.statutorySummary(s, req.params.id, t, periodOf(req.query) as { from?: string; to?: string }))
   }))
 
   router.get(`${C}/gst/e-invoice/:voucherId`, handler(async (req, res) => {
     const s = requireSession(req); requireReportRead(s)
-    ok(res, await TallyGstService.eInvoicePayload(s, req.params.id, req.params.voucherId))
+    ok(res, await BookkeepingGstService.eInvoicePayload(s, req.params.id, req.params.voucherId))
   }))
 
   router.post(`${C}/gst/e-way-bill/:voucherId`, handler(async (req, res) => {
@@ -622,7 +622,7 @@ export function registerExtendedTallyRoutes(router: Router): void {
       vehicle_number: z.string().nullable().optional(), transport_mode: z.string().nullable().optional(),
       distance_km: z.number().nullable().optional(),
     }), req.body ?? {}, 'Invalid transport details.')
-    ok(res, await TallyGstService.eWayBillPayload(s, req.params.id, req.params.voucherId, {
+    ok(res, await BookkeepingGstService.eWayBillPayload(s, req.params.id, req.params.voucherId, {
       transporterId: b.transporter_id, transporterName: b.transporter_name,
       vehicleNumber: b.vehicle_number, transportMode: b.transport_mode, distanceKm: b.distance_km,
     }))
@@ -631,7 +631,7 @@ export function registerExtendedTallyRoutes(router: Router): void {
   // ══ Payroll ═══════════════════════════════════════════════════════
   router.get(`${C}/payroll/employees`, handler(async (req, res) => {
     const s = requireSession(req); requireMasterRead(s)
-    ok(res, { items: await TallyPayrollService.listEmployees(s, req.params.id) })
+    ok(res, { items: await BookkeepingPayrollService.listEmployees(s, req.params.id) })
   }))
 
   router.post(`${C}/payroll/employees`, handler(async (req, res) => {
@@ -642,7 +642,7 @@ export function registerExtendedTallyRoutes(router: Router): void {
       date_of_joining: ISO.nullable().optional(), pan: z.string().nullable().optional(),
       bank_account_number: z.string().nullable().optional(), bank_ifsc: z.string().nullable().optional(),
     }), req.body, 'Employee name is required.')
-    const out = await TallyPayrollService.createEmployee(s, req.params.id, {
+    const out = await BookkeepingPayrollService.createEmployee(s, req.params.id, {
       name: b.name, code: b.code, employeeGroup: b.employee_group, designation: b.designation,
       dateOfJoining: b.date_of_joining, pan: b.pan, bankAccountNumber: b.bank_account_number, bankIfsc: b.bank_ifsc,
     })
@@ -652,7 +652,7 @@ export function registerExtendedTallyRoutes(router: Router): void {
 
   router.get(`${C}/payroll/pay-heads`, handler(async (req, res) => {
     const s = requireSession(req); requireMasterRead(s)
-    ok(res, { items: await TallyPayrollService.listPayHeads(s, req.params.id) })
+    ok(res, { items: await BookkeepingPayrollService.listPayHeads(s, req.params.id) })
   }))
 
   router.post(`${C}/payroll/pay-heads`, handler(async (req, res) => {
@@ -664,7 +664,7 @@ export function registerExtendedTallyRoutes(router: Router): void {
       statutory: z.enum(['pf', 'esi', 'pt', 'income_tax']).nullable().optional(),
       ledger_id: z.string().nullable().optional(),
     }), req.body, 'name and head_type are required.')
-    const out = await TallyPayrollService.createPayHead(s, req.params.id, {
+    const out = await BookkeepingPayrollService.createPayHead(s, req.params.id, {
       name: b.name, headType: b.head_type, calcType: b.calc_type, valuePaise: b.value_paise,
       percentBp: b.percent_bp, statutory: b.statutory, ledgerId: b.ledger_id,
     })
@@ -680,7 +680,7 @@ export function registerExtendedTallyRoutes(router: Router): void {
         percent_bp: z.number().int().nonnegative().optional(),
       })),
     }), req.body, 'lines is required.')
-    ok(res, await TallyPayrollService.setStructure(s, req.params.id, req.params.employeeId, b.lines.map((l) => ({
+    ok(res, await BookkeepingPayrollService.setStructure(s, req.params.id, req.params.employeeId, b.lines.map((l) => ({
       payHeadId: l.pay_head_id, valuePaise: l.value_paise, percentBp: l.percent_bp,
     }))))
   }))
@@ -688,7 +688,7 @@ export function registerExtendedTallyRoutes(router: Router): void {
   router.get(`${C}/payroll/attendance`, handler(async (req, res) => {
     const s = requireSession(req); requireMasterRead(s)
     const q = parse(z.object({ period: z.string().regex(/^\d{4}-\d{2}$/) }), req.query, 'period (YYYY-MM) is required.')
-    ok(res, { items: await TallyPayrollService.getAttendance(s, req.params.id, q.period) })
+    ok(res, { items: await BookkeepingPayrollService.getAttendance(s, req.params.id, q.period) })
   }))
 
   router.put(`${C}/payroll/attendance`, handler(async (req, res) => {
@@ -700,25 +700,25 @@ export function registerExtendedTallyRoutes(router: Router): void {
         present_days: z.number().int().nonnegative(), lop_days: z.number().int().nonnegative().optional(),
       })),
     }), req.body, 'period and rows are required.')
-    ok(res, await TallyPayrollService.setAttendance(s, req.params.id, b.period, b.rows.map((r) => ({
+    ok(res, await BookkeepingPayrollService.setAttendance(s, req.params.id, b.period, b.rows.map((r) => ({
       employeeId: r.employee_id, payableDays: r.payable_days, presentDays: r.present_days, lopDays: r.lop_days,
     }))))
   }))
 
   router.get(`${C}/payroll/runs`, handler(async (req, res) => {
     const s = requireSession(req); requireMasterRead(s)
-    ok(res, { items: await TallyPayrollService.listRuns(s, req.params.id) })
+    ok(res, { items: await BookkeepingPayrollService.listRuns(s, req.params.id) })
   }))
 
   router.get(`${C}/payroll/runs/:runId`, handler(async (req, res) => {
     const s = requireSession(req); requireMasterRead(s)
-    ok(res, await TallyPayrollService.getRun(s, req.params.id, req.params.runId))
+    ok(res, await BookkeepingPayrollService.getRun(s, req.params.id, req.params.runId))
   }))
 
   router.post(`${C}/payroll/runs`, handler(async (req, res) => {
     const s = requireSession(req); requireVoucherManage(s)
     const b = parse(z.object({ period: z.string().regex(/^\d{4}-\d{2}$/) }), req.body, 'period (YYYY-MM) is required.')
-    const out = await TallyPayrollService.process(s, req.params.id, b.period)
+    const out = await BookkeepingPayrollService.process(s, req.params.id, b.period)
     await writeAudit({ actorUserId: s.userId, action: 'tally.payroll_processed', entityType: 'TallyPayrollRun', entityId: out.id, after: { company_id: req.params.id, period: out.period, net_paise: out.net_paise }, req })
     ok(res, out, 201)
   }))
@@ -728,7 +728,7 @@ export function registerExtendedTallyRoutes(router: Router): void {
     const b = parse(z.object({
       date: ISO, payment_ledger_id: z.string().min(1), default_expense_ledger_id: z.string().optional(),
     }), req.body, 'date and payment_ledger_id are required.')
-    const out = await TallyPayrollService.post(s, req.params.id, req.params.runId, {
+    const out = await BookkeepingPayrollService.post(s, req.params.id, req.params.runId, {
       date: b.date, paymentLedgerId: b.payment_ledger_id, defaultExpenseLedgerId: b.default_expense_ledger_id,
     })
     await writeAudit({ actorUserId: s.userId, action: 'tally.payroll_posted', entityType: 'TallyPayrollRun', entityId: out.id, after: { company_id: req.params.id, period: out.period, voucher_id: out.voucher_id }, req })
@@ -742,33 +742,33 @@ export function registerExtendedTallyRoutes(router: Router): void {
       action: z.string().optional(), voucher_id: z.string().optional(),
       from: ISO.optional(), to: ISO.optional(), limit: z.coerce.number().int().positive().optional(),
     }), req.query, 'Invalid filter.')
-    ok(res, { items: await TallyAuditService.trail(s, req.params.id, { action: q.action, voucherId: q.voucher_id, from: q.from, to: q.to, limit: q.limit }) })
+    ok(res, { items: await BookkeepingAuditService.trail(s, req.params.id, { action: q.action, voucherId: q.voucher_id, from: q.from, to: q.to, limit: q.limit }) })
   }))
 
   router.get(`${C}/audit/revisions/:revisionId`, handler(async (req, res) => {
     const s = requireSession(req); requireAuditRead(s)
-    ok(res, await TallyAuditService.revision(s, req.params.id, req.params.revisionId))
+    ok(res, await BookkeepingAuditService.revision(s, req.params.id, req.params.revisionId))
   }))
 
   router.get(`${C}/audit/altered`, handler(async (req, res) => {
     const s = requireSession(req); requireAuditRead(s)
-    ok(res, { items: await TallyAuditService.alteredVouchers(s, req.params.id, periodOf(req.query) as { from?: string; to?: string }) })
+    ok(res, { items: await BookkeepingAuditService.alteredVouchers(s, req.params.id, periodOf(req.query) as { from?: string; to?: string }) })
   }))
 
   router.get(`${C}/audit/cancelled`, handler(async (req, res) => {
     const s = requireSession(req); requireAuditRead(s)
-    ok(res, { items: await TallyAuditService.cancelledVouchers(s, req.params.id, periodOf(req.query) as { from?: string; to?: string }) })
+    ok(res, { items: await BookkeepingAuditService.cancelledVouchers(s, req.params.id, periodOf(req.query) as { from?: string; to?: string }) })
   }))
 
   router.get(`${C}/audit/activity`, handler(async (req, res) => {
     const s = requireSession(req); requireAuditRead(s)
     const q = parse(z.object({ limit: z.coerce.number().int().positive().optional() }), req.query, 'Invalid filter.')
-    ok(res, { items: await TallyAuditService.userActivity(s, req.params.id, q.limit) })
+    ok(res, { items: await BookkeepingAuditService.userActivity(s, req.params.id, q.limit) })
   }))
 
   router.get(`${C}/audit/exceptions`, handler(async (req, res) => {
     const s = requireSession(req); requireAuditRead(s)
-    ok(res, await TallyAuditService.exceptions(s, req.params.id, periodOf(req.query) as { from?: string; to?: string }))
+    ok(res, await BookkeepingAuditService.exceptions(s, req.params.id, periodOf(req.query) as { from?: string; to?: string }))
   }))
 
   // ══ Import / export / backup ══════════════════════════════════════
@@ -780,7 +780,7 @@ export function registerExtendedTallyRoutes(router: Router): void {
       entity: z.enum(IMPORT_ENTITIES),
       rows: z.array(z.record(z.unknown())).max(20000),
     }), req.body, 'entity and rows are required.')
-    ok(res, await TallyDataService.validateImport(s, req.params.id, b.entity as ImportEntity, b.rows as Record<string, unknown>[]))
+    ok(res, await BookkeepingDataService.validateImport(s, req.params.id, b.entity as ImportEntity, b.rows as Record<string, unknown>[]))
   }))
 
   router.post(`${C}/data/import/commit`, handler(async (req, res) => {
@@ -790,40 +790,40 @@ export function registerExtendedTallyRoutes(router: Router): void {
       rows: z.array(z.record(z.unknown())).max(20000),
       skip_invalid: z.boolean().optional(),
     }), req.body, 'entity and rows are required.')
-    const out = await TallyDataService.commitImport(s, req.params.id, b.entity as ImportEntity, b.rows as Record<string, unknown>[], { skipInvalid: b.skip_invalid })
+    const out = await BookkeepingDataService.commitImport(s, req.params.id, b.entity as ImportEntity, b.rows as Record<string, unknown>[], { skipInvalid: b.skip_invalid })
     await writeAudit({ actorUserId: s.userId, action: 'tally.data_imported', entityType: 'TallyCompany', entityId: req.params.id, after: { ...out }, req })
     ok(res, out, 201)
   }))
 
   router.get(`${C}/data/export/json`, handler(async (req, res) => {
     const s = requireSession(req); requireData(s)
-    ok(res, await TallyDataService.exportJson(s, req.params.id))
+    ok(res, await BookkeepingDataService.exportJson(s, req.params.id))
   }))
 
   router.get(`${C}/data/export/xml`, handler(async (req, res) => {
     const s = requireSession(req); requireData(s)
     const q = parse(z.object({ from: ISO.optional(), to: ISO.optional() }), req.query, 'Invalid period.')
-    const xml = await TallyDataService.exportVoucherXml(s, req.params.id, q)
+    const xml = await BookkeepingDataService.exportVoucherXml(s, req.params.id, q)
     res.setHeader('Content-Type', 'application/xml; charset=utf-8')
     res.send(xml)
   }))
 
   router.get(`${C}/data/backups`, handler(async (req, res) => {
     const s = requireSession(req); requireData(s)
-    ok(res, { items: await TallyDataService.listBackups(s, req.params.id) })
+    ok(res, { items: await BookkeepingDataService.listBackups(s, req.params.id) })
   }))
 
   router.post(`${C}/data/backups`, handler(async (req, res) => {
     const s = requireSession(req); requireData(s)
     const b = parse(z.object({ label: z.string().optional() }), req.body ?? {}, 'Invalid backup request.')
-    const out = await TallyDataService.createBackup(s, req.params.id, b.label)
+    const out = await BookkeepingDataService.createBackup(s, req.params.id, b.label)
     await writeAudit({ actorUserId: s.userId, action: 'tally.backup_created', entityType: 'TallyBackup', entityId: out.id, after: { company_id: req.params.id, label: out.label, voucher_count: out.voucher_count }, req })
     ok(res, out, 201)
   }))
 
   router.get(`${C}/data/backups/:backupId`, handler(async (req, res) => {
     const s = requireSession(req); requireData(s)
-    const out = await TallyDataService.downloadBackup(s, req.params.id, req.params.backupId)
+    const out = await BookkeepingDataService.downloadBackup(s, req.params.id, req.params.backupId)
     res.setHeader('Content-Type', 'application/json; charset=utf-8')
     res.send(out.payload)
   }))
@@ -834,26 +834,26 @@ export function registerExtendedTallyRoutes(router: Router): void {
       new_company_name: z.string().min(1),
       confirm: z.literal(true),
     }), req.body, 'new_company_name and confirm:true are required — restore always creates a new company.')
-    const out = await TallyDataService.restoreBackup(s, req.params.id, req.params.backupId, b.new_company_name)
+    const out = await BookkeepingDataService.restoreBackup(s, req.params.id, req.params.backupId, b.new_company_name)
     await writeAudit({ actorUserId: s.userId, action: 'tally.backup_restored', entityType: 'TallyCompany', entityId: out.restored_company_id, after: { source_company_id: req.params.id, ...out }, req })
     ok(res, out, 201)
   }))
 
   router.get(`${C}/data/verify-restore/:restoredCompanyId`, handler(async (req, res) => {
     const s = requireSession(req); requireData(s)
-    ok(res, await TallyDataService.verifyRestore(s, req.params.id, req.params.restoredCompanyId))
+    ok(res, await BookkeepingDataService.verifyRestore(s, req.params.id, req.params.restoredCompanyId))
   }))
 
   // ══ Settings ══════════════════════════════════════════════════════
   router.get(`${C}/settings`, handler(async (req, res) => {
     const s = requireSession(req); requireMasterRead(s)
-    ok(res, await TallySettingsService.getAll(s, req.params.id))
+    ok(res, await BookkeepingSettingsService.getAll(s, req.params.id))
   }))
 
   router.patch(`${C}/settings/:group`, handler(async (req, res) => {
     const s = requireSession(req); requireSettings(s)
     const b = parse(z.record(z.unknown()), req.body, 'Invalid settings patch.')
-    const out = await TallySettingsService.update(s, req.params.id, req.params.group, b as Record<string, unknown>)
+    const out = await BookkeepingSettingsService.update(s, req.params.id, req.params.group, b as Record<string, unknown>)
     await writeAudit({ actorUserId: s.userId, action: 'tally.settings_updated', entityType: 'TallyCompany', entityId: req.params.id, after: { group: req.params.group, values: out.values }, req })
     ok(res, out)
   }))
@@ -862,12 +862,12 @@ export function registerExtendedTallyRoutes(router: Router): void {
   router.get(`${C}/dashboard`, handler(async (req, res) => {
     const s = requireSession(req); requireReportRead(s)
     const q = parse(z.object({ from: ISO.optional(), to: ISO.optional(), fy_id: z.string().optional() }), req.query, 'Invalid period.')
-    ok(res, await TallyDashboardService.overview(s, req.params.id, { from: q.from, to: q.to, fyId: q.fy_id }))
+    ok(res, await BookkeepingDashboardService.overview(s, req.params.id, { from: q.from, to: q.to, fyId: q.fy_id }))
   }))
 
   router.get(`${C}/search`, handler(async (req, res) => {
     const s = requireSession(req); requireMasterRead(s)
     const q = parse(z.object({ q: z.string(), limit: z.coerce.number().int().positive().optional() }), req.query, 'q is required.')
-    ok(res, await TallySearchService.search(s, req.params.id, q.q, q.limit))
+    ok(res, await BookkeepingSearchService.search(s, req.params.id, q.q, q.limit))
   }))
 }

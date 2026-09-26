@@ -1,12 +1,12 @@
 import { prisma, alive } from '../../../lib/prisma.js'
 import { ApiError } from '../../../lib/http.js'
 import type { Session } from '../../../platform/auth.js'
-import { TallyCompanyService } from './TallyCompanyService.js'
-import { TallyBootstrapService } from './TallyBootstrapService.js'
+import { BookkeepingCompanyService } from './BookkeepingCompanyService.js'
+import { BookkeepingBootstrapService } from './BookkeepingBootstrapService.js'
 import { stockPositions, stockMovement, godownStock, type StockFilter } from '../engine/inventory.js'
 
 /**
- * TallyInventoryService — inventory MASTERS (stock groups, categories,
+ * BookkeepingInventoryService — inventory MASTERS (stock groups, categories,
  * units, godowns, items, batches, opening stock) plus the read models.
  *
  * Inventory TRANSACTIONS are vouchers and go through the posting engine
@@ -14,8 +14,8 @@ import { stockPositions, stockMovement, godownStock, type StockFilter } from '..
  */
 
 async function own(session: Session, companyId: string) {
-  await TallyCompanyService.requireOwned(session, companyId)
-  await TallyBootstrapService.ensure(companyId)
+  await BookkeepingCompanyService.requireOwned(session, companyId)
+  await BookkeepingBootstrapService.ensure(companyId)
 }
 
 async function assertUniqueName(model: 'tallyStockGroup' | 'tallyStockCategory' | 'tallyUnit' | 'tallyGodown' | 'tallyStockItem', companyId: string, name: string, excludeId?: string) {
@@ -27,7 +27,7 @@ async function assertUniqueName(model: 'tallyStockGroup' | 'tallyStockCategory' 
   if (clash) throw ApiError.conflict('duplicate_name', `"${name}" already exists.`)
 }
 
-export const TallyInventoryService = {
+export const BookkeepingInventoryService = {
   // ── Stock groups ───────────────────────────────────────────────────
   async listStockGroups(session: Session, companyId: string) {
     await own(session, companyId)

@@ -41,8 +41,8 @@ import { auditAutomationRouter } from './modules/audit-automation/routes.js'
 import { gstRouter } from './modules/audit-automation/gst.routes.js'
 // Audit Automation · TDS reconciliation (Form 26AS vs Books TDS register).
 import { tdsRouter } from './modules/audit-automation/tds.routes.js'
-// Tally — native double-entry accounting module (foundation slice).
-import { tallyRouter } from './modules/tally/routes.js'
+// Bookkeeping — native double-entry accounting module.
+import { bookkeepingRouter } from './modules/bookkeeping/routes.js'
 import { tasksRouter } from './modules/task/routes.js'
 import { quotationsRouter } from './modules/quotation/routes.js'
 import { invoicesRouter } from './modules/invoice/routes.js'
@@ -214,7 +214,7 @@ export function createApp() {
   app.use('/api/audit-automation', auditAutomationRouter)
 
   // ── Tally (native double-entry accounting) ─────────────────────────────
-  app.use('/api/tally', tallyRouter)
+  app.use('/api/bookkeeping', bookkeepingRouter)
   // Workstation → Task: assignment plus server-side work-time tracking.
   app.use('/api/tasks', tasksRouter)
   app.use('/api/quotations', quotationsRouter)

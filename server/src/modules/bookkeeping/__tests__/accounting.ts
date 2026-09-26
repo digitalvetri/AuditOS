@@ -11,12 +11,12 @@
 import '../../../lib/env.js'
 import { PrismaClient } from '@prisma/client'
 import type { Session } from '../../../platform/auth.js'
-import { TallyCompanyService } from '../services/TallyCompanyService.js'
-import { TallyGroupService } from '../services/TallyGroupService.js'
-import { TallyLedgerService } from '../services/TallyLedgerService.js'
-import { TallyBootstrapService } from '../services/TallyBootstrapService.js'
-import { TallyVoucherService } from '../services/TallyVoucherService.js'
-import { TallyReportService } from '../services/TallyReportService.js'
+import { BookkeepingCompanyService } from '../services/BookkeepingCompanyService.js'
+import { BookkeepingGroupService } from '../services/BookkeepingGroupService.js'
+import { BookkeepingLedgerService } from '../services/BookkeepingLedgerService.js'
+import { BookkeepingBootstrapService } from '../services/BookkeepingBootstrapService.js'
+import { BookkeepingVoucherService } from '../services/BookkeepingVoucherService.js'
+import { BookkeepingReportService } from '../services/BookkeepingReportService.js'
 import { postVoucher, cancelVoucher } from '../engine/posting.js'
 import { trialBalance, profitAndLoss, balanceSheet, ledgerBalances } from '../engine/balances.js'
 import { stockPositions } from '../engine/inventory.js'
@@ -102,18 +102,18 @@ async function cleanup(organisationId: string) {
 
 /** Build a company with the named ledgers under the named primary groups. */
 async function makeCompany(session: Session, name: string, ledgerSpecs: [string, string][]) {
-  const company = await TallyCompanyService.create(session, { name, booksBeginFrom: '2026-04-01', fyBeginMonth: 4 })
-  await TallyBootstrapService.ensure(company.id)
-  const groups = await TallyGroupService.list(session, company.id)
+  const company = await BookkeepingCompanyService.create(session, { name, booksBeginFrom: '2026-04-01', fyBeginMonth: 4 })
+  await BookkeepingBootstrapService.ensure(company.id)
+  const groups = await BookkeepingGroupService.list(session, company.id)
   const groupByName = new Map(groups.map((g) => [g.name, g.id]))
   const ledgers = new Map<string, string>()
   for (const [ledgerName, groupName] of ledgerSpecs) {
     const groupId = groupByName.get(groupName)
     if (!groupId) throw new Error(`primary group "${groupName}" missing`)
-    const l = await TallyLedgerService.create(session, company.id, { name: ledgerName, groupId })
+    const l = await BookkeepingLedgerService.create(session, company.id, { name: ledgerName, groupId })
     ledgers.set(ledgerName, l.id)
   }
-  const all = await TallyLedgerService.list(session, company.id, {})
+  const all = await BookkeepingLedgerService.list(session, company.id, {})
   for (const l of all) ledgers.set(l.name, l.id)
   return { company, ledgers, groupByName }
 }
@@ -250,20 +250,20 @@ async function mandatoryDataset(session: Session) {
   check('Balance sheet balances', bs.balanced, true)
 
   // ── Outstanding / ageing from bill allocations ────────────────────
-  const receivables = await TallyReportService.outstandings(session, company.id, { side: 'receivable', asOf: '2026-04-30' })
+  const receivables = await BookkeepingReportService.outstandings(session, company.id, { side: 'receivable', asOf: '2026-04-30' })
   check('Receivables total = ₹50,000', receivables.totalPaise, L(50000))
   check('One receivable party', receivables.parties.length, 1)
-  const payables = await TallyReportService.outstandings(session, company.id, { side: 'payable', asOf: '2026-04-30' })
+  const payables = await BookkeepingReportService.outstandings(session, company.id, { side: 'payable', asOf: '2026-04-30' })
   check('Payables total = ₹40,000', payables.totalPaise, L(40000))
 
   // ── Day book + registers derive from the same vouchers ────────────
-  const daybook = await TallyReportService.dayBook(session, company.id, { from: '2026-04-01', to: '2026-04-30' })
+  const daybook = await BookkeepingReportService.dayBook(session, company.id, { from: '2026-04-01', to: '2026-04-30' })
   check('Day book shows 8 vouchers', daybook.items.length, 8)
-  const salesRegister = await TallyReportService.register(session, company.id, 'sales', period)
+  const salesRegister = await BookkeepingReportService.register(session, company.id, 'sales', period)
   check('Sales register total = ₹1,50,000', salesRegister.totals.grandTotalPaise, L(150000))
 
   // ── Ledger drill-down ─────────────────────────────────────────────
-  const ledger = await TallyReportService.ledgerStatement(session, company.id, ledgers.get('HDFC Bank')!, period)
+  const ledger = await BookkeepingReportService.ledgerStatement(session, company.id, ledgers.get('HDFC Bank')!, period)
   check('Bank ledger shows 6 movements', ledger.rows.length, 6)
   check('Bank ledger closing = ₹4,40,000', ledger.closingPaise, L(440000))
 
@@ -391,7 +391,7 @@ async function integritySuite(session: Session, ctx: Awaited<ReturnType<typeof m
   const otherBalances = await ledgerBalances(other.company.id, {})
   check('Other company sees none of the first company\'s vouchers',
     otherBalances.every((b) => b.debitPaise === 0 && b.creditPaise === 0), true)
-  const otherDaybook = await TallyReportService.dayBook(session, other.company.id, {})
+  const otherDaybook = await BookkeepingReportService.dayBook(session, other.company.id, {})
   check('Other company day book is empty', otherDaybook.items.length, 0)
 
   // ── Voucher cancellation ──────────────────────────────────────────
@@ -411,7 +411,7 @@ async function integritySuite(session: Session, ctx: Awaited<ReturnType<typeof m
   check('Cancellation is recorded in the voucher history', revisions.at(-1)?.action, 'cancelled')
   check('Creation is still in the voucher history', revisions[0]?.action, 'created')
 
-  const restored = await TallyVoucherService.restore(session, company.id, salaryVoucher.id)
+  const restored = await BookkeepingVoucherService.restore(session, company.id, salaryVoucher.id)
   check('Restore brings the voucher back', restored.status, 'active')
   const afterRestore = (await ledgerBalances(company.id, {})).find((b) => b.ledgerName === 'Salary')!.closingPaise
   check('Restored voucher affects balances again', afterRestore, beforeCancel)
@@ -420,7 +420,7 @@ async function integritySuite(session: Session, ctx: Awaited<ReturnType<typeof m
   const rentVoucher = await prisma.tallyVoucher.findFirstOrThrow({
     where: { tallyCompanyId: company.id, narration: 'Office rent April' },
   })
-  await TallyVoucherService.update(session, company.id, rentVoucher.id, {
+  await BookkeepingVoucherService.update(session, company.id, rentVoucher.id, {
     voucherTypeCode: 'payment', date: '2026-04-03', narration: 'Office rent April (revised)',
     entries: [
       { ledgerId: id('Office Rent'), entryType: 'dr', amountPaise: L(22000) },
@@ -436,7 +436,7 @@ async function integritySuite(session: Session, ctx: Awaited<ReturnType<typeof m
   check('Trial balance balances after an alteration', tbAltered.totals.balanced, true)
 
   // Put it back so the mandatory figures above stay the documented ones.
-  await TallyVoucherService.update(session, company.id, rentVoucher.id, {
+  await BookkeepingVoucherService.update(session, company.id, rentVoucher.id, {
     voucherTypeCode: 'payment', date: '2026-04-03', narration: 'Office rent April',
     entries: [
       { ledgerId: id('Office Rent'), entryType: 'dr', amountPaise: L(20000) },
@@ -505,7 +505,7 @@ async function inventorySuite(session: Session) {
 
 async function main() {
   const session = await loadSession()
-  const organisationId = await TallyCompanyService.organisationIdOf(session)
+  const organisationId = await BookkeepingCompanyService.organisationIdOf(session)
   await cleanup(organisationId)
   try {
     const ctx = await mandatoryDataset(session)
