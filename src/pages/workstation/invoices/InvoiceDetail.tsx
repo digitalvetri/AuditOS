@@ -1,6 +1,7 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useNavigate, useParams } from 'react-router-dom';
+import { ChevronDown, Download, Eye, Mail, MessageCircle, Printer, Trash2 } from 'lucide-react';
 import {
   invoicesApi, TERM_LABEL, type Invoice,
 } from '@/modules/workstation/invoices/api';
@@ -148,7 +149,7 @@ function Body({ inv }: { inv: Invoice }) {
           title={inv.invoice_number}
           subtitle={<>{inv.billing_name || inv.client_name} · <StatusPill status={inv.status} /></>}
           action={
-            <span className="flex gap-2 flex-wrap">
+            <span className="flex gap-2 flex-wrap items-center">
               {mayWrite && inv.is_editable ? (
                 <Button onClick={() => navigate(`/workstation/invoices/${inv.id}/edit`)}>Edit draft</Button>
               ) : null}
@@ -158,22 +159,18 @@ function Body({ inv }: { inv: Invoice }) {
               {mayWrite && inv.balance_due_paise > 0 && inv.stored_status !== 'draft' && inv.stored_status !== 'cancelled' ? (
                 <Button variant="primary" onClick={() => setPayOpen(true)}>Record payment</Button>
               ) : null}
-              <Button onClick={() => navigate(`/workstation/invoices/${inv.id}/preview`)}>Preview</Button>
-              <Button onClick={printDocument}>Print</Button>
-              <Button disabled={sharing} onClick={() => share('download')}>Download PDF</Button>
-              <Button
-                disabled={sharing || !phone}
-                title={phone ? undefined : 'No contact number on the client record'}
-                onClick={() => share('whatsapp')}
-              >WhatsApp</Button>
-              <Button
-                disabled={sharing || !inv.client_email}
-                title={inv.client_email ? undefined : 'No email on the client record'}
-                onClick={() => share('email')}
-              >Email</Button>
-              {mayWrite && inv.stored_status !== 'cancelled' && inv.stored_status !== 'paid' ? (
-                <Button onClick={() => setCancelOpen(true)}>Cancel</Button>
-              ) : null}
+              <ActionsMenu
+                inv={inv}
+                sharing={sharing}
+                phone={phone}
+                onPreview={() => navigate(`/workstation/invoices/${inv.id}/preview`)}
+                onPrint={printDocument}
+                onDownload={() => share('download')}
+                onWhatsapp={() => share('whatsapp')}
+                onEmail={() => share('email')}
+                onCancel={() => setCancelOpen(true)}
+                mayWrite={mayWrite}
+              />
             </span>
           }
         />
@@ -299,5 +296,91 @@ function CancelModal({ inv, open, onClose, onDone }: {
         <input className={inputClass} value={reason} onChange={(e) => setReason(e.target.value)} />
       </Field>
     </Modal>
+  );
+}
+
+/**
+ * Invoice Actions dropdown — mirrors EngagementActions and the quotation
+ * Share menu so all three document pages open the same way. Utility
+ * actions (Preview, Print, share as PDF, Cancel) live here; primary
+ * workflow buttons (Edit draft, Send, Record payment) stay inline in the
+ * header so a filer's next step is one click, not two.
+ */
+function ActionsMenu({
+  inv, sharing, phone, mayWrite,
+  onPreview, onPrint, onDownload, onWhatsapp, onEmail, onCancel,
+}: {
+  inv: Invoice;
+  sharing: boolean;
+  phone: string;
+  mayWrite: boolean;
+  onPreview: () => void;
+  onPrint: () => void;
+  onDownload: () => void;
+  onWhatsapp: () => void;
+  onEmail: () => void;
+  onCancel: () => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const away = (e: MouseEvent) => { if (!ref.current?.contains(e.target as Node)) setOpen(false); };
+    const esc = (e: KeyboardEvent) => { if (e.key === 'Escape') setOpen(false); };
+    document.addEventListener('mousedown', away);
+    document.addEventListener('keydown', esc);
+    return () => { document.removeEventListener('mousedown', away); document.removeEventListener('keydown', esc); };
+  }, [open]);
+
+  const run = (fn: () => void) => () => { setOpen(false); fn(); };
+  const canCancel = mayWrite && inv.stored_status !== 'cancelled' && inv.stored_status !== 'paid';
+
+  return (
+    <div className="relative" ref={ref}>
+      <button
+        type="button" onClick={() => setOpen((v) => !v)} aria-haspopup="menu" aria-expanded={open}
+        className="h-8 px-3 inline-flex items-center gap-1.5 text-13 rounded border border-neutral-300 bg-white hover:bg-neutral-50"
+      >
+        Actions <ChevronDown size={14} />
+      </button>
+
+      {open ? (
+        <div role="menu" className="absolute right-0 top-9 z-20 w-64 py-1 bg-white border border-neutral-200 rounded-md shadow-lg text-13">
+          <MenuItem onClick={run(onPreview)}><Eye size={14} /> Preview</MenuItem>
+          <MenuItem onClick={run(onPrint)}><Printer size={14} /> Print / Save as PDF</MenuItem>
+          <MenuItem disabled={sharing} onClick={run(onDownload)}><Download size={14} /> Download PDF</MenuItem>
+          <MenuItem
+            disabled={!phone || sharing}
+            title={phone ? undefined : 'No contact number on the client record'}
+            onClick={run(onWhatsapp)}
+          ><MessageCircle size={14} /> Send on WhatsApp</MenuItem>
+          <MenuItem
+            disabled={!inv.client_email || sharing}
+            title={inv.client_email ? undefined : 'No email on the client record'}
+            onClick={run(onEmail)}
+          ><Mail size={14} /> Send by email</MenuItem>
+
+          {canCancel ? (
+            <>
+              <div className="my-1 border-t border-neutral-200" />
+              <MenuItem danger onClick={run(onCancel)}><Trash2 size={14} /> Cancel invoice</MenuItem>
+            </>
+          ) : null}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function MenuItem({ children, disabled, danger, title, onClick }: {
+  children: ReactNode; disabled?: boolean; danger?: boolean; title?: string; onClick: () => void;
+}) {
+  const cls = 'w-full px-3 py-1.5 flex items-center gap-2 text-left '
+    + (disabled ? 'text-neutral-400 cursor-not-allowed' : danger ? 'text-red hover:bg-neutral-50' : 'text-neutral-900 hover:bg-neutral-50');
+  return (
+    <button type="button" role="menuitem" title={title} disabled={disabled} onClick={onClick} className={cls}>
+      {children}
+    </button>
   );
 }
