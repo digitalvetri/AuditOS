@@ -25,7 +25,8 @@
     "test:tasks": "tsx src/modules/task/__tests__/time-tracking.ts",
     "seed:tasks": "tsx prisma/seed-tasks.ts",
     "seed:gst-compliance": "tsx prisma/seed-gst-compliance.ts",
-    "seed:documents": "tsx prisma/seed-documents.ts"
+    "seed:documents": "tsx prisma/seed-documents.ts",
+    "reset:gst-template": "tsx prisma/reset-gst-template.ts"
   },
   "prisma": {
     "seed": "tsx prisma/seed.ts"
