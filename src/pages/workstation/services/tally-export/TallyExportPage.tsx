@@ -266,8 +266,18 @@ function PreviewPanel({ companyId }: { companyId: string }) {
   });
 
   const generate = useMutation({
-    mutationFn: () => tallyExportApi.generate(effectiveScope),
-    onSuccess: () => toast.push('success', 'Generated.'),
+    mutationFn: () => tallyExportApi.generateXml(effectiveScope),
+    onSuccess: ({ blob, filename }) => {
+      // Trigger a browser download; the click happens inside a user
+      // gesture (the button) so no popup-blocker heuristic applies.
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = filename;
+      a.click();
+      URL.revokeObjectURL(url);
+      toast.push('success', `Generated ${filename}.`);
+    },
     onError: (e: Error) => toast.push('error', e.message),
   });
 
@@ -297,11 +307,11 @@ function PreviewPanel({ companyId }: { companyId: string }) {
           <button
             type="button"
             disabled={!runReadyQ || errorsBlock > 0 || generate.isPending}
-            title={errorsBlock > 0 ? 'Fix preflight errors first' : 'The XLSX writer is not yet enabled (spec §11) — this will return 501 for now.'}
+            title={errorsBlock > 0 ? 'Fix preflight errors first' : 'Downloads the Tally XML voucher file (Appendix A envelope). XLSX still waits on the §11 fixture.'}
             onClick={() => generate.mutate()}
             className="h-9 px-3 text-13 border border-neutral-300 rounded bg-white hover:bg-neutral-50 disabled:opacity-50"
           >
-            {generate.isPending ? 'Generating…' : 'Generate voucher sheet'}
+            {generate.isPending ? 'Generating…' : 'Download Tally XML'}
           </button>
         </div>
       </Panel>

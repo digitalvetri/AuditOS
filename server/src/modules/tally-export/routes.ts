@@ -23,6 +23,7 @@ import {
   buildPreview, computePreflight, createRule, deleteRule, listAllRules,
   listExportHistory, listRulesForClient, updateRule,
 } from './service.js'
+import { formatVouchersXml } from './xml.js'
 import { MATCH_TYPES, VOUCHER_TYPES } from './types.js'
 
 export const tallyExportRouter = Router()
@@ -115,21 +116,54 @@ tallyExportRouter.post('/preflight', handler(async (req, res) => {
 
 // ── Generate — deferred until §11 fixture ────────────────────────────────
 
+/**
+ * POST /api/tally-export/generate — spec §9.
+ *
+ * Body: same as /preflight PLUS `format` = 'xml' | 'xlsx'. When `format`
+ * is 'xml' the response streams the Tally XML envelope (Appendix A) as
+ * `application/xml`. `xlsx` remains stubbed until §11's fixture arrives —
+ * the row grouping and date format the Excel writer needs are unknowns
+ * only a real exported voucher can settle.
+ *
+ * Preflight is run before generating; any error blocks the write (§6).
+ * A refused XLSX still returns 501 with the same message as before.
+ */
 tallyExportRouter.post('/generate', handler(async (req, res) => {
   const session = requireSession(req)
   requireWorkstation(session, ...MANAGE)
-  // Spec §11 requires a real voucher exported from the client's Tally
-  // to Excel BEFORE the generator writes any bytes — that fixture
-  // settles the row-grouping and date-format unknowns that would
-  // otherwise silently break the import. Deliberately unavailable
-  // until then. The rest of the pipeline (rules, preflight, review UI)
-  // ships now so operators can build their rule library ahead of time.
-  void session
-  void req
-  throw new ApiError(501, 'not_implemented',
-    'The XLSX writer is deferred until a real voucher exported from the client\'s '
-    + 'Tally is committed as a test fixture (spec §0 / §11). Preview + preflight '
-    + 'are available at /preview and /preflight.')
+  const b = (req.body ?? {}) as Record<string, unknown>
+  const opts = parseBuildOptions(b)
+  const format = typeof b.format === 'string' ? b.format : 'xml'
+  if (format !== 'xml' && format !== 'xlsx') {
+    throw ApiError.badRequest('format must be "xml" or "xlsx".')
+  }
+
+  const report = await computePreflight(opts)
+  if (report.errors.length > 0) {
+    throw ApiError.unprocessable('preflight_failed',
+      `Preflight blocked the export — ${report.errors.length} error(s). `
+      + report.errors.slice(0, 3).map((e) => e.message).join(' · '))
+  }
+
+  if (format === 'xlsx') {
+    throw new ApiError(501, 'not_implemented',
+      'The XLSX writer is deferred until a real voucher exported from the client\'s '
+      + 'Tally is committed as a test fixture (spec §0 / §11). '
+      + 'Use format="xml" for now, or preview via /preflight.')
+  }
+
+  const bankLedger = await prisma.bookkeepingLedger.findFirst({
+    where: { id: opts.bankLedgerId, tallyCompanyId: opts.companyId, deletedAt: null },
+    select: { name: true },
+  })
+  if (!bankLedger) throw ApiError.notFound('Bank ledger not found on this company.')
+
+  const xml = formatVouchersXml({ rows: report.rows, bankLedgerName: bankLedger.name })
+  const filename = `tally-vouchers-${opts.bankLedgerId.slice(0, 8)}-${opts.periodFrom}_${opts.periodTo}.xml`
+
+  res.setHeader('Content-Type', 'application/xml; charset=utf-8')
+  res.setHeader('Content-Disposition', `attachment; filename="${filename}"`)
+  res.end(xml)
 }))
 
 // ── History ──────────────────────────────────────────────────────────────

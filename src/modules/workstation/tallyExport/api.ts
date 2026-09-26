@@ -128,11 +128,31 @@ export const tallyExportApi = {
     api.post<PreflightReport>('/api/tally-export/preflight', toBody(scope)),
 
   /**
-   * Returns 501 until the XLSX writer lands (spec §11 / §0). Kept in the
-   * client so the button that fires it doesn't need conditional wiring.
+   * XML: streams the Tally-XML envelope as a file download. Uses `fetch`
+   * directly instead of the `api` helper so the browser sees the response
+   * as `application/xml` bytes and not JSON.
+   *
+   * XLSX: still stubbed on the server until the §11 fixture arrives.
    */
-  generate: (scope: Scope) =>
-    api.post<{ file_id: string }>('/api/tally-export/generate', toBody(scope)),
+  generateXml: async (scope: Scope): Promise<{ blob: Blob; filename: string }> => {
+    const res = await fetch('/api/tally-export/generate', {
+      method: 'POST',
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ...toBody(scope), format: 'xml' }),
+    });
+    if (!res.ok) {
+      let msg = `Export failed (HTTP ${res.status}).`;
+      try {
+        const j = await res.json();
+        if (j?.error?.message) msg = j.error.message;
+      } catch { /* body was not JSON */ }
+      throw new Error(msg);
+    }
+    const disp = res.headers.get('content-disposition') ?? '';
+    const filename = /filename="([^"]+)"/.exec(disp)?.[1] ?? `tally-vouchers-${scope.periodFrom}_${scope.periodTo}.xml`;
+    return { blob: await res.blob(), filename };
+  },
 
   history: (companyId: string, bankLedgerId?: string) =>
     api.get<{ items: ExportHistoryRow[] }>(
