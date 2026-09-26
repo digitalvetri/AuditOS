@@ -1,5 +1,5 @@
 /**
- * GST client view — GST-CLIENT-DASHBOARD-TASKS §2 / §3 / §4 / §5.1.
+ * GST client view — GST-CLIENT-DASHBOARD-TASKS §2 / §3 / §4 / §5.
  *
  * Lands here from the client dashboard's row click. Layout (top → bottom):
  *   1. Header — client name + GSTIN + filing type + FY + Visit portal
@@ -119,16 +119,19 @@ function TasksPanel({ view, period, viewQueryKey }: {
     mutationFn: () => gstApi.seedPeriod(view.client.id, period),
     onSuccess: (r) => {
       const created = r.items.filter((i) => i.task_created).length;
+      const recomputed = r.items.filter((i) => i.task_due_updated || i.case_due_updated).length;
       const kept = r.items.length - created;
       if (r.items.length === 0) {
         toast.push('info', `Nothing to generate for ${period}.`);
-      } else {
+      } else if (created > 0) {
         toast.push(
           'success',
-          created > 0
-            ? `Generated ${created} task${created === 1 ? '' : 's'}${kept > 0 ? ` (${kept} already existed)` : ''}.`
-            : `Tasks for ${period} already exist.`,
+          `Generated ${created} task${created === 1 ? '' : 's'}${kept > 0 ? ` (${kept} already existed)` : ''}${recomputed > 0 ? `; ${recomputed} due date${recomputed === 1 ? '' : 's'} updated` : ''}.`,
         );
+      } else if (recomputed > 0) {
+        toast.push('success', `Updated ${recomputed} due date${recomputed === 1 ? '' : 's'} to the current statutory calendar.`);
+      } else {
+        toast.push('info', `Tasks for ${period} already exist and dates are current.`);
       }
       qc.invalidateQueries({ queryKey: viewQueryKey });
       qc.invalidateQueries({ queryKey: ['gst', 'client-view', view.client.id, period, 'tasks'] });

@@ -1,5 +1,6 @@
 /**
- * GST reference-data seed — rate slabs and a starter HSN/SAC master.
+ * GST reference-data seed — rate slabs, HSN starter, and statutory due-day
+ * rules (GST-CLIENT-DASHBOARD-TASKS §5).
  *
  * The rate slabs are the five statutory bands (0/5/12/18/28). We seed
  * them with a single effectiveFrom of 2017-07-01 (the day GST came into
@@ -11,6 +12,13 @@
  * professional services (SAC 9982*), plus a handful of goods rows that
  * exercise every rate slab, so a composed GSTR-1 in the demo has real
  * codes without needing the full 40k-row roster.
+ *
+ * Due-day rules encode the statutory calendar per (kind, filingFrequency):
+ * monthly filers get GSTR-1=11, GSTR-3B=20; QRMP quarterly filers get
+ * GSTR-1=13, GSTR-3B=22 (State Group X — the earlier of 22/24; Group Y is
+ * a follow-up when the state-split flag lands on GstProfile). GSTR-2B is
+ * the reconciliation deadline (day 16) for both, since 2B is monthly
+ * regardless of the filer's own return frequency.
  *
  * Idempotent: upsert on the natural key of each table.
  */
@@ -62,6 +70,29 @@ const HSN_STARTER: Array<{
   { code: '8517',   description: 'Telephones for cellular networks (mobile phones)',     kind: 'goods',    defaultRateBp: 1800 },
 ]
 
+/**
+ * Statutory due-day rules — the calendar in six rows. `stateGroup` is null
+ * ("all states") for every row today; the GSTR-3B split for QRMP filers
+ * (State Group X = day 22, Group Y = day 24) waits for the state-group
+ * classifier on GstProfile to land, at which point a two-row upsert here
+ * replaces the single quarterly GSTR-3B rule.
+ */
+const DUE_DAY_RULES: Array<{
+  kind: 'GSTR1' | 'GSTR2B' | 'GSTR3B'
+  filingFrequency: 'monthly' | 'quarterly'
+  dueDay: number
+  note: string
+}> = [
+  { kind: 'GSTR1',  filingFrequency: 'monthly',   dueDay: 11, note: 'CGST Rule 59 — 11th of month following the tax period.' },
+  { kind: 'GSTR2B', filingFrequency: 'monthly',   dueDay: 16, note: 'Auto-drafted; reconciliation deadline held at 16th to leave time before 3B.' },
+  { kind: 'GSTR3B', filingFrequency: 'monthly',   dueDay: 20, note: 'CGST Rule 61 — 20th of month following the tax period.' },
+  { kind: 'GSTR1',  filingFrequency: 'quarterly', dueDay: 13, note: 'QRMP — 13th of month following the quarter end.' },
+  { kind: 'GSTR2B', filingFrequency: 'quarterly', dueDay: 16, note: '2B is monthly regardless of the filer’s QRMP election.' },
+  { kind: 'GSTR3B', filingFrequency: 'quarterly', dueDay: 22, note: 'QRMP State Group X — 22nd of month following the quarter end (Group Y = 24, pending state classifier).' },
+]
+
+const RULE_EFFECTIVE_FROM: string | null = null // null = the calendar in force today.
+
 export async function seedGst(prisma: PrismaClient) {
   // Rate slabs — natural key is (percentageBp, effectiveFrom).
   for (const slab of RATE_SLABS) {
@@ -88,8 +119,47 @@ export async function seedGst(prisma: PrismaClient) {
     })
   }
 
+  // Due-day rules — GST-CLIENT-DASHBOARD-TASKS §5. Natural key is
+  // (kind, filingFrequency, stateGroup, effectiveFrom). Both stateGroup
+  // and effectiveFrom are nullable ("all states", "always") and Prisma's
+  // compound unique type-checks nullable columns as required, so we
+  // reach for findFirst + conditional create/update rather than upsert.
+  // A CBIC calendar change lands as a new row with a later effectiveFrom
+  // — never as an update to an existing row.
+  for (const r of DUE_DAY_RULES) {
+    const existing = await prisma.gstDueDateRule.findFirst({
+      where: {
+        kind: r.kind,
+        filingFrequency: r.filingFrequency,
+        stateGroup: null,
+        effectiveFrom: RULE_EFFECTIVE_FROM,
+        deletedAt: null,
+      },
+    })
+    if (existing) {
+      if (existing.dueDay !== r.dueDay || existing.note !== r.note) {
+        await prisma.gstDueDateRule.update({
+          where: { id: existing.id },
+          data: { dueDay: r.dueDay, note: r.note },
+        })
+      }
+    } else {
+      await prisma.gstDueDateRule.create({
+        data: {
+          kind: r.kind,
+          filingFrequency: r.filingFrequency,
+          stateGroup: null,
+          effectiveFrom: RULE_EFFECTIVE_FROM,
+          dueDay: r.dueDay,
+          note: r.note,
+        },
+      })
+    }
+  }
+
   return {
     rateSlabs: await prisma.gstRateSlab.count(),
     hsnCodes: await prisma.hsnMaster.count(),
+    dueDateRules: await prisma.gstDueDateRule.count({ where: { deletedAt: null } }),
   }
 }

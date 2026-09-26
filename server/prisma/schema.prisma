@@ -2154,6 +2154,78 @@ model GstAuditLog {
   @@index([action])
 }
 
+/// Statutory due-day rule for a GST return kind — GST-CLIENT-DASHBOARD-TASKS §5.
+///
+/// The base calendar in one row: for (kind, filingFrequency, stateGroup) the
+/// day of the month FOLLOWING the period's month by which the return is due.
+/// Monthly GSTR-1 = day 11, GSTR-3B = day 20, GSTR-2B reconciliation = day 16;
+/// quarterly GSTR-1 = day 13, GSTR-3B = day 22 (State Group X — the earlier
+/// of 22/24; Group Y is deferred as a follow-up, hence the nullable column).
+///
+/// The `stateGroup` column is nullable and keyed into the unique index so
+/// today's "one row, all states" can grow into two rows without a migration
+/// that touches indexes. `effectiveFrom` supports superseding a rule the day
+/// CBIC quietly renumbers the calendar (each supersession is a new row, not
+/// an update — the old row's date stays right for its era).
+model GstDueDateRule {
+  id              String @id @default(uuid())
+  /// GSTR1 | GSTR2B | GSTR3B — matches PartnershipCase.kind for the three.
+  kind            String
+  /// monthly | quarterly (QRMP).
+  filingFrequency String
+  /// Null = applies to all states; a value (e.g. "X" | "Y") narrows to a
+  /// CBIC state group when GSTR-3B's 22/24 split is wired.
+  stateGroup      String?
+  /// Day of the month following the period. GSTR-1 monthly = 11.
+  dueDay          Int
+  /// 'YYYY-MM' the rule became effective, inclusive. Null = always active
+  /// until superseded by a newer row for the same key.
+  effectiveFrom   String?
+  /// Free-text provenance ("Notification 12/2024 - Central Tax") so a reader
+  /// can trace why the number is what it is.
+  note            String?
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  @@unique([kind, filingFrequency, stateGroup, effectiveFrom])
+  @@index([kind, filingFrequency])
+}
+
+/// Per-period CBIC override — GST-CLIENT-DASHBOARD-TASKS §5.
+///
+/// When CBIC extends a specific return's due date for a specific period
+/// ("GSTR-3B for August 2024 is extended to 25-September-2024"), the
+/// extension lands here — one row per (kind, filingFrequency, period). It
+/// wins over any GstDueDateRule for that period. The rule table remains
+/// the calendar; this table is the exception log.
+///
+/// No admin UI in this PR — rows are inserted via prisma/seed.ts or by a
+/// DBA. That's shipped-with-a-caveat, not shipped-broken: the current
+/// hardcode had no override capability at all, and firms can now capture
+/// an extension by editing seed data instead of the source.
+model GstDueDateOverride {
+  id               String  @id @default(uuid())
+  kind             String
+  filingFrequency  String?
+  /// 'YYYY-MM' — the specific period whose statutory due date is shifted.
+  period           String
+  /// Absolute date the return is due for THIS period.
+  dueDate          String
+  /// CBIC notification reference ("Notification No. 55/2024 - Central Tax").
+  cbicNotification String?
+  reason           String?
+
+  createdAt DateTime  @default(now())
+  createdBy String?
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  @@unique([kind, filingFrequency, period])
+  @@index([period])
+}
+
 /// SIMULATED (§7.3 / §15). `isSimulated` defaults true and every response and
 /// screen says so. Audit OS has no government e-way bill connectivity.
 model EwayBill {

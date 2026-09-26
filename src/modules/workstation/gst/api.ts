@@ -173,7 +173,7 @@ export interface ClientViewResponse {
   earlier: { period: string; gstr1_done: boolean; gstr2b_done: boolean; gstr3b_done: boolean }[];
 }
 
-/** Response from POST /api/gst/period/seed — GST-CLIENT-DASHBOARD-TASKS §4. */
+/** Response from POST /api/gst/period/seed — GST-CLIENT-DASHBOARD-TASKS §4 + §5. */
 export interface SeedPeriodResponse {
   period: string;
   client_id: string;
@@ -183,6 +183,12 @@ export interface SeedPeriodResponse {
     case_created: boolean;
     task_id: string;
     task_created: boolean;
+    /** Present when the resolver's date differed from a pre-existing case's
+     *  stored dueDate and the case was updated. Null when nothing changed. */
+    case_due_updated: { from: string | null; to: string } | null;
+    /** Same as case_due_updated but for the linked task. Null when the task
+     *  is already terminal (completed/cancelled) or the date already matched. */
+    task_due_updated: { from: string | null; to: string } | null;
   }[];
   skipped: { kind: string; reason: string }[];
 }

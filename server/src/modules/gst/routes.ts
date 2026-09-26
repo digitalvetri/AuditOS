@@ -25,6 +25,7 @@ import {
 } from './service.js'
 import { openCase } from '../partnership/service.js'
 import { TaskService } from '../task/service.js'
+import { createRuleResolver, type FilingFrequency } from './dueDate.js'
 import {
   assertDate, assertFilingRecord, assertGstin, assertGstinMatchesPan, assertGstr1Transition,
   assertGstr2bTransition, assertGstr3bTransition, assertOneOf, assertPan,
@@ -51,28 +52,10 @@ async function periodScopeWhere(session: ReturnType<typeof requireSession>, scop
 
 const str = (q: unknown) => (typeof q === 'string' && q ? q : null)
 
-/**
- * When each return is due, relative to the period's month. Hardcoded to the
- * statutory calendar for now — GST-CLIENT-DASHBOARD-TASKS §4 replaces this
- * with a config table (gst_due_date_rule) and CBIC-notification override
- * table. Until then the dashboard reads its dates from here.
- */
-const RETURN_DUE_DAY: Record<'GSTR1' | 'GSTR2B' | 'GSTR3B', number> = {
-  GSTR1: 11,
-  GSTR2B: 16, // reconciliation deadline, not a filing
-  GSTR3B: 20,
-}
-
-/** 'YYYY-MM' + statutory day-of-next-month → 'YYYY-MM-DD'. Renamed to
- *  avoid clashing with the legacy `dueDateFor` imported from ./service.js. */
-function defaultDueDateFor(period: string, kind: 'GSTR1' | 'GSTR2B' | 'GSTR3B'): string | null {
-  const m = /^(\d{4})-(\d{2})$/.exec(period)
-  if (!m) return null
-  const y = Number(m[1])
-  const mo = Number(m[2]) // 1..12 — the return is for THIS period, due in month+1
-  const next = new Date(Date.UTC(y, mo, RETURN_DUE_DAY[kind])) // mo (0-based) = period_month+1 in 1-based
-  return next.toISOString().slice(0, 10)
-}
+// GST-CLIENT-DASHBOARD-TASKS §5: statutory calendar moved to
+// `GstDueDateRule` + `GstDueDateOverride`. `createRuleResolver(prisma)`
+// preloads the rule set once per request; QRMP quarterly filers now get
+// the right day (13/22, not 11/20).
 
 // ── Dashboard ──────────────────────────────────────────────────────────────
 
@@ -190,14 +173,17 @@ gstRouter.get('/client-view/:clientId', handler(async (req, res) => {
   ])
   if (!profile) throw ApiError.notFound('No GST profile for this client.')
 
+  const resolver = await createRuleResolver(prisma)
+  const freq = profile.filingFrequency as FilingFrequency
+
   const t = new Date().toISOString().slice(0, 10)
   const casesForPeriod = new Map<string, (typeof cases)[number]>()
   for (const c of cases) if (c.period === period) casesForPeriod.set(c.kind, c)
 
   type Cell = { state: string; due_date: string | null; case_id: string | null; arn: string | null; filed_at: string | null } | null
-  function cellFor(kind: 'GSTR1' | 'GSTR2B' | 'GSTR3B'): Cell {
+  async function cellFor(kind: 'GSTR1' | 'GSTR2B' | 'GSTR3B'): Promise<Cell> {
     const c = casesForPeriod.get(kind)
-    const due = c?.dueDate ?? defaultDueDateFor(period, kind)
+    const due = c?.dueDate ?? await resolver.dueDateFor(period, kind, freq)
     let arn: string | null = null
     let filed_at: string | null = null
     if (c?.detailsJson) {
@@ -223,6 +209,9 @@ gstRouter.get('/client-view/:clientId', handler(async (req, res) => {
     return { period: p, gstr1_done: done('GSTR1'), gstr2b_done: done('GSTR2B'), gstr3b_done: done('GSTR3B') }
   })
 
+  const [gstr1Cell, gstr2bCell, gstr3bCell] = await Promise.all([
+    cellFor('GSTR1'), cellFor('GSTR2B'), cellFor('GSTR3B'),
+  ])
   ok(res, {
     period,
     client: { id: profile.clientId, name: profile.client.companyName },
@@ -231,25 +220,36 @@ gstRouter.get('/client-view/:clientId', handler(async (req, res) => {
       registration_type: profile.registrationType, filing_frequency: profile.filingFrequency,
       assigned_employee_id: profile.assignedEmployeeId, reviewer_employee_id: profile.reviewerEmployeeId,
     },
-    gstr1: cellFor('GSTR1'),
-    gstr2b: cellFor('GSTR2B'),
-    gstr3b: cellFor('GSTR3B'),
+    gstr1: gstr1Cell,
+    gstr2b: gstr2bCell,
+    gstr3b: gstr3bCell,
     earlier,
   })
 }))
 
 /**
- * POST /api/gst/period/seed — GST-CLIENT-DASHBOARD-TASKS §4.
+ * POST /api/gst/period/seed — GST-CLIENT-DASHBOARD-TASKS §4 + §5.
  *
  * Idempotent per-client per-period generator: for each return kind that
  * applies to the client's filing frequency this period (§1's quarterly
  * rule — quarterly clients only get cells in months 3/6/9/12), ensure a
- * PartnershipCase exists and a Task is linked to it.
+ * PartnershipCase exists and a Task is linked to it, and both carry the
+ * currently-correct statutory due date.
  *
  * One task per return per period — the "granularity" decision (per-return,
- * not per-stage) is fixed. Priority defaults to `medium` and the due date
- * comes from the case (or the statutory table if the case has none). The
- * two-way link goes through `Task.partnershipCaseId` so the case screen
+ * not per-stage) is fixed. Priority defaults to `medium`. The due date
+ * comes from `GstDueDateRule` / `GstDueDateOverride` via the resolver, so
+ * QRMP quarterly filers get 13/22 rather than the pre-§5 11/20.
+ *
+ * Recompute (§5): when a case or task already exists but its stored
+ * `dueDate` differs from the resolver's answer (e.g. a CBIC override was
+ * added after seeding, or the QRMP fix corrected an old row), the row is
+ * updated in place. Completed and cancelled tasks are skipped — the
+ * historical record of when-was-this-actually-due should reflect what
+ * was true at completion, not the current calendar. Each update writes
+ * a `GstAuditLog` row keyed to the GST profile.
+ *
+ * Two-way link goes through `Task.partnershipCaseId` so the case screen
  * can close the task when its "Filed" item is ticked, and vice versa.
  *
  * Refuses (422) if the GstProfile has no assigned_employee_id — Task
@@ -311,14 +311,27 @@ gstRouter.post('/period/seed', handler(async (req, res) => {
     case_created: boolean
     task_id: string
     task_created: boolean
+    /** Old → new dueDate when the recompute updated a pre-existing row. */
+    case_due_updated: { from: string | null; to: string } | null
+    task_due_updated: { from: string | null; to: string } | null
   }
   const items: SeedItem[] = []
   const skipped: { kind: string; reason: string }[] = []
+  const resolver = await createRuleResolver(prisma)
+  const freq = profile.filingFrequency as FilingFrequency
+  // Statuses that mean "keep the historical due date, don't recompute."
+  const TERMINAL_TASK_STATUS = new Set(['completed', 'done', 'cancelled'])
 
   for (const kind of applicableKinds) {
+    const resolvedDue = await resolver.dueDateFor(period, kind, freq)
+    if (!resolvedDue) {
+      skipped.push({ kind, reason: 'no due date could be derived' })
+      continue
+    }
+
     const existingCase = await prisma.partnershipCase.findFirst({
       where: { clientId, kind, period, deletedAt: null },
-      select: { id: true, dueDate: true },
+      select: { id: true, dueDate: true, status: true },
     })
     const c = existingCase
       ?? await openCase(session, kind, {
@@ -326,34 +339,67 @@ gstRouter.post('/period/seed', handler(async (req, res) => {
         assignedEmployeeId: profile.assignedEmployeeId,
         reviewerEmployeeId: profile.reviewerEmployeeId,
         approverEmployeeId: null,
-        dueDate: defaultDueDateFor(period, kind),
+        dueDate: resolvedDue,
         period,
         periodType: profile.filingFrequency === 'quarterly' ? 'quarterly' : 'monthly',
       })
+
+    // Recompute case dueDate — but never touch a completed case's history.
+    let caseDueUpdated: SeedItem['case_due_updated'] = null
+    if (existingCase && existingCase.status !== 'COMPLETED' && existingCase.dueDate !== resolvedDue) {
+      await prisma.partnershipCase.update({
+        where: { id: existingCase.id },
+        data: { dueDate: resolvedDue },
+      })
+      caseDueUpdated = { from: existingCase.dueDate, to: resolvedDue }
+      await writeGstAudit({
+        gstProfileId: profile.id,
+        action: 'GST_CASE_DUE_DATE_RECOMPUTED',
+        stage: kind.toLowerCase(),
+        userId: session.userId,
+        employeeId: session.employeeId ?? null,
+        oldValue: existingCase.dueDate,
+        newValue: resolvedDue,
+        meta: { period, kind, case_id: existingCase.id },
+      })
+    }
 
     // One task per case — the FK is not unique in the schema, so idempotency
     // lives here: find, then create only when absent. See §4's task-per-return
     // decision; stage-level tasks would drop this guard.
     const existingTask = await prisma.task.findFirst({
       where: { partnershipCaseId: c.id, deletedAt: null },
-      select: { id: true },
+      select: { id: true, dueDate: true, status: true },
     })
-    const dueDate = c.dueDate ?? defaultDueDateFor(period, kind)
-    if (!dueDate) {
-      skipped.push({ kind, reason: 'no due date could be derived' })
-      continue
-    }
     let taskId: string
     let taskCreated: boolean
+    let taskDueUpdated: SeedItem['task_due_updated'] = null
     if (existingTask) {
       taskId = existingTask.id
       taskCreated = false
+      if (!TERMINAL_TASK_STATUS.has(existingTask.status) && existingTask.dueDate !== resolvedDue) {
+        await prisma.task.update({
+          where: { id: existingTask.id },
+          data: { dueDate: resolvedDue },
+        })
+        taskDueUpdated = { from: existingTask.dueDate, to: resolvedDue }
+        await writeGstAudit({
+          gstProfileId: profile.id,
+          action: 'GST_TASK_DUE_DATE_RECOMPUTED',
+          stage: kind.toLowerCase(),
+          userId: session.userId,
+          employeeId: session.employeeId ?? null,
+          oldValue: existingTask.dueDate,
+          newValue: resolvedDue,
+          meta: { period, kind, task_id: existingTask.id, case_id: c.id },
+        })
+      }
     } else {
       const t = await TaskService.create(session, {
         title: `${KIND_TITLE[kind]} · ${period}`,
         assignedEmployeeId: profile.assignedEmployeeId,
         priority: 'medium',
-        dueDate,
+        dueDate: resolvedDue,
         clientId,
         partnershipCaseId: c.id,
       })
@@ -367,8 +413,32 @@ gstRouter.post('/period/seed', handler(async (req, res) => {
       case_created: !existingCase,
       task_id: taskId,
       task_created: taskCreated,
+      case_due_updated: caseDueUpdated,
+      task_due_updated: taskDueUpdated,
     })
   }
+
+  // One summary audit row per seed call — captures the shape of the run
+  // for the append-only log even when nothing new was created (idempotent
+  // call, but the operator's *intent* is still worth recording).
+  await writeGstAudit({
+    gstProfileId: profile.id,
+    action: 'GST_PERIOD_SEEDED',
+    stage: 'period',
+    userId: session.userId,
+    employeeId: session.employeeId ?? null,
+    newValue: period,
+    meta: {
+      period,
+      client_id: clientId,
+      applicable_kinds: applicableKinds,
+      created_cases: items.filter((i) => i.case_created).length,
+      created_tasks: items.filter((i) => i.task_created).length,
+      recomputed_cases: items.filter((i) => i.case_due_updated).length,
+      recomputed_tasks: items.filter((i) => i.task_due_updated).length,
+      skipped,
+    },
+  })
 
   ok(res, { period, client_id: clientId, items, skipped })
 }))
@@ -414,8 +484,10 @@ gstRouter.get('/client-dashboard', handler(async (req, res) => {
   const caseByKey = new Map<string, (typeof cases)[number]>()
   for (const c of cases) caseByKey.set(`${c.clientId}::${c.kind}`, c)
 
+  const resolver = await createRuleResolver(prisma)
+
   type ReturnCell = { state: 'done' | 'due' | 'overdue' | 'not_started'; due_date: string | null; case_id: string | null; arn: string | null } | null
-  function cellFor(clientId: string, kind: 'GSTR1' | 'GSTR2B' | 'GSTR3B', filingFrequency: string): ReturnCell {
+  async function cellFor(clientId: string, kind: 'GSTR1' | 'GSTR2B' | 'GSTR3B', filingFrequency: string): Promise<ReturnCell> {
     // Quarterly clients: nothing due except in month 3 of the quarter. Month 3
     // is April/July/October/January when period = YYYY-MM. § 2.2 of the spec.
     if (filingFrequency === 'quarterly') {
@@ -424,7 +496,7 @@ gstRouter.get('/client-dashboard', handler(async (req, res) => {
       if (!quarterEndMonths.includes(mo)) return null
     }
     const c = caseByKey.get(`${clientId}::${kind}`)
-    const due = c?.dueDate ?? defaultDueDateFor(period, kind)
+    const due = c?.dueDate ?? await resolver.dueDateFor(period, kind, filingFrequency as FilingFrequency)
     // ARN for the "✓ 11 Oct · ARN AA...X" mockup lives in detailsJson.
     let arn: string | null = null
     if (c?.detailsJson) {
@@ -437,7 +509,7 @@ gstRouter.get('/client-dashboard', handler(async (req, res) => {
     return { state, due_date: due, case_id: c?.id ?? null, arn }
   }
 
-  const clients = profiles.map((p) => ({
+  const clients = await Promise.all(profiles.map(async (p) => ({
     client_id: p.clientId,
     gst_profile_id: p.id,
     name: p.client.companyName,
@@ -445,10 +517,10 @@ gstRouter.get('/client-dashboard', handler(async (req, res) => {
     filing_frequency: p.filingFrequency,
     assigned_employee_id: p.assignedEmployeeId,
     reviewer_employee_id: p.reviewerEmployeeId,
-    gstr1: cellFor(p.clientId, 'GSTR1', p.filingFrequency),
-    gstr2b: cellFor(p.clientId, 'GSTR2B', p.filingFrequency),
-    gstr3b: cellFor(p.clientId, 'GSTR3B', p.filingFrequency),
-  }))
+    gstr1: await cellFor(p.clientId, 'GSTR1', p.filingFrequency),
+    gstr2b: await cellFor(p.clientId, 'GSTR2B', p.filingFrequency),
+    gstr3b: await cellFor(p.clientId, 'GSTR3B', p.filingFrequency),
+  })))
 
   // Counters — same period.
   const counters = {
