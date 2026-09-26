@@ -31,15 +31,15 @@ function gate(permission: string, message: string) {
     if (!can(session, permission as never, 'self')) throw ApiError.forbidden(message)
   }
 }
-const requireVoucherRead = gate('tools.audit_automation.tally.voucher.read', 'You do not have permission to view Tally vouchers.')
-const requireVoucherManage = gate('tools.audit_automation.tally.voucher.manage', 'You do not have permission to create or alter Tally vouchers.')
-const requireVoucherCancel = gate('tools.audit_automation.tally.voucher.cancel', 'You do not have permission to cancel Tally vouchers.')
-const requireReportRead = gate('tools.audit_automation.tally.report.read', 'You do not have permission to view Tally reports.')
-const requireAuditRead = gate('tools.audit_automation.tally.audit.read', 'You do not have permission to view the Tally audit trail.')
-const requireSettings = gate('tools.audit_automation.tally.settings.manage', 'You do not have permission to change Tally settings.')
-const requireData = gate('tools.audit_automation.tally.data.manage', 'You do not have permission to import, export, back up or restore Tally data.')
-const requireMasterRead = gate('tools.audit_automation.tally.master.read', 'You do not have permission to view Tally masters.')
-const requireMasterManage = gate('tools.audit_automation.tally.master.manage', 'You do not have permission to manage Tally masters.')
+const requireVoucherRead = gate('tools.audit_automation.bookkeeping.voucher.read', 'You do not have permission to view Tally vouchers.')
+const requireVoucherManage = gate('tools.audit_automation.bookkeeping.voucher.manage', 'You do not have permission to create or alter Tally vouchers.')
+const requireVoucherCancel = gate('tools.audit_automation.bookkeeping.voucher.cancel', 'You do not have permission to cancel Tally vouchers.')
+const requireReportRead = gate('tools.audit_automation.bookkeeping.report.read', 'You do not have permission to view Tally reports.')
+const requireAuditRead = gate('tools.audit_automation.bookkeeping.audit.read', 'You do not have permission to view the Tally audit trail.')
+const requireSettings = gate('tools.audit_automation.bookkeeping.settings.manage', 'You do not have permission to change Tally settings.')
+const requireData = gate('tools.audit_automation.bookkeeping.data.manage', 'You do not have permission to import, export, back up or restore Tally data.')
+const requireMasterRead = gate('tools.audit_automation.bookkeeping.master.read', 'You do not have permission to view Tally masters.')
+const requireMasterManage = gate('tools.audit_automation.bookkeeping.master.manage', 'You do not have permission to manage Tally masters.')
 
 const periodOf = (q: Record<string, unknown>) => ({
   from: typeof q.from === 'string' && q.from ? q.from : null,

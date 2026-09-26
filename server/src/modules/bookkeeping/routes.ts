@@ -23,22 +23,22 @@ import { registerExtendedBookkeepingRoutes } from './routes.extended.js'
 export const bookkeepingRouter = Router()
 
 function requireAccess(session: Session) {
-  if (!can(session, 'tools.audit_automation.tally.access', 'self')) {
+  if (!can(session, 'tools.audit_automation.bookkeeping.access', 'self')) {
     throw ApiError.forbidden('You do not have access to Tally.')
   }
 }
 function requireCompanyManage(session: Session) {
-  if (!can(session, 'tools.audit_automation.tally.company.manage', 'self')) {
+  if (!can(session, 'tools.audit_automation.bookkeeping.company.manage', 'self')) {
     throw ApiError.forbidden('You do not have permission to manage Tally companies.')
   }
 }
 function requireMasterRead(session: Session) {
-  if (!can(session, 'tools.audit_automation.tally.master.read', 'self')) {
+  if (!can(session, 'tools.audit_automation.bookkeeping.master.read', 'self')) {
     throw ApiError.forbidden('You do not have permission to view Tally masters.')
   }
 }
 function requireMasterManage(session: Session) {
-  if (!can(session, 'tools.audit_automation.tally.master.manage', 'self')) {
+  if (!can(session, 'tools.audit_automation.bookkeeping.master.manage', 'self')) {
     throw ApiError.forbidden('You do not have permission to manage Tally masters.')
   }
 }
