@@ -57,7 +57,7 @@ export function BookkeepingVoucherEditor() {
   const toast = useToast();
   const { from } = usePeriod();
   const isEdit = Boolean(voucherId);
-  const base = `/tally/companies/${companyId}`;
+  const base = `/workstation/services/bookkeeping/companies/${companyId}`;
 
   const typesQ = useQuery({ queryKey: ['tally.voucherTypes', companyId], queryFn: () => bookkeepingAccountingApi.listVoucherTypes(companyId) });
   const ledgersQ = useQuery({ queryKey: ['tally.ledgers', companyId, ''], queryFn: () => bookkeepingApi.listLedgers(companyId) });

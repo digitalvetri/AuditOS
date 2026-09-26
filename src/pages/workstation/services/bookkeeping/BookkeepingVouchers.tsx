@@ -7,7 +7,7 @@ import { bookkeepingAccountingApi, type BookkeepingVoucher } from '@/modules/too
 import { DataTable, Money, Panel, Loading, usePeriod, ReportHeader, ExportButtons, StatusPill, type Column } from '@/modules/tools/bookkeeping/ui';
 
 /**
- * /tally/companies/:companyId/vouchers — the voucher register.
+ * /workstation/services/bookkeeping/companies/:companyId/vouchers — the voucher register.
  * Filter by type, date, ledger, status or free text; open any row to the
  * voucher, or start a new one in any configured voucher type.
  */
@@ -32,7 +32,7 @@ export function BookkeepingVouchers() {
     }),
   });
 
-  const base = `/tally/companies/${companyId}`;
+  const base = `/workstation/services/bookkeeping/companies/${companyId}`;
   const rows = vouchersQ.data?.items ?? [];
   const columns = voucherColumns(base);
 

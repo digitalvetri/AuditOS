@@ -36,7 +36,7 @@ export function BookkeepingReportPage() {
 function useCtx() {
   const { companyId = '' } = useParams();
   const { from, to } = usePeriod();
-  return { companyId, from, to, base: `/tally/companies/${companyId}` };
+  return { companyId, from, to, base: `/workstation/services/bookkeeping/companies/${companyId}` };
 }
 
 function BackLink() {
@@ -295,7 +295,7 @@ function GroupSummaryReport() {
 export function BookkeepingRegisterPage() {
   const { companyId = '', typeCode = '' } = useParams();
   const { from, to } = usePeriod();
-  const base = `/tally/companies/${companyId}`;
+  const base = `/workstation/services/bookkeeping/companies/${companyId}`;
   const navigate = useNavigate();
   const q = useQuery({
     queryKey: ['tally.register', companyId, typeCode, from, to],
@@ -438,7 +438,7 @@ function OutstandingsReport() {
 export function BookkeepingBookPage() {
   const { companyId = '', kind = 'cash' } = useParams();
   const { from, to } = usePeriod();
-  const base = `/tally/companies/${companyId}`;
+  const base = `/workstation/services/bookkeeping/companies/${companyId}`;
   const q = useQuery({
     queryKey: ['tally.book', companyId, kind, from, to],
     queryFn: () => bookkeepingAccountingApi.book(companyId, kind as 'cash' | 'bank', { from, to }),
@@ -482,7 +482,7 @@ export function BookkeepingBookPage() {
 export function BookkeepingLedgerStatement() {
   const { companyId = '', ledgerId = '' } = useParams();
   const { from, to } = usePeriod();
-  const base = `/tally/companies/${companyId}`;
+  const base = `/workstation/services/bookkeeping/companies/${companyId}`;
   const navigate = useNavigate();
   const q = useQuery({
     queryKey: ['tally.ledgerStatement', companyId, ledgerId, from, to],
