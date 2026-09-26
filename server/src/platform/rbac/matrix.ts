@@ -106,17 +106,17 @@ export type PermissionCode =
   | 'tools.audit_automation.gst.view'
   | 'tools.audit_automation.tds.upload'
   | 'tools.audit_automation.tds.view'
-  | 'tools.audit_automation.tally.access'
-  | 'tools.audit_automation.tally.company.manage'
-  | 'tools.audit_automation.tally.master.read'
-  | 'tools.audit_automation.tally.master.manage'
-  | 'tools.audit_automation.tally.voucher.read'
-  | 'tools.audit_automation.tally.voucher.manage'
-  | 'tools.audit_automation.tally.voucher.cancel'
-  | 'tools.audit_automation.tally.report.read'
-  | 'tools.audit_automation.tally.audit.read'
-  | 'tools.audit_automation.tally.settings.manage'
-  | 'tools.audit_automation.tally.data.manage'
+  | 'tools.audit_automation.bookkeeping.access'
+  | 'tools.audit_automation.bookkeeping.company.manage'
+  | 'tools.audit_automation.bookkeeping.master.read'
+  | 'tools.audit_automation.bookkeeping.master.manage'
+  | 'tools.audit_automation.bookkeeping.voucher.read'
+  | 'tools.audit_automation.bookkeeping.voucher.manage'
+  | 'tools.audit_automation.bookkeeping.voucher.cancel'
+  | 'tools.audit_automation.bookkeeping.report.read'
+  | 'tools.audit_automation.bookkeeping.audit.read'
+  | 'tools.audit_automation.bookkeeping.settings.manage'
+  | 'tools.audit_automation.bookkeeping.data.manage'
 
   // ── Books (docs/books-zoho/README.md) — Tools → Books, backed by Zoho Books.
   // Organisation scope only: a Zoho organisation has no per-user membership,
@@ -203,17 +203,17 @@ export const MATRIX: Record<RoleCode, Grant[]> = {
     { permission: 'tools.audit_automation.gst.view', scope: 'self' },
     { permission: 'tools.audit_automation.tds.upload', scope: 'self' },
     { permission: 'tools.audit_automation.tds.view', scope: 'self' },
-    { permission: 'tools.audit_automation.tally.access', scope: 'self' },
-    { permission: 'tools.audit_automation.tally.company.manage', scope: 'self' },
-    { permission: 'tools.audit_automation.tally.master.read', scope: 'self' },
-    { permission: 'tools.audit_automation.tally.master.manage', scope: 'self' },
-    { permission: 'tools.audit_automation.tally.voucher.read', scope: 'self' },
-    { permission: 'tools.audit_automation.tally.voucher.manage', scope: 'self' },
-    { permission: 'tools.audit_automation.tally.voucher.cancel', scope: 'self' },
-    { permission: 'tools.audit_automation.tally.report.read', scope: 'self' },
-    { permission: 'tools.audit_automation.tally.audit.read', scope: 'self' },
-    { permission: 'tools.audit_automation.tally.settings.manage', scope: 'self' },
-    { permission: 'tools.audit_automation.tally.data.manage', scope: 'self' },
+    { permission: 'tools.audit_automation.bookkeeping.access', scope: 'self' },
+    { permission: 'tools.audit_automation.bookkeeping.company.manage', scope: 'self' },
+    { permission: 'tools.audit_automation.bookkeeping.master.read', scope: 'self' },
+    { permission: 'tools.audit_automation.bookkeeping.master.manage', scope: 'self' },
+    { permission: 'tools.audit_automation.bookkeeping.voucher.read', scope: 'self' },
+    { permission: 'tools.audit_automation.bookkeeping.voucher.manage', scope: 'self' },
+    { permission: 'tools.audit_automation.bookkeeping.voucher.cancel', scope: 'self' },
+    { permission: 'tools.audit_automation.bookkeeping.report.read', scope: 'self' },
+    { permission: 'tools.audit_automation.bookkeeping.audit.read', scope: 'self' },
+    { permission: 'tools.audit_automation.bookkeeping.settings.manage', scope: 'self' },
+    { permission: 'tools.audit_automation.bookkeeping.data.manage', scope: 'self' },
   ],
   dept_manager: [
     { permission: 'profile.read', scope: 'self' },
@@ -300,17 +300,17 @@ export const MATRIX: Record<RoleCode, Grant[]> = {
     { permission: 'tools.audit_automation.gst.view', scope: 'organisation' },
     { permission: 'tools.audit_automation.tds.upload', scope: 'organisation' },
     { permission: 'tools.audit_automation.tds.view', scope: 'organisation' },
-    { permission: 'tools.audit_automation.tally.access', scope: 'organisation' },
-    { permission: 'tools.audit_automation.tally.company.manage', scope: 'organisation' },
-    { permission: 'tools.audit_automation.tally.master.read', scope: 'organisation' },
-    { permission: 'tools.audit_automation.tally.master.manage', scope: 'organisation' },
-    { permission: 'tools.audit_automation.tally.voucher.read', scope: 'organisation' },
-    { permission: 'tools.audit_automation.tally.voucher.manage', scope: 'organisation' },
-    { permission: 'tools.audit_automation.tally.voucher.cancel', scope: 'organisation' },
-    { permission: 'tools.audit_automation.tally.report.read', scope: 'organisation' },
-    { permission: 'tools.audit_automation.tally.audit.read', scope: 'organisation' },
-    { permission: 'tools.audit_automation.tally.settings.manage', scope: 'organisation' },
-    { permission: 'tools.audit_automation.tally.data.manage', scope: 'organisation' },
+    { permission: 'tools.audit_automation.bookkeeping.access', scope: 'organisation' },
+    { permission: 'tools.audit_automation.bookkeeping.company.manage', scope: 'organisation' },
+    { permission: 'tools.audit_automation.bookkeeping.master.read', scope: 'organisation' },
+    { permission: 'tools.audit_automation.bookkeeping.master.manage', scope: 'organisation' },
+    { permission: 'tools.audit_automation.bookkeeping.voucher.read', scope: 'organisation' },
+    { permission: 'tools.audit_automation.bookkeeping.voucher.manage', scope: 'organisation' },
+    { permission: 'tools.audit_automation.bookkeeping.voucher.cancel', scope: 'organisation' },
+    { permission: 'tools.audit_automation.bookkeeping.report.read', scope: 'organisation' },
+    { permission: 'tools.audit_automation.bookkeeping.audit.read', scope: 'organisation' },
+    { permission: 'tools.audit_automation.bookkeeping.settings.manage', scope: 'organisation' },
+    { permission: 'tools.audit_automation.bookkeeping.data.manage', scope: 'organisation' },
     // Books: every Zoho Books organisation the firm has activated.
     { permission: 'books.access', scope: 'organisation' },
     { permission: 'books.manage', scope: 'organisation' },
@@ -465,17 +465,17 @@ export const MATRIX: Record<RoleCode, Grant[]> = {
     { permission: 'tools.audit_automation.gst.view', scope: 'organisation' },
     { permission: 'tools.audit_automation.tds.upload', scope: 'organisation' },
     { permission: 'tools.audit_automation.tds.view', scope: 'organisation' },
-    { permission: 'tools.audit_automation.tally.access', scope: 'organisation' },
-    { permission: 'tools.audit_automation.tally.company.manage', scope: 'organisation' },
-    { permission: 'tools.audit_automation.tally.master.read', scope: 'organisation' },
-    { permission: 'tools.audit_automation.tally.master.manage', scope: 'organisation' },
-    { permission: 'tools.audit_automation.tally.voucher.read', scope: 'organisation' },
-    { permission: 'tools.audit_automation.tally.voucher.manage', scope: 'organisation' },
-    { permission: 'tools.audit_automation.tally.voucher.cancel', scope: 'organisation' },
-    { permission: 'tools.audit_automation.tally.report.read', scope: 'organisation' },
-    { permission: 'tools.audit_automation.tally.audit.read', scope: 'organisation' },
-    { permission: 'tools.audit_automation.tally.settings.manage', scope: 'organisation' },
-    { permission: 'tools.audit_automation.tally.data.manage', scope: 'organisation' },
+    { permission: 'tools.audit_automation.bookkeeping.access', scope: 'organisation' },
+    { permission: 'tools.audit_automation.bookkeeping.company.manage', scope: 'organisation' },
+    { permission: 'tools.audit_automation.bookkeeping.master.read', scope: 'organisation' },
+    { permission: 'tools.audit_automation.bookkeeping.master.manage', scope: 'organisation' },
+    { permission: 'tools.audit_automation.bookkeeping.voucher.read', scope: 'organisation' },
+    { permission: 'tools.audit_automation.bookkeeping.voucher.manage', scope: 'organisation' },
+    { permission: 'tools.audit_automation.bookkeeping.voucher.cancel', scope: 'organisation' },
+    { permission: 'tools.audit_automation.bookkeeping.report.read', scope: 'organisation' },
+    { permission: 'tools.audit_automation.bookkeeping.audit.read', scope: 'organisation' },
+    { permission: 'tools.audit_automation.bookkeeping.settings.manage', scope: 'organisation' },
+    { permission: 'tools.audit_automation.bookkeeping.data.manage', scope: 'organisation' },
     // Books: every Zoho Books organisation the firm has activated.
     { permission: 'books.access', scope: 'organisation' },
     { permission: 'books.manage', scope: 'organisation' },
@@ -600,10 +600,10 @@ export const PERMISSION_DESCRIPTIONS: Record<string, string> = {
   'tools.audit_automation.gst.view': 'View GST reconciliation jobs and results',
   'tools.audit_automation.tds.upload': 'Upload Form 26AS or TDS books and run reconciliation',
   'tools.audit_automation.tds.view': 'View TDS reconciliation jobs and results',
-  'tools.audit_automation.tally.access': 'Open the Tally accounting module',
-  'tools.audit_automation.tally.company.manage': 'Create and edit Tally companies and financial years',
-  'tools.audit_automation.tally.master.read': 'View Tally groups and ledgers',
-  'tools.audit_automation.tally.master.manage': 'Create, edit and delete Tally groups and ledgers',
+  'tools.audit_automation.bookkeeping.access': 'Open the Tally accounting module',
+  'tools.audit_automation.bookkeeping.company.manage': 'Create and edit Tally companies and financial years',
+  'tools.audit_automation.bookkeeping.master.read': 'View Tally groups and ledgers',
+  'tools.audit_automation.bookkeeping.master.manage': 'Create, edit and delete Tally groups and ledgers',
   'books.access': 'View Books (Zoho Books) data',
   'books.manage': 'Create and edit Books records; run a sync',
   'books.settings': 'Connect Zoho Books, activate and map organisations, manage taxes',
