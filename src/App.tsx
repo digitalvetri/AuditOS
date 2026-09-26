@@ -54,33 +54,25 @@ import { TdsJobsListPage } from '@/pages/tools/TdsJobsList';
 import { TdsNewReconPage } from '@/pages/tools/TdsNewRecon';
 import { TdsReconDetailPage } from '@/pages/tools/TdsReconDetail';
 // Tally — native double-entry accounting (Preview, Slice 1: Foundation).
-import { TallyHome } from '@/pages/tools/tally/TallyHome';
-import { TallyCompanies } from '@/pages/tools/tally/TallyCompanies';
-import { TallyWorkspace } from '@/pages/tools/tally/TallyWorkspace';
-import { TallyGroups } from '@/pages/tools/tally/TallyGroups';
-import { TallyLedgers } from '@/pages/tools/tally/TallyLedgers';
-import { TallyDashboard } from '@/pages/tools/tally/TallyDashboard';
-import { TallyVouchers } from '@/pages/tools/tally/TallyVouchers';
-import { TallyVoucherEditor } from '@/pages/tools/tally/TallyVoucherEditor';
-import { TallyVoucherDetail } from '@/pages/tools/tally/TallyVoucherDetail';
-import { TallyReports } from '@/pages/tools/tally/TallyReports';
-import { TallyReportPage, TallyRegisterPage, TallyBookPage, TallyLedgerStatement } from '@/pages/tools/tally/TallyReportPage';
-import { TallyInventory, TallyStockItemPage } from '@/pages/tools/tally/TallyInventory';
-import { TallyBanking } from '@/pages/tools/tally/TallyBanking';
-import { TallyGst } from '@/pages/tools/tally/TallyGst';
-import { TallyTrade } from '@/pages/tools/tally/TallyTrade';
-import { TallyPayroll } from '@/pages/tools/tally/TallyPayroll';
-import { TallyAudit } from '@/pages/tools/tally/TallyAudit';
-import { TallyUtilities } from '@/pages/tools/tally/TallyUtilities';
-import { TallySettings } from '@/pages/tools/tally/TallySettings';
-// Bookkeeping Service — Workstation → Services → Bookkeeping. Manages the
-// service workflow; all accounting stays in Books.
-import { BookkeepingShell } from '@/pages/workstation/bookkeeping/BookkeepingShell';
-import { BookkeepingOverviewPage } from '@/pages/workstation/bookkeeping/Overview';
-import { BookkeepingClientsPage, BookkeepingClientDetailPage } from '@/pages/workstation/bookkeeping/Clients';
-import { BookkeepingMonthlyWorkPage, BookkeepingPeriodDetailPage } from '@/pages/workstation/bookkeeping/MonthlyWork';
-import { BookkeepingSettingsPage } from '@/pages/workstation/bookkeeping/Lists';
-
+import { TallyHome } from '@/pages/workstation/services/bookkeeping/TallyHome';
+import { TallyCompanies } from '@/pages/workstation/services/bookkeeping/TallyCompanies';
+import { TallyWorkspace } from '@/pages/workstation/services/bookkeeping/TallyWorkspace';
+import { TallyGroups } from '@/pages/workstation/services/bookkeeping/TallyGroups';
+import { TallyLedgers } from '@/pages/workstation/services/bookkeeping/TallyLedgers';
+import { TallyDashboard } from '@/pages/workstation/services/bookkeeping/TallyDashboard';
+import { TallyVouchers } from '@/pages/workstation/services/bookkeeping/TallyVouchers';
+import { TallyVoucherEditor } from '@/pages/workstation/services/bookkeeping/TallyVoucherEditor';
+import { TallyVoucherDetail } from '@/pages/workstation/services/bookkeeping/TallyVoucherDetail';
+import { TallyReports } from '@/pages/workstation/services/bookkeeping/TallyReports';
+import { TallyReportPage, TallyRegisterPage, TallyBookPage, TallyLedgerStatement } from '@/pages/workstation/services/bookkeeping/TallyReportPage';
+import { TallyInventory, TallyStockItemPage } from '@/pages/workstation/services/bookkeeping/TallyInventory';
+import { TallyBanking } from '@/pages/workstation/services/bookkeeping/TallyBanking';
+import { TallyGst } from '@/pages/workstation/services/bookkeeping/TallyGst';
+import { TallyTrade } from '@/pages/workstation/services/bookkeeping/TallyTrade';
+import { TallyPayroll } from '@/pages/workstation/services/bookkeeping/TallyPayroll';
+import { TallyAudit } from '@/pages/workstation/services/bookkeeping/TallyAudit';
+import { TallyUtilities } from '@/pages/workstation/services/bookkeeping/TallyUtilities';
+import { TallySettings } from '@/pages/workstation/services/bookkeeping/TallySettings';
 // GST — dedicated landing page + per-service AssistedHandoff detail +
 // shape-based workspace dispatcher (recurring period board / project case
 // pipeline) + weekly notice-check discovery workflow.
@@ -99,6 +91,7 @@ import { GstShell } from '@/pages/workstation/registration/gst/GstShell';
 import { GstRegistrationTab } from '@/pages/workstation/registration/gst/GstRegistrationTab';
 import { GstDashboard } from '@/pages/workstation/registration/gst/GstDashboard';
 import { GstClients } from '@/pages/workstation/registration/gst/GstClients';
+import { GstClientView } from '@/pages/workstation/registration/gst/GstClientView';
 // GstStagePage + GstPeriodDetail deleted in §9-4 — the return tabs
 // render PartnershipClients, and the dashboard's 1 › 2B › Recon › 3B
 // chain nodes open the shared PartnershipCase directly.
@@ -240,27 +233,6 @@ export default function App() {
               <Route path="workstation/clients/:id" element={<ClientWorkspacePage />} />
               <Route path="workstation/clients/:id/:tab" element={<ClientWorkspacePage />} />
               <Route path="workstation/services" element={<ServicesPage />} />
-              {/* Bookkeeping Service — a real module, so it is declared
-                  BEFORE the :category catch-all below that renders every
-                  other service slug as the placeholder Services page. */}
-              <Route path="workstation/services/bookkeeping" element={<BookkeepingShell />}>
-                <Route index element={<BookkeepingOverviewPage />} />
-                <Route path="clients" element={<BookkeepingClientsPage />} />
-                <Route path="clients/:clientId" element={<BookkeepingClientDetailPage />} />
-                <Route path="monthly-work" element={<BookkeepingMonthlyWorkPage />} />
-                <Route path="monthly-work/:periodId" element={<BookkeepingPeriodDetailPage />} />
-                <Route path="settings" element={<BookkeepingSettingsPage />} />
-                {/* Spec §3: the five retired tabs REDIRECT to their new home
-                    with the equivalent filter, so an old bookmark still
-                    lands somewhere meaningful rather than 404. Reminders had
-                    no in-module home (spec: "notifications, not a page") —
-                    it redirects to Overview without a filter. */}
-                <Route path="tasks" element={<Navigate to="..?group=task" replace />} />
-                <Route path="pending-items" element={<Navigate to="..?tile=blocked" replace />} />
-                <Route path="documents" element={<Navigate to="../monthly-work" replace />} />
-                <Route path="deliverables" element={<Navigate to="../monthly-work" replace />} />
-                <Route path="reminders" element={<Navigate to=".." replace />} />
-              </Route>
               {/* TDS module — copied from GST structure, wins over the
                   :category catch-all below. */}
               <Route path="workstation/services/tds" element={<TdsServicesLanding />} />
@@ -297,13 +269,28 @@ export default function App() {
                     so PartnershipClients.navigate hits the right route. */}
                 <Route path="registration/clients/:caseId" element={<PartnershipCase />} />
                 <Route path="clients" element={<GstClients />} />
-                {/* Return-cycle client lists (§9-3). PartnershipClients is
-                    service-agnostic and reads the per-return service via
-                    ServiceProvider; the period selector switches on
-                    isReturnKind so registration lists stay period-less. */}
-                <Route path="gstr1" element={<ServiceProvider kind="GSTR1"><PartnershipClients /></ServiceProvider>} />
-                <Route path="gstr2b" element={<ServiceProvider kind="GSTR2B"><PartnershipClients /></ServiceProvider>} />
-                <Route path="gstr3b" element={<ServiceProvider kind="GSTR3B"><PartnershipClients /></ServiceProvider>} />
+                {/* Row-click landing from the client dashboard —
+                    GST-CLIENT-DASHBOARD-TASKS §2. */}
+                <Route path="clients/:clientId" element={<GstClientView />} />
+                {/* Return-cycle client lists — unified with the dashboard so
+                    a row click lands on the same client view regardless of
+                    entry point, and the roster is every GST client (not just
+                    those with an existing case for the period). The three
+                    tabs render the same table as /dashboard with a header
+                    that names the return in focus. Case detail is still one
+                    click away from the client view's "Open case" action.
+
+                    `/clients` aliases exist because PartnershipCase's
+                    "Back to X Clients" link resolves to `${base}/clients`
+                    — for return kinds that URL had no route registered
+                    and 404'd from case detail. Both `/gst/gstr1` and
+                    `/gst/gstr1/clients` land on the same focused list. */}
+                <Route path="gstr1" element={<GstDashboard focusKind="GSTR1" />} />
+                <Route path="gstr1/clients" element={<GstDashboard focusKind="GSTR1" />} />
+                <Route path="gstr2b" element={<GstDashboard focusKind="GSTR2B" />} />
+                <Route path="gstr2b/clients" element={<GstDashboard focusKind="GSTR2B" />} />
+                <Route path="gstr3b" element={<GstDashboard focusKind="GSTR3B" />} />
+                <Route path="gstr3b/clients" element={<GstDashboard focusKind="GSTR3B" />} />
                 {/* Return-cycle cases (§9-2). The shared PartnershipCase
                     renders inside a per-return ServiceProvider so useSvc()
                     resolves to the right template, api and detailsLabel.
@@ -384,9 +371,9 @@ export default function App() {
 
               {/* Tally — native double-entry accounting. Sits alongside
                   Tools, Repotic and Books in the TOOLS sidebar section. */}
-              <Route path="tally" element={<TallyHome />} />
-              <Route path="tally/companies" element={<TallyCompanies />} />
-              <Route path="tally/companies/:companyId" element={<TallyWorkspace />}>
+              <Route path="workstation/services/bookkeeping" element={<TallyHome />} />
+              <Route path="workstation/services/bookkeeping/companies" element={<TallyCompanies />} />
+              <Route path="workstation/services/bookkeeping/companies/:companyId" element={<TallyWorkspace />}>
                 <Route index element={<TallyDashboard />} />
                 <Route path="masters/groups" element={<TallyGroups />} />
                 <Route path="masters/ledgers" element={<TallyLedgers />} />

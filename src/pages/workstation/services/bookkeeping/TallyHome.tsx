@@ -31,7 +31,7 @@ export function TallyHome() {
             Native double-entry accounting — companies, ledgers, vouchers, inventory, GST/TDS, reports.
           </p>
         </div>
-        <Link to="/tally/companies">
+        <Link to="/workstation/services/bookkeeping/companies">
           <Button variant="secondary" size="sm">Manage companies</Button>
         </Link>
       </header>
@@ -69,7 +69,7 @@ function EmptyState() {
         company to get started — primary groups and the current financial year
         are set up automatically.
       </p>
-      <Link to="/tally/companies">
+      <Link to="/workstation/services/bookkeeping/companies">
         <Button variant="primary" size="sm">
           <Plus size={14} strokeWidth={1.75} className="mr-1" /> Create company
         </Button>

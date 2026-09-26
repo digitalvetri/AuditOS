@@ -28,6 +28,7 @@ export interface PortalRecord {
 }
 
 export type PasswordField = 'portal_password' | 'ewb_password' | 'irp_password';
+export type AccessAction = 'show' | 'copy';
 
 export const gstPortalApi = {
   get: (gstProfileId: string) =>
@@ -46,6 +47,16 @@ export const gstPortalApi = {
     irp_username: string | null;
     irp_password: string | null;
   }>) => api.put<{ record: PortalRecord }>(`/api/gst-portal/${gstProfileId}`, input),
-  reveal: (gstProfileId: string, field: PasswordField) =>
-    api.post<{ field: PasswordField; value: string | null }>(`/api/gst-portal/${gstProfileId}/reveal`, { field }),
+  /** Reveal a password field. `action` distinguishes "operator looked at
+   *  it" from "operator put it on the clipboard" in the audit trail. */
+  reveal: (gstProfileId: string, field: PasswordField, action: AccessAction = 'show') =>
+    api.post<{ field: PasswordField; action: AccessAction; value: string | null }>(
+      `/api/gst-portal/${gstProfileId}/reveal`, { field, action },
+    ),
+  /** Log a username access. Usernames aren't secret, but the PortalPanel
+   *  audit-every-copy contract lives here. `.view` scope, no decryption. */
+  logAccess: (gstProfileId: string, input: { field: 'portal_username'; action: AccessAction }) =>
+    api.post<{ field: string; action: AccessAction; logged: true }>(
+      `/api/gst-portal/${gstProfileId}/log-access`, input,
+    ),
 };

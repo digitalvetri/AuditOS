@@ -114,6 +114,12 @@ export interface EstimatedVsActual {
 
 export interface TaskFilters extends Record<string, string | number | boolean | null | undefined> {
   status?: string; priority?: string; employee_id?: string; client_id?: string; project_id?: string;
+  /**
+   * Comma-separated GST return-cycle case ids — GST-CLIENT-DASHBOARD-TASKS §4.
+   * GstClientView passes the three case ids from its /client-view payload to
+   * pull the per-client per-period task list in one round-trip.
+   */
+  partnership_case_ids?: string;
   due_from?: string; due_to?: string; created_from?: string; created_to?: string;
   overdue?: boolean; q?: string; sort?: string; limit?: number; offset?: number;
 }

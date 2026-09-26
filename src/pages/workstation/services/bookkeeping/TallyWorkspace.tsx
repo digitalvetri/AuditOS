@@ -37,7 +37,7 @@ export function TallyWorkspace() {
     <PeriodProvider financialYears={fyQ.data?.items ?? []}>
       <div className="max-w-[1600px] mx-auto" data-testid="tally-workspace">
         <div className="mb-3 flex items-center gap-3">
-          <Link to="/tally/companies" className="inline-flex items-center gap-1 text-13 text-neutral-500 hover:text-neutral-900">
+          <Link to="/workstation/services/bookkeeping/companies" className="inline-flex items-center gap-1 text-13 text-neutral-500 hover:text-neutral-900">
             <ArrowLeft size={14} strokeWidth={1.75} /> Companies
           </Link>
         </div>

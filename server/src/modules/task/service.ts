@@ -25,6 +25,13 @@ export interface TaskFilters {
   employeeId?: string
   clientId?: string
   clientServiceId?: string
+  /**
+   * The tasks for a set of GST return cases — GST-CLIENT-DASHBOARD-TASKS §4
+   * fills this from the three case ids surfaced on the GstClientView, so the
+   * per-client per-period panel is one round-trip. An empty array matches
+   * nothing (there are no such tasks); undefined leaves the filter off.
+   */
+  partnershipCaseIdIn?: string[]
   dueFrom?: string
   dueTo?: string
   createdFrom?: string
@@ -192,6 +199,7 @@ export const TaskService = {
       ...(filters.employeeId ? { assignedEmployeeId: filters.employeeId } : {}),
       ...(filters.clientId ? { clientId: filters.clientId } : {}),
       ...(filters.clientServiceId ? { clientServiceId: filters.clientServiceId } : {}),
+      ...(filters.partnershipCaseIdIn ? { partnershipCaseId: { in: filters.partnershipCaseIdIn } } : {}),
       ...(filters.dueFrom || filters.dueTo
         ? { dueDate: { ...(filters.dueFrom ? { gte: filters.dueFrom } : {}), ...(filters.dueTo ? { lte: filters.dueTo } : {}) } }
         : {}),
@@ -282,6 +290,12 @@ export const TaskService = {
     dueDate: string
     clientId?: string | null
     clientServiceId?: string | null
+    /**
+     * Two-way link to the GST return-cycle case (schema commit 070a81d).
+     * Set by the GST period seed generator (§4) so completing the case's
+     * "Filed" item can close the task and vice versa.
+     */
+    partnershipCaseId?: string | null
     estimatedMinutes?: number | null
     notes?: string | null
     attachmentUrl?: string | null
@@ -320,6 +334,7 @@ export const TaskService = {
           dueDate: input.dueDate,
           clientId: input.clientId || null,
           clientServiceId: input.clientServiceId || null,
+          partnershipCaseId: input.partnershipCaseId || null,
           estimatedMinutes: input.estimatedMinutes ?? null,
           notes: input.notes?.trim() || null,
           attachmentUrl: input.attachmentUrl?.trim() || null,

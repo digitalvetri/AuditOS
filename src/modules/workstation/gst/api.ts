@@ -124,9 +124,84 @@ export interface StageQueue {
   page_size: number;
 }
 
+/** Client-dashboard row: one GSTIN, three return cells for the requested period. */
+export interface ClientDashboardCell {
+  state: 'done' | 'due' | 'overdue' | 'not_started';
+  due_date: string | null;
+  case_id: string | null;
+  arn: string | null;
+}
+export interface ClientDashboardRow {
+  client_id: string;
+  gst_profile_id: string;
+  name: string;
+  gstin: string;
+  filing_frequency: 'monthly' | 'quarterly';
+  assigned_employee_id: string | null;
+  reviewer_employee_id: string | null;
+  gstr1: ClientDashboardCell | null;
+  gstr2b: ClientDashboardCell | null;
+  gstr3b: ClientDashboardCell | null;
+}
+export interface ClientDashboardResponse {
+  period: string;
+  counters: {
+    total_clients: number;
+    monthly: number;
+    quarterly: number;
+    overdue: number;
+    due_soon: number;
+  };
+  clients: ClientDashboardRow[];
+}
+
+/** Client-view landing after clicking a dashboard row — GST-CLIENT-DASHBOARD-TASKS §2. */
+export interface ClientViewCell extends ClientDashboardCell {
+  filed_at: string | null;
+}
+export interface ClientViewResponse {
+  period: string;
+  client: { id: string; name: string };
+  gst_profile: {
+    id: string; gstin: string; legal_name: string | null; state: string | null;
+    registration_type: string; filing_frequency: 'monthly' | 'quarterly';
+    assigned_employee_id: string | null; reviewer_employee_id: string | null;
+  };
+  gstr1: ClientViewCell | null;
+  gstr2b: ClientViewCell | null;
+  gstr3b: ClientViewCell | null;
+  earlier: { period: string; gstr1_done: boolean; gstr2b_done: boolean; gstr3b_done: boolean }[];
+}
+
+/** Response from POST /api/gst/period/seed — GST-CLIENT-DASHBOARD-TASKS §4 + §5. */
+export interface SeedPeriodResponse {
+  period: string;
+  client_id: string;
+  items: {
+    kind: 'GSTR1' | 'GSTR2B' | 'GSTR3B';
+    case_id: string;
+    case_created: boolean;
+    task_id: string;
+    task_created: boolean;
+    /** Present when the resolver's date differed from a pre-existing case's
+     *  stored dueDate and the case was updated. Null when nothing changed. */
+    case_due_updated: { from: string | null; to: string } | null;
+    /** Same as case_due_updated but for the linked task. Null when the task
+     *  is already terminal (completed/cancelled) or the date already matched. */
+    task_due_updated: { from: string | null; to: string } | null;
+  }[];
+  skipped: { kind: string; reason: string }[];
+}
+
 export const gstApi = {
   stage: (stage: StageKey, f: PeriodFilters = {}) =>
     api.get<StageQueue>(`/api/gst/stages/${stage}${qs(f)}`),
+  clientDashboard: (period: string) =>
+    api.get<ClientDashboardResponse>(`/api/gst/client-dashboard?period=${encodeURIComponent(period)}`),
+  clientView: (clientId: string, period: string) =>
+    api.get<ClientViewResponse>(`/api/gst/client-view/${clientId}?period=${encodeURIComponent(period)}`),
+  seedPeriod: (clientId: string, period: string) =>
+    api.post<SeedPeriodResponse>('/api/gst/period/seed', { client_id: clientId, period }),
   overview: (f: Pick<PeriodFilters, 'fy' | 'period'> = {}) =>
     api.get<GstOverview>(`/api/gst/overview${qs(f)}`),
   periods: (f: PeriodFilters = {}) =>

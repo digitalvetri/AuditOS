@@ -2,6 +2,7 @@ import PDFDocument from 'pdfkit'
 import type { Response } from 'express'
 import type { Prisma } from '@prisma/client'
 import { formatINR } from '../../lib/money.js'
+import { resolveLogoBuffer } from '../pdf/logo.js'
 
 /**
  * QUOTATION PDF.
@@ -145,6 +146,16 @@ export function streamQuotationPdf(res: Response, q: QuotationPdfRow) {
     switch (b.key) {
       case 'company_header': {
         home()
+        // Logo above the company name — mirrors the on-screen preview.
+        // A missing or unreachable logo is a silent skip; a broken URL
+        // never fails the download.
+        const logoBuffer = resolveLogoBuffer(company.logo)
+        if (logoBuffer) {
+          try {
+            doc.image(logoBuffer, left, doc.y, { height: 44 })
+            doc.y += 50
+          } catch { /* invalid image bytes — skip */ }
+        }
         doc.font('Helvetica-Bold').fontSize(15).fillColor(INK)
           .text(company.name ?? 'Quotation', left, doc.y, { width })
         const addr = [company.addressLine1, company.addressLine2, company.city, company.state, company.pin]

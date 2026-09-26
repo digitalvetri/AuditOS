@@ -24,7 +24,7 @@ export function TallyCompanies() {
   return (
     <div className="max-w-[1200px] mx-auto" data-testid="tally-companies">
       <div className="mb-4">
-        <Link to="/tally" className="inline-flex items-center gap-1 text-13 text-neutral-500 hover:text-neutral-900">
+        <Link to="/workstation/services/bookkeeping" className="inline-flex items-center gap-1 text-13 text-neutral-500 hover:text-neutral-900">
           <ArrowLeft size={14} strokeWidth={1.75} /> Tally
         </Link>
       </div>

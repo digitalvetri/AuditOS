@@ -112,8 +112,8 @@ export function MobileNav({ onOpenMore }: Props) {
   }, [role, location.pathname]);
 
   // Exactly one tab may be active. `/workstation` and `/workstation/services`
-  // are both prefixes of `/workstation/services/bookkeeping`, so "does the
-  // path start with this tab" lights two at once — the winner is the longest
+  // are both prefixes of `/workstation/services/tds`, so "does the path
+  // start with this tab" lights two at once — the winner is the longest
   // matching `to`, i.e. the most specific tab.
   const activeTo = tabs
     .filter((t) =>

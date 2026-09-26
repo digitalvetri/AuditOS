@@ -62,10 +62,9 @@ export function EngagementActions({ letter, canManage, onError, onChanged }: {
   });
 
   const phone = waNumber(letter.party_contact_number);
-  const message = (link: string) =>
+  const message =
     `Engagement letter ${letter.letter_code}\n${letter.subject}\n`
-    + `Dated ${fmtDate(letter.letter_date)}${letter.financial_year ? ` · FY ${letter.financial_year}` : ''}\n`
-    + `\nEngagement letter PDF:\n${link}`;
+    + `Dated ${fmtDate(letter.letter_date)}${letter.financial_year ? ` · FY ${letter.financial_year}` : ''}`;
 
   const share = async (channel: ShareChannel) => {
     setOpen(false);

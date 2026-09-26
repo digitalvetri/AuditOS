@@ -1,11 +1,19 @@
 /**
- * Sending a Workstation document (quotation, engagement letter) as a PDF.
+ * Sending a Workstation document (invoice, quotation, engagement letter)
+ * as a PDF.
  *
- * wa.me and mailto: can only ever carry text, so the file reaches WhatsApp
- * through the Web Share API — the native share sheet is handed a real File,
- * and picking WhatsApp there attaches the document itself. Where that API is
- * absent (most desktop browsers) the PDF is saved and the channel opens with
- * a covering note and a link, so the action never silently does nothing.
+ * The PDF reaches the recipient as a real file, not as a link:
+ *   • On mobile, the Web Share API is available and the native share sheet
+ *     is handed the File — picking WhatsApp attaches the document itself.
+ *   • On desktop, the file is auto-saved to Downloads and the channel opens
+ *     with a covering note only; the sender attaches the saved file in the
+ *     WhatsApp / email client. This mirrors how people actually forward
+ *     documents — with the file, not a signed URL that expires.
+ *
+ * The covering message is plain text — no PDF link. Earlier versions
+ * appended the signed URL as a fallback, but that leaked short-lived tokens
+ * into user-controlled channels and, in practice, recipients ignored the
+ * link and asked for the file anyway.
  */
 
 /**
@@ -29,8 +37,8 @@ export async function shareDocumentPdf(o: {
   issueUrl: () => Promise<{ url: string }>;
   fileName: string;
   subject: string;
-  /** The covering note, given the absolute PDF link. */
-  message: (link: string) => string;
+  /** The covering note. Plain text — no PDF link is appended. */
+  message: string;
   channel: ShareChannel;
   phone?: string;
   email?: string | null;
@@ -55,7 +63,7 @@ export async function shareDocumentPdf(o: {
 
   if (navigator.canShare?.({ files: [file] })) {
     try {
-      await navigator.share({ files: [file], title: o.fileName, text: o.message(absolute) });
+      await navigator.share({ files: [file], title: o.fileName, text: o.message });
       return;
     } catch (err) {
       // Dismissing the share sheet is a choice, not a failure.
@@ -63,11 +71,13 @@ export async function shareDocumentPdf(o: {
     }
   }
 
+  // Desktop path: save the file so the sender can attach it themselves,
+  // then open the channel with the covering text only. No PDF link.
   save();
   if (o.channel === 'whatsapp') {
-    window.open(`https://wa.me/${o.phone ?? ''}?text=${encodeURIComponent(o.message(absolute))}`, '_blank', 'noopener');
+    window.open(`https://wa.me/${o.phone ?? ''}?text=${encodeURIComponent(o.message)}`, '_blank', 'noopener');
   } else {
     window.location.href = `mailto:${o.email ?? ''}`
-      + `?subject=${encodeURIComponent(o.subject)}&body=${encodeURIComponent(o.message(absolute))}`;
+      + `?subject=${encodeURIComponent(o.subject)}&body=${encodeURIComponent(o.message)}`;
   }
 }

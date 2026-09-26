@@ -11,7 +11,7 @@ import {
 import { workstationApi } from '@/modules/workstation/api';
 import { quotationsApi, inr, type Quotation } from '@/modules/workstation/quotations/api';
 import { fmtDate } from '@/lib/format';
-import { waNumber } from '@/modules/workstation/share';
+import { shareDocumentPdf, waNumber, type ShareChannel } from '@/modules/workstation/share';
 import { QuotationDocument, documentFromApi } from './QuotationDocument';
 import { useAuth } from '@/platform/auth/AuthContext';
 import { can } from '@/platform/rbac/can';
@@ -361,68 +361,28 @@ function ActionsMenu({
   }, [open]);
 
   const phone = waNumber(doc.party_contact_number);
-
-  const message = (link: string) =>
+  const message =
     `Quotation ${doc.quotation_code}\n${doc.subject}\n`
-    + `Total: ${inr(doc.total_paise)}\n`
-    + (doc.valid_until ? `Valid until: ${fmtDate(doc.valid_until)}\n` : '')
-    + `\nQuotation PDF:\n${link}`;
+    + `Total: ${inr(doc.total_paise)}`
+    + (doc.valid_until ? `\nValid until: ${fmtDate(doc.valid_until)}` : '');
 
   /**
-   * Send the quotation AS A FILE wherever the device allows it.
-   *
-   * A wa.me or mailto: URL can only ever carry text, so the PDF has to reach
-   * WhatsApp another way: the Web Share API hands the native share sheet a
-   * real File, and picking WhatsApp there attaches the document itself. That
-   * is the only route a browser has to a genuine attachment, and it is the
-   * one people use in practice, because WhatsApp is used on a phone.
-   *
-   * Where the API is absent — most desktop browsers — the file is saved and
-   * the channel opens with the covering note and a link, so the quotation
-   * still arrives rather than the action silently doing nothing.
+   * Send the quotation AS A FILE. Web Share API on mobile attaches the PDF
+   * to WhatsApp/email natively; on desktop the file is saved to Downloads
+   * and the channel opens with the covering text only, so the sender can
+   * attach the just-saved file. See src/modules/workstation/share.ts for
+   * the full path — kept there so invoices and engagement letters converge
+   * on one implementation.
    */
-  const sharePdf = async (channel: 'download' | 'whatsapp' | 'email') => {
+  const sharePdf = async (channel: ShareChannel) => {
     setBusy(true);
     try {
-      const { url } = await quotationsApi.pdfUrl(doc.id);
-      const absolute = new URL(url, window.location.origin).href;
-
-      const res = await fetch(absolute);
-      if (!res.ok) throw new Error('The PDF could not be generated.');
-      const blob = await res.blob();
-      const name = `${doc.quotation_code}.pdf`;
-      const file = new File([blob], name, { type: 'application/pdf' });
-
-      const save = () => {
-        const href = URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = href;
-        a.download = name;
-        a.click();
-        URL.revokeObjectURL(href);
-      };
-
-      if (channel === 'download') { save(); return; }
-
-      if (navigator.canShare?.({ files: [file] })) {
-        try {
-          await navigator.share({ files: [file], title: name, text: message(absolute) });
-          return;
-        } catch (err) {
-          // Dismissing the share sheet is a choice, not a failure.
-          if ((err as { name?: string })?.name === 'AbortError') return;
-          // Anything else falls through to the save-and-open path below.
-        }
-      }
-
-      save();
-      if (channel === 'whatsapp') {
-        window.open(`https://wa.me/${phone}?text=${encodeURIComponent(message(absolute))}`, '_blank', 'noopener');
-      } else {
-        window.location.href = `mailto:${doc.party_email ?? ''}`
-          + `?subject=${encodeURIComponent(`Quotation ${doc.quotation_code} — ${doc.subject}`)}`
-          + `&body=${encodeURIComponent(message(absolute))}`;
-      }
+      await shareDocumentPdf({
+        issueUrl: () => quotationsApi.pdfUrl(doc.id),
+        fileName: `${doc.quotation_code}.pdf`,
+        subject: `Quotation ${doc.quotation_code} — ${doc.subject}`,
+        message, channel, phone, email: doc.party_email,
+      });
     } catch (e) {
       onShareError((e as { message?: string })?.message ?? 'The PDF could not be sent.');
     } finally {

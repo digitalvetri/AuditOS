@@ -17,7 +17,6 @@ import {
   BarChart3,
   BookOpen,
   Briefcase,
-  Calculator,
   CalendarDays,
   ChevronDown,
   ChevronsLeft,
@@ -131,17 +130,15 @@ export function Sidebar({ mobileOpen, onMobileClose }: Props) {
       { to: '/workstation/documents',   label: 'Documents',  icon: FolderKanban,  visible: can(role, 'workstation.document.read', 'self') },
     ];
     // TOOLS is one labelled section — a sibling of Workstation — holding
-    // four tool modules as siblings inside it: Tools (converters), Repotic
-    // (bank / GST / TDS pipelines), Tally (native double-entry accounting)
-    // and Books (Zoho Books integration). Each row keeps its own grant, so a
-    // role with only one of them still sees just that row.
+    // three tool modules as siblings inside it: Tools (converters), Repotic
+    // (bank / GST / TDS pipelines) and Books (Zoho Books integration). The
+    // native double-entry accounting engine (formerly "Tally") moved to
+    // Services → Bookkeeping and is not a Tools row any more.
     const toolsItems: NavItem[] = [
       { to: '/tools', label: 'Tools', icon: Wrench,
         visible: can(role, 'tools.access', 'self') },
       { to: '/audit-automation', label: 'Repotic', icon: Landmark,
         visible: can(role, 'tools.audit_automation.access', 'self') },
-      { to: '/tally', label: 'Tally', icon: Calculator,
-        visible: can(role, 'tools.audit_automation.tally.access', 'self') },
       { to: '/books', label: 'Books', icon: Wallet,
         visible: can(role, 'books.access', 'organisation') },
     ];

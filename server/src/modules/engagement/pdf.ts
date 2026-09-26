@@ -1,6 +1,7 @@
 import PDFDocument from 'pdfkit'
 import type { Response } from 'express'
 import type { Row } from './service.js'
+import { resolveLogoBuffer } from '../pdf/logo.js'
 
 /**
  * ENGAGEMENT LETTER PDF.
@@ -262,6 +263,21 @@ export function streamEngagementPdf(res: Response, l: Row) {
   for (const b of ((l.blockConfig as Block[] | null) ?? []).filter((x) => x && x.enabled !== false)) {
     switch (b.key) {
       case 'letterhead': {
+        // Logo at the letterhead's alignment (left / center / right) —
+        // mirrors the on-screen preview. Silent skip on missing / bad url.
+        const logoBuffer = resolveLogoBuffer((company as { logo?: string }).logo)
+        if (logoBuffer) {
+          try {
+            const logoH = 48
+            const logoW = logoH * 3 // approximate max; pdfkit honours whichever it hits first
+            const logoX = HEAD_ALIGN === 'left' ? left
+              : HEAD_ALIGN === 'right' ? left + width - logoW
+              : left + (width - logoW) / 2
+            doc.image(logoBuffer, logoX, doc.y, { height: logoH })
+            doc.y += logoH + 6
+            home()
+          } catch { /* invalid image bytes — skip */ }
+        }
         text((company.name ?? '').toUpperCase(), { font: F.bold, size: B * 1.43, align: HEAD_ALIGN })
         const addr = [company.addressLine1, company.addressLine2, company.city, company.state]
           .filter(Boolean).join(', ') + (company.pin ? ` – ${company.pin}` : '')
