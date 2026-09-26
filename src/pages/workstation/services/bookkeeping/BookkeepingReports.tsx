@@ -1,6 +1,6 @@
 import { useParams, Link } from 'react-router-dom';
 import { BookOpen, Scale, TrendingUp, Landmark, Users, Boxes, Percent, LineChart } from 'lucide-react';
-import { usePeriod } from '@/modules/tools/tally/ui';
+import { usePeriod } from '@/modules/tools/bookkeeping/ui';
 
 /**
  * /reports — the report index. Grouped the way an accountant looks for

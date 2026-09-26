@@ -4,7 +4,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Plus, X, Search } from 'lucide-react';
 import { Button } from '@/components/Button';
 import { useToast } from '@/components/Toast';
-import { tallyApi, type TallyGroup, type TallyLedger, type CreateTallyLedgerInput } from '@/modules/tools/audit-automation/tally';
+import { bookkeepingApi, type BookkeepingGroup, type BookkeepingLedger, type CreateBookkeepingLedgerInput } from '@/modules/tools/audit-automation/bookkeeping';
 import type { ApiError } from '@/services/api';
 
 /**
@@ -19,12 +19,12 @@ export function BookkeepingLedgers() {
   const ledgersQ = useQuery({
     queryKey: ['tally.ledgers', companyId, q],
     enabled: Boolean(companyId),
-    queryFn: () => tallyApi.listLedgers(companyId, { q: q.trim() || undefined }),
+    queryFn: () => bookkeepingApi.listLedgers(companyId, { q: q.trim() || undefined }),
   });
   const groupsQ = useQuery({
     queryKey: ['tally.groups', companyId],
     enabled: Boolean(companyId),
-    queryFn: () => tallyApi.listGroups(companyId),
+    queryFn: () => bookkeepingApi.listGroups(companyId),
   });
 
   const groupsById = new Map((groupsQ.data?.items ?? []).map((g) => [g.id, g]));
@@ -76,7 +76,7 @@ export function BookkeepingLedgers() {
   );
 }
 
-function LedgersTable({ ledgers, groupsById }: { ledgers: TallyLedger[]; groupsById: Map<string, TallyGroup> }) {
+function LedgersTable({ ledgers, groupsById }: { ledgers: BookkeepingLedger[]; groupsById: Map<string, BookkeepingGroup> }) {
   return (
     <div className="bg-white border border-neutral-200 rounded overflow-x-auto">
       <table className="w-full text-13 min-w-[820px]">
@@ -117,19 +117,19 @@ function paiseText(p: number): string {
 
 function NewLedgerModal({ companyId, groups, onClose }: {
   companyId: string;
-  groups: TallyGroup[];
+  groups: BookkeepingGroup[];
   onClose: () => void;
 }) {
   const qc = useQueryClient();
   const toast = useToast();
-  const [form, setForm] = useState<CreateTallyLedgerInput>({
+  const [form, setForm] = useState<CreateBookkeepingLedgerInput>({
     name: '', group_id: '', opening_balance_paise: 0, opening_balance_type: 'dr',
   });
   const [openingRupees, setOpeningRupees] = useState('0');
   const [err, setErr] = useState<string | null>(null);
 
   const create = useMutation({
-    mutationFn: () => tallyApi.createLedger(companyId, {
+    mutationFn: () => bookkeepingApi.createLedger(companyId, {
       ...form,
       opening_balance_paise: Math.round(Number(openingRupees.replace(/[₹,\s]/g, '')) * 100),
     }),
@@ -151,7 +151,7 @@ function NewLedgerModal({ companyId, groups, onClose }: {
     create.mutate();
   }
 
-  const set = <K extends keyof CreateTallyLedgerInput>(k: K, v: CreateTallyLedgerInput[K]) =>
+  const set = <K extends keyof CreateBookkeepingLedgerInput>(k: K, v: CreateBookkeepingLedgerInput[K]) =>
     setForm((f) => ({ ...f, [k]: v }));
 
   return (

@@ -1,8 +1,8 @@
 import { useState } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
-import { tallyAccountingApi, type AuditTrailRow } from '@/modules/tools/audit-automation/tally';
-import { DataTable, Money, Panel, Loading, ErrorNote, usePeriod, ReportHeader, StatusPill, ExportButtons } from '@/modules/tools/tally/ui';
+import { bookkeepingAccountingApi, type AuditTrailRow } from '@/modules/tools/audit-automation/bookkeeping';
+import { DataTable, Money, Panel, Loading, ErrorNote, usePeriod, ReportHeader, StatusPill, ExportButtons } from '@/modules/tools/bookkeeping/ui';
 
 /**
  * /audit — the verification surface.
@@ -41,7 +41,7 @@ export function BookkeepingAudit() {
 }
 
 function ExceptionsTab({ companyId, from, to }: { companyId: string; from: string; to: string }) {
-  const q = useQuery({ queryKey: ['tally.auditExceptions', companyId, from, to], queryFn: () => tallyAccountingApi.auditExceptions(companyId, { from, to }) });
+  const q = useQuery({ queryKey: ['tally.auditExceptions', companyId, from, to], queryFn: () => bookkeepingAccountingApi.auditExceptions(companyId, { from, to }) });
   if (q.isLoading) return <Loading />;
   if (q.isError) return <ErrorNote message={(q.error as Error).message} />;
   return (
@@ -69,11 +69,11 @@ function ExceptionsTab({ companyId, from, to }: { companyId: string; from: strin
 
 function TrailTab({ companyId, from, to }: { companyId: string; from: string; to: string }) {
   const [openId, setOpenId] = useState<string | null>(null);
-  const q = useQuery({ queryKey: ['tally.auditTrail', companyId, from, to], queryFn: () => tallyAccountingApi.auditTrail(companyId, { from, to, limit: 500 }) });
+  const q = useQuery({ queryKey: ['tally.auditTrail', companyId, from, to], queryFn: () => bookkeepingAccountingApi.auditTrail(companyId, { from, to, limit: 500 }) });
   const revisionQ = useQuery({
     queryKey: ['tally.auditRevision', companyId, openId],
     enabled: Boolean(openId),
-    queryFn: () => tallyAccountingApi.auditRevision(companyId, openId!),
+    queryFn: () => bookkeepingAccountingApi.auditRevision(companyId, openId!),
   });
   const base = `/tally/companies/${companyId}`;
   if (q.isLoading) return <Loading />;
@@ -122,7 +122,7 @@ function TrailTab({ companyId, from, to }: { companyId: string; from: string; to
 }
 
 function AlteredTab({ companyId, from, to }: { companyId: string; from: string; to: string }) {
-  const q = useQuery({ queryKey: ['tally.altered', companyId, from, to], queryFn: () => tallyAccountingApi.alteredVouchers(companyId, { from, to }) });
+  const q = useQuery({ queryKey: ['tally.altered', companyId, from, to], queryFn: () => bookkeepingAccountingApi.alteredVouchers(companyId, { from, to }) });
   const base = `/tally/companies/${companyId}`;
   if (q.isLoading) return <Loading />;
   return (
@@ -144,7 +144,7 @@ function AlteredTab({ companyId, from, to }: { companyId: string; from: string; 
 }
 
 function CancelledTab({ companyId, from, to }: { companyId: string; from: string; to: string }) {
-  const q = useQuery({ queryKey: ['tally.cancelled', companyId, from, to], queryFn: () => tallyAccountingApi.cancelledVouchers(companyId, { from, to }) });
+  const q = useQuery({ queryKey: ['tally.cancelled', companyId, from, to], queryFn: () => bookkeepingAccountingApi.cancelledVouchers(companyId, { from, to }) });
   const base = `/tally/companies/${companyId}`;
   if (q.isLoading) return <Loading />;
   return (
@@ -166,7 +166,7 @@ function CancelledTab({ companyId, from, to }: { companyId: string; from: string
 }
 
 function ActivityTab({ companyId }: { companyId: string }) {
-  const q = useQuery({ queryKey: ['tally.activity', companyId], queryFn: () => tallyAccountingApi.userActivity(companyId, 200) });
+  const q = useQuery({ queryKey: ['tally.activity', companyId], queryFn: () => bookkeepingAccountingApi.userActivity(companyId, 200) });
   if (q.isLoading) return <Loading />;
   return (
     <Panel title="User activity (platform audit log)">

@@ -4,7 +4,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Plus, X, ChevronRight, ChevronDown } from 'lucide-react';
 import { Button } from '@/components/Button';
 import { useToast } from '@/components/Toast';
-import { tallyApi, type TallyGroupTreeNode } from '@/modules/tools/audit-automation/tally';
+import { bookkeepingApi, type BookkeepingGroupTreeNode } from '@/modules/tools/audit-automation/bookkeeping';
 import type { ApiError } from '@/services/api';
 
 /**
@@ -19,7 +19,7 @@ export function BookkeepingGroups() {
   const q = useQuery({
     queryKey: ['tally.group-tree', companyId],
     enabled: Boolean(companyId),
-    queryFn: () => tallyApi.groupTree(companyId),
+    queryFn: () => bookkeepingApi.groupTree(companyId),
   });
 
   return (
@@ -66,7 +66,7 @@ export function BookkeepingGroups() {
 }
 
 function GroupNode({ node, depth, onAddSub }: {
-  node: TallyGroupTreeNode;
+  node: BookkeepingGroupTreeNode;
   depth: number;
   onAddSub: (id: string, name: string) => void;
 }) {
@@ -123,7 +123,7 @@ function NewGroupModal({ companyId, parentId, parentName, onClose }: {
   const [nature, setNature] = useState<'assets' | 'liabilities' | 'income' | 'expenses'>('assets');
   const [err, setErr] = useState<string | null>(null);
   const create = useMutation({
-    mutationFn: () => tallyApi.createGroup(companyId, {
+    mutationFn: () => bookkeepingApi.createGroup(companyId, {
       name: name.trim(),
       parent_group_id: parentId ?? null,
       nature: parentId ? undefined : nature,

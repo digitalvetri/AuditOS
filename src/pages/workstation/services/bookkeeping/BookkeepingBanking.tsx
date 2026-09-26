@@ -4,8 +4,8 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Upload, Link2, Unlink } from 'lucide-react';
 import { Button } from '@/components/Button';
 import { useToast } from '@/components/Toast';
-import { tallyAccountingApi, type StatementLine } from '@/modules/tools/audit-automation/tally';
-import { DataTable, Money, DrCr, Panel, Loading, ErrorNote, usePeriod, ReportHeader, parseCsv } from '@/modules/tools/tally/ui';
+import { bookkeepingAccountingApi, type StatementLine } from '@/modules/tools/audit-automation/bookkeeping';
+import { DataTable, Money, DrCr, Panel, Loading, ErrorNote, usePeriod, ReportHeader, parseCsv } from '@/modules/tools/bookkeeping/ui';
 import type { ApiError } from '@/services/api';
 
 /**
@@ -25,7 +25,7 @@ export function BookkeepingBanking() {
 
   const accountsQ = useQuery({
     queryKey: ['tally.bankAccounts', companyId, to],
-    queryFn: () => tallyAccountingApi.bankAccounts(companyId, to),
+    queryFn: () => bookkeepingAccountingApi.bankAccounts(companyId, to),
   });
   const accounts = accountsQ.data?.items ?? [];
   const ledgerId = selected || accounts[0]?.ledger_id || '';
@@ -92,7 +92,7 @@ function BankBook({ companyId, ledgerId, from, to, base }: { companyId: string; 
   const q = useQuery({
     queryKey: ['tally.bankBook', companyId, ledgerId, from, to],
     enabled: Boolean(ledgerId),
-    queryFn: () => tallyAccountingApi.bankBook(companyId, ledgerId, { from, to }),
+    queryFn: () => bookkeepingAccountingApi.bankBook(companyId, ledgerId, { from, to }),
   });
   if (q.isLoading) return <Loading />;
   if (q.isError) return <ErrorNote message={(q.error as Error).message} />;
@@ -133,7 +133,7 @@ function StatementTab({ companyId, ledgerId }: { companyId: string; ledgerId: st
   const linesQ = useQuery({
     queryKey: ['tally.statementLines', companyId, ledgerId, statusFilter],
     enabled: Boolean(ledgerId),
-    queryFn: () => tallyAccountingApi.statementLines(companyId, ledgerId, { status: statusFilter }),
+    queryFn: () => bookkeepingAccountingApi.statementLines(companyId, ledgerId, { status: statusFilter }),
   });
 
   const importM = useMutation({
@@ -148,7 +148,7 @@ function StatementTab({ companyId, ledgerId }: { companyId: string; ledgerId: st
         balance_paise: r.balance ? money(r.balance) : null,
       })).filter((r) => /^\d{4}-\d{2}-\d{2}$/.test(r.date) && (r.debit_paise || r.credit_paise));
       if (!parsed.length) throw new Error('No usable rows. Expected columns: date, description, debit, credit, balance.');
-      return tallyAccountingApi.importStatement(companyId, ledgerId, parsed);
+      return bookkeepingAccountingApi.importStatement(companyId, ledgerId, parsed);
     },
     onSuccess: async (r) => {
       await qc.invalidateQueries({ queryKey: ['tally.statementLines', companyId, ledgerId] });
@@ -218,7 +218,7 @@ function MatchCell({ companyId, ledgerId, line }: { companyId: string; ledgerId:
   const suggestionsQ = useQuery({
     queryKey: ['tally.matchSuggestions', companyId, line.id],
     enabled: open,
-    queryFn: () => tallyAccountingApi.matchSuggestions(companyId, line.id),
+    queryFn: () => bookkeepingAccountingApi.matchSuggestions(companyId, line.id),
   });
   const invalidate = async () => {
     await qc.invalidateQueries({ queryKey: ['tally.statementLines', companyId, ledgerId] });
@@ -226,12 +226,12 @@ function MatchCell({ companyId, ledgerId, line }: { companyId: string; ledgerId:
     await qc.invalidateQueries({ queryKey: ['tally.bankAccounts', companyId] });
   };
   const match = useMutation({
-    mutationFn: (entryId: string) => tallyAccountingApi.matchLine(companyId, line.id, entryId),
+    mutationFn: (entryId: string) => bookkeepingAccountingApi.matchLine(companyId, line.id, entryId),
     onSuccess: async () => { await invalidate(); setOpen(false); toast.push('success', 'Matched.'); },
     onError: (e: ApiError) => toast.push('error', e.message),
   });
   const unmatch = useMutation({
-    mutationFn: () => tallyAccountingApi.unmatchLine(companyId, line.id),
+    mutationFn: () => bookkeepingAccountingApi.unmatchLine(companyId, line.id),
     onSuccess: async () => { await invalidate(); toast.push('success', 'Unmatched.'); },
     onError: (e: ApiError) => toast.push('error', e.message),
   });
@@ -275,14 +275,14 @@ function ReconcileTab({ companyId, ledgerId, to }: { companyId: string; ledgerId
   const q = useQuery({
     queryKey: ['tally.reconciliation', companyId, ledgerId, statementDate],
     enabled: Boolean(ledgerId && statementDate),
-    queryFn: () => tallyAccountingApi.reconciliation(companyId, ledgerId, statementDate),
+    queryFn: () => bookkeepingAccountingApi.reconciliation(companyId, ledgerId, statementDate),
   });
   const historyQ = useQuery({
     queryKey: ['tally.reconciliations', companyId, ledgerId],
-    queryFn: () => tallyAccountingApi.listReconciliations(companyId, ledgerId),
+    queryFn: () => bookkeepingAccountingApi.listReconciliations(companyId, ledgerId),
   });
   const save = useMutation({
-    mutationFn: () => tallyAccountingApi.saveReconciliation(companyId, ledgerId, statementDate),
+    mutationFn: () => bookkeepingAccountingApi.saveReconciliation(companyId, ledgerId, statementDate),
     onSuccess: async () => { await qc.invalidateQueries({ queryKey: ['tally.reconciliations', companyId, ledgerId] }); toast.push('success', 'Reconciliation saved.'); },
     onError: (e: ApiError) => toast.push('error', e.message),
   });

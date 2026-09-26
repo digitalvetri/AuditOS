@@ -5,8 +5,8 @@ import {
   ArrowLeft, LayoutDashboard, FolderTree, FileText, Boxes, Landmark, Receipt,
   ClipboardList, Settings, ShieldCheck, Users, Wrench, TrendingUp, ShoppingCart, Search,
 } from 'lucide-react';
-import { tallyApi, tallyAccountingApi } from '@/modules/tools/audit-automation/tally';
-import { PeriodProvider, PeriodBar } from '@/modules/tools/tally/ui';
+import { bookkeepingApi, bookkeepingAccountingApi } from '@/modules/tools/audit-automation/bookkeeping';
+import { PeriodProvider, PeriodBar } from '@/modules/tools/bookkeeping/ui';
 import type { LucideIcon } from 'lucide-react';
 
 /**
@@ -21,12 +21,12 @@ export function BookkeepingWorkspace() {
   const companyQ = useQuery({
     queryKey: ['tally.company', companyId],
     enabled: Boolean(companyId),
-    queryFn: () => tallyApi.getCompany(companyId),
+    queryFn: () => bookkeepingApi.getCompany(companyId),
   });
   const fyQ = useQuery({
     queryKey: ['tally.fys', companyId],
     enabled: Boolean(companyId),
-    queryFn: () => tallyApi.listFinancialYears(companyId),
+    queryFn: () => bookkeepingApi.listFinancialYears(companyId),
   });
 
   if (fyQ.isLoading) {
@@ -74,7 +74,7 @@ function CompanySearch({ companyId }: { companyId: string }) {
   const hitsQ = useQuery({
     queryKey: ['tally.search', companyId, q],
     enabled: q.trim().length >= 2,
-    queryFn: () => tallyAccountingApi.search(companyId, q.trim()),
+    queryFn: () => bookkeepingAccountingApi.search(companyId, q.trim()),
   });
 
   return (

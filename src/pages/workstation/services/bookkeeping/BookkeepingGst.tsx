@@ -1,8 +1,8 @@
 import { useState } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
-import { tallyAccountingApi } from '@/modules/tools/audit-automation/tally';
-import { DataTable, Money, Panel, Loading, ErrorNote, usePeriod, ReportHeader, StatusPill, downloadText } from '@/modules/tools/tally/ui';
+import { bookkeepingAccountingApi } from '@/modules/tools/audit-automation/bookkeeping';
+import { DataTable, Money, Panel, Loading, ErrorNote, usePeriod, ReportHeader, StatusPill, downloadText } from '@/modules/tools/bookkeeping/ui';
 import { Button } from '@/components/Button';
 
 /**
@@ -53,7 +53,7 @@ export function BookkeepingGst() {
 
 function GstSummaryTab({ companyId, from, to }: { companyId: string; from: string; to: string }) {
   const { companyId: _c } = useParams();
-  const q = useQuery({ queryKey: ['tally.gstSummary', companyId, from, to], queryFn: () => tallyAccountingApi.gstSummary(companyId, { from, to }) });
+  const q = useQuery({ queryKey: ['tally.gstSummary', companyId, from, to], queryFn: () => bookkeepingAccountingApi.gstSummary(companyId, { from, to }) });
   if (q.isLoading) return <Loading />;
   if (q.isError) return <ErrorNote message={(q.error as Error).message} />;
   const d = q.data!;
@@ -110,7 +110,7 @@ function GstSummaryTab({ companyId, from, to }: { companyId: string; from: strin
 }
 
 function Gstr1Tab({ companyId, from, to }: { companyId: string; from: string; to: string }) {
-  const q = useQuery({ queryKey: ['tally.gstr1', companyId, from, to], queryFn: () => tallyAccountingApi.gstr1(companyId, from, to) });
+  const q = useQuery({ queryKey: ['tally.gstr1', companyId, from, to], queryFn: () => bookkeepingAccountingApi.gstr1(companyId, from, to) });
   if (q.isLoading) return <Loading />;
   if (q.isError) return <ErrorNote message={(q.error as Error).message} />;
   const d = q.data! as unknown as {
@@ -196,7 +196,7 @@ function InvoiceTable({ title, rows, base }: { title: string; rows: Invoice[]; b
 }
 
 function Gstr3bTab({ companyId, from, to }: { companyId: string; from: string; to: string }) {
-  const q = useQuery({ queryKey: ['tally.gstr3b', companyId, from, to], queryFn: () => tallyAccountingApi.gstr3b(companyId, from, to) });
+  const q = useQuery({ queryKey: ['tally.gstr3b', companyId, from, to], queryFn: () => bookkeepingAccountingApi.gstr3b(companyId, from, to) });
   if (q.isLoading) return <Loading />;
   if (q.isError) return <ErrorNote message={(q.error as Error).message} />;
   const d = q.data! as unknown as {
@@ -243,7 +243,7 @@ function Gstr3bTab({ companyId, from, to }: { companyId: string; from: string; t
 }
 
 function ExceptionsTab({ companyId, from, to }: { companyId: string; from: string; to: string }) {
-  const q = useQuery({ queryKey: ['tally.gstExceptions', companyId, from, to], queryFn: () => tallyAccountingApi.gstExceptions(companyId, from, to) });
+  const q = useQuery({ queryKey: ['tally.gstExceptions', companyId, from, to], queryFn: () => bookkeepingAccountingApi.gstExceptions(companyId, from, to) });
   if (q.isLoading) return <Loading />;
   if (q.isError) return <ErrorNote message={(q.error as Error).message} />;
   const base = `/tally/companies/${companyId}`;
@@ -266,8 +266,8 @@ function ExceptionsTab({ companyId, from, to }: { companyId: string; from: strin
 
 function StatutoryTab({ companyId, from, to }: { companyId: string; from: string; to: string }) {
   const [taxType, setTaxType] = useState<'tds' | 'tcs'>('tds');
-  const q = useQuery({ queryKey: ['tally.statutory', companyId, taxType, from, to], queryFn: () => tallyAccountingApi.statutorySummary(companyId, taxType, { from, to }) });
-  const ratesQ = useQuery({ queryKey: ['tally.taxRates', companyId, taxType], queryFn: () => tallyAccountingApi.listTaxRates(companyId, taxType) });
+  const q = useQuery({ queryKey: ['tally.statutory', companyId, taxType, from, to], queryFn: () => bookkeepingAccountingApi.statutorySummary(companyId, taxType, { from, to }) });
+  const ratesQ = useQuery({ queryKey: ['tally.taxRates', companyId, taxType], queryFn: () => bookkeepingAccountingApi.listTaxRates(companyId, taxType) });
   return (
     <div className="space-y-4">
       <div className="flex gap-1">

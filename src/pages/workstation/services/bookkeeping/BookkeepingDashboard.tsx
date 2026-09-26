@@ -1,9 +1,9 @@
 import { useParams, Link } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { AlertTriangle, ArrowRight } from 'lucide-react';
-import { tallyAccountingApi, type DashboardTile } from '@/modules/tools/audit-automation/tally';
-import { Money, Panel, Loading, usePeriod, DataTable, type Column, ErrorNote } from '@/modules/tools/tally/ui';
-import type { DayBookRow, Outstandings } from '@/modules/tools/audit-automation/tally';
+import { bookkeepingAccountingApi, type DashboardTile } from '@/modules/tools/audit-automation/bookkeeping';
+import { Money, Panel, Loading, usePeriod, DataTable, type Column, ErrorNote } from '@/modules/tools/bookkeeping/ui';
+import type { DayBookRow, Outstandings } from '@/modules/tools/audit-automation/bookkeeping';
 
 /**
  * /tally/companies/:companyId — the dashboard.
@@ -20,7 +20,7 @@ export function BookkeepingDashboard() {
   const q = useQuery({
     queryKey: ['tally.dashboard', companyId, from, to],
     enabled: Boolean(companyId),
-    queryFn: () => tallyAccountingApi.dashboard(companyId, { from, to }),
+    queryFn: () => bookkeepingAccountingApi.dashboard(companyId, { from, to }),
   });
 
   if (q.isLoading) return <Loading label="Computing from the posted vouchers…" />;

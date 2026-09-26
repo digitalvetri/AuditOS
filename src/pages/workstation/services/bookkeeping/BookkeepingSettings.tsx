@@ -3,8 +3,8 @@ import { useParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Button } from '@/components/Button';
 import { useToast } from '@/components/Toast';
-import { tallyAccountingApi } from '@/modules/tools/audit-automation/tally';
-import { Panel, Loading, ErrorNote, ReportHeader, DataTable } from '@/modules/tools/tally/ui';
+import { bookkeepingAccountingApi } from '@/modules/tools/audit-automation/bookkeeping';
+import { Panel, Loading, ErrorNote, ReportHeader, DataTable } from '@/modules/tools/bookkeeping/ui';
 import type { ApiError } from '@/services/api';
 
 /**
@@ -24,11 +24,11 @@ export function BookkeepingSettings() {
   const toast = useToast();
   const [draft, setDraft] = useState<Record<string, Record<string, unknown>>>({});
 
-  const q = useQuery({ queryKey: ['tally.settings', companyId], queryFn: () => tallyAccountingApi.getSettings(companyId) });
-  const typesQ = useQuery({ queryKey: ['tally.voucherTypes', companyId], queryFn: () => tallyAccountingApi.listVoucherTypes(companyId) });
+  const q = useQuery({ queryKey: ['tally.settings', companyId], queryFn: () => bookkeepingAccountingApi.getSettings(companyId) });
+  const typesQ = useQuery({ queryKey: ['tally.voucherTypes', companyId], queryFn: () => bookkeepingAccountingApi.listVoucherTypes(companyId) });
 
   const save = useMutation({
-    mutationFn: (group: string) => tallyAccountingApi.updateSettings(companyId, group, draft[group] ?? {}),
+    mutationFn: (group: string) => bookkeepingAccountingApi.updateSettings(companyId, group, draft[group] ?? {}),
     onSuccess: async (r) => {
       await qc.invalidateQueries({ queryKey: ['tally.settings', companyId] });
       setDraft((d) => ({ ...d, [r.group]: {} }));

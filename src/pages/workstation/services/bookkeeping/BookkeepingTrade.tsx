@@ -2,8 +2,8 @@ import { useParams, Link, useNavigate } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { Plus } from 'lucide-react';
 import { Button } from '@/components/Button';
-import { tallyAccountingApi } from '@/modules/tools/audit-automation/tally';
-import { DataTable, Money, Panel, Loading, ErrorNote, usePeriod, ReportHeader, ExportButtons } from '@/modules/tools/tally/ui';
+import { bookkeepingAccountingApi } from '@/modules/tools/audit-automation/bookkeeping';
+import { DataTable, Money, Panel, Loading, ErrorNote, usePeriod, ReportHeader, ExportButtons } from '@/modules/tools/bookkeeping/ui';
 
 /**
  * /sales and /purchase — the trade workspaces.
@@ -22,15 +22,15 @@ export function BookkeepingTrade({ mode }: { mode: 'sales' | 'purchase' }) {
 
   const registerQ = useQuery({
     queryKey: ['tally.register', companyId, mode, from, to],
-    queryFn: () => tallyAccountingApi.register(companyId, mode, { from, to }),
+    queryFn: () => bookkeepingAccountingApi.register(companyId, mode, { from, to }),
   });
   const notesQ = useQuery({
     queryKey: ['tally.register', companyId, isSales ? 'credit_note' : 'debit_note', from, to],
-    queryFn: () => tallyAccountingApi.register(companyId, isSales ? 'credit_note' : 'debit_note', { from, to }),
+    queryFn: () => bookkeepingAccountingApi.register(companyId, isSales ? 'credit_note' : 'debit_note', { from, to }),
   });
   const outstandingQ = useQuery({
     queryKey: ['tally.outstandings', companyId, isSales ? 'receivable' : 'payable', to],
-    queryFn: () => tallyAccountingApi.outstandings(companyId, isSales ? 'receivable' : 'payable', { as_of: to }),
+    queryFn: () => bookkeepingAccountingApi.outstandings(companyId, isSales ? 'receivable' : 'payable', { as_of: to }),
   });
 
   const shortcuts: { code: string; label: string }[] = isSales

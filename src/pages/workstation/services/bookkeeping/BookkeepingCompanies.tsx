@@ -4,7 +4,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { ArrowLeft, Plus, X, CheckCircle2, Circle } from 'lucide-react';
 import { Button } from '@/components/Button';
 import { useToast } from '@/components/Toast';
-import { tallyApi, type TallyCompany, type CreateTallyCompanyInput } from '@/modules/tools/audit-automation/tally';
+import { bookkeepingApi, type BookkeepingCompany, type CreateBookkeepingCompanyInput } from '@/modules/tools/audit-automation/bookkeeping';
 import type { ApiError } from '@/services/api';
 
 /**
@@ -18,7 +18,7 @@ export function BookkeepingCompanies() {
 
   const q = useQuery({
     queryKey: ['tally.companies'],
-    queryFn: () => tallyApi.listCompanies(),
+    queryFn: () => bookkeepingApi.listCompanies(),
   });
 
   return (
@@ -64,7 +64,7 @@ export function BookkeepingCompanies() {
   );
 }
 
-function CompaniesTable({ companies }: { companies: TallyCompany[] }) {
+function CompaniesTable({ companies }: { companies: BookkeepingCompany[] }) {
   return (
     <div className="bg-white border border-neutral-200 rounded overflow-hidden">
       <table className="w-full text-13">
@@ -111,17 +111,17 @@ function CompaniesTable({ companies }: { companies: TallyCompany[] }) {
 
 function NewCompanyModal({ onClose, onCreated }: {
   onClose: () => void;
-  onCreated: (c: TallyCompany) => void;
+  onCreated: (c: BookkeepingCompany) => void;
 }) {
   const qc = useQueryClient();
-  const [form, setForm] = useState<CreateTallyCompanyInput>({
+  const [form, setForm] = useState<CreateBookkeepingCompanyInput>({
     name: '', books_begin_from: new Date().toISOString().slice(0, 10).replace(/-\d{2}-\d{2}$/, '-04-01'),
     fy_begin_month: 4, gst_registration_type: 'regular',
   });
   const [err, setErr] = useState<string | null>(null);
 
   const create = useMutation({
-    mutationFn: (input: CreateTallyCompanyInput) => tallyApi.createCompany(input),
+    mutationFn: (input: CreateBookkeepingCompanyInput) => bookkeepingApi.createCompany(input),
     onSuccess: async (c) => {
       await qc.invalidateQueries({ queryKey: ['tally.companies'] });
       onCreated(c);
@@ -145,7 +145,7 @@ function NewCompanyModal({ onClose, onCreated }: {
     });
   }
 
-  const set = (k: keyof CreateTallyCompanyInput, v: string | number | undefined) =>
+  const set = (k: keyof CreateBookkeepingCompanyInput, v: string | number | undefined) =>
     setForm((f) => ({ ...f, [k]: v }));
 
   return (
@@ -229,7 +229,7 @@ function NewCompanyModal({ onClose, onCreated }: {
           <Field label="GST registration">
             <select
               value={form.gst_registration_type ?? 'regular'}
-              onChange={(e) => set('gst_registration_type', e.target.value as CreateTallyCompanyInput['gst_registration_type'])}
+              onChange={(e) => set('gst_registration_type', e.target.value as CreateBookkeepingCompanyInput['gst_registration_type'])}
               className="h-9 w-full px-2 text-13 border border-neutral-300 rounded bg-white focus:outline-none focus:border-gold"
             >
               <option value="regular">Regular</option>

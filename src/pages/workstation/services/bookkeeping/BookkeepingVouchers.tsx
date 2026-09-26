@@ -3,8 +3,8 @@ import { useParams, Link, useNavigate } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { Plus, Search } from 'lucide-react';
 import { Button } from '@/components/Button';
-import { tallyAccountingApi, type TallyVoucher } from '@/modules/tools/audit-automation/tally';
-import { DataTable, Money, Panel, Loading, usePeriod, ReportHeader, ExportButtons, StatusPill, type Column } from '@/modules/tools/tally/ui';
+import { bookkeepingAccountingApi, type BookkeepingVoucher } from '@/modules/tools/audit-automation/bookkeeping';
+import { DataTable, Money, Panel, Loading, usePeriod, ReportHeader, ExportButtons, StatusPill, type Column } from '@/modules/tools/bookkeeping/ui';
 
 /**
  * /tally/companies/:companyId/vouchers — the voucher register.
@@ -22,12 +22,12 @@ export function BookkeepingVouchers() {
   const typesQ = useQuery({
     queryKey: ['tally.voucherTypes', companyId],
     enabled: Boolean(companyId),
-    queryFn: () => tallyAccountingApi.listVoucherTypes(companyId),
+    queryFn: () => bookkeepingAccountingApi.listVoucherTypes(companyId),
   });
   const vouchersQ = useQuery({
     queryKey: ['tally.vouchers', companyId, from, to, typeCode, status, q],
     enabled: Boolean(companyId),
-    queryFn: () => tallyAccountingApi.listVouchers(companyId, {
+    queryFn: () => bookkeepingAccountingApi.listVouchers(companyId, {
       from, to, type_codes: typeCode || undefined, status, q: q.trim() || undefined, limit: 200,
     }),
   });
@@ -86,7 +86,7 @@ export function BookkeepingVouchers() {
 
       {vouchersQ.isLoading ? <Loading /> : (
         <Panel>
-          <DataTable<TallyVoucher>
+          <DataTable<BookkeepingVoucher>
             rows={rows}
             rowKey={(r) => r.id}
             columns={columns}
@@ -99,7 +99,7 @@ export function BookkeepingVouchers() {
   );
 }
 
-export function voucherColumns(base: string): Column<TallyVoucher>[] {
+export function voucherColumns(base: string): Column<BookkeepingVoucher>[] {
   return [
     { key: 'date', label: 'Date', width: '96px', value: (r) => r.date, render: (r) => <span className="tabular-nums text-neutral-600">{r.date}</span> },
     { key: 'type', label: 'Type', value: (r) => r.voucher_type_name ?? r.voucher_type_code, render: (r) => <span className="capitalize text-neutral-700">{r.voucher_type_name ?? r.voucher_type_code.replace(/_/g, ' ')}</span> },

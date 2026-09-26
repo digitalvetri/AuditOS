@@ -4,8 +4,8 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Plus, X, AlertTriangle } from 'lucide-react';
 import { Button } from '@/components/Button';
 import { useToast } from '@/components/Toast';
-import { tallyAccountingApi, type StockSummary } from '@/modules/tools/audit-automation/tally';
-import { DataTable, Money, Panel, Loading, ErrorNote, usePeriod, ReportHeader, ExportButtons, qty, type Column } from '@/modules/tools/tally/ui';
+import { bookkeepingAccountingApi, type StockSummary } from '@/modules/tools/audit-automation/bookkeeping';
+import { DataTable, Money, Panel, Loading, ErrorNote, usePeriod, ReportHeader, ExportButtons, qty, type Column } from '@/modules/tools/bookkeeping/ui';
 import type { ApiError } from '@/services/api';
 
 /**
@@ -25,11 +25,11 @@ export function BookkeepingInventory() {
 
   const summaryQ = useQuery({
     queryKey: ['tally.stockSummary', companyId, from, to],
-    queryFn: () => tallyAccountingApi.stockSummary(companyId, { from, to }),
+    queryFn: () => bookkeepingAccountingApi.stockSummary(companyId, { from, to }),
   });
   const godownQ = useQuery({
     queryKey: ['tally.godownSummary', companyId, to],
-    queryFn: () => tallyAccountingApi.godownSummary(companyId, { to }),
+    queryFn: () => bookkeepingAccountingApi.godownSummary(companyId, { to }),
   });
 
   if (summaryQ.isLoading) return <Loading />;
@@ -130,11 +130,11 @@ function NewItemModal({ companyId, onClose }: { companyId: string; onClose: () =
   const toast = useToast();
   const [form, setForm] = useState({ name: '', unit_id: '', hsn_code: '', gst_rate_pct: '18', reorder: '', price: '', cost: '', openingQty: '', openingRate: '' });
   const [err, setErr] = useState<string | null>(null);
-  const unitsQ = useQuery({ queryKey: ['tally.units', companyId], queryFn: () => tallyAccountingApi.listUnits(companyId) });
-  const godownsQ = useQuery({ queryKey: ['tally.godowns', companyId], queryFn: () => tallyAccountingApi.listGodowns(companyId) });
+  const unitsQ = useQuery({ queryKey: ['tally.units', companyId], queryFn: () => bookkeepingAccountingApi.listUnits(companyId) });
+  const godownsQ = useQuery({ queryKey: ['tally.godowns', companyId], queryFn: () => bookkeepingAccountingApi.listGodowns(companyId) });
 
   const create = useMutation({
-    mutationFn: () => tallyAccountingApi.createStockItem(companyId, {
+    mutationFn: () => bookkeepingAccountingApi.createStockItem(companyId, {
       name: form.name.trim(),
       unit_id: form.unit_id || null,
       hsn_code: form.hsn_code.trim() || null,
@@ -218,11 +218,11 @@ export function BookkeepingStockItemPage() {
   const base = `/tally/companies/${companyId}`;
   const moveQ = useQuery({
     queryKey: ['tally.stockMovement', companyId, itemId, from, to],
-    queryFn: () => tallyAccountingApi.stockMovement(companyId, itemId, { from, to }),
+    queryFn: () => bookkeepingAccountingApi.stockMovement(companyId, itemId, { from, to }),
   });
   const summaryQ = useQuery({
     queryKey: ['tally.stockSummary', companyId, from, to],
-    queryFn: () => tallyAccountingApi.stockSummary(companyId, { from, to }),
+    queryFn: () => bookkeepingAccountingApi.stockSummary(companyId, { from, to }),
   });
   if (moveQ.isLoading || summaryQ.isLoading) return <Loading />;
   if (moveQ.isError) return <ErrorNote message={(moveQ.error as Error).message} />;

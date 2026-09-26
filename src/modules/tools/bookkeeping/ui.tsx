@@ -1,7 +1,7 @@
 import { createContext, useContext, useMemo, type ReactNode } from 'react';
 import { useSearchParams, Link } from 'react-router-dom';
 import { Download, Printer } from 'lucide-react';
-import type { TallyFinancialYear } from '@/modules/tools/audit-automation/tally';
+import type { BookkeepingFinancialYear } from '@/modules/tools/audit-automation/bookkeeping';
 
 /**
  * Shared presentation kit for the Tally module.
@@ -56,12 +56,12 @@ export interface TallyPeriodValue {
   to: string;
   fyId: string | null;
   setPeriod: (next: { from?: string; to?: string; fyId?: string | null }) => void;
-  financialYears: TallyFinancialYear[];
+  financialYears: BookkeepingFinancialYear[];
 }
 
 const PeriodContext = createContext<TallyPeriodValue | null>(null);
 
-export function PeriodProvider({ financialYears, children }: { financialYears: TallyFinancialYear[]; children: ReactNode }) {
+export function PeriodProvider({ financialYears, children }: { financialYears: BookkeepingFinancialYear[]; children: ReactNode }) {
   const [params, setParams] = useSearchParams();
   const active = useMemo(() => {
     const fyId = params.get('fy');

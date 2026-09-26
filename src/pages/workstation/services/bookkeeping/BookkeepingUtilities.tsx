@@ -4,8 +4,8 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Download, Upload, Database, ShieldCheck } from 'lucide-react';
 import { Button } from '@/components/Button';
 import { useToast } from '@/components/Toast';
-import { tallyAccountingApi, type ImportPreview } from '@/modules/tools/audit-automation/tally';
-import { DataTable, Panel, Loading, ReportHeader, parseCsv, usePeriod } from '@/modules/tools/tally/ui';
+import { bookkeepingAccountingApi, type ImportPreview } from '@/modules/tools/audit-automation/bookkeeping';
+import { DataTable, Panel, Loading, ReportHeader, parseCsv, usePeriod } from '@/modules/tools/bookkeeping/ui';
 import type { ApiError } from '@/services/api';
 
 /**
@@ -37,17 +37,17 @@ export function BookkeepingUtilities() {
   const [err, setErr] = useState<string | null>(null);
   const [restoreName, setRestoreName] = useState('');
 
-  const backupsQ = useQuery({ queryKey: ['tally.backups', companyId], queryFn: () => tallyAccountingApi.listBackups(companyId) });
+  const backupsQ = useQuery({ queryKey: ['tally.backups', companyId], queryFn: () => bookkeepingAccountingApi.listBackups(companyId) });
 
   const rowsOf = () => parseCsv(csv).rows as unknown as Record<string, unknown>[];
 
   const validate = useMutation({
-    mutationFn: () => tallyAccountingApi.validateImport(companyId, entity, rowsOf()),
+    mutationFn: () => bookkeepingAccountingApi.validateImport(companyId, entity, rowsOf()),
     onSuccess: (p) => { setPreview(p); setErr(null); },
     onError: (e: ApiError) => setErr(e.message),
   });
   const commit = useMutation({
-    mutationFn: (skipInvalid: boolean) => tallyAccountingApi.commitImport(companyId, entity, rowsOf(), skipInvalid),
+    mutationFn: (skipInvalid: boolean) => bookkeepingAccountingApi.commitImport(companyId, entity, rowsOf(), skipInvalid),
     onSuccess: async (r) => {
       await qc.invalidateQueries({ queryKey: ['tally.ledgers', companyId] });
       await qc.invalidateQueries({ queryKey: ['tally.vouchers', companyId] });
@@ -57,12 +57,12 @@ export function BookkeepingUtilities() {
     onError: (e: ApiError) => setErr(e.message),
   });
   const backup = useMutation({
-    mutationFn: () => tallyAccountingApi.createBackup(companyId),
+    mutationFn: () => bookkeepingAccountingApi.createBackup(companyId),
     onSuccess: async (b) => { await qc.invalidateQueries({ queryKey: ['tally.backups', companyId] }); toast.push('success', `Backup created — ${b.voucher_count} vouchers, ${(b.size_bytes / 1024).toFixed(0)} KB.`); },
     onError: (e: ApiError) => toast.push('error', e.message),
   });
   const restore = useMutation({
-    mutationFn: (backupId: string) => tallyAccountingApi.restoreBackup(companyId, backupId, restoreName.trim()),
+    mutationFn: (backupId: string) => bookkeepingAccountingApi.restoreBackup(companyId, backupId, restoreName.trim()),
     onSuccess: (r) => toast.push('success', `Restored into "${r.restored_company_name}" — ${r.vouchers_restored} vouchers.`),
     onError: (e: ApiError) => toast.push('error', e.message),
   });
@@ -129,11 +129,11 @@ export function BookkeepingUtilities() {
 
       <Panel title="Export" className="mb-4">
         <div className="p-3 flex flex-wrap gap-2">
-          <a href={tallyAccountingApi.exportJsonUrl(companyId)} target="_blank" rel="noreferrer"
+          <a href={bookkeepingAccountingApi.exportJsonUrl(companyId)} target="_blank" rel="noreferrer"
             className="h-8 px-3 inline-flex items-center gap-1 text-12 border border-neutral-300 rounded bg-white hover:bg-neutral-50">
             <Download size={13} /> Company JSON (masters + vouchers)
           </a>
-          <a href={tallyAccountingApi.exportXmlUrl(companyId, { from, to })} target="_blank" rel="noreferrer"
+          <a href={bookkeepingAccountingApi.exportXmlUrl(companyId, { from, to })} target="_blank" rel="noreferrer"
             className="h-8 px-3 inline-flex items-center gap-1 text-12 border border-neutral-300 rounded bg-white hover:bg-neutral-50">
             <Download size={13} /> Voucher XML ({from} to {to})
           </a>
@@ -169,7 +169,7 @@ export function BookkeepingUtilities() {
                 key: 'actions', label: '', value: () => '',
                 render: (b) => (
                   <span className="flex gap-2 justify-end">
-                    <a href={tallyAccountingApi.backupDownloadUrl(companyId, b.id)} target="_blank" rel="noreferrer" className="text-12 text-gold hover:underline">Download</a>
+                    <a href={bookkeepingAccountingApi.backupDownloadUrl(companyId, b.id)} target="_blank" rel="noreferrer" className="text-12 text-gold hover:underline">Download</a>
                     <button type="button" disabled={!restoreName.trim() || restore.isPending} onClick={() => restore.mutate(b.id)}
                       className="text-12 text-gold hover:underline disabled:text-neutral-300 disabled:no-underline">Restore</button>
                   </span>

@@ -2,7 +2,7 @@ import { Link } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { Plus, Landmark, Info } from 'lucide-react';
 import { Button } from '@/components/Button';
-import { tallyApi } from '@/modules/tools/audit-automation/tally';
+import { bookkeepingApi } from '@/modules/tools/audit-automation/bookkeeping';
 
 /**
  * /tally — module home. If the org has no companies yet: show the
@@ -16,7 +16,7 @@ import { tallyApi } from '@/modules/tools/audit-automation/tally';
 export function BookkeepingHome() {
   const companiesQ = useQuery({
     queryKey: ['tally.companies'],
-    queryFn: () => tallyApi.listCompanies(),
+    queryFn: () => bookkeepingApi.listCompanies(),
   });
 
   return (

@@ -6,7 +6,7 @@ import { api } from '@/services/api';
  * Tally uploads (import/export) don't ship in Slice 1.
  */
 
-export interface TallyCompany {
+export interface BookkeepingCompany {
   id: string;
   name: string;
   mailing_name: string | null;
@@ -28,7 +28,7 @@ export interface TallyCompany {
   created_at: string;
 }
 
-export interface TallyFinancialYear {
+export interface BookkeepingFinancialYear {
   id: string;
   label: string;
   start_date: string;
@@ -37,7 +37,7 @@ export interface TallyFinancialYear {
   created_at: string;
 }
 
-export interface TallyGroup {
+export interface BookkeepingGroup {
   id: string;
   name: string;
   parent_group_id: string | null;
@@ -46,11 +46,11 @@ export interface TallyGroup {
   is_primary: boolean;
 }
 
-export interface TallyGroupTreeNode extends TallyGroup {
-  children: TallyGroupTreeNode[];
+export interface BookkeepingGroupTreeNode extends BookkeepingGroup {
+  children: BookkeepingGroupTreeNode[];
 }
 
-export interface TallyLedger {
+export interface BookkeepingLedger {
   id: string;
   name: string;
   group_id: string;
@@ -71,7 +71,7 @@ export interface TallyLedger {
   active: boolean;
 }
 
-export interface CreateTallyCompanyInput {
+export interface CreateBookkeepingCompanyInput {
   name: string;
   mailing_name?: string;
   address?: string;
@@ -88,7 +88,7 @@ export interface CreateTallyCompanyInput {
   books_begin_from: string;
 }
 
-export interface CreateTallyLedgerInput {
+export interface CreateBookkeepingLedgerInput {
   name: string;
   group_id: string;
   opening_balance_paise?: number;
@@ -106,33 +106,33 @@ export interface CreateTallyLedgerInput {
   bank_ifsc?: string;
 }
 
-export const tallyApi = {
+export const bookkeepingApi = {
   // Companies
-  listCompanies: () => api.get<{ items: TallyCompany[] }>('/api/tally/companies'),
-  getCompany: (id: string) => api.get<TallyCompany>(`/api/tally/companies/${id}`),
-  createCompany: (input: CreateTallyCompanyInput) => api.post<TallyCompany>('/api/tally/companies', input),
-  updateCompany: (id: string, patch: Partial<CreateTallyCompanyInput> & { active?: boolean }) =>
-    api.patch<TallyCompany>(`/api/tally/companies/${id}`, patch),
+  listCompanies: () => api.get<{ items: BookkeepingCompany[] }>('/api/tally/companies'),
+  getCompany: (id: string) => api.get<BookkeepingCompany>(`/api/tally/companies/${id}`),
+  createCompany: (input: CreateBookkeepingCompanyInput) => api.post<BookkeepingCompany>('/api/tally/companies', input),
+  updateCompany: (id: string, patch: Partial<CreateBookkeepingCompanyInput> & { active?: boolean }) =>
+    api.patch<BookkeepingCompany>(`/api/tally/companies/${id}`, patch),
 
   // Financial years
   listFinancialYears: (companyId: string) =>
-    api.get<{ items: TallyFinancialYear[] }>(`/api/tally/companies/${companyId}/financial-years`),
+    api.get<{ items: BookkeepingFinancialYear[] }>(`/api/tally/companies/${companyId}/financial-years`),
   createFinancialYear: (companyId: string, input: { label: string; start_date: string; end_date: string }) =>
-    api.post<TallyFinancialYear>(`/api/tally/companies/${companyId}/financial-years`, input),
+    api.post<BookkeepingFinancialYear>(`/api/tally/companies/${companyId}/financial-years`, input),
   closeFinancialYear: (companyId: string, fyId: string) =>
-    api.patch<TallyFinancialYear>(`/api/tally/companies/${companyId}/financial-years/${fyId}/close`, {}),
+    api.patch<BookkeepingFinancialYear>(`/api/tally/companies/${companyId}/financial-years/${fyId}/close`, {}),
 
   // Groups
-  listGroups: (companyId: string) => api.get<{ items: TallyGroup[] }>(`/api/tally/companies/${companyId}/groups`),
+  listGroups: (companyId: string) => api.get<{ items: BookkeepingGroup[] }>(`/api/tally/companies/${companyId}/groups`),
   groupTree: (companyId: string) =>
-    api.get<{ tree: TallyGroupTreeNode[] }>(`/api/tally/companies/${companyId}/groups?tree=1`),
+    api.get<{ tree: BookkeepingGroupTreeNode[] }>(`/api/tally/companies/${companyId}/groups?tree=1`),
   createGroup: (companyId: string, input: {
     name: string; parent_group_id?: string | null;
     nature?: 'assets' | 'liabilities' | 'income' | 'expenses'; affects_pl?: boolean;
-  }) => api.post<TallyGroup>(`/api/tally/companies/${companyId}/groups`, input),
+  }) => api.post<BookkeepingGroup>(`/api/tally/companies/${companyId}/groups`, input),
   updateGroup: (companyId: string, groupId: string, patch: {
     name?: string; parent_group_id?: string | null; affects_pl?: boolean;
-  }) => api.patch<TallyGroup>(`/api/tally/companies/${companyId}/groups/${groupId}`, patch),
+  }) => api.patch<BookkeepingGroup>(`/api/tally/companies/${companyId}/groups/${groupId}`, patch),
   deleteGroup: (companyId: string, groupId: string) =>
     api.delete<void>(`/api/tally/companies/${companyId}/groups/${groupId}`),
 
@@ -142,14 +142,14 @@ export const tallyApi = {
     if (filter.group_id) sp.set('group_id', filter.group_id);
     if (filter.q) sp.set('q', filter.q);
     const s = sp.toString();
-    return api.get<{ items: TallyLedger[] }>(`/api/tally/companies/${companyId}/ledgers${s ? `?${s}` : ''}`);
+    return api.get<{ items: BookkeepingLedger[] }>(`/api/tally/companies/${companyId}/ledgers${s ? `?${s}` : ''}`);
   },
   getLedger: (companyId: string, ledgerId: string) =>
-    api.get<TallyLedger>(`/api/tally/companies/${companyId}/ledgers/${ledgerId}`),
-  createLedger: (companyId: string, input: CreateTallyLedgerInput) =>
-    api.post<TallyLedger>(`/api/tally/companies/${companyId}/ledgers`, input),
-  updateLedger: (companyId: string, ledgerId: string, patch: Partial<CreateTallyLedgerInput> & { active?: boolean }) =>
-    api.patch<TallyLedger>(`/api/tally/companies/${companyId}/ledgers/${ledgerId}`, patch),
+    api.get<BookkeepingLedger>(`/api/tally/companies/${companyId}/ledgers/${ledgerId}`),
+  createLedger: (companyId: string, input: CreateBookkeepingLedgerInput) =>
+    api.post<BookkeepingLedger>(`/api/tally/companies/${companyId}/ledgers`, input),
+  updateLedger: (companyId: string, ledgerId: string, patch: Partial<CreateBookkeepingLedgerInput> & { active?: boolean }) =>
+    api.patch<BookkeepingLedger>(`/api/tally/companies/${companyId}/ledgers/${ledgerId}`, patch),
   deleteLedger: (companyId: string, ledgerId: string) =>
     api.delete<void>(`/api/tally/companies/${companyId}/ledgers/${ledgerId}`),
 };
@@ -159,7 +159,7 @@ export const tallyApi = {
 // audit, import/export, backup, settings, dashboard, search.
 // ════════════════════════════════════════════════════════════════════
 
-export interface TallyVoucherType {
+export interface BookkeepingVoucherType {
   id: string;
   name: string;
   code: string;
@@ -175,14 +175,14 @@ export interface TallyVoucherType {
   active: boolean;
 }
 
-export interface TallyBillAllocationInput {
+export interface BookkeepingBillAllocationInput {
   bill_ref: string;
   method?: 'new' | 'against' | 'advance' | 'on_account';
   amount_paise: number;
   due_date?: string | null;
 }
 
-export interface TallyVoucherEntry {
+export interface BookkeepingVoucherEntry {
   id: string;
   ledger_id: string;
   ledger_name: string;
@@ -196,7 +196,7 @@ export interface TallyVoucherEntry {
   bill_allocations: { bill_ref: string; method: string; amount_paise: number; due_date: string | null }[];
 }
 
-export interface TallyVoucherItem {
+export interface BookkeepingVoucherItem {
   id: string;
   stock_item_id: string;
   stock_item_name: string;
@@ -218,7 +218,7 @@ export interface TallyVoucherItem {
   description: string | null;
 }
 
-export interface TallyVoucher {
+export interface BookkeepingVoucher {
   id: string;
   voucher_type_id: string;
   voucher_type_code: string;
@@ -248,8 +248,8 @@ export interface TallyVoucher {
   updated_at: string;
   cancelled_at: string | null;
   cancel_reason: string | null;
-  entries?: TallyVoucherEntry[];
-  items?: TallyVoucherItem[];
+  entries?: BookkeepingVoucherEntry[];
+  items?: BookkeepingVoucherItem[];
 }
 
 export interface CreateVoucherInput {
@@ -269,7 +269,7 @@ export interface CreateVoucherInput {
     amount_paise: number;
     narration?: string | null;
     is_party_ledger?: boolean;
-    bill_allocations?: TallyBillAllocationInput[];
+    bill_allocations?: BookkeepingBillAllocationInput[];
   }[];
   items?: {
     stock_item_id: string;
@@ -288,7 +288,7 @@ export interface CreateVoucherInput {
   }[];
 }
 
-export interface TallyPeriod { from?: string; to?: string; [k: string]: string | number | boolean | undefined }
+export interface BookkeepingPeriod { from?: string; to?: string; [k: string]: string | number | boolean | undefined }
 
 export interface DayBookRow {
   voucher_id: string; date: string; voucher_type_code: string; voucher_type_name: string;
@@ -381,7 +381,7 @@ export interface StockSummary {
   totals: { closing_value_paise: number; negative_count: number; below_reorder_count: number };
 }
 
-export interface TallyStockItem {
+export interface BookkeepingStockItem {
   id: string; name: string; stock_group_id: string | null; stock_group_name: string | null;
   category_id: string | null; unit_id: string | null; unit_name: string | null;
   hsn_code: string | null; gst_rate_bp: number; reorder_level_milli: number;
@@ -423,7 +423,7 @@ export interface GstSummary {
 
 export interface DashboardTile { key: string; label: string; amount_paise: number; drill: string }
 
-export interface TallyDashboard {
+export interface BookkeepingDashboard {
   company_id: string;
   period: { from: string | null; to: string | null; financial_year_label: string | null };
   voucher_count: number;
@@ -476,45 +476,45 @@ function qs(params: QsParams | object): string {
 
 const base = (companyId: string) => `/api/tally/companies/${companyId}`;
 
-export const tallyAccountingApi = {
+export const bookkeepingAccountingApi = {
   // ── Voucher types ──────────────────────────────────────────────────
-  listVoucherTypes: (c: string) => api.get<{ items: TallyVoucherType[] }>(`${base(c)}/voucher-types`),
-  updateVoucherType: (c: string, typeId: string, patch: Partial<Pick<TallyVoucherType, 'name' | 'prefix' | 'suffix' | 'start_number' | 'active'>> & { numbering_method?: 'auto' | 'manual' }) =>
+  listVoucherTypes: (c: string) => api.get<{ items: BookkeepingVoucherType[] }>(`${base(c)}/voucher-types`),
+  updateVoucherType: (c: string, typeId: string, patch: Partial<Pick<BookkeepingVoucherType, 'name' | 'prefix' | 'suffix' | 'start_number' | 'active'>> & { numbering_method?: 'auto' | 'manual' }) =>
     api.patch<{ id: string; name: string }>(`${base(c)}/voucher-types/${typeId}`, patch),
 
   // ── Vouchers ───────────────────────────────────────────────────────
-  listVouchers: (c: string, f: TallyPeriod & { type_codes?: string; ledger_id?: string; party_ledger_id?: string; status?: string; q?: string; limit?: number; offset?: number } = {}) =>
-    api.get<{ items: TallyVoucher[]; total: number; limit: number; offset: number }>(`${base(c)}/vouchers${qs(f)}`),
-  getVoucher: (c: string, id: string) => api.get<TallyVoucher>(`${base(c)}/vouchers/${id}`),
-  createVoucher: (c: string, input: CreateVoucherInput) => api.post<TallyVoucher>(`${base(c)}/vouchers`, input),
-  updateVoucher: (c: string, id: string, input: CreateVoucherInput) => api.patch<TallyVoucher>(`${base(c)}/vouchers/${id}`, input),
-  cancelVoucher: (c: string, id: string, reason?: string) => api.post<TallyVoucher>(`${base(c)}/vouchers/${id}/cancel`, { reason: reason ?? null }),
-  restoreVoucher: (c: string, id: string) => api.post<TallyVoucher>(`${base(c)}/vouchers/${id}/restore`, {}),
-  duplicateVoucher: (c: string, id: string, date?: string) => api.post<TallyVoucher>(`${base(c)}/vouchers/${id}/duplicate`, date ? { date } : {}),
+  listVouchers: (c: string, f: BookkeepingPeriod & { type_codes?: string; ledger_id?: string; party_ledger_id?: string; status?: string; q?: string; limit?: number; offset?: number } = {}) =>
+    api.get<{ items: BookkeepingVoucher[]; total: number; limit: number; offset: number }>(`${base(c)}/vouchers${qs(f)}`),
+  getVoucher: (c: string, id: string) => api.get<BookkeepingVoucher>(`${base(c)}/vouchers/${id}`),
+  createVoucher: (c: string, input: CreateVoucherInput) => api.post<BookkeepingVoucher>(`${base(c)}/vouchers`, input),
+  updateVoucher: (c: string, id: string, input: CreateVoucherInput) => api.patch<BookkeepingVoucher>(`${base(c)}/vouchers/${id}`, input),
+  cancelVoucher: (c: string, id: string, reason?: string) => api.post<BookkeepingVoucher>(`${base(c)}/vouchers/${id}/cancel`, { reason: reason ?? null }),
+  restoreVoucher: (c: string, id: string) => api.post<BookkeepingVoucher>(`${base(c)}/vouchers/${id}/restore`, {}),
+  duplicateVoucher: (c: string, id: string, date?: string) => api.post<BookkeepingVoucher>(`${base(c)}/vouchers/${id}/duplicate`, date ? { date } : {}),
 
   // ── Reports ────────────────────────────────────────────────────────
-  dayBook: (c: string, f: TallyPeriod & { type_codes?: string; limit?: number; include_cancelled?: boolean } = {}) =>
+  dayBook: (c: string, f: BookkeepingPeriod & { type_codes?: string; limit?: number; include_cancelled?: boolean } = {}) =>
     api.get<{ items: DayBookRow[]; totals: { debit_paise: number; credit_paise: number; count: number } }>(`${base(c)}/reports/day-book${qs(f)}`),
-  ledgerStatement: (c: string, ledgerId: string, f: TallyPeriod = {}) =>
+  ledgerStatement: (c: string, ledgerId: string, f: BookkeepingPeriod = {}) =>
     api.get<LedgerStatement>(`${base(c)}/reports/ledger/${ledgerId}${qs(f)}`),
-  trialBalance: (c: string, f: TallyPeriod = {}) => api.get<TrialBalance>(`${base(c)}/reports/trial-balance${qs(f)}`),
-  profitAndLoss: (c: string, f: TallyPeriod = {}) => api.get<ProfitAndLoss>(`${base(c)}/reports/profit-and-loss${qs(f)}`),
-  balanceSheet: (c: string, f: TallyPeriod = {}) => api.get<BalanceSheet>(`${base(c)}/reports/balance-sheet${qs(f)}`),
-  groupSummary: (c: string, f: TallyPeriod = {}) =>
+  trialBalance: (c: string, f: BookkeepingPeriod = {}) => api.get<TrialBalance>(`${base(c)}/reports/trial-balance${qs(f)}`),
+  profitAndLoss: (c: string, f: BookkeepingPeriod = {}) => api.get<ProfitAndLoss>(`${base(c)}/reports/profit-and-loss${qs(f)}`),
+  balanceSheet: (c: string, f: BookkeepingPeriod = {}) => api.get<BalanceSheet>(`${base(c)}/reports/balance-sheet${qs(f)}`),
+  groupSummary: (c: string, f: BookkeepingPeriod = {}) =>
     api.get<{ items: { groupId: string; groupName: string; nature: string; affectsPL: boolean; parentGroupId: string | null; openingPaise: number; debitPaise: number; creditPaise: number; closingPaise: number; ledgerCount: number }[] }>(`${base(c)}/reports/group-summary${qs(f)}`),
-  register: (c: string, typeCode: string, f: TallyPeriod = {}) => api.get<RegisterReport>(`${base(c)}/reports/register/${typeCode}${qs(f)}`),
+  register: (c: string, typeCode: string, f: BookkeepingPeriod = {}) => api.get<RegisterReport>(`${base(c)}/reports/register/${typeCode}${qs(f)}`),
   outstandings: (c: string, side: 'receivable' | 'payable', f: { as_of?: string; ledger_id?: string } = {}) =>
     api.get<Outstandings>(`${base(c)}/reports/outstandings${qs({ side, ...f })}`),
-  book: (c: string, kind: 'cash' | 'bank', f: TallyPeriod = {}) =>
+  book: (c: string, kind: 'cash' | 'bank', f: BookkeepingPeriod = {}) =>
     api.get<{ kind: string; ledgers: { ledger_id: string; ledger_name: string; opening_paise: number; debit_paise: number; credit_paise: number; closing_paise: number }[]; totals: { opening_paise: number; debit_paise: number; credit_paise: number; closing_paise: number } }>(`${base(c)}/reports/book/${kind}${qs(f)}`),
-  cashFlow: (c: string, f: TallyPeriod = {}) =>
+  cashFlow: (c: string, f: BookkeepingPeriod = {}) =>
     api.get<{ opening_paise: number; closing_paise: number; net_change_paise: number; inflows: { label: string; amount_paise: number }[]; outflows: { label: string; amount_paise: number }[] }>(`${base(c)}/reports/cash-flow${qs(f)}`),
-  ratios: (c: string, f: TallyPeriod = {}) =>
+  ratios: (c: string, f: BookkeepingPeriod = {}) =>
     api.get<{ as_of: string | null; working_capital_paise: number; current_ratio: number | null; quick_ratio: number | null; debt_equity_ratio: number | null; gross_profit_pct: number | null; net_profit_pct: number | null; net_profit_paise: number; total_assets_paise: number }>(`${base(c)}/reports/ratios${qs(f)}`),
 
   // ── Inventory ──────────────────────────────────────────────────────
   listStockItems: (c: string, f: { q?: string; stock_group_id?: string } = {}) =>
-    api.get<{ items: TallyStockItem[] }>(`${base(c)}/inventory/items${qs(f)}`),
+    api.get<{ items: BookkeepingStockItem[] }>(`${base(c)}/inventory/items${qs(f)}`),
   createStockItem: (c: string, input: Record<string, unknown>) => api.post<{ id: string; name: string }>(`${base(c)}/inventory/items`, input),
   updateStockItem: (c: string, itemId: string, patch: Record<string, unknown>) => api.patch<{ id: string; name: string }>(`${base(c)}/inventory/items/${itemId}`, patch),
   setOpeningStock: (c: string, itemId: string, input: { qty_milli: number; rate_paise: number; godown_id?: string | null }) =>
@@ -525,18 +525,18 @@ export const tallyAccountingApi = {
   createGodown: (c: string, input: { name: string; address?: string | null }) => api.post<{ id: string; name: string }>(`${base(c)}/inventory/godowns`, input),
   listStockGroups: (c: string) => api.get<{ items: { id: string; name: string; parent_id: string | null }[] }>(`${base(c)}/inventory/stock-groups`),
   createStockGroup: (c: string, input: { name: string; parent_id?: string | null }) => api.post<{ id: string; name: string }>(`${base(c)}/inventory/stock-groups`, input),
-  stockSummary: (c: string, f: TallyPeriod & { godown_id?: string } = {}) => api.get<StockSummary>(`${base(c)}/inventory/summary${qs(f)}`),
-  stockMovement: (c: string, itemId: string, f: TallyPeriod & { godown_id?: string } = {}) =>
+  stockSummary: (c: string, f: BookkeepingPeriod & { godown_id?: string } = {}) => api.get<StockSummary>(`${base(c)}/inventory/summary${qs(f)}`),
+  stockMovement: (c: string, itemId: string, f: BookkeepingPeriod & { godown_id?: string } = {}) =>
     api.get<{ rows: { voucher_id: string; voucher_number: string; voucher_type_code: string; date: string; direction: string; godown_name: string | null; batch_name: string | null; qty_milli: number; rate_paise: number; amount_paise: number; party_name: string | null }[] }>(`${base(c)}/inventory/items/${itemId}/movement${qs(f)}`),
-  godownSummary: (c: string, f: TallyPeriod = {}) =>
+  godownSummary: (c: string, f: BookkeepingPeriod = {}) =>
     api.get<{ rows: { godown_id: string | null; godown_name: string; stock_item_id: string; stock_item_name: string; closing_qty_milli: number }[] }>(`${base(c)}/inventory/godown-summary${qs(f)}`),
 
   // ── Banking ────────────────────────────────────────────────────────
   bankAccounts: (c: string, as_of?: string) => api.get<{ items: BankAccount[] }>(`${base(c)}/banking/accounts${qs({ as_of })}`),
-  bankBook: (c: string, ledgerId: string, f: TallyPeriod = {}) => api.get<BankBook>(`${base(c)}/banking/accounts/${ledgerId}/book${qs(f)}`),
+  bankBook: (c: string, ledgerId: string, f: BookkeepingPeriod = {}) => api.get<BankBook>(`${base(c)}/banking/accounts/${ledgerId}/book${qs(f)}`),
   importStatement: (c: string, ledgerId: string, rows: { date: string; description: string; ref_number?: string | null; debit_paise?: number; credit_paise?: number; balance_paise?: number | null }[]) =>
     api.post<{ imported: number; duplicates_skipped: number; import_batch: string }>(`${base(c)}/banking/accounts/${ledgerId}/statement`, { rows }),
-  statementLines: (c: string, ledgerId: string, f: { status?: string } & TallyPeriod = {}) =>
+  statementLines: (c: string, ledgerId: string, f: { status?: string } & BookkeepingPeriod = {}) =>
     api.get<{ items: StatementLine[] }>(`${base(c)}/banking/accounts/${ledgerId}/statement-lines${qs(f)}`),
   matchSuggestions: (c: string, lineId: string) =>
     api.get<{ items: { entry_id: string; voucher_id: string; voucher_number: string; date: string; party_name: string | null; narration: string | null; amount_paise: number; day_gap: number }[] }>(`${base(c)}/banking/statement-lines/${lineId}/suggestions`),
@@ -550,7 +550,7 @@ export const tallyAccountingApi = {
     api.get<{ items: { id: string; bank_ledger_id: string; bank_ledger_name: string; statement_date: string; book_balance_paise: number; statement_balance_paise: number; difference_paise: number; matched_count: number; unmatched_count: number; notes: string | null; created_at: string }[] }>(`${base(c)}/banking/reconciliations${qs({ ledger_id: ledgerId })}`),
 
   // ── GST ────────────────────────────────────────────────────────────
-  gstSummary: (c: string, f: TallyPeriod = {}) => api.get<GstSummary>(`${base(c)}/gst/summary${qs(f)}`),
+  gstSummary: (c: string, f: BookkeepingPeriod = {}) => api.get<GstSummary>(`${base(c)}/gst/summary${qs(f)}`),
   gstr1: (c: string, from: string, to: string) => api.get<Record<string, unknown>>(`${base(c)}/gst/gstr1${qs({ from, to })}`),
   gstr3b: (c: string, from: string, to: string) => api.get<Record<string, unknown>>(`${base(c)}/gst/gstr3b${qs({ from, to })}`),
   gstExceptions: (c: string, from: string, to: string) =>
@@ -558,7 +558,7 @@ export const tallyAccountingApi = {
   listTaxRates: (c: string, taxType?: string) =>
     api.get<{ items: { id: string; tax_type: string; name: string; hsn_code: string | null; sac_code: string | null; section: string | null; rate_bp: number; rate_pct: number; cess_bp: number; threshold_paise: number | null; effective_from: string | null; active: boolean }[] }>(`${base(c)}/gst/tax-rates${qs({ tax_type: taxType })}`),
   createTaxRate: (c: string, input: Record<string, unknown>) => api.post<{ id: string; name: string }>(`${base(c)}/gst/tax-rates`, input),
-  statutorySummary: (c: string, taxType: 'tds' | 'tcs', f: TallyPeriod = {}) =>
+  statutorySummary: (c: string, taxType: 'tds' | 'tcs', f: BookkeepingPeriod = {}) =>
     api.get<{ tax_type: string; rows: { ledger_id: string; ledger_name: string; section: string | null; deducted_paise: number; paid_paise: number; payable_paise: number }[]; totals: { deducted_paise: number; paid_paise: number; payable_paise: number }; configured_rates: { id: string; name: string; section: string | null; rate_pct: number; threshold_paise: number | null }[]; note: string }>(`${base(c)}/gst/statutory/${taxType}${qs(f)}`),
   eInvoicePayload: (c: string, voucherId: string) =>
     api.get<{ status: string; transmitted: boolean; irn: string | null; blockers: string[]; note: string; payload: Record<string, unknown> }>(`${base(c)}/gst/e-invoice/${voucherId}`),
@@ -585,17 +585,17 @@ export const tallyAccountingApi = {
     api.post<PayrollRun>(`${base(c)}/payroll/runs/${runId}/post`, input),
 
   // ── Audit ──────────────────────────────────────────────────────────
-  auditTrail: (c: string, f: { action?: string; voucher_id?: string; limit?: number } & TallyPeriod = {}) =>
+  auditTrail: (c: string, f: { action?: string; voucher_id?: string; limit?: number } & BookkeepingPeriod = {}) =>
     api.get<{ items: AuditTrailRow[] }>(`${base(c)}/audit/trail${qs(f)}`),
   auditRevision: (c: string, revisionId: string) =>
     api.get<{ id: string; voucher_id: string; version: number; action: string; at: string; before: unknown; after: unknown }>(`${base(c)}/audit/revisions/${revisionId}`),
-  alteredVouchers: (c: string, f: TallyPeriod = {}) =>
+  alteredVouchers: (c: string, f: BookkeepingPeriod = {}) =>
     api.get<{ items: { voucher_id: string; voucher_number: string; voucher_type_code: string; date: string; status: string; version: number; revision_count: number; party_name: string | null; grand_total_paise: number; last_modified_at: string }[] }>(`${base(c)}/audit/altered${qs(f)}`),
-  cancelledVouchers: (c: string, f: TallyPeriod = {}) =>
+  cancelledVouchers: (c: string, f: BookkeepingPeriod = {}) =>
     api.get<{ items: { voucher_id: string; voucher_number: string; voucher_type_code: string; date: string; grand_total_paise: number; party_name: string | null; cancelled_at: string | null; reason: string | null }[] }>(`${base(c)}/audit/cancelled${qs(f)}`),
   userActivity: (c: string, limit?: number) =>
     api.get<{ items: { id: string; action: string; entity_type: string; entity_id: string; actor_label: string; ip: string | null; at: string }[] }>(`${base(c)}/audit/activity${qs({ limit })}`),
-  auditExceptions: (c: string, f: TallyPeriod = {}) =>
+  auditExceptions: (c: string, f: BookkeepingPeriod = {}) =>
     api.get<{ period: { from: string | null; to: string | null }; voucher_count: number; items: { key: string; label: string; severity: string; count: number; detail: string }[] }>(`${base(c)}/audit/exceptions${qs(f)}`),
 
   // ── Data ───────────────────────────────────────────────────────────
@@ -604,7 +604,7 @@ export const tallyAccountingApi = {
   commitImport: (c: string, entity: string, rows: Record<string, unknown>[], skipInvalid = false) =>
     api.post<Record<string, unknown>>(`${base(c)}/data/import/commit`, { entity, rows, skip_invalid: skipInvalid }),
   exportJsonUrl: (c: string) => `${base(c)}/data/export/json`,
-  exportXmlUrl: (c: string, f: TallyPeriod = {}) => `${base(c)}/data/export/xml${qs(f)}`,
+  exportXmlUrl: (c: string, f: BookkeepingPeriod = {}) => `${base(c)}/data/export/xml${qs(f)}`,
   listBackups: (c: string) =>
     api.get<{ items: { id: string; label: string; size_bytes: number; voucher_count: number; ledger_count: number; created_at: string }[] }>(`${base(c)}/data/backups`),
   createBackup: (c: string, label?: string) =>
@@ -619,7 +619,7 @@ export const tallyAccountingApi = {
   getSettings: (c: string) => api.get<Record<string, Record<string, unknown>>>(`${base(c)}/settings`),
   updateSettings: (c: string, group: string, patch: Record<string, unknown>) =>
     api.patch<{ group: string; values: Record<string, unknown> }>(`${base(c)}/settings/${group}`, patch),
-  dashboard: (c: string, f: TallyPeriod & { fy_id?: string } = {}) => api.get<TallyDashboard>(`${base(c)}/dashboard${qs(f)}`),
+  dashboard: (c: string, f: BookkeepingPeriod & { fy_id?: string } = {}) => api.get<BookkeepingDashboard>(`${base(c)}/dashboard${qs(f)}`),
   search: (c: string, q: string) =>
     api.get<{ query: string; hits: { type: string; id: string; label: string; sublabel: string | null; route: string }[] }>(`${base(c)}/search${qs({ q })}`),
 };

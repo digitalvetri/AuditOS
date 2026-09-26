@@ -2,13 +2,13 @@ import { useParams, useSearchParams, Link, useNavigate } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query';
 import { ArrowLeft } from 'lucide-react';
 import {
-  tallyAccountingApi,
+  bookkeepingAccountingApi,
   type DayBookRow, type TrialBalanceRow, type RegisterReport, type Outstandings, type LedgerStatement,
-} from '@/modules/tools/audit-automation/tally';
+} from '@/modules/tools/audit-automation/bookkeeping';
 import {
   DataTable, Money, DrCr, Panel, Loading, ErrorNote, usePeriod, ReportHeader, ExportButtons, StatusPill,
   type Column,
-} from '@/modules/tools/tally/ui';
+} from '@/modules/tools/bookkeeping/ui';
 
 /**
  * Every statement-style report, one component per shape.
@@ -54,7 +54,7 @@ function DayBook() {
   const navigate = useNavigate();
   const q = useQuery({
     queryKey: ['tally.dayBook', companyId, from, to],
-    queryFn: () => tallyAccountingApi.dayBook(companyId, { from, to, limit: 500, include_cancelled: true }),
+    queryFn: () => bookkeepingAccountingApi.dayBook(companyId, { from, to, limit: 500, include_cancelled: true }),
   });
   const columns: Column<DayBookRow>[] = [
     { key: 'date', label: 'Date', width: '96px', value: (r) => r.date },
@@ -104,7 +104,7 @@ function TrialBalanceReport() {
   const { companyId, from, to, base } = useCtx();
   const q = useQuery({
     queryKey: ['tally.trialBalance', companyId, from, to],
-    queryFn: () => tallyAccountingApi.trialBalance(companyId, { from, to }),
+    queryFn: () => bookkeepingAccountingApi.trialBalance(companyId, { from, to }),
   });
   const columns: Column<TrialBalanceRow>[] = [
     {
@@ -160,7 +160,7 @@ function ProfitAndLossReport() {
   const { companyId, from, to, base } = useCtx();
   const q = useQuery({
     queryKey: ['tally.pl', companyId, from, to],
-    queryFn: () => tallyAccountingApi.profitAndLoss(companyId, { from, to }),
+    queryFn: () => bookkeepingAccountingApi.profitAndLoss(companyId, { from, to }),
   });
   if (q.isLoading) return <Loading />;
   if (q.isError) return <ErrorNote message={(q.error as Error).message} />;
@@ -205,7 +205,7 @@ function BalanceSheetReport() {
   const { companyId, from, to, base } = useCtx();
   const q = useQuery({
     queryKey: ['tally.bs', companyId, from, to],
-    queryFn: () => tallyAccountingApi.balanceSheet(companyId, { from, to }),
+    queryFn: () => bookkeepingAccountingApi.balanceSheet(companyId, { from, to }),
   });
   if (q.isLoading) return <Loading />;
   if (q.isError) return <ErrorNote message={(q.error as Error).message} />;
@@ -263,7 +263,7 @@ function GroupSummaryReport() {
   const { companyId, from, to, base } = useCtx();
   const q = useQuery({
     queryKey: ['tally.groupSummary', companyId, from, to],
-    queryFn: () => tallyAccountingApi.groupSummary(companyId, { from, to }),
+    queryFn: () => bookkeepingAccountingApi.groupSummary(companyId, { from, to }),
   });
   if (q.isLoading) return <Loading />;
   if (q.isError) return <ErrorNote message={(q.error as Error).message} />;
@@ -299,7 +299,7 @@ export function BookkeepingRegisterPage() {
   const navigate = useNavigate();
   const q = useQuery({
     queryKey: ['tally.register', companyId, typeCode, from, to],
-    queryFn: () => tallyAccountingApi.register(companyId, typeCode, { from, to }),
+    queryFn: () => bookkeepingAccountingApi.register(companyId, typeCode, { from, to }),
   });
   const columns: Column<RegisterReport['items'][number]>[] = [
     { key: 'date', label: 'Date', width: '96px', value: (r) => r.date },
@@ -350,7 +350,7 @@ function OutstandingsReport() {
   const side = (params.get('side') === 'payable' ? 'payable' : 'receivable') as 'receivable' | 'payable';
   const q = useQuery({
     queryKey: ['tally.outstandings', companyId, side, to],
-    queryFn: () => tallyAccountingApi.outstandings(companyId, side, { as_of: to }),
+    queryFn: () => bookkeepingAccountingApi.outstandings(companyId, side, { as_of: to }),
   });
   if (q.isLoading) return <Loading />;
   if (q.isError) return <ErrorNote message={(q.error as Error).message} />;
@@ -441,7 +441,7 @@ export function BookkeepingBookPage() {
   const base = `/tally/companies/${companyId}`;
   const q = useQuery({
     queryKey: ['tally.book', companyId, kind, from, to],
-    queryFn: () => tallyAccountingApi.book(companyId, kind as 'cash' | 'bank', { from, to }),
+    queryFn: () => bookkeepingAccountingApi.book(companyId, kind as 'cash' | 'bank', { from, to }),
   });
   if (q.isLoading) return <Loading />;
   if (q.isError) return <ErrorNote message={(q.error as Error).message} />;
@@ -486,7 +486,7 @@ export function BookkeepingLedgerStatement() {
   const navigate = useNavigate();
   const q = useQuery({
     queryKey: ['tally.ledgerStatement', companyId, ledgerId, from, to],
-    queryFn: () => tallyAccountingApi.ledgerStatement(companyId, ledgerId, { from, to }),
+    queryFn: () => bookkeepingAccountingApi.ledgerStatement(companyId, ledgerId, { from, to }),
   });
   if (q.isLoading) return <Loading />;
   if (q.isError) return <ErrorNote message={(q.error as Error).message} />;
@@ -544,7 +544,7 @@ function CashFlowReport() {
   const { companyId, from, to } = useCtx();
   const q = useQuery({
     queryKey: ['tally.cashFlow', companyId, from, to],
-    queryFn: () => tallyAccountingApi.cashFlow(companyId, { from, to }),
+    queryFn: () => bookkeepingAccountingApi.cashFlow(companyId, { from, to }),
   });
   if (q.isLoading) return <Loading />;
   if (q.isError) return <ErrorNote message={(q.error as Error).message} />;
@@ -585,7 +585,7 @@ function RatiosReport() {
   const { companyId, from, to } = useCtx();
   const q = useQuery({
     queryKey: ['tally.ratios', companyId, from, to],
-    queryFn: () => tallyAccountingApi.ratios(companyId, { from, to }),
+    queryFn: () => bookkeepingAccountingApi.ratios(companyId, { from, to }),
   });
   if (q.isLoading) return <Loading />;
   if (q.isError) return <ErrorNote message={(q.error as Error).message} />;

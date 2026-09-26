@@ -4,8 +4,8 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Play, Upload } from 'lucide-react';
 import { Button } from '@/components/Button';
 import { useToast } from '@/components/Toast';
-import { tallyApi, tallyAccountingApi } from '@/modules/tools/audit-automation/tally';
-import { DataTable, Money, Panel, Loading, ErrorNote, ReportHeader, StatusPill } from '@/modules/tools/tally/ui';
+import { bookkeepingApi, bookkeepingAccountingApi } from '@/modules/tools/audit-automation/bookkeeping';
+import { DataTable, Money, Panel, Loading, ErrorNote, ReportHeader, StatusPill } from '@/modules/tools/bookkeeping/ui';
 import type { ApiError } from '@/services/api';
 
 /**
@@ -24,18 +24,18 @@ export function BookkeepingPayroll() {
   const [openRunId, setOpenRunId] = useState<string | null>(null);
   const base = `/tally/companies/${companyId}`;
 
-  const employeesQ = useQuery({ queryKey: ['tally.employees', companyId], queryFn: () => tallyAccountingApi.listEmployees(companyId) });
-  const headsQ = useQuery({ queryKey: ['tally.payHeads', companyId], queryFn: () => tallyAccountingApi.listPayHeads(companyId) });
-  const runsQ = useQuery({ queryKey: ['tally.payrollRuns', companyId], queryFn: () => tallyAccountingApi.listPayrollRuns(companyId) });
-  const ledgersQ = useQuery({ queryKey: ['tally.ledgers', companyId, ''], queryFn: () => tallyApi.listLedgers(companyId) });
+  const employeesQ = useQuery({ queryKey: ['tally.employees', companyId], queryFn: () => bookkeepingAccountingApi.listEmployees(companyId) });
+  const headsQ = useQuery({ queryKey: ['tally.payHeads', companyId], queryFn: () => bookkeepingAccountingApi.listPayHeads(companyId) });
+  const runsQ = useQuery({ queryKey: ['tally.payrollRuns', companyId], queryFn: () => bookkeepingAccountingApi.listPayrollRuns(companyId) });
+  const ledgersQ = useQuery({ queryKey: ['tally.ledgers', companyId, ''], queryFn: () => bookkeepingApi.listLedgers(companyId) });
   const runQ = useQuery({
     queryKey: ['tally.payrollRun', companyId, openRunId],
     enabled: Boolean(openRunId),
-    queryFn: () => tallyAccountingApi.getPayrollRun(companyId, openRunId!),
+    queryFn: () => bookkeepingAccountingApi.getPayrollRun(companyId, openRunId!),
   });
 
   const process = useMutation({
-    mutationFn: () => tallyAccountingApi.processPayroll(companyId, period),
+    mutationFn: () => bookkeepingAccountingApi.processPayroll(companyId, period),
     onSuccess: async (r) => {
       await qc.invalidateQueries({ queryKey: ['tally.payrollRuns', companyId] });
       setOpenRunId(r.id);
@@ -46,7 +46,7 @@ export function BookkeepingPayroll() {
 
   const post = useMutation({
     mutationFn: (input: { runId: string; paymentLedgerId: string; expenseLedgerId: string }) =>
-      tallyAccountingApi.postPayroll(companyId, input.runId, {
+      bookkeepingAccountingApi.postPayroll(companyId, input.runId, {
         date: `${period}-28`, payment_ledger_id: input.paymentLedgerId, default_expense_ledger_id: input.expenseLedgerId,
       }),
     onSuccess: async () => {

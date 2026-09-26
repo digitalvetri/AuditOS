@@ -4,8 +4,8 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Copy, Pencil, Printer, Ban, RotateCcw, FileJson } from 'lucide-react';
 import { Button } from '@/components/Button';
 import { useToast } from '@/components/Toast';
-import { tallyAccountingApi } from '@/modules/tools/audit-automation/tally';
-import { Money, Panel, Loading, ErrorNote, StatusPill, qty } from '@/modules/tools/tally/ui';
+import { bookkeepingAccountingApi } from '@/modules/tools/audit-automation/bookkeeping';
+import { Money, Panel, Loading, ErrorNote, StatusPill, qty } from '@/modules/tools/bookkeeping/ui';
 import type { ApiError } from '@/services/api';
 
 /**
@@ -23,16 +23,16 @@ export function BookkeepingVoucherDetail() {
 
   const q = useQuery({
     queryKey: ['tally.voucher', companyId, voucherId],
-    queryFn: () => tallyAccountingApi.getVoucher(companyId, voucherId),
+    queryFn: () => bookkeepingAccountingApi.getVoucher(companyId, voucherId),
   });
   const historyQ = useQuery({
     queryKey: ['tally.voucherHistory', companyId, voucherId],
-    queryFn: () => tallyAccountingApi.auditTrail(companyId, { voucher_id: voucherId }),
+    queryFn: () => bookkeepingAccountingApi.auditTrail(companyId, { voucher_id: voucherId }),
   });
   const eInvoiceQ = useQuery({
     queryKey: ['tally.einvoice', companyId, voucherId],
     enabled: showEInvoice,
-    queryFn: () => tallyAccountingApi.eInvoicePayload(companyId, voucherId),
+    queryFn: () => bookkeepingAccountingApi.eInvoicePayload(companyId, voucherId),
   });
 
   const invalidate = async () => {
@@ -42,17 +42,17 @@ export function BookkeepingVoucherDetail() {
   };
 
   const cancel = useMutation({
-    mutationFn: (reason: string) => tallyAccountingApi.cancelVoucher(companyId, voucherId, reason),
+    mutationFn: (reason: string) => bookkeepingAccountingApi.cancelVoucher(companyId, voucherId, reason),
     onSuccess: async () => { await invalidate(); toast.push('success', 'Voucher cancelled. It keeps its number and its history.'); },
     onError: (e: ApiError) => toast.push('error', e.message),
   });
   const restore = useMutation({
-    mutationFn: () => tallyAccountingApi.restoreVoucher(companyId, voucherId),
+    mutationFn: () => bookkeepingAccountingApi.restoreVoucher(companyId, voucherId),
     onSuccess: async () => { await invalidate(); toast.push('success', 'Voucher restored.'); },
     onError: (e: ApiError) => toast.push('error', e.message),
   });
   const duplicate = useMutation({
-    mutationFn: () => tallyAccountingApi.duplicateVoucher(companyId, voucherId),
+    mutationFn: () => bookkeepingAccountingApi.duplicateVoucher(companyId, voucherId),
     onSuccess: async (v) => { await invalidate(); toast.push('success', `Duplicated as ${v.voucher_number}.`); navigate(`${base}/vouchers/${v.id}`); },
     onError: (e: ApiError) => toast.push('error', e.message),
   });

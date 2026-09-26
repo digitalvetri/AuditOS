@@ -5,10 +5,10 @@ import { Plus, Trash2, Wand2 } from 'lucide-react';
 import { Button } from '@/components/Button';
 import { useToast } from '@/components/Toast';
 import {
-  tallyApi, tallyAccountingApi,
-  type TallyLedger, type TallyVoucherType, type CreateVoucherInput, type TallyStockItem,
-} from '@/modules/tools/audit-automation/tally';
-import { Money, Panel, Loading, usePeriod, ErrorNote } from '@/modules/tools/tally/ui';
+  bookkeepingApi, bookkeepingAccountingApi,
+  type BookkeepingLedger, type BookkeepingVoucherType, type CreateVoucherInput, type BookkeepingStockItem,
+} from '@/modules/tools/audit-automation/bookkeeping';
+import { Money, Panel, Loading, usePeriod, ErrorNote } from '@/modules/tools/bookkeeping/ui';
 import type { ApiError } from '@/services/api';
 
 /**
@@ -59,15 +59,15 @@ export function BookkeepingVoucherEditor() {
   const isEdit = Boolean(voucherId);
   const base = `/tally/companies/${companyId}`;
 
-  const typesQ = useQuery({ queryKey: ['tally.voucherTypes', companyId], queryFn: () => tallyAccountingApi.listVoucherTypes(companyId) });
-  const ledgersQ = useQuery({ queryKey: ['tally.ledgers', companyId, ''], queryFn: () => tallyApi.listLedgers(companyId) });
-  const groupsQ = useQuery({ queryKey: ['tally.groups', companyId], queryFn: () => tallyApi.listGroups(companyId) });
-  const itemsQ = useQuery({ queryKey: ['tally.stockItems', companyId], queryFn: () => tallyAccountingApi.listStockItems(companyId) });
-  const godownsQ = useQuery({ queryKey: ['tally.godowns', companyId], queryFn: () => tallyAccountingApi.listGodowns(companyId) });
+  const typesQ = useQuery({ queryKey: ['tally.voucherTypes', companyId], queryFn: () => bookkeepingAccountingApi.listVoucherTypes(companyId) });
+  const ledgersQ = useQuery({ queryKey: ['tally.ledgers', companyId, ''], queryFn: () => bookkeepingApi.listLedgers(companyId) });
+  const groupsQ = useQuery({ queryKey: ['tally.groups', companyId], queryFn: () => bookkeepingApi.listGroups(companyId) });
+  const itemsQ = useQuery({ queryKey: ['tally.stockItems', companyId], queryFn: () => bookkeepingAccountingApi.listStockItems(companyId) });
+  const godownsQ = useQuery({ queryKey: ['tally.godowns', companyId], queryFn: () => bookkeepingAccountingApi.listGodowns(companyId) });
   const existingQ = useQuery({
     queryKey: ['tally.voucher', companyId, voucherId],
     enabled: isEdit,
-    queryFn: () => tallyAccountingApi.getVoucher(companyId, voucherId!),
+    queryFn: () => bookkeepingAccountingApi.getVoucher(companyId, voucherId!),
   });
 
   const [typeId, setTypeId] = useState('');
@@ -83,7 +83,7 @@ export function BookkeepingVoucherEditor() {
 
   const types = typesQ.data?.items ?? [];
   const ledgers = ledgersQ.data?.items ?? [];
-  const activeType: TallyVoucherType | undefined = types.find((t) => t.id === typeId);
+  const activeType: BookkeepingVoucherType | undefined = types.find((t) => t.id === typeId);
 
   // Pick a sensible default type: the one asked for in the URL, else Payment.
   useEffect(() => {
@@ -167,8 +167,8 @@ export function BookkeepingVoucherEditor() {
         }),
       };
       return isEdit
-        ? tallyAccountingApi.updateVoucher(companyId, voucherId!, payload)
-        : tallyAccountingApi.createVoucher(companyId, payload);
+        ? bookkeepingAccountingApi.updateVoucher(companyId, voucherId!, payload)
+        : bookkeepingAccountingApi.createVoucher(companyId, payload);
     },
     onSuccess: async (v) => {
       await qc.invalidateQueries({ queryKey: ['tally.vouchers', companyId] });
@@ -493,18 +493,18 @@ function splitTax(taxablePaise: number, rateBp: number, interState: boolean) {
 }
 
 /** Inter-state when the party's GSTIN state code differs from the place of supply. */
-function isInterState(placeOfSupply: string, ledgers: TallyLedger[], partyLedgerId: string): boolean {
+function isInterState(placeOfSupply: string, ledgers: BookkeepingLedger[], partyLedgerId: string): boolean {
   if (!placeOfSupply) return false;
   const party = ledgers.find((l) => l.id === partyLedgerId);
   const partyState = party?.gstin?.slice(0, 2);
   return Boolean(partyState && partyState !== placeOfSupply);
 }
 
-function groupNameOf(ledger: TallyLedger, groups: { id: string; name: string }[]): string {
+function groupNameOf(ledger: BookkeepingLedger, groups: { id: string; name: string }[]): string {
   return groups.find((g) => g.id === ledger.group_id)?.name ?? '';
 }
 
-function defaultRate(items: TallyStockItem[], id: string, typeCode?: string): string {
+function defaultRate(items: BookkeepingStockItem[], id: string, typeCode?: string): string {
   const item = items.find((i) => i.id === id);
   if (!item) return '';
   const paise = inwardType(typeCode) ? item.standard_cost_paise : item.standard_price_paise;
