@@ -5,8 +5,8 @@ import { api, type ApiError } from '@/services/api';
  * Multipart uploads go through XHR for progress reporting.
  */
 
-export type ItcClassification = 'eligible' | 'ineligible' | 'reversal' | 'blocked';
-export type MatchStatus = 'matched' | 'partial' | 'only_2b' | 'only_pr';
+export type ItcClassification = 'eligible' | 'ineligible' | 'reversal' | 'blocked' | 'rcm';
+export type MatchStatus = 'matched' | 'partial' | 'variance' | 'only_2b' | 'only_pr' | 'duplicate';
 
 export interface Filing2BSummary {
   id: string;
@@ -69,9 +69,12 @@ export interface ReconJob {
   progress: number;
   matched_count: number;
   partial_count: number;
+  variance_count: number;
   only_2b_count: number;
   only_pr_count: number;
-  totals: Record<MatchStatus, ReconTotalsBucket> | null;
+  duplicate_count: number;
+  flags: string[];
+  totals: Partial<Record<MatchStatus, ReconTotalsBucket>> | null;
   error_message: string | null;
   started_at: string | null;
   completed_at: string | null;
@@ -90,15 +93,23 @@ export interface ReconRowEntry {
   sgst: number;
   cess: number;
   itc_available?: boolean;
+  itc_reason?: string | null;
   gl_code?: string | null;
   section?: string;
+  doc_type?: string;
+  gstin_valid?: boolean;
+  invoice_value?: number | null;
+  reverse_charge?: boolean;
+  original_invoice_number?: string | null;
 }
 
 export interface ReconRow {
   id: string;
   match_status: MatchStatus;
+  match_method: string | null;
   mismatch_fields: string[];
   itc_classification: ItcClassification;
+  itc_reason: string | null;
   auditor_note: string | null;
   reviewed_at: string | null;
   filing_2b_entry: ReconRowEntry | null;
@@ -107,6 +118,7 @@ export interface ReconRow {
 
 export interface ReconRowsPage {
   total: number;
+  counts: Partial<Record<MatchStatus, number>>;
   items: ReconRow[];
 }
 
@@ -188,11 +200,17 @@ export const gstApi = {
     api.post<ReconJob>('/api/audit-automation/gst/recon', input),
   listRecon: (clientId: string) => api.get<{ items: ReconJob[] }>(`/api/audit-automation/gst/recon${qs({ client_id: clientId })}`),
   getRecon: (id: string) => api.get<ReconJob>(`/api/audit-automation/gst/recon/${id}`),
-  getReconRows: (id: string, filter: { status?: MatchStatus; limit?: number; offset?: number } = {}) =>
+  getReconRows: (id: string, filter: { status?: MatchStatus | 'all'; itc?: ItcClassification; search?: string; limit?: number; offset?: number } = {}) =>
     api.get<ReconRowsPage>(`/api/audit-automation/gst/recon/${id}/rows${qs({ ...filter })}`),
-  updateRow: (rowId: string, patch: { itc_classification?: ItcClassification; auditor_note?: string | null }) =>
-    api.patch<{ id: string; itc_classification: ItcClassification; auditor_note: string | null }>(
+  updateRow: (rowId: string, patch: { itc_classification?: ItcClassification; itc_reason?: string | null; auditor_note?: string | null }) =>
+    api.patch<{ id: string; itc_classification: ItcClassification; itc_reason: string | null; auditor_note: string | null }>(
       `/api/audit-automation/gst/recon/rows/${rowId}`, patch,
     ),
+  pair: (id: string, twoBRowId: string, prRowId: string) => api.post<{ id: string; match_status: MatchStatus }>(`/api/audit-automation/gst/recon/${id}/pair`, { two_b_row_id: twoBRowId, pr_row_id: prRowId }),
+  unpair: (rowId: string) => api.post<{ unpaired: boolean }>(`/api/audit-automation/gst/recon/rows/${rowId}/unpair`),
+  deleteRecon: (id: string) => api.delete<{ deleted: boolean }>(`/api/audit-automation/gst/recon/${id}`),
+  delete2B: (id: string) => api.delete<{ deleted: boolean }>(`/api/audit-automation/gst/2b/${id}`),
+  deletePR: (id: string) => api.delete<{ deleted: boolean }>(`/api/audit-automation/gst/purchase-registers/${id}`),
   exportUrl: (id: string) => `/api/audit-automation/gst/recon/${id}/export.xlsx`,
+  exportCsvUrl: (id: string) => `/api/audit-automation/gst/recon/${id}/export.csv`,
 };

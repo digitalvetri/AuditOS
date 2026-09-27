@@ -2737,6 +2737,8 @@ model AaSourceDocument {
   encrypted         Boolean @default(false)
   /// "Page N of M" M value where the footer was found; null otherwise.
   declaredPageCount Int?
+  /// pdf | xlsx | csv
+  sourceFormat      String  @default("pdf")
 
   organisation Organisation  @relation(fields: [organisationId], references: [id])
   client       Client        @relation(fields: [clientId], references: [id])
@@ -2779,6 +2781,23 @@ model AaJob {
   startedAt        DateTime?
   completedAt      DateTime?
 
+  /// Financial year the statement was filed under ("2026-27").
+  fy                  String?
+  /// Statement period and balances, as read from the rows.
+  periodFrom          String?
+  periodTo            String?
+  openingBalancePaise BigInt?
+  closingBalancePaise BigInt?
+  rowCount            Int     @default(0)
+  /// pending → approved (reviewed, ready for Tally)
+  reviewStatus        String  @default("pending")
+  approvedByUserId    String?
+  approvedAt          DateTime?
+  /// The bank's ledger name in Tally (e.g. "HDFC Bank A/c 1234").
+  bankLedgerName      String?
+
+  transactions   AaBankTxn[]
+  exports        AaExport[]
   sourceDocument AaSourceDocument @relation(fields: [sourceDocumentId], references: [id])
   organisation   Organisation     @relation(fields: [organisationId], references: [id])
   client         Client           @relation(fields: [clientId], references: [id])
@@ -2854,6 +2873,16 @@ model AaGstFiling2BEntry {
   cess          Int     @default(0)
   /// GSTN's own "ITC Available" flag from the 2B row.
   itcAvailable  Boolean @default(true)
+  /// INV | CRN (credit note) | DBN (debit note) | BOE (import) | ISD
+  docType               String  @default("INV")
+  /// Invoice value incl. tax (2B `val`), paise.
+  invoiceValue          Int?
+  /// Reverse charge (2B `rev` = Y): ITC only once the tax is paid.
+  reverseCharge         Boolean @default(false)
+  /// Amendments (B2BA/CDNRA): the invoice this one replaces.
+  originalInvoiceNumber String?
+  /// GSTN's reason when ITC is not available (2B `rsn`).
+  itcReason             String?
   /// Original source row as JSON so we can re-parse later if needed.
   rawJson       String?
 
@@ -2912,6 +2941,9 @@ model AaPurchaseRegisterEntry {
   cess          Int     @default(0)
   /// Ledger / GL code from the register (optional).
   glCode        String?
+  invoiceValue          Int?
+  reverseCharge         Boolean @default(false)
+  docType               String  @default("INV")
   rawJson       String?
 
   register  AaPurchaseRegister @relation(fields: [registerId], references: [id])
@@ -2936,6 +2968,10 @@ model AaGstReconJob {
   partialCount       Int       @default(0)
   only2BCount        Int       @default(0)
   onlyPRCount        Int       @default(0)
+  varianceCount      Int       @default(0)
+  duplicateCount     Int       @default(0)
+  /// CSV: PERIOD_MISMATCH, INVALID_GSTINS…
+  flags              String    @default("")
   /// { matched: {taxable, igst, cgst, sgst, cess}, partial: {...}, only_2b: {...}, only_pr: {...} } — paise.
   totalsJson         String?
   errorMessage       String?
@@ -2971,6 +3007,10 @@ model AaGstReconRow {
   mismatchFields          String    @default("")
   /// eligible | ineligible | reversal | blocked (auditor-overridable).
   itcClassification       String    @default("eligible")
+  /// Why the ITC class was chosen (rule text, or the reviewer's).
+  itcReason               String?
+  /// exact | invoice | invoice_loose | amount_date | manual
+  matchMethod             String?
   auditorNote             String?
   reviewedByUserId        String?
   reviewedAt              DateTime?
@@ -3010,6 +3050,9 @@ model AaTds26AS {
   storagePath       String
   /// From the 26AS header (View As on date / Generated on).
   tracesGeneratedAt DateTime?
+  /// Financial year and assessee name as printed in the 26AS header (e.g. "2025-26").
+  financialYear     String?
+  assesseeName      String?
 
   organisation Organisation     @relation(fields: [organisationId], references: [id])
   client       Client           @relation(fields: [clientId], references: [id])
@@ -3045,8 +3088,13 @@ model AaTds26ASEntry {
   tdsAmount    Int     @default(0)
   /// Date TDS was deducted / booked (YYYY-MM-DD, IST calendar).
   tdsDate      String
-  /// TRACES status (Booked / Provisional / etc.), free text.
+  /// TRACES status of booking: F (final) | P (provisional) | U (unmatched) | O (overbooked) | Z (mismatched) | M (matched).
   status       String?
+  /// Date the deductor's statement was booked against the challan (YYYY-MM-DD).
+  bookingDate  String?
+  /// TDS actually deposited by the deductor — paise. Less than tdsAmount means a short deposit.
+  tdsDeposited Int     @default(0)
+  remarks      String?
   rawJson      String?
 
   filing    AaTds26AS       @relation(fields: [filingId], references: [id])
@@ -3099,6 +3147,10 @@ model AaTdsBooksEntry {
   tdsAmount    Int     @default(0)
   tdsDate      String
   glCode       String?
+  /// Voucher / invoice number in the books.
+  reference    String?
+  /// Tally voucher type or the Excel "type" column (Receipt, Sales, Journal…).
+  voucherType  String?
   rawJson      String?
 
   books     AaTdsBooks      @relation(fields: [booksId], references: [id])
@@ -3123,6 +3175,8 @@ model AaTdsReconJob {
   varianceCount   Int       @default(0)
   only26ASCount   Int       @default(0)
   onlyBooksCount  Int       @default(0)
+  /// Comma-separated job-level warnings: AY_MISMATCH | BOOKS_OUT_OF_YEAR | TAN_FROM_NAME | UNBOOKED_CREDITS | SHORT_DEPOSITS.
+  flags           String    @default("")
   /// { verified: { amount_paid, tds_amount, count }, variance: {...}, ... } — paise.
   totalsJson      String?
   errorMessage    String?
@@ -3144,6 +3198,53 @@ model AaTdsReconJob {
   @@index([createdAt])
 }
 
+/// Follow-up with one deductor for one client and assessment year — kept
+/// across re-runs and deletions of the reconciliation it was raised from.
+model AaTdsDeductorFollowUp {
+  id              String   @id @default(uuid())
+  organisationId  String
+  clientId        String
+  assessmentYear  Int
+  /// TAN, or "NAME:<normalised name>" when the books carry no TAN.
+  deductorKey     String
+  deductorTan     String?
+  deductorName    String?
+  /// open | contacted | promised | resolved | written_off
+  status          String   @default("open")
+  /// YYYY-MM-DD — next follow-up / promised correction date.
+  dueDate         String?
+  contactEmail    String?
+  contactPhone    String?
+  note            String?
+  lastContactedAt DateTime?
+  updatedByUserId String?
+
+  events AaTdsFollowUpEvent[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([clientId, assessmentYear, deductorKey])
+  @@index([organisationId, clientId])
+}
+
+/// One entry in a deductor follow-up's history.
+model AaTdsFollowUpEvent {
+  id         String   @id @default(uuid())
+  followUpId String
+  userId     String
+  /// status | note | contacted | due_date
+  kind       String
+  fromStatus String?
+  toStatus   String?
+  note       String?
+  createdAt  DateTime @default(now())
+
+  followUp AaTdsDeductorFollowUp @relation(fields: [followUpId], references: [id], onDelete: Cascade)
+
+  @@index([followUpId, createdAt])
+}
+
 /// One row of a TDS recon result. Either or both entry refs may be set.
 model AaTdsReconRow {
   id                String    @id @default(uuid())
@@ -3152,8 +3253,16 @@ model AaTdsReconRow {
   matchStatus       String
   filing26ASEntryId String?
   booksEntryId      String?
-  /// Comma-separated: tds_amount | amount_paid | tds_date | section
+  /// Comma-separated: tds_amount | amount_paid | tds_date | section | quarter | grouped
   mismatchFields    String    @default("")
+  /// exact | window | section | grouped | manual — how the pair was made.
+  matchMethod       String?
+  /// Rows paired as one group (several books entries ↔ one 26AS entry, or the reverse) share this key.
+  groupKey          String?
+  /// The deductor this row belongs to: its TAN, or "NAME:<normalised name>" for a books entry with no TAN.
+  deductorKey       String?
+  /// Comma-separated row warnings: status_u | status_p | status_o | status_z | short_deposit | tan_from_name | out_of_year
+  flags             String    @default("")
   /// no_action | chase_deductor | revise_book | credit_claimed | written_off
   actionStatus      String    @default("no_action")
   auditorNote       String?
@@ -3168,6 +3277,7 @@ model AaTdsReconRow {
   updatedAt DateTime @updatedAt
 
   @@index([jobId, matchStatus])
+  @@index([jobId, deductorKey])
   @@index([filing26ASEntryId])
   @@index([booksEntryId])
 }
@@ -6709,4 +6819,90 @@ model ZpayPaymentLink {
 
   @@unique([accountRowId, zohoLinkId])
   @@index([invoiceId, status])
+}
+
+/// One bank-statement transaction read from an AaJob's statement.
+/// Amounts are BigInt paise: a single transaction can exceed ₹2.1 crore.
+model AaBankTxn {
+  id               String @id @default(uuid())
+  jobId            String
+  organisationId   String
+  clientId         String
+  bankAccountId    String
+  /// Order within the statement (1-based, chronological).
+  seq              Int
+  page             Int?
+  txnDate          String
+  valueDate        String?
+  narration        String
+  reference        String?
+  debitPaise       BigInt  @default(0)
+  creditPaise      BigInt  @default(0)
+  balancePaise     BigInt?
+  /// Per-client dedupe key: account + date + amounts + balance + narration.
+  fingerprint      String
+  /// ok | flagged | duplicate | excluded
+  status           String  @default("ok")
+  /// CSV: BALANCE_BREAK, NO_AMOUNT, BOTH_AMOUNTS, DATE_ORDER, OUT_OF_PERIOD…
+  flags            String  @default("")
+  duplicateOfId    String?
+  /// Tally counter-ledger and voucher type for this row.
+  ledgerName       String?
+  voucherType      String?
+  matchedRuleId    String?
+  /// Set once a person has changed the row; `original` keeps what was read.
+  editedByUserId   String?
+  editedAt         DateTime?
+  original         Json
+
+  job AaJob @relation(fields: [jobId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([jobId, seq])
+  @@index([clientId, fingerprint])
+  @@index([jobId, status])
+}
+
+/// Narration → Tally ledger rule, per client (or firm-wide when clientId is null).
+model AaLedgerRule {
+  id              String  @id @default(uuid())
+  organisationId  String
+  clientId        String?
+  /// contains | exact | regex — matched case-insensitively on the narration.
+  matchType       String  @default("contains")
+  pattern         String
+  /// any | withdrawal | deposit
+  direction       String  @default("any")
+  ledgerName      String
+  /// payment | receipt | contra | journal; null → by direction
+  voucherType     String?
+  priority        Int     @default(100)
+  createdByUserId String
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  @@index([organisationId, clientId])
+}
+
+/// A Tally XML (or other) export of a job's approved transactions.
+model AaExport {
+  id               String   @id @default(uuid())
+  organisationId   String
+  clientId         String
+  jobId            String
+  kind             String
+  rowCount         Int
+  totalDebitPaise  BigInt
+  totalCreditPaise BigInt
+  sha256           String
+  createdByUserId  String
+  createdAt        DateTime @default(now())
+
+  job AaJob @relation(fields: [jobId], references: [id], onDelete: Cascade)
+
+  @@index([jobId])
 }

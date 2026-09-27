@@ -55,6 +55,9 @@ async function verifyClient(organisationId: string, clientId: string) {
 export const Gstr2BService = {
   async upload(input: UploadFilingInput): Promise<UploadFilingResult> {
     await verifyClient(input.organisationId, input.clientId)
+    if (input.bytes[0] === 0xd0 && input.bytes[1] === 0xcf) {
+      throw ApiError.unprocessable('unsupported_type', 'Old Excel (.xls) files are not supported. Save it as .xlsx, or download the GSTR-2B JSON.')
+    }
     const fmt = detectFormat(input.bytes, input.originalFilename)
     if (!fmt) throw ApiError.unprocessable('unsupported_type', 'Upload a GSTR-2B JSON or Excel file.')
 
@@ -119,6 +122,11 @@ export const Gstr2BService = {
           sgst: e.sgst,
           cess: e.cess,
           itcAvailable: e.itcAvailable ?? true,
+          docType: e.docType ?? 'INV',
+          invoiceValue: e.invoiceValue ?? null,
+          reverseCharge: e.reverseCharge ?? false,
+          originalInvoiceNumber: e.originalInvoiceNumber ?? null,
+          itcReason: e.itcReason ?? null,
           rawJson: e.rawJson ?? null,
         })),
       })
@@ -144,6 +152,16 @@ export const Gstr2BService = {
       gstin: parsed.gstin ?? null,
       generated_at: parsed.generatedAt ?? null,
     }
+  },
+
+  /** Delete an uploaded 2B (not while a reconciliation uses it); its hash is released for re-upload. */
+  async remove(session: { userId: string }, organisationId: string, filingId: string, req?: Request) {
+    const f = await prisma.aaGstFiling2B.findFirst({ where: { id: filingId, organisationId, ...alive }, include: { _count: { select: { reconJobs: true } } } })
+    if (!f) throw ApiError.notFound('No such 2B filing.')
+    if (f._count.reconJobs) throw ApiError.conflict('in_use', 'Delete the reconciliations that use this GSTR-2B first.')
+    await prisma.aaGstFiling2B.update({ where: { id: f.id }, data: { deletedAt: new Date(), fileSha256: `${f.fileSha256}:deleted:${f.id}` } })
+    await aaStorage.delete(f.storagePath).catch(() => undefined)
+    await writeAudit({ actorUserId: session.userId, action: 'aa.gst.2b_deleted', entityType: 'AaGstFiling2B', entityId: f.id, after: { filename: f.originalFilename }, req })
   },
 
   async listForClient(clientId: string, organisationId: string) {

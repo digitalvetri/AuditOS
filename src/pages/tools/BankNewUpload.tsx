@@ -32,6 +32,8 @@ export function BankNewUploadPage() {
   const [file, setFile] = useState<File | null>(null);
   const [password, setPassword] = useState<string>('');
   const [showPwd, setShowPwd] = useState(false);
+  // Decrypting a client's statement needs an explicit confirmation (recorded in the audit trail).
+  const [authorised, setAuthorised] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [progress, setProgress] = useState(0);
   const [error, setError] = useState<{ code: string; message: string; details?: unknown } | null>(null);
@@ -66,7 +68,7 @@ export function BankNewUploadPage() {
 
   const selectedBank = banksQ.data?.items.find((b) => b.key === bankKey) ?? null;
 
-  const canSubmit = Boolean(clientId && bankKey && accountId && file) && !submitting;
+  const canSubmit = Boolean(clientId && bankKey && accountId && file) && (!password || authorised) && !submitting;
 
   async function submit(e: FormEvent, opts?: { overrideMismatch?: boolean }) {
     e.preventDefault();
@@ -76,7 +78,7 @@ export function BankNewUploadPage() {
     setProgress(0);
     try {
       const result = await auditAutomationApi.upload(
-        { clientId, bankKey, bankAccountId: accountId, file, password: password || undefined, overrideAdapterMismatch: opts?.overrideMismatch },
+        { clientId, bankKey, bankAccountId: accountId, file, fy, password: password || undefined, authorised: password ? authorised : undefined, overrideAdapterMismatch: opts?.overrideMismatch },
         (pct) => setProgress(pct),
       );
       toast.push('success', `Statement queued — ${result.page_count} pages.`);
@@ -268,6 +270,12 @@ export function BankNewUploadPage() {
             </button>
           </label>
           <p className="text-12 text-neutral-500 mt-1">Used once to open the file. Never stored.</p>
+          {password ? (
+            <label className="mt-2 flex items-start gap-2 text-13 text-neutral-800 max-w-[520px]" data-testid="aa-authorised">
+              <input type="checkbox" className="mt-0.5" checked={authorised} onChange={(e) => setAuthorised(e.target.checked)} />
+              <span>I am authorised to decrypt this document. <span className="text-neutral-500">This confirmation is recorded in the audit trail with your name and the time.</span></span>
+            </label>
+          ) : null}
         </div>
 
         {/* Error region ─────────────────────────────────────────────────── */}
@@ -328,7 +336,7 @@ function Dropzone({ onFile }: { onFile: (f: File) => void }) {
   const onDrop = (e: DragEvent) => {
     e.preventDefault();
     setOver(false);
-    const f = Array.from(e.dataTransfer.files).find((x) => x.type === 'application/pdf' || x.name.toLowerCase().endsWith('.pdf'));
+    const f = Array.from(e.dataTransfer.files).find((x) => /\.(pdf|xlsx|csv)$/i.test(x.name) || x.type === 'application/pdf');
     if (f) onFile(f);
   };
   return (
@@ -349,15 +357,15 @@ function Dropzone({ onFile }: { onFile: (f: File) => void }) {
       <input
         ref={inputRef}
         type="file"
-        accept="application/pdf,.pdf"
+        accept="application/pdf,.pdf,.xlsx,.csv,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
         className="hidden"
         onChange={(e) => { const f = e.target.files?.[0]; if (f) onFile(f); e.target.value = ''; }}
       />
       <Upload size={22} strokeWidth={1.5} className="text-neutral-400 mx-auto mb-2" />
       <div className="text-13 text-neutral-900">
-        Drop the PDF here, or <span className="text-gold font-medium">browse</span>
+        Drop the statement here, or <span className="text-gold font-medium">browse</span>
       </div>
-      <div className="text-12 text-neutral-500 mt-1">Supported: PDF · max 25 MB</div>
+      <div className="text-12 text-neutral-500 mt-1">Supported: PDF, or the bank's Excel (.xlsx) / CSV download · max 25 MB</div>
     </div>
   );
 }
@@ -512,7 +520,10 @@ function humanCode(code: string): string {
     case 'unsupported_type': return 'Wrong file type';
     case 'too_large': return 'File too large';
     case 'empty': return 'File is empty';
-    case 'unreadable': return 'Cannot read PDF';
+    case 'unreadable': return 'Cannot read the file';
+    case 'authorisation_required': return 'Confirmation needed';
+    case 'no_statement_table': return 'No statement table found';
+    case 'adapter_mismatch': return 'Different bank';
     default: return 'Upload failed';
   }
 }

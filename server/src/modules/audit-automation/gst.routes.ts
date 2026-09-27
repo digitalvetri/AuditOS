@@ -158,7 +158,8 @@ gstRouter.post('/recon', handler(async (req, res) => {
     purchaseRegisterId: b.data.purchase_register_id,
     req,
   })
-  ok(res, job, 202)
+  // The run completes inside the request, so the answer is the finished job.
+  ok(res, job, job.status === 'failed' ? 422 : 201)
 }))
 
 gstRouter.get('/recon', handler(async (req, res) => {
@@ -179,7 +180,9 @@ gstRouter.get('/recon/:id/rows', handler(async (req, res) => {
   const session = requireSession(req)
   requireGstView(session)
   const q = z.object({
-    status: z.enum(['matched', 'partial', 'only_2b', 'only_pr']).optional(),
+    status: z.enum(['all', 'matched', 'partial', 'variance', 'only_2b', 'only_pr', 'duplicate']).optional(),
+    itc: z.enum(['eligible', 'ineligible', 'blocked', 'reversal', 'rcm']).optional(),
+    search: z.string().max(100).optional(),
     limit: z.coerce.number().int().positive().max(500).optional(),
     offset: z.coerce.number().int().min(0).optional(),
   }).safeParse(req.query)
@@ -191,7 +194,8 @@ gstRouter.patch('/recon/rows/:id', handler(async (req, res) => {
   const session = requireSession(req)
   requireGstUpload(session)
   const b = z.object({
-    itc_classification: z.enum(['eligible', 'ineligible', 'reversal', 'blocked']).optional(),
+    itc_classification: z.enum(['eligible', 'ineligible', 'reversal', 'blocked', 'rcm']).optional(),
+    itc_reason: z.string().max(500).nullable().optional(),
     auditor_note: z.string().max(2000).nullable().optional(),
   }).safeParse(req.body)
   if (!b.success) throw ApiError.badRequest('Invalid patch.')
@@ -213,4 +217,50 @@ gstRouter.get('/recon/:id/export.xlsx', handler(async (req, res) => {
   res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
   res.setHeader('Content-Disposition', `attachment; filename="gst-recon-${req.params.id}.xlsx"`)
   res.send(bytes)
+}))
+
+gstRouter.get('/recon/:id/export.csv', handler(async (req, res) => {
+  const session = requireSession(req)
+  requireGstView(session)
+  const text = await GstReconExportService.csv(session, req.params.id)
+  await writeAudit({ actorUserId: session.userId, action: 'aa.gst.exported', entityType: 'AaGstReconJob', entityId: req.params.id, after: { kind: 'csv' }, req })
+  res.setHeader('Content-Type', 'text/csv; charset=utf-8')
+  res.setHeader('Content-Disposition', `attachment; filename="gst-recon-${req.params.id}.csv"`)
+  res.send(text)
+}))
+
+// Manual pairing: a 2B-only row and a books-only row the matcher could not connect.
+gstRouter.post('/recon/:id/pair', handler(async (req, res) => {
+  const session = requireSession(req)
+  requireGstUpload(session)
+  const b = z.object({ two_b_row_id: z.string().min(1), pr_row_id: z.string().min(1) }).safeParse(req.body)
+  if (!b.success) throw ApiError.badRequest('two_b_row_id and pr_row_id are required.')
+  ok(res, await GstReconJobService.pair(session, req.params.id, b.data.two_b_row_id, b.data.pr_row_id, req))
+}))
+
+gstRouter.post('/recon/rows/:id/unpair', handler(async (req, res) => {
+  const session = requireSession(req)
+  requireGstUpload(session)
+  ok(res, await GstReconJobService.unpair(session, req.params.id, req))
+}))
+
+gstRouter.delete('/recon/:id', handler(async (req, res) => {
+  const session = requireSession(req)
+  requireGstUpload(session)
+  await GstReconJobService.remove(session, req.params.id, req)
+  ok(res, { deleted: true })
+}))
+
+gstRouter.delete('/2b/:id', handler(async (req, res) => {
+  const session = requireSession(req)
+  requireGstUpload(session)
+  await Gstr2BService.remove(session, await orgIdOf(session.userId), req.params.id, req)
+  ok(res, { deleted: true })
+}))
+
+gstRouter.delete('/purchase-registers/:id', handler(async (req, res) => {
+  const session = requireSession(req)
+  requireGstUpload(session)
+  await PurchaseRegisterService.remove(session, await orgIdOf(session.userId), req.params.id, req)
+  ok(res, { deleted: true })
 }))

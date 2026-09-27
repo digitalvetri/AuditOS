@@ -1,15 +1,16 @@
-import { prisma, alive } from '../../../lib/prisma.js'
+import type { Request } from 'express'
+import { prisma } from '../../../lib/prisma.js'
 import { ApiError } from '../../../lib/http.js'
 import { can, type Session } from '../../../platform/auth.js'
+import { writeAudit } from '../../../platform/audit.js'
+import { aaStorage } from '../storage.js'
 
 /**
  * AaJob — the pipeline row for one uploaded statement. Status walks
  * queued → extracting → extracted | failed.
  *
- * This slice's "extractor" is a stub — see markExtractedStub() below —
- * that just moves the job to `extracted` after a brief delay so the
- * pipeline is exercisable end-to-end. Row extraction, balance-chain
- * reconciliation and the review UI are follow-on slices.
+ * Extraction (rows, balance chain, duplicates, ledger rules) is
+ * AaExtractService; review, approval and export are AaTxnService.
  */
 
 export type AaJobStatus = 'queued' | 'extracting' | 'extracted' | 'failed'
@@ -26,6 +27,15 @@ export interface AaJobApi {
   created_at: string
   started_at: string | null
   completed_at: string | null
+  fy: string | null
+  period_from: string | null
+  period_to: string | null
+  opening_balance_paise: number | null
+  closing_balance_paise: number | null
+  row_count: number
+  review_status: string
+  approved_at: string | null
+  bank_ledger_name: string | null
 }
 
 function parseFlags(s: string): string[] {
@@ -51,6 +61,15 @@ function toApi(row: {
   createdAt: Date
   startedAt: Date | null
   completedAt: Date | null
+  fy?: string | null
+  periodFrom?: string | null
+  periodTo?: string | null
+  openingBalancePaise?: bigint | null
+  closingBalancePaise?: bigint | null
+  rowCount?: number
+  reviewStatus?: string
+  approvedAt?: Date | null
+  bankLedgerName?: string | null
 }): AaJobApi {
   return {
     id: row.id,
@@ -64,6 +83,15 @@ function toApi(row: {
     created_at: row.createdAt.toISOString(),
     started_at: row.startedAt?.toISOString() ?? null,
     completed_at: row.completedAt?.toISOString() ?? null,
+    fy: row.fy ?? null,
+    period_from: row.periodFrom ?? null,
+    period_to: row.periodTo ?? null,
+    opening_balance_paise: row.openingBalancePaise == null ? null : Number(row.openingBalancePaise),
+    closing_balance_paise: row.closingBalancePaise == null ? null : Number(row.closingBalancePaise),
+    row_count: row.rowCount ?? 0,
+    review_status: row.reviewStatus ?? 'pending',
+    approved_at: row.approvedAt?.toISOString() ?? null,
+    bank_ledger_name: row.bankLedgerName ?? null,
   }
 }
 
@@ -83,14 +111,14 @@ export const AaJobService = {
   toApi,
 
   async get(session: Session, id: string): Promise<AaJobApi> {
-    const where = await scopedWhere(session, { id })
+    const where = await scopedWhere(session, { id, sourceDocument: { deletedAt: null } })
     const row = await prisma.aaJob.findFirst({ where })
     if (!row) throw ApiError.notFound('No such job.')
     return toApi(row)
   },
 
   async listForClient(session: Session, clientId: string): Promise<AaJobApi[]> {
-    const where = await scopedWhere(session, { clientId })
+    const where = await scopedWhere(session, { clientId, sourceDocument: { deletedAt: null } })
     const rows = await prisma.aaJob.findMany({ where, orderBy: { createdAt: 'desc' }, take: 100 })
     return rows.map(toApi)
   },
@@ -102,9 +130,11 @@ export const AaJobService = {
     createdByUserId: string
     flags: string[]
     meta: Record<string, unknown>
-  }): Promise<AaJobApi> {
-    const row = await prisma.aaJob.create({
+    fy?: string | null
+  }, db: Pick<typeof prisma, 'aaJob'> = prisma): Promise<AaJobApi> {
+    const row = await db.aaJob.create({
       data: {
+        fy: input.fy ?? null,
         sourceDocumentId: input.sourceDocumentId,
         organisationId: input.organisationId,
         clientId: input.clientId,
@@ -119,37 +149,30 @@ export const AaJobService = {
   },
 
   /**
-   * Stub extractor for this slice. Simulates the pipeline reaching the
-   * extraction stage without actually parsing rows — that lands with the
-   * bank adapters (follow-on slice).
-   *
-   * Fire-and-forget: the route creates the job (returning 202) and this
-   * runs after a brief delay so the client's poll sees the transition.
+   * Delete a statement: the job's rows go, the stored extraction goes, and
+   * the document is soft-deleted with its hash released — so the same file
+   * can be uploaded again (the per-client unique index still holds it
+   * otherwise).
    */
-  scheduleStubExtraction(jobId: string, delayMs = 1200): void {
-    setTimeout(() => {
-      void (async () => {
-        try {
-          const started = new Date()
-          await prisma.aaJob.update({
-            where: { id: jobId },
-            data: { status: 'extracting', progress: 50, startedAt: started },
-          })
-          const completed = new Date()
-          await prisma.aaJob.update({
-            where: { id: jobId },
-            data: { status: 'extracted', progress: 100, completedAt: completed },
-          })
-        } catch (err) {
-          const msg = err instanceof Error ? err.message : 'stub extraction failed'
-          try {
-            await prisma.aaJob.update({
-              where: { id: jobId },
-              data: { status: 'failed', errorMessage: msg, completedAt: new Date() },
-            })
-          } catch { /* audit table write failure is not user-facing */ }
-        }
-      })()
-    }, delayMs)
+  async remove(session: Session, id: string, req?: Request): Promise<void> {
+    const job = await AaJobService.get(session, id)
+    const doc = await prisma.aaSourceDocument.findUniqueOrThrow({ where: { id: job.source_document_id } })
+    await prisma.$transaction([
+      prisma.aaBankTxn.deleteMany({ where: { job: { sourceDocumentId: doc.id } } }),
+      prisma.aaSourceDocument.update({ where: { id: doc.id }, data: { deletedAt: new Date(), fileSha256: `${doc.fileSha256}:deleted:${doc.id}` } }),
+    ])
+    await aaStorage.delete(doc.extractionPath).catch(() => undefined)
+    await writeAudit({ actorUserId: session.userId, action: 'aa.bank.job_deleted', entityType: 'AaJob', entityId: job.id, after: { filename: doc.originalFilename, client_id: doc.clientId }, req })
   },
+
+  /** Read the statement again (discards edits). Not for an approved statement. */
+  async reprocess(session: Session, id: string, req?: Request): Promise<void> {
+    const job = await AaJobService.get(session, id)
+    if (job.review_status === 'approved') throw ApiError.conflict('job_approved', 'Reopen the approved statement before reading it again.')
+    await prisma.aaJob.update({ where: { id: job.id }, data: { status: 'queued', progress: 0, errorMessage: null } })
+    await writeAudit({ actorUserId: session.userId, action: 'aa.bank.job_reprocessed', entityType: 'AaJob', entityId: job.id, req })
+    const { AaExtractService } = await import('./AaExtractService.js')
+    AaExtractService.schedule(job.id)
+  },
+
 }

@@ -49,6 +49,8 @@ tdsRouter.post('/26as/uploads', (req, res, next) => {
   const body = z.object({
     client_id: z.string().min(1),
     assessment_year: z.coerce.number().int().min(2000).max(2100),
+    password: z.string().max(100).optional(),
+    authorised: z.enum(['true', 'false']).optional(),
   }).safeParse(req.body)
   if (!body.success) throw ApiError.badRequest('client_id and assessment_year are required.')
 
@@ -60,7 +62,8 @@ tdsRouter.post('/26as/uploads', (req, res, next) => {
     session, organisationId,
     clientId: body.data.client_id,
     assessmentYear: body.data.assessment_year,
-    originalFilename: filename, bytes: file.buffer, req,
+    originalFilename: filename, bytes: file.buffer,
+    password: body.data.password || undefined, authorised: body.data.authorised === 'true', req,
   })
   ok(res, result, 201)
 }))
@@ -123,21 +126,13 @@ tdsRouter.get('/books', handler(async (req, res) => {
 tdsRouter.post('/recon', handler(async (req, res) => {
   const session = requireSession(req)
   requireTdsUpload(session)
-  const b = z.object({
-    client_id: z.string().min(1),
-    filing_26as_id: z.string().min(1),
-    books_id: z.string().min(1),
-  }).safeParse(req.body)
+  const b = z.object({ client_id: z.string().min(1), filing_26as_id: z.string().min(1), books_id: z.string().min(1) }).safeParse(req.body)
   if (!b.success) throw ApiError.badRequest('client_id, filing_26as_id, books_id required.')
-  const organisationId = await orgIdOf(session.userId)
   const job = await TdsReconJobService.createAndRun({
-    session, organisationId,
-    clientId: b.data.client_id,
-    filing26ASId: b.data.filing_26as_id,
-    booksId: b.data.books_id,
-    req,
+    session, organisationId: await orgIdOf(session.userId),
+    clientId: b.data.client_id, filing26ASId: b.data.filing_26as_id, booksId: b.data.books_id, req,
   })
-  ok(res, job, 202)
+  ok(res, job, job.status === 'failed' ? 422 : 201)
 }))
 
 tdsRouter.get('/recon', handler(async (req, res) => {
@@ -158,7 +153,11 @@ tdsRouter.get('/recon/:id/rows', handler(async (req, res) => {
   const session = requireSession(req)
   requireTdsView(session)
   const q = z.object({
-    status: z.enum(['verified', 'variance', 'only_26as', 'only_books']).optional(),
+    status: z.enum(['all', 'verified', 'variance', 'only_26as', 'only_books']).optional(),
+    action: z.enum(['no_action', 'chase_deductor', 'revise_book', 'credit_claimed', 'written_off']).optional(),
+    flag: z.string().max(40).optional(),
+    deductor: z.string().max(200).optional(),
+    search: z.string().max(100).optional(),
     limit: z.coerce.number().int().positive().max(500).optional(),
     offset: z.coerce.number().int().min(0).optional(),
   }).safeParse(req.query)
@@ -166,30 +165,116 @@ tdsRouter.get('/recon/:id/rows', handler(async (req, res) => {
   ok(res, await TdsReconJobService.getRows(session, req.params.id, q.data))
 }))
 
+const ACTIONS = z.enum(['no_action', 'chase_deductor', 'revise_book', 'credit_claimed', 'written_off'])
+
 tdsRouter.patch('/recon/rows/:id', handler(async (req, res) => {
   const session = requireSession(req)
   requireTdsUpload(session)
-  const b = z.object({
-    action_status: z.enum(['no_action', 'chase_deductor', 'revise_book', 'credit_claimed', 'written_off']).optional(),
-    auditor_note: z.string().max(2000).nullable().optional(),
-  }).safeParse(req.body)
+  const b = z.object({ action_status: ACTIONS.optional(), auditor_note: z.string().max(2000).nullable().optional() }).safeParse(req.body)
   if (!b.success) throw ApiError.badRequest('Invalid patch.')
   ok(res, await TdsReconJobService.updateRow(session, req.params.id, { ...b.data, req }))
 }))
 
+tdsRouter.post('/recon/:id/pair', handler(async (req, res) => {
+  const session = requireSession(req)
+  requireTdsUpload(session)
+  const b = z.object({ two_row_id: z.string().min(1), books_row_id: z.string().min(1) }).safeParse(req.body)
+  if (!b.success) throw ApiError.badRequest('two_row_id and books_row_id are required.')
+  ok(res, await TdsReconJobService.pair(session, req.params.id, b.data.two_row_id, b.data.books_row_id, req))
+}))
+
+tdsRouter.post('/recon/rows/:id/unpair', handler(async (req, res) => {
+  const session = requireSession(req)
+  requireTdsUpload(session)
+  ok(res, await TdsReconJobService.unpair(session, req.params.id, req))
+}))
+
+tdsRouter.post('/recon/:id/rerun', handler(async (req, res) => {
+  const session = requireSession(req)
+  requireTdsUpload(session)
+  ok(res, await TdsReconJobService.rerun(session, req.params.id, req))
+}))
+
+tdsRouter.delete('/recon/:id', handler(async (req, res) => {
+  const session = requireSession(req)
+  requireTdsUpload(session)
+  await TdsReconJobService.remove(session, req.params.id, req)
+  ok(res, { deleted: true })
+}))
+
+tdsRouter.delete('/26as/:id', handler(async (req, res) => {
+  const session = requireSession(req)
+  requireTdsUpload(session)
+  await Tds26ASService.remove(session, await orgIdOf(session.userId), req.params.id, req)
+  ok(res, { deleted: true })
+}))
+
+tdsRouter.delete('/books/:id', handler(async (req, res) => {
+  const session = requireSession(req)
+  requireTdsUpload(session)
+  await TdsBooksService.remove(session, await orgIdOf(session.userId), req.params.id, req)
+  ok(res, { deleted: true })
+}))
+
+// ── Deductor chase ──────────────────────────────────────────────────────
+tdsRouter.get('/recon/:id/deductors', handler(async (req, res) => {
+  const session = requireSession(req)
+  requireTdsView(session)
+  ok(res, await TdsReconJobService.deductors(session, req.params.id))
+}))
+
+tdsRouter.put('/recon/:id/deductors/:key/follow-up', handler(async (req, res) => {
+  const session = requireSession(req)
+  requireTdsUpload(session)
+  const b = z.object({
+    status: z.enum(['open', 'contacted', 'promised', 'resolved', 'written_off']).optional(),
+    due_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable().optional().or(z.literal('')),
+    contact_email: z.string().email().max(200).nullable().optional().or(z.literal('')),
+    contact_phone: z.string().max(30).nullable().optional(),
+    note: z.string().max(2000).nullable().optional(),
+    contacted: z.boolean().optional(),
+  }).safeParse(req.body)
+  if (!b.success) throw ApiError.badRequest('Invalid follow-up: check the date (YYYY-MM-DD) and email.')
+  ok(res, await TdsReconJobService.saveFollowUp(session, req.params.id, req.params.key, b.data as Parameters<typeof TdsReconJobService.saveFollowUp>[3], req))
+}))
+
+tdsRouter.post('/recon/:id/deductors/:key/action', handler(async (req, res) => {
+  const session = requireSession(req)
+  requireTdsUpload(session)
+  const b = z.object({ action_status: ACTIONS }).safeParse(req.body)
+  if (!b.success) throw ApiError.badRequest('action_status is required.')
+  ok(res, await TdsReconJobService.setDeductorAction(session, req.params.id, req.params.key, b.data.action_status, req))
+}))
+
+tdsRouter.get('/recon/:id/deductors/:key/letter', handler(async (req, res) => {
+  const session = requireSession(req)
+  requireTdsView(session)
+  ok(res, await TdsReconJobService.chaseLetter(session, req.params.id, req.params.key))
+}))
+
+tdsRouter.get('/follow-ups/:id/events', handler(async (req, res) => {
+  const session = requireSession(req)
+  requireTdsView(session)
+  ok(res, await TdsReconJobService.followUpHistory(session, req.params.id))
+}))
+
+// ── Exports ─────────────────────────────────────────────────────────────
 tdsRouter.get('/recon/:id/export.xlsx', handler(async (req, res) => {
   const session = requireSession(req)
   requireTdsView(session)
   const bytes = await TdsReconExportService.workbook(session, req.params.id)
-  await writeAudit({
-    actorUserId: session.userId,
-    action: 'aa.tds.exported',
-    entityType: 'AaTdsReconJob',
-    entityId: req.params.id,
-    after: { size: bytes.length },
-    req,
-  })
+  await writeAudit({ actorUserId: session.userId, action: 'aa.tds.exported', entityType: 'AaTdsReconJob', entityId: req.params.id, after: { kind: 'xlsx', size: bytes.length }, req })
   res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
   res.setHeader('Content-Disposition', `attachment; filename="tds-recon-${req.params.id}.xlsx"`)
   res.send(bytes)
+}))
+
+tdsRouter.get('/recon/:id/export.csv', handler(async (req, res) => {
+  const session = requireSession(req)
+  requireTdsView(session)
+  const text = await TdsReconExportService.csv(session, req.params.id)
+  await writeAudit({ actorUserId: session.userId, action: 'aa.tds.exported', entityType: 'AaTdsReconJob', entityId: req.params.id, after: { kind: 'csv' }, req })
+  res.setHeader('Content-Type', 'text/csv; charset=utf-8')
+  res.setHeader('Content-Disposition', `attachment; filename="tds-recon-${req.params.id}.csv"`)
+  res.send(text)
 }))

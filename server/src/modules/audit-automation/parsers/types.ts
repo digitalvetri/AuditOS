@@ -23,6 +23,16 @@ export interface NormalizedEntry {
   itcAvailable?: boolean
   /** Ledger / GL code from the client's register. Only on PR entries. */
   glCode?: string
+  /** INV | CRN | DBN | BOE | ISD. Credit notes carry NEGATIVE amounts. */
+  docType?: 'INV' | 'CRN' | 'DBN' | 'BOE' | 'ISD'
+  /** Invoice value incl. tax, paise. */
+  invoiceValue?: number
+  /** Reverse charge applies. */
+  reverseCharge?: boolean
+  /** Amendments: the invoice number this one replaces. */
+  originalInvoiceNumber?: string
+  /** GSTN's reason code when ITC is not available. */
+  itcReason?: string
   /** JSON string of the source row, kept for debugging / re-parse. */
   rawJson?: string
 }
@@ -110,4 +120,26 @@ export function toIsoDate(v: unknown): string {
   const parsed = new Date(s)
   if (!Number.isNaN(parsed.getTime())) return parsed.toISOString().slice(0, 10)
   return ''
+}
+
+/**
+ * A looser invoice key for the second-chance match: letters and digits
+ * only, leading zeros dropped from every number. "INV/001/24-25",
+ * "inv-1-24-25" and "INV 1 2425" all become "INV12425".
+ */
+export function looseInvoiceKey(s: string): string {
+  return (s ?? '').toUpperCase().replace(/[^A-Z0-9]/g, ' ').replace(/\b0+(\d)/g, '$1').replace(/\s+/g, '')
+}
+
+const GSTIN_CHARS = '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ'
+/** A GSTIN in the right shape with GSTN's check digit. */
+export function isValidGstin(raw: string): boolean {
+  const g = normalizeGstin(raw)
+  if (!/^\d{2}[A-Z]{5}\d{4}[A-Z][1-9A-Z]Z[0-9A-Z]$/.test(g)) return false
+  let sum = 0
+  for (let i = 0; i < 14; i++) {
+    const v = GSTIN_CHARS.indexOf(g[i]) * (i % 2 ? 2 : 1)
+    sum += Math.floor(v / 36) + (v % 36)
+  }
+  return GSTIN_CHARS[(36 - (sum % 36)) % 36] === g[14]
 }

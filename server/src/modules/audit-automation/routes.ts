@@ -9,6 +9,10 @@ import { AaBankService } from './services/AaBankService.js'
 import { AaAccountService } from './services/AaAccountService.js'
 import { AaUploadService } from './services/AaUploadService.js'
 import { AaJobService } from './services/AaJobService.js'
+import { AaTxnService } from './services/AaTxnService.js'
+import { AaRuleService } from './services/AaRuleService.js'
+import { writeAudit } from '../../platform/audit.js'
+import { readStatementTable } from './lib/tableFile.js'
 
 /**
  * AUDIT AUTOMATION HTTP SURFACE.
@@ -19,6 +23,16 @@ import { AaJobService } from './services/AaJobService.js'
  *   POST /api/audit-automation/uploads                  — the wireframe submit
  *   GET  /api/audit-automation/jobs?client_id=…         — jobs for a client
  *   GET  /api/audit-automation/jobs/:id                 — one job
+ *   GET  /api/audit-automation/jobs/:id/rows            — transactions (filter, search, page)
+ *   PATCH /api/audit-automation/rows/:id                — edit / exclude / accept a transaction
+ *   PATCH /api/audit-automation/jobs/:id                — bank ledger name, FY
+ *   POST /api/audit-automation/jobs/:id/apply-rules     — re-apply ledger rules
+ *   POST /api/audit-automation/jobs/:id/approve|reopen  — review sign-off
+ *   GET  /api/audit-automation/jobs/:id/export/tally.xml — Tally vouchers (approved only)
+ *   GET  /api/audit-automation/jobs/:id/export.xlsx     — reviewed transactions workbook
+ *   POST /api/audit-automation/jobs/:id/reprocess       — read the statement again
+ *   DELETE /api/audit-automation/jobs/:id               — delete the statement
+ *   GET/POST/PATCH/DELETE /api/audit-automation/rules   — narration → ledger rules
  *
  * Pipeline per request: authenticate (mounted in app.ts) → authorize
  * (checked inside each handler with can(...) / require*) → validate
@@ -114,6 +128,8 @@ auditAutomationRouter.post('/uploads', (req, res, next) => {
     bank_account_id: z.string().min(1),
     // Optional password — never persisted (see AaUploadService).
     password: z.string().max(256).optional(),
+    authorised: z.string().optional(),
+    fy: z.string().optional(),
     override_adapter_mismatch: z.string().optional(),
   }).safeParse(req.body)
   if (!body.success) throw ApiError.badRequest('client_id, bank_key and bank_account_id are required.')
@@ -122,13 +138,16 @@ auditAutomationRouter.post('/uploads', (req, res, next) => {
   if (!file) throw ApiError.unprocessable('empty', 'Choose a file to upload.')
   if (file.size === 0) throw ApiError.unprocessable('empty', 'The uploaded file is empty.')
 
-  // (a) File type — magic-byte sniff. Only PDF is accepted for bank statements.
+  // (a) File type — magic-byte sniff. PDF, or the bank's Excel / CSV download.
   const filename = sanitizeFilename(Buffer.from(file.originalname, 'latin1').toString('utf8'))
   const ext = extensionOf(filename)
   const sniffed = await sniffMime(file.buffer, ext)
-  if (sniffed !== 'application/pdf') {
-    throw ApiError.unprocessable('unsupported_type', 'Bank statements must be a PDF file.')
-  }
+  let format: 'pdf' | 'xlsx' | 'csv'
+  if (sniffed === 'application/pdf') format = 'pdf'
+  else if (ext === 'xlsx' || file.buffer.subarray(0, 2).toString('latin1') === 'PK') format = 'xlsx'
+  else if (ext === 'csv' || ext === 'txt') format = 'csv'
+  else throw ApiError.unprocessable('unsupported_type', 'Bank statements must be a PDF, Excel (.xlsx) or CSV file.')
+  const table = format === 'pdf' ? undefined : await readStatementTable(file.buffer, format)
 
   const organisationId = await orgIdOf(session.userId)
   const result = await AaUploadService.process({
@@ -138,9 +157,13 @@ auditAutomationRouter.post('/uploads', (req, res, next) => {
     bankKey: body.data.bank_key,
     bankAccountId: body.data.bank_account_id,
     originalFilename: filename,
-    mimeType: sniffed,
+    mimeType: sniffed ?? (format === 'xlsx' ? 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' : 'text/csv'),
     bytes: file.buffer,
-    password: body.data.password,
+    format,
+    table,
+    fy: body.data.fy || null,
+    authorised: body.data.authorised === '1' || body.data.authorised === 'true',
+    password: body.data.password || undefined,
     overrideAdapterMismatch: body.data.override_adapter_mismatch === '1' || body.data.override_adapter_mismatch === 'true',
     req,
   })
@@ -183,10 +206,140 @@ auditAutomationRouter.get('/jobs/:id', handler(async (req, res) => {
       page_count: doc.pageCount,
       declared_page_count: doc.declaredPageCount,
       encrypted: doc.encrypted,
+      source_format: doc.sourceFormat,
       bank: { id: doc.bank.id, key: doc.bank.key, name: doc.bank.name },
       bank_account: { id: doc.bankAccount.id, account_number_masked: doc.bankAccount.accountNumberMasked, label: doc.bankAccount.label },
       uploaded_by: { id: doc.uploadedBy.id, label: doc.uploadedBy.employee?.fullName ?? doc.uploadedBy.email },
       uploaded_at: doc.createdAt.toISOString(),
     } : null,
   })
+}))
+
+// ── Transactions: review, edit, approve, export ─────────────────────────
+auditAutomationRouter.get('/jobs/:id/rows', handler(async (req, res) => {
+  const session = requireSession(req)
+  requireAaView(session)
+  const q = z.object({ status: z.string().optional(), search: z.string().max(100).optional(), limit: z.coerce.number().optional(), offset: z.coerce.number().optional() }).parse(req.query)
+  ok(res, await AaTxnService.list(session, req.params.id, q))
+}))
+
+auditAutomationRouter.patch('/rows/:id', handler(async (req, res) => {
+  const session = requireSession(req)
+  requireAaUpload(session)
+  ok(res, await AaTxnService.update(session, req.params.id, (req.body ?? {}) as Record<string, unknown>, req))
+}))
+
+auditAutomationRouter.patch('/jobs/:id', handler(async (req, res) => {
+  const session = requireSession(req)
+  requireAaUpload(session)
+  const b = z.object({ bank_ledger_name: z.string().max(120).optional(), fy: z.string().max(7).optional() }).parse(req.body ?? {})
+  await AaTxnService.setJob(session, req.params.id, b, req)
+  ok(res, await AaJobService.get(session, req.params.id))
+}))
+
+auditAutomationRouter.post('/jobs/:id/apply-rules', handler(async (req, res) => {
+  const session = requireSession(req)
+  requireAaUpload(session)
+  ok(res, await AaTxnService.applyRules(session, req.params.id))
+}))
+
+auditAutomationRouter.post('/jobs/:id/approve', handler(async (req, res) => {
+  const session = requireSession(req)
+  requireAaUpload(session)
+  await AaTxnService.approve(session, req.params.id, true, req)
+  ok(res, await AaJobService.get(session, req.params.id))
+}))
+
+auditAutomationRouter.post('/jobs/:id/reopen', handler(async (req, res) => {
+  const session = requireSession(req)
+  requireAaUpload(session)
+  await AaTxnService.approve(session, req.params.id, false, req)
+  ok(res, await AaJobService.get(session, req.params.id))
+}))
+
+auditAutomationRouter.get('/jobs/:id/export/tally.xml', handler(async (req, res) => {
+  const session = requireSession(req)
+  requireAaView(session)
+  const { xml, filename } = await AaTxnService.tallyXml(session, req.params.id, req)
+  res.setHeader('Content-Type', 'application/xml; charset=utf-8')
+  res.setHeader('Content-Disposition', `attachment; filename="${filename.replace(/[^\w.-]/g, '_')}"`)
+  res.send(xml)
+}))
+
+auditAutomationRouter.get('/jobs/:id/export.xlsx', handler(async (req, res) => {
+  const session = requireSession(req)
+  requireAaView(session)
+  const { bytes, filename } = await AaTxnService.workbook(session, req.params.id, req)
+  res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+  res.setHeader('Content-Disposition', `attachment; filename="${filename.replace(/[^\w.-]/g, '_')}"`)
+  res.send(bytes)
+}))
+
+auditAutomationRouter.post('/jobs/:id/reprocess', handler(async (req, res) => {
+  const session = requireSession(req)
+  requireAaUpload(session)
+  await AaJobService.reprocess(session, req.params.id, req)
+  ok(res, await AaJobService.get(session, req.params.id), 202)
+}))
+
+auditAutomationRouter.delete('/jobs/:id', handler(async (req, res) => {
+  const session = requireSession(req)
+  requireAaUpload(session)
+  await AaJobService.remove(session, req.params.id, req)
+  ok(res, { deleted: true })
+}))
+
+// ── Ledger rules (narration → Tally ledger) ─────────────────────────────
+auditAutomationRouter.get('/rules', handler(async (req, res) => {
+  const session = requireSession(req)
+  requireAaView(session)
+  const q = z.object({ client_id: z.string().optional() }).parse(req.query)
+  const organisationId = await orgIdOf(session.userId)
+  const rows = await prisma.aaLedgerRule.findMany({
+    where: { organisationId, deletedAt: null, ...(q.client_id ? { OR: [{ clientId: q.client_id }, { clientId: null }] } : {}) },
+    orderBy: [{ priority: 'asc' }, { createdAt: 'asc' }],
+  })
+  ok(res, { items: rows.map((r) => ({ id: r.id, client_id: r.clientId, match_type: r.matchType, pattern: r.pattern, direction: r.direction, ledger_name: r.ledgerName, voucher_type: r.voucherType, priority: r.priority })) })
+}))
+
+auditAutomationRouter.post('/rules', handler(async (req, res) => {
+  const session = requireSession(req)
+  requireAaUpload(session)
+  const b = (req.body ?? {}) as Record<string, string | null | undefined>
+  const v = AaRuleService.validate({ match_type: b.match_type ?? undefined, pattern: b.pattern ?? undefined, direction: b.direction ?? undefined, ledger_name: b.ledger_name ?? undefined, voucher_type: b.voucher_type ?? null })
+  const organisationId = await orgIdOf(session.userId)
+  if (b.client_id) {
+    const c = await prisma.client.findFirst({ where: { id: b.client_id, organisationId, deletedAt: null }, select: { id: true } })
+    if (!c) throw ApiError.notFound('No such client.')
+  }
+  const rule = await prisma.aaLedgerRule.create({ data: { organisationId, clientId: b.client_id || null, ...v, priority: Number(b.priority ?? 100) || 100, createdByUserId: session.userId } })
+  await writeAudit({ actorUserId: session.userId, action: 'aa.rule_created', entityType: 'AaLedgerRule', entityId: rule.id, after: { ...v, client_id: rule.clientId }, req })
+  ok(res, { id: rule.id }, 201)
+}))
+
+auditAutomationRouter.patch('/rules/:id', handler(async (req, res) => {
+  const session = requireSession(req)
+  requireAaUpload(session)
+  const organisationId = await orgIdOf(session.userId)
+  const rule = await prisma.aaLedgerRule.findFirst({ where: { id: req.params.id, organisationId, deletedAt: null } })
+  if (!rule) throw ApiError.notFound('No such rule.')
+  const b = (req.body ?? {}) as Record<string, string | null | undefined>
+  const v = AaRuleService.validate({
+    match_type: b.match_type ?? rule.matchType, pattern: b.pattern ?? rule.pattern, direction: b.direction ?? rule.direction,
+    ledger_name: b.ledger_name ?? rule.ledgerName, voucher_type: b.voucher_type === undefined ? rule.voucherType : b.voucher_type,
+  })
+  await prisma.aaLedgerRule.update({ where: { id: rule.id }, data: { ...v, ...(b.priority !== undefined ? { priority: Number(b.priority) || 100 } : {}) } })
+  await writeAudit({ actorUserId: session.userId, action: 'aa.rule_updated', entityType: 'AaLedgerRule', entityId: rule.id, before: rule, after: v, req })
+  ok(res, { id: rule.id })
+}))
+
+auditAutomationRouter.delete('/rules/:id', handler(async (req, res) => {
+  const session = requireSession(req)
+  requireAaUpload(session)
+  const organisationId = await orgIdOf(session.userId)
+  const rule = await prisma.aaLedgerRule.findFirst({ where: { id: req.params.id, organisationId, deletedAt: null } })
+  if (!rule) throw ApiError.notFound('No such rule.')
+  await prisma.aaLedgerRule.update({ where: { id: rule.id }, data: { deletedAt: new Date() } })
+  await writeAudit({ actorUserId: session.userId, action: 'aa.rule_deleted', entityType: 'AaLedgerRule', entityId: rule.id, req })
+  ok(res, { deleted: true })
 }))

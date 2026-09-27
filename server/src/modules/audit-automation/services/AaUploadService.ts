@@ -16,6 +16,8 @@ import {
 import { classifyDetection, type DetectionResult } from '../adapters/registry.js'
 import { AaJobService, type AaJobApi } from './AaJobService.js'
 import { AaAccountService } from './AaAccountService.js'
+import { AaExtractService } from './AaExtractService.js'
+import { parseStatementTable } from '../lib/statementParser.js'
 
 /**
  * The pre-flight sequence from AMENDMENT-02 §4-Prompt2, sections 1(a-e)
@@ -55,6 +57,13 @@ export interface UploadInput {
   mimeType: string
   bytes: Buffer
   password?: string
+  /** The uploader confirmed they are authorised to decrypt this document. */
+  authorised?: boolean
+  /** Financial year the statement belongs to ("2026-27"). */
+  fy?: string | null
+  /** pdf, or a spreadsheet already read into rows (Excel / CSV download). */
+  format?: 'pdf' | 'xlsx' | 'csv'
+  table?: string[][]
   /** true → proceed even if adapter score < 0.3 (flag ADAPTER_MISMATCH). */
   overrideAdapterMismatch?: boolean
   req?: Request
@@ -77,9 +86,20 @@ async function verifyClientInOrg(organisationId: string, clientId: string) {
   if (!client) throw ApiError.notFound('No such client.')
 }
 
+/** A spreadsheet statement has no PDF facts; this fills the shape the pre-flight expects. */
+function tableInspection(table: string[][]): InspectionResult {
+  return { pageCount: 1, textLayerBytes: table.reduce((n, r) => n + r.join('').length, 0), encrypted: false, declaredPageCount: null, pages: [] } as unknown as InspectionResult
+}
+
 export const AaUploadService = {
   async process(input: UploadInput): Promise<UploadResult> {
     const { session, organisationId, clientId, bankKey, bankAccountId, originalFilename, mimeType, bytes, password, req } = input
+    const format = input.format ?? 'pdf'
+    if (input.fy && !/^\d{4}-\d{2}$/.test(input.fy)) throw ApiError.badRequest('FY is written 2026-27.')
+    // Decrypting someone's statement needs the uploader's explicit say-so.
+    if (password && !input.authorised) {
+      throw ApiError.unprocessable('authorisation_required', 'Confirm you are authorised to decrypt this statement.')
+    }
 
     // Confirm the client and the account belong to this session's org.
     await verifyClientInOrg(organisationId, clientId)
@@ -96,15 +116,17 @@ export const AaUploadService = {
     // route can return a specific message per AMENDMENT-02 §1-Gap1.
     let inspection: InspectionResult
     try {
-      inspection = await inspectPdf(bytes, password)
+      inspection = format === 'pdf'
+        ? await inspectPdf(bytes, password)
+        : tableInspection(input.table ?? [])
     } catch (err) {
       if (err instanceof PasswordRequiredError) {
         await AaUploadService.auditRejection({ session, clientId, filename: originalFilename, reason: 'password_required', req })
-        throw ApiError.badRequest('This PDF is password-protected. Enter the statement password to continue.')
+        throw ApiError.unprocessable('password_required', 'This PDF is password-protected. Enter the statement password to continue.')
       }
       if (err instanceof WrongPasswordError) {
         await AaUploadService.auditRejection({ session, clientId, filename: originalFilename, reason: 'wrong_password', req })
-        throw ApiError.badRequest('Incorrect statement password.')
+        throw ApiError.unprocessable('wrong_password', 'Incorrect statement password.')
       }
       if (err instanceof UnreadablePdfError) {
         await AaUploadService.auditRejection({ session, clientId, filename: originalFilename, reason: 'unreadable', req })
@@ -115,7 +137,7 @@ export const AaUploadService = {
 
     // ── (c) Text-layer check — REJECT scanned outright ──────────────────
     // AMENDMENT-02 §1-Gap3: no OCR fallback. Reject before any job row.
-    if (inspection.textLayerBytes < MIN_TEXT_LAYER_BYTES) {
+    if (format === 'pdf' && inspection.textLayerBytes < MIN_TEXT_LAYER_BYTES) {
       await AaUploadService.auditRejection({ session, clientId, filename: originalFilename, reason: 'scanned_document', req })
       throw ApiError.unprocessable(
         'scanned_document',
@@ -144,7 +166,12 @@ export const AaUploadService = {
     }
 
     // ── Adapter detect() as validation ───────────────────────────────────
-    const detection = classifyDetection(bankKey, inspection)
+    // A spreadsheet has no letterhead to recognise; its header row is checked instead.
+    if (format !== 'pdf' && parseStatementTable(input.table ?? []).columns.length === 0) {
+      await AaUploadService.auditRejection({ session, clientId, filename: originalFilename, reason: 'no_statement_table', req })
+      throw ApiError.unprocessable('no_statement_table', "Couldn't find the statement table — it needs a header row with Date, Narration and Debit/Credit (or Amount) and Balance columns.")
+    }
+    const detection: DetectionResult = format === 'pdf' ? classifyDetection(bankKey, inspection) : { band: 'ok', score: 0, adapterId: null }
     if (detection.band === 'mismatch' && !input.overrideAdapterMismatch) {
       await AaUploadService.auditRejection({
         session, clientId, filename: originalFilename, reason: 'adapter_mismatch',
@@ -161,14 +188,13 @@ export const AaUploadService = {
 
     // ── Persist the JSON extraction (NOT the decrypted PDF) ──────────────
     const documentId = crypto.randomUUID()
-    const extraction = JSON.stringify({
-      version: 1,
-      pages: inspection.pages,
-    })
+    const extraction = JSON.stringify(format === 'pdf'
+      ? { version: 1, pages: inspection.pages }
+      : { version: 1, table: input.table })
     const key = `${organisationId}/${clientId}/${documentId}/extraction.json`
     await aaStorage.put(key, Buffer.from(extraction, 'utf8'))
 
-    // ── Create AaSourceDocument + AaJob in a transaction ─────────────────
+    // ── AaSourceDocument + AaJob together, or neither ────────────────────
     // meta whitelist — the password NEVER lands here.
     const jobMeta: Record<string, unknown> = {
       adapter_id: detection.adapterId,
@@ -176,36 +202,54 @@ export const AaUploadService = {
       adapter_score: detection.score,
       declared_page_count: inspection.declaredPageCount,
       actual_page_count: inspection.pageCount,
+      source_format: format,
     }
+    // Encrypted means the FILE is — not that a password was typed.
+    const encrypted = format === 'pdf' && bytes.includes('/Encrypt')
 
-    const doc = await prisma.aaSourceDocument.create({
-      data: {
-        id: documentId,
-        organisationId,
-        clientId,
-        uploadedByUserId: session.userId,
-        bankId: bank.id,
-        bankAccountId: account.id,
-        originalFilename,
-        mimeType,
-        fileSize: bytes.length,
-        fileSha256,
-        extractionPath: key,
-        pageCount: inspection.pageCount,
-        textLayerBytes: inspection.textLayerBytes,
-        encrypted: inspection.encrypted,
-        declaredPageCount: inspection.declaredPageCount,
-      },
-    })
-
-    const job = await AaJobService.create({
-      sourceDocumentId: doc.id,
-      organisationId,
-      clientId,
-      createdByUserId: session.userId,
-      flags,
-      meta: jobMeta,
-    })
+    let doc: { id: string }
+    let job: AaJobApi
+    try {
+      ;[doc, job] = await prisma.$transaction(async (tx) => {
+        const d = await tx.aaSourceDocument.create({
+          data: {
+            id: documentId,
+            organisationId,
+            clientId,
+            uploadedByUserId: session.userId,
+            bankId: bank.id,
+            bankAccountId: account.id,
+            originalFilename,
+            mimeType,
+            fileSize: bytes.length,
+            fileSha256,
+            extractionPath: key,
+            pageCount: inspection.pageCount,
+            textLayerBytes: inspection.textLayerBytes,
+            encrypted,
+            declaredPageCount: inspection.declaredPageCount,
+            sourceFormat: format,
+          },
+        })
+        const j = await AaJobService.create({
+          sourceDocumentId: d.id,
+          organisationId,
+          clientId,
+          createdByUserId: session.userId,
+          flags,
+          meta: jobMeta,
+          fy: input.fy ?? null,
+        }, tx)
+        return [d, j] as const
+      })
+    } catch (err) {
+      await aaStorage.delete(key).catch(() => undefined)
+      // Two uploads of the same file racing: the unique index decides.
+      if ((err as { code?: string }).code === 'P2002') {
+        throw ApiError.conflict('duplicate_upload', 'This statement is already uploaded for this client.')
+      }
+      throw err
+    }
 
     await writeAudit({
       actorUserId: session.userId,
@@ -235,8 +279,19 @@ export const AaUploadService = {
       req,
     })
 
-    // Kick the stub extractor (this slice — see AaJobService.scheduleStubExtraction).
-    AaJobService.scheduleStubExtraction(job.id)
+    if (encrypted) {
+      await writeAudit({
+        actorUserId: session.userId,
+        action: 'aa.unlock_authorised',
+        entityType: 'AaSourceDocument',
+        entityId: doc.id,
+        // The confirmation and the fact of decryption — never the password.
+        after: { client_id: clientId, filename: originalFilename, authorised_by: session.userId },
+        req,
+      })
+    }
+
+    AaExtractService.schedule(job.id)
 
     return {
       job,

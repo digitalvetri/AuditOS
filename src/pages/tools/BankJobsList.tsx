@@ -103,8 +103,11 @@ function JobsTable({ jobs }: { jobs: AaJob[] }) {
       <table className="w-full text-13">
         <thead>
           <tr className="text-left text-11 text-neutral-500 tracking-[0.06em]">
-            <th className="px-3 py-2 font-normal">CREATED</th>
+            <th className="px-3 py-2 font-normal">UPLOADED</th>
+            <th className="px-3 py-2 font-normal">PERIOD</th>
+            <th className="px-3 py-2 font-normal text-right">ROWS</th>
             <th className="px-3 py-2 font-normal">STATUS</th>
+            <th className="px-3 py-2 font-normal">REVIEW</th>
             <th className="px-3 py-2 font-normal">FLAGS</th>
             <th className="px-3 py-2 font-normal w-16"></th>
           </tr>
@@ -113,8 +116,15 @@ function JobsTable({ jobs }: { jobs: AaJob[] }) {
           {jobs.map((j) => (
             <tr key={j.id} className="border-t border-neutral-100">
               <td className="px-3 py-2 text-neutral-900">{new Date(j.created_at).toLocaleString()}</td>
+              <td className="px-3 py-2 text-neutral-700 whitespace-nowrap">{j.period_from ? `${j.period_from} → ${j.period_to}` : '—'}{j.fy ? <span className="text-neutral-400"> · FY {j.fy}</span> : null}</td>
+              <td className="px-3 py-2 text-right tabular-nums">{j.status === 'extracted' ? j.row_count : '—'}</td>
               <td className="px-3 py-2">
                 <StatusPill status={j.status} />
+              </td>
+              <td className="px-3 py-2 text-12">
+                {j.status !== 'extracted' ? <span className="text-neutral-400">—</span>
+                  : j.review_status === 'approved' ? <span className="text-success font-medium">Approved</span>
+                  : <span className="text-amber">To review</span>}
               </td>
               <td className="px-3 py-2">
                 {j.flags.length === 0 ? (
@@ -122,7 +132,7 @@ function JobsTable({ jobs }: { jobs: AaJob[] }) {
                 ) : (
                   <div className="flex flex-wrap gap-1">
                     {j.flags.map((f) => (
-                      <span key={f} className="text-11 px-1.5 py-0.5 rounded bg-amber-50 text-amber-700">{f}</span>
+                      <span key={f} className="text-11 px-1.5 py-0.5 rounded bg-amber/10 text-amber">{f.replace(/_/g, ' ').toLowerCase()}</span>
                     ))}
                   </div>
                 )}
@@ -143,8 +153,8 @@ function JobsTable({ jobs }: { jobs: AaJob[] }) {
 function StatusPill({ status }: { status: AaJob['status'] }) {
   const map: Record<AaJob['status'], { label: string; color: string }> = {
     queued: { label: 'Queued', color: 'border-l-neutral-400 text-neutral-700' },
-    extracting: { label: 'Extracting', color: 'border-l-blue-500 text-blue-700' },
-    extracted: { label: 'Extracted', color: 'border-l-green-500 text-green-700' },
+    extracting: { label: 'Reading', color: 'border-l-primary text-primary' },
+    extracted: { label: 'Read', color: 'border-l-success text-success' },
     failed: { label: 'Failed', color: 'border-l-danger text-danger' },
   };
   const s = map[status];

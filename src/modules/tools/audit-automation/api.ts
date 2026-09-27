@@ -37,6 +37,56 @@ export interface AaJob {
   created_at: string;
   started_at: string | null;
   completed_at: string | null;
+  fy: string | null;
+  period_from: string | null;
+  period_to: string | null;
+  opening_balance_paise: number | null;
+  closing_balance_paise: number | null;
+  row_count: number;
+  review_status: 'pending' | 'approved';
+  approved_at: string | null;
+  bank_ledger_name: string | null;
+}
+
+export type AaTxnStatus = 'ok' | 'flagged' | 'duplicate' | 'excluded';
+export interface AaTxn {
+  id: string;
+  seq: number;
+  page: number | null;
+  txn_date: string;
+  value_date: string | null;
+  narration: string;
+  reference: string | null;
+  debit_paise: number;
+  credit_paise: number;
+  balance_paise: number | null;
+  status: AaTxnStatus;
+  flags: string[];
+  duplicate_of_id: string | null;
+  ledger_name: string | null;
+  voucher_type: 'payment' | 'receipt' | 'contra' | 'journal' | null;
+  matched_rule_id: string | null;
+  edited: boolean;
+  edited_at: string | null;
+  original: Record<string, unknown>;
+}
+export interface AaTxnPage {
+  items: AaTxn[];
+  total: number;
+  limit: number;
+  offset: number;
+  counts: Partial<Record<AaTxnStatus, number>>;
+  missing_ledger: number;
+}
+export interface AaRule {
+  id: string;
+  client_id: string | null;
+  match_type: 'contains' | 'exact' | 'regex';
+  pattern: string;
+  direction: 'any' | 'withdrawal' | 'deposit';
+  ledger_name: string;
+  voucher_type: string | null;
+  priority: number;
 }
 
 export interface AaJobDetail {
@@ -48,6 +98,7 @@ export interface AaJobDetail {
     page_count: number;
     declared_page_count: number | null;
     encrypted: boolean;
+    source_format?: 'pdf' | 'xlsx' | 'csv';
     bank: { id: string; key: string; name: string };
     bank_account: { id: string; account_number_masked: string; label: string | null };
     uploaded_by: { id: string; label: string };
@@ -76,6 +127,9 @@ export interface AaUploadRequest {
   bankAccountId: string;
   file: File;
   password?: string;
+  /** The uploader confirmed they may decrypt this statement (required with a password). */
+  authorised?: boolean;
+  fy?: string;
   overrideAdapterMismatch?: boolean;
 }
 
@@ -127,6 +181,8 @@ export function uploadStatement(req: AaUploadRequest, onProgress?: (pct: number)
     form.append('bank_key', req.bankKey);
     form.append('bank_account_id', req.bankAccountId);
     if (req.password) form.append('password', req.password);
+    if (req.authorised) form.append('authorised', '1');
+    if (req.fy) form.append('fy', req.fy);
     if (req.overrideAdapterMismatch) form.append('override_adapter_mismatch', '1');
     form.append('file', req.file, req.file.name);
     xhr.send(form);
@@ -152,4 +208,19 @@ export const auditAutomationApi = {
   jobs: (clientId: string) =>
     api.get<{ items: AaJob[]; count: number }>(`/api/audit-automation/jobs${qs({ client_id: clientId })}`),
   job: (id: string) => api.get<AaJobDetail>(`/api/audit-automation/jobs/${id}`),
+  updateJob: (id: string, body: { bank_ledger_name?: string; fy?: string }) => api.patch<AaJob>(`/api/audit-automation/jobs/${id}`, body),
+  rows: (id: string, q: { status?: string; search?: string; limit?: number; offset?: number } = {}) =>
+    api.get<AaTxnPage>(`/api/audit-automation/jobs/${id}/rows${qs(q)}`),
+  updateRow: (rowId: string, body: Record<string, unknown>) => api.patch<AaTxn>(`/api/audit-automation/rows/${rowId}`, body),
+  applyRules: (id: string) => api.post<{ changed: number }>(`/api/audit-automation/jobs/${id}/apply-rules`),
+  approve: (id: string) => api.post<AaJob>(`/api/audit-automation/jobs/${id}/approve`),
+  reopen: (id: string) => api.post<AaJob>(`/api/audit-automation/jobs/${id}/reopen`),
+  reprocess: (id: string) => api.post<AaJob>(`/api/audit-automation/jobs/${id}/reprocess`),
+  remove: (id: string) => api.delete<{ deleted: boolean }>(`/api/audit-automation/jobs/${id}`),
+  tallyXmlUrl: (id: string) => `/api/audit-automation/jobs/${id}/export/tally.xml`,
+  workbookUrl: (id: string) => `/api/audit-automation/jobs/${id}/export.xlsx`,
+  rules: (clientId: string) => api.get<{ items: AaRule[] }>(`/api/audit-automation/rules${qs({ client_id: clientId })}`),
+  createRule: (body: { client_id?: string | null; match_type?: string; pattern: string; direction?: string; ledger_name: string; voucher_type?: string | null; priority?: number }) =>
+    api.post<{ id: string }>('/api/audit-automation/rules', body),
+  deleteRule: (id: string) => api.delete<{ deleted: boolean }>(`/api/audit-automation/rules/${id}`),
 };
