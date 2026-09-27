@@ -291,15 +291,27 @@ const IMPLEMENTATIONS: Record<string, Implementation> = {
   'tds-fvu-generator': async ({ inputs, options, progress }) => {
     const { doc, bytes } = inputs[0]
     progress(20)
+    const lines = (...keys: string[]) => keys.map((k) => str(options[k]))
+    const sameAddress = options.rp_same_address === true
     const r = await ComplianceService.tdsTextFile(bytes, {
-      formType: str(options.form_type, '26Q'), quarter: str(options.quarter, 'Q1'),
-      fy: str(options.financial_year), tan: str(options.tan), deductorName: str(options.deductor_name),
+      quarter: str(options.quarter, 'Q1'), fy: str(options.financial_year),
+      tan: str(options.tan), pan: str(options.deductor_pan), name: str(options.deductor_name),
+      type: str(options.deductor_type), gstin: str(options.deductor_gstin),
+      address: lines('address1', 'address2', 'address3', 'address4', 'address5'),
+      state: str(options.state), pincode: str(options.pincode), email: str(options.email), phone: str(options.phone),
+      rpName: str(options.rp_name), rpDesignation: str(options.rp_designation), rpPan: str(options.rp_pan),
+      rpAddress: sameAddress ? lines('address1', 'address2', 'address3', 'address4', 'address5')
+        : lines('rp_address1', 'rp_address2', 'rp_address3', 'rp_address4', 'rp_address5'),
+      rpState: str(sameAddress ? options.state : options.rp_state),
+      rpPincode: str(sameAddress ? options.pincode : options.rp_pincode),
+      rpEmail: str(options.rp_email) || str(options.email), rpPhone: str(options.rp_phone) || str(options.phone),
+      filedEarlier: options.filed_earlier === true, previousToken: str(options.previous_token),
     })
     progress(90)
     return {
-      filename: `${stripExtension(doc.originalFilename)}-${str(options.form_type, '26Q')}.txt`,
+      filename: `${stripExtension(doc.originalFilename)}-Form140-${str(options.quarter, 'Q1')}.txt`,
       mime: OUTPUT_MIME.txt, bytes: r.bytes,
-      meta: { deductees: r.deductees, challans: r.challans, skipped: r.skipped, total_tds: r.totalTds, form_type: str(options.form_type, '26Q'), quarter: str(options.quarter, 'Q1') },
+      meta: { deductees: r.deductees, challans: r.challans, skipped: r.skipped, total_tds: r.totalTds, form_type: 'Form 140', quarter: str(options.quarter, 'Q1') },
       warning: r.warning,
     }
   },

@@ -3,7 +3,7 @@
  * so `fetch` in exchangeCodeForTokens actually talks to the fake, then
  * drives the full OAuth handshake:
  *
- *   1. GET /oauth/v2/auth  → 302 with code + state
+ *   1. GET /oauth/v2/org/auth (soid=zohopay.{id}) → 302 with code + state
  *   2. POST /oauth/v2/token (via exchangeCodeForTokens)
  *   3. Assert tokens land, refresh grant works, and every error path Zoho
  *      documents surfaces the right error code.
@@ -39,7 +39,7 @@ async function bootFake(): Promise<{ config: ZpayConfig; close: () => Promise<vo
     mode: 'fake' as const,
     clientId: 'CID',
     clientSecret: 'CSECRET',
-    scopes: ['ZohoPay.payments.READ', 'ZohoPay.refunds.READ'] as const,
+    scopes: ['ZohoPay.payments.READ', 'ZohoPay.refunds.READ', 'ZohoPay.payments.CREATE'] as const,
     encryptionKey: crypto.randomBytes(32),
   }
 
@@ -66,10 +66,14 @@ async function bootFake(): Promise<{ config: ZpayConfig; close: () => Promise<vo
 }
 
 async function authorize(config: ZpayConfig, state: string): Promise<string> {
-  const url = new URL(`${config.accountsBase}/oauth/v2/auth`)
+  // The generic endpoint does not authorise a Payments account.
+  const generic = await fetch(`${config.accountsBase}/oauth/v2/auth?response_type=code`, { redirect: 'manual' })
+  if (generic.status !== 400) fail('authorize', `generic /oauth/v2/auth should be refused, got ${generic.status}`)
+  const url = new URL(`${config.accountsBase}/oauth/v2/org/auth`)
+  url.searchParams.set('soid', 'zohopay.60012345')
   url.searchParams.set('response_type', 'code')
   url.searchParams.set('client_id', config.clientId)
-  url.searchParams.set('scope', config.scopes.join(' '))
+  url.searchParams.set('scope', config.scopes.join(','))
   url.searchParams.set('redirect_uri', config.redirectUri)
   url.searchParams.set('state', state)
   url.searchParams.set('access_type', 'offline')
@@ -134,10 +138,11 @@ async function main() {
 
     // ── Bad redirect_uri at authorize ─────────────────────────────────
     {
-      const url = new URL(`${config.accountsBase}/oauth/v2/auth`)
+      const url = new URL(`${config.accountsBase}/oauth/v2/org/auth`)
+      url.searchParams.set('soid', 'zohopay.60012345')
       url.searchParams.set('response_type', 'code')
       url.searchParams.set('client_id', config.clientId)
-      url.searchParams.set('scope', config.scopes.join(' '))
+      url.searchParams.set('scope', config.scopes.join(','))
       url.searchParams.set('redirect_uri', 'http://example.invalid/callback')
       url.searchParams.set('state', 'x')
       const res = await fetch(url, { redirect: 'manual' })

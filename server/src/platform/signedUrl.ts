@@ -12,8 +12,8 @@ export interface SignedLink {
   expires_at: string
 }
 
-export function signResource(resource: string, subjectUserId: string): { token: string; expiresAt: Date } {
-  const exp = Math.floor(Date.now() / 1000) + env.signedUrlTtlSeconds
+export function signResource(resource: string, subjectUserId: string, ttlSeconds = env.signedUrlTtlSeconds): { token: string; expiresAt: Date } {
+  const exp = Math.floor(Date.now() / 1000) + ttlSeconds
   const sig = crypto
     .createHmac('sha256', env.signedUrlSecret)
     .update(`${resource}.${subjectUserId}.${exp}`)
@@ -45,8 +45,8 @@ export function verifyResourceToken(resource: string, token: string | undefined)
   return sub
 }
 
-export function signedLink(basePath: string, resource: string, subjectUserId: string): SignedLink {
-  const { token, expiresAt } = signResource(resource, subjectUserId)
+export function signedLink(basePath: string, resource: string, subjectUserId: string, ttlSeconds?: number): SignedLink {
+  const { token, expiresAt } = signResource(resource, subjectUserId, ttlSeconds)
   return {
     url: `${basePath}?t=${encodeURIComponent(token)}`,
     expires_at: expiresAt.toISOString(),

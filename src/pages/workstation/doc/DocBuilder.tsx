@@ -25,6 +25,7 @@ import { docsApi, type DocInput, type WorkstationDoc } from '@/modules/workstati
 import { DocDocument, type DocEditApi, type DocModel } from './DocDocument';
 import { useAuth } from '@/platform/auth/AuthContext';
 import { can } from '@/platform/rbac/can';
+import { printDocumentOnly } from '@/modules/workstation/print';
 
 /**
  * THE DOCUMENT BUILDER — /workstation/doc/:typeId/new and /workstation/doc/:id/edit.
@@ -467,13 +468,7 @@ export function DocBuilderPage() {
   }
 
   function printDocument() {
-    document.documentElement.classList.add('qdoc-printing');
-    const done = () => {
-      document.documentElement.classList.remove('qdoc-printing');
-      window.removeEventListener('afterprint', done);
-    };
-    window.addEventListener('afterprint', done);
-    window.print();
+    printDocumentOnly();
   }
 
   const status = existingQ.data?.status ?? 'draft';

@@ -103,7 +103,27 @@ export async function accessTokenFor(conn: ConnectionRow, force = false): Promis
   const inflight = refreshing.get(conn.id)
   if (inflight) return inflight
   const p = (async () => {
-    const refreshToken = decryptToken(conn.refreshTokenEncrypted!, cfg.encryptionKey)
+    // The row this request loaded may be stale: another request, or another
+    // API process, may have refreshed since. Zoho limits refreshes, so use a
+    // newer valid token when there is one. When forced (the token we sent
+    // was refused), only a token other than that one counts as newer.
+    const latest = await prisma.booksZohoConnection.findUnique({
+      where: { id: conn.id },
+      select: { status: true, accessTokenEncrypted: true, accessTokenExpiresAt: true, refreshTokenEncrypted: true },
+    })
+    if (!latest || latest.status !== 'connected' || !latest.refreshTokenEncrypted) {
+      throw new ZohoBooksError('reconnect', 'connection is not connected')
+    }
+    if (
+      latest.accessTokenEncrypted && latest.accessTokenExpiresAt && latest.accessTokenExpiresAt.getTime() > Date.now() + 60_000 &&
+      (!force || latest.accessTokenEncrypted !== conn.accessTokenEncrypted)
+    ) {
+      conn.accessTokenEncrypted = latest.accessTokenEncrypted
+      conn.accessTokenExpiresAt = latest.accessTokenExpiresAt
+      return decryptToken(latest.accessTokenEncrypted, cfg.encryptionKey)
+    }
+    conn.refreshTokenEncrypted = latest.refreshTokenEncrypted
+    const refreshToken = decryptToken(latest.refreshTokenEncrypted, cfg.encryptionKey)
     const accountsBase = conn.accountsServer && isTrustedZohoHost(conn.accountsServer, cfg) ? conn.accountsServer : cfg.accountsBase
     try {
       const t = await exchangeRefreshTokenForAccess({ ...cfg, accountsBase }, refreshToken, oauthFetch)
@@ -261,7 +281,14 @@ export async function zohoRequest<T = Record<string, unknown>>(ctx: ZohoContext,
       forcedRefresh = true
       continue
     }
-    if (err.kind === 'reconnect') await markConnection(ctx.conn.id, 'expired', `zoho_${zohoCode ?? res.status}`)
+    if (err.kind === 'reconnect') {
+      // Refused again with a token refreshed a moment ago: the grant is fine
+      // (a dead grant fails at the refresh and is marked there). Zoho sends
+      // the same 401 + code 57 for a stale token and for "your Zoho role may
+      // not do this" — so this is the role, and it must not expire the
+      // connection for the whole firm.
+      throw new ZohoBooksError('permission', 'Your Zoho Books user is not allowed to do this. Check the role of the Zoho user who connected Books.', zohoCode, res.status)
+    }
     const retryAfter = Number(res.headers.get('retry-after') ?? '')
     const retryable = err.kind === 'upstream' || (err.kind === 'rate_limit' && retryAfter > 0 && retryAfter <= 5)
     if (method === 'GET' && retryable && attempt < 2) {

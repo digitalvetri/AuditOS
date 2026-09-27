@@ -23,6 +23,7 @@
  * GSTR-1 reconciliation) and non-GST ones without a join.
  */
 import { prisma } from '../../lib/prisma.js'
+import { collectedWhere, COMPLETED_REFUND_STATUSES } from './statuses.js'
 
 export interface CollectionsPeriod {
   /** 'YYYY-MM' — IST month. Bounds computed inclusive of month end. */
@@ -121,7 +122,7 @@ export async function collectionsAggregate(
   // Four aggregates on ZpayPayment.
   const [collected, matched, unmatched, refunded, perAccount] = await Promise.all([
     prisma.zpayPayment.aggregate({
-      where: { accountRowId: { in: accountRowIds }, ...inWindow },
+      where: { accountRowId: { in: accountRowIds }, ...inWindow, ...collectedWhere },
       _sum: { amountPaise: true },
       _count: { _all: true },
     }),
@@ -130,6 +131,7 @@ export async function collectionsAggregate(
         accountRowId: { in: accountRowIds },
         matchType: { in: [...MATCHED_TYPES] },
         ...inWindow,
+        ...collectedWhere,
       },
       _sum: { amountPaise: true },
       _count: { _all: true },
@@ -139,6 +141,7 @@ export async function collectionsAggregate(
         accountRowId: { in: accountRowIds },
         matchType: { in: [...UNMATCHED_TYPES] },
         ...inWindow,
+        ...collectedWhere,
       },
       _sum: { amountPaise: true },
       _count: { _all: true },
@@ -147,13 +150,14 @@ export async function collectionsAggregate(
       where: {
         accountRowId: { in: accountRowIds },
         refundedAt: { gte: period.from, lt: period.to },
+        status: { in: [...COMPLETED_REFUND_STATUSES] as string[] },
       },
       _sum: { amountPaise: true },
       _count: { _all: true },
     }),
     prisma.zpayPayment.groupBy({
       by: ['accountRowId'],
-      where: { accountRowId: { in: accountRowIds }, ...inWindow },
+      where: { accountRowId: { in: accountRowIds }, ...inWindow, ...collectedWhere },
       _sum: { amountPaise: true },
       _count: { _all: true },
     }),

@@ -15,7 +15,7 @@
  * Tokens never appear in a response — the serialisers below list fields
  * explicitly.
  */
-import { Router, type NextFunction, type Request, type Response } from 'express'
+import { Router, type NextFunction, type Request, type RequestHandler, type Response } from 'express'
 import multer from 'multer'
 import { ApiError, ok } from '../../lib/http.js'
 import { prisma } from '../../lib/prisma.js'
@@ -26,7 +26,7 @@ import { BooksNotConfigured, booksConfig, booksConfigured } from './config.js'
 import { toApiError, zohoRequest, ZohoBooksError, type ZohoContext } from './client.js'
 import { beginConnect, completeConnect, connectWithCode, disconnect, refreshOrganizations } from './connection.js'
 import { ENTITIES, isZohoId, type EntityDef } from './entities.js'
-import { computeDashboard, REPORTS, runReport } from './insights.js'
+import { computeDashboard, REPORTS, runReport, istDate } from './insights.js'
 
 export const booksRouter = Router()
 export const booksCallbackRouter = Router()
@@ -62,7 +62,8 @@ function cleanBody(body: unknown): Record<string, unknown> {
 }
 
 function entityOf(req: Request): EntityDef {
-  const def = ENTITIES[req.params.entity]
+  // Own keys only: `constructor` or `__proto__` are "found" on any plain object.
+  const def = Object.hasOwn(ENTITIES, req.params.entity) ? ENTITIES[req.params.entity] : undefined
   if (!def) throw ApiError.notFound('Unknown Books resource.')
   return def
 }
@@ -235,10 +236,13 @@ booksRouter.use('/o/:ref', h(async (req, res) => {
 }, true), orgRouter)
 
 // Sync: one at a time per organisation (a stale claim older than 5 min is reclaimable).
+/** A sync still marked running after this long crashed; the next one takes over. */
+const SYNC_CLAIM_MS = 5 * 60_000
+
 async function runSync(res: Response, trigger: 'manual' | 'auto', req: Request) {
   const { org, userId, ctx } = loc(res)
   const claim = await prisma.booksZohoOrganization.updateMany({
-    where: { id: org.id, OR: [{ syncStatus: { not: 'syncing' } }, { lastSyncAttemptAt: { lt: new Date(Date.now() - 5 * 60_000) } }] },
+    where: { id: org.id, OR: [{ syncStatus: { not: 'syncing' } }, { lastSyncAttemptAt: { lt: new Date(Date.now() - SYNC_CLAIM_MS) } }] },
     data: { syncStatus: 'syncing', lastSyncAttemptAt: new Date() },
   })
   if (claim.count === 0) throw ApiError.conflict('books_sync_in_progress', 'A sync is already running for this organisation.')
@@ -264,7 +268,8 @@ async function runSync(res: Response, trigger: 'manual' | 'auto', req: Request) 
 orgRouter.get('/dashboard', h(async (req, res) => {
   const { org } = loc(res)
   const stale = !org.snapshotJson || (org.autoRefreshMinutes > 0 && (!org.lastSyncAt || Date.now() - org.lastSyncAt.getTime() > org.autoRefreshMinutes * 60_000))
-  if (stale && org.syncStatus !== 'syncing') {
+  const syncStuck = org.syncStatus === 'syncing' && (!org.lastSyncAttemptAt || Date.now() - org.lastSyncAttemptAt.getTime() > SYNC_CLAIM_MS)
+  if (stale && (org.syncStatus !== 'syncing' || syncStuck)) {
     try {
       const r = await runSync(res, 'auto', req)
       return ok(res, { snapshot: r.snapshot, last_sync_at: r.lastSyncAt, sync_status: 'synced', last_sync_error: null })
@@ -300,9 +305,10 @@ orgRouter.get('/reports/:report', h(async (req, res) => {
   need(req, 'books.reports')
   if (!REPORTS.some((r) => r.id === req.params.report)) throw ApiError.notFound('Unknown report.')
   const date = (k: string, d: string) => { const v = req.query[k]; return typeof v === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(v) ? v : d }
-  const now = new Date()
-  const fyStart = `${now.getUTCMonth() >= 3 ? now.getUTCFullYear() : now.getUTCFullYear() - 1}-04-01`
-  ok(res, await runReport(loc(res).ctx, req.params.report, date('from', fyStart), date('to', now.toISOString().slice(0, 10))))
+  const todayIst = istDate()
+  const [y, m] = todayIst.split('-').map(Number)
+  const fyStart = `${m >= 4 ? y : y - 1}-04-01`
+  ok(res, await runReport(loc(res).ctx, req.params.report, date('from', fyStart), date('to', todayIst)))
 }))
 
 // Bank match suggestions for an uncategorised transaction.
@@ -381,7 +387,7 @@ orgRouter.delete('/e/:entity/:id', h(async (req, res) => {
 
 orgRouter.post('/e/:entity/:id/a/:action', h(async (req, res) => {
   const def = entityOf(req)
-  const action = def.actions?.[req.params.action]
+  const action = def.actions && Object.hasOwn(def.actions, req.params.action) ? def.actions[req.params.action] : undefined
   if (!action) throw ApiError.notFound('This action is not supported for this record type.')
   need(req, action.perm)
   const r = await zohoRequest<Record<string, unknown>>(loc(res).ctx, {
@@ -392,8 +398,17 @@ orgRouter.post('/e/:entity/:id/a/:action', h(async (req, res) => {
 }))
 
 const receiptUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024, files: 1 } })
-orgRouter.post('/e/expenses/:id/receipt', receiptUpload.single('receipt'), h(async (req, res) => {
-  need(req, 'books.manage')
+/** Permission is checked before a 10 MB body is buffered, and multer's limits come back as clean errors. */
+const receiptIn: RequestHandler = (req, res, next) => {
+  try { need(req, 'books.manage') } catch (e) { return next(e) }
+  receiptUpload.single('receipt')(req, res, (err: unknown) => {
+    if (err instanceof multer.MulterError) {
+      return next(err.code === 'LIMIT_FILE_SIZE' ? new ApiError(413, 'file_too_large', 'Receipts can be up to 10 MB.') : ApiError.badRequest('Attach one receipt file.'))
+    }
+    next(err)
+  })
+}
+orgRouter.post('/e/expenses/:id/receipt', receiptIn, h(async (req, res) => {
   if (!req.file) throw ApiError.badRequest('Attach a receipt file.')
   if (!/^(image\/(png|jpe?g|gif)|application\/pdf)$/.test(req.file.mimetype)) throw ApiError.badRequest('Receipts must be a PDF or an image.')
   const form = new FormData()

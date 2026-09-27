@@ -25,6 +25,7 @@ import { FormatToolbar } from './FormatToolbar';
 import { focusSibling, forceSync, requestFocus } from './Editable';
 import { useAuth } from '@/platform/auth/AuthContext';
 import { can } from '@/platform/rbac/can';
+import { printDocumentOnly } from '@/modules/workstation/print';
 
 /**
  * THE ENGAGEMENT LETTER BUILDER — /workstation/engagement/new and /:id/edit.
@@ -476,13 +477,7 @@ export function EngagementBuilderPage() {
   }
 
   function printDocument() {
-    document.documentElement.classList.add('qdoc-printing');
-    const done = () => {
-      document.documentElement.classList.remove('qdoc-printing');
-      window.removeEventListener('afterprint', done);
-    };
-    window.addEventListener('afterprint', done);
-    window.print();
+    printDocumentOnly();
   }
 
   const status = existingQ.data?.status ?? 'draft';

@@ -11,7 +11,10 @@ import {
 import { workstationApi } from '@/modules/workstation/api';
 import { quotationsApi, inr, type Quotation } from '@/modules/workstation/quotations/api';
 import { fmtDate } from '@/lib/format';
-import { shareDocumentPdf, waNumber, type ShareChannel } from '@/modules/workstation/share';
+import { shareDocumentPdf, waNumber, whatsappHint, type ShareChannel } from '@/modules/workstation/share';
+import { SendEmailDialog } from '@/modules/workstation/SendEmailDialog';
+import { SendWhatsAppDialog } from '@/modules/workstation/SendWhatsAppDialog';
+import { useToast } from '@/components/Toast';
 import { QuotationDocument, documentFromApi } from './QuotationDocument';
 import { useAuth } from '@/platform/auth/AuthContext';
 import { can } from '@/platform/rbac/can';
@@ -344,6 +347,9 @@ function ActionsMenu({
 }) {
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [emailing, setEmailing] = useState(false);
+  const [whatsapping, setWhatsapping] = useState(false);
+  const toast = useToast();
   const ref = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -361,28 +367,21 @@ function ActionsMenu({
   }, [open]);
 
   const phone = waNumber(doc.party_contact_number);
-  const message =
-    `Quotation ${doc.quotation_code}\n${doc.subject}\n`
-    + `Total: ${inr(doc.total_paise)}`
-    + (doc.valid_until ? `\nValid until: ${fmtDate(doc.valid_until)}` : '');
 
-  /**
-   * Send the quotation AS A FILE. Web Share API on mobile attaches the PDF
-   * to WhatsApp/email natively; on desktop the file is saved to Downloads
-   * and the channel opens with the covering text only, so the sender can
-   * attach the just-saved file. See src/modules/workstation/share.ts for
-   * the full path — kept there so invoices and engagement letters converge
-   * on one implementation.
-   */
+  const fileName = `${doc.quotation_code}.pdf`;
+  const note =
+    `Dear ${doc.party_name ?? 'Sir/Madam'},\n\nPlease find attached our quotation ${doc.quotation_code} — ${doc.subject}.\n`
+    + `Total: ${inr(doc.total_paise)}\n`
+    + (doc.valid_until ? `Valid until: ${fmtDate(doc.valid_until)}\n` : '')
+    + `\nRegards`;
+
+  /** Download, or send on WhatsApp as a FILE (share sheet, else download + WhatsApp Web). */
   const sharePdf = async (channel: ShareChannel) => {
     setBusy(true);
     try {
-      await shareDocumentPdf({
-        issueUrl: () => quotationsApi.pdfUrl(doc.id),
-        fileName: `${doc.quotation_code}.pdf`,
-        subject: `Quotation ${doc.quotation_code} — ${doc.subject}`,
-        message, channel, phone, email: doc.party_email,
-      });
+      const r = await shareDocumentPdf({ issueUrl: () => quotationsApi.pdfUrl(doc.id), fileName, note, channel, phone });
+      const hint = whatsappHint(r, fileName);
+      if (hint) toast.push('info', hint);
     } catch (e) {
       onShareError((e as { message?: string })?.message ?? 'The PDF could not be sent.');
     } finally {
@@ -394,6 +393,14 @@ function ActionsMenu({
 
   return (
     <div className="relative" ref={ref}>
+      <SendEmailDialog
+        open={emailing} onClose={() => setEmailing(false)} kind="quotation" id={doc.id} fileName={fileName}
+        to={doc.party_email} subject={`Quotation ${doc.quotation_code} — ${doc.subject}`} message={note}
+      />
+      <SendWhatsAppDialog
+        open={whatsapping} onClose={() => setWhatsapping(false)} kind="quotation" id={doc.id} phone={doc.party_contact_number}
+        fileName={fileName} note={note} issueUrl={() => quotationsApi.pdfUrl(doc.id)}
+      />
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}
@@ -421,9 +428,8 @@ function ActionsMenu({
           </MenuButton>
 
           <MenuButton
-            disabled={!phone || busy}
-            title={phone ? undefined : 'No contact number on this quotation'}
-            onClick={() => { close(); sharePdf('whatsapp'); }}
+            disabled={busy}
+            onClick={() => { close(); setWhatsapping(true); }}
           >
             <MessageCircle size={14} /> Send on WhatsApp
           </MenuButton>
@@ -431,7 +437,7 @@ function ActionsMenu({
           <MenuButton
             disabled={!doc.party_email || busy}
             title={doc.party_email ? undefined : 'No email address on this quotation'}
-            onClick={() => { close(); sharePdf('email'); }}
+            onClick={() => { close(); setEmailing(true); }}
           >
             <Mail size={14} /> Send by email
           </MenuButton>

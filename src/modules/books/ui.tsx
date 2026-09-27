@@ -34,7 +34,11 @@ export function dateTime(v: unknown): string {
   const d = new Date(v);
   return Number.isNaN(d.getTime()) ? v : d.toLocaleString('en-IN', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' });
 }
-export const today = () => new Date().toISOString().slice(0, 10);
+/** Today as yyyy-mm-dd in the user's own time zone (toISOString is UTC — yesterday until 05:30 IST). */
+export const today = () => {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+};
 
 // ── layout ────────────────────────────────────────────────────────────────
 export function Section({ title, right, children, className = '' }: { title?: ReactNode; right?: ReactNode; children: ReactNode; className?: string }) {

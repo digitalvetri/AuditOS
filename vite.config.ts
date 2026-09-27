@@ -22,6 +22,10 @@ export default defineConfig(({ mode }) => {
     server: {
       port: 5173,
       strictPort: true,
+      // Listen on the office network too, not only this computer: "Send on
+      // WhatsApp" shows a QR code that a phone on the same Wi-Fi opens
+      // (/send) to share the PDF with WhatsApp as an attachment.
+      host: true,
       proxy: {
         '/api': { target: apiTarget, changeOrigin: false },
         // Socket.IO transport for Messages realtime.

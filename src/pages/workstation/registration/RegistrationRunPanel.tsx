@@ -22,7 +22,7 @@ import { workstationApi } from '@/modules/workstation/api';
 import { Card } from '@/modules/workstation/components';
 import { useToast } from '@/components/Toast';
 import { fmtDate } from '@/lib/format';
-import type { RegistrationService } from './services';
+import { MINIMAL_REGISTRATION_PAGES, type RegistrationService } from './services';
 
 /** GST work files under the GST category; everything else under Basic. */
 function categoryFor(slug: string): string {
@@ -236,11 +236,13 @@ export function RegistrationRunPanel({ service }: { service: RegistrationService
               : existing ? `Record re-issue as v${existing.version + 1}`
               : 'Add to client documents'}
           </button>
-          <p className="text-12 text-neutral-500 mt-2">
-            This build stores no file bytes — the document and its version are recorded as metadata,
-            the same as everywhere else in Workstation. Attaching the actual PDF needs file storage,
-            which is not built yet.
-          </p>
+          {MINIMAL_REGISTRATION_PAGES.has(service.slug) ? null : (
+            <p className="text-12 text-neutral-500 mt-2">
+              This build stores no file bytes — the document and its version are recorded as metadata,
+              the same as everywhere else in Workstation. Attaching the actual PDF needs file storage,
+              which is not built yet.
+            </p>
+          )}
 
           {client ? (
             <div className="mt-4">

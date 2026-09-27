@@ -1,6 +1,7 @@
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 import App from './App';
+import { installDocumentPrint } from '@/modules/workstation/print';
 // Self-hosted Inter — bundled with the app so Brave Shields / strict
 // tracking-protection browsers can't strip the CDN and fall back to
 // Segoe UI, which has different metrics and shifts the whole layout.
@@ -30,6 +31,9 @@ async function boot() {
       quiet: true,
     });
   }
+
+  // Quotations, invoices, letters: print the document alone, on its own paper size.
+  installDocumentPrint();
 
   createRoot(document.getElementById('root')!).render(
     <StrictMode>

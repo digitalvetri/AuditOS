@@ -21,6 +21,7 @@ import {
 } from '@/modules/workstation/quotations/document';
 import { QuotationDocument, type DocumentModel, type QuoteEditApi, type QuoteField } from './QuotationDocument';
 import { forceSync } from '@/pages/workstation/engagement/Editable';
+import { printDocumentOnly } from '@/modules/workstation/print';
 
 /**
  * THE QUOTATION BUILDER — /workstation/quotations/new and /:id/edit.
@@ -271,13 +272,7 @@ export function QuotationBuilderPage() {
 
   /** §28 — print the document, never the application around it. */
   function printDocument() {
-    document.documentElement.classList.add('qdoc-printing');
-    const done = () => {
-      document.documentElement.classList.remove('qdoc-printing');
-      window.removeEventListener('afterprint', done);
-    };
-    window.addEventListener('afterprint', done);
-    window.print();
+    printDocumentOnly();
   }
 
   // ── Client auto-fill (§31). Quotation-only fields stay editable. ───────
@@ -832,13 +827,7 @@ function ServiceEditor(p: DetailsProps) {
                 className={inputClass}
               />
             </div>
-            <div className="grid grid-cols-2 gap-2 mt-2">
-              <input
-                value={l.detail}
-                onChange={(e) => p.setLines((ls) => ls.map((x) => (x.key === l.key ? { ...x, detail: e.target.value } : x)))}
-                placeholder="Description (optional)"
-                className={inputClass}
-              />
+            <div className="mt-2">
               <input
                 value={l.category}
                 onChange={(e) => p.setLines((ls) => ls.map((x) => (x.key === l.key ? { ...x, category: e.target.value } : x)))}

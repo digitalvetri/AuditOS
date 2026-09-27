@@ -131,7 +131,7 @@ export const TOOLS: ToolDef[] = [
   { id: 'excel-to-tally-xml', name: 'Excel to Tally XML', description: 'Import-ready vouchers for Tally',
     groupId: 'compliance-converters', accepts: [MIME.xlsx], extensions: ['xlsx'],
     maxFileSizeMB: 25, multiple: false, outputType: 'xml', permission: 'tools.excel_to_tally_xml', status: 'active' },
-  { id: 'tds-fvu-generator', name: 'TDS Text/FVU Generator', description: 'Build 24Q/26Q return files',
+  { id: 'tds-fvu-generator', name: 'TDS Text/FVU Generator', description: 'Form 140 (was 26Q) TDS return file',
     groupId: 'compliance-converters', accepts: [MIME.xlsx], extensions: ['xlsx'],
     maxFileSizeMB: 25, multiple: false, outputType: 'txt', permission: 'tools.tds_fvu_generator', status: 'active' },
   { id: 'invoice-to-einvoice-json', name: 'Invoice to e-Invoice JSON', description: 'IRP-ready schema from Excel',

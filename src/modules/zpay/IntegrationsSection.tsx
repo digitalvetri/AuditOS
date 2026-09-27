@@ -28,6 +28,7 @@ import {
   type ZpayConnectionSummary,
   type ZpayStatus,
 } from './api';
+import { CollectPaymentPanel } from './CollectPaymentPanel';
 
 const STATUS_LABEL: Record<ZpayStatus, string> = {
   not_connected: 'Not connected',
@@ -185,6 +186,9 @@ function ConnectionRow({
   onAuthorize: () => void;
 }) {
   const action = actionLabelFor(conn.status);
+  // Zoho Payments signs in one account (soid=zohopay.{account_id}), so the
+  // account ID has to be on the connection before Connect can work.
+  const needsAccount = conn.accounts.length === 0;
   return (
     <li className="bg-white border border-neutral-200 rounded p-4">
       <div className="flex items-start justify-between gap-4 flex-wrap">
@@ -205,21 +209,23 @@ function ConnectionRow({
               ? `Connected ${formatWhen(conn.connectedAt)}`
               : conn.lastErrorCode
               ? `Last error: ${conn.lastErrorCode}${conn.lastErrorAt ? ` · ${formatWhen(conn.lastErrorAt)}` : ''}`
+              : needsAccount
+              ? 'Step 1: add the Zoho Payments account below. Step 2: Connect.'
               : 'No accounts synced yet.'}
           </div>
         </div>
         {action ? (
-          <Button variant="primary" onClick={onAuthorize} disabled={busy}>
+          <Button variant="primary" onClick={onAuthorize} disabled={busy || needsAccount} title={needsAccount ? 'Add the Zoho Payments account first' : undefined}>
             {busy ? 'Redirecting…' : action}
           </Button>
         ) : null}
       </div>
-      {conn.status === 'connected' ? <AccountsBlock conn={conn} /> : null}
+      <AccountsBlock conn={conn} />
     </li>
   );
 }
 
-// ── Accounts under a connected connection ────────────────────────────
+// ── The Zoho Payments account of a connection (one per connection) ────
 
 function AccountsBlock({ conn }: { conn: ZpayConnectionSummary }) {
   const [adding, setAdding] = useState(false);
@@ -227,9 +233,9 @@ function AccountsBlock({ conn }: { conn: ZpayConnectionSummary }) {
     <div className="mt-4 border-t border-neutral-200 pt-4">
       <div className="flex items-baseline justify-between mb-2">
         <div className="text-11 uppercase tracking-[0.06em] text-neutral-500">
-          Accounts under this connection
+          Zoho Payments account
         </div>
-        {!adding ? (
+        {!adding && conn.accounts.length === 0 ? (
           <button
             type="button"
             onClick={() => setAdding(true)}
@@ -244,9 +250,9 @@ function AccountsBlock({ conn }: { conn: ZpayConnectionSummary }) {
       ) : null}
       {conn.accounts.length === 0 && !adding ? (
         <p className="text-12 text-neutral-500 bg-neutral-50 border border-neutral-200 rounded p-3">
-          No accounts yet. Zoho's account identifier (from{' '}
-          <span className="font-mono">payments.zoho.in</span> settings) is what
-          this row needs.
+          No account yet. Add its account ID — in Zoho Payments
+          (<span className="font-mono">payments.zoho.in</span>) → Settings →
+          Account Details. One connection per Zoho Payments account.
         </p>
       ) : (
         <ul className="space-y-2">
@@ -417,10 +423,23 @@ function AccountRow({
     },
     onError: (e: Error) => toast.push('error', e.message),
   });
+  // PDF notes the user should see: invoices a PDF page yielded no complete row for.
+  const [pdfNotes, setPdfNotes] = useState<string[]>([]);
+  // The next step: collect payment for every invoice the uploads carried,
+  // including ones that were already imported.
+  const [collectIds, setCollectIds] = useState<string[]>([]);
   const importInvoices = useMutation({
     mutationFn: (file: File) => zpayApi.importInvoices(account.id, file),
-    onSuccess: (outcome) => {
-      const parts = [`${outcome.inserted} new`, `${outcome.updated} updated`];
+    onSuccess: (outcome, file) => {
+      if (outcome.invoices?.length) setCollectIds((ids) => [...new Set([...ids, ...outcome.invoices!.map((i) => i.id)])]);
+      if (outcome.pdf?.skipped.length) setPdfNotes((n) => [...n, ...outcome.pdf!.skipped.map((x) => `${file.name} — ${x}`)]);
+      // Re-importing is idempotent: the same invoice number refreshes the stored
+      // invoice instead of adding a second one — say so in words.
+      const parts = outcome.inserted === 0 && outcome.updated > 0
+        ? [`already imported — ${outcome.updated === 1 ? 'the invoice was' : `${outcome.updated} invoices were`} refreshed, no duplicate created`]
+        : [`${outcome.inserted} new`, ...(outcome.updated ? [`${outcome.updated} already imported (refreshed)`] : [])];
+      if (outcome.pdf) parts.unshift(`${file.name}: ${outcome.pdf.read} invoice${outcome.pdf.read === 1 ? '' : 's'} read from the PDF`);
+      if (outcome.pdf?.skipped.length) parts.push(`${outcome.pdf.skipped.length} left out (see below)`);
       if (outcome.probableProposed > 0) parts.push(`${outcome.probableProposed} probable matches proposed`);
       if (outcome.errors.length > 0) parts.push(`${outcome.errors.length} errors`);
       if (outcome.warnings.length > 0) parts.push(`${outcome.warnings.length} warnings`);
@@ -465,8 +484,9 @@ function AccountRow({
       {importing ? (
         <div className="mt-3 bg-neutral-50 border border-neutral-200 rounded p-3 space-y-2">
           <div className="text-12 text-neutral-600">
-            Upload a CSV of open + paid invoices raised from this account.
-            Required columns: <code>invoice_number</code>, <code>issued_on</code>,{' '}
+            Upload the invoices raised from this account: a CSV, Excel (.xlsx) or
+            PDF — invoice PDFs (one or many per file) or an invoice register.
+            You can pick several files at once. For CSV/Excel the required columns are: <code>invoice_number</code>, <code>issued_on</code>,{' '}
             <code>amount</code>. Optional: <code>status</code>,{' '}
             <code>due_date</code>, <code>client_code</code> (matched to a
             client in AuditOS). Re-uploading is idempotent — same invoice
@@ -474,17 +494,28 @@ function AccountRow({
           </div>
           <input
             type="file"
-            accept=".csv,text/csv"
+            accept=".csv,.xlsx,.pdf,text/csv,application/pdf,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+            multiple
             className="text-13"
-            onChange={(e) => {
-              const file = e.target.files?.[0];
-              if (file) importInvoices.mutate(file);
+            onChange={async (e) => {
+              const files = [...(e.target.files ?? [])];
               e.target.value = '';
+              setPdfNotes([]);
+              setCollectIds([]);
+              // One at a time: each import is its own request and toast.
+              for (const f of files) await importInvoices.mutateAsync(f).catch(() => undefined);
             }}
             disabled={importInvoices.isPending}
           />
           {importInvoices.isPending ? (
-            <div className="text-11 text-neutral-500">Uploading…</div>
+            <div className="text-11 text-neutral-500">Uploading{importInvoices.variables ? ` ${importInvoices.variables.name}` : ''}…</div>
+          ) : null}
+          <CollectPaymentPanel invoiceIds={collectIds} onClose={() => setCollectIds([])} />
+          {pdfNotes.length ? (
+            <div className="text-12 text-amber-800 bg-amber-50 border border-amber-200 rounded p-2">
+              <div className="font-medium mb-1">Left out of the PDF import — add these by CSV/Excel, or fix the PDF:</div>
+              <ul className="list-disc pl-4 space-y-0.5">{pdfNotes.map((n, i) => <li key={i}>{n}</li>)}</ul>
+            </div>
           ) : null}
         </div>
       ) : null}

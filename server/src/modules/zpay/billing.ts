@@ -21,6 +21,7 @@
  */
 import { prisma } from '../../lib/prisma.js'
 import { ApiError } from '../../lib/http.js'
+import { collectedWhere } from './statuses.js'
 
 const IST_OFFSET_MS = 5.5 * 60 * 60 * 1000
 
@@ -98,6 +99,7 @@ export async function billingSliceFor(
         matchedClientId: clientId,
         paidAt: { gte: fy.from, lt: fy.to },
         matchType: { in: ['exact', 'manual'] as string[] },
+        ...collectedWhere,
       },
       _sum: { amountPaise: true },
       _count: { _all: true },
@@ -106,6 +108,7 @@ export async function billingSliceFor(
       where: {
         matchedClientId: clientId,
         matchType: { in: ['exact', 'manual'] as string[] },
+        ...collectedWhere,
       },
       orderBy: { paidAt: 'desc' },
       select: {

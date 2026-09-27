@@ -2,12 +2,15 @@ import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import {
-  Archive, Check, ChevronDown, Copy, Download, Mail, MessageCircle, Pencil, Printer, Send, Trash2,
+  Archive, Check, ChevronDown, Copy, Download, Mail, MessageCircle, Pencil, Printer, Receipt, Send, Trash2,
 } from 'lucide-react';
 import { Modal } from '@/modules/workstation/components';
 import { engagementApi, type EngagementLetter } from '@/modules/workstation/engagement/api';
 import { fmtDate } from '@/lib/format';
-import { shareDocumentPdf, waNumber, type ShareChannel } from '@/modules/workstation/share';
+import { shareDocumentPdf, waNumber, whatsappHint, type ShareChannel } from '@/modules/workstation/share';
+import { SendEmailDialog } from '@/modules/workstation/SendEmailDialog';
+import { SendWhatsAppDialog } from '@/modules/workstation/SendWhatsAppDialog';
+import { useToast } from '@/components/Toast';
 
 /**
  * The engagement letter's Actions menu — the quotation's menu, for a letter.
@@ -27,6 +30,9 @@ export function EngagementActions({ letter, canManage, onError, onChanged }: {
   const queryClient = useQueryClient();
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [emailing, setEmailing] = useState(false);
+  const [whatsapping, setWhatsapping] = useState(false);
+  const toast = useToast();
   const [deleting, setDeleting] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
 
@@ -62,26 +68,32 @@ export function EngagementActions({ letter, canManage, onError, onChanged }: {
   });
 
   const phone = waNumber(letter.party_contact_number);
-  const message =
-    `Engagement letter ${letter.letter_code}\n${letter.subject}\n`
-    + `Dated ${fmtDate(letter.letter_date)}${letter.financial_year ? ` · FY ${letter.financial_year}` : ''}`;
+  const fileName = `${letter.letter_code}.pdf`;
+  const note =
+    `Dear ${letter.party_name ?? 'Sir/Madam'},\n\nPlease find attached our engagement letter ${letter.letter_code} — ${letter.subject}, `
+    + `dated ${fmtDate(letter.letter_date)}${letter.financial_year ? ` (FY ${letter.financial_year})` : ''}.\n\nRegards`;
 
   const share = async (channel: ShareChannel) => {
     setOpen(false);
     setBusy(true);
     try {
-      await shareDocumentPdf({
-        issueUrl: () => engagementApi.pdfUrl(letter.id),
-        fileName: `${letter.letter_code}.pdf`,
-        subject: `Engagement letter ${letter.letter_code} — ${letter.subject}`,
-        message, channel, phone, email: letter.party_email,
-      });
+      const r = await shareDocumentPdf({ issueUrl: () => engagementApi.pdfUrl(letter.id), fileName, note, channel, phone });
+      const hint = whatsappHint(r, fileName);
+      if (hint) toast.push('info', hint);
     } catch (e) { fail(e); } finally { setBusy(false); }
   };
   const run = (fn: () => void) => () => { setOpen(false); fn(); };
 
   return (
     <div className="relative" ref={ref}>
+      <SendEmailDialog
+        open={emailing} onClose={() => setEmailing(false)} kind="engagement" id={letter.id} fileName={fileName}
+        to={letter.party_email} subject={`Engagement letter ${letter.letter_code} — ${letter.subject}`} message={note}
+      />
+      <SendWhatsAppDialog
+        open={whatsapping} onClose={() => setWhatsapping(false)} kind="engagement" id={letter.id} phone={letter.party_contact_number}
+        fileName={fileName} note={note} issueUrl={() => engagementApi.pdfUrl(letter.id)}
+      />
       <button
         type="button" onClick={() => setOpen((v) => !v)} aria-haspopup="menu" aria-expanded={open}
         className="h-8 px-3 inline-flex items-center gap-1.5 text-13 rounded border border-neutral-300 bg-white hover:bg-neutral-50"
@@ -95,10 +107,10 @@ export function EngagementActions({ letter, canManage, onError, onChanged }: {
             <Printer size={14} /> Print / Save as PDF
           </MenuLink>
           <Item disabled={busy} onClick={() => share('download')}><Download size={14} /> Download PDF</Item>
-          <Item disabled={!phone || busy} title={phone ? undefined : 'No contact number for this client'} onClick={() => share('whatsapp')}>
+          <Item disabled={busy} onClick={() => { setOpen(false); setWhatsapping(true); }}>
             <MessageCircle size={14} /> Send on WhatsApp
           </Item>
-          <Item disabled={!letter.party_email || busy} title={letter.party_email ? undefined : 'No email address for this client'} onClick={() => share('email')}>
+          <Item disabled={!letter.party_email || busy} title={letter.party_email ? undefined : 'No email address for this client'} onClick={() => { setOpen(false); setEmailing(true); }}>
             <Mail size={14} /> Send by email
           </Item>
 
@@ -120,6 +132,13 @@ export function EngagementActions({ letter, canManage, onError, onChanged }: {
             onClick={run(() => status.mutate('accept'))}
           >
             <Check size={14} /> Mark as accepted
+          </Item>
+          <Item
+            disabled={!letter.client_id || !canManage}
+            title={letter.client_id ? 'Start a new invoice for this client' : 'This letter is for a lead — convert the lead to a client first'}
+            onClick={run(() => navigate(`/workstation/invoices/new?client_id=${letter.client_id}`))}
+          >
+            <Receipt size={14} /> Convert to invoice
           </Item>
           <Item
             disabled={letter.status !== 'sent' || !canManage}

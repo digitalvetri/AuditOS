@@ -25,7 +25,8 @@ import { seams, zohoRequest, type ConnectionRow } from './client.js'
 const STATE_TTL_SECONDS = 10 * 60
 const PURPOSE = 'zoho-books'
 
-interface StatePayload { p: string; cid: string; uid: string; oid: string; n: string }
+/** `rc`: re-consent for a connection that is still live — it stays usable until the new grant lands. */
+interface StatePayload { p: string; cid: string; uid: string; oid: string; n: string; rc?: boolean; iat?: number }
 
 export function signState(payload: Omit<StatePayload, 'p' | 'n'>): string {
   return jwt.sign({ ...payload, p: PURPOSE, n: crypto.randomBytes(16).toString('hex') }, env.jwtSecret, { expiresIn: STATE_TTL_SECONDS })
@@ -59,10 +60,12 @@ export async function beginConnect(input: { organisationId: string; userId: stri
     conn = await prisma.booksZohoConnection.create({
       data: { organisationId: input.organisationId, status: 'consent_pending', scopesGranted: [], createdBy: input.userId, updatedBy: input.userId },
     })
-  } else {
+  } else if (conn.status !== 'connected') {
     await prisma.booksZohoConnection.update({ where: { id: conn.id }, data: { status: 'consent_pending', updatedBy: input.userId } })
   }
-  const state = signState({ cid: conn.id, uid: input.userId, oid: input.organisationId })
+  // Reconnecting a working connection leaves it working: if the Zoho tab is
+  // closed, nothing changed. The callback swaps in the new grant.
+  const state = signState({ cid: conn.id, uid: input.userId, oid: input.organisationId, ...(conn.status === 'connected' ? { rc: true } : {}) })
   // prompt=consent forces Zoho to issue a fresh refresh token even when the
   // user granted this app before.
   const authorizeUrl = buildAuthorizeUrl(cfg, { state, accessType: 'offline', prompt: 'consent' })
@@ -76,16 +79,20 @@ export async function completeConnect(input: { code: string; state: string; acco
   const st = verifyState(input.state)
   const conn = await prisma.booksZohoConnection.findFirst({ where: { id: st.cid, organisationId: st.oid, deletedAt: null } })
   if (!conn) throw ApiError.notFound('No such Zoho Books connection.')
-  if (conn.status === 'connected') {
-    // A repeated browser GET of the same callback: already done.
+  const reconsent = st.rc === true && conn.status === 'connected'
+  // Connected since this link was issued: a repeated browser GET of the same
+  // callback — already done. `iat` is whole seconds, so a connection made
+  // earlier in that same second must not count; consent takes longer than 1 s.
+  const doneSinceIssued = conn.connectedAt && st.iat && conn.connectedAt.getTime() >= (st.iat + 1) * 1000
+  if (conn.status === 'connected' && (!reconsent || doneSinceIssued)) {
     return { connectionId: conn.id, organisationId: st.oid, userId: st.uid, organizations: 0 }
   }
-  if (conn.status !== 'consent_pending') throw new ApiError(400, 'invalid_state', 'This connection is not waiting for Zoho consent. Start again from Books → Settings.')
+  if (conn.status !== 'consent_pending' && !reconsent) throw new ApiError(400, 'invalid_state', 'This connection is not waiting for Zoho consent. Start again from Books → Settings.')
 
   // Zoho tells us which data centre the user's account lives in; the code
   // must be exchanged there, and only ever on a genuine Zoho host.
   const accountsBase = input.accountsServer && isTrustedZohoHost(input.accountsServer, cfg) ? input.accountsServer.replace(/\/$/, '') : cfg.accountsBase
-  const organizations = await exchangeAndStore(conn, { code: input.code, accountsBase, redirectUri: cfg.redirectUri, userId: st.uid, organisationId: st.oid, fetchImpl: input.fetchImpl })
+  const organizations = await exchangeAndStore(conn, { code: input.code, accountsBase, redirectUri: cfg.redirectUri, userId: st.uid, organisationId: st.oid, fetchImpl: input.fetchImpl, keepLive: reconsent })
   return { connectionId: conn.id, organisationId: st.oid, userId: st.uid, organizations }
 }
 
@@ -113,8 +120,10 @@ export async function connectWithCode(input: { organisationId: string; userId: s
 /** Exchange a grant code, store the encrypted tokens, mark connected, list organisations. */
 async function exchangeAndStore(
   conn: { id: string },
-  input: { code: string; accountsBase: string; redirectUri: string; userId: string; organisationId: string; fetchImpl?: FetchLike },
+  input: { code: string; accountsBase: string; redirectUri: string; userId: string; organisationId: string; fetchImpl?: FetchLike; keepLive?: boolean },
 ): Promise<number> {
+  // A failed re-consent records the error but leaves the old, working grant in place.
+  const failedStatus = input.keepLive ? 'connected' : 'error'
   const cfg = booksConfig()
   const accountsBase = input.accountsBase
   let tokens
@@ -122,7 +131,7 @@ async function exchangeAndStore(
     tokens = await exchangeCodeForTokens({ ...cfg, accountsBase, redirectUri: input.redirectUri }, input.code, input.fetchImpl ?? seams.oauth())
   } catch (err) {
     const code = err instanceof ZohoOAuthError ? err.code : 'exchange_failed'
-    await prisma.booksZohoConnection.update({ where: { id: conn.id }, data: { status: 'error', lastErrorCode: code, lastErrorAt: new Date() } })
+    await prisma.booksZohoConnection.update({ where: { id: conn.id }, data: { status: failedStatus, lastErrorCode: code, lastErrorAt: new Date() } })
     const hint: Record<string, string> = {
       invalid_code: 'The code is wrong, already used or expired — Zoho codes work once and only for a few minutes. Generate a new one.',
       invalid_client: 'Zoho does not recognise this client in that data centre. Check the data centre and ZBOOKS_CLIENT_ID / ZBOOKS_CLIENT_SECRET.',
@@ -131,7 +140,7 @@ async function exchangeAndStore(
     throw new ApiError(400, 'oauth_failed', hint[code] ?? `Zoho did not complete the sign-in (${code}).`)
   }
   if (!tokens.refresh_token) {
-    await prisma.booksZohoConnection.update({ where: { id: conn.id }, data: { status: 'error', lastErrorCode: 'no_refresh_token', lastErrorAt: new Date() } })
+    await prisma.booksZohoConnection.update({ where: { id: conn.id }, data: { status: failedStatus, lastErrorCode: 'no_refresh_token', lastErrorAt: new Date() } })
     throw new ApiError(400, 'oauth_failed', 'Zoho did not issue a refresh token. Try connecting again.')
   }
   const apiDomain = tokens.api_domain && isTrustedZohoHost(tokens.api_domain, cfg) ? tokens.api_domain.replace(/\/$/, '') : null

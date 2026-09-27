@@ -10,6 +10,7 @@ import {
 } from '@/modules/workstation/docs/model';
 import { CompanyHeaderBlock } from './CompanyHeader';
 import { DateField, PlainField, RichLine } from '@/pages/workstation/engagement/Editable';
+import { footerReservePx, unitHeights } from '@/modules/workstation/paginate';
 
 /**
  * THE A4 DOCUMENT — rendered, and (given `edit`) edited in place.
@@ -530,16 +531,14 @@ function usePages(ids: string[], contentHeightPx: number, signature: string, blo
   useLayoutEffect(() => {
     const root = measureRef.current;
     if (!root) return;
-    const h = new Map<string, number>();
-    root.querySelectorAll<HTMLElement>('[data-unit]').forEach((el) => {
-      h.set(el.dataset.unit!, el.getBoundingClientRect().height);
-    });
+    const h = unitHeights(root, 'unit');
+    const room = contentHeightPx - footerReservePx(pagesRef.current);
     const next: string[][] = [];
     let cur: string[] = [];
     let used = 0;
     for (const id of ids) {
       const uh = h.get(id) ?? 0;
-      if (cur.length && used + uh > contentHeightPx) { next.push(cur); cur = []; used = 0; }
+      if (cur.length && used + uh > room) { next.push(cur); cur = []; used = 0; }
       cur.push(id);
       used += uh;
       if (breaks.has(id.split(':')[0]) && cur.length) { next.push(cur); cur = []; used = 0; }

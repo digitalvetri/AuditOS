@@ -612,10 +612,11 @@ No frontend package was added.
 | Binary | Package | Used for |
 |---|---|---|
 | `soffice` | LibreOffice | Excel → PDF, Word → PDF |
-| `gs` | Ghostscript | Compress, Unlock |
+| `gs` | Ghostscript | Compress; Unlock fallback when qpdf is absent |
+| `qpdf` | qpdf | Unlock (every AES variant; Ghostscript 10.x can't open AES-128 or AES-256 R5 with the right password) |
 | `pdftoppm` | poppler-utils | page thumbnails, OCR rasters |
 
-All three must be on `PATH` of the API process. LibreOffice runs one
+All of them must be on `PATH` of the API process. LibreOffice runs one
 conversion at a time with a throwaway profile directory per call.
 
 **The six compliance converters need none of them.** They are pure JS —
@@ -623,14 +624,9 @@ conversion at a time with a throwaway profile directory per call.
 the API container as it is built today. That is deliberate: it is what let the
 whole group ship without touching the image.
 
-> **Gap, pre-existing:** `server/Dockerfile` installs only `openssl` and
-> `ca-certificates`. `soffice`, `gs` and `pdftoppm` are NOT in the API image,
-> so in the Docker stack the tools that shell out to them — Excel→PDF,
-> Word→PDF, Compress, Unlock, and page thumbnails — fail with
-> `engine_unavailable`. Everything else, the compliance converters included,
-> works. Fixing it means adding LibreOffice to the image (~500 MB) or moving
-> those conversions to a sidecar; both are a separate decision, tracked as
-> §16.9.
+> **Docker:** the API image's `runtime` stage installs every binary above
+> (`server/Dockerfile`), so Excel→PDF, Word→PDF, Compress, Unlock and page
+> thumbnails work in the Docker stack as they do natively.
 
 ### 10.2 Environment
 

@@ -149,8 +149,8 @@ async function main() {
     if (!('payment_id' in rawObj) || !('amount' in rawObj)) {
       fail('raw', 'raw does not carry the original Zoho payload')
     }
-    if (typeof rawObj.amount !== 'number') {
-      fail('raw', 'raw.amount should be a Zoho float, not something normalised')
+    if (typeof rawObj.amount !== 'string') {
+      fail('raw', 'raw.amount should be Zoho\'s string amount, not something normalised')
     }
     pass('`raw` mirrors the untouched Zoho payload')
 

@@ -21,7 +21,8 @@
 import '../../../lib/env.js'
 import crypto from 'node:crypto'
 import { PrismaClient, Prisma } from '@prisma/client'
-import { parseCsv, importInvoicesCsv } from '../invoice-import.js'
+import ExcelJS from 'exceljs'
+import { parseCsv, importInvoicesCsv, xlsxRows } from '../invoice-import.js'
 import { runProbableForAccount } from '../matcher.js'
 import { encryptToken } from '../crypto.js'
 import { resetZpayConfigForTests, zpayConfig } from '../config.js'
@@ -35,11 +36,13 @@ function fail(name: string, detail: string): never {
 
 async function fullReset(orgId: string, extraClientCodes: string[]): Promise<void> {
   const conns = await prisma.zpayConnection.findMany({
-    where: { organisationId: orgId },
+    // Only this suite's fixtures: the dev database may hold real connections.
+    where: { organisationId: orgId, zohoOrgLabel: { startsWith: 'FIXTURE-' } },
     select: { id: true, accounts: { select: { id: true } } },
   })
   const accIds = conns.flatMap((c) => c.accounts.map((a) => a.id))
   if (accIds.length) {
+    await prisma.zpayPaymentLink.deleteMany({ where: { accountRowId: { in: accIds } } })
     await prisma.zpayPayment.deleteMany({ where: { accountRowId: { in: accIds } } })
     await prisma.zpayRefund.deleteMany({ where: { accountRowId: { in: accIds } } })
     await prisma.zpaySyncRun.deleteMany({ where: { accountRowId: { in: accIds } } })
@@ -76,6 +79,23 @@ async function main() {
     const crlf = parseCsv('a,b\r\n1,2\r\n3,4\r\n')
     if (crlf.length !== 3) fail('parseCsv CRLF', 'CRLF row count wrong')
     pass('parseCsv handles CRLF line endings')
+  }
+
+  // ── 1b. Excel sheets read like CSV ─────────────────────────────────
+  {
+    const wb = new ExcelJS.Workbook()
+    const ws = wb.addWorksheet('Invoices')
+    ws.addRow(['invoice_number', 'issued_on', 'amount', 'client_code'])
+    ws.addRow(['INV/2026/0001', new Date(Date.UTC(2026, 3, 5)), 11800, 'CLI-1'])
+    ws.addRow([])
+    ws.addRow(['INV/2026/0002', '06-04-2026', { formula: '1000*2', result: 2000 }, null])
+    const rows = await xlsxRows(Buffer.from(await wb.xlsx.writeBuffer()))
+    const want = [['invoice_number', 'issued_on', 'amount', 'client_code'], ['INV/2026/0001', '2026-04-05', '11800', 'CLI-1'], ['INV/2026/0002', '06-04-2026', '2000']]
+    if (JSON.stringify(rows) !== JSON.stringify(want)) fail('xlsx', `got ${JSON.stringify(rows)}`)
+    let refused = false
+    try { await xlsxRows(Buffer.from('not a spreadsheet')) } catch { refused = true }
+    if (!refused) fail('xlsx', 'a non-xlsx buffer should be refused')
+    pass('xlsxRows: dates → YYYY-MM-DD, formulas → value, blank rows dropped')
   }
 
   process.env.ZPAY_MODE = 'fake'

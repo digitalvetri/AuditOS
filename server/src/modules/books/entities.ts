@@ -149,7 +149,7 @@ export const ENTITIES: Record<string, EntityDef> = {
     actions: {
       uncategorize: { method: 'POST', sub: 'uncategorize', perm: A },
       unmatch: { method: 'POST', sub: 'unmatch', perm: A },
-      match: { method: 'PUT', sub: 'match', perm: A, body: true, root: 'banktransactions/uncategorized' },
+      match: { method: 'POST', sub: 'match', perm: A, body: true, root: 'banktransactions/uncategorized' },
       categorize: { method: 'POST', sub: 'categorize', perm: A, body: true, root: 'banktransactions/uncategorized' },
       exclude: { method: 'POST', sub: 'exclude', perm: A, root: 'banktransactions/uncategorized' },
       restore: { method: 'POST', sub: 'restore', perm: A, root: 'banktransactions/uncategorized' },

@@ -9,7 +9,7 @@
 import { Link, useParams } from 'react-router-dom';
 import { ChevronLeft } from 'lucide-react';
 import { Card, PageHeader } from '@/modules/workstation/components';
-import { KIND_TINT, registrationBySlug } from './services';
+import { KIND_TINT, MINIMAL_REGISTRATION_PAGES, registrationBySlug } from './services';
 import { RegistrationRunPanel } from './RegistrationRunPanel';
 
 /**
@@ -44,6 +44,7 @@ export function RegistrationServiceDetail({
 
   const Icon = service.icon;
   const tint = KIND_TINT[service.kind];
+  const showOverview = !MINIMAL_REGISTRATION_PAGES.has(service.slug);
 
   return (
     <div className={embedded ? 'space-y-4' : 'm-page space-y-4'}>
@@ -70,41 +71,49 @@ export function RegistrationServiceDetail({
             Workstation · Services · Registration
           </div>
           <h1 className="text-20 font-semibold text-neutral-900 mt-1">{service.name}</h1>
-          <p className="text-13 text-neutral-500 mt-1 max-w-[720px]">{service.summary}</p>
+          {showOverview ? (
+            <p className="text-13 text-neutral-500 mt-1 max-w-[720px]">{service.summary}</p>
+          ) : null}
         </div>
       </header>
 
-      <Card title="At a glance">
-        <dl className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-px bg-neutral-200">
-          <Fact label="Category" value={tint.label} />
-          <Fact label="Granted under" value={service.authority} />
-          <Fact label="Client receives" value={service.form} />
-          <Fact
-            label="Portal"
-            value={
-              service.portalScope === 'tamil-nadu' ? 'Tamil Nadu (state)'
-                : service.portalScope === 'india' ? 'Government of India'
-                : 'No registry exists'
-            }
-          />
-        </dl>
-      </Card>
+      {showOverview ? (
+        <>
+          <Card title="At a glance">
+            <dl className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-px bg-neutral-200">
+              <Fact label="Category" value={tint.label} />
+              <Fact label="Granted under" value={service.authority} />
+              <Fact label="Client receives" value={service.form} />
+              <Fact
+                label="Portal"
+                value={
+                  service.portalScope === 'tamil-nadu' ? 'Tamil Nadu (state)'
+                    : service.portalScope === 'india' ? 'Government of India'
+                    : 'No registry exists'
+                }
+              />
+            </dl>
+          </Card>
 
-      <Card title="What this registration is">
-        <div className="p-4">
-          <p className="text-13 text-neutral-700 leading-relaxed">{service.description}</p>
-        </div>
-      </Card>
+          <Card title="What this registration is">
+            <div className="p-4">
+              <p className="text-13 text-neutral-700 leading-relaxed">{service.description}</p>
+            </div>
+          </Card>
+        </>
+      ) : null}
 
       <RegistrationRunPanel service={service} />
 
       {/* The truth-of-data rule this codebase holds elsewhere: say what the
           system has and has not done, rather than implying a capability. */}
-      <div className="border-l-2 border-neutral-400 bg-white px-3 py-2 text-12 text-neutral-600">
-        Audit OS does not file this registration and never contacts a government portal. The link
-        above opens the official site in a new tab; an employee does the work there and records
-        the outcome here. Nothing on this page has been checked against any government system.
-      </div>
+      {showOverview ? (
+        <div className="border-l-2 border-neutral-400 bg-white px-3 py-2 text-12 text-neutral-600">
+          Audit OS does not file this registration and never contacts a government portal. The link
+          above opens the official site in a new tab; an employee does the work there and records
+          the outcome here. Nothing on this page has been checked against any government system.
+        </div>
+      ) : null}
     </div>
   );
 }

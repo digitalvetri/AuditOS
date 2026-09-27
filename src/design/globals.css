@@ -273,6 +273,14 @@
 .qdoc-w-sl { width: 48px; }
 .qdoc-w-freq { width: 150px; }
 .qdoc-w-fee { width: 120px; }
+/* Compliance fees table: every heading fits in at most two lines ("SL. NO"
+   in one). Narrower columns stacked the headings three lines deep, which
+   made the header row tall and the table look long. */
+.qdoc-fee-table .qdoc-w-sl { width: 70px; white-space: nowrap; }
+.qdoc-fee-table .qdoc-w-freq { width: 200px; }
+/* Two-line headings at the body's relaxed line spacing made the header row
+   as tall as three rows; headings are set tight. */
+.qdoc-fee-table thead th { line-height: 1.2; padding-top: 4px; padding-bottom: 4px; vertical-align: middle; }
 
 .qdoc-table-lined th,
 .qdoc-table-lined td { border: 1px solid #111827; }
@@ -280,6 +288,11 @@
 .qdoc-table-striped tbody tr:nth-child(even) { background: #f3f4f6; }
 .qdoc-table-plain thead th { border-bottom: 1px solid #9ca3af; }
 .qdoc-table-plain tbody td { border-bottom: 1px solid #e5e7eb; }
+
+/* Client table above the fees: same style, a gap, never split from the fees. */
+.qdoc-client-table { margin-bottom: 10px; table-layout: fixed; break-after: avoid; page-break-after: avoid; }
+.qdoc-client-table td { overflow-wrap: anywhere; }
+.qdoc-keep-together { break-inside: avoid; page-break-inside: avoid; }
 
 .qdoc-total-line {
   display: flex;
@@ -353,6 +366,10 @@
   .qdoc-print-hide { display: none !important; }
 }
 
+/* The print-only copy of the document; never on screen. */
+.qdoc-print-root { display: none; }
+@media print { html.qdoc-printing .qdoc-print-root { display: block; } }
+
 /* ── The builder's preview pane ─────────────────────────────────────────── */
 .qb-preview {
   background: rgb(var(--c-neutral-100, 243 244 246));
@@ -377,6 +394,11 @@
     top: 0;
     width: 100%;
   }
+  /* printDocumentOnly() (modules/workstation/print.ts) prints a copy of the
+     document placed directly under <body>. The app itself is taken out of the
+     print layout, not just hidden: printed in place, the builders' preview
+     column sheet came out blank, and the invisible shell still cost a sheet. */
+  html.qdoc-printing:has(.qdoc-print-root) body > *:not(.qdoc-print-root) { display: none !important; }
   html.qdoc-printing .qb-preview {
     overflow: visible !important;
     max-height: none !important;

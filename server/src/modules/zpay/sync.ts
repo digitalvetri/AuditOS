@@ -39,10 +39,13 @@ import {
   exchangeRefreshTokenForAccess,
   type FetchLike,
 } from './oauth.js'
+import { isCollected } from './statuses.js'
+import { refreshOpenLinksForAccount } from './payment-links.js'
 
 const REFRESH_MARGIN_MS = 60 * 1000
 const SYNC_OVERLAP_DAYS = 3
-const DEFAULT_PER_PAGE = 200
+const DEFAULT_PER_PAGE = 200 // Zoho Payments' maximum
+const MAX_PAGES = 500
 
 export interface SyncOptions {
   /** Injected for tests; defaults to global fetch in production. */
@@ -104,26 +107,13 @@ export async function syncAccount(
   try {
     const accessToken = await ensureFreshAccessToken(account.connection.id, cfg, options.fetchImpl)
 
-    paymentsFetched = await pullAllPages(
-      cfg,
-      account,
-      accessToken,
-      'payments',
-      windowFrom,
-      windowTo,
-      options.fetchImpl,
-      () => { apiCallsMade++ },
-    )
-    refundsFetched = await pullAllPages(
-      cfg,
-      account,
-      accessToken,
-      'refunds',
-      windowFrom,
-      windowTo,
-      options.fetchImpl,
-      () => { apiCallsMade++ },
-    )
+    const pulled = await pullPayments(cfg, account, accessToken, windowFrom, windowTo, options.fetchImpl, () => { apiCallsMade++ })
+    paymentsFetched = pulled.count
+    // Zoho Payments has no refunds list — only GET /refunds/{id} — so a
+    // payment Zoho marks refunded is read in full for its refunds.
+    for (const paymentId of pulled.refunded) {
+      refundsFetched += await pullRefundsOf(cfg, account, accessToken, paymentId, options.fetchImpl, () => { apiCallsMade++ })
+    }
 
     await prisma.$transaction([
       prisma.zpaySyncRun.update({
@@ -144,6 +134,10 @@ export async function syncAccount(
         },
       }),
     ])
+    // Payments made through our payment links match their invoice from the
+    // link's own payment list (Zoho doesn't promise the link reference lands
+    // on the payment). Best-effort: a link check failing doesn't fail the sync.
+    await refreshOpenLinksForAccount(accountRowId, account.connection.organisationId, options.fetchImpl).catch(() => undefined)
 
     return {
       syncRunId: syncRun.id,
@@ -274,58 +268,102 @@ export async function ensureFreshAccessToken(
 
 // ── fetching + upserting ─────────────────────────────────────────────
 
-type Kind = 'payments' | 'refunds'
+/** yyyy-mm-dd in India — Zoho Payments filters on the merchant's calendar date. */
+const istDay = (d: Date) => new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Kolkata' }).format(d)
 
-async function pullAllPages(
+/** GET with the account scoping every Zoho Payments call requires. */
+async function zohoGet(
+  cfg: ZpayConfig,
+  account: { accountId: string },
+  accessToken: string,
+  path: string,
+  query: Record<string, string>,
+  fetchImpl: FetchLike | undefined,
+  onCall: () => void,
+): Promise<Record<string, unknown>> {
+  const impl: FetchLike = fetchImpl ?? (fetch as unknown as FetchLike)
+  const url = new URL(`${cfg.paymentsBase}/api/v1/${path}`)
+  url.searchParams.set('account_id', account.accountId)
+  for (const [k, v] of Object.entries(query)) url.searchParams.set(k, v)
+  onCall()
+  const res = await impl(url.toString(), { method: 'GET', headers: { Authorization: `Zoho-oauthtoken ${accessToken}` } })
+  if (!res.ok) {
+    throw new ZohoOAuthError('http_error', `Zoho ${path.split('/')[0]} returned ${res.status}`, res.status)
+  }
+  return (await res.json()) as Record<string, unknown>
+}
+
+/** Statuses that mean a refund was (at least partly) made against the payment. */
+const REFUNDED_STATUSES = new Set(['refunded', 'partially_refunded'])
+
+/**
+ * All payments charged in the window. Zoho applies from_date/to_date only
+ * together with filter_by=ChargeDate.CustomDate, and its list response has
+ * no has_more_page — a short page is the last one.
+ */
+async function pullPayments(
   cfg: ZpayConfig,
   account: { id: string; accountId: string; invoiceSeriesPrefix: string },
   accessToken: string,
-  kind: Kind,
   windowFrom: Date,
   windowTo: Date,
   fetchImpl: FetchLike | undefined,
   onCall: () => void,
-): Promise<number> {
-  const impl: FetchLike = fetchImpl ?? (fetch as unknown as FetchLike)
-  let page = 1
-  let total = 0
-  while (true) {
-    const url = new URL(`${cfg.paymentsBase}/api/v1/${kind}`)
-    url.searchParams.set('account_id', account.accountId)
-    url.searchParams.set('date_start', windowFrom.toISOString().slice(0, 10))
-    url.searchParams.set('date_end', windowTo.toISOString().slice(0, 10))
-    url.searchParams.set('page', String(page))
-    url.searchParams.set('per_page', String(DEFAULT_PER_PAGE))
-
-    onCall()
-    const res = await impl(url.toString(), {
-      method: 'GET',
-      headers: { Authorization: `Zoho-oauthtoken ${accessToken}` },
-    })
-    if (!res.ok) {
-      throw new ZohoOAuthError(
-        'http_error',
-        `Zoho ${kind} returned ${res.status}`,
-        res.status,
-      )
-    }
-    const payload = (await res.json()) as {
-      payments?: Array<Record<string, unknown>>
-      refunds?: Array<Record<string, unknown>>
-      page_context?: { has_more_page?: boolean }
-    }
-    const rows = (kind === 'payments' ? payload.payments : payload.refunds) ?? []
-
+): Promise<{ count: number; refunded: string[] }> {
+  let count = 0
+  const refunded: string[] = []
+  for (let page = 1; page <= MAX_PAGES; page++) {
+    const payload = await zohoGet(cfg, account, accessToken, 'payments', {
+      filter_by: 'ChargeDate.CustomDate',
+      from_date: istDay(windowFrom),
+      to_date: istDay(windowTo),
+      page: String(page),
+      per_page: String(DEFAULT_PER_PAGE),
+    }, fetchImpl, onCall)
+    const rows = (payload.payments as Array<Record<string, unknown>> | undefined) ?? []
     for (const row of rows) {
-      if (kind === 'payments') await upsertPayment(account, row)
-      else await upsertRefund(account.id, row)
-      total++
+      await upsertPayment(account, row)
+      if (REFUNDED_STATUSES.has(String(row.status))) refunded.push(String(row.payment_id))
+      count++
     }
-
-    if (!payload.page_context?.has_more_page) break
-    page++
+    const more = (payload.page_context as { has_more_page?: boolean } | undefined)?.has_more_page
+    if (rows.length < DEFAULT_PER_PAGE || more === false) break
   }
-  return total
+  return { count, refunded }
+}
+
+/**
+ * Refunds of one payment, from GET /payments/{id}. Where the detail lists
+ * no individual refunds, the payment's amount_refunded is recorded as one
+ * refund so the collected figure still nets it off.
+ */
+async function pullRefundsOf(
+  cfg: ZpayConfig,
+  account: { id: string; accountId: string },
+  accessToken: string,
+  paymentId: string,
+  fetchImpl: FetchLike | undefined,
+  onCall: () => void,
+): Promise<number> {
+  const payload = await zohoGet(cfg, account, accessToken, `payments/${encodeURIComponent(paymentId)}`, {}, fetchImpl, onCall)
+  const payment = (payload.payment ?? payload) as Record<string, unknown>
+  const listed = (payment.refunds as Array<Record<string, unknown>> | undefined) ?? []
+  if (listed.length) {
+    for (const r of listed) await upsertRefund(account.id, { ...r, payment_id: r.payment_id ?? paymentId })
+    return listed.length
+  }
+  if (Number(payment.amount_refunded) > 0) {
+    await upsertRefund(account.id, {
+      refund_id: `${paymentId}:total`,
+      payment_id: paymentId,
+      amount: payment.amount_refunded,
+      status: 'succeeded',
+      reason: 'Total refunded on the payment (Zoho listed no individual refunds)',
+      date: payment.date,
+    })
+    return 1
+  }
+  return 0
 }
 
 /** RUPEES-as-decimal → INTEGER paise. This is the ONLY place the boundary
@@ -344,11 +382,17 @@ async function upsertPayment(
   if (!zohoPaymentId) throw new Error('payment row is missing payment_id')
 
   const amountPaise = rupeesToPaise(row.amount)
-  const feePaise = row.fee != null ? rupeesToPaise(row.fee) : null
+  const fee = row.fee_amount ?? row.fee
+  const feePaise = fee != null && fee !== '' ? rupeesToPaise(fee) : null
+  const method = row.payment_method as Record<string, unknown> | string | undefined
 
-  const paidAt = parseDate(row.paid_at ?? row.created_at)
-  const createdAtZoho = parseDate(row.created_at ?? row.paid_at)
-  const referenceNumber = row.reference != null ? String(row.reference) : null
+  // Zoho Payments: one `date` (epoch); older/other shapes: paid_at / created_at.
+  const paidAt = parseDate(row.date ?? row.paid_at ?? row.created_at)
+  const createdAtZoho = parseDate(row.date ?? row.created_at ?? row.paid_at)
+  // The reference set when the payment was initiated is what exact matching
+  // keys on — Zoho calls it reference_number (invoice_number on some flows).
+  const ref = row.reference_number ?? row.invoice_number ?? row.reference
+  const referenceNumber = ref != null && ref !== '' ? String(ref) : null
   const description = row.description != null ? String(row.description) : null
 
   const data = {
@@ -356,12 +400,12 @@ async function upsertPayment(
     feePaise,
     currency: String(row.currency ?? 'INR'),
     status: String(row.status ?? 'unknown'),
-    paymentMode: row.payment_mode != null ? String(row.payment_mode) : null,
+    paymentMode: typeof method === 'object' && method?.type != null ? String(method.type) : typeof method === 'string' ? method : row.payment_mode != null ? String(row.payment_mode) : null,
     customerName: row.customer_name != null ? String(row.customer_name) : null,
-    customerEmail: row.customer_email != null ? String(row.customer_email) : null,
+    customerEmail: (row.receipt_email ?? row.customer_email) != null ? String(row.receipt_email ?? row.customer_email) : null,
     referenceNumber,
     description,
-    mandateId: row.mandate_id != null ? String(row.mandate_id) : null,
+    mandateId: (typeof method === 'object' ? method?.mandate_id : undefined) != null ? String((method as Record<string, unknown>).mandate_id) : row.mandate_id != null ? String(row.mandate_id) : null,
     paidAt,
     createdAtZoho,
     raw: row as Prisma.InputJsonValue,
@@ -379,6 +423,10 @@ async function upsertPayment(
     // "within a version" (a later payload replaces the earlier version).
     update: data,
   })
+
+  // A payment that never completed is not a collection: it must not mark an
+  // invoice paid, however good its reference.
+  if (!isCollected(data.status)) return
 
   // Auto-classify: if the row is unmatched (either freshly inserted, or a
   // prior re-sync left it that way), try the exact matcher on the new
@@ -431,7 +479,7 @@ async function upsertRefund(
     amountPaise: rupeesToPaise(row.amount),
     status: String(row.status ?? 'unknown'),
     reason: row.reason != null ? String(row.reason) : null,
-    refundedAt: parseDate(row.refunded_at ?? row.created_at),
+    refundedAt: parseDate(row.date ?? row.refunded_at ?? row.created_at),
     raw: row as Prisma.InputJsonValue,
   }
 
@@ -446,6 +494,10 @@ async function upsertRefund(
 
 function parseDate(input: unknown): Date {
   if (input instanceof Date) return input
+  // Zoho Payments sends epoch numbers; its docs say milliseconds but its
+  // examples are seconds, so anything below 1e12 is taken as seconds.
+  const epoch = typeof input === 'number' ? input : typeof input === 'string' && /^\d{9,13}$/.test(input) ? Number(input) : null
+  if (epoch !== null) return new Date(epoch < 1e12 ? epoch * 1000 : epoch)
   if (typeof input === 'string' || typeof input === 'number') {
     const d = new Date(input)
     if (!Number.isNaN(d.getTime())) return d

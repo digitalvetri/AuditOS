@@ -21,6 +21,7 @@
  */
 import crypto from 'node:crypto'
 import { env as baseEnv } from '../../lib/env.js'
+import { ApiError } from '../../lib/http.js'
 
 export type ZpayMode = 'fake' | 'live'
 
@@ -33,12 +34,12 @@ export interface ZpayConfig {
   readonly accountsBase: string
   /** Base URL for the payments REST API. `payments.zoho.in` in live. */
   readonly paymentsBase: string
-  /** Exactly two READ scopes per spec §1. */
-  readonly scopes: readonly ['ZohoPay.payments.READ', 'ZohoPay.refunds.READ']
+  /** Read payments and refunds; create payment links (the collect-payment step). */
+  readonly scopes: readonly ['ZohoPay.payments.READ', 'ZohoPay.refunds.READ', 'ZohoPay.payments.CREATE']
   readonly encryptionKey: Buffer
 }
 
-const SCOPES = ['ZohoPay.payments.READ', 'ZohoPay.refunds.READ'] as const
+const SCOPES = ['ZohoPay.payments.READ', 'ZohoPay.refunds.READ', 'ZohoPay.payments.CREATE'] as const
 
 function readMode(): ZpayMode {
   const raw = process.env.ZPAY_MODE?.toLowerCase()
@@ -77,7 +78,8 @@ function readCredential(name: string, mode: ZpayMode): string {
   const value = process.env[name]
   if (value && value.length > 0) return value
   if (mode === 'live') {
-    throw new Error(`${name} is required when ZPAY_MODE=live`)
+    // An ApiError, so a ZPay screen shows what to set instead of a bare 500.
+    throw new ApiError(503, 'zpay_not_configured', `Zoho Payments is not set up yet: ${name} is required when ZPAY_MODE=live. Add it to server/.env and restart the API.`)
   }
   // Fake mode: manufacture something deterministic-looking so logs and error
   // messages read sensibly. Never used against a real Zoho endpoint because

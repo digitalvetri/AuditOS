@@ -27,8 +27,11 @@ import { syncAccount, syncConnection } from './sync.js'
 import { collectionsAggregate, parsePeriod } from './collections.js'
 import { manuallyMatch, unmatch } from './matching-service.js'
 import { billingSliceFor, setBillingAccount } from './billing.js'
-import { importInvoicesCsv } from './invoice-import.js'
+import { importInvoicesCsv, parseCsv, xlsxRows } from './invoice-import.js'
+import { createPaymentLink, invoicePaymentState, refreshPaymentLink } from './payment-links.js'
+import { pdfInvoiceRows } from './invoice-pdf.js'
 import { runProbableForAccount } from './matcher.js'
+import { collectedWhere } from './statuses.js'
 
 export const zpayRouter = Router()
 
@@ -125,6 +128,10 @@ zpayRouter.post('/connections/:id/accounts', handler(async (req, res) => {
   if (!legalEntityName) throw ApiError.badRequest('legalEntityName is required.')
   if (!invoiceSeriesPrefix) throw ApiError.badRequest('invoiceSeriesPrefix is required.')
   if (isGstRegistered && !gstin) throw ApiError.badRequest('gstin is required for a GST-registered account.')
+  const existing = await prisma.zpayAccount.count({ where: { connectionId: conn.id, deletedAt: null } })
+  if (existing > 0) {
+    throw ApiError.conflict('one_account_per_connection', 'Zoho Payments signs in one account at a time. Create a separate connection for this account.')
+  }
 
   try {
     const created = await prisma.zpayAccount.create({
@@ -201,7 +208,7 @@ zpayRouter.post('/accounts/:aid/invoices/import', (req, res, next) => {
     if (!err) return next()
     const code = (err as { code?: string }).code
     if (code === 'LIMIT_FILE_SIZE') {
-      return next(ApiError.unprocessable('too_large', `CSV is larger than ${MAX_CSV_MB} MB.`))
+      return next(ApiError.unprocessable('too_large', `The file is larger than ${MAX_CSV_MB} MB.`))
     }
     return next(err)
   })
@@ -209,19 +216,70 @@ zpayRouter.post('/accounts/:aid/invoices/import', (req, res, next) => {
   const session = requireSession(req)
   const orgId = await orgIdFor(session.userId)
   const file = (req as unknown as { file?: { buffer: Buffer; originalname: string } }).file
-  if (!file || !file.buffer) throw ApiError.badRequest('Attach a CSV file under the "file" field.')
-  const csv = file.buffer.toString('utf8')
+  if (!file || !file.buffer) throw ApiError.badRequest('Attach a CSV, Excel (.xlsx) or PDF file under the "file" field.')
+  // .xlsx is a zip ("PK"); old binary .xls starts D0 CF 11 E0 and isn't readable here.
+  const head = file.buffer.subarray(0, 4)
+  if (head[0] === 0xd0 && head[1] === 0xcf) {
+    throw ApiError.badRequest('Old Excel (.xls) files are not supported. Save it as .xlsx or .csv and upload again.')
+  }
+  const isXlsx = head[0] === 0x50 && head[1] === 0x4b
+  const pdf = file.buffer.subarray(0, 5).toString('latin1') === '%PDF-' ? await pdfInvoiceRows(file.buffer) : null
+  const rows = pdf ? pdf.rows : isXlsx ? await xlsxRows(file.buffer) : parseCsv(file.buffer.toString('utf8'))
   const outcome = await importInvoicesCsv({
     billingAccountId: req.params.aid,
     organisationId: orgId,
     actorUserId: session.userId,
-    csv,
+    rows,
   })
+  // The invoices this file carried — new or already imported — so the screen
+  // can go straight on to collecting payment for them.
+  const noCol = (rows[0] ?? []).map((c) => c.trim().toLowerCase()).indexOf('invoice_number')
+  const numbers = noCol < 0 ? [] : [...new Set(rows.slice(1).map((r) => (r[noCol] ?? '').trim()).filter(Boolean))]
+  const invoices = numbers.length
+    ? await prisma.zpayExternalInvoice.findMany({
+      where: { billingAccountId: req.params.aid, organisationId: orgId, invoiceNumber: { in: numbers }, deletedAt: null },
+      select: { id: true, invoiceNumber: true, amountPaise: true },
+    })
+    : []
   // Fresh invoices can unlock proposals for previously-unmatched
   // payments on this account — spec §4.2 doesn't distinguish "matched
   // during sync" from "matched after an import".
   const { proposed } = await runProbableForAccount(req.params.aid)
-  ok(res, { ...outcome, probableProposed: proposed })
+  ok(res, {
+    ...outcome, probableProposed: proposed,
+    invoices: invoices.map((i) => ({ id: i.id, invoice_number: i.invoiceNumber, amount_paise: i.amountPaise })),
+    ...(pdf ? { pdf: { source: pdf.source, read: pdf.rows.length - 1, skipped: pdf.skipped } } : {}),
+  })
+}))
+
+// ── collect payment: Zoho Payments payment links ───────────────────────
+
+// GET /api/zpay/invoices/:id/payment — owed, paid, links, matched payments.
+zpayRouter.get('/invoices/:id/payment', handler(async (req, res) => {
+  const session = requireSession(req)
+  ok(res, await invoicePaymentState(req.params.id, await orgIdFor(session.userId)))
+}))
+
+// POST /api/zpay/invoices/:id/payment-link — raise (or reuse) a link for what is owed.
+zpayRouter.post('/invoices/:id/payment-link', handler(async (req, res) => {
+  const session = requireSession(req)
+  const orgId = await orgIdFor(session.userId)
+  const b = (req.body ?? {}) as Record<string, unknown>
+  const txt = (v: unknown) => (typeof v === 'string' && v.trim() ? v.trim() : null)
+  const r = await createPaymentLink({
+    invoiceId: req.params.id, organisationId: orgId, userId: session.userId,
+    email: txt(b.email), phone: txt(b.phone), expiresAt: txt(b.expires_at),
+    notify: { email: b.notify_email === true, sms: b.notify_sms === true },
+  })
+  ok(res, { reused: r.reused, state: await invoicePaymentState(req.params.id, orgId) }, r.reused ? 200 : 201)
+}))
+
+// POST /api/zpay/payment-links/:id/refresh — re-read the link from Zoho; match its payments.
+zpayRouter.post('/payment-links/:id/refresh', handler(async (req, res) => {
+  const session = requireSession(req)
+  const orgId = await orgIdFor(session.userId)
+  const r = await refreshPaymentLink(req.params.id, orgId)
+  ok(res, { matched: r.matched, unsynced: r.unsynced, state: await invoicePaymentState(r.link.invoiceId, orgId) })
 }))
 
 // GET /api/zpay/accounts/:aid/invoices — recent invoices for the ops screen.
@@ -309,6 +367,7 @@ zpayRouter.get('/payments', handler(async (req, res) => {
   const rows = await prisma.zpayPayment.findMany({
     where: {
       paidAt: { gte: period.from, lt: period.to },
+      ...collectedWhere,
       account: {
         connection: { organisationId: orgId, deletedAt: null },
         deletedAt: null,
@@ -370,6 +429,7 @@ zpayRouter.get('/payments', handler(async (req, res) => {
     prisma.zpayPayment.count({
       where: {
         paidAt: { gte: period.from, lt: period.to },
+        ...collectedWhere,
         account: {
           connection: { organisationId: orgId, deletedAt: null },
           deletedAt: null,

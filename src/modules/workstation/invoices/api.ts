@@ -94,10 +94,8 @@ export interface Invoice {
   invoice_number: string;
   client_id: string;
   client_name: string | null;
-  /** Client master contact fields — for the "Send on WhatsApp / by email"
-   *  actions on InvoiceDetail. Nullable when the client record has none. */
-  client_email: string | null;
-  client_contact_number: string | null;
+  party_email: string | null;
+  party_contact_number: string | null;
   invoice_date: string;
   terms: Term;
   due_date: string;
