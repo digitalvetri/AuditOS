@@ -93,6 +93,9 @@ export async function shareDocumentPdf(o: {
     const a = document.createElement('a');
     a.href = href;
     a.download = o.fileName;
+    a.rel = 'noopener';
+    // In the DOM before .click() (Firefox/Safari ignore a detached anchor),
+    // and the URL revoked later, not on the same tick (main eba42b9).
     document.body.appendChild(a);
     a.click();
     a.remove();
