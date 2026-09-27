@@ -85,14 +85,50 @@ export async function completeConnect(input: { code: string; state: string; acco
   // Zoho tells us which data centre the user's account lives in; the code
   // must be exchanged there, and only ever on a genuine Zoho host.
   const accountsBase = input.accountsServer && isTrustedZohoHost(input.accountsServer, cfg) ? input.accountsServer.replace(/\/$/, '') : cfg.accountsBase
+  const organizations = await exchangeAndStore(conn, { code: input.code, accountsBase, redirectUri: cfg.redirectUri, userId: st.uid, organisationId: st.oid, fetchImpl: input.fetchImpl })
+  return { connectionId: conn.id, organisationId: st.oid, userId: st.uid, organizations }
+}
 
+/**
+ * Connect with a grant code generated in the Zoho API console (Self Client →
+ * Generate Code, scope ZohoBooks.fullaccess.all). No browser redirect is
+ * involved, so it works whatever redirect URI the Zoho client has — or none,
+ * as with a Self Client. The code is single-use and short-lived (Zoho: 3–10 min).
+ */
+export async function connectWithCode(input: { organisationId: string; userId: string; code: string; accountsServer?: string | null; fetchImpl?: FetchLike }): Promise<{ connectionId: string; organizations: number }> {
+  const cfg = booksConfig()
+  const accountsBase = input.accountsServer && isTrustedZohoHost(input.accountsServer, cfg) ? input.accountsServer.replace(/\/$/, '') : cfg.accountsBase
+  // Reuse an unfinished attempt (e.g. a browser flow stuck in consent_pending) rather than add rows.
+  let conn = await prisma.booksZohoConnection.findFirst({
+    where: { organisationId: input.organisationId, deletedAt: null, status: { in: ['not_connected', 'consent_pending', 'error'] }, organizations: { none: {} } },
+    orderBy: { createdAt: 'desc' },
+  })
+  conn ??= await prisma.booksZohoConnection.create({
+    data: { organisationId: input.organisationId, status: 'consent_pending', scopesGranted: [], createdBy: input.userId, updatedBy: input.userId },
+  })
+  const organizations = await exchangeAndStore(conn, { code: input.code, accountsBase, redirectUri: '', userId: input.userId, organisationId: input.organisationId, fetchImpl: input.fetchImpl })
+  return { connectionId: conn.id, organizations }
+}
+
+/** Exchange a grant code, store the encrypted tokens, mark connected, list organisations. */
+async function exchangeAndStore(
+  conn: { id: string },
+  input: { code: string; accountsBase: string; redirectUri: string; userId: string; organisationId: string; fetchImpl?: FetchLike },
+): Promise<number> {
+  const cfg = booksConfig()
+  const accountsBase = input.accountsBase
   let tokens
   try {
-    tokens = await exchangeCodeForTokens({ ...cfg, accountsBase }, input.code, input.fetchImpl ?? seams.oauth())
+    tokens = await exchangeCodeForTokens({ ...cfg, accountsBase, redirectUri: input.redirectUri }, input.code, input.fetchImpl ?? seams.oauth())
   } catch (err) {
     const code = err instanceof ZohoOAuthError ? err.code : 'exchange_failed'
     await prisma.booksZohoConnection.update({ where: { id: conn.id }, data: { status: 'error', lastErrorCode: code, lastErrorAt: new Date() } })
-    throw new ApiError(400, 'oauth_failed', `Zoho did not complete the sign-in (${code}).`)
+    const hint: Record<string, string> = {
+      invalid_code: 'The code is wrong, already used or expired — Zoho codes work once and only for a few minutes. Generate a new one.',
+      invalid_client: 'Zoho does not recognise this client in that data centre. Check the data centre and ZBOOKS_CLIENT_ID / ZBOOKS_CLIENT_SECRET.',
+      invalid_redirect_uri: 'The redirect URI does not match the one registered for this Zoho client.',
+    }
+    throw new ApiError(400, 'oauth_failed', hint[code] ?? `Zoho did not complete the sign-in (${code}).`)
   }
   if (!tokens.refresh_token) {
     await prisma.booksZohoConnection.update({ where: { id: conn.id }, data: { status: 'error', lastErrorCode: 'no_refresh_token', lastErrorAt: new Date() } })
@@ -111,14 +147,13 @@ export async function completeConnect(input: { code: string; state: string; acco
       apiDomain,
       scopesGranted: (tokens.scope ?? '').split(/[\s,]+/).filter(Boolean),
       connectedAt: new Date(),
-      connectedBy: st.uid,
+      connectedBy: input.userId,
       lastErrorCode: null,
       lastErrorAt: null,
-      updatedBy: st.uid,
+      updatedBy: input.userId,
     },
   })
-  const organizations = await refreshOrganizations(updated, st.oid)
-  return { connectionId: conn.id, organisationId: st.oid, userId: st.uid, organizations }
+  return refreshOrganizations(updated, input.organisationId)
 }
 
 /** Upsert the Zoho organisations this grant can see. New ones start inactive: the user picks. */

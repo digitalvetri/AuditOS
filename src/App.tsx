@@ -108,7 +108,7 @@ import { TdsServiceHandoff } from '@/pages/workstation/tds/TdsServiceHandoff';
 import { BooksShell } from '@/pages/books/BooksShell';
 import { BooksDashboardPage } from '@/pages/books/BooksDashboard';
 import { BooksSettingsPage } from '@/pages/books/BooksSettings';
-import { BankingPage, ContactDetailPage, PaymentsPage, ReconciliationPage, ReportsPage as BooksReportsPage, ResourcePage, TaxesPage } from '@/pages/books/BooksPages';
+import { BankingPage, ContactDetailPage, PaymentsPage, ReconciliationPage, ReportsPage as BooksReportsPage, ResourcePage, TaxesPage, ZohoOnlyPage } from '@/pages/books/BooksPages';
 import { AttendancePage } from '@/pages/hrms/Attendance';
 import { LeavePage } from '@/pages/hrms/Leave';
 import { EmployeesPage } from '@/pages/hrms/Employees';
@@ -431,6 +431,27 @@ export default function App() {
                 <Route path="reconciliation" element={<ReconciliationPage />} />
                 <Route path="taxes" element={<TaxesPage />} />
                 <Route path="reports" element={<BooksReportsPage />} />
+                {/* The rest of Zoho Books' navigation (docs/books-zoho/README.md › Navigation). */}
+                <Route path="pricelists" element={<ResourcePage entity="pricebooks" />} />
+                <Route path="inventory-adjustments" element={<ResourcePage entity="inventoryadjustments" />} />
+                <Route path="sales/retainerinvoices" element={<ResourcePage entity="retainerinvoices" />} />
+                <Route path="sales/deliverychallans" element={<ResourcePage entity="deliverychallans" />} />
+                <Route path="sales/salesreceipts" element={<ResourcePage entity="salesreceipts" />} />
+                <Route path="sales/paymentsreceived" element={<ResourcePage entity="customerpayments" />} />
+                <Route path="sales/recurringinvoices" element={<ResourcePage entity="recurringinvoices" />} />
+                <Route path="sales/ewaybills" element={<ZohoOnlyPage title="e-Way Bills" zohoPath="ewaybills" why="Zoho Books generates e-Way Bills from invoices, credit notes and delivery challans once e-Way Bills are enabled for the organisation (Zoho Books → Settings → e-Way Bills). Zoho does not list them through its API for this organisation." />} />
+                <Route path="purchases/recurringexpenses" element={<ResourcePage entity="recurringexpenses" />} />
+                <Route path="purchases/paymentsmade" element={<ResourcePage entity="vendorpayments" />} />
+                <Route path="purchases/recurringbills" element={<ResourcePage entity="recurringbills" />} />
+                <Route path="timetracking/projects" element={<ResourcePage entity="projects" />} />
+                <Route path="timetracking/timesheet" element={<ResourcePage entity="timeentries" />} />
+                <Route path="accountant/manualjournals" element={<ResourcePage entity="journals" />} />
+                <Route path="accountant/bulkupdate" element={<ZohoOnlyPage title="Bulk Update" zohoPath="bulkupdate" why="Bulk Update changes the account, date or other fields on many transactions at once. Zoho Books does not offer it through its API, so it runs in Zoho Books." />} />
+                <Route path="accountant/currencyadjustments" element={<ResourcePage entity="currencyadjustments" />} />
+                <Route path="accountant/chartofaccounts" element={<ResourcePage entity="accounts" />} />
+                <Route path="accountant/budgets" element={<ResourcePage entity="budgets" />} />
+                <Route path="accountant/transactionlocking" element={<ZohoOnlyPage title="Transaction Locking" zohoPath="transactionlock" why="Transaction Locking stops edits to transactions before a date. Zoho Books does not offer it through its API, so it is set in Zoho Books." />} />
+                <Route path="documents" element={<ResourcePage entity="documents" />} />
                 <Route path="settings" element={<BooksSettingsPage />} />
               </Route>
 

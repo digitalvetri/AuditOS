@@ -241,6 +241,23 @@ describe('Books — OAuth', () => {
   })
 })
 
+describe('Books — connect with a Self Client code', () => {
+  it('exchanges a pasted code without a redirect URI and lists organisations', async () => {
+    expect((await api('/api/books/connect/code', { method: 'POST', cookie: admin.cookie, body: { code: 'not-a-code' } })).status).toBe(400)
+    expect((await api('/api/books/connect/code', { method: 'POST', cookie: employee.cookie, body: { code: '1000.' + 'a'.repeat(30) } })).status).toBe(403)
+    const r = await api('/api/books/connect/code', { method: 'POST', cookie: admin.cookie, body: { code: '1000.' + 'a'.repeat(30), data_center: 'https://accounts.zoho.in' } })
+    expect(r.status).toBe(200)
+    expect(r.body.data.organizations).toBe(2)
+    const exchange = oauthCalls.find((c) => c.grant_type === 'authorization_code')!
+    expect(exchange.code).toBe('1000.' + 'a'.repeat(30))
+    expect(exchange).not.toHaveProperty('redirect_uri')
+    const conn = await prisma.booksZohoConnection.findUniqueOrThrow({ where: { id: r.body.data.connectionId } })
+    expect(conn.status).toBe('connected')
+    expect(conn.refreshTokenEncrypted).not.toContain('refresh-SECRET')
+    expect(r.text).not.toMatch(/refresh-SECRET|access-0|test-secret/)
+  })
+})
+
 describe('Books — permissions and organisations', () => {
   it('an employee cannot open Books', async () => {
     expect((await api('/api/books/status', { cookie: employee.cookie })).status).toBe(403)
@@ -307,10 +324,24 @@ describe('Books — resources', () => {
   it('rejects unknown resources, actions and malformed ids before calling Zoho', async () => {
     const ref = await connectAndActivate()
     const before = calls.length
-    expect((await api(`/api/books/o/${ref}/e/journals`, { cookie: admin.cookie })).status).toBe(404)
+    expect((await api(`/api/books/o/${ref}/e/payrollruns`, { cookie: admin.cookie })).status).toBe(404)
     expect((await api(`/api/books/o/${ref}/e/invoices/..%2Fsettings`, { cookie: admin.cookie })).status).toBe(400)
     expect((await api(`/api/books/o/${ref}/e/invoices/1/a/explode`, { method: 'POST', cookie: admin.cookie })).status).toBe(404)
     expect(calls.length).toBe(before)
+  })
+
+  it('exposes the rest of Zoho Books\' navigation as resources (read + delete only)', async () => {
+    const ref = await connectAndActivate()
+    for (const e of ['recurringinvoices', 'retainerinvoices', 'deliverychallans', 'salesreceipts', 'recurringexpenses', 'recurringbills', 'projects', 'timeentries', 'journals', 'currencyadjustments', 'budgets', 'documents', 'pricebooks', 'inventoryadjustments', 'accounts']) {
+      // Known resource: the list call is forwarded to Zoho (an unknown one is rejected before).
+      const before = calls.length
+      await api(`/api/books/o/${ref}/e/${e}`, { cookie: admin.cookie })
+      expect(calls.length, e).toBe(before + 1)
+      // Created in Zoho Books itself — no create through Audit OS, and Zoho is not called.
+      const beforeCreate = calls.length
+      expect((await api(`/api/books/o/${ref}/e/${e}`, { method: 'POST', cookie: admin.cookie, body: { x: 1 } })).status).not.toBe(200)
+      expect(calls.length, `${e} create`).toBe(beforeCreate)
+    }
   })
 
   it('maps Zoho outages to a clean error', async () => {
