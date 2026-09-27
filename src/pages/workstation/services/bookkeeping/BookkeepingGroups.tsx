@@ -8,7 +8,7 @@ import { bookkeepingApi, type BookkeepingGroupTreeNode } from '@/modules/tools/a
 import type { ApiError } from '@/services/api';
 
 /**
- * /tally/companies/:companyId/masters/groups
+ * /workstation/services/bookkeeping/companies/:companyId/masters/groups
  * — expandable group tree, seeded with 17 primaries per company.
  * Primary groups can't be renamed or deleted.
  */

@@ -8,7 +8,7 @@ import { bookkeepingApi, type BookkeepingGroup, type BookkeepingLedger, type Cre
 import type { ApiError } from '@/services/api';
 
 /**
- * /tally/companies/:companyId/masters/ledgers
+ * /workstation/services/bookkeeping/companies/:companyId/masters/ledgers
  * — ledger list with search + New ledger modal.
  */
 export function BookkeepingLedgers() {

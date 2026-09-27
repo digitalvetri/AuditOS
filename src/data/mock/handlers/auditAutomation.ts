@@ -87,14 +87,14 @@ export const auditAutomationHandlers = [
   // ── Tally (accounting) ─────────────────────────────────────────────
   // Reads return honest empty lists in mock mode; every mutation and
   // every sub-company read hits the real backend.
-  http.get('/api/tally/companies', () => HttpResponse.json({ data: { items: [] } })),
-  http.post('/api/tally/companies', unavailable),
-  http.get('/api/tally/companies/:id', unavailable),
-  http.patch('/api/tally/companies/:id', unavailable),
-  http.all('/api/tally/companies/:id/financial-years', unavailable),
-  http.all('/api/tally/companies/:id/financial-years/:fyId/close', unavailable),
-  http.all('/api/tally/companies/:id/groups', unavailable),
-  http.all('/api/tally/companies/:id/groups/:groupId', unavailable),
-  http.all('/api/tally/companies/:id/ledgers', unavailable),
-  http.all('/api/tally/companies/:id/ledgers/:ledgerId', unavailable),
+  http.get('/api/bookkeeping/companies', () => HttpResponse.json({ data: { items: [] } })),
+  http.post('/api/bookkeeping/companies', unavailable),
+  http.get('/api/bookkeeping/companies/:id', unavailable),
+  http.patch('/api/bookkeeping/companies/:id', unavailable),
+  http.all('/api/bookkeeping/companies/:id/financial-years', unavailable),
+  http.all('/api/bookkeeping/companies/:id/financial-years/:fyId/close', unavailable),
+  http.all('/api/bookkeeping/companies/:id/groups', unavailable),
+  http.all('/api/bookkeeping/companies/:id/groups/:groupId', unavailable),
+  http.all('/api/bookkeeping/companies/:id/ledgers', unavailable),
+  http.all('/api/bookkeeping/companies/:id/ledgers/:ledgerId', unavailable),
 ];

@@ -60,7 +60,7 @@ const SECTIONS = [
 export function BookkeepingReports() {
   const { companyId = '' } = useParams();
   const { from, to } = usePeriod();
-  const base = `/tally/companies/${companyId}/reports`;
+  const base = `/workstation/services/bookkeeping/companies/${companyId}/reports`;
   const query = (path: string) => `${base}/${path}${path.includes('?') ? '&' : '?'}from=${from}&to=${to}`;
 
   return (
@@ -98,9 +98,9 @@ export function BookkeepingReports() {
             <h3 className="text-13 font-semibold text-neutral-900">Inventory &amp; tax</h3>
           </div>
           <ul className="divide-y divide-neutral-100">
-            <li><Link to={`/tally/companies/${companyId}/inventory`} className="block px-3 py-2 hover:bg-neutral-50"><div className="text-13 text-neutral-900">Stock Summary</div><div className="text-11 text-neutral-500">Opening, inward, outward, closing and valuation</div></Link></li>
-            <li><Link to={`/tally/companies/${companyId}/gst`} className="block px-3 py-2 hover:bg-neutral-50"><div className="text-13 text-neutral-900 flex items-center gap-1"><Percent size={12} /> GST Summary, GSTR-1, GSTR-3B</div><div className="text-11 text-neutral-500">Prepared from posted vouchers</div></Link></li>
-            <li><Link to={`/tally/companies/${companyId}/audit`} className="block px-3 py-2 hover:bg-neutral-50"><div className="text-13 text-neutral-900 flex items-center gap-1"><TrendingUp size={12} /> Audit &amp; exception reports</div><div className="text-11 text-neutral-500">Altered, cancelled and unusual transactions</div></Link></li>
+            <li><Link to={`/workstation/services/bookkeeping/companies/${companyId}/inventory`} className="block px-3 py-2 hover:bg-neutral-50"><div className="text-13 text-neutral-900">Stock Summary</div><div className="text-11 text-neutral-500">Opening, inward, outward, closing and valuation</div></Link></li>
+            <li><Link to={`/workstation/services/bookkeeping/companies/${companyId}/gst`} className="block px-3 py-2 hover:bg-neutral-50"><div className="text-13 text-neutral-900 flex items-center gap-1"><Percent size={12} /> GST Summary, GSTR-1, GSTR-3B</div><div className="text-11 text-neutral-500">Prepared from posted vouchers</div></Link></li>
+            <li><Link to={`/workstation/services/bookkeeping/companies/${companyId}/audit`} className="block px-3 py-2 hover:bg-neutral-50"><div className="text-13 text-neutral-900 flex items-center gap-1"><TrendingUp size={12} /> Audit &amp; exception reports</div><div className="text-11 text-neutral-500">Altered, cancelled and unusual transactions</div></Link></li>
           </ul>
         </section>
       </div>

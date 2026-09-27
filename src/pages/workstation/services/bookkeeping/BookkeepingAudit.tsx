@@ -75,7 +75,7 @@ function TrailTab({ companyId, from, to }: { companyId: string; from: string; to
     enabled: Boolean(openId),
     queryFn: () => bookkeepingAccountingApi.auditRevision(companyId, openId!),
   });
-  const base = `/tally/companies/${companyId}`;
+  const base = `/workstation/services/bookkeeping/companies/${companyId}`;
   if (q.isLoading) return <Loading />;
   if (q.isError) return <ErrorNote message={(q.error as Error).message} />;
   const columns = [
@@ -123,7 +123,7 @@ function TrailTab({ companyId, from, to }: { companyId: string; from: string; to
 
 function AlteredTab({ companyId, from, to }: { companyId: string; from: string; to: string }) {
   const q = useQuery({ queryKey: ['tally.altered', companyId, from, to], queryFn: () => bookkeepingAccountingApi.alteredVouchers(companyId, { from, to }) });
-  const base = `/tally/companies/${companyId}`;
+  const base = `/workstation/services/bookkeeping/companies/${companyId}`;
   if (q.isLoading) return <Loading />;
   return (
     <Panel title="Vouchers altered after posting">
@@ -145,7 +145,7 @@ function AlteredTab({ companyId, from, to }: { companyId: string; from: string; 
 
 function CancelledTab({ companyId, from, to }: { companyId: string; from: string; to: string }) {
   const q = useQuery({ queryKey: ['tally.cancelled', companyId, from, to], queryFn: () => bookkeepingAccountingApi.cancelledVouchers(companyId, { from, to }) });
-  const base = `/tally/companies/${companyId}`;
+  const base = `/workstation/services/bookkeeping/companies/${companyId}`;
   if (q.isLoading) return <Loading />;
   return (
     <Panel title="Cancelled vouchers">

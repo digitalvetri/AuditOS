@@ -6,7 +6,7 @@ import { Money, Panel, Loading, usePeriod, DataTable, type Column, ErrorNote } f
 import type { DayBookRow, Outstandings } from '@/modules/tools/audit-automation/bookkeeping';
 
 /**
- * /tally/companies/:companyId — the dashboard.
+ * /workstation/services/bookkeeping/companies/:companyId — the dashboard.
  *
  * Every tile is computed server-side from posted vouchers and links to
  * the report it came from. Nothing on this screen is a placeholder or a
@@ -15,7 +15,7 @@ import type { DayBookRow, Outstandings } from '@/modules/tools/audit-automation/
 export function BookkeepingDashboard() {
   const { companyId = '' } = useParams();
   const { from, to } = usePeriod();
-  const base = `/tally/companies/${companyId}`;
+  const base = `/workstation/services/bookkeeping/companies/${companyId}`;
 
   const q = useQuery({
     queryKey: ['tally.dashboard', companyId, from, to],

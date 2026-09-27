@@ -17,7 +17,7 @@ export function BookkeepingTrade({ mode }: { mode: 'sales' | 'purchase' }) {
   const { companyId = '' } = useParams();
   const { from, to } = usePeriod();
   const navigate = useNavigate();
-  const base = `/tally/companies/${companyId}`;
+  const base = `/workstation/services/bookkeeping/companies/${companyId}`;
   const isSales = mode === 'sales';
 
   const registerQ = useQuery({

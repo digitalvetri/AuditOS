@@ -84,7 +84,7 @@ function CompanyGrid({ companies }: { companies: { id: string; name: string; sta
       {companies.map((c) => (
         <Link
           key={c.id}
-          to={`/tally/companies/${c.id}/masters/ledgers`}
+          to={`/workstation/services/bookkeeping/companies/${c.id}/masters/ledgers`}
           className="bg-white border border-neutral-200 rounded p-4 hover:border-gold transition-colors"
           data-testid={`tally-company-card-${c.id}`}
         >

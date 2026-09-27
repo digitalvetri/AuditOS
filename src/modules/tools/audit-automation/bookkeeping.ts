@@ -109,32 +109,32 @@ export interface CreateBookkeepingLedgerInput {
 export const bookkeepingApi = {
   // Companies
   listCompanies: () => api.get<{ items: BookkeepingCompany[] }>('/api/bookkeeping/companies'),
-  getCompany: (id: string) => api.get<BookkeepingCompany>(`/api/tally/companies/${id}`),
+  getCompany: (id: string) => api.get<BookkeepingCompany>(`/api/bookkeeping/companies/${id}`),
   createCompany: (input: CreateBookkeepingCompanyInput) => api.post<BookkeepingCompany>('/api/bookkeeping/companies', input),
   updateCompany: (id: string, patch: Partial<CreateBookkeepingCompanyInput> & { active?: boolean }) =>
-    api.patch<BookkeepingCompany>(`/api/tally/companies/${id}`, patch),
+    api.patch<BookkeepingCompany>(`/api/bookkeeping/companies/${id}`, patch),
 
   // Financial years
   listFinancialYears: (companyId: string) =>
-    api.get<{ items: BookkeepingFinancialYear[] }>(`/api/tally/companies/${companyId}/financial-years`),
+    api.get<{ items: BookkeepingFinancialYear[] }>(`/api/bookkeeping/companies/${companyId}/financial-years`),
   createFinancialYear: (companyId: string, input: { label: string; start_date: string; end_date: string }) =>
-    api.post<BookkeepingFinancialYear>(`/api/tally/companies/${companyId}/financial-years`, input),
+    api.post<BookkeepingFinancialYear>(`/api/bookkeeping/companies/${companyId}/financial-years`, input),
   closeFinancialYear: (companyId: string, fyId: string) =>
-    api.patch<BookkeepingFinancialYear>(`/api/tally/companies/${companyId}/financial-years/${fyId}/close`, {}),
+    api.patch<BookkeepingFinancialYear>(`/api/bookkeeping/companies/${companyId}/financial-years/${fyId}/close`, {}),
 
   // Groups
-  listGroups: (companyId: string) => api.get<{ items: BookkeepingGroup[] }>(`/api/tally/companies/${companyId}/groups`),
+  listGroups: (companyId: string) => api.get<{ items: BookkeepingGroup[] }>(`/api/bookkeeping/companies/${companyId}/groups`),
   groupTree: (companyId: string) =>
-    api.get<{ tree: BookkeepingGroupTreeNode[] }>(`/api/tally/companies/${companyId}/groups?tree=1`),
+    api.get<{ tree: BookkeepingGroupTreeNode[] }>(`/api/bookkeeping/companies/${companyId}/groups?tree=1`),
   createGroup: (companyId: string, input: {
     name: string; parent_group_id?: string | null;
     nature?: 'assets' | 'liabilities' | 'income' | 'expenses'; affects_pl?: boolean;
-  }) => api.post<BookkeepingGroup>(`/api/tally/companies/${companyId}/groups`, input),
+  }) => api.post<BookkeepingGroup>(`/api/bookkeeping/companies/${companyId}/groups`, input),
   updateGroup: (companyId: string, groupId: string, patch: {
     name?: string; parent_group_id?: string | null; affects_pl?: boolean;
-  }) => api.patch<BookkeepingGroup>(`/api/tally/companies/${companyId}/groups/${groupId}`, patch),
+  }) => api.patch<BookkeepingGroup>(`/api/bookkeeping/companies/${companyId}/groups/${groupId}`, patch),
   deleteGroup: (companyId: string, groupId: string) =>
-    api.delete<void>(`/api/tally/companies/${companyId}/groups/${groupId}`),
+    api.delete<void>(`/api/bookkeeping/companies/${companyId}/groups/${groupId}`),
 
   // Ledgers
   listLedgers: (companyId: string, filter: { group_id?: string; q?: string } = {}) => {
@@ -142,16 +142,16 @@ export const bookkeepingApi = {
     if (filter.group_id) sp.set('group_id', filter.group_id);
     if (filter.q) sp.set('q', filter.q);
     const s = sp.toString();
-    return api.get<{ items: BookkeepingLedger[] }>(`/api/tally/companies/${companyId}/ledgers${s ? `?${s}` : ''}`);
+    return api.get<{ items: BookkeepingLedger[] }>(`/api/bookkeeping/companies/${companyId}/ledgers${s ? `?${s}` : ''}`);
   },
   getLedger: (companyId: string, ledgerId: string) =>
-    api.get<BookkeepingLedger>(`/api/tally/companies/${companyId}/ledgers/${ledgerId}`),
+    api.get<BookkeepingLedger>(`/api/bookkeeping/companies/${companyId}/ledgers/${ledgerId}`),
   createLedger: (companyId: string, input: CreateBookkeepingLedgerInput) =>
-    api.post<BookkeepingLedger>(`/api/tally/companies/${companyId}/ledgers`, input),
+    api.post<BookkeepingLedger>(`/api/bookkeeping/companies/${companyId}/ledgers`, input),
   updateLedger: (companyId: string, ledgerId: string, patch: Partial<CreateBookkeepingLedgerInput> & { active?: boolean }) =>
-    api.patch<BookkeepingLedger>(`/api/tally/companies/${companyId}/ledgers/${ledgerId}`, patch),
+    api.patch<BookkeepingLedger>(`/api/bookkeeping/companies/${companyId}/ledgers/${ledgerId}`, patch),
   deleteLedger: (companyId: string, ledgerId: string) =>
-    api.delete<void>(`/api/tally/companies/${companyId}/ledgers/${ledgerId}`),
+    api.delete<void>(`/api/bookkeeping/companies/${companyId}/ledgers/${ledgerId}`),
 };
 
 // ════════════════════════════════════════════════════════════════════
@@ -474,7 +474,7 @@ function qs(params: QsParams | object): string {
   return s ? `?${s}` : '';
 }
 
-const base = (companyId: string) => `/api/tally/companies/${companyId}`;
+const base = (companyId: string) => `/api/bookkeeping/companies/${companyId}`;
 
 export const bookkeepingAccountingApi = {
   // ── Voucher types ──────────────────────────────────────────────────

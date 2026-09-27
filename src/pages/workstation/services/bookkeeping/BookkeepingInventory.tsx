@@ -21,7 +21,7 @@ export function BookkeepingInventory() {
   const { from, to } = usePeriod();
   const navigate = useNavigate();
   const [showNew, setShowNew] = useState(false);
-  const base = `/tally/companies/${companyId}`;
+  const base = `/workstation/services/bookkeeping/companies/${companyId}`;
 
   const summaryQ = useQuery({
     queryKey: ['tally.stockSummary', companyId, from, to],
@@ -215,7 +215,7 @@ function L({ label, required, children }: { label: string; required?: boolean; c
 export function BookkeepingStockItemPage() {
   const { companyId = '', itemId = '' } = useParams();
   const { from, to } = usePeriod();
-  const base = `/tally/companies/${companyId}`;
+  const base = `/workstation/services/bookkeeping/companies/${companyId}`;
   const moveQ = useQuery({
     queryKey: ['tally.stockMovement', companyId, itemId, from, to],
     queryFn: () => bookkeepingAccountingApi.stockMovement(companyId, itemId, { from, to }),
