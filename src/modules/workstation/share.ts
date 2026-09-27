@@ -43,89 +43,88 @@ export async function shareDocumentPdf(o: {
   phone?: string;
   email?: string | null;
 }): Promise<void> {
-  // The popup-blocker trap: `window.open(...)` invoked AFTER an async gap
-  // (fetch + File assembly) is treated as "not a user gesture" by Chrome
-  // and modern Firefox — the wa.me / mailto tab is silently blocked and
-  // the WhatsApp/Email button appears to do nothing. Reserve the target
-  // tab synchronously while we still have the click-derived user gesture,
-  // then navigate it once the PDF has been assembled and saved.
-  //
-  // NOTE: `noopener` is deliberately NOT passed here. Per the HTML spec,
-  // `window.open(..., 'noopener')` returns `null` — so if we set it, we
-  // lose the handle and cannot navigate the reserved tab later, which
-  // defeats the whole point. wa.me and mailto: are user-controlled URLs;
-  // opener isolation adds nothing security-wise. The child tab is
-  // navigated to a real URL before it can call window.opener.
-  //
-  // The download-only path doesn't need a reserved window because
-  // `a.click()` on an anchor with `download` is always a user-gesture
-  // action, even inside a promise resolution.
-  const openedWindow: Window | null =
-    o.channel === 'whatsapp' || o.channel === 'email'
-      ? window.open('about:blank', '_blank')
-      : null;
-
-  try {
-    const { url } = await o.issueUrl();
-    const absolute = new URL(url, window.location.origin).href;
-    const res = await fetch(absolute);
-    if (!res.ok) throw new Error('The PDF could not be generated.');
-    const blob = await res.blob();
-    const file = new File([blob], o.fileName, { type: 'application/pdf' });
-
-    // The anchor MUST be in the DOM before .click() — Firefox and Safari
-    // treat a detached anchor click as a no-op, so the file appears to
-    // download on Chromium but silently fails elsewhere. And the object
-    // URL must NOT be revoked on the same tick as .click() — some
-    // browsers haven't opened the download stream yet and abort it when
-    // the URL is freed. Same shape as the Tally-export fix (a4fa04d).
-    const save = () => {
-      const href = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = href;
-      a.download = o.fileName;
-      a.rel = 'noopener';
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      setTimeout(() => URL.revokeObjectURL(href), 5000);
-    };
-
-    if (o.channel === 'download') { save(); return; }
-
-    if (navigator.canShare?.({ files: [file] })) {
-      try {
-        await navigator.share({ files: [file], title: o.fileName, text: o.message });
-        openedWindow?.close();
-        return;
-      } catch (err) {
-        // Dismissing the share sheet is a choice, not a failure.
-        if ((err as { name?: string })?.name === 'AbortError') {
-          openedWindow?.close();
-          return;
-        }
-      }
-    }
-
-    // Desktop path: save the file so the sender can attach it themselves,
-    // then navigate the reserved tab to the channel URL. No PDF link.
-    save();
-    const target = o.channel === 'whatsapp'
+  // The destination URL is built from data we already have — it does NOT
+  // depend on the PDF fetch. So open it SYNCHRONOUSLY, right now, while
+  // we still hold the click's user activation. See below for why this
+  // matters.
+  const target =
+    o.channel === 'whatsapp'
       ? `https://wa.me/${o.phone ?? ''}?text=${encodeURIComponent(o.message)}`
-      : `mailto:${o.email ?? ''}?subject=${encodeURIComponent(o.subject)}`
-        + `&body=${encodeURIComponent(o.message)}`;
+      : o.channel === 'email'
+      ? `mailto:${o.email ?? ''}?subject=${encodeURIComponent(o.subject)}`
+        + `&body=${encodeURIComponent(o.message)}`
+      : '';
 
-    if (openedWindow) {
-      openedWindow.location.href = target;
-    } else {
-      // Popup was blocked entirely — fall back to same-tab navigation for
-      // mailto (browsers handle it as a protocol handler either way) or a
-      // best-effort window.open for wa.me.
-      if (o.channel === 'email') window.location.href = target;
-      else window.open(target, '_blank', 'noopener');
+  // Sync-click a hidden <a> instead of calling window.open(). Rationale:
+  //   • window.open() called AFTER an async gap (fetch + File assembly)
+  //     is treated as "no longer a user gesture" and popup-blocked by
+  //     Brave Shields, Firefox Enhanced Tracking Protection, and Safari.
+  //   • Reserving the tab up front with window.open('about:blank', ...)
+  //     also fails on Brave — the browser opens a shell tab and returns
+  //     a handle, but Brave then refuses to let us navigate it away from
+  //     about:blank as a tracker-defence heuristic.
+  //   • A programmatic <a target="_blank"> click, in contrast, is
+  //     treated as a normal link click by every browser we care about.
+  //     Popup blockers uniformly let it pass because it's the same
+  //     mechanism as a user clicking a link. The anchor must be attached
+  //     to the DOM before click() so Firefox and Safari accept it.
+  // mailto: navigates the current tab (same as clicking a mailto: link)
+  // — browsers hand the URL to the OS mail client and don't lose the
+  // page, so no _blank is needed.
+  if (target && o.channel !== 'download') {
+    const link = document.createElement('a');
+    link.href = target;
+    if (o.channel === 'whatsapp') {
+      link.target = '_blank';
+      link.rel = 'noopener';
     }
-  } catch (err) {
-    openedWindow?.close();
-    throw err;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
   }
+
+  const { url } = await o.issueUrl();
+  const absolute = new URL(url, window.location.origin).href;
+  const res = await fetch(absolute);
+  if (!res.ok) throw new Error('The PDF could not be generated.');
+  const blob = await res.blob();
+  const file = new File([blob], o.fileName, { type: 'application/pdf' });
+
+  // The anchor MUST be in the DOM before .click() — Firefox and Safari
+  // treat a detached anchor click as a no-op, so the file appears to
+  // download on Chromium but silently fails elsewhere. And the object
+  // URL must NOT be revoked on the same tick as .click() — some browsers
+  // haven't opened the download stream yet and abort it when the URL is
+  // freed. Same shape as the Tally-export fix (a4fa04d).
+  const save = () => {
+    const href = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = href;
+    a.download = o.fileName;
+    a.rel = 'noopener';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    setTimeout(() => URL.revokeObjectURL(href), 5000);
+  };
+
+  if (o.channel === 'download') { save(); return; }
+
+  // Mobile: if the Web Share API is available for files, use it — the
+  // native share sheet attaches the PDF directly, no manual step needed.
+  // The extra wa.me tab we sync-opened above stays behind the sheet;
+  // trivially closable and worth the trade for the file attach.
+  if (navigator.canShare?.({ files: [file] })) {
+    try {
+      await navigator.share({ files: [file], title: o.fileName, text: o.message });
+      return;
+    } catch (err) {
+      // Dismissing the share sheet is a choice, not a failure.
+      if ((err as { name?: string })?.name === 'AbortError') return;
+    }
+  }
+
+  // Desktop path: the wa.me / mailto tab is already open. Save the file
+  // so the sender can attach it themselves in WhatsApp Web / mail client.
+  save();
 }
