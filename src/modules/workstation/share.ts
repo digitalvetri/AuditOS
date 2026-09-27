@@ -44,9 +44,9 @@ export async function shareDocumentPdf(o: {
   email?: string | null;
 }): Promise<void> {
   // The destination URL is built from data we already have — it does NOT
-  // depend on the PDF fetch. So open it SYNCHRONOUSLY, right now, while
-  // we still hold the click's user activation. See below for why this
-  // matters.
+  // depend on the PDF fetch. So on desktop we open it SYNCHRONOUSLY, right
+  // now, while we still hold the click's user activation. See below for
+  // why. On mobile we DON'T open it — see the mobile branch after.
   const target =
     o.channel === 'whatsapp'
       ? `https://wa.me/${o.phone ?? ''}?text=${encodeURIComponent(o.message)}`
@@ -54,6 +54,22 @@ export async function shareDocumentPdf(o: {
       ? `mailto:${o.email ?? ''}?subject=${encodeURIComponent(o.subject)}`
         + `&body=${encodeURIComponent(o.message)}`
       : '';
+
+  // On Android / iPhone, an <a href="https://wa.me/..."> click IS the
+  // deep-link into the WhatsApp app — it fires immediately and the
+  // browser hands control to WhatsApp with just the covering text, no
+  // PDF. If we click it here, the Web Share API path below never gets a
+  // chance to run, so the PDF never attaches. This mirrors the exact
+  // bug that appeared after commit 1d8baf4 replaced window.open() with a
+  // sync anchor click for desktop popup-blocker resilience.
+  //
+  // Detect mobile-with-share-API and defer the tab open to the fallback
+  // branch (which only runs if Web Share is unavailable or dismissed).
+  const isMobileShareable =
+    typeof navigator !== 'undefined' &&
+    'share' in navigator &&
+    (navigator.maxTouchPoints > 0 ||
+      /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent));
 
   // Sync-click a hidden <a> instead of calling window.open(). Rationale:
   //   • window.open() called AFTER an async gap (fetch + File assembly)
@@ -71,7 +87,7 @@ export async function shareDocumentPdf(o: {
   // mailto: navigates the current tab (same as clicking a mailto: link)
   // — browsers hand the URL to the OS mail client and don't lose the
   // page, so no _blank is needed.
-  if (target && o.channel !== 'download') {
+  if (target && o.channel !== 'download' && !isMobileShareable) {
     const link = document.createElement('a');
     link.href = target;
     if (o.channel === 'whatsapp') {
@@ -111,9 +127,10 @@ export async function shareDocumentPdf(o: {
   if (o.channel === 'download') { save(); return; }
 
   // Mobile: if the Web Share API is available for files, use it — the
-  // native share sheet attaches the PDF directly, no manual step needed.
-  // The extra wa.me tab we sync-opened above stays behind the sheet;
-  // trivially closable and worth the trade for the file attach.
+  // native share sheet attaches the PDF directly. The sender picks
+  // WhatsApp from the sheet, the compose view opens with the PDF
+  // already attached and the covering text pre-filled, and they hit
+  // Send. This is the format shown in Meridian's screenshot.
   if (navigator.canShare?.({ files: [file] })) {
     try {
       await navigator.share({ files: [file], title: o.fileName, text: o.message });
@@ -121,10 +138,19 @@ export async function shareDocumentPdf(o: {
     } catch (err) {
       // Dismissing the share sheet is a choice, not a failure.
       if ((err as { name?: string })?.name === 'AbortError') return;
+      // Any other error: fall through to the fallback below.
     }
   }
 
-  // Desktop path: the wa.me / mailto tab is already open. Save the file
-  // so the sender can attach it themselves in WhatsApp Web / mail client.
+  // Fallback path — reached when:
+  //   • Desktop: no file-capable Web Share API, the wa.me / mailto tab
+  //     was already sync-opened above, so we just save the PDF locally
+  //     for the sender to drag into WhatsApp Web / mail client.
+  //   • Mobile without file Web Share: we skipped the sync-open above,
+  //     so open wa.me / mailto NOW (still within the click's activation
+  //     window on most mobile browsers) and save the PDF locally too.
   save();
+  if (isMobileShareable && target) {
+    window.location.href = target;
+  }
 }
