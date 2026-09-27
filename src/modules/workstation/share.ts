@@ -50,12 +50,19 @@ export async function shareDocumentPdf(o: {
   // tab synchronously while we still have the click-derived user gesture,
   // then navigate it once the PDF has been assembled and saved.
   //
+  // NOTE: `noopener` is deliberately NOT passed here. Per the HTML spec,
+  // `window.open(..., 'noopener')` returns `null` — so if we set it, we
+  // lose the handle and cannot navigate the reserved tab later, which
+  // defeats the whole point. wa.me and mailto: are user-controlled URLs;
+  // opener isolation adds nothing security-wise. The child tab is
+  // navigated to a real URL before it can call window.opener.
+  //
   // The download-only path doesn't need a reserved window because
   // `a.click()` on an anchor with `download` is always a user-gesture
   // action, even inside a promise resolution.
   const openedWindow: Window | null =
     o.channel === 'whatsapp' || o.channel === 'email'
-      ? window.open('about:blank', '_blank', 'noopener')
+      ? window.open('about:blank', '_blank')
       : null;
 
   try {
@@ -66,13 +73,22 @@ export async function shareDocumentPdf(o: {
     const blob = await res.blob();
     const file = new File([blob], o.fileName, { type: 'application/pdf' });
 
+    // The anchor MUST be in the DOM before .click() — Firefox and Safari
+    // treat a detached anchor click as a no-op, so the file appears to
+    // download on Chromium but silently fails elsewhere. And the object
+    // URL must NOT be revoked on the same tick as .click() — some
+    // browsers haven't opened the download stream yet and abort it when
+    // the URL is freed. Same shape as the Tally-export fix (a4fa04d).
     const save = () => {
       const href = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = href;
       a.download = o.fileName;
+      a.rel = 'noopener';
+      document.body.appendChild(a);
       a.click();
-      URL.revokeObjectURL(href);
+      document.body.removeChild(a);
+      setTimeout(() => URL.revokeObjectURL(href), 5000);
     };
 
     if (o.channel === 'download') { save(); return; }
