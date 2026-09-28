@@ -18,6 +18,7 @@
  * the Preview tab can lift into its own file.
  */
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { AlertTriangle, Check, Info, Trash2, Upload } from 'lucide-react';
 import { rupees, ReportHeader, Panel, Loading, ErrorNote, parseCsv } from '@/modules/tools/bookkeeping/ui';
@@ -312,8 +313,29 @@ function PreviewPanel({ companyId }: { companyId: string }) {
 
   const errorsBlock = preflightQ.data?.errors.length ?? 0;
 
+  const noAccounts = !accountsQ.isLoading && accounts.length === 0;
+  const ledgersUrl = `/workstation/services/bookkeeping/companies/${companyId}/masters/ledgers`;
+
   return (
     <div className="space-y-3">
+      {noAccounts && (
+        // Tally Export reads bank transactions from a bank ledger. If none
+        // exist on this company, the whole Scope panel becomes unusable —
+        // the picker below just shows "— no bank accounts —" and the demo
+        // dead-ends. Link them straight to the ledger creation screen.
+        <div className="border-l-2 border-amber-500 bg-amber-50 p-3 text-13 text-amber-900">
+          <div className="font-medium mb-1">This company has no bank accounts yet.</div>
+          <div className="text-12">
+            Tally Export reads bank rows from a bank ledger. Create one under
+            {' '}
+            <Link to={ledgersUrl} className="underline hover:no-underline font-medium">
+              Books → this company → Masters → Ledgers
+            </Link>
+            {' '}
+            (pick group <em>Bank Accounts</em>), then come back here — the picker will pick it up.
+          </div>
+        </div>
+      )}
       <Panel title="Scope">
         <div className="p-3 grid grid-cols-1 md:grid-cols-4 gap-2 items-end">
           <label className="text-13">
