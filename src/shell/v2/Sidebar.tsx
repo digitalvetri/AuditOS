@@ -106,13 +106,11 @@ export function Sidebar({ mobileOpen, onMobileClose }: Props) {
     // workstation.access grant see nothing here.
     const workstationItems: NavItem[] = [
       { to: '/workstation',             label: 'Overview',   icon: LayoutGrid,    end: true, visible: can(role, 'workstation.access', 'self') },
-      /* Practice-billing rows: what JNS charges its own clients for
-         services. Renamed from "Quotation" / "Invoice" (BOOKKEEPING-
-         REBUILD §7) because Services → Books → Sales carries a
-         + Quotation / + Sales invoice inside a *client's* books, and
-         the naming collision was making staff conflate the two. */
-      { to: '/workstation/quotations',  label: 'Practice Quotation',  icon: FileSignature, end: true, visible: can(role, 'workstation.quotation.read', 'self') },
-      { to: '/workstation/invoices',    label: 'Practice Invoice',    icon: ReceiptText,   end: true, visible: can(role, 'workstation.invoice.read', 'self') },
+      /* Quotation is its own module. Billing — invoices, receipts, what is
+         actually charged — is a separate thing and gets its own row when it
+         exists; a quotation is a proposal and is not billing. */
+      { to: '/workstation/quotations',  label: 'Quotation',  icon: FileSignature, end: true, visible: can(role, 'workstation.quotation.read', 'self') },
+      { to: '/workstation/invoices',    label: 'Invoice',    icon: ReceiptText,   end: true, visible: can(role, 'workstation.invoice.read', 'self') },
       { to: '/workstation/engagement',  label: 'Engagement', icon: ScrollText,    visible: can(role, 'workstation.engagement.read', 'self') },
       { to: '/workstation/doc',         label: 'Doc',        icon: FileText,      visible: can(role, 'workstation.doc.read', 'self') },
       { to: '/workstation/leads',       label: 'Leads',      icon: PhoneCall,     visible: can(role, 'workstation.lead.read', 'self') },
