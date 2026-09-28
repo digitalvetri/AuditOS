@@ -107,6 +107,15 @@ export const booksApi = {
       remove: (entity: string, id: string) => api.delete<{ deleted: boolean }>(`${b}/e/${entity}/${id}`),
       action: (entity: string, id: string, action: string, body?: ZRecord) => api.post<{ message: string }>(`${b}/e/${entity}/${id}/a/${action}`, body),
       matches: (txnId: string) => api.get<{ items: ZRecord[] }>(`${b}/e/banktransactions/${txnId}/match`),
+      projectTasks: (projectId: string) => api.get<{ items: ZRecord[] }>(`${b}/e/projects/${projectId}/tasks`),
+      transactionLocks: () => api.get<{ items: ZRecord[] }>(`${b}/transactionlocks`),
+      lock: (body: { module: string; date: string; reason: string }) => api.put<ZRecord>(`${b}/transactionlock`, body),
+      currencies: () => api.get<{ items: ZRecord[] }>(`${b}/currencies`),
+      adjustmentAccounts: (p: { currency_id: string; date: string; rate: string; notes: string }) => api.get<{ items: ZRecord[] }>(`${b}/currencyadjustment/accounts${qs(p)}`),
+      createAdjustment: (body: { currency_id: string; adjustment_date: string; exchange_rate: number; notes: string; account_ids: string[] }) => api.post<ZRecord>(`${b}/currencyadjustment`, body),
+      register: (accountId: string, from: string, to: string, page = 1) => api.get<{ items: ZRecord[]; has_more: boolean }>(`${b}/registers/${accountId}/transactions${qs({ from, to, page })}`),
+      bulkUpdate: (accountId: string, body: { account_id: string; reason: string; entities: { entity_id: string; entity_type: string }[] }) => api.put<{ message: string }>(`${b}/registers/${accountId}/bulkupdate`, body),
+      unlock: (lockId: string, reason: string) => api.post<{ deleted: boolean }>(`${b}/transactionlock/${lockId}/unlock`, { reason }),
       pdfUrl: (entity: string, id: string) => `${b}/e/${entity}/${id}/pdf`,
       attachReceipt: (expenseId: string, file: File) => {
         const f = new FormData();

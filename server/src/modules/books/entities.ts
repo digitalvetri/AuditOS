@@ -161,54 +161,55 @@ export const ENTITIES: Record<string, EntityDef> = {
   },
   accounts: {
     path: 'chartofaccounts', listKey: 'chartofaccounts', key: 'chart_of_account', idField: 'account_id',
-    listParams: PAGING,
+    listParams: PAGING, create: A, update: A,
     actions: { active: { method: 'POST', sub: 'active', perm: A }, inactive: { method: 'POST', sub: 'inactive', perm: A } },
   },
 
   // ── The rest of Zoho Books' own navigation (Sales, Purchases, Time
-  // Tracking, Accountant, Items, Documents). Read + delete + the status
-  // actions Zoho documents; records are created in Zoho Books itself.
+  // Tracking, Accountant, Items, Documents). Created here wherever Zoho
+  // documents a create endpoint; budgets, documents and inventory
+  // adjustments have none, so those stay read + delete.
   recurringinvoices: {
     path: 'recurringinvoices', listKey: 'recurring_invoices', key: 'recurring_invoice', idField: 'recurring_invoice_id',
-    listParams: [...PAGING, 'customer_id'], remove: A,
+    listParams: [...PAGING, 'customer_id'], create: M, remove: A,
     actions: { stop: { method: 'POST', sub: 'status/stop', perm: M }, resume: { method: 'POST', sub: 'status/resume', perm: M } },
   },
   retainerinvoices: {
     path: 'retainerinvoices', listKey: 'retainerinvoices', key: 'retainerinvoice', idField: 'retainerinvoice_id',
-    listParams: [...DATED, 'customer_id'], remove: A,
+    listParams: [...DATED, 'customer_id'], create: M, remove: A,
     actions: { sent: { method: 'POST', sub: 'status/sent', perm: M }, void: { method: 'POST', sub: 'status/void', perm: A } },
   },
   deliverychallans: {
     path: 'deliverychallans', listKey: 'deliverychallans', key: 'deliverychallan', idField: 'deliverychallan_id',
-    listParams: [...DATED, 'customer_id'], remove: A,
+    listParams: [...DATED, 'customer_id'], create: M, remove: A, numberField: 'deliverychallan_number',
     actions: { open: { method: 'POST', sub: 'status/open', perm: M }, delivered: { method: 'POST', sub: 'status/delivered', perm: M } },
   },
   salesreceipts: {
     path: 'salesreceipts', listKey: 'sales_receipts', key: 'sales_receipt', idField: 'sales_receipt_id',
-    listParams: [...DATED, 'customer_id'], remove: A,
+    listParams: [...DATED, 'customer_id'], create: M, remove: A, numberField: 'receipt_number',
   },
   recurringexpenses: {
     path: 'recurringexpenses', listKey: 'recurring_expenses', key: 'recurring_expense', idField: 'recurring_expense_id',
-    listParams: PAGING, remove: A,
+    listParams: PAGING, create: M, remove: A,
     actions: { stop: { method: 'POST', sub: 'status/stop', perm: M }, resume: { method: 'POST', sub: 'status/resume', perm: M } },
   },
   recurringbills: {
     path: 'recurringbills', listKey: 'recurring_bills', key: 'recurring_bill', idField: 'recurring_bill_id',
-    listParams: [...PAGING, 'vendor_id'], remove: A,
+    listParams: [...PAGING, 'vendor_id'], create: M, remove: A,
     actions: { stop: { method: 'POST', sub: 'status/stop', perm: M }, resume: { method: 'POST', sub: 'status/resume', perm: M } },
   },
   projects: {
     path: 'projects', listKey: 'projects', key: 'project', idField: 'project_id',
-    listParams: [...PAGING, 'customer_id'], remove: A,
+    listParams: [...PAGING, 'customer_id'], create: M, remove: A,
     actions: { active: { method: 'POST', sub: 'active', perm: M }, inactive: { method: 'POST', sub: 'inactive', perm: M } },
   },
   timeentries: {
     path: 'projects/timeentries', listKey: 'time_entries', key: 'time_entry', idField: 'time_entry_id',
-    listParams: [...PAGING, 'from_date', 'to_date', 'project_id', 'user_id'], remove: A,
+    listParams: [...PAGING, 'from_date', 'to_date', 'project_id', 'user_id'], create: M, remove: A,
   },
   journals: {
     path: 'journals', listKey: 'journals', key: 'journal', idField: 'journal_id',
-    listParams: DATED, remove: A,
+    listParams: DATED, create: A, remove: A,
     actions: { publish: { method: 'POST', sub: 'status/publish', perm: A } },
   },
   currencyadjustments: {
@@ -225,12 +226,17 @@ export const ENTITIES: Record<string, EntityDef> = {
   },
   pricebooks: {
     path: 'pricebooks', listKey: 'pricebooks', key: 'pricebook', idField: 'pricebook_id',
-    listParams: PAGING, remove: A,
+    listParams: PAGING, create: M, remove: A,
     actions: { active: { method: 'POST', sub: 'active', perm: M }, inactive: { method: 'POST', sub: 'inactive', perm: M } },
   },
   inventoryadjustments: {
     path: 'inventoryadjustments', listKey: 'inventory_adjustments', key: 'inventory_adjustment', idField: 'inventory_adjustment_id',
     listParams: DATED, remove: A,
+  },
+  // Read-only: the people a project or time entry is assigned to.
+  users: {
+    path: 'users', listKey: 'users', key: 'user', idField: 'user_id',
+    listParams: PAGING,
   },
 }
 

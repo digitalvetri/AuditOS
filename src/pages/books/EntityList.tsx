@@ -6,7 +6,7 @@ import { useToast } from '@/components/Toast';
 import { booksApi, errorText, type ZRecord } from '@/modules/books/api';
 import { useBooks, useOrg } from '@/modules/books/context';
 import { Badge, Btn, Cell, Drawer, Empty, ErrorState, KV, Modal, PageHeader, Pager, Row, Section, Select, Skeleton, Table, TextInput, date, money, today } from '@/modules/books/ui';
-import { ActionForm, ApplyCreditForm, BankAccountForm, ContactForm, ExpenseForm, ItemForm, PaymentForm, TaxForm, TXN, TxnEditor } from './forms';
+import { AccountForm, ActionForm, CurrencyAdjustmentForm, ApplyCreditForm, BankAccountForm, ContactForm, ExpenseForm, ItemForm, JournalForm, PaymentForm, PriceListForm, ProjectForm, RecurringExpenseForm, TaxForm, TimeEntryForm, TXN, TxnEditor } from './forms';
 
 /**
  * One list screen for every Zoho Books resource, driven by RESOURCES below:
@@ -154,67 +154,67 @@ export const RESOURCES: Record<string, Resource> = {
     detail: (r) => [['Name', r.tax_name], ['Rate', `${r.tax_percentage}%`], ['Type', r.tax_type], ['Component', r.tax_specific_type], ['Authority', r.tax_authority_name], ['Default', r.is_default_tax ? 'Yes' : null]],
   },
   recurringinvoices: {
-    entity: 'recurringinvoices', title: 'Recurring Invoices', singular: 'recurring invoice', idField: 'recurring_invoice_id', nameField: 'recurrence_name', empty: 'No recurring invoices found.', zohoPath: 'recurringinvoices',
+    entity: 'recurringinvoices', title: 'Recurring Invoices', singular: 'recurring invoice', idField: 'recurring_invoice_id', nameField: 'recurrence_name', empty: 'No recurring invoices found.',
     filters: st(['Status.All', 'All'], ['Status.Active', 'Active'], ['Status.Stopped', 'Stopped'], ['Status.Expired', 'Expired']),
     columns: [any('Profile name', 'recurrence_name'), col('Customer', 'customer_name', 'customer_name'), any('Frequency', 'recurrence_frequency', 'frequency'), anyD('Last invoice', 'last_sent_date'), anyD('Next invoice', 'next_invoice_date'), status, mcol('Amount', 'total')],
-    deletePerm: 'accountant', detail: kv(['Profile name', 'recurrence_name'], ['Customer', 'customer_name'], ['Status', 'status', 's'], ['Frequency', ['recurrence_frequency', 'frequency']], ['Repeats every', 'repeat_every'], ['Starts', 'start_date', 'd'], ['Ends', 'end_date', 'd'], ['Last invoice', 'last_sent_date', 'd'], ['Next invoice', 'next_invoice_date', 'd'], ['Amount', 'total', 'm']),
+    Form: (p) => <TxnEditor spec={TXN.recurringinvoices} {...p} />, createPerm: 'manage', deletePerm: 'accountant', detail: kv(['Profile name', 'recurrence_name'], ['Customer', 'customer_name'], ['Status', 'status', 's'], ['Frequency', ['recurrence_frequency', 'frequency']], ['Repeats every', 'repeat_every'], ['Starts', 'start_date', 'd'], ['Ends', 'end_date', 'd'], ['Last invoice', 'last_sent_date', 'd'], ['Next invoice', 'next_invoice_date', 'd'], ['Amount', 'total', 'm']),
   },
   retainerinvoices: {
-    entity: 'retainerinvoices', title: 'Retainer Invoices', singular: 'retainer invoice', idField: 'retainerinvoice_id', nameField: 'retainerinvoice_number', empty: 'No retainer invoices found.', dated: true, zohoPath: 'retainerinvoices',
+    entity: 'retainerinvoices', title: 'Retainer Invoices', singular: 'retainer invoice', idField: 'retainerinvoice_id', nameField: 'retainerinvoice_number', empty: 'No retainer invoices found.', dated: true,
     filters: st(['Status.All', 'All'], ['Status.Draft', 'Draft'], ['Status.Sent', 'Sent'], ['Status.Paid', 'Paid'], ['Status.Void', 'Void']),
     columns: [dcol('Date', 'date', 'date'), num('retainerinvoice_number'), col('Customer', 'customer_name', 'customer_name'), col('Reference', 'reference_number'), status, mcol('Amount', 'total', 'total'), mcol('Balance', 'balance')],
-    deletePerm: 'accountant', detail: txnDetail('customer_name', 'retainerinvoice_number'),
+    Form: (p) => <TxnEditor spec={TXN.retainerinvoices} {...p} />, createPerm: 'manage', deletePerm: 'accountant', detail: txnDetail('customer_name', 'retainerinvoice_number'),
   },
   deliverychallans: {
-    entity: 'deliverychallans', title: 'Delivery Challans', singular: 'delivery challan', idField: 'deliverychallan_id', nameField: 'deliverychallan_number', empty: 'No delivery challans found.', dated: true, zohoPath: 'deliverychallans',
+    entity: 'deliverychallans', title: 'Delivery Challans', singular: 'delivery challan', idField: 'deliverychallan_id', nameField: 'deliverychallan_number', empty: 'No delivery challans found.', dated: true,
     filters: st(['Status.All', 'All'], ['Status.Draft', 'Draft'], ['Status.Open', 'Open'], ['Status.Delivered', 'Delivered'], ['Status.Invoiced', 'Invoiced'], ['Status.Returned', 'Returned']),
     columns: [dcol('Date', 'date', 'date'), num('deliverychallan_number'), col('Customer', 'customer_name', 'customer_name'), any('Challan type', 'challan_type'), status, mcol('Amount', 'total', 'total')],
-    deletePerm: 'accountant', detail: txnDetail('customer_name', 'deliverychallan_number'),
+    Form: (p) => <TxnEditor spec={TXN.deliverychallans} {...p} />, createPerm: 'manage', deletePerm: 'accountant', detail: txnDetail('customer_name', 'deliverychallan_number'),
   },
   salesreceipts: {
-    entity: 'salesreceipts', title: 'Sales Receipts', singular: 'sales receipt', idField: 'sales_receipt_id', nameField: 'sales_receipt_number', empty: 'No sales receipts found.', dated: true, zohoPath: 'salesreceipts',
+    entity: 'salesreceipts', title: 'Sales Receipts', singular: 'sales receipt', idField: 'sales_receipt_id', nameField: 'sales_receipt_number', empty: 'No sales receipts found.', dated: true,
     columns: [dcol('Date', 'date', 'date'), any('Number', 'sales_receipt_number', 'receipt_number'), col('Customer', 'customer_name', 'customer_name'), any('Payment mode', 'payment_mode'), status, mcol('Amount', 'total', 'total')],
-    deletePerm: 'accountant', detail: kv(['Number', ['sales_receipt_number', 'receipt_number']], ['Customer', 'customer_name'], ['Date', 'date', 'd'], ['Payment mode', 'payment_mode'], ['Deposit to', 'account_name'], ['Reference', 'reference_number'], ['Amount', 'total', 'm']),
+    Form: (p) => <TxnEditor spec={TXN.salesreceipts} {...p} />, createPerm: 'manage', deletePerm: 'accountant', detail: kv(['Number', ['sales_receipt_number', 'receipt_number']], ['Customer', 'customer_name'], ['Date', 'date', 'd'], ['Payment mode', 'payment_mode'], ['Deposit to', 'account_name'], ['Reference', 'reference_number'], ['Amount', 'total', 'm']),
   },
   recurringexpenses: {
-    entity: 'recurringexpenses', title: 'Recurring Expenses', singular: 'recurring expense', idField: 'recurring_expense_id', nameField: 'recurrence_name', empty: 'No recurring expenses found.', zohoPath: 'recurringexpenses',
+    entity: 'recurringexpenses', title: 'Recurring Expenses', singular: 'recurring expense', idField: 'recurring_expense_id', nameField: 'recurrence_name', empty: 'No recurring expenses found.',
     filters: st(['Status.All', 'All'], ['Status.Active', 'Active'], ['Status.Stopped', 'Stopped'], ['Status.Expired', 'Expired']),
     columns: [any('Profile name', 'recurrence_name'), any('Expense account', 'account_name'), any('Vendor', 'vendor_name'), any('Frequency', 'recurrence_frequency', 'frequency'), anyD('Next expense', 'next_expense_date'), status, mcol('Amount', 'total')],
-    deletePerm: 'accountant', detail: kv(['Profile name', 'recurrence_name'], ['Expense account', 'account_name'], ['Vendor', 'vendor_name'], ['Status', 'status', 's'], ['Frequency', ['recurrence_frequency', 'frequency']], ['Starts', 'start_date', 'd'], ['Ends', 'end_date', 'd'], ['Next expense', 'next_expense_date', 'd'], ['Amount', 'total', 'm']),
+    Form: RecurringExpenseForm, createPerm: 'manage', deletePerm: 'accountant', detail: kv(['Profile name', 'recurrence_name'], ['Expense account', 'account_name'], ['Vendor', 'vendor_name'], ['Status', 'status', 's'], ['Frequency', ['recurrence_frequency', 'frequency']], ['Starts', 'start_date', 'd'], ['Ends', 'end_date', 'd'], ['Next expense', 'next_expense_date', 'd'], ['Amount', 'total', 'm']),
   },
   recurringbills: {
-    entity: 'recurringbills', title: 'Recurring Bills', singular: 'recurring bill', idField: 'recurring_bill_id', nameField: 'recurrence_name', empty: 'No recurring bills found.', zohoPath: 'recurringbills',
+    entity: 'recurringbills', title: 'Recurring Bills', singular: 'recurring bill', idField: 'recurring_bill_id', nameField: 'recurrence_name', empty: 'No recurring bills found.',
     filters: st(['Status.All', 'All'], ['Status.Active', 'Active'], ['Status.Stopped', 'Stopped'], ['Status.Expired', 'Expired']),
     columns: [any('Profile name', 'recurrence_name'), col('Vendor', 'vendor_name', 'vendor_name'), any('Frequency', 'recurrence_frequency', 'frequency'), anyD('Last bill', 'last_sent_date'), anyD('Next bill', 'next_bill_date'), status, mcol('Amount', 'total')],
-    deletePerm: 'accountant', detail: kv(['Profile name', 'recurrence_name'], ['Vendor', 'vendor_name'], ['Status', 'status', 's'], ['Frequency', ['recurrence_frequency', 'frequency']], ['Starts', 'start_date', 'd'], ['Ends', 'end_date', 'd'], ['Next bill', 'next_bill_date', 'd'], ['Amount', 'total', 'm']),
+    Form: (p) => <TxnEditor spec={TXN.recurringbills} {...p} />, createPerm: 'manage', deletePerm: 'accountant', detail: kv(['Profile name', 'recurrence_name'], ['Vendor', 'vendor_name'], ['Status', 'status', 's'], ['Frequency', ['recurrence_frequency', 'frequency']], ['Starts', 'start_date', 'd'], ['Ends', 'end_date', 'd'], ['Next bill', 'next_bill_date', 'd'], ['Amount', 'total', 'm']),
   },
   projects: {
-    entity: 'projects', title: 'Projects', singular: 'project', idField: 'project_id', nameField: 'project_name', empty: 'No projects found.', zohoPath: 'timesheet/projects',
+    entity: 'projects', title: 'Projects', singular: 'project', idField: 'project_id', nameField: 'project_name', empty: 'No projects found.',
     filters: st(['Status.All', 'All'], ['Status.Active', 'Active'], ['Status.Inactive', 'Inactive']),
     columns: [col('Project', 'project_name', 'project_name'), col('Customer', 'customer_name', 'customer_name'), any('Billing method', 'billing_type'), any('Budget', 'budget_type'), activeCol],
-    deletePerm: 'accountant', detail: kv(['Project', 'project_name'], ['Customer', 'customer_name'], ['Status', 'status', 's'], ['Billing method', 'billing_type'], ['Rate', 'rate', 'm'], ['Budget', 'budget_type'], ['Budget amount', 'budget_amount', 'm'], ['Description', 'description']),
+    Form: ProjectForm, createPerm: 'manage', deletePerm: 'accountant', detail: kv(['Project', 'project_name'], ['Customer', 'customer_name'], ['Status', 'status', 's'], ['Billing method', 'billing_type'], ['Rate', 'rate', 'm'], ['Budget', 'budget_type'], ['Budget amount', 'budget_amount', 'm'], ['Description', 'description']),
   },
   timeentries: {
-    entity: 'timeentries', title: 'Timesheet', singular: 'time entry', idField: 'time_entry_id', nameField: 'log_date', empty: 'No time entries found.', zohoPath: 'timesheet/timeentries',
+    entity: 'timeentries', title: 'Timesheet', singular: 'time entry', idField: 'time_entry_id', nameField: 'log_date', empty: 'No time entries found.',
     columns: [anyD('Date', 'log_date'), any('Project', 'project_name'), any('Task', 'task_name'), any('User', 'user_name'), any('Time', 'log_time'), { label: 'Billable', render: (r) => (r.is_billable ? 'Yes' : 'No') }, any('Status', 'billed_status')],
-    deletePerm: 'accountant', detail: kv(['Date', 'log_date', 'd'], ['Project', 'project_name'], ['Customer', 'customer_name'], ['Task', 'task_name'], ['User', 'user_name'], ['Time', 'log_time'], ['Status', 'billed_status'], ['Notes', 'notes']),
+    Form: TimeEntryForm, createPerm: 'manage', deletePerm: 'accountant', detail: kv(['Date', 'log_date', 'd'], ['Project', 'project_name'], ['Customer', 'customer_name'], ['Task', 'task_name'], ['User', 'user_name'], ['Time', 'log_time'], ['Status', 'billed_status'], ['Notes', 'notes']),
   },
   journals: {
-    entity: 'journals', title: 'Manual Journals', singular: 'journal', idField: 'journal_id', nameField: 'entry_number', empty: 'No manual journals found.', dated: true, zohoPath: 'journals',
+    entity: 'journals', title: 'Manual Journals', singular: 'journal', idField: 'journal_id', nameField: 'entry_number', empty: 'No manual journals found.', dated: true,
     filters: st(['JournalDate.All', 'All'], ['Status.Draft', 'Draft'], ['Status.Published', 'Published']),
     columns: [anyD('Date', 'journal_date'), any('Journal #', 'entry_number'), col('Reference', 'reference_number'), any('Notes', 'notes'), status, mcol('Amount', 'total')],
-    deletePerm: 'accountant', detail: kv(['Journal #', 'entry_number'], ['Date', 'journal_date', 'd'], ['Status', 'status', 's'], ['Reference', 'reference_number'], ['Type', 'journal_type'], ['Amount', 'total', 'm'], ['Notes', 'notes']),
+    Form: JournalForm, createPerm: 'accountant', deletePerm: 'accountant', detail: kv(['Journal #', 'entry_number'], ['Date', 'journal_date', 'd'], ['Status', 'status', 's'], ['Reference', 'reference_number'], ['Type', 'journal_type'], ['Amount', 'total', 'm'], ['Notes', 'notes']),
   },
   currencyadjustments: {
-    entity: 'currencyadjustments', title: 'Currency Adjustments', singular: 'currency adjustment', idField: 'base_currency_adjustment_id', nameField: 'adjustment_date', empty: 'No currency adjustments found.', zohoPath: 'currencyadjustments',
+    entity: 'currencyadjustments', title: 'Currency Adjustments', singular: 'currency adjustment', idField: 'base_currency_adjustment_id', nameField: 'adjustment_date', empty: 'No currency adjustments found.',
     columns: [anyD('Date', 'adjustment_date'), any('Currency', 'currency_code'), any('Exchange rate', 'exchange_rate'), mcol('Gain / loss', 'gain_or_loss'), any('Notes', 'notes')],
-    deletePerm: 'accountant', detail: kv(['Date', 'adjustment_date', 'd'], ['Currency', 'currency_code'], ['Exchange rate', 'exchange_rate'], ['Gain / loss', 'gain_or_loss', 'm'], ['Notes', 'notes']),
+    Form: CurrencyAdjustmentForm, createPerm: 'accountant', deletePerm: 'accountant', detail: kv(['Date', 'adjustment_date', 'd'], ['Currency', 'currency_code'], ['Exchange rate', 'exchange_rate'], ['Gain / loss', 'gain_or_loss', 'm'], ['Notes', 'notes']),
   },
   accounts: {
-    entity: 'accounts', title: 'Chart of Accounts', singular: 'account', idField: 'account_id', nameField: 'account_name', empty: 'No accounts found.', zohoPath: 'chartofaccounts',
+    entity: 'accounts', title: 'Chart of Accounts', singular: 'account', idField: 'account_id', nameField: 'account_name', empty: 'No accounts found.',
     filters: st(['AccountType.All', 'All'], ['AccountType.Active', 'Active'], ['AccountType.Inactive', 'Inactive'], ['AccountType.Asset', 'Assets'], ['AccountType.Liability', 'Liabilities'], ['AccountType.Equity', 'Equity'], ['AccountType.Income', 'Income'], ['AccountType.Expense', 'Expenses']),
     columns: [col('Account', 'account_name', 'account_name'), col('Code', 'account_code', 'account_code'), any('Type', 'account_type'), any('Parent', 'parent_account_name'), activeCol],
-    detail: kv(['Account', 'account_name'], ['Code', 'account_code'], ['Type', 'account_type'], ['Parent', 'parent_account_name'], ['Currency', 'currency_code'], ['Status', 'is_active', 's'], ['System account', 'is_system_account'], ['Description', 'description']),
+    Form: AccountForm, createPerm: 'accountant', editPerm: 'accountant', detail: kv(['Account', 'account_name'], ['Code', 'account_code'], ['Type', 'account_type'], ['Parent', 'parent_account_name'], ['Currency', 'currency_code'], ['Status', 'is_active', 's'], ['System account', 'is_system_account'], ['Description', 'description']),
   },
   budgets: {
     entity: 'budgets', title: 'Budgets', singular: 'budget', idField: 'budget_id', nameField: 'name', empty: 'No budgets found.', zohoPath: 'budgets',
@@ -227,9 +227,9 @@ export const RESOURCES: Record<string, Resource> = {
     deletePerm: 'accountant', detail: kv(['File', 'file_name'], ['Type', 'file_type'], ['Size', ['file_size_formatted', 'file_size']], ['Uploaded by', 'uploaded_by'], ['Uploaded', ['uploaded_on_date', 'created_time'], 'd']),
   },
   pricebooks: {
-    entity: 'pricebooks', title: 'Price Lists', singular: 'price list', idField: 'pricebook_id', nameField: 'name', empty: 'No price lists found.', zohoPath: 'pricebooks',
+    entity: 'pricebooks', title: 'Price Lists', singular: 'price list', idField: 'pricebook_id', nameField: 'name', empty: 'No price lists found.',
     columns: [col('Name', 'name', 'name'), any('Type', 'pricebook_type'), any('Currency', 'currency_code'), any('Markup / markdown', 'percentage', 'rounding_type'), activeCol],
-    deletePerm: 'accountant', detail: kv(['Name', 'name'], ['Type', 'pricebook_type'], ['Currency', 'currency_code'], ['Percentage', 'percentage'], ['Rounding', 'rounding_type'], ['Status', 'status', 's'], ['Description', 'description']),
+    Form: PriceListForm, createPerm: 'manage', deletePerm: 'accountant', detail: kv(['Name', 'name'], ['Type', 'pricebook_type'], ['Currency', 'currency_code'], ['Percentage', 'percentage'], ['Rounding', 'rounding_type'], ['Status', 'status', 's'], ['Description', 'description']),
   },
   inventoryadjustments: {
     entity: 'inventoryadjustments', title: 'Inventory Adjustments', singular: 'inventory adjustment', idField: 'inventory_adjustment_id', nameField: 'reference_number', empty: 'No inventory adjustments found.', dated: true, zohoPath: 'inventoryadjustments',

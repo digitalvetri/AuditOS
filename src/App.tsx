@@ -112,7 +112,7 @@ import { TdsServiceHandoff } from '@/pages/workstation/tds/TdsServiceHandoff';
 import { BooksShell } from '@/pages/books/BooksShell';
 import { BooksDashboardPage } from '@/pages/books/BooksDashboard';
 import { BooksSettingsPage } from '@/pages/books/BooksSettings';
-import { BankingPage, ContactDetailPage, PaymentsPage, ReconciliationPage, ReportsPage as BooksReportsPage, ResourcePage, TaxesPage, ZohoOnlyPage } from '@/pages/books/BooksPages';
+import { BankingPage, BulkUpdatePage, ContactDetailPage, PaymentsPage, ReconciliationPage, ReportsPage as BooksReportsPage, ResourcePage, TaxesPage, TransactionLockingPage, ZohoOnlyPage } from '@/pages/books/BooksPages';
 import { AttendancePage } from '@/pages/hrms/Attendance';
 import { LeavePage } from '@/pages/hrms/Leave';
 import { EmployeesPage } from '@/pages/hrms/Employees';
@@ -456,11 +456,11 @@ export default function App() {
                 <Route path="timetracking/projects" element={<ResourcePage entity="projects" />} />
                 <Route path="timetracking/timesheet" element={<ResourcePage entity="timeentries" />} />
                 <Route path="accountant/manualjournals" element={<ResourcePage entity="journals" />} />
-                <Route path="accountant/bulkupdate" element={<ZohoOnlyPage title="Bulk Update" zohoPath="bulkupdate" why="Bulk Update changes the account, date or other fields on many transactions at once. Zoho Books does not offer it through its API, so it runs in Zoho Books." />} />
+                <Route path="accountant/bulkupdate" element={<BulkUpdatePage />} />
                 <Route path="accountant/currencyadjustments" element={<ResourcePage entity="currencyadjustments" />} />
                 <Route path="accountant/chartofaccounts" element={<ResourcePage entity="accounts" />} />
                 <Route path="accountant/budgets" element={<ResourcePage entity="budgets" />} />
-                <Route path="accountant/transactionlocking" element={<ZohoOnlyPage title="Transaction Locking" zohoPath="transactionlock" why="Transaction Locking stops edits to transactions before a date. Zoho Books does not offer it through its API, so it is set in Zoho Books." />} />
+                <Route path="accountant/transactionlocking" element={<TransactionLockingPage />} />
                 <Route path="documents" element={<ResourcePage entity="documents" />} />
                 <Route path="settings" element={<BooksSettingsPage />} />
               </Route>

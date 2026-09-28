@@ -317,6 +317,124 @@ orgRouter.get('/e/banktransactions/:id/match', h(async (req, res) => {
   ok(res, { items: (r as Record<string, unknown>).matching_transactions ?? [] })
 }))
 
+// A project's tasks, for logging time against one.
+orgRouter.get('/e/projects/:id/tasks', h(async (req, res) => {
+  const r = await zohoRequest<Record<string, unknown>>(loc(res).ctx, { path: `projects/${idOf(req)}/tasks`, query: { per_page: '200' } })
+  ok(res, { items: r.tasks ?? [] })
+}))
+
+// ── transaction locking ──────────────────────────────────────────────────
+const LOCK_MODULES = ['sales', 'purchase', 'accountant', 'banking', 'inventory_adjustments']
+const reasonOf = (v: unknown) => (typeof v === 'string' ? v.trim().slice(0, 500) : '')
+
+orgRouter.get('/transactionlocks', h(async (req, res) => {
+  need(req, 'books.settings')
+  const r = await zohoRequest<Record<string, unknown>>(loc(res).ctx, { path: 'transactionlocks', query: { per_page: '200' }, cache: false })
+  ok(res, { items: r.transaction_locks ?? [] })
+}))
+
+orgRouter.put('/transactionlock', h(async (req, res) => {
+  need(req, 'books.settings')
+  const { module, date } = (req.body ?? {}) as { module?: unknown; date?: unknown }
+  const reason = reasonOf(req.body?.reason)
+  if (typeof module !== 'string' || !LOCK_MODULES.includes(module)) throw ApiError.badRequest('Choose what to lock.')
+  if (typeof date !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(date)) throw ApiError.badRequest('Choose the date to lock up to.')
+  if (!reason) throw ApiError.badRequest('Give a reason for the lock.')
+  const r = await zohoRequest<Record<string, unknown>>(loc(res).ctx, {
+    method: 'PUT', path: 'transactionlock',
+    body: { transaction_lock_status: 'enabled', transaction_lock_module: module, transaction_lock_date: date, reason },
+  })
+  const lock = (r.transaction_lock ?? {}) as Record<string, unknown>
+  await writeAudit({ actorUserId: loc(res).userId, action: 'books.transactionlock.locked', entityType: 'books.transactionlock', entityId: String(lock.transaction_lock_id ?? module), after: { zoho_org_id: loc(res).org.zohoOrgId, module, date }, req })
+  ok(res, lock)
+}))
+
+orgRouter.post('/transactionlock/:id/unlock', h(async (req, res) => {
+  need(req, 'books.settings')
+  const reason = reasonOf(req.body?.reason)
+  if (!reason) throw ApiError.badRequest('Give a reason for unlocking.')
+  await zohoRequest(loc(res).ctx, { method: 'DELETE', path: 'transactionlock', query: { transaction_lock_id: idOf(req) }, body: { reason } })
+  await writeAudit({ actorUserId: loc(res).userId, action: 'books.transactionlock.unlocked', entityType: 'books.transactionlock', entityId: req.params.id, after: { zoho_org_id: loc(res).org.zohoOrgId }, req })
+  ok(res, { deleted: true })
+}))
+
+// ── base currency adjustment ─────────────────────────────────────────────
+const isDate = (v: unknown): v is string => typeof v === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(v)
+const rateOf = (v: unknown) => { const n = Number(v); return Number.isFinite(n) && n > 0 ? n : null }
+const noteOf = (v: unknown) => (typeof v === 'string' ? v.trim().slice(0, 500) : '')
+
+orgRouter.get('/currencies', h(async (_req, res) => {
+  const r = await zohoRequest<Record<string, unknown>>(loc(res).ctx, { path: 'settings/currencies' })
+  ok(res, { items: r.currencies ?? [] })
+}))
+
+/** The accounts a rate change would revalue, with the gain or loss on each — Zoho computes it. */
+orgRouter.get('/currencyadjustment/accounts', h(async (req, res) => {
+  need(req, 'books.accountant')
+  const { currency_id, date, rate, notes } = req.query
+  if (!isZohoId(currency_id)) throw ApiError.badRequest('Choose a currency.')
+  if (!isDate(date)) throw ApiError.badRequest('Choose the adjustment date.')
+  if (!rateOf(rate)) throw ApiError.badRequest('The exchange rate must be above zero.')
+  if (!noteOf(notes)) throw ApiError.badRequest('Notes are required.')
+  const r = await zohoRequest<Record<string, unknown>>(loc(res).ctx, {
+    path: 'basecurrencyadjustment/accounts', cache: false,
+    query: { currency_id, adjustment_date: date, exchange_rate: String(rateOf(rate)), notes: noteOf(notes) },
+  })
+  ok(res, { items: ((r.data ?? {}) as Record<string, unknown>).accounts ?? [] })
+}))
+
+orgRouter.post('/currencyadjustment', h(async (req, res) => {
+  need(req, 'books.accountant')
+  const b = (req.body ?? {}) as Record<string, unknown>
+  const ids = Array.isArray(b.account_ids) ? b.account_ids : []
+  if (!isZohoId(b.currency_id)) throw ApiError.badRequest('Choose a currency.')
+  if (!isDate(b.adjustment_date)) throw ApiError.badRequest('Choose the adjustment date.')
+  if (!rateOf(b.exchange_rate)) throw ApiError.badRequest('The exchange rate must be above zero.')
+  if (!noteOf(b.notes)) throw ApiError.badRequest('Notes are required.')
+  if (!ids.length || ids.length > 200 || !ids.every(isZohoId)) throw ApiError.badRequest('Choose at least one account to adjust.')
+  const r = await zohoRequest<Record<string, unknown>>(loc(res).ctx, {
+    method: 'POST', path: 'basecurrencyadjustment', query: { account_ids: ids.join(',') },
+    body: { currency_id: b.currency_id, adjustment_date: b.adjustment_date, exchange_rate: rateOf(b.exchange_rate), notes: noteOf(b.notes) },
+  })
+  const rec = (r.data ?? {}) as Record<string, unknown>
+  await writeAudit({ actorUserId: loc(res).userId, action: 'books.currencyadjustments.created', entityType: 'books.currencyadjustments', entityId: String(rec.base_currency_adjustment_id ?? b.currency_id), after: { zoho_org_id: loc(res).org.zohoOrgId, accounts: ids.length }, req })
+  ok(res, rec, 201)
+}))
+
+// ── bulk update (account register) ───────────────────────────────────────
+/** One account's posted transactions in a date range — the rows Bulk Update can move. */
+orgRouter.get('/registers/:id/transactions', h(async (req, res) => {
+  need(req, 'books.accountant')
+  const { from, to, page } = req.query
+  if (!isDate(from) || !isDate(to)) throw ApiError.badRequest('Choose a date range.')
+  const r = await zohoRequest<Record<string, unknown>>(loc(res).ctx, {
+    path: `registers/${idOf(req)}/transactions`, cache: false,
+    query: { from_date: from, to_date: to, page: String(Math.max(Number(page) || 1, 1)), per_page: '200' },
+  })
+  const reg = (r.register_transactions ?? {}) as Record<string, unknown>
+  const pc = (r.page_context ?? {}) as { has_more_page?: boolean }
+  ok(res, { items: reg.account_transactions ?? [], has_more: Boolean(pc.has_more_page) })
+}))
+
+orgRouter.put('/registers/:id/bulkupdate', h(async (req, res) => {
+  need(req, 'books.accountant')
+  const b = (req.body ?? {}) as Record<string, unknown>
+  const entities = Array.isArray(b.entities) ? b.entities as Record<string, unknown>[] : []
+  const reason = noteOf(b.reason)
+  if (!isZohoId(b.account_id)) throw ApiError.badRequest('Choose the account to move the transactions to.')
+  if (b.account_id === req.params.id) throw ApiError.badRequest('Choose a different account from the one the transactions are in.')
+  if (!reason) throw ApiError.badRequest('Give a reason for the bulk update.')
+  if (!entities.length || entities.length > 200 || !entities.every((e) => isZohoId(e?.entity_id) && typeof e?.entity_type === 'string' && /^[a-z_]{1,40}$/.test(e.entity_type))) {
+    throw ApiError.badRequest('Choose the transactions to update.')
+  }
+  const r = await zohoRequest<Record<string, unknown>>(loc(res).ctx, {
+    method: 'PUT', path: `registers/${idOf(req)}/transactions/bulkupdate`,
+    body: { account_id: b.account_id, bulk_update_reason: reason, entities: entities.map((e) => ({ entity_id: e.entity_id, entity_type: e.entity_type })) },
+  })
+  await writeAudit({ actorUserId: loc(res).userId, action: 'books.accounts.bulk_updated', entityType: 'books.accounts', entityId: req.params.id, after: { zoho_org_id: loc(res).org.zohoOrgId, to_account: b.account_id, count: entities.length, reason }, req })
+  ok(res, { message: typeof r.message === 'string' ? r.message : 'Bulk update completed.' })
+}))
+
 // ── generic resources ────────────────────────────────────────────────────
 orgRouter.get('/e/:entity', h(async (req, res) => {
   const def = entityOf(req)
