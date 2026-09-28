@@ -111,7 +111,10 @@ function TrialBalanceReport() {
       key: 'ledger', label: 'Ledger', value: (r) => r.ledgerName,
       render: (r) => <Link to={`${base}/reports/ledger/${r.ledgerId}?from=${from}&to=${to}`} className="text-neutral-900 hover:text-gold">{r.ledgerName}</Link>,
     },
-    { key: 'group', label: 'Group', value: (r) => r.groupName, render: (r) => <span className="text-neutral-500">{r.groupName}</span> },
+    // Spec §5 asks for Group + Sub-group as separate columns — primary
+    // is the top-level, group is the immediate parent (may coincide).
+    { key: 'primaryGroup', label: 'Group', value: (r) => r.primaryGroupName, render: (r) => <span className="text-neutral-700">{r.primaryGroupName}</span> },
+    { key: 'group', label: 'Sub-group', value: (r) => r.groupName, render: (r) => <span className="text-neutral-500">{r.groupName === r.primaryGroupName ? '—' : r.groupName}</span> },
     { key: 'opening', label: 'Opening', align: 'right', value: (r) => r.openingPaise / 100, render: (r) => <DrCr paise={r.openingPaise} /> },
     { key: 'debit', label: 'Debit', align: 'right', value: (r) => r.debitPaise / 100, render: (r) => <Money paise={r.debitPaise} /> },
     { key: 'credit', label: 'Credit', align: 'right', value: (r) => r.creditPaise / 100, render: (r) => <Money paise={r.creditPaise} /> },
@@ -136,13 +139,14 @@ function TrialBalanceReport() {
       </div>
       <Panel>
         <DataTable
-          minWidth="880px"
+          minWidth="1000px"
           rows={q.data!.rows.filter((r) => r.openingPaise || r.debitPaise || r.creditPaise || r.closingPaise)}
           rowKey={(r) => r.ledgerId}
           columns={columns}
           footer={
             <tr>
-              <td className="px-3 py-2" colSpan={3}>Total</td>
+              {/* Ledger, Group, Sub-group, Opening — 4 label cells for the Total */}
+              <td className="px-3 py-2" colSpan={4}>Total</td>
               <td className="px-3 py-2 text-right"><Money paise={t.debitPaise} bold /></td>
               <td className="px-3 py-2 text-right"><Money paise={t.creditPaise} bold /></td>
               <td className="px-3 py-2 text-right"><Money paise={t.closingDebitPaise} bold /></td>
@@ -186,13 +190,32 @@ function ProfitAndLossReport() {
         <Panel title={`Expenses — ₹${(pl.expenses.totalPaise / 100).toLocaleString('en-IN', { minimumFractionDigits: 2 })}`}>{side(pl.expenses.rows)}</Panel>
         <Panel title={`Income — ₹${(pl.income.totalPaise / 100).toLocaleString('en-IN', { minimumFractionDigits: 2 })}`}>{side(pl.income.rows)}</Panel>
       </div>
+      {/*
+       * Margin percentages per BOOKKEEPING-REBUILD §5: the P&L is the
+       * one place a CA looks for margin at a glance. GP margin uses
+       * income as the denominator, not COGS.
+       */}
       <div className="mt-4 grid grid-cols-1 md:grid-cols-2 gap-4">
         <Panel title="Gross profit">
-          <div className="p-3 text-16 font-semibold"><Money paise={pl.grossProfitPaise} signed /></div>
+          <div className="p-3 flex items-baseline gap-3">
+            <span className="text-16 font-semibold"><Money paise={pl.grossProfitPaise} signed /></span>
+            {pl.income.totalPaise > 0 && (
+              <span className={`text-13 ${pl.grossProfitPaise >= 0 ? 'text-emerald-700' : 'text-danger'}`}>
+                {((pl.grossProfitPaise / pl.income.totalPaise) * 100).toFixed(1)}% margin
+              </span>
+            )}
+          </div>
           <p className="px-3 pb-3 text-11 text-neutral-500">Sales and direct income less purchases and direct expenses.</p>
         </Panel>
         <Panel title={pl.netProfitPaise >= 0 ? 'Net profit' : 'Net loss'}>
-          <div className="p-3 text-16 font-semibold"><Money paise={pl.netProfitPaise} signed /></div>
+          <div className="p-3 flex items-baseline gap-3">
+            <span className="text-16 font-semibold"><Money paise={pl.netProfitPaise} signed /></span>
+            {pl.income.totalPaise > 0 && (
+              <span className={`text-13 ${pl.netProfitPaise >= 0 ? 'text-emerald-700' : 'text-danger'}`}>
+                {((pl.netProfitPaise / pl.income.totalPaise) * 100).toFixed(1)}% margin
+              </span>
+            )}
+          </div>
           <p className="px-3 pb-3 text-11 text-neutral-500">Carried to the balance sheet alongside capital.</p>
         </Panel>
       </div>
@@ -234,7 +257,26 @@ function BalanceSheetReport() {
   return (
     <div data-testid="tally-balance-sheet">
       <BackLink />
-      <ReportHeader title="Balance Sheet" subtitle={`As at ${to}`} />
+      <ReportHeader
+        title="Balance Sheet"
+        subtitle={`As at ${to}`}
+        actions={
+          /*
+           * Balanced badge per BOOKKEEPING-REBUILD §5. The engine
+           * already guarantees this, but a CA looks for the badge as
+           * confirmation — silence looked like an oversight.
+           */
+          bs.balanced ? (
+            <span className="inline-flex items-center gap-1 rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-12 text-emerald-800">
+              <span className="text-emerald-700">✓</span> Balanced
+            </span>
+          ) : (
+            <span className="inline-flex items-center gap-1 rounded-full border border-danger/30 bg-red-50 px-2 py-0.5 text-12 text-danger">
+              Out of balance
+            </span>
+          )
+        }
+      />
       {!bs.balanced ? (
         <div className="mb-3 rounded border border-danger/30 bg-red-50 px-3 py-2 text-13 text-danger">
           The two sides differ by ₹{(Math.abs(bs.differencePaise) / 100).toFixed(2)}. Check the trial balance.

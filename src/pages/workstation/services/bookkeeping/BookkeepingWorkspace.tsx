@@ -147,7 +147,12 @@ function SecondaryNav({ companyId }: { companyId: string }) {
     {
       heading: 'Statements',
       rows: [
-        { to: `${base}/reports`, label: 'Reports', icon: Receipt },
+        // Per BOOKKEEPING-REBUILD §5 — the three reports a CA asks for
+        // first are direct rows, not one click deeper inside /reports.
+        { to: `${base}/reports/trial-balance`, label: 'Trial Balance', icon: Receipt },
+        { to: `${base}/reports/profit-and-loss`, label: 'Profit & Loss', icon: Receipt },
+        { to: `${base}/reports/balance-sheet`, label: 'Balance Sheet', icon: Receipt },
+        { to: `${base}/reports`, label: 'All reports', icon: Receipt },
         { to: `${base}/gst`, label: 'GST & Tax', icon: Receipt },
         { to: `${base}/audit`, label: 'Audit trail', icon: ShieldCheck },
       ],
