@@ -160,6 +160,8 @@ function SecondaryNav({ companyId }: { companyId: string }) {
         { to: `${base}/reports`, label: 'All reports', icon: Receipt },
         { to: `${base}/gst`, label: 'GST & Tax', icon: Receipt },
         { to: `${base}/audit`, label: 'Audit trail', icon: ShieldCheck },
+        // The deliverable the firm actually sends to clients (§6).
+        { to: `${base}/client-dashboard`, label: 'Client dashboard', icon: Receipt },
       ],
     },
     {

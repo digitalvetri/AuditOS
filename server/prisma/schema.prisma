@@ -3342,6 +3342,7 @@ model BookkeepingCompany {
   backups         BookkeepingBackup[]
   importMappings  BookkeepingImportMapping[]
   importRuns      BookkeepingImportRun[]
+  clientReports   BookkeepingClientReport[]
 
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt
@@ -3444,6 +3445,43 @@ model BookkeepingImportRun {
 
   @@index([tallyCompanyId, createdAt])
   @@index([mappingId])
+}
+
+/// One row per generated client dashboard file (BOOKKEEPING-REBUILD §6).
+///
+/// The HTML file the firm actually sends to the client — offline, no
+/// network, print-safe. This row records what was in it so a dispute
+/// three months later can be answered by opening the exact bytes.
+///
+/// The bytes live under uploads/bookkeeping/client-reports/<companyId>/
+/// <id>.html; storagePath is the relative path from the uploads root.
+model BookkeepingClientReport {
+  id              String   @id @default(uuid())
+  tallyCompanyId  String
+  /// Period the report covered (inclusive).
+  from            String
+  to              String
+  /// Human label from the period bar — "May 2025", "Q1 FY 25-26", etc.
+  /// Kept so the history tab reads naturally without recomputing.
+  periodLabel     String
+  /// Which sections were included. { header:true, kpis:true, trend:true,
+  /// ageing:true, outstanding_top10:true, prior:false }
+  sectionsJson    Json
+  /// Relative to uploads root.
+  storagePath     String
+  fileName        String
+  /// SHA-256 of the file bytes — proves which file was sent.
+  fileSha256      String
+  /// Optional free-text: who this was sent to. Manually filled by the
+  /// firm; not the trigger for anything.
+  sentTo          String?
+  createdByUserId String?
+
+  company BookkeepingCompany @relation(fields: [tallyCompanyId], references: [id])
+
+  createdAt DateTime @default(now())
+
+  @@index([tallyCompanyId, createdAt])
 }
 
 /// Financial year for a Tally company. Every future voucher will

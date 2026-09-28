@@ -77,6 +77,7 @@ import { BookkeepingReportPage, BookkeepingRegisterPage, BookkeepingBookPage, Bo
 import { BookkeepingInventory, BookkeepingStockItemPage } from '@/pages/workstation/services/bookkeeping/BookkeepingInventory';
 import { BookkeepingBanking } from '@/pages/workstation/services/bookkeeping/BookkeepingBanking';
 import { BookkeepingImportPage } from '@/pages/workstation/services/bookkeeping/BookkeepingImport';
+import { BookkeepingClientDashboardPage } from '@/pages/workstation/services/bookkeeping/BookkeepingClientDashboard';
 import { TallyExportPage } from '@/pages/workstation/services/tally-export/TallyExportPage';
 import { BookkeepingGst } from '@/pages/workstation/services/bookkeeping/BookkeepingGst';
 import { BookkeepingTrade } from '@/pages/workstation/services/bookkeeping/BookkeepingTrade';
@@ -430,6 +431,7 @@ export default function App() {
                 <Route path="payroll" element={<BookkeepingPayroll />} />
                 <Route path="audit" element={<BookkeepingAudit />} />
                 <Route path="import" element={<BookkeepingImportPage />} />
+                <Route path="client-dashboard" element={<BookkeepingClientDashboardPage />} />
                 <Route path="utilities" element={<BookkeepingUtilities />} />
                 <Route path="settings" element={<BookkeepingSettings />} />
                 <Route path="reports" element={<BookkeepingReports />} />

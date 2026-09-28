@@ -656,7 +656,32 @@ export const bookkeepingAccountingApi = {
   // History of committed imports for this company (newest first).
   listImportRuns: (c: string) =>
     api.get<{ items: ImportRun[] }>(`${base(c)}/imports/runs`),
+
+  // ── Client dashboard reports (BOOKKEEPING-REBUILD §6) ────────────
+  generateClientReport: (c: string, input: {
+    from: string; to: string;
+    period_label: string; fy_label: string;
+    prepared_by: string; firm_contact?: string | null;
+  }) => api.post<{ id: string; fileName: string; fileSha256: string }>(`${base(c)}/client-reports`, input),
+
+  listClientReports: (c: string) =>
+    api.get<{ items: ClientReport[] }>(`${base(c)}/client-reports`),
+
+  clientReportDownloadUrl: (c: string, reportId: string) =>
+    `${base(c)}/client-reports/${reportId}/download`,
 };
+
+export interface ClientReport {
+  id: string;
+  from: string;
+  to: string;
+  periodLabel: string;
+  sectionsJson: Record<string, boolean>;
+  fileName: string;
+  fileSha256: string;
+  sentTo: string | null;
+  createdAt: string;
+}
 
 /** Same target list as server/src/modules/bookkeeping/services/BookkeepingImportService.ts. */
 export const IMPORT_TARGETS = [
