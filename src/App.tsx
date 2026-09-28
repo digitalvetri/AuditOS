@@ -54,14 +54,6 @@ import { TdsJobsListPage } from '@/pages/tools/TdsJobsList';
 import { TdsNewReconPage } from '@/pages/tools/TdsNewRecon';
 import { TdsReconDetailPage } from '@/pages/tools/TdsReconDetail';
 import { SendToWhatsAppPage } from '@/pages/SendToWhatsApp';
-// Bookkeeping Service — the service workflow (clients, monthly work,
-// checklists). Lives at /workstation/services/bookkeeping-service because
-// /workstation/services/bookkeeping is the accounting engine.
-import { BookkeepingShell } from '@/pages/workstation/bookkeeping/BookkeepingShell';
-import { BookkeepingOverviewPage } from '@/pages/workstation/bookkeeping/Overview';
-import { BookkeepingClientsPage, BookkeepingClientDetailPage } from '@/pages/workstation/bookkeeping/Clients';
-import { BookkeepingMonthlyWorkPage, BookkeepingPeriodDetailPage } from '@/pages/workstation/bookkeeping/MonthlyWork';
-import { BookkeepingSettingsPage } from '@/pages/workstation/bookkeeping/Lists';
 // Bookkeeping — native double-entry accounting (formerly Tally engine).
 import { BookkeepingHome } from '@/pages/workstation/services/bookkeeping/BookkeepingHome';
 import { BookkeepingCompanies } from '@/pages/workstation/services/bookkeeping/BookkeepingCompanies';
@@ -394,20 +386,6 @@ export default function App() {
               <Route path="audit-automation/tds/new" element={<TdsNewReconPage />} />
               <Route path="audit-automation/tds/jobs/:jobId" element={<TdsReconDetailPage />} />
 
-              {/* Bookkeeping Service — declared BEFORE the :category catch-all. */}
-              <Route path="workstation/services/bookkeeping-service" element={<BookkeepingShell />}>
-                <Route index element={<BookkeepingOverviewPage />} />
-                <Route path="clients" element={<BookkeepingClientsPage />} />
-                <Route path="clients/:clientId" element={<BookkeepingClientDetailPage />} />
-                <Route path="monthly-work" element={<BookkeepingMonthlyWorkPage />} />
-                <Route path="monthly-work/:periodId" element={<BookkeepingPeriodDetailPage />} />
-                <Route path="settings" element={<BookkeepingSettingsPage />} />
-                <Route path="tasks" element={<Navigate to="..?group=task" replace />} />
-                <Route path="pending-items" element={<Navigate to="..?tile=blocked" replace />} />
-                <Route path="documents" element={<Navigate to="../monthly-work" replace />} />
-                <Route path="deliverables" element={<Navigate to="../monthly-work" replace />} />
-                <Route path="reminders" element={<Navigate to=".." replace />} />
-              </Route>
               {/* Bookkeeping (formerly Tally engine) — native double-entry accounting.
                   Now under Services alongside TDS and Registration. */}
               <Route path="workstation/services/bookkeeping" element={<BookkeepingHome />} />

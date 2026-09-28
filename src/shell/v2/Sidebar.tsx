@@ -121,7 +121,6 @@ export function Sidebar({ mobileOpen, onMobileClose }: Props) {
           { to: '/workstation/services/tds',           label: 'TDS' },
           { to: '/workstation/services/bookkeeping',   label: 'Bookkeeping' },
           { to: '/workstation/services/tally-export',  label: 'Tally Export' },
-          { to: '/workstation/services/bookkeeping-service', label: 'Bookkeeping Service' },
           { to: '/workstation/services/registration',  label: 'Registration',
             children: REGISTRATION_SERVICES.map((r) => ({
               to: `/workstation/services/registration/${r.slug}`,
