@@ -1166,6 +1166,7 @@ model Client {
   aaTdsBooks          AaTdsBooks[]
   aaTdsReconJobs      AaTdsReconJob[]
   tdsPortalCredential TdsPortalCredential?
+  registrationCredentials RegistrationCredential[]
   tdsProfile          TdsProfile?
   tdsFilings          TdsFiling[]
 
@@ -1620,6 +1621,33 @@ model GstPortalAccess {
 /// ciphertext from portalCrypto, never returned by GET, only via POST /reveal
 /// which writes an audit row. Delete is a soft delete (deletedAt) and clears
 /// the ciphertext so no secret outlives the record.
+/// Portal login + reference details for one registration of one client
+/// (MSME Udyam, Shops & Establishment, IEC, PF, ESI, E-Invoice, E-Way Bill).
+/// `typeCode` is the registration slug. Non-secret fields live in
+/// `fieldsJson`; the password is encrypted (portalCrypto) and never returned
+/// except through the audited reveal route.
+model RegistrationCredential {
+  id                 String  @id @default(uuid())
+  clientId           String
+  typeCode           String
+  /// 'new' (registering now) | 'existing' (already registered) — only for
+  /// registrations that offer both; null otherwise.
+  mode               String?
+  fieldsJson         String  @default("{}")
+  passwordCiphertext String?
+
+  client Client @relation(fields: [clientId], references: [id])
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  createdBy String?
+  updatedBy String?
+  deletedAt DateTime?
+
+  @@unique([clientId, typeCode])
+  @@index([typeCode])
+}
+
 model TdsPortalCredential {
   id                 String  @id @default(uuid())
   clientId           String  @unique

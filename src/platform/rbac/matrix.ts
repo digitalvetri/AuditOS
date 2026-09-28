@@ -104,6 +104,8 @@ export type PermissionCode =
   | 'workstation.gst.read'
   | 'workstation.tds.portal.view'
   | 'workstation.tds.portal.reveal'
+  | 'workstation.registration.portal.view'
+  | 'workstation.registration.portal.reveal'
   | 'workstation.gst.manage'
   | 'workstation.eway.read'
   | 'workstation.eway.generate'
@@ -263,6 +265,8 @@ export const MATRIX: Record<RoleCode, Grant[]> = {
   dept_manager: [
     { permission: 'workstation.tds.portal.view', scope: 'organisation' },
     { permission: 'workstation.tds.portal.reveal', scope: 'organisation' },
+    { permission: 'workstation.registration.portal.view', scope: 'organisation' },
+    { permission: 'workstation.registration.portal.reveal', scope: 'organisation' },
     { permission: 'profile.read', scope: 'self' },
     { permission: 'profile.write.contact', scope: 'self' },
     { permission: 'employee.read', scope: 'department' },
@@ -411,6 +415,8 @@ export const MATRIX: Record<RoleCode, Grant[]> = {
   md: [
     { permission: 'workstation.tds.portal.view', scope: 'organisation' },
     { permission: 'workstation.tds.portal.reveal', scope: 'organisation' },
+    { permission: 'workstation.registration.portal.view', scope: 'organisation' },
+    { permission: 'workstation.registration.portal.reveal', scope: 'organisation' },
     { permission: 'profile.read', scope: 'self' },
     { permission: 'profile.write.contact', scope: 'self' },
     { permission: 'profile.write.employment', scope: 'organisation' },

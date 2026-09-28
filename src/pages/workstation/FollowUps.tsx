@@ -6,7 +6,12 @@ import {
   Card, Cell, Field, FilterBar, Modal, PageHeader, QueryState, Row, Select,
   SimulatedNotice, Status, Table, fieldErrors, inputClass, textareaClass,
 } from '@/modules/workstation/components';
-import type { FollowUp, ListResponse } from '@/modules/workstation/types';
+import type { FollowUp, FollowUpStatus, ListResponse } from '@/modules/workstation/types';
+
+const FOLLOW_UP_STATUSES: FollowUpStatus[] = ['pending', 'completed', 'rescheduled', 'cancelled', 'missed'];
+const FOLLOW_UP_STATUS_LABEL: Record<FollowUpStatus, string> = {
+  pending: 'Pending', completed: 'Completed', rescheduled: 'Rescheduled', cancelled: 'Cancelled', missed: 'Missed',
+};
 import { Button } from '@/components/Button';
 import { useToast } from '@/components/Toast';
 import { fmtDate, fmtTime } from '@/lib/format';
@@ -45,13 +50,15 @@ export function FollowUpsPage() {
   });
   const employees = useQuery({ queryKey: ['workstation', 'employees'], queryFn: workstationApi.assignableEmployees });
 
-  const complete = useMutation({
-    mutationFn: (id: string) => workstationApi.completeFollowUp(id, 'Completed from the follow-up list.'),
-    onSuccess: () => {
-      void qc.invalidateQueries({ queryKey: ['workstation'] });
-      toast.push('success', 'Follow-up completed.');
+  const setStatus = useMutation({
+    mutationFn: ({ id, status }: { id: string; status: FollowUpStatus }) =>
+      workstationApi.updateFollowUp(id, { status }),
+    onSuccess: (_row, { status }) => {
+      toast.push('success', `Follow-up marked ${FOLLOW_UP_STATUS_LABEL[status].toLowerCase()}.`);
     },
     onError: (e: Error) => toast.push('error', e.message),
+    // Refetch either way so a rejected change snaps back to the saved value.
+    onSettled: () => { void qc.invalidateQueries({ queryKey: ['workstation'] }); },
   });
 
   const canManage = can(session?.role.code, 'workstation.followup.manage', 'self');
@@ -89,7 +96,7 @@ export function FollowUpsPage() {
       <Card>
         <QueryState query={followUps} empty="No follow-ups match these filters.">
           {(data: ListResponse<FollowUp>) => (
-            <Table head={['Follow-up', 'Lead / Client', 'Contact', 'Service', 'Date', 'Time', 'Assigned To', 'Status', '']}>
+            <Table head={['Follow-up', 'Lead / Client', 'Contact', 'Service', 'Date', 'Time', 'Assigned To', 'Status']}>
               {data.items.map((f) => {
                 const overdue = f.status === 'pending' && Date.parse(f.scheduled_at) < now;
                 return (
@@ -115,19 +122,26 @@ export function FollowUpsPage() {
                     <Cell muted>{fmtTime(f.scheduled_at)}</Cell>
                     <Cell muted>{f.assigned_employee?.full_name ?? '—'}</Cell>
                     <Cell>
-                      <Status value={f.status} />
-                      {overdue ? <span className="block text-12 text-neutral-500">Overdue</span> : null}
-                    </Cell>
-                    <Cell>
-                      {canManage && f.status === 'pending' ? (
-                        <button
-                          type="button"
-                          className="text-12 text-neutral-700 underline hover:text-neutral-900"
-                          onClick={(e) => { e.stopPropagation(); complete.mutate(f.id); }}
+                      {canManage ? (
+                        <select
+                          value={f.status}
+                          aria-label={`Status of ${f.title}`}
+                          // The row opens the lead / client; changing status must not.
+                          onClick={(e) => e.stopPropagation()}
+                          onChange={(e) => {
+                            const next = e.target.value as FollowUpStatus;
+                            if (next !== f.status) setStatus.mutate({ id: f.id, status: next });
+                          }}
+                          className="h-7 pl-2 pr-7 text-12 border border-neutral-200 bg-white text-neutral-900 hover:border-neutral-400 focus:outline-none focus:border-gold"
                         >
-                          Complete
-                        </button>
-                      ) : null}
+                          {FOLLOW_UP_STATUSES.map((s) => (
+                            <option key={s} value={s}>{FOLLOW_UP_STATUS_LABEL[s]}</option>
+                          ))}
+                        </select>
+                      ) : (
+                        <Status value={f.status} />
+                      )}
+                      {overdue ? <span className="block text-12 text-neutral-500 mt-0.5">Overdue</span> : null}
                     </Cell>
                   </Row>
                 );

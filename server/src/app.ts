@@ -55,6 +55,7 @@ import { checklistRouter } from './modules/checklist/routes.js'
 import { gstRouter as gstComplianceRouter } from './modules/gst/routes.js'
 import { gstPortalRouter } from './modules/gst-portal/routes.js'
 import { tdsPortalRouter } from './modules/tds-portal/routes.js'
+import { registrationCredentialsRouter } from './modules/registration/credentials.routes.js'
 import { tdsServiceRouter } from './modules/tds/routes.js'
 // Tally Export — bank statement → TallyPrime Excel file (docs/tally-export/README.md).
 import { tallyExportRouter } from './modules/tally-export/routes.js'
@@ -246,6 +247,7 @@ export function createApp() {
   // codes gate view and reveal. GST-RETURNS-CASE-SCREEN §9-5.
   app.use('/api/gst-portal', gstPortalRouter)
   app.use('/api/tds-portal', tdsPortalRouter)
+  app.use('/api/registration-credentials', registrationCredentialsRouter)
   app.use('/api/tds', tdsServiceRouter)
 
   // ── Books ──────────────────────────────────────────────────────────────
