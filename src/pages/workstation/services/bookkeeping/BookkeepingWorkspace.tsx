@@ -152,6 +152,11 @@ function SecondaryNav({ companyId }: { companyId: string }) {
         { to: `${base}/reports/trial-balance`, label: 'Trial Balance', icon: Receipt },
         { to: `${base}/reports/profit-and-loss`, label: 'Profit & Loss', icon: Receipt },
         { to: `${base}/reports/balance-sheet`, label: 'Balance Sheet', icon: Receipt },
+        // §5 note: "The ageing is the most-used number in the whole
+        // module." Receivables + Payables get the same first-class
+        // treatment as the three statements above.
+        { to: `${base}/reports/outstandings?side=receivable`, label: 'Receivables', icon: Users },
+        { to: `${base}/reports/outstandings?side=payable`, label: 'Payables', icon: Users },
         { to: `${base}/reports`, label: 'All reports', icon: Receipt },
         { to: `${base}/gst`, label: 'GST & Tax', icon: Receipt },
         { to: `${base}/audit`, label: 'Audit trail', icon: ShieldCheck },

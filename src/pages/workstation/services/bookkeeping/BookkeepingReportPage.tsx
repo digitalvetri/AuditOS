@@ -398,12 +398,39 @@ function OutstandingsReport() {
   if (q.isError) return <ErrorNote message={(q.error as Error).message} />;
   const d: Outstandings = q.data!;
   const flat = d.parties.flatMap((p) => p.bills.map((b) => ({ party: p.ledger_name, ...b })));
+
+  // Summary numbers per BOOKKEEPING-REBUILD §5 — "the most-used
+  // number in the whole module. Build it properly." Total is signed
+  // the way the party expects (positive means we're owed); the
+  // average is rounded to the nearest rupee for readability.
+  const partyCount = d.parties.length;
+  const avgPaise = partyCount > 0 ? Math.round(d.totalPaise / partyCount) : 0;
+  const overdueBills = d.parties.reduce(
+    (s, p) => s + p.bills.filter((b) => b.days_overdue > 0).length,
+    0,
+  );
+  const overduePaise = d.parties.reduce(
+    (s, p) => s + p.bills.filter((b) => b.days_overdue > 0).reduce((s2, b) => s2 + b.pending_paise, 0),
+    0,
+  );
+
+  // Ageing bars scale to the largest bucket so the visual makes the
+  // over-90 slice obvious when there is one, not lost in the total.
+  const overdueBuckets = d.ageing.filter((a) => a.key !== 'not_due');
+  const maxBucketPaise = Math.max(1, ...overdueBuckets.map((a) => Math.abs(a.amount_paise)));
+  const invoicesPerBucket = d.parties.reduce((map, p) => {
+    for (const b of p.bills) {
+      map[b.ageing_bucket] = (map[b.ageing_bucket] ?? 0) + 1;
+    }
+    return map;
+  }, {} as Record<string, number>);
+
   return (
     <div data-testid={`tally-outstandings-${side}`}>
       <BackLink />
       <ReportHeader
         title={side === 'receivable' ? 'Receivables' : 'Payables'}
-        subtitle={`As at ${d.as_of} · total ₹${(d.totalPaise / 100).toLocaleString('en-IN', { minimumFractionDigits: 2 })}`}
+        subtitle={`As at ${d.as_of}`}
         actions={
           <>
             <Link to={`${base}/reports/outstandings?side=${side === 'receivable' ? 'payable' : 'receivable'}`} className="h-8 px-2 inline-flex items-center text-12 border border-neutral-300 rounded bg-white hover:bg-neutral-50">
@@ -424,14 +451,48 @@ function OutstandingsReport() {
         }
       />
 
+      {/* Summary KPIs — §5's "Summary (total outstanding, count, average)". */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4 bg-white border border-neutral-200 rounded p-3">
+        <OutstandingsStat label="Total outstanding" value={`₹ ${(d.totalPaise / 100).toLocaleString('en-IN', { minimumFractionDigits: 2 })}`} />
+        <OutstandingsStat label={side === 'receivable' ? 'Customers' : 'Suppliers'} value={String(partyCount)} />
+        <OutstandingsStat label="Average per party" value={`₹ ${(avgPaise / 100).toLocaleString('en-IN', { minimumFractionDigits: 2 })}`} />
+        <OutstandingsStat
+          label="Overdue"
+          value={overdueBills === 0 ? '0 bills' : `${overdueBills} bill${overdueBills === 1 ? '' : 's'} · ₹${(overduePaise / 100).toLocaleString('en-IN', { minimumFractionDigits: 2 })}`}
+          tone={overdueBills > 0 ? 'warn' : 'muted'}
+        />
+      </div>
+
+      {/* Ageing bars — the visual §5 (and §6) call for.
+       *   Under 30 days   ████████████████░░░░  ₹2,41,000  4 invoices
+       *   31–60 days      ██████░░░░░░░░░░░░░░  ₹  92,400  2 invoices
+       *   61–90 days      ███░░░░░░░░░░░░░░░░░  ₹  48,260  2 invoices
+       *   Over 90 days    ██░░░░░░░░░░░░░░░░░░  ₹  31,000  1 invoice   ← 2px left border
+       */}
       <Panel title="Ageing" className="mb-4">
-        <div className="p-3 flex flex-wrap gap-4">
-          {d.ageing.map((a) => (
-            <div key={a.key} className="min-w-[110px]">
-              <div className="text-11 text-neutral-500">{a.label}</div>
-              <div className="text-14 font-semibold text-neutral-900"><Money paise={a.amount_paise} /></div>
-            </div>
-          ))}
+        <div className="p-3 space-y-2">
+          {overdueBuckets.map((a) => {
+            const pct = Math.round((Math.abs(a.amount_paise) / maxBucketPaise) * 100);
+            const count = invoicesPerBucket[a.key] ?? 0;
+            const isOverNinety = a.key === '90_plus' && a.amount_paise !== 0;
+            return (
+              <div key={a.key} className={`flex items-center gap-3 ${isOverNinety ? 'border-l-2 border-danger pl-2' : ''}`}>
+                <div className="w-[110px] text-13 text-neutral-700">{a.label}</div>
+                <div className="flex-1 h-4 bg-neutral-100 rounded overflow-hidden">
+                  <div
+                    className={`h-full ${isOverNinety ? 'bg-danger' : 'bg-neutral-500'}`}
+                    style={{ width: `${pct}%` }}
+                  />
+                </div>
+                <div className="w-[130px] text-right text-13 tabular-nums text-neutral-900">
+                  <Money paise={a.amount_paise} />
+                </div>
+                <div className="w-[80px] text-right text-12 text-neutral-500 tabular-nums">
+                  {count === 0 ? '—' : `${count} bill${count === 1 ? '' : 's'}`}
+                </div>
+              </div>
+            );
+          })}
         </div>
       </Panel>
 
@@ -652,6 +713,25 @@ function RatiosReport() {
         </ul>
       </Panel>
       <p className="mt-2 text-11 text-neutral-500">A ratio whose denominator is zero is shown as n/a rather than as 0.00.</p>
+    </div>
+  );
+}
+
+/**
+ * The Outstandings summary cell. Distinct from the generic Stat helper
+ * above because it takes a pre-formatted text value (party counts,
+ * "N bills · ₹X" mixed lines) and supports a warning tone for the
+ * overdue KPI.
+ */
+function OutstandingsStat({ label, value, tone }: { label: string; value: string; tone?: 'muted' | 'warn' }) {
+  const valueClass =
+    tone === 'warn' ? 'text-danger' :
+    tone === 'muted' ? 'text-neutral-500' :
+    'text-neutral-900';
+  return (
+    <div>
+      <div className="text-11 uppercase tracking-[0.08em] text-neutral-400">{label}</div>
+      <div className={`text-15 font-medium tabular-nums ${valueClass}`}>{value}</div>
     </div>
   );
 }
