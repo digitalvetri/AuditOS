@@ -1,19 +1,8 @@
 /**
- * Sending a Workstation document (invoice, quotation, engagement letter)
- * as a PDF.
- *
- * The PDF reaches the recipient as a real file, not as a link:
- *   • On mobile, the Web Share API is available and the native share sheet
- *     is handed the File — picking WhatsApp attaches the document itself.
- *   • On desktop, the file is auto-saved to Downloads and the channel opens
- *     with a covering note only; the sender attaches the saved file in the
- *     WhatsApp / email client. This mirrors how people actually forward
- *     documents — with the file, not a signed URL that expires.
- *
- * The covering message is plain text — no PDF link. Earlier versions
- * appended the signed URL as a fallback, but that leaked short-lived tokens
- * into user-controlled channels and, in practice, recipients ignored the
- * link and asked for the file anyway.
+ * Sending a Workstation document (quotation, invoice, engagement letter) as a
+ * PDF FILE — never as a link. WhatsApp goes through the device's share sheet
+ * (or download + WhatsApp Web); email is sent by the server with the PDF
+ * attached (SendEmailDialog).
  */
 
 /**
@@ -30,102 +19,111 @@ export function waNumber(raw: string | null | undefined): string {
   return digits;
 }
 
-export type ShareChannel = 'download' | 'whatsapp' | 'email';
+/**
+ * Why a number cannot be a WhatsApp number, or null when it looks valid.
+ * Indian numbers (91…) must be 10-digit mobiles starting 6–9; other country
+ * codes need 8–15 digits in all (E.164). This cannot tell whether the number
+ * is REGISTERED on WhatsApp — only WhatsApp knows that.
+ */
+export function waNumberProblem(normalized: string): string | null {
+  if (!normalized) return 'Enter a WhatsApp number.';
+  if (normalized.startsWith('91')) {
+    const local = normalized.slice(2);
+    if (local.length !== 10) return 'An Indian mobile number has 10 digits.';
+    if (!/^[6-9]/.test(local)) return 'An Indian mobile number starts with 6, 7, 8 or 9.';
+    return null;
+  }
+  if (normalized.length < 10) return 'Enter the 10-digit mobile number (or + and the country code for other countries).';
+  if (normalized.length > 15) return 'That number is too long for a phone number.';
+  return null;
+}
 
+export type ShareChannel = 'download' | 'whatsapp';
+
+/**
+ * Download the PDF, or hand it to WhatsApp as a FILE.
+ *
+ * WhatsApp: the native share sheet gets the real PDF where the device offers
+ * one (phones, Chrome/Edge on Windows and macOS) — pick WhatsApp there and the
+ * document is attached. Elsewhere the PDF is downloaded and the client's chat
+ * opens in WhatsApp with the covering note, ready for the file to be dropped
+ * in. The note never carries a link: the client receives the document.
+ *
+ * Email does not come through here — the server sends it with the PDF
+ * attached (SendEmailDialog → POST /api/share/email).
+ *
+ * Resolves to how it was delivered, so the caller can tell the user what to
+ * do next.
+ */
 export async function shareDocumentPdf(o: {
   /** Returns a signed PDF path, relative to this origin. */
   issueUrl: () => Promise<{ url: string }>;
   fileName: string;
-  subject: string;
-  /** The covering note. Plain text — no PDF link is appended. */
-  message: string;
+  /** Covering note sent with the file. */
+  note: string;
   channel: ShareChannel;
   phone?: string;
-  email?: string | null;
-}): Promise<void> {
-  // The popup-blocker trap: `window.open(...)` invoked AFTER an async gap
-  // (fetch + File assembly) is treated as "not a user gesture" by Chrome
-  // and modern Firefox — the wa.me / mailto tab is silently blocked and
-  // the WhatsApp/Email button appears to do nothing. Reserve the target
-  // tab synchronously while we still have the click-derived user gesture,
-  // then navigate it once the PDF has been assembled and saved.
-  //
-  // NOTE: `noopener` is deliberately NOT passed here. Per the HTML spec,
-  // `window.open(..., 'noopener')` returns `null` — so if we set it, we
-  // lose the handle and cannot navigate the reserved tab later, which
-  // defeats the whole point. wa.me and mailto: are user-controlled URLs;
-  // opener isolation adds nothing security-wise. The child tab is
-  // navigated to a real URL before it can call window.opener.
-  //
-  // The download-only path doesn't need a reserved window because
-  // `a.click()` on an anchor with `download` is always a user-gesture
-  // action, even inside a promise resolution.
-  const openedWindow: Window | null =
-    o.channel === 'whatsapp' || o.channel === 'email'
-      ? window.open('about:blank', '_blank')
-      : null;
+}): Promise<'downloaded' | 'shared' | 'cancelled' | 'whatsapp-web'> {
+  // A window.open() after the fetch below is no longer a user gesture, and
+  // the popup blocker silently eats the WhatsApp tab. Where there is no file
+  // share sheet, reserve the tab now while the click still counts. (Not with
+  // the 'noopener' feature — that makes window.open return null.) Where the
+  // share sheet exists, don't: opening a window would spend the gesture that
+  // navigator.share needs.
+  const canShareFiles = !!navigator.canShare?.({
+    files: [new File([], 'x.pdf', { type: 'application/pdf' })],
+  });
+  const reserved = o.channel === 'whatsapp' && !canShareFiles ? window.open('', '_blank') : null;
+  if (reserved) reserved.opener = null;
 
+  let blob: Blob;
   try {
     const { url } = await o.issueUrl();
-    const absolute = new URL(url, window.location.origin).href;
-    const res = await fetch(absolute);
+    const res = await fetch(new URL(url, window.location.origin).href);
     if (!res.ok) throw new Error('The PDF could not be generated.');
-    const blob = await res.blob();
-    const file = new File([blob], o.fileName, { type: 'application/pdf' });
-
-    // The anchor MUST be in the DOM before .click() — Firefox and Safari
-    // treat a detached anchor click as a no-op, so the file appears to
-    // download on Chromium but silently fails elsewhere. And the object
-    // URL must NOT be revoked on the same tick as .click() — some
-    // browsers haven't opened the download stream yet and abort it when
-    // the URL is freed. Same shape as the Tally-export fix (a4fa04d).
-    const save = () => {
-      const href = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = href;
-      a.download = o.fileName;
-      a.rel = 'noopener';
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      setTimeout(() => URL.revokeObjectURL(href), 5000);
-    };
-
-    if (o.channel === 'download') { save(); return; }
-
-    if (navigator.canShare?.({ files: [file] })) {
-      try {
-        await navigator.share({ files: [file], title: o.fileName, text: o.message });
-        openedWindow?.close();
-        return;
-      } catch (err) {
-        // Dismissing the share sheet is a choice, not a failure.
-        if ((err as { name?: string })?.name === 'AbortError') {
-          openedWindow?.close();
-          return;
-        }
-      }
-    }
-
-    // Desktop path: save the file so the sender can attach it themselves,
-    // then navigate the reserved tab to the channel URL. No PDF link.
-    save();
-    const target = o.channel === 'whatsapp'
-      ? `https://wa.me/${o.phone ?? ''}?text=${encodeURIComponent(o.message)}`
-      : `mailto:${o.email ?? ''}?subject=${encodeURIComponent(o.subject)}`
-        + `&body=${encodeURIComponent(o.message)}`;
-
-    if (openedWindow) {
-      openedWindow.location.href = target;
-    } else {
-      // Popup was blocked entirely — fall back to same-tab navigation for
-      // mailto (browsers handle it as a protocol handler either way) or a
-      // best-effort window.open for wa.me.
-      if (o.channel === 'email') window.location.href = target;
-      else window.open(target, '_blank', 'noopener');
-    }
+    blob = await res.blob();
   } catch (err) {
-    openedWindow?.close();
+    reserved?.close();
     throw err;
   }
+  const file = new File([blob], o.fileName, { type: 'application/pdf' });
+
+  const save = () => {
+    const href = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = href;
+    a.download = o.fileName;
+    a.rel = 'noopener';
+    // In the DOM before .click() (Firefox/Safari ignore a detached anchor),
+    // and the URL revoked later, not on the same tick (main eba42b9).
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(href), 10_000);
+  };
+
+  if (o.channel === 'download') { save(); return 'downloaded'; }
+
+  if (navigator.canShare?.({ files: [file] })) {
+    try {
+      await navigator.share({ files: [file], title: o.fileName, text: o.note });
+      return 'shared';
+    } catch (err) {
+      // Dismissing the share sheet is a choice, not a failure.
+      if ((err as { name?: string })?.name === 'AbortError') return 'cancelled';
+    }
+  }
+
+  save();
+  const target = `https://wa.me/${o.phone ?? ''}?text=${encodeURIComponent(o.note)}`;
+  if (reserved) reserved.location.href = target;
+  else window.open(target, '_blank', 'noopener');
+  return 'whatsapp-web';
+}
+
+/** What to tell the user after a WhatsApp share, or null when nothing needs saying. */
+export function whatsappHint(result: Awaited<ReturnType<typeof shareDocumentPdf>>, fileName: string): string | null {
+  return result === 'whatsapp-web'
+    ? `${fileName} was downloaded. Attach it in the WhatsApp chat that just opened (drag it in, or use the paperclip).`
+    : null;
 }

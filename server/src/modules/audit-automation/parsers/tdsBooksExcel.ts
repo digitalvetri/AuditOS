@@ -6,8 +6,9 @@ import {
   normalizeSection,
   normalizeTan,
   normalizeQuarter,
-  toIsoDate,
+  tdsDate,
   toPaise,
+  TAN_RE,
 } from './tdsTypes.js'
 
 /**
@@ -84,8 +85,10 @@ export async function parseTdsBooksExcel(
     tdsAmount: idx(columnMap.tdsAmount),
     tdsDate: idx(columnMap.tdsDate),
     glCode: idx(columnMap.glCode),
+    reference: idx(columnMap.reference),
   }
-  if (!cols.deductorTan || !cols.section || !cols.tdsAmount || !cols.tdsDate) {
+  // A deductor (TAN or name), the TDS amount and a date are needed; the section is optional.
+  if ((!cols.deductorTan && !cols.deductorName) || !cols.tdsAmount || !cols.tdsDate) {
     throw new Error('tds_books_column_map_incomplete')
   }
   const startRow = columnMap.dataStartRow ?? 2
@@ -93,21 +96,24 @@ export async function parseTdsBooksExcel(
   for (let r = startRow; r <= ws.rowCount; r++) {
     const row = ws.getRow(r)
     const get = (c: number) => c ? row.getCell(c) : null
-    const tan = normalizeTan(String(get(cols.deductorTan)?.text ?? ''))
+    const tanRaw = normalizeTan(String(get(cols.deductorTan)?.text ?? ''))
+    const tan = TAN_RE.test(tanRaw) ? tanRaw : ''
+    const name = String(get(cols.deductorName)?.text ?? '').trim()
     const section = normalizeSection(String(get(cols.section)?.text ?? ''))
     const tdsAmount = toPaise(get(cols.tdsAmount)?.value ?? get(cols.tdsAmount)?.text ?? 0)
-    if (!tan || !section || tdsAmount === 0) continue
+    if ((!tan && !name) || tdsAmount === 0) continue
     const quarterField = get(cols.quarter)?.text ?? ''
     const dateField = get(cols.tdsDate)?.value ?? get(cols.tdsDate)?.text ?? ''
     entries.push({
       section,
       deductorTan: tan,
-      deductorName: String(get(cols.deductorName)?.text ?? '').trim() || undefined,
-      quarter: normalizeQuarter(String(quarterField) || String(dateField)),
+      deductorName: name || undefined,
+      quarter: normalizeQuarter(String(quarterField) || tdsDate(dateField)),
       amountPaid: toPaise(get(cols.amountPaid)?.value ?? get(cols.amountPaid)?.text ?? 0),
       tdsAmount,
-      tdsDate: toIsoDate(dateField),
+      tdsDate: tdsDate(dateField),
       glCode: String(get(cols.glCode)?.text ?? '').trim() || undefined,
+      reference: String(get(cols.reference)?.text ?? '').trim() || undefined,
     })
   }
   return { entries }

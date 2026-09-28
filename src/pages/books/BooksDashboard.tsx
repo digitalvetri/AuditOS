@@ -25,22 +25,22 @@ export function BooksDashboardPage() {
     <div className="space-y-4">
       {d.sync_status === 'failed' && d.last_sync_error ? <Notice tone="error">The last sync failed — showing figures from {dateTime(d.last_sync_at)}. {d.last_sync_error}</Notice> : null}
       {s.truncated ? <Notice tone="warn">This organisation has more records than one sync reads; totals cover the most recent 1,000 documents per list.</Notice> : null}
-      {s.mixed_currency ? <Notice tone="warn">Some documents are in a foreign currency; totals add their amounts as recorded, without conversion.</Notice> : null}
+      {s.mixed_currency ? <Notice tone="warn">Some documents are in a foreign currency; totals convert them at each document’s exchange rate. Bank balances are shown as recorded.</Notice> : null}
 
       <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-3">
         <Tile label="Total receivables" value={m(t.receivables)} hint={`${s.counts.outstanding_invoices} outstanding invoices`} />
         <Tile label="Total payables" value={m(t.payables)} hint={`${s.counts.outstanding_bills} outstanding bills`} />
         <Tile label="Overdue invoices" value={m(t.overdue_receivables)} hint={`${s.counts.overdue_invoices} invoices`} tone={s.counts.overdue_invoices ? 'warn' : 'default'} />
         <Tile label="Overdue bills" value={m(t.overdue_payables)} hint={`${s.counts.overdue_bills} bills`} tone={s.counts.overdue_bills ? 'warn' : 'default'} />
-        <Tile label="Revenue" value={m(t.revenue)} hint={`Invoiced since ${date(s.period.from)}`} />
-        <Tile label="Expenses" value={m(t.expenses)} hint="Bills + expenses, same period" />
+        <Tile label="Sales (incl. tax)" value={m(t.revenue)} hint={`Invoiced since ${date(s.period.from)}`} />
+        <Tile label="Expenses (incl. tax)" value={m(t.expenses)} hint="Bills + expenses, same period" />
         <Tile label="Payments received" value={m(t.payments_received)} hint="Same period" />
         <Tile label="Payments made" value={m(t.payments_made)} hint="Same period" />
         {s.bank_accounts.length ? <Tile label="Bank balance" value={m(t.bank_balance)} hint={`${s.bank_accounts.length} accounts in Zoho`} /> : null}
       </div>
 
       <div className="grid grid-cols-1 xl:grid-cols-3 gap-4">
-        <Section title="Revenue vs expenses — last 6 months" className="xl:col-span-2">
+        <Section title="Sales vs expenses (incl. tax) — last 6 months" className="xl:col-span-2">
           <div className="h-64 px-2 py-3" role="img" aria-label="Monthly revenue and expenses">
             <ResponsiveContainer width="100%" height="100%">
               <BarChart data={s.monthly.map((x) => ({ ...x, label: new Date(`${x.month}-01T00:00:00`).toLocaleDateString('en-IN', { month: 'short' }) }))} margin={{ left: 8, right: 8 }}>

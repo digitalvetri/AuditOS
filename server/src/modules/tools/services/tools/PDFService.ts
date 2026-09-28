@@ -203,6 +203,33 @@ export const PDFService = {
       const input = path.join(dir, 'in.pdf')
       const output = path.join(dir, 'out.pdf')
       await fs.writeFile(input, bytes)
+
+      // qpdf first: it decrypts every standard handler (RC4, AES-128,
+      // AES-256 R5/R6) without re-rendering the file. Ghostscript 10.x
+      // rejects the right password on AES-128 and AES-256 R5 files — the
+      // kind banks and TRACES send — so it is only the fallback.
+      if (await hasQpdf()) {
+        const pwFile = path.join(dir, 'pw')
+        // From a file, not argv, so the password never shows in `ps`.
+        await fs.writeFile(pwFile, password, { mode: 0o600 })
+        try {
+          await run('qpdf', [`--password-file=${pwFile}`, '--decrypt', input, output], { timeoutMs: 240_000 })
+        } catch (err) {
+          const text = err instanceof ToolProcessError ? err.stderr.toLowerCase() : ''
+          // Exit 3 is "succeeded with warnings" — the output is there.
+          if (!(err instanceof ToolProcessError && err.code === 3)) {
+            if (text.includes('invalid password')) throw new ToolError('wrong_password', 'Incorrect password.')
+            throw new ToolError('unreadable', "We couldn't read this PDF. It may be corrupted.")
+          }
+        }
+        const out = await fs.readFile(output)
+        const result = await PDFService.load(out).catch(() => null)
+        if (!result || result.isEncrypted || result.getPageCount() !== expectedPages) {
+          throw new ToolError('unreadable', "The PDF was decrypted but the result didn't check out. It may be corrupted.")
+        }
+        return out
+      }
+
       let log = ''
       try {
         // Ghostscript reports a bad password on stdout and still exits 0, so
@@ -215,16 +242,16 @@ export const PDFService = {
         log = `${r.stdout}\n${r.stderr}`.toLowerCase()
       } catch (err) {
         log = err instanceof ToolProcessError ? err.stderr.toLowerCase() : ''
-        if (log.includes('password') || log.includes('decrypt')) throw new ToolError('wrong_password', 'Incorrect password.')
+        if (log.includes('password') || log.includes('decrypt')) throw new ToolError('wrong_password', 'Incorrect password. If you are sure it is right, this PDF uses encryption the server can only open once qpdf is installed — ask your administrator.')
         throw translateGs(err)
       }
       if (log.includes('password did not work') || log.includes('cannot decrypt') || log.includes("couldn't initialise")) {
-        throw new ToolError('wrong_password', 'Incorrect password.')
+        throw new ToolError('wrong_password', 'Incorrect password. If you are sure it is right, this PDF uses encryption the server can only open once qpdf is installed — ask your administrator.')
       }
       const out = await fs.readFile(output).catch(() => null)
-      if (!out) throw new ToolError('wrong_password', 'Incorrect password.')
+      if (!out) throw new ToolError('wrong_password', 'Incorrect password. If you are sure it is right, this PDF uses encryption the server can only open once qpdf is installed — ask your administrator.')
       const result = await PDFService.load(out).catch(() => null)
-      if (!result || result.isEncrypted || result.getPageCount() !== expectedPages) throw new ToolError('wrong_password', 'Incorrect password.')
+      if (!result || result.isEncrypted || result.getPageCount() !== expectedPages) throw new ToolError('wrong_password', 'Incorrect password. If you are sure it is right, this PDF uses encryption the server can only open once qpdf is installed — ask your administrator.')
       return out
     })
   },
@@ -264,6 +291,17 @@ async function readNumbered(dir: string, prefix: string): Promise<Buffer[]> {
     .filter((n) => n.startsWith(`${prefix}-`) && n.endsWith('.png'))
     .sort((a, b) => Number(a.match(/-(\d+)\.png$/)?.[1]) - Number(b.match(/-(\d+)\.png$/)?.[1]))
   return Promise.all(names.map((n) => fs.readFile(path.join(dir, n))))
+}
+
+/**
+ * Whether qpdf is on PATH. Only a "yes" is remembered, so installing it
+ * takes effect without restarting the API.
+ */
+let qpdfFound = false
+async function hasQpdf(): Promise<boolean> {
+  if (qpdfFound) return true
+  qpdfFound = await run('qpdf', ['--version'], { timeoutMs: 10_000 }).then(() => true, () => false)
+  return qpdfFound
 }
 
 function translateGs(err: unknown): ToolError {

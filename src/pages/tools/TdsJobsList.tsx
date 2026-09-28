@@ -74,7 +74,7 @@ export function TdsJobsListPage() {
 function EmptyState() {
   return (
     <div className="bg-white border border-neutral-200 rounded p-8 text-center">
-      <div className="w-10 h-10 rounded flex items-center justify-center bg-amber-50 text-amber-700 mx-auto mb-3">
+      <div className="w-10 h-10 rounded flex items-center justify-center bg-amber/10 text-amber mx-auto mb-3">
         <ReceiptIndianRupee size={18} strokeWidth={1.75} />
       </div>
       <div className="text-14 font-medium text-neutral-900">No reconciliations yet</div>
@@ -96,6 +96,7 @@ function JobsTable({ jobs }: { jobs: TdsReconJob[] }) {
           <tr className="text-left text-11 text-neutral-500 tracking-[0.06em]">
             <th className="px-3 py-2 font-normal">CREATED</th>
             <th className="px-3 py-2 font-normal">STATUS</th>
+            <th className="px-3 py-2 font-normal">WARNINGS</th>
             <th className="px-3 py-2 font-normal">VERIFIED</th>
             <th className="px-3 py-2 font-normal">VARIANCE</th>
             <th className="px-3 py-2 font-normal">ONLY 26AS</th>
@@ -106,10 +107,11 @@ function JobsTable({ jobs }: { jobs: TdsReconJob[] }) {
         <tbody>
           {jobs.map((j) => (
             <tr key={j.id} className="border-t border-neutral-100">
-              <td className="px-3 py-2 text-neutral-900">{new Date(j.created_at).toLocaleString()}</td>
+              <td className="px-3 py-2 text-neutral-900">{new Date(j.created_at).toLocaleString('en-IN', { dateStyle: 'medium', timeStyle: 'short' })}<div className="text-11 text-neutral-500">AY {j.assessment_year}-{String((j.assessment_year + 1) % 100).padStart(2, '0')}</div></td>
               <td className="px-3 py-2"><StatusPill status={j.status} /></td>
-              <td className="px-3 py-2 text-green-700">{j.verified_count}</td>
-              <td className="px-3 py-2 text-amber-700">{j.variance_count}</td>
+              <td className="px-3 py-2 text-11 text-amber">{j.flags.length ? j.flags.join(', ').toLowerCase().replace(/_/g, ' ') : '—'}</td>
+              <td className="px-3 py-2 text-success">{j.verified_count}</td>
+              <td className="px-3 py-2 text-danger">{j.variance_count}</td>
               <td className="px-3 py-2 text-neutral-600">{j.only_26as_count}</td>
               <td className="px-3 py-2 text-neutral-600">{j.only_books_count}</td>
               <td className="px-3 py-2 text-right">
@@ -126,8 +128,8 @@ function JobsTable({ jobs }: { jobs: TdsReconJob[] }) {
 function StatusPill({ status }: { status: TdsReconJob['status'] }) {
   const map: Record<TdsReconJob['status'], { label: string; color: string }> = {
     queued: { label: 'Queued', color: 'border-l-neutral-400 text-neutral-700' },
-    matching: { label: 'Matching', color: 'border-l-blue-500 text-blue-700' },
-    matched: { label: 'Matched', color: 'border-l-green-500 text-green-700' },
+    matching: { label: 'Matching', color: 'border-l-primary text-primary' },
+    matched: { label: 'Matched', color: 'border-l-success text-success' },
     failed: { label: 'Failed', color: 'border-l-danger text-danger' },
   };
   const s = map[status];

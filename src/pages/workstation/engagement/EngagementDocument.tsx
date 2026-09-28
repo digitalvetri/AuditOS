@@ -5,12 +5,13 @@ import {
   type CompanyInfo, type LayoutConfig,
 } from '@/modules/workstation/quotations/document';
 import {
-  EMPTY_RECIPIENT, ENGAGEMENT_COMPANY, fmtLong, layoutOf, lineIsEmpty, normalizeBlocks, rupees,
+  defaultBlocks, EMPTY_RECIPIENT, ENGAGEMENT_COMPANY, fmtLong, layoutOf, lineIsEmpty, normalizeBlocks, rupees,
   type EBlock, type FeeLine, type Line, type Recipient,
 } from '@/modules/workstation/engagement/document';
 import { caretOffset, setCaret } from '@/modules/workstation/engagement/richtext';
 import type { EngagementLetter } from '@/modules/workstation/engagement/api';
 import { DateField, PlainField, RichLine } from './Editable';
+import { footerReservePx, unitHeights } from '@/modules/workstation/paginate';
 
 /**
  * THE ENGAGEMENT LETTER — rendered, and (given `edit`) edited in place.
@@ -546,16 +547,14 @@ function usePages(ids: string[], contentHeightPx: number, signature: string) {
   useLayoutEffect(() => {
     const root = measureRef.current;
     if (!root) return;
-    const h = new Map<string, number>();
-    root.querySelectorAll<HTMLElement>('[data-unit]').forEach((el) => {
-      h.set(el.dataset.unit!, el.getBoundingClientRect().height);
-    });
+    const h = unitHeights(root, 'unit');
+    const room = contentHeightPx - footerReservePx(pagesRef.current);
     const next: string[][] = [];
     let cur: string[] = [];
     let used = 0;
     for (const id of ids) {
       const uh = h.get(id) ?? 0;
-      if (cur.length && used + uh > contentHeightPx) { next.push(cur); cur = []; used = 0; }
+      if (cur.length && used + uh > room) { next.push(cur); cur = []; used = 0; }
       cur.push(id);
       used += uh;
     }
@@ -615,7 +614,8 @@ export function docFromApi(l: EngagementLetter): EngagementDoc {
     effectiveUntil: l.effective_until ?? '',
     company: { ...ENGAGEMENT_COMPANY, ...(cfg.company ?? {}) },
     recipient: { ...EMPTY_RECIPIENT, companyName: l.party_name ?? '', ...rs },
-    blocks: normalizeBlocks((l.block_config as unknown as EBlock[] | null) ?? []),
+    // A letter saved without a composition shows the builder's template, as the PDF does.
+    blocks: normalizeBlocks(l.block_config?.length ? (l.block_config as unknown as EBlock[]) : defaultBlocks()),
     fees: l.fee_items.map((f, i) => ({
       key: f.id ?? String(i),
       service: f.service,

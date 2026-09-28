@@ -150,6 +150,40 @@ function fill(text: string, vars: Record<string, string>): string {
   return text.replace(/\{\{\s*(\w+)\s*\}\}/g, (m, k: string) => (k in vars && vars[k] ? vars[k] : m))
 }
 
+/**
+ * A letter saved without a composition (seeded, imported, or created before
+ * the builder stored one) prints the builder's starting template — the same
+ * `defaultBlocks()` and `ENGAGEMENT_COMPANY` the browser falls back to
+ * (src/modules/workstation/engagement/document.ts). Without this the PDF was
+ * a blank page carrying only the footer. The two sections whose wording is
+ * deliberately left for the firm to write are omitted rather than printed as
+ * bare headings.
+ */
+const DEFAULT_COMPANY: Record<string, string> = {
+  name: 'JNS Accounting Solutions',
+  addressLine1: '2A, Velavan Nagar, IInd Street, SRP Mills',
+  addressLine2: 'Saravanampatti',
+  city: 'Coimbatore',
+  state: 'Tamil Nadu',
+  pin: '641 035',
+  email: 'jnsacctax@gmail.com',
+  phone: '97900 39150',
+}
+const DEFAULT_BLOCKS: Block[] = [
+  { key: 'letterhead' },
+  { key: 'date' },
+  { key: 'recipient' },
+  { key: 'subject' },
+  { key: 'salutation', body: 'Dear Sir,' },
+  { key: 'paragraph', body: 'You have requested that we provide Accounting and Bookkeeping Services of {{company_name}} for the Financial year starting from {{effective_from}} till end of {{effective_until}} including GST and TDS return filing, if applicable. This engagement does not include provision of payroll services and income tax filing services.' },
+  { key: 'paragraph', body: 'We are pleased to confirm our acceptance and our understanding of this engagement by means of this letter. The objective of this engagement is to help the organization maintain proper and timely set of books and records and help with the legal compliances relating to tax and accounting matters.' },
+  { key: 'fees', title: 'Fees:', body: 'Any other consultancy and other services shall be billed separately as and when the services are provided.' },
+  { key: 'section', title: 'Additional terms:', body: 'Out of the above services - the tax audit shall be carried on by L.Venkatasubbu and Co, Chartered Accountants situated in Coimbatore.' },
+  { key: 'closing', body: 'We look forward for your full cooperation with your staff and we also cordially thank in advance for the same.' },
+  { key: 'signature' },
+  { key: 'confirmation', body: 'The above terms and conditions are agreed and confirmed by;' },
+]
+
 export function streamEngagementPdf(res: Response, l: Row) {
   const L: Layout = { ...DEFAULT_LAYOUT, ...((l.layoutConfig ?? {}) as Partial<Layout>) }
   const F = L.font === 'serif' ? SERIF : SANS
@@ -169,7 +203,7 @@ export function streamEngagementPdf(res: Response, l: Row) {
   doc.pipe(res)
 
   const layout = (l.layoutConfig ?? {}) as { company?: Record<string, string> }
-  const company = layout.company ?? {}
+  const company: Record<string, string> = { ...DEFAULT_COMPANY, ...(layout.company ?? {}) }
   const rcp = ((l.recipientSnapshot ?? {}) as Recipient)
   const companyName = rcp.companyName || l.client?.companyName || l.lead?.name || ''
 
@@ -260,7 +294,9 @@ export function streamEngagementPdf(res: Response, l: Row) {
     doc.moveDown(0.25)
   }
 
-  for (const b of ((l.blockConfig as Block[] | null) ?? []).filter((x) => x && x.enabled !== false)) {
+  const saved = Array.isArray(l.blockConfig) ? (l.blockConfig as unknown as Block[]) : []
+  const blocks = saved.length ? saved : DEFAULT_BLOCKS
+  for (const b of blocks.filter((x) => x && x.enabled !== false)) {
     switch (b.key) {
       case 'letterhead': {
         // Logo at the letterhead's alignment (left / center / right) —

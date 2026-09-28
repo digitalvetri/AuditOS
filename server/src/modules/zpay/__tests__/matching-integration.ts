@@ -49,11 +49,13 @@ async function bootFake(port: number) {
 
 async function fullReset(orgId: string): Promise<void> {
   const conns = await prisma.zpayConnection.findMany({
-    where: { organisationId: orgId },
+    // Only this suite's fixtures: the dev database may hold real connections.
+    where: { organisationId: orgId, zohoOrgLabel: { startsWith: 'FIXTURE-' } },
     select: { id: true, accounts: { select: { id: true } } },
   })
   const accountIds = conns.flatMap((c) => c.accounts.map((a) => a.id))
   if (accountIds.length) {
+    await prisma.zpayPaymentLink.deleteMany({ where: { accountRowId: { in: accountIds } } })
     await prisma.zpayPayment.deleteMany({ where: { accountRowId: { in: accountIds } } })
     await prisma.zpayRefund.deleteMany({ where: { accountRowId: { in: accountIds } } })
     await prisma.zpaySyncRun.deleteMany({ where: { accountRowId: { in: accountIds } } })
@@ -119,12 +121,17 @@ async function main() {
     })
     if (afterSync.length === 0) fail('sync', 'no payments arrived')
     const exact = afterSync.filter((p) => p.matchType === 'exact')
-    // Fake payments always have a reference INV/2026/NNNN, so ALL of them
-    // should exact-match.
-    if (exact.length !== afterSync.length) {
+    // Every fake payment carries a reference INV/2026/NNNN, so every
+    // COLLECTED one exact-matches. A failed attempt carries one too, and
+    // must stay unmatched: no money arrived, the invoice is not paid.
+    const statuses = await prisma.zpayPayment.findMany({ where: { accountRowId: account.id }, select: { id: true, status: true } })
+    const failedIds = new Set(statuses.filter((p) => p.status === 'failed').map((p) => p.id))
+    if (failedIds.size === 0) fail('sync auto-match', 'fixture should include a failed attempt')
+    if (exact.some((p) => failedIds.has(p.id))) fail('sync auto-match', 'a failed attempt was matched to an invoice')
+    if (exact.length !== afterSync.length - failedIds.size) {
       fail(
         'sync auto-match',
-        `expected ${afterSync.length} exact, got ${exact.length}; ` +
+        `expected ${afterSync.length - failedIds.size} exact, got ${exact.length}; ` +
         `sample: ${JSON.stringify(afterSync[0])}`,
       )
     }

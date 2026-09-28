@@ -257,13 +257,17 @@ function ESignOptions({ files, value, onChange, disabled }: OptionsProps) {
             className="h-8 w-full px-2 text-13 bg-white text-neutral-900 border border-neutral-300 rounded focus:outline-none focus:border-gold" />
         </Field>
       </div>
-      <Field label="Drawn signature (optional)">
+      {/* Not a <Field>: that's a <label>, and a click anywhere in a label is
+          forwarded to its first button — Clear — so every stroke wiped itself. */}
+      <div>
+        <span className="block text-11 uppercase tracking-[0.06em] text-neutral-500 mb-1">Drawn signature (optional)</span>
         <SignaturePad value={String(value.signature_png ?? '')} onChange={(png) => onChange({ signature_png: png })} disabled={disabled} />
-      </Field>
+      </div>
       {pageCount > 1 ? (
-        <Field label="Pick the page">
+        <div>
+          <span className="block text-11 uppercase tracking-[0.06em] text-neutral-500 mb-1">Pick the page</span>
           <ThumbGrid doc={doc} selected={new Set([page])} onToggle={(p) => onChange({ page: p })} single />
-        </Field>
+        </div>
       ) : null}
     </div>
   );

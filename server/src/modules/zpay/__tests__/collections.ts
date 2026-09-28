@@ -39,11 +39,13 @@ function fail(name: string, detail: string): never {
  */
 async function fullReset(orgId: string): Promise<void> {
   const conns = await prisma.zpayConnection.findMany({
-    where: { organisationId: orgId },
+    // Only this suite's fixtures: the dev database may hold real connections.
+    where: { organisationId: orgId, zohoOrgLabel: { startsWith: 'FIXTURE-' } },
     select: { id: true, accounts: { select: { id: true } } },
   })
   const accountIds = conns.flatMap((c) => c.accounts.map((a) => a.id))
   if (accountIds.length) {
+    await prisma.zpayPaymentLink.deleteMany({ where: { accountRowId: { in: accountIds } } })
     await prisma.zpayPayment.deleteMany({ where: { accountRowId: { in: accountIds } } })
     await prisma.zpayRefund.deleteMany({ where: { accountRowId: { in: accountIds } } })
     await prisma.zpaySyncRun.deleteMany({ where: { accountRowId: { in: accountIds } } })
@@ -229,7 +231,10 @@ async function main() {
     fail('all unmatched', `expected 13,00,000 paise, got ${all.unmatched.amountPaise}`)
   }
   if (all.refunded.amountPaise !== 1_200_00) fail('refunded', `${all.refunded.amountPaise}`)
-  if (all.accounts.length !== 2) fail('all accounts', `expected 2 accounts, got ${all.accounts.length}`)
+  // The dev database may hold real accounts too: count this suite's own.
+  const fixtureIds = new Set([accGst.id, accNonGst.id])
+  const mine = (rows: { accountId: string }[]) => rows.filter((a) => fixtureIds.has(a.accountId))
+  if (mine(all.accounts).length !== 2) fail('all accounts', `expected 2 fixture accounts, got ${mine(all.accounts).length}`)
   pass('entity=all: tiles + per-account breakdown match seed')
 
   // ── entity=gst ────────────────────────────────────────────────────
@@ -238,7 +243,7 @@ async function main() {
   if (gst.collected.amountPaise !== 48_000_00) {
     fail('gst collected', `expected 48,00,000 paise, got ${gst.collected.amountPaise}`)
   }
-  if (gst.accounts.length !== 1) fail('gst accounts', `expected only the GST account`)
+  if (mine(gst.accounts).length !== 1 || !gst.accounts.every((a) => a.isGstRegistered)) fail('gst accounts', `expected only the GST account`)
   pass('entity=gst: excludes the non-GST account and its payment')
 
   // ── entity=non-gst ────────────────────────────────────────────────

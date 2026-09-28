@@ -26,6 +26,7 @@
  */
 import { prisma } from '../../lib/prisma.js'
 import { ApiError } from '../../lib/http.js'
+import ExcelJS from 'exceljs'
 
 const REQUIRED_COLUMNS = ['invoice_number', 'issued_on', 'amount'] as const
 const KNOWN_STATUSES = ['open', 'paid', 'cancelled'] as const
@@ -42,7 +43,44 @@ export interface ImportInput {
   billingAccountId: string
   organisationId: string
   actorUserId: string
-  csv: string
+  /** The CSV text — or `rows`, already read from an Excel sheet. */
+  csv?: string
+  rows?: string[][]
+}
+
+/**
+ * The first sheet of an .xlsx as the same string matrix parseCsv returns,
+ * so an Excel export imports under exactly the CSV rules. Dates become
+ * YYYY-MM-DD; formulas contribute their value.
+ */
+export async function xlsxRows(buffer: Buffer): Promise<string[][]> {
+  const wb = new ExcelJS.Workbook()
+  try {
+    await wb.xlsx.load(buffer as unknown as ArrayBuffer)
+  } catch {
+    throw ApiError.badRequest("This Excel file couldn't be read. Save it as .xlsx (or .csv) and try again.")
+  }
+  const ws = wb.worksheets[0]
+  if (!ws) throw ApiError.badRequest('This Excel file has no sheets.')
+  const text = (v: ExcelJS.CellValue): string => {
+    if (v == null) return ''
+    if (v instanceof Date) return v.toISOString().slice(0, 10) // exceljs dates are UTC midnight
+    if (typeof v === 'object') {
+      if ('result' in v) return text(v.result as ExcelJS.CellValue)
+      if ('richText' in v) return v.richText.map((r) => r.text).join('')
+      if ('text' in v) return String(v.text)
+      return ''
+    }
+    return String(v)
+  }
+  const rows: string[][] = []
+  ws.eachRow({ includeEmpty: false }, (row) => {
+    const out: string[] = []
+    row.eachCell({ includeEmpty: true }, (cell, col) => { out[col - 1] = text(cell.value).trim() })
+    for (let i = 0; i < out.length; i++) out[i] ??= ''
+    if (out.some((c) => c !== '')) rows.push(out)
+  })
+  return rows
 }
 
 /**
@@ -90,9 +128,9 @@ export async function importInvoicesCsv(input: ImportInput): Promise<ImportOutco
   })
   if (!account) throw ApiError.notFound('No such Zoho Payments account.')
 
-  const rows = parseCsv(input.csv)
+  const rows = input.rows ?? parseCsv(input.csv ?? '')
   if (rows.length === 0) {
-    throw ApiError.badRequest('CSV appears to be empty.')
+    throw ApiError.badRequest('The file appears to be empty.')
   }
   const header = rows[0].map((c) => c.trim().toLowerCase())
   const missing = REQUIRED_COLUMNS.filter((c) => !header.includes(c))

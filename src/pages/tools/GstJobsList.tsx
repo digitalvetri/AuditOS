@@ -80,7 +80,7 @@ export function GstJobsListPage() {
 function EmptyState() {
   return (
     <div className="bg-white border border-neutral-200 rounded p-8 text-center">
-      <div className="w-10 h-10 rounded flex items-center justify-center bg-amber-50 text-amber-700 mx-auto mb-3">
+      <div className="w-10 h-10 rounded flex items-center justify-center bg-amber/10 text-amber mx-auto mb-3">
         <FileSpreadsheet size={18} strokeWidth={1.75} />
       </div>
       <div className="text-14 font-medium text-neutral-900">No reconciliations yet</div>
@@ -104,22 +104,26 @@ function JobsTable({ jobs }: { jobs: ReconJob[] }) {
             <th className="px-3 py-2 font-normal">STATUS</th>
             <th className="px-3 py-2 font-normal">MATCHED</th>
             <th className="px-3 py-2 font-normal">PARTIAL</th>
-            <th className="px-3 py-2 font-normal">ONLY 2B</th>
-            <th className="px-3 py-2 font-normal">ONLY PR</th>
+            <th className="px-3 py-2 font-normal">VARIANCE</th>
+            <th className="px-3 py-2 font-normal">MISSING IN BOOKS</th>
+            <th className="px-3 py-2 font-normal">MISSING IN 2B</th>
+            <th className="px-3 py-2 font-normal">DUPLICATES</th>
             <th className="px-3 py-2 font-normal w-16"></th>
           </tr>
         </thead>
         <tbody>
           {jobs.map((j) => (
             <tr key={j.id} className="border-t border-neutral-100">
-              <td className="px-3 py-2 text-neutral-900">{new Date(j.created_at).toLocaleString()}</td>
+              <td className="px-3 py-2 text-neutral-900">{new Date(j.created_at).toLocaleString('en-IN', { dateStyle: 'medium', timeStyle: 'short' })}</td>
               <td className="px-3 py-2"><StatusPill status={j.status} /></td>
               <td className="px-3 py-2 text-neutral-900">{j.matched_count}</td>
-              <td className="px-3 py-2 text-amber-700">{j.partial_count}</td>
+              <td className="px-3 py-2 text-amber">{j.partial_count}</td>
+              <td className="px-3 py-2 text-danger">{j.variance_count ?? 0}</td>
               <td className="px-3 py-2 text-neutral-600">{j.only_2b_count}</td>
               <td className="px-3 py-2 text-neutral-600">{j.only_pr_count}</td>
+              <td className="px-3 py-2 text-neutral-600">{j.duplicate_count ?? 0}</td>
               <td className="px-3 py-2 text-right">
-                <Link to={`/audit-automation/gst/jobs/${j.id}`} className="text-12 text-gold font-medium">
+                <Link to={`/audit-automation/gst/jobs/${j.id}`} className="text-12 text-gold font-medium whitespace-nowrap">
                   Open →
                 </Link>
               </td>
@@ -134,8 +138,8 @@ function JobsTable({ jobs }: { jobs: ReconJob[] }) {
 function StatusPill({ status }: { status: ReconJob['status'] }) {
   const map: Record<ReconJob['status'], { label: string; color: string }> = {
     queued: { label: 'Queued', color: 'border-l-neutral-400 text-neutral-700' },
-    matching: { label: 'Matching', color: 'border-l-blue-500 text-blue-700' },
-    matched: { label: 'Matched', color: 'border-l-green-500 text-green-700' },
+    matching: { label: 'Matching', color: 'border-l-primary text-primary' },
+    matched: { label: 'Matched', color: 'border-l-success text-success' },
     failed: { label: 'Failed', color: 'border-l-danger text-danger' },
   };
   const s = map[status];

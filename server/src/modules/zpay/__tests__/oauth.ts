@@ -47,7 +47,7 @@ function fakeConfig(overrides: Partial<ZpayConfig> = {}): ZpayConfig {
     redirectUri: 'http://localhost:4000/api/zpay/callback',
     accountsBase: 'http://localhost:4000/fake-zoho',
     paymentsBase: 'http://localhost:4000/fake-zoho',
-    scopes: ['ZohoPay.payments.READ', 'ZohoPay.refunds.READ'],
+    scopes: ['ZohoPay.payments.READ', 'ZohoPay.refunds.READ', 'ZohoPay.payments.CREATE'],
     encryptionKey: crypto.randomBytes(32),
     ...overrides,
   }
@@ -124,7 +124,7 @@ function fakeConfig(overrides: Partial<ZpayConfig> = {}): ZpayConfig {
   const checks: [string, string][] = [
     ['response_type', 'code'],
     ['client_id', 'CID'],
-    ['scope', 'ZohoPay.payments.READ ZohoPay.refunds.READ'],
+    ['scope', 'ZohoPay.payments.READ,ZohoPay.refunds.READ,ZohoPay.payments.CREATE'],
     ['redirect_uri', 'http://localhost:4000/api/zpay/callback'],
     ['state', 'STATE-1'],
     ['access_type', 'offline'],
@@ -142,6 +142,13 @@ function fakeConfig(overrides: Partial<ZpayConfig> = {}): ZpayConfig {
     fail('authorize url', 'access_type should default to offline (refresh_token required)')
   }
   pass('access_type defaults to offline; prompt omitted when unspecified')
+
+  // Zoho Payments: org consent for one Payments account.
+  const u3 = new URL(buildAuthorizeUrl(cfg, { state: 'y', soid: 'zohopay.60012345' }))
+  if (!u3.pathname.endsWith('/oauth/v2/org/auth')) fail('authorize url', `soid should use /oauth/v2/org/auth, got ${u3.pathname}`)
+  if (u3.searchParams.get('soid') !== 'zohopay.60012345') fail('authorize url', 'soid not passed through')
+  if (!u2.pathname.endsWith('/oauth/v2/auth')) fail('authorize url', 'without soid the generic endpoint stays (Zoho Books)')
+  pass('soid switches to the org consent endpoint')
 }
 
 // ── 3. exchangeCodeForTokens ───────────────────────────────────────────
@@ -168,7 +175,7 @@ function mockFetch(handler: (url: string, body: URLSearchParams) => { status: nu
       body: {
         access_token: 'ACCESS',
         refresh_token: 'REFRESH',
-        scope: 'ZohoPay.payments.READ ZohoPay.refunds.READ',
+        scope: 'ZohoPay.payments.READ ZohoPay.refunds.READ ZohoPay.payments.CREATE',
         token_type: 'Bearer',
         expires_in: 3600,
         api_domain: cfg.paymentsBase,
@@ -238,10 +245,10 @@ function mockFetch(handler: (url: string, body: URLSearchParams) => { status: nu
 {
   const cfg = fakeConfig()
   const granted = assertScopesGranted(
-    'ZohoPay.payments.READ ZohoPay.refunds.READ',
+    'ZohoPay.payments.READ,ZohoPay.refunds.READ,ZohoPay.payments.CREATE',
     cfg.scopes,
   )
-  if (granted.length !== 2) fail('scopes', `expected 2, got ${granted.length}`)
+  if (granted.length !== 3) fail('scopes', `expected 3, got ${granted.length}`)
   pass('assertScopesGranted accepts the expected set')
 
   try {

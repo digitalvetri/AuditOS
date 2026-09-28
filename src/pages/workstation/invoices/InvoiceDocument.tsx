@@ -5,6 +5,7 @@ import {
   type BlockSpec, type CompanyInfo, type LayoutConfig, type Line, type Totals,
 } from '@/modules/workstation/invoices/document';
 import type { BankSnapshot, QrMode } from '@/modules/workstation/invoices/api';
+import { footerReservePx, unitHeights } from '@/modules/workstation/paginate';
 
 /**
  * THE INVOICE DOCUMENT — the single rendering model behind the live preview,
@@ -500,15 +501,13 @@ function usePagination(ids: string[], contentHeightPx: number, doc: InvoiceDoc) 
   useLayoutEffect(() => {
     const root = measureRef.current;
     if (!root) return;
-    const heights = new Map<string, number>();
-    root.querySelectorAll<HTMLElement>('[data-block]').forEach((el) => {
-      heights.set(el.dataset.block!, el.getBoundingClientRect().height);
-    });
+    const heights = unitHeights(root, 'block');
+    const room = contentHeightPx - footerReservePx(pagesRef.current);
 
     const next: string[][] = [];
     let current: string[] = [];
     let used = 0;
-    const limit = () => (next.length === 0 ? contentHeightPx : contentHeightPx - HEAD_RESERVE_PX);
+    const limit = () => (next.length === 0 ? room : room - HEAD_RESERVE_PX);
     for (const id of ids) {
       const h = heights.get(id) ?? 0;
       if (current.length > 0 && used + h > limit()) {

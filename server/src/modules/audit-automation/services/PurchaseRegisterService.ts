@@ -69,6 +69,9 @@ async function verifyClient(organisationId: string, clientId: string) {
 export const PurchaseRegisterService = {
   async upload(input: UploadRegisterInput): Promise<UploadRegisterResult> {
     await verifyClient(input.organisationId, input.clientId)
+    if (input.bytes[0] === 0xd0 && input.bytes[1] === 0xcf) {
+      throw ApiError.unprocessable('unsupported_type', 'Old Excel (.xls) files are not supported. Save the register as .xlsx.')
+    }
     const fmt = detectFormat(input.bytes, input.originalFilename)
     if (!fmt) throw ApiError.unprocessable('unsupported_type', 'Upload a Purchase Register as Excel or Tally XML.')
 
@@ -82,19 +85,34 @@ export const PurchaseRegisterService = {
         { existing_register_id: existing.id })
     }
 
-    // Excel + no columnMap = first step, return preview only. Store the
-    // uploaded bytes in a scratch key so step 2 can re-read them.
+    // Excel + no columnMap = first step: a preview for the column mapping.
+    // Step 2 sends the same file again with the map, so nothing is kept here.
     if (fmt === 'excel' && !input.columnMap) {
-      const preview = await previewPurchaseRegister(input.bytes)
-      const scratchKey = `${input.organisationId}/${input.clientId}/gst/pr-scratch/${fileSha256}.xlsx`
-      await aaStorage.put(scratchKey, input.bytes)
-      return { register_id: null, source_format: 'excel', preview }
+      try {
+        const preview = await previewPurchaseRegister(input.bytes)
+        return { register_id: null, source_format: 'excel', preview }
+      } catch {
+        throw ApiError.unprocessable('unreadable', "This Excel file couldn't be opened. Is it password-protected or damaged?")
+      }
     }
 
-    // Parse
-    const parsed = fmt === 'excel'
-      ? await parsePurchaseRegisterExcel(input.bytes, input.columnMap!)
-      : parsePurchaseRegisterTallyXml(input.bytes)
+    // Parse — a malformed file or an incomplete column map is the user's to fix, not a 500.
+    let parsed: Awaited<ReturnType<typeof parsePurchaseRegisterExcel>>
+    try {
+      parsed = fmt === 'excel'
+        ? await parsePurchaseRegisterExcel(input.bytes, input.columnMap!)
+        : parsePurchaseRegisterTallyXml(input.bytes)
+    } catch (err) {
+      const raw = (err as Error).message || ''
+      // Only our own short codes go back to the client; anything else is a parser bug.
+      const code = /^[a-z0-9_]+$/.test(raw) ? raw : 'parse_failed'
+      if (code === 'parse_failed') console.error('[aa] purchase register parse failed:', err)
+      const msg: Record<string, string> = {
+        pr_tally_xml_invalid: "This isn't a readable Tally XML export.",
+        pr_excel_invalid: "This Excel file couldn't be read.",
+      }
+      throw ApiError.unprocessable(code, msg[code] ?? (/column/i.test(code) ? 'The column mapping is incomplete — map GSTIN, invoice number, date and taxable value.' : 'Could not read the purchase register.'))
+    }
     if (parsed.entries.length === 0) {
       throw ApiError.unprocessable('no_entries', 'The purchase register has no invoice entries.')
     }
@@ -136,6 +154,9 @@ export const PurchaseRegisterService = {
           sgst: e.sgst,
           cess: e.cess,
           glCode: e.glCode ?? null,
+          docType: e.docType ?? 'INV',
+          invoiceValue: e.invoiceValue ?? null,
+          reverseCharge: e.reverseCharge ?? false,
           rawJson: e.rawJson ?? null,
         })),
       })
@@ -159,6 +180,16 @@ export const PurchaseRegisterService = {
       source_format: fmt,
       entry_count: parsed.entries.length,
     }
+  },
+
+  /** Delete an uploaded register (not while a reconciliation uses it); its hash is released for re-upload. */
+  async remove(session: { userId: string }, organisationId: string, registerId: string, req?: Request) {
+    const r = await prisma.aaPurchaseRegister.findFirst({ where: { id: registerId, organisationId, ...alive }, include: { _count: { select: { reconJobs: true } } } })
+    if (!r) throw ApiError.notFound('No such purchase register.')
+    if (r._count.reconJobs) throw ApiError.conflict('in_use', 'Delete the reconciliations that use this purchase register first.')
+    await prisma.aaPurchaseRegister.update({ where: { id: r.id }, data: { deletedAt: new Date(), fileSha256: `${r.fileSha256}:deleted:${r.id}` } })
+    await aaStorage.delete(r.storagePath).catch(() => undefined)
+    await writeAudit({ actorUserId: session.userId, action: 'aa.gst.pr_deleted', entityType: 'AaPurchaseRegister', entityId: r.id, after: { filename: r.originalFilename }, req })
   },
 
   async listForClient(clientId: string, organisationId: string) {

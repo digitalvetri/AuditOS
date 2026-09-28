@@ -15,6 +15,7 @@ import { useToast } from '@/components/Toast';
 import { Field, Modal, fieldErrors, inputClass, textareaClass } from '@/modules/workstation/components';
 import { can } from '@/platform/rbac/can';
 import { useAuth } from '@/platform/auth/AuthContext';
+import { printDocumentOnly } from '@/modules/workstation/print';
 
 /**
  * INVOICE BUILDER — Workstation → Invoice → Create / Edit.
@@ -319,13 +320,7 @@ export function InvoiceBuilderPage() {
 
   /** §28/§34 — print the document, never the application around it. */
   function printDocument() {
-    document.documentElement.classList.add('qdoc-printing');
-    const done = () => {
-      document.documentElement.classList.remove('qdoc-printing');
-      window.removeEventListener('afterprint', done);
-    };
-    window.addEventListener('afterprint', done);
-    window.print();
+    printDocumentOnly();
   }
 
   const downloadPdf = useMutation({

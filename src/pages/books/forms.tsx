@@ -225,18 +225,25 @@ export function ItemForm({ record, onClose, onSaved }: { record?: ZRecord; onClo
     name: s(record?.name), sku: s(record?.sku), unit: s(record?.unit), product_type: s(record?.product_type || 'service'), description: s(record?.description),
     rate: s(record?.rate), purchase_rate: s(record?.purchase_rate), purchase_description: s(record?.purchase_description), tax_id: s(record?.tax_id),
     hsn_or_sac: s(record?.hsn_or_sac), account_id: s(record?.account_id), purchase_account_id: s(record?.purchase_account_id),
+    inter_tax_id: s(((record?.item_tax_preferences as ZRecord[] | undefined) ?? []).find((p) => p.tax_specification === 'inter')?.tax_id),
   });
   const [err, setErr] = useState<string | null>(null);
   const save = useSave('items', record?.item_id, onSaved);
   const set = (k: keyof typeof v) => (x: string) => setV({ ...v, [k]: x });
+  /** On edit a cleared field is sent empty — left out, Zoho would keep the old value. */
+  const clr = (x: string) => x.trim() || (record ? '' : undefined);
   const submit = () => {
     if (!v.name.trim()) return setErr('Name is required.');
     if (v.rate === '' || Number.isNaN(Number(v.rate))) return setErr('Selling price is required.');
     setErr(null);
     save.mutate({
-      name: v.name.trim(), sku: v.sku || undefined, unit: v.unit || undefined, product_type: v.product_type, description: v.description || undefined,
-      rate: Number(v.rate), purchase_rate: n(v.purchase_rate), purchase_description: v.purchase_description || undefined, tax_id: v.tax_id || undefined,
-      hsn_or_sac: gst ? v.hsn_or_sac || undefined : undefined, account_id: v.account_id || undefined, purchase_account_id: v.purchase_account_id || undefined,
+      name: v.name.trim(), sku: clr(v.sku), unit: clr(v.unit), product_type: v.product_type, description: clr(v.description),
+      rate: Number(v.rate), purchase_rate: n(v.purchase_rate), purchase_description: clr(v.purchase_description), tax_id: clr(v.tax_id),
+      hsn_or_sac: gst ? clr(v.hsn_or_sac) : undefined, account_id: v.account_id || undefined, purchase_account_id: v.purchase_account_id || undefined,
+      // Zoho picks the intra-state tax within the state and the inter-state one across states.
+      item_tax_preferences: gst && (v.tax_id || v.inter_tax_id)
+        ? [...(v.tax_id ? [{ tax_specification: 'intra', tax_id: v.tax_id }] : []), ...(v.inter_tax_id ? [{ tax_specification: 'inter', tax_id: v.inter_tax_id }] : [])]
+        : undefined,
     });
   };
   return (
@@ -249,7 +256,8 @@ export function ItemForm({ record, onClose, onSaved }: { record?: ZRecord; onClo
         {gst ? <Field label={v.product_type === 'goods' ? 'HSN code' : 'SAC code'}><TextInput value={v.hsn_or_sac} onChange={set('hsn_or_sac')} /></Field> : <div />}
         <Field label="Selling price *"><NumberInput value={v.rate} onChange={set('rate')} /></Field>
         <Field label="Sales account"><Select value={v.account_id} onChange={set('account_id')} options={income} placeholder="Zoho default" /></Field>
-        <Field label="Tax"><Select value={v.tax_id} onChange={set('tax_id')} options={taxes} placeholder="None" /></Field>
+        <Field label={gst ? 'Tax within the state' : 'Tax'}><Select value={v.tax_id} onChange={set('tax_id')} options={taxes} placeholder="None" /></Field>
+        {gst ? <Field label="Tax to other states (IGST)"><Select value={v.inter_tax_id} onChange={set('inter_tax_id')} options={taxes} placeholder="None" /></Field> : null}
         <Field label="Cost price"><NumberInput value={v.purchase_rate} onChange={set('purchase_rate')} /></Field>
         <Field label="Purchase account"><Select value={v.purchase_account_id} onChange={set('purchase_account_id')} options={expense} placeholder="Zoho default" /></Field>
       </div>
@@ -275,14 +283,40 @@ export const TXN: Record<string, TxnSpec> = {
   vendorcredits: { entity: 'vendorcredits', idField: 'vendor_credit_id', title: 'debit note', party: 'vendor', numberField: 'vendor_credit_number', numberLabel: 'Debit note #', purchase: true },
 };
 
-interface Line { line_item_id?: string; item_id: string; item_label: string; account_id: string; description: string; quantity: string; rate: string; discount: string; tax_id: string }
+interface Line {
+  line_item_id?: string; item_id: string; item_label: string; account_id: string; description: string; quantity: string; rate: string; discount: string; tax_id: string;
+  /** Line id in the source document when converting (estimate/SO → invoice, PO → bill). */
+  src_line_id?: string;
+  /** The item's GST taxes: CGST+SGST within the state, IGST across states. */
+  prefs?: { intra?: string; inter?: string };
+}
 const blankLine = (): Line => ({ item_id: '', item_label: '', account_id: '', description: '', quantity: '1', rate: '', discount: '', tax_id: '' });
-const lineAmount = (l: Line) => {
-  const gross = (Number(l.quantity) || 0) * (Number(l.rate) || 0);
-  const d = l.discount.trim();
-  const disc = d.endsWith('%') ? gross * (Number(d.slice(0, -1)) || 0) / 100 : Number(d) || 0;
-  return gross - disc;
+/** "10%" of `base`, or a flat amount. */
+const discountOf = (base: number, raw: string) => {
+  const d = raw.trim();
+  return d.endsWith('%') ? base * (Number(d.slice(0, -1)) || 0) / 100 : Number(d) || 0;
 };
+const lineGross = (l: Line) => (Number(l.quantity) || 0) * (Number(l.rate) || 0);
+const hasValue = (raw: string) => raw.trim() !== '' && Number(raw.trim().replace(/%$/, '')) !== 0;
+
+/** Zoho documents `discount_type` / `place_of_supply` only on these. */
+const DISCOUNT_TYPE_DOCS = new Set(['invoices', 'estimates', 'salesorders']);
+const PLACE_OF_SUPPLY_DOCS = new Set(['invoices', 'estimates', 'salesorders']);
+
+/** The organisation's home state code (e.g. "TN") and whether it is GST-registered. */
+function useOrgGst() {
+  const org = useOrg();
+  const q = useQuery({ queryKey: ['books', org.id, 'organization'], queryFn: () => booksApi.org(org.id).organization(), staleTime: 5 * 60_000 });
+  const address = (q.data?.address ?? {}) as ZRecord;
+  return { gst: q.data?.is_registered_for_gst === true, home: s(address.state_code).toUpperCase() };
+}
+
+/** The item's intra/inter tax for this supply; falls back to the item's single tax. */
+function taxFor(prefs: Line['prefs'], fallback: string, home: string, pos: string): string {
+  if (!prefs || (!prefs.intra && !prefs.inter)) return fallback;
+  const inter = Boolean(home && pos && pos.toUpperCase() !== home);
+  return (inter ? prefs.inter : prefs.intra) || fallback;
+}
 
 /**
  * `record` = edit that document. `prefill` = start a new document from
@@ -297,28 +331,61 @@ export function TxnEditor({ spec, record, prefill, onClose, onSaved }: { spec: T
   const taxes = useTaxOptions();
   const accounts = useAccountOptions(spec.purchase ? isExpenseAcct : isIncomeAcct);
   const items = useLookup('items', { filter_by: 'Status.Active' });
+  const { gst, home } = useOrgGst();
+  // Zoho: bills take no discount at all; purchase orders only one on the total.
+  const lineDiscountOk = !spec.purchase;
+  const headDiscountOk = !spec.purchase || spec.entity === 'purchaseorders';
+  const itemLevelSource = s(src?.discount_type) === 'item_level';
   const [head, setHead] = useState({
     party: s(src?.[partyId]), partyLabel: s(src?.[partyName]),
     number: record ? s(record[spec.numberField]) : '', reference: record ? s(record.reference_number) : s(prefill?.estimate_number ?? prefill?.salesorder_number ?? prefill?.reference_number),
     date: record ? s(record.date) : today(), second: record && spec.secondDate ? s(record[spec.secondDate.field]) : '',
-    discount: s(src?.discount_percent ? `${src.discount_percent}%` : src?.discount || ''), notes: s(src?.notes), terms: s(src?.terms),
+    discount: itemLevelSource ? '' : s(src?.discount_percent ? `${src.discount_percent}%` : src?.discount || ''), notes: s(src?.notes), terms: s(src?.terms),
+    pos: s(src?.place_of_supply).toUpperCase(),
   });
   const [lines, setLines] = useState<Line[]>(() => {
     const ls = (src?.line_items as ZRecord[] | undefined) ?? [];
     return ls.length ? ls.map((l) => ({
-      line_item_id: record ? s(l.line_item_id) : undefined, item_id: s(l.item_id), item_label: s(l.name), account_id: s(l.account_id), description: s(l.description),
-      quantity: s(l.quantity ?? 1), rate: s(l.rate), discount: s(l.discount || ''), tax_id: s(l.tax_id),
+      line_item_id: record ? s(l.line_item_id) : undefined, src_line_id: prefill ? s(l.line_item_id) : undefined,
+      item_id: s(l.item_id), item_label: s(l.name), account_id: s(l.account_id), description: s(l.description),
+      quantity: s(l.quantity ?? 1), rate: s(l.rate), discount: lineDiscountOk ? s(l.discount || '') : '', tax_id: s(l.tax_id),
     })) : [blankLine()];
   });
   const [err, setErr] = useState<string | null>(null);
   const save = useSave(spec.entity, record ? String(record[spec.idField]) : undefined, onSaved);
-  const setL = (i: number, patch: Partial<Line>) => setLines(lines.map((l, j) => (j === i ? { ...l, ...patch } : l)));
+  const setL = (i: number, patch: Partial<Line>) => setLines((ls) => ls.map((l, j) => (j === i ? { ...l, ...patch } : l)));
   const itemOptions = (items.data?.items ?? []).map((x) => ({ value: String(x.item_id), label: x.name }));
+
+  // The list row has one tax; the intra/inter pair is only on the item itself.
   const pickItem = (i: number, id: string) => {
     const it = (items.data?.items ?? []).find((x) => String(x.item_id) === id);
-    setL(i, { item_id: id, item_label: it?.name ?? '', description: it ? s(spec.purchase ? it.purchase_description || it.description : it.description) : lines[i].description, rate: it ? s(spec.purchase ? it.purchase_rate ?? it.rate : it.rate) : lines[i].rate, tax_id: it ? s(it.tax_id) : lines[i].tax_id });
+    setL(i, { item_id: id, item_label: it?.name ?? '', prefs: undefined, description: it ? s(spec.purchase ? it.purchase_description || it.description : it.description) : lines[i].description, rate: it ? s(spec.purchase ? it.purchase_rate ?? it.rate : it.rate) : lines[i].rate, tax_id: it ? s(it.tax_id) : lines[i].tax_id });
+    if (!gst || !id) return;
+    void booksApi.org(org.id).get('items', id).then((full) => {
+      const ps = (full.item_tax_preferences as ZRecord[] | undefined) ?? [];
+      const prefs = { intra: s(ps.find((p) => p.tax_specification === 'intra')?.tax_id), inter: s(ps.find((p) => p.tax_specification === 'inter')?.tax_id) };
+      setLines((ls) => ls.map((l, j) => (j === i && l.item_id === id ? { ...l, prefs, tax_id: taxFor(prefs, l.tax_id, home, head.pos) } : l)));
+    }).catch(() => undefined);
   };
+  // A new place of supply re-picks the tax on lines that still carry the item's own tax.
+  const setPos = (pos: string) => {
+    const p = pos.toUpperCase().slice(0, 2);
+    setHead((h) => ({ ...h, pos: p }));
+    setLines((ls) => ls.map((l) => (l.prefs && [l.prefs.intra, l.prefs.inter].includes(l.tax_id) ? { ...l, tax_id: taxFor(l.prefs, l.tax_id, home, p) } : l)));
+  };
+  const pickParty = (id: string, r: ZRecord | null) => {
+    setHead((h) => ({ ...h, party: id, partyLabel: r?.contact_name ?? '' }));
+    if (!gst || !id) return;
+    // place_of_contact is on the contact itself, not in the picker's list rows.
+    void booksApi.org(org.id).get(spec.party === 'customer' ? 'customers' : 'vendors', id).then((c) => { if (c.place_of_contact) setPos(s(c.place_of_contact)); }).catch(() => undefined);
+  };
+
+  const lineAmount = (l: Line) => lineGross(l) - (lineDiscountOk ? discountOf(lineGross(l), l.discount) : 0);
+  const itemLevel = lineDiscountOk && lines.some((l) => hasValue(l.discount));
   const subtotal = lines.reduce((t, l) => t + lineAmount(l), 0);
+  const headDiscount = headDiscountOk && !itemLevel ? discountOf(subtotal, head.discount) : 0;
+  const interState = gst && Boolean(home && head.pos && head.pos !== home);
+  const inclusive = src?.is_inclusive_tax === true;
 
   const submit = () => {
     if (!head.party) return setErr(`Choose a ${spec.party}.`);
@@ -333,15 +400,31 @@ export function TxnEditor({ spec, record, prefill, onClose, onSaved }: { spec: T
       if (spec.purchase && !l.item_id && !l.account_id) return setErr('A purchase line without an item needs an account.');
     }
     if (head.second && head.second < head.date) return setErr(`${spec.secondDate?.label} cannot be before the date.`);
+    if (gst && head.pos && !/^[A-Z]{2}$/.test(head.pos)) return setErr('Place of supply is a two-letter state code, e.g. TN or KA.');
     setErr(null);
+    // On edit, a field left out of the PUT keeps its old value in Zoho — so a
+    // cleared field is sent empty, not dropped.
+    const cleared = (v: string, empty: string | number) => (v.trim() === '' ? (record ? empty : undefined) : v);
+    const anyDiscount = itemLevel || hasValue(head.discount);
     const body: ZRecord = {
-      [partyId]: head.party, date: head.date, reference_number: head.reference || undefined, notes: head.notes || undefined, terms: head.terms || undefined,
-      discount: head.discount || undefined,
+      [partyId]: head.party, date: head.date,
+      reference_number: cleared(head.reference, ''), notes: cleared(head.notes, ''), terms: cleared(head.terms, ''),
+      discount: headDiscountOk ? (itemLevel ? (record ? 0 : undefined) : cleared(head.discount, 0)) : undefined,
       line_items: used.map((l) => ({
         line_item_id: l.line_item_id, item_id: l.item_id || undefined, account_id: l.account_id || undefined, name: l.item_id ? undefined : l.description.slice(0, 100),
-        description: l.description || undefined, quantity: Number(l.quantity), rate: Number(l.rate), discount: l.discount || undefined, tax_id: l.tax_id || undefined,
+        description: cleared(l.description, ''), quantity: Number(l.quantity), rate: Number(l.rate),
+        discount: lineDiscountOk ? cleared(l.discount, 0) : undefined, tax_id: cleared(l.tax_id, ''),
+        // Source links, so the estimate / sales order / PO shows as invoiced or billed.
+        ...(prefill && l.src_line_id && spec.entity === 'invoices' && prefill.salesorder_id ? { salesorder_item_id: l.src_line_id } : {}),
+        ...(prefill && l.src_line_id && spec.entity === 'bills' && prefill.purchaseorder_id ? { purchaseorder_item_id: l.src_line_id } : {}),
       })),
     };
+    if (DISCOUNT_TYPE_DOCS.has(spec.entity) && (anyDiscount || record)) body.discount_type = itemLevel ? 'item_level' : 'entity_level';
+    if (headDiscountOk && anyDiscount) body.is_discount_before_tax = true;
+    if (gst && PLACE_OF_SUPPLY_DOCS.has(spec.entity) && head.pos) body.place_of_supply = head.pos;
+    if (typeof src?.is_inclusive_tax === 'boolean') body.is_inclusive_tax = src.is_inclusive_tax;
+    if (prefill && spec.entity === 'invoices' && prefill.estimate_id && !prefill.salesorder_id) body.invoiced_estimate_id = prefill.estimate_id;
+    if (prefill && spec.entity === 'bills' && prefill.purchaseorder_id) body.purchaseorder_ids = [prefill.purchaseorder_id];
     if (head.number.trim()) body[spec.numberField] = head.number.trim();
     if (spec.secondDate && head.second) body[spec.secondDate.field] = head.second;
     save.mutate(body);
@@ -351,12 +434,17 @@ export function TxnEditor({ spec, record, prefill, onClose, onSaved }: { spec: T
     <FormModal title={`${record ? 'Edit' : 'New'} ${spec.title}`} onClose={onClose} onSubmit={submit} saving={save.isPending} error={err ?? save.error} wide>
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
         <Field label={`${spec.party === 'customer' ? 'Customer' : 'Vendor'} *`} className="sm:col-span-2">
-          <ContactPicker kind={spec.party} value={head.party} label={head.partyLabel} onChange={(id, r) => setHead({ ...head, party: id, partyLabel: r?.contact_name ?? '' })} disabled={Boolean(record)} />
+          <ContactPicker kind={spec.party} value={head.party} label={head.partyLabel} onChange={pickParty} disabled={Boolean(record)} />
         </Field>
         <Field label={`${spec.numberLabel}${spec.numberRequired ? ' *' : ''}`} hint={spec.numberRequired ? undefined : 'Leave blank for Zoho’s next number'}><TextInput value={head.number} onChange={(x) => setHead({ ...head, number: x })} /></Field>
         <Field label="Reference #"><TextInput value={head.reference} onChange={(x) => setHead({ ...head, reference: x })} /></Field>
         <Field label="Date *"><TextInput type="date" value={head.date} onChange={(x) => setHead({ ...head, date: x })} /></Field>
         {spec.secondDate ? <Field label={spec.secondDate.label}><TextInput type="date" value={head.second} onChange={(x) => setHead({ ...head, second: x })} /></Field> : null}
+        {gst && PLACE_OF_SUPPLY_DOCS.has(spec.entity) ? (
+          <Field label="Place of supply" hint={interState ? `Inter-state (${home} → ${head.pos}): IGST applies` : home ? `State code; ${home} is intra-state` : 'Two-letter state code, e.g. TN'}>
+            <TextInput value={head.pos} onChange={setPos} placeholder="TN" />
+          </Field>
+        ) : null}
       </div>
 
       <div className="overflow-x-auto border border-border rounded">
@@ -367,7 +455,7 @@ export function TxnEditor({ spec, record, prefill, onClose, onSaved }: { spec: T
             <th className="text-left px-2 font-medium">Description</th>
             <th className="text-right px-2 font-medium w-20">Qty</th>
             <th className="text-right px-2 font-medium w-28">Rate</th>
-            <th className="text-right px-2 font-medium w-24">Discount</th>
+            {lineDiscountOk ? <th className="text-right px-2 font-medium w-24">Discount</th> : null}
             <th className="text-left px-2 font-medium w-36">Tax</th>
             <th className="text-right px-2 font-medium w-28">Amount</th>
             <th className="w-8" />
@@ -380,7 +468,11 @@ export function TxnEditor({ spec, record, prefill, onClose, onSaved }: { spec: T
                 <td className="p-1"><TextInput value={l.description} onChange={(v) => setL(i, { description: v })} /></td>
                 <td className="p-1"><NumberInput value={l.quantity} onChange={(v) => setL(i, { quantity: v })} /></td>
                 <td className="p-1"><NumberInput value={l.rate} onChange={(v) => setL(i, { rate: v })} /></td>
-                <td className="p-1"><NumberInput value={l.discount} onChange={(v) => setL(i, { discount: v })} placeholder="0 or 10%" /></td>
+                {lineDiscountOk ? (
+                  <td className="p-1" title={hasValue(head.discount) ? 'Clear the discount on the total to discount lines' : undefined}>
+                    <NumberInput value={l.discount} onChange={(v) => setL(i, { discount: v })} placeholder="0 or 10%" disabled={hasValue(head.discount)} />
+                  </td>
+                ) : null}
                 <td className="p-1"><Select value={l.tax_id} onChange={(v) => setL(i, { tax_id: v })} options={taxes} placeholder="None" /></td>
                 <td className="p-1 pt-2.5 text-right text-13 tabular-nums">{money(lineAmount(l))}</td>
                 <td className="p-1 pt-2"><button type="button" aria-label="Remove line" className="text-inkMuted hover:text-danger disabled:opacity-30" disabled={lines.length === 1} onClick={() => setLines(lines.filter((_, j) => j !== i))}><Trash2 size={15} /></button></td>
@@ -393,9 +485,15 @@ export function TxnEditor({ spec, record, prefill, onClose, onSaved }: { spec: T
         <Btn variant="ghost" onClick={() => setLines([...lines, blankLine()])}><Plus size={14} />Add line</Btn>
         <div className="flex-1" />
         <div className="w-full sm:w-72 space-y-2">
-          <Field label="Discount on total" hint="Amount or percentage, e.g. 5%"><NumberInput value={head.discount} onChange={(x) => setHead({ ...head, discount: x })} /></Field>
-          <div className="flex justify-between text-13"><span className="text-inkMuted">Sub-total before tax</span><span className="tabular-nums">{money(subtotal, org.currency_code)}</span></div>
-          <p className="text-12 text-inkMuted">Tax, rounding and the final total are calculated by Zoho Books when saved.</p>
+          {headDiscountOk ? (
+            <Field label="Discount on total" hint={itemLevel ? 'Lines have discounts — Zoho takes one or the other' : 'Amount or percentage, e.g. 5%'}>
+              <NumberInput value={itemLevel ? '' : head.discount} onChange={(x) => setHead({ ...head, discount: x })} disabled={itemLevel} />
+            </Field>
+          ) : null}
+          <div className="flex justify-between text-13"><span className="text-inkMuted">Sub-total</span><span className="tabular-nums">{money(subtotal, org.currency_code)}</span></div>
+          {headDiscount ? <div className="flex justify-between text-13"><span className="text-inkMuted">Discount</span><span className="tabular-nums">−{money(headDiscount, org.currency_code)}</span></div> : null}
+          {headDiscount ? <div className="flex justify-between text-13 font-medium"><span>After discount, before tax</span><span className="tabular-nums">{money(subtotal - headDiscount, org.currency_code)}</span></div> : null}
+          <p className="text-12 text-inkMuted">{inclusive ? 'Rates include tax. ' : ''}Tax, rounding and the final total are calculated by Zoho Books when saved.</p>
         </div>
       </div>
       <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
@@ -413,7 +511,7 @@ export function ExpenseForm({ record, onClose, onSaved }: { record?: ZRecord; on
   const paid = useAccountOptions(isCashAcct);
   const taxes = useTaxOptions();
   const [v, setV] = useState({
-    account_id: s(record?.account_id), date: s(record?.date) || today(), amount: s(record?.total ?? record?.amount), paid_through_account_id: s(record?.paid_through_account_id),
+    account_id: s(record?.account_id), date: s(record?.date) || today(), amount: s(record?.amount ?? record?.total), is_inclusive_tax: record?.is_inclusive_tax === true, paid_through_account_id: s(record?.paid_through_account_id),
     vendor_id: s(record?.vendor_id), vendor_label: s(record?.vendor_name), customer_id: s(record?.customer_id), customer_label: s(record?.customer_name),
     is_billable: Boolean(record?.is_billable), tax_id: s(record?.tax_id), reference_number: s(record?.reference_number), description: s(record?.description),
   });
@@ -432,9 +530,10 @@ export function ExpenseForm({ record, onClose, onSaved }: { record?: ZRecord; on
     if (!v.paid_through_account_id) return setErr('Choose the account it was paid through.');
     setErr(null);
     save.mutate({
-      account_id: v.account_id, date: v.date, amount: Number(v.amount), paid_through_account_id: v.paid_through_account_id,
-      vendor_id: v.vendor_id || undefined, customer_id: v.customer_id || undefined, is_billable: v.customer_id ? v.is_billable : undefined,
-      tax_id: v.tax_id || undefined, reference_number: v.reference_number || undefined, description: v.description || undefined,
+      // `total` already has the tax in it; sending it back as `amount` taxed it again on every edit.
+      account_id: v.account_id, date: v.date, amount: Number(v.amount), is_inclusive_tax: v.tax_id ? v.is_inclusive_tax : undefined, paid_through_account_id: v.paid_through_account_id,
+      vendor_id: v.vendor_id || (record ? '' : undefined), customer_id: v.customer_id || (record ? '' : undefined), is_billable: v.customer_id ? v.is_billable : undefined,
+      tax_id: v.tax_id || (record ? '' : undefined), reference_number: v.reference_number || (record ? '' : undefined), description: v.description || (record ? '' : undefined),
     });
   };
   return (
@@ -444,7 +543,9 @@ export function ExpenseForm({ record, onClose, onSaved }: { record?: ZRecord; on
         <Field label="Date *"><TextInput type="date" value={v.date} onChange={(x) => setV({ ...v, date: x })} /></Field>
         <Field label="Amount *"><NumberInput value={v.amount} onChange={(x) => setV({ ...v, amount: x })} /></Field>
         <Field label="Paid through *"><Select value={v.paid_through_account_id} onChange={(x) => setV({ ...v, paid_through_account_id: x })} options={paid} placeholder="—" /></Field>
-        <Field label="Tax"><Select value={v.tax_id} onChange={(x) => setV({ ...v, tax_id: x })} options={taxes} placeholder="None" /></Field>
+        <Field label="Tax" hint={v.tax_id ? <label className="inline-flex items-center gap-1.5"><input type="checkbox" checked={v.is_inclusive_tax} onChange={(e) => setV({ ...v, is_inclusive_tax: e.target.checked })} />Amount includes tax</label> : undefined}>
+          <Select value={v.tax_id} onChange={(x) => setV({ ...v, tax_id: x })} options={taxes} placeholder="None" />
+        </Field>
         <Field label="Reference #"><TextInput value={v.reference_number} onChange={(x) => setV({ ...v, reference_number: x })} /></Field>
         <Field label="Vendor"><ContactPicker kind="vendor" value={v.vendor_id} label={v.vendor_label} onChange={(id, r) => setV({ ...v, vendor_id: id, vendor_label: r?.contact_name ?? '' })} /></Field>
         <Field label="Customer (to bill)"><ContactPicker kind="customer" value={v.customer_id} label={v.customer_label} onChange={(id, r) => setV({ ...v, customer_id: id, customer_label: r?.contact_name ?? '' })} /></Field>
@@ -463,6 +564,24 @@ const MODES = ['Cash', 'Bank Transfer', 'Cheque', 'Credit Card', 'UPI', 'Bank Re
  * Record a customer payment (applied to invoices) or a vendor payment
  * (applied to bills). `against` pre-selects one document to settle.
  */
+
+/**
+ * A party's invoices or bills that still have something to pay. One Zoho
+ * status filter misses some (Status.Unpaid / Status.Open leave out overdue
+ * and part-paid ones), so each status is fetched and merged, as the
+ * dashboard's ageing does. Up to 200 per status.
+ */
+const OPEN_FILTERS = { invoices: ['Status.Unpaid', 'Status.PartiallyPaid', 'Status.OverDue'], bills: ['Status.Open', 'Status.PartiallyPaid', 'Status.Overdue'] } as const;
+async function listOpenDocs(orgId: string, docKey: 'invoices' | 'bills', partyField: string, party: string): Promise<ZRecord[]> {
+  const idField = docKey === 'invoices' ? 'invoice_id' : 'bill_id';
+  const pages = await Promise.all(OPEN_FILTERS[docKey].map((filter_by) => booksApi.org(orgId).list(docKey, { [partyField]: party, filter_by, per_page: 200 })));
+  const seen = new Map<string, ZRecord>();
+  for (const d of pages.flatMap((p) => p.items as ZRecord[])) {
+    if (Number(d.balance) > 0 && d.status !== 'draft' && d.status !== 'void') seen.set(String(d[idField]), d);
+  }
+  return [...seen.values()].sort((a, b) => String(a.date ?? '').localeCompare(String(b.date ?? '')));
+}
+
 export function PaymentForm({ side, record, against, onClose, onSaved }: { side: 'customer' | 'vendor'; record?: ZRecord; against?: ZRecord; onClose: () => void; onSaved: (r: ZRecord) => void }) {
   const org = useOrg();
   const cust = side === 'customer';
@@ -482,12 +601,22 @@ export function PaymentForm({ side, record, against, onClose, onSaved }: { side:
     for (const d of (record?.[docKey] as ZRecord[] | undefined) ?? []) out[String(d[docId])] = s(d.amount_applied);
     return out;
   });
+  // TDS the customer deducted, per invoice (Zoho: invoices[].tax_amount_withheld).
+  const [withheld, setWithheld] = useState<Record<string, string>>(() => {
+    const out: Record<string, string> = {};
+    for (const d of (record?.[docKey] as ZRecord[] | undefined) ?? []) if (Number(d.tax_amount_withheld) > 0) out[String(d[docId])] = s(d.tax_amount_withheld);
+    return out;
+  });
   const open = useQuery({
     queryKey: ['books', org.id, 'open-docs', docKey, v.party],
-    queryFn: () => booksApi.org(org.id).list(docKey, { [partyField]: v.party, filter_by: cust ? 'Status.Unpaid' : 'Status.Open', per_page: 100 }),
+    queryFn: () => listOpenDocs(org.id, docKey, partyField, v.party),
     enabled: Boolean(v.party) && !record,
   });
-  const docs = record ? ((record[docKey] as ZRecord[] | undefined) ?? []) : (open.data?.items ?? []).filter((d) => Number(d.balance) > 0);
+  // On edit, the applied documents come from the payment itself; their
+  // outstanding amount is `balance_amount` there, not `balance`.
+  const docs = record
+    ? ((record[docKey] as ZRecord[] | undefined) ?? []).map((d): ZRecord => ({ ...d, balance: d.balance ?? d.balance_amount }))
+    : (open.data ?? []);
   const totalApplied = Object.values(applied).reduce((t, x) => t + (Number(x) || 0), 0);
   const [err, setErr] = useState<string | null>(null);
   const save = useSave(cust ? 'customerpayments' : 'vendorpayments', record?.payment_id, onSaved);
@@ -495,11 +624,17 @@ export function PaymentForm({ side, record, against, onClose, onSaved }: { side:
     if (!v.party) return setErr(`Choose a ${side}.`);
     if (!(Number(v.amount) > 0)) return setErr('Amount must be above zero.');
     if (totalApplied > Number(v.amount) + 0.001) return setErr('Amounts applied cannot exceed the payment amount.');
+    for (const d of docs) {
+      const id = String(d[docId]);
+      if ((Number(applied[id]) || 0) + (Number(withheld[id]) || 0) > Number(d.balance) + 0.001) return setErr(`Payment plus TDS on ${String(d[docNo])} is more than its balance.`);
+    }
     setErr(null);
     const body: ZRecord = {
       [partyField]: v.party, amount: Number(v.amount), date: v.date, payment_mode: v.payment_mode, reference_number: v.reference_number || undefined, description: v.description || undefined,
       [cust ? 'account_id' : 'paid_through_account_id']: v.account || undefined,
-      [docKey]: Object.entries(applied).filter(([, a]) => Number(a) > 0).map(([id, a]) => ({ [docId]: id, amount_applied: Number(a) })),
+      [docKey]: [...new Set([...Object.keys(applied), ...Object.keys(withheld)])]
+        .filter((id) => Number(applied[id]) > 0 || Number(withheld[id]) > 0)
+        .map((id) => ({ [docId]: id, amount_applied: Number(applied[id]) || 0, ...(cust && Number(withheld[id]) > 0 ? { tax_amount_withheld: Number(withheld[id]) } : {}) })),
     };
     save.mutate(body);
   };
@@ -516,17 +651,18 @@ export function PaymentForm({ side, record, against, onClose, onSaved }: { side:
       {v.party ? (
         <div className="border border-border rounded overflow-x-auto">
           <table className="w-full min-w-[560px]">
-            <thead><tr className="border-b border-border text-11 uppercase tracking-[0.06em] text-inkMuted"><th className="text-left px-3 h-8 font-medium">{cust ? 'Invoice' : 'Bill'}</th><th className="text-left px-3 font-medium">Date</th><th className="text-right px-3 font-medium">Balance</th><th className="text-right px-3 font-medium w-40">Apply</th></tr></thead>
+            <thead><tr className="border-b border-border text-11 uppercase tracking-[0.06em] text-inkMuted"><th className="text-left px-3 h-8 font-medium">{cust ? 'Invoice' : 'Bill'}</th><th className="text-left px-3 font-medium">Date</th><th className="text-right px-3 font-medium">Balance</th><th className="text-right px-3 font-medium w-40">Apply</th>{cust ? <th className="text-right px-3 font-medium w-32">TDS deducted</th> : null}</tr></thead>
             <tbody>
-              {open.isLoading ? <tr><td colSpan={4} className="px-3 py-2 text-12 text-inkMuted">Loading open {docKey}…</td></tr> : null}
+              {open.isLoading ? <tr><td colSpan={cust ? 5 : 4} className="px-3 py-2 text-12 text-inkMuted">Loading open {docKey}…</td></tr> : null}
               {docs.map((d) => (
                 <tr key={d[docId]} className="border-b border-border last:border-b-0">
                   <td className="px-3 py-1 text-13">{d[docNo]}</td><td className="px-3 text-13 text-inkMuted">{d.date}</td>
                   <td className="px-3 text-right text-13 tabular-nums">{money(d.balance, d.currency_code ?? org.currency_code)}</td>
                   <td className="px-3 py-1"><NumberInput value={applied[String(d[docId])] ?? ''} onChange={(x) => setApplied({ ...applied, [String(d[docId])]: x })} /></td>
+                  {cust ? <td className="px-3 py-1"><NumberInput value={withheld[String(d[docId])] ?? ''} onChange={(x) => setWithheld({ ...withheld, [String(d[docId])]: x })} placeholder="0" /></td> : null}
                 </tr>
               ))}
-              {!open.isLoading && docs.length === 0 ? <tr><td colSpan={4} className="px-3 py-2 text-12 text-inkMuted">No open {docKey}; the payment is recorded as an advance.</td></tr> : null}
+              {!open.isLoading && docs.length === 0 ? <tr><td colSpan={cust ? 5 : 4} className="px-3 py-2 text-12 text-inkMuted">No open {docKey}; the payment is recorded as an advance.</td></tr> : null}
             </tbody>
           </table>
           <div className="px-3 py-2 text-12 text-inkMuted text-right">Applied {money(totalApplied, org.currency_code)} of {money(Number(v.amount) || 0, org.currency_code)}</div>
@@ -629,7 +765,7 @@ export function ApplyCreditForm({ entity, record, onClose, onDone }: { entity: '
   const docKey = cust ? 'invoices' : 'bills';
   const docId = cust ? 'invoice_id' : 'bill_id';
   const party = cust ? record.customer_id : record.vendor_id;
-  const open = useQuery({ queryKey: ['books', org.id, 'open-docs', docKey, party], queryFn: () => booksApi.org(org.id).list(docKey, { [cust ? 'customer_id' : 'vendor_id']: party, filter_by: cust ? 'Status.Unpaid' : 'Status.Open', per_page: 100 }) });
+  const open = useQuery({ queryKey: ['books', org.id, 'open-docs', docKey, party], queryFn: () => listOpenDocs(org.id, docKey, cust ? 'customer_id' : 'vendor_id', String(party)) });
   const [applied, setApplied] = useState<Record<string, string>>({});
   const available = Number(record.balance ?? record.total ?? 0);
   const total = Object.values(applied).reduce((t, x) => t + (Number(x) || 0), 0);
@@ -637,7 +773,7 @@ export function ApplyCreditForm({ entity, record, onClose, onDone }: { entity: '
     mutationFn: () => booksApi.org(org.id).action(entity, String(record[cust ? 'creditnote_id' : 'vendor_credit_id']), 'apply', { [docKey]: Object.entries(applied).filter(([, a]) => Number(a) > 0).map(([id, a]) => ({ [docId]: id, amount_applied: Number(a) })) }),
     onSuccess: () => { void qc.invalidateQueries({ queryKey: ['books', org.id] }); toast.push('success', 'Credit applied in Zoho Books.'); onDone(); },
   });
-  const docs = (open.data?.items ?? []).filter((d) => Number(d.balance) > 0);
+  const docs = open.data ?? [];
   return (
     <FormModal title={`Apply ${cust ? 'credit note' : 'debit note'}`} onClose={onClose} onSubmit={() => (total > available + 0.001 ? undefined : m.mutate())} saving={m.isPending} error={total > available + 0.001 ? 'Applied amount exceeds the available credit.' : m.error}>
       <p className="text-13 text-inkMuted">Available credit: {money(available, record.currency_code ?? org.currency_code)}</p>

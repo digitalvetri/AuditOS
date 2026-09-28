@@ -1143,6 +1143,13 @@ model Client {
   eInvoiceEwbProfile  EInvoiceEwbProfile?
   eInvoiceIrns        EInvoiceIrn[]
   eInvoiceEwbPulls    EInvoiceEwbPullRun[]
+  bkEngagement        BookkeepingEngagement?
+  bkTasks             BookkeepingTask[]
+  bkPendingItems      BookkeepingPendingItem[]
+  bkDocumentRequests  BookkeepingDocumentRequest[]
+  bkDeliverables      BookkeepingDeliverable[]
+  bkActivities        BookkeepingActivity[]
+  bkImports           BookkeepingImport[]
   registrations       ClientRegistration[]
   incCases            IncorporationCase[]
   pfrCases            PartnershipCase[]
@@ -1446,6 +1453,8 @@ model ClientDocument {
   client              Client                         @relation(fields: [clientId], references: [id])
   category            DocumentCategory               @relation(fields: [categoryId], references: [id])
   versions            ClientDocumentVersion[]
+  bkDocumentRequests  BookkeepingDocumentRequest[]
+  bkDeliverables      BookkeepingDeliverable[]
   incDocumentRequests IncorporationDocumentRequest[]
   pfrRequirements     PartnershipDocRequirement[]
   incFilings          IncorporationFiling[]
@@ -2728,6 +2737,8 @@ model AaSourceDocument {
   encrypted         Boolean @default(false)
   /// "Page N of M" M value where the footer was found; null otherwise.
   declaredPageCount Int?
+  /// pdf | xlsx | csv
+  sourceFormat      String  @default("pdf")
 
   organisation Organisation  @relation(fields: [organisationId], references: [id])
   client       Client        @relation(fields: [clientId], references: [id])
@@ -2770,6 +2781,23 @@ model AaJob {
   startedAt        DateTime?
   completedAt      DateTime?
 
+  /// Financial year the statement was filed under ("2026-27").
+  fy                  String?
+  /// Statement period and balances, as read from the rows.
+  periodFrom          String?
+  periodTo            String?
+  openingBalancePaise BigInt?
+  closingBalancePaise BigInt?
+  rowCount            Int     @default(0)
+  /// pending → approved (reviewed, ready for Tally)
+  reviewStatus        String  @default("pending")
+  approvedByUserId    String?
+  approvedAt          DateTime?
+  /// The bank's ledger name in Tally (e.g. "HDFC Bank A/c 1234").
+  bankLedgerName      String?
+
+  transactions   AaBankTxn[]
+  exports        AaExport[]
   sourceDocument AaSourceDocument @relation(fields: [sourceDocumentId], references: [id])
   organisation   Organisation     @relation(fields: [organisationId], references: [id])
   client         Client           @relation(fields: [clientId], references: [id])
@@ -2845,6 +2873,16 @@ model AaGstFiling2BEntry {
   cess          Int     @default(0)
   /// GSTN's own "ITC Available" flag from the 2B row.
   itcAvailable  Boolean @default(true)
+  /// INV | CRN (credit note) | DBN (debit note) | BOE (import) | ISD
+  docType               String  @default("INV")
+  /// Invoice value incl. tax (2B `val`), paise.
+  invoiceValue          Int?
+  /// Reverse charge (2B `rev` = Y): ITC only once the tax is paid.
+  reverseCharge         Boolean @default(false)
+  /// Amendments (B2BA/CDNRA): the invoice this one replaces.
+  originalInvoiceNumber String?
+  /// GSTN's reason when ITC is not available (2B `rsn`).
+  itcReason             String?
   /// Original source row as JSON so we can re-parse later if needed.
   rawJson       String?
 
@@ -2903,6 +2941,9 @@ model AaPurchaseRegisterEntry {
   cess          Int     @default(0)
   /// Ledger / GL code from the register (optional).
   glCode        String?
+  invoiceValue          Int?
+  reverseCharge         Boolean @default(false)
+  docType               String  @default("INV")
   rawJson       String?
 
   register  AaPurchaseRegister @relation(fields: [registerId], references: [id])
@@ -2927,6 +2968,10 @@ model AaGstReconJob {
   partialCount       Int       @default(0)
   only2BCount        Int       @default(0)
   onlyPRCount        Int       @default(0)
+  varianceCount      Int       @default(0)
+  duplicateCount     Int       @default(0)
+  /// CSV: PERIOD_MISMATCH, INVALID_GSTINS…
+  flags              String    @default("")
   /// { matched: {taxable, igst, cgst, sgst, cess}, partial: {...}, only_2b: {...}, only_pr: {...} } — paise.
   totalsJson         String?
   errorMessage       String?
@@ -2962,6 +3007,10 @@ model AaGstReconRow {
   mismatchFields          String    @default("")
   /// eligible | ineligible | reversal | blocked (auditor-overridable).
   itcClassification       String    @default("eligible")
+  /// Why the ITC class was chosen (rule text, or the reviewer's).
+  itcReason               String?
+  /// exact | invoice | invoice_loose | amount_date | manual
+  matchMethod             String?
   auditorNote             String?
   reviewedByUserId        String?
   reviewedAt              DateTime?
@@ -3001,6 +3050,9 @@ model AaTds26AS {
   storagePath       String
   /// From the 26AS header (View As on date / Generated on).
   tracesGeneratedAt DateTime?
+  /// Financial year and assessee name as printed in the 26AS header (e.g. "2025-26").
+  financialYear     String?
+  assesseeName      String?
 
   organisation Organisation     @relation(fields: [organisationId], references: [id])
   client       Client           @relation(fields: [clientId], references: [id])
@@ -3036,8 +3088,13 @@ model AaTds26ASEntry {
   tdsAmount    Int     @default(0)
   /// Date TDS was deducted / booked (YYYY-MM-DD, IST calendar).
   tdsDate      String
-  /// TRACES status (Booked / Provisional / etc.), free text.
+  /// TRACES status of booking: F (final) | P (provisional) | U (unmatched) | O (overbooked) | Z (mismatched) | M (matched).
   status       String?
+  /// Date the deductor's statement was booked against the challan (YYYY-MM-DD).
+  bookingDate  String?
+  /// TDS actually deposited by the deductor — paise. Less than tdsAmount means a short deposit.
+  tdsDeposited Int     @default(0)
+  remarks      String?
   rawJson      String?
 
   filing    AaTds26AS       @relation(fields: [filingId], references: [id])
@@ -3090,6 +3147,10 @@ model AaTdsBooksEntry {
   tdsAmount    Int     @default(0)
   tdsDate      String
   glCode       String?
+  /// Voucher / invoice number in the books.
+  reference    String?
+  /// Tally voucher type or the Excel "type" column (Receipt, Sales, Journal…).
+  voucherType  String?
   rawJson      String?
 
   books     AaTdsBooks      @relation(fields: [booksId], references: [id])
@@ -3114,6 +3175,8 @@ model AaTdsReconJob {
   varianceCount   Int       @default(0)
   only26ASCount   Int       @default(0)
   onlyBooksCount  Int       @default(0)
+  /// Comma-separated job-level warnings: AY_MISMATCH | BOOKS_OUT_OF_YEAR | TAN_FROM_NAME | UNBOOKED_CREDITS | SHORT_DEPOSITS.
+  flags           String    @default("")
   /// { verified: { amount_paid, tds_amount, count }, variance: {...}, ... } — paise.
   totalsJson      String?
   errorMessage    String?
@@ -3135,6 +3198,53 @@ model AaTdsReconJob {
   @@index([createdAt])
 }
 
+/// Follow-up with one deductor for one client and assessment year — kept
+/// across re-runs and deletions of the reconciliation it was raised from.
+model AaTdsDeductorFollowUp {
+  id              String   @id @default(uuid())
+  organisationId  String
+  clientId        String
+  assessmentYear  Int
+  /// TAN, or "NAME:<normalised name>" when the books carry no TAN.
+  deductorKey     String
+  deductorTan     String?
+  deductorName    String?
+  /// open | contacted | promised | resolved | written_off
+  status          String   @default("open")
+  /// YYYY-MM-DD — next follow-up / promised correction date.
+  dueDate         String?
+  contactEmail    String?
+  contactPhone    String?
+  note            String?
+  lastContactedAt DateTime?
+  updatedByUserId String?
+
+  events AaTdsFollowUpEvent[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([clientId, assessmentYear, deductorKey])
+  @@index([organisationId, clientId])
+}
+
+/// One entry in a deductor follow-up's history.
+model AaTdsFollowUpEvent {
+  id         String   @id @default(uuid())
+  followUpId String
+  userId     String
+  /// status | note | contacted | due_date
+  kind       String
+  fromStatus String?
+  toStatus   String?
+  note       String?
+  createdAt  DateTime @default(now())
+
+  followUp AaTdsDeductorFollowUp @relation(fields: [followUpId], references: [id], onDelete: Cascade)
+
+  @@index([followUpId, createdAt])
+}
+
 /// One row of a TDS recon result. Either or both entry refs may be set.
 model AaTdsReconRow {
   id                String    @id @default(uuid())
@@ -3143,8 +3253,16 @@ model AaTdsReconRow {
   matchStatus       String
   filing26ASEntryId String?
   booksEntryId      String?
-  /// Comma-separated: tds_amount | amount_paid | tds_date | section
+  /// Comma-separated: tds_amount | amount_paid | tds_date | section | quarter | grouped
   mismatchFields    String    @default("")
+  /// exact | window | section | grouped | manual — how the pair was made.
+  matchMethod       String?
+  /// Rows paired as one group (several books entries ↔ one 26AS entry, or the reverse) share this key.
+  groupKey          String?
+  /// The deductor this row belongs to: its TAN, or "NAME:<normalised name>" for a books entry with no TAN.
+  deductorKey       String?
+  /// Comma-separated row warnings: status_u | status_p | status_o | status_z | short_deposit | tan_from_name | out_of_year
+  flags             String    @default("")
   /// no_action | chase_deductor | revise_book | credit_claimed | written_off
   actionStatus      String    @default("no_action")
   auditorNote       String?
@@ -3159,6 +3277,7 @@ model AaTdsReconRow {
   updatedAt DateTime @updatedAt
 
   @@index([jobId, matchStatus])
+  @@index([jobId, deductorKey])
   @@index([filing26ASEntryId])
   @@index([booksEntryId])
 }
@@ -4180,6 +4299,482 @@ model BooksSyncLog {
   @@index([zohoOrgRef, startedAt])
 }
 
+
+// ─────────────────────────────────────────────────────────────────────────
+// BOOKKEEPING SERVICE
+//
+// The SERVICE-MANAGEMENT layer beside the Books tool (Zoho Books). It tracks
+// the work the bookkeeping team does for a client — engagements, monthly
+// periods, checklists, tasks, chased documents, deliverables — and links out
+// to Books via BooksZohoOrganization.clientId. It holds NO financial balances:
+// Books stays the single source of truth for every ledger figure.
+//
+// Employee and user ids are plain Strings resolved through employeeMap(),
+// exactly as ClientService and Task do, so Employee gains no back-relations.
+// ─────────────────────────────────────────────────────────────────────────
+
+/// One bookkeeping engagement per client — the standing agreement to keep
+/// their books. @unique on clientId enforces "one per client".
+model BookkeepingEngagement {
+  id       String @id @default(uuid())
+  clientId String @unique
+
+  /// active | on_hold | completed | cancelled
+  status             String  @default("active")
+  /// 'YYYY-MM-DD' — a calendar date, so it cannot drift across the IST/UTC edge.
+  serviceStartDate   String
+  assignedEmployeeId String
+  /// monthly | quarterly | annual
+  billingFrequency   String  @default("monthly")
+  /// Days after period end at which the period's due date defaults. Per-client
+  /// because firms agree different turnarounds; bookkeeping carries no
+  /// statutory deadline, so every date here is an internal commitment and
+  /// must be configurable rather than constant.
+  dueOffsetDays      Int     @default(5)
+  nextDueDate        String?
+  notes              String?
+
+  client  Client              @relation(fields: [clientId], references: [id])
+  periods BookkeepingPeriod[]
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  createdBy String?
+  updatedBy String?
+  deletedAt DateTime?
+
+  @@index([status])
+  @@index([assignedEmployeeId])
+}
+
+/// One month of bookkeeping work. The unique constraint is what stops a
+/// second "May 2026" being opened for the same engagement.
+model BookkeepingPeriod {
+  id           String @id @default(uuid())
+  engagementId String
+  year         Int
+  month        Int
+
+  /// The period window as calendar dates. Derived on write from year+month
+  /// and the engagement's billingFrequency (monthly: 1st→last of month;
+  /// quarterly: 1st of month→last of month+2; annual: 1st→last of month+11).
+  /// Nullable only for the backfill of pre-existing rows; new periods always
+  /// carry both. `dueDate` in turn is derived from `periodEnd` plus the
+  /// engagement's `dueOffsetDays`, adjusted forward off weekends.
+  periodStart String?
+  periodEnd   String?
+
+  /// not_started | in_progress | awaiting_documents | under_review | completed | blocked
+  status             String    @default("not_started")
+  dueDate            String?
+  completedDate      DateTime?
+  assignedEmployeeId String?
+  notes              String?
+
+  engagement       BookkeepingEngagement        @relation(fields: [engagementId], references: [id])
+  checklistItems   BookkeepingChecklistItem[]
+  tasks            BookkeepingTask[]
+  pendingItems     BookkeepingPendingItem[]
+  documentRequests BookkeepingDocumentRequest[]
+  deliverables     BookkeepingDeliverable[]
+  activities       BookkeepingActivity[]
+  imports          BookkeepingImport[]
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  createdBy String?
+  updatedBy String?
+  deletedAt DateTime?
+
+  @@unique([engagementId, year, month])
+  @@index([status])
+  @@index([dueDate])
+  @@index([periodEnd])
+}
+
+/// DEPRECATED. The monthly checklist is now a rendering of BookkeepingTask
+/// rows grouped by BookkeepingWorkflowStage — one task per stage per period.
+/// This table is retained only so `prisma db push` never has to drop it (see
+/// docker-compose.yml note): existing rows migrated their state onto tasks
+/// via seed-bookkeeping-stages.ts, and no code path reads or writes here.
+/// A follow-up PR drops the table once every environment has migrated.
+model BookkeepingChecklistItem {
+  id       String @id @default(uuid())
+  periodId String
+
+  label     String
+  /// pending | in_progress | completed | blocked | not_applicable
+  status    String  @default("pending")
+  sortOrder Int     @default(0)
+  notes     String?
+
+  completedAt           DateTime?
+  completedByEmployeeId String?
+
+  period BookkeepingPeriod @relation(fields: [periodId], references: [id])
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([periodId, sortOrder])
+}
+
+/// The monthly workflow — one config row per stage of a bookkeeping close.
+/// Every BookkeepingTask on a period is derived from one of these, so the
+/// "checklist", the "task list" and the "workflow panel" are three renderings
+/// of the same underlying record. Sequence orders the render; slug is stable.
+model BookkeepingWorkflowStage {
+  id                String  @id @default(uuid())
+  sequence          Int     @unique
+  name              String
+  slug              String  @unique
+  /// The category to stamp on tasks seeded from this stage.
+  defaultCategory   String  @default("other")
+  /// Offset in days from the period end to seed the task's due date at. Used
+  /// when the future auto-due-date generator (PR-2) runs; today it seeds a
+  /// null due date and the user still enters it manually.
+  defaultOffsetDays Int     @default(0)
+  /// Nullable pointer to a gate rule (PR-6). Left as a plain string rather
+  /// than a FK so the rules table can arrive later without a data migration.
+  gateRuleSlug      String?
+  isActive          Boolean @default(true)
+
+  tasks BookkeepingTask[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([isActive, sequence])
+}
+
+model BookkeepingTask {
+  id       String  @id @default(uuid())
+  periodId String?
+  clientId String
+  /// The workflow stage this task represents. Null means an ad-hoc task
+  /// created outside the standard monthly workflow (retained for
+  /// backwards compatibility with rows migrated from the old task table).
+  stageId  String?
+
+  title       String
+  description String?
+  /// data_collection | sales | purchases | expenses | banking | reconciliation |
+  /// review | client_communication | reporting | other
+  category    String  @default("other")
+  /// low | medium | high | critical
+  priority    String  @default("medium")
+  /// pending | in_progress | completed | blocked | cancelled
+  status      String  @default("pending")
+
+  assignedEmployeeId    String
+  dueDate               String?
+  completedAt           DateTime?
+  completedByEmployeeId String?
+  createdById           String?
+  notes                 String?
+
+  period BookkeepingPeriod?        @relation(fields: [periodId], references: [id])
+  client Client                    @relation(fields: [clientId], references: [id])
+  stage  BookkeepingWorkflowStage? @relation(fields: [stageId], references: [id])
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  /// The (period_id, stage_id) invariant — one task per stage per period —
+  /// is enforced at the application layer today (upsert in service.ts and
+  /// the seed migration). A DB-level UNIQUE will be added in a follow-up PR
+  /// once every environment has migrated, because `prisma db push` refuses
+  /// to add a UNIQUE constraint on live data without --accept-data-loss.
+  @@index([clientId])
+  @@index([periodId])
+  @@index([periodId, stageId])
+  @@index([status])
+  @@index([assignedEmployeeId, status])
+  @@index([dueDate])
+}
+
+/// Something the firm is waiting on from the client.
+model BookkeepingPendingItem {
+  id       String  @id @default(uuid())
+  periodId String?
+  clientId String
+
+  title       String
+  description String?
+  /// bank_statement | sales_data | purchase_bills | expense_documents |
+  /// payment_details | other
+  category    String  @default("other")
+  /// low | medium | high | critical
+  priority    String  @default("medium")
+  /// requested | partially_received | received | under_review | resolved | overdue
+  status      String  @default("requested")
+
+  requestedDate      String
+  dueDate            String?
+  resolvedDate       DateTime?
+  assignedEmployeeId String?
+  createdById        String?
+  notes              String?
+
+  period BookkeepingPeriod? @relation(fields: [periodId], references: [id])
+  client Client             @relation(fields: [clientId], references: [id])
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  @@index([clientId])
+  @@index([periodId])
+  @@index([status])
+  @@index([dueDate])
+}
+
+/// A request for a file. Storage stays in ClientDocument — this row is the
+/// ASK, and clientDocumentId is the FK to the delivered file.
+model BookkeepingDocumentRequest {
+  id       String  @id @default(uuid())
+  periodId String?
+  clientId String
+
+  /// bank_statement | purchase_bills | sales_register | expense_documents |
+  /// payment_proof | other
+  documentType String
+  description  String?
+  /// requested | received | under_review | accepted | rejected
+  status       String  @default("requested")
+
+  requestedById String?
+  requestedAt   DateTime  @default(now())
+  dueDate       String?
+  receivedAt    DateTime?
+
+  clientDocumentId String?
+
+  period         BookkeepingPeriod? @relation(fields: [periodId], references: [id])
+  client         Client             @relation(fields: [clientId], references: [id])
+  clientDocument ClientDocument?    @relation(fields: [clientDocumentId], references: [id])
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  @@index([clientId])
+  @@index([periodId])
+  @@index([status])
+}
+
+/// Tracking only. The actual numbers on a trial balance or P&L are produced
+/// by Books at read time; this row records that one was prepared and sent.
+model BookkeepingDeliverable {
+  id       String  @id @default(uuid())
+  periodId String?
+  clientId String
+
+  /// monthly_books | financial_report | bank_reconciliation | ledger |
+  /// trial_balance | profit_and_loss | balance_sheet | other
+  type   String
+  /// draft | in_review | approved | delivered
+  status String @default("draft")
+
+  preparedByEmployeeId String?
+  reviewedByEmployeeId String?
+  clientDocumentId     String?
+
+  approvedAt  DateTime?
+  deliveredAt DateTime?
+  notes       String?
+
+  period         BookkeepingPeriod? @relation(fields: [periodId], references: [id])
+  client         Client             @relation(fields: [clientId], references: [id])
+  clientDocument ClientDocument?    @relation(fields: [clientDocumentId], references: [id])
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  @@index([clientId])
+  @@index([periodId])
+  @@index([status])
+}
+
+/// Append-only per-period trail. AuditLog still records every mutation for
+/// compliance; this is the human-readable story shown on the Activity tab.
+model BookkeepingActivity {
+  id       String  @id @default(uuid())
+  periodId String?
+  clientId String
+
+  actorUserId String?
+  action      String
+  detail      String?
+
+  period BookkeepingPeriod? @relation(fields: [periodId], references: [id])
+  client Client             @relation(fields: [clientId], references: [id])
+
+  createdAt DateTime @default(now())
+
+  @@index([clientId, createdAt])
+  @@index([periodId, createdAt])
+}
+
+/// The financial data layer (spec §4.2 / §6.4). One row per file the firm
+/// pulls into a period — bank statement, day book, outstandings, trial
+/// balance. Append-only: a re-import creates a new row and never overwrites,
+/// because the prior-period comparison needs history.
+///
+/// Every row records the outcome of the TWO BLOCKING VALIDATIONS spec §5
+/// requires (period and company must match the target). A rejected row is
+/// deliberately kept so a reviewer can see WHICH file was refused and why.
+/// The stored file lives under `storagePath`; row-level parsing (populating
+/// `rowCount` and BookkeepingLedgerBalance below) is added by later PRs on
+/// a per-kind basis.
+model BookkeepingImport {
+  id       String @id @default(uuid())
+  periodId String
+  clientId String
+
+  /// trial_balance | day_book | outstandings | bank_statement
+  kind   String
+  /// upload | email | agent  (only 'upload' today; 'email' and 'agent' are
+  /// reserved for the ingestion pipeline that will follow.)
+  source String @default("upload")
+
+  originalFilename String
+  storagePath      String // resolved by bookkeepingImportStorage
+  fileSize         Int
+  mimeType         String
+
+  /// The company name and period boundary the CALLER declared for the file.
+  /// These are what the two blocking validations run against — a future
+  /// parser will populate them automatically; today the user types them.
+  companyNameInFile String
+  periodFromInFile  String // 'YYYY-MM-DD'
+  periodToInFile    String // 'YYYY-MM-DD'
+
+  /// Populated when a per-kind parser runs; null in the meantime.
+  rowCount Int?
+
+  /// imported | rejected_period_mismatch | rejected_company_mismatch | parse_failed
+  status      String
+  errorDetail String?
+
+  importedAt           DateTime @default(now())
+  importedByEmployeeId String?
+
+  period  BookkeepingPeriod          @relation(fields: [periodId], references: [id])
+  client  Client                     @relation(fields: [clientId], references: [id])
+  ledgers BookkeepingLedgerBalance[]
+
+  @@index([periodId, kind, importedAt])
+  @@index([clientId, importedAt])
+  @@index([status])
+}
+
+/// One ledger balance from a trial-balance import. Money is INTEGER PAISE
+/// (BigInt in the schema so a legacy INR balance never overflows Int32).
+/// Classification is by PARENT GROUP (`Bank Accounts` → asset · bank,
+/// `Sundry Creditors` → liability · payable), never by ledger name — firms
+/// name ledgers differently, but Tally's group hierarchy is standard.
+///
+/// Populated by a parser attached to BookkeepingImport in a follow-up PR;
+/// the table is declared now so the schema is complete and Reports (spec
+/// §6.5, PR-6) can slot in without a second migration.
+model BookkeepingLedgerBalance {
+  id       String @id @default(uuid())
+  importId String
+
+  ledgerName  String
+  parentGroup String
+  /// asset | liability | income | expense | equity
+  category    String
+  /// cash | bank | receivable | payable | gst | other
+  subtype     String @default("other")
+
+  openingPaise BigInt @default(0)
+  debitPaise   BigInt @default(0)
+  creditPaise  BigInt @default(0)
+  closingPaise BigInt @default(0)
+
+  /// The raw row as the file carried it, so the parser output remains
+  /// auditable even after the classification rules change.
+  raw Json?
+
+  import BookkeepingImport @relation(fields: [importId], references: [id], onDelete: Cascade)
+
+  @@index([importId])
+  @@index([category, subtype])
+}
+
+/// Group-to-category mapping for the Reports tab (spec §6.5).
+///
+/// Classification is by PARENT GROUP, never by ledger name — firms name
+/// ledgers differently, but Tally's group hierarchy is standard. The ten
+/// system rows here are seeded once and never mutated; a firm that keeps
+/// a custom group inserts a NON-system row to teach the reports how to
+/// classify it. Deleting a row a period actually referenced would blank
+/// its report line — hence `deletedAt` on non-system rows and a hard
+/// guard against removing system rows.
+model BookkeepingLedgerGroup {
+  id   String @id @default(uuid())
+  /// Exact match against BookkeepingLedgerBalance.parentGroup — trim of
+  /// outer whitespace is the ONLY normalisation.
+  name String @unique
+
+  /// asset | liability | income | expense | equity
+  category String
+  /// cash | bank | receivable | payable | gst | other
+  subtype  String @default("other")
+
+  /// System rows: seeded from spec §6.5 and immutable through the UI.
+  isSystem Boolean @default(false)
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  @@index([category, subtype])
+}
+
+/// GATE RULES (spec §4.3, §7). Tasks that assert work was done should
+/// require evidence that it was — a "Reconcile Bank" task cannot honestly
+/// be marked complete without a bank statement on record for the period.
+///
+/// Each workflow stage carries a nullable `gateRuleSlug` pointing at a
+/// row here; the evaluator (server/src/modules/bookkeeping-service/gates.ts)
+/// resolves the row on task read and again on PATCH-to-completed. Rules
+/// are DATA-driven — `requires` is the evaluator's dispatch key and
+/// `requiresValue` is its parameter — so a firm can add a rule ("must
+/// have a Form 26AS import for TDS periods") without a code change.
+///
+/// `isEnforced` false → the rule STILL runs and the UI still shows the
+/// reason, but the API allows the task to be completed anyway. That is
+/// the escape hatch spec §7 explicitly asks for: "a firm may switch one
+/// off rather than working around it."
+model BookkeepingGateRule {
+  /// The value on BookkeepingWorkflowStage.gateRuleSlug.
+  slug        String @id
+  description String
+
+  /// document | import | all_other_tasks_complete
+  requires      String
+  /// For requires='document': the BookkeepingDocumentRequest.documentType.
+  /// For requires='import':   the BookkeepingImport.kind.
+  /// For requires='all_other_tasks_complete': null.
+  requiresValue String?
+
+  isEnforced Boolean @default(true)
+
+  /// Where the UI sends the user when the gate fails. Section is a
+  /// Monthly Work sub-tab slug ('data', 'checklist', …); label is the
+  /// short call-to-action.
+  actionSection String?
+  actionLabel   String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
 // ============================================================
 // INCORPORATION SERVICE (Workstation → Services → Incorporation)
 // ============================================================
@@ -4965,6 +5560,7 @@ model ZpayAccount {
   refunds          ZpayRefund[]
   syncRuns         ZpaySyncRun[]
   externalInvoices ZpayExternalInvoice[]
+  paymentLinks     ZpayPaymentLink[]
 
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt
@@ -5127,6 +5723,7 @@ model ZpayExternalInvoice {
 
   billingAccount ZpayAccount @relation(fields: [billingAccountId], references: [id])
   client         Client?     @relation(fields: [clientId], references: [id])
+  paymentLinks   ZpayPaymentLink[]
 
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt
@@ -6188,4 +6785,124 @@ model PartnershipActivity {
   case PartnershipCase @relation(fields: [caseId], references: [id])
 
   @@index([caseId, createdAt])
+}
+
+/// A Zoho Payments payment link raised for one imported invoice — the
+/// "collect payment" step. Zoho's link lists the payments made through it,
+/// which is how a payment is tied back to its invoice even when Zoho does
+/// not copy the link's reference onto the payment.
+model ZpayPaymentLink {
+  id           String @id @default(uuid())
+  accountRowId String
+  invoiceId    String
+
+  zohoLinkId  String
+  url         String
+  /// Asked for, in paise (the invoice's outstanding amount when raised).
+  amountPaise Int
+  amountPaidPaise Int @default(0)
+  /// Zoho: active | paid | partially_paid | expired | canceled
+  status      String
+  referenceId String?
+  email       String?
+  phone       String?
+  expiresAt   String?
+  lastCheckedAt DateTime?
+  raw         Json
+
+  account ZpayAccount         @relation(fields: [accountRowId], references: [id])
+  invoice ZpayExternalInvoice @relation(fields: [invoiceId], references: [id])
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  createdBy String?
+
+  @@unique([accountRowId, zohoLinkId])
+  @@index([invoiceId, status])
+}
+
+/// One bank-statement transaction read from an AaJob's statement.
+/// Amounts are BigInt paise: a single transaction can exceed ₹2.1 crore.
+model AaBankTxn {
+  id               String @id @default(uuid())
+  jobId            String
+  organisationId   String
+  clientId         String
+  bankAccountId    String
+  /// Order within the statement (1-based, chronological).
+  seq              Int
+  page             Int?
+  txnDate          String
+  valueDate        String?
+  narration        String
+  reference        String?
+  debitPaise       BigInt  @default(0)
+  creditPaise      BigInt  @default(0)
+  balancePaise     BigInt?
+  /// Per-client dedupe key: account + date + amounts + balance + narration.
+  fingerprint      String
+  /// ok | flagged | duplicate | excluded
+  status           String  @default("ok")
+  /// CSV: BALANCE_BREAK, NO_AMOUNT, BOTH_AMOUNTS, DATE_ORDER, OUT_OF_PERIOD…
+  flags            String  @default("")
+  duplicateOfId    String?
+  /// Tally counter-ledger and voucher type for this row.
+  ledgerName       String?
+  voucherType      String?
+  matchedRuleId    String?
+  /// Set once a person has changed the row; `original` keeps what was read.
+  editedByUserId   String?
+  editedAt         DateTime?
+  original         Json
+
+  job AaJob @relation(fields: [jobId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([jobId, seq])
+  @@index([clientId, fingerprint])
+  @@index([jobId, status])
+}
+
+/// Narration → Tally ledger rule, per client (or firm-wide when clientId is null).
+model AaLedgerRule {
+  id              String  @id @default(uuid())
+  organisationId  String
+  clientId        String?
+  /// contains | exact | regex — matched case-insensitively on the narration.
+  matchType       String  @default("contains")
+  pattern         String
+  /// any | withdrawal | deposit
+  direction       String  @default("any")
+  ledgerName      String
+  /// payment | receipt | contra | journal; null → by direction
+  voucherType     String?
+  priority        Int     @default(100)
+  createdByUserId String
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  @@index([organisationId, clientId])
+}
+
+/// A Tally XML (or other) export of a job's approved transactions.
+model AaExport {
+  id               String   @id @default(uuid())
+  organisationId   String
+  clientId         String
+  jobId            String
+  kind             String
+  rowCount         Int
+  totalDebitPaise  BigInt
+  totalCreditPaise BigInt
+  sha256           String
+  createdByUserId  String
+  createdAt        DateTime @default(now())
+
+  job AaJob @relation(fields: [jobId], references: [id], onDelete: Cascade)
+
+  @@index([jobId])
 }

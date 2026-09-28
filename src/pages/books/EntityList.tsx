@@ -5,7 +5,7 @@ import { FileText, Plus } from 'lucide-react';
 import { useToast } from '@/components/Toast';
 import { booksApi, errorText, type ZRecord } from '@/modules/books/api';
 import { useBooks, useOrg } from '@/modules/books/context';
-import { Badge, Btn, Cell, Drawer, Empty, ErrorState, KV, Modal, PageHeader, Pager, Row, Section, Select, Skeleton, Table, TextInput, date, money } from '@/modules/books/ui';
+import { Badge, Btn, Cell, Drawer, Empty, ErrorState, KV, Modal, PageHeader, Pager, Row, Section, Select, Skeleton, Table, TextInput, date, money, today } from '@/modules/books/ui';
 import { ActionForm, ApplyCreditForm, BankAccountForm, ContactForm, ExpenseForm, ItemForm, PaymentForm, TaxForm, TXN, TxnEditor } from './forms';
 
 /**
@@ -423,7 +423,7 @@ export function RecordActions({ resource, record: r, onClose }: { resource: Reso
     { key: 'apply', label: e === 'creditnotes' ? 'Apply to invoices' : 'Apply to bills', perm: 'accountant', show: status === 'open' && balance > 0, run: () => setModal(<ApplyCreditForm entity={e} record={r} onClose={close} onDone={done} />) },
     { key: 'refund', label: 'Refund', perm: 'accountant', show: status === 'open' && balance > 0, run: () => setModal(<ActionForm title="Record refund" entity={e} id={id} action="refund" onClose={close} onDone={done}
       fields={[{ key: 'date', label: 'Date', type: 'date' }, { key: 'amount', label: 'Amount', type: 'number' }, { key: 'refund_mode', label: 'Mode' }, { key: e === 'creditnotes' ? 'from_account_id' : 'account_id', label: e === 'creditnotes' ? 'Paid from account' : 'Deposit to account', type: 'account' }, { key: 'reference_number', label: 'Reference' }, { key: 'description', label: 'Notes', type: 'textarea' }]}
-      initial={{ date: new Date().toISOString().slice(0, 10), amount: balance, refund_mode: 'Bank Transfer' }} />) },
+      initial={{ date: today(), amount: balance, refund_mode: 'Bank Transfer' }} />) },
     status_('void', 'Void', status !== 'void', 'accountant', true));
   if (['estimates', 'salesorders', 'invoices', 'purchaseorders', 'creditnotes'].includes(e)) acts.push({ key: 'email', label: 'Email', perm: 'manage', show: status !== 'void' && status !== 'draft', run: email });
   if (resource.deletePerm) acts.push({ key: 'delete', label: 'Delete', perm: resource.deletePerm, show: true, danger: true, confirm: `Delete this ${resource.singular} from Zoho Books? Zoho refuses if it is referenced by other records.`, run: () => del.mutate() });

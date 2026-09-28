@@ -33,35 +33,59 @@ const SHEETS: SheetSpec[] = [
 ]
 
 /** Header aliases → normalized target field. Case + whitespace insensitive. */
-const HEADER_ALIASES: Record<string, RegExp[]> = {
-  supplierGstin: [/gstin.*supplier/i, /supplier.*gstin/i, /^gstin$/i, /^ctin$/i],
-  supplierName: [/trade.*name/i, /supplier.*name/i, /^trdnm$/i],
-  invoiceNumber: [/invoice.*(number|no|num)/i, /^inum$/i, /^note.*(number|no)$/i],
-  invoiceDate: [/invoice.*date/i, /^idt$/i, /^note.*date$/i],
-  taxableValue: [/taxable.*value/i, /^txval$/i, /taxable.*amount/i],
-  igst: [/^igst/i, /integrated.*tax/i],
-  cgst: [/^cgst/i, /central.*tax/i],
-  sgst: [/^sgst/i, /state.*tax/i],
-  cess: [/^cess/i],
-  itcAvailable: [/itc.*avail/i, /gstr-?3b.*itc/i, /^itcavl$/i],
+/**
+ * Column recognition on the full header text. GSTN's workbook has a
+ * two-row header ("Invoice details" over "Invoice number"), so each
+ * column is known by "<group> <name>". Order matters: the first alias
+ * list a column matches claims it.
+ */
+const HEADER_ALIASES: [FieldKey, RegExp, RegExp?][] = [
+  ['supplierGstin', /gstin.*(supplier|isd)|supplier.*gstin|^gstin$|^ctin$/i],
+  ['supplierName', /trade.*name|legal.*name|supplier.*name|isd.*name|^trdnm$/i],
+  // Amendments: the "Original details" group is what is being replaced.
+  ['originalInvoiceNumber', /original.*(invoice|note|document).*(number|no)|^oinum$/i],
+  ['invoiceNumber', /(invoice|note|document|boe|bill of entry).*(number|no\b|num)|^inum$|^ntnum$/i, /original/i],
+  ['invoiceDate', /(invoice|note|document|boe|bill of entry).*date|^idt$|^dt$/i, /original/i],
+  ['noteType', /(note|document).*type|^typ$/i, /original/i],
+  ['taxableValue', /taxable|^txval$/i],
+  ['invoiceValue', /(invoice|note|document).*value|^val$/i, /original|taxable/i],
+  ['reverseCharge', /reverse\s*charge|^rev$/i],
+  ['igst', /^igst|integrated.*tax/i],
+  ['cgst', /^cgst|central.*tax/i],
+  ['sgst', /^sgst|state.*tax|ut.*tax/i],
+  ['cess', /cess/i],
+  ['itcAvailable', /itc.*avail|gstr-?3b.*itc|^itcavl$|itc.*eligib/i],
+  ['itcReason', /reason|^rsn$/i],
+]
+type FieldKey = 'supplierGstin' | 'supplierName' | 'originalInvoiceNumber' | 'invoiceNumber' | 'invoiceDate' | 'noteType' | 'taxableValue' | 'invoiceValue' | 'reverseCharge' | 'igst' | 'cgst' | 'sgst' | 'cess' | 'itcAvailable' | 'itcReason'
+
+function colsFor(texts: string[]): Partial<Record<FieldKey, number>> {
+  const cols: Partial<Record<FieldKey, number>> = {}
+  texts.forEach((t, idx) => {
+    if (!t) return
+    for (const [key, re, not] of HEADER_ALIASES) {
+      if (cols[key]) continue
+      if (re.test(t) && !(not && not.test(t))) { cols[key] = idx; break }
+    }
+  })
+  return cols
 }
 
-type FieldKey = keyof typeof HEADER_ALIASES
-
+/** The header: one row, or a group row over a name row read as one. */
 function findHeaderRow(ws: ExcelJS.Worksheet): { row: number; cols: Partial<Record<FieldKey, number>> } | null {
-  for (let r = 1; r <= Math.min(ws.rowCount, 10); r++) {
-    const row = ws.getRow(r)
-    const cols: Partial<Record<FieldKey, number>> = {}
+  const text = (r: number, c: number) => String(ws.getRow(r).getCell(c).text ?? '').replace(/\s+/g, ' ').trim()
+  for (let r = 1; r <= Math.min(ws.rowCount, 12); r++) {
+    const one: string[] = []
+    const two: string[] = []
     for (let c = 1; c <= ws.columnCount; c++) {
-      const text = String(row.getCell(c).text ?? '').trim()
-      if (!text) continue
-      for (const key of Object.keys(HEADER_ALIASES) as FieldKey[]) {
-        if (cols[key]) continue // first match wins
-        if (HEADER_ALIASES[key].some((re) => re.test(text))) cols[key] = c
-      }
+      one[c] = text(r, c)
+      const below = text(r + 1, c)
+      two[c] = below && below !== one[c] ? `${one[c]} ${below}`.trim() : one[c]
     }
-    // A header row must contain at least the two anchors we can't work without.
-    if (cols.supplierGstin && cols.invoiceNumber) return { row: r, cols }
+    const c2 = colsFor(two)
+    if (c2.supplierGstin && c2.invoiceNumber && (c2.taxableValue || c2.igst)) return { row: r + 1, cols: c2 }
+    const c1 = colsFor(one)
+    if (c1.supplierGstin && c1.invoiceNumber) return { row: r, cols: c1 }
   }
   return null
 }
@@ -102,18 +126,29 @@ export async function parseGstr2BExcel(bytes: Buffer): Promise<ParsedFiling2B> {
       const invNum = String(get('invoiceNumber')?.text ?? '').trim()
       if (!gstin || !invNum) continue
       const itcRaw = String(get('itcAvailable')?.text ?? 'Y').trim().toUpperCase()
+      const noteType = String(get('noteType')?.text ?? '').trim().toUpperCase()
+      const isNote = section === 'cdnr' || section === 'cdnra'
+      const credit = isNote && noteType.startsWith('C')
+      const sign = credit ? -1 : 1
+      const money = (k: FieldKey) => sign * toPaise(get(k)?.value ?? get(k)?.text ?? 0)
+      const eligible = itcRaw !== 'N' && itcRaw !== 'NO'
       entries.push({
         section,
+        docType: section === 'impg' ? 'BOE' : section.startsWith('isd') ? 'ISD' : isNote ? (credit ? 'CRN' : 'DBN') : 'INV',
         supplierGstin: gstin,
         supplierName: String(get('supplierName')?.text ?? '').trim() || undefined,
         invoiceNumber: invNum,
         invoiceDate: toIsoDate(get('invoiceDate')?.value ?? get('invoiceDate')?.text ?? ''),
-        taxableValue: toPaise(get('taxableValue')?.value ?? get('taxableValue')?.text ?? 0),
-        igst: toPaise(get('igst')?.value ?? get('igst')?.text ?? 0),
-        cgst: toPaise(get('cgst')?.value ?? get('cgst')?.text ?? 0),
-        sgst: toPaise(get('sgst')?.value ?? get('sgst')?.text ?? 0),
-        cess: toPaise(get('cess')?.value ?? get('cess')?.text ?? 0),
-        itcAvailable: itcRaw !== 'N' && itcRaw !== 'NO',
+        taxableValue: money('taxableValue'),
+        igst: money('igst'),
+        cgst: money('cgst'),
+        sgst: money('sgst'),
+        cess: money('cess'),
+        invoiceValue: header.cols.invoiceValue ? money('invoiceValue') : undefined,
+        reverseCharge: /^(Y|YES)$/.test(String(get('reverseCharge')?.text ?? '').trim().toUpperCase()),
+        originalInvoiceNumber: String(get('originalInvoiceNumber')?.text ?? '').trim() || undefined,
+        itcAvailable: eligible,
+        itcReason: !eligible ? String(get('itcReason')?.text ?? '').trim() || undefined : undefined,
       })
     }
   }

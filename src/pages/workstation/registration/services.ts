@@ -302,3 +302,13 @@ export const REGISTRATION_SERVICES: RegistrationService[] = [
 export function registrationBySlug(slug: string | undefined): RegistrationService | undefined {
   return REGISTRATION_SERVICES.find((s) => s.slug === slug);
 }
+
+/**
+ * Registrations whose page is just the title and the work panel: no summary
+ * line under the title, no "At a glance" / "What this registration is"
+ * sections, and none of the explanatory notes about what Audit OS does and
+ * does not do.
+ */
+export const MINIMAL_REGISTRATION_PAGES: ReadonlySet<string> = new Set([
+  'msme-udyam', 'shops-establishment', 'import-export-code', 'pf', 'esi', 'e-invoice', 'e-way-bill',
+]);

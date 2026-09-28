@@ -14,6 +14,7 @@
  */
 import { ApiError } from '../../lib/http.js'
 import { prisma } from '../../lib/prisma.js'
+import { isCollected } from './statuses.js'
 
 export interface ManuallyMatchInput {
   paymentId: string
@@ -29,9 +30,12 @@ export async function manuallyMatch(input: ManuallyMatchInput): Promise<void> {
       id: input.paymentId,
       account: { connection: { organisationId: input.organisationId, deletedAt: null } },
     },
-    select: { id: true },
+    select: { id: true, status: true },
   })
   if (!payment) throw ApiError.notFound('No such payment.')
+  if (!isCollected(payment.status)) {
+    throw ApiError.badRequest(`This payment is "${payment.status}" in Zoho — no money was received, so it cannot settle an invoice.`)
+  }
 
   const ref = input.invoiceRef.trim()
   if (!ref) throw ApiError.badRequest('invoiceRef is required.')

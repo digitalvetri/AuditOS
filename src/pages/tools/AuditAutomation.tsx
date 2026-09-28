@@ -34,19 +34,19 @@ export function AuditAutomationLandingPage() {
           <PipelineCard
             to="/audit-automation/bank"
             title="Bank statements"
-            description="PDF statement → parsed rows → reviewed → Tally XML"
+            description="PDF, Excel or CSV statement → rows checked against the running balance → review, ledgers and rules → approve → Tally XML"
             status="active"
           />
           <PipelineCard
             to="/audit-automation/gst"
             title="GST reconciliation"
-            description="GSTR-2B vs purchase register — matching and ITC classification"
+            description="GSTR-2B vs purchase register — matched, partial, variance, missing, duplicates; ITC with reasons; manual pairing"
             status="active"
           />
           <PipelineCard
             to="/audit-automation/tds"
             title="TDS reconciliation"
-            description="Form 26AS vs client books — verified, variance and chase-deductor buckets"
+            description="Form 26AS (text or PDF) vs TDS receivable — verified, variance, missing; deductor chase list with follow-ups"
             status="active"
           />
         </div>

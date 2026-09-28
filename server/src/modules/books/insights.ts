@@ -13,7 +13,21 @@ import { zohoListAll, type ZohoContext } from './client.js'
 type Row = Record<string, unknown>
 const num = (v: unknown) => (typeof v === 'number' ? v : Number(v ?? 0) || 0)
 const str = (v: unknown) => (typeof v === 'string' ? v : v == null ? '' : String(v))
-const today = () => new Date().toISOString().slice(0, 10)
+/**
+ * yyyy-mm-dd in India. Zoho dates are calendar dates in the organisation's
+ * time zone; UTC is still "yesterday" until 05:30 IST, which moved 1 April
+ * into the previous financial year.
+ */
+export const istDate = (d = new Date()) => new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Kolkata' }).format(d)
+const today = () => istDate()
+/**
+ * A document amount in the organisation's base currency. List rows carry
+ * the document's own currency and its exchange_rate (1 for base currency);
+ * adding them up unconverted mixed rupees with dollars.
+ */
+const bcy = (r: Row, f: string) => num(r[f]) * (num(r.exchange_rate) || 1)
+/** Rows with `f` replaced by its base-currency value. */
+const inBase = (rows: Row[], ...fs: string[]) => rows.map((r) => ({ ...r, ...Object.fromEntries(fs.map((f) => [f, bcy(r, f)])) }))
 const daysBetween = (a: string, b: string) => Math.floor((Date.parse(b) - Date.parse(a)) / 86_400_000)
 
 /** Open documents across the given status filters, de-duplicated by id. */
@@ -79,7 +93,7 @@ export interface DashboardSnapshot {
 
 export async function computeDashboard(ctx: ZohoContext, currency: string | null): Promise<DashboardSnapshot> {
   const asOf = today()
-  const start = new Date(); start.setUTCDate(1); start.setUTCMonth(start.getUTCMonth() - 5)
+  const start = new Date(`${asOf.slice(0, 7)}-01T00:00:00Z`); start.setUTCMonth(start.getUTCMonth() - 5)
   const from = start.toISOString().slice(0, 10)
   const months = Array.from({ length: 6 }, (_, i) => { const d = new Date(start); d.setUTCMonth(d.getUTCMonth() + i); return d.toISOString().slice(0, 7) })
 
@@ -93,13 +107,14 @@ export async function computeDashboard(ctx: ZohoContext, currency: string | null
   const paid = await since(ctx, 'vendorpayments', 'vendorpayments', from)
   const banks = await zohoListAll<Row>(ctx, 'bankaccounts', 'bankaccounts', {}, { maxPages: 1 })
 
-  const live = (rows: Row[]) => rows.filter((r) => !['void', 'draft'].includes(str(r.status)))
+  const live = (rows: Row[]) => inBase(rows.filter((r) => !['void', 'draft'].includes(str(r.status))), 'total')
   const sum = (rows: Row[], f: string) => rows.reduce((t, r) => t + num(r[f]), 0)
+  inv.rows = inBase(inv.rows, 'balance'); bil.rows = inBase(bil.rows, 'balance')
   const overdueInv = inv.rows.filter((r) => str(r.due_date) && str(r.due_date) < asOf)
   const overdueBil = bil.rows.filter((r) => str(r.due_date) && str(r.due_date) < asOf)
   const salesLive = live(sales.rows)
   const purchasesLive = live(purchases.rows)
-  const expRows = expenses.rows.map((r) => ({ ...r, amount_total: num(r.total ?? r.amount) }))
+  const expRows = expenses.rows.map((r) => ({ ...r, amount_total: num(r.total ?? r.amount) * (num(r.exchange_rate) || 1) }))
   const revenueM = byMonth(salesLive, 'total', months)
   const billsM = byMonth(purchasesLive, 'total', months)
   const expM = byMonth(expRows, 'amount_total', months)
@@ -117,8 +132,8 @@ export async function computeDashboard(ctx: ZohoContext, currency: string | null
       overdue_payables: sum(overdueBil, 'balance'),
       revenue: sum(salesLive, 'total'),
       expenses: sum(expRows, 'amount_total') + sum(purchasesLive, 'total'),
-      payments_received: sum(received.rows, 'amount'),
-      payments_made: sum(paid.rows, 'amount'),
+      payments_received: sum(inBase(received.rows, 'amount'), 'amount'),
+      payments_made: sum(inBase(paid.rows, 'amount'), 'amount'),
       bank_balance: sum(bankRows, 'balance'),
     },
     counts: {
@@ -220,7 +235,7 @@ export async function runReport(ctx: ZohoContext, id: string, from: string, to: 
     expenses_by_category: { path: 'expenses', listKey: 'expenses', key: 'account_id', label: 'account_name', amount: 'total', col: 'Category' },
   }[id as 'sales_by_customer']
   const r = await since(ctx, spec.path, spec.listKey, from, to)
-  const liveRows = r.rows.filter((x) => !['void', 'draft'].includes(str(x.status))).map((x) => ({ ...x, total: num(x.total ?? x.amount) }))
+  const liveRows = r.rows.filter((x) => !['void', 'draft'].includes(str(x.status))).map((x) => ({ ...x, total: num(x.total ?? x.amount) * (num(x.exchange_rate) || 1) }))
   const rows = group(liveRows, spec.key, spec.label, spec.amount)
-  return { ...base, source: 'computed', note: `${COMPUTED} ${from} to ${to}; void and draft excluded.`, columns: [{ key: 'name', label: spec.col }, { key: 'count', label: 'Documents' }, { key: 'amount', label: 'Amount', money: true }], rows, totals: { name: 'Total', count: rows.reduce((t, x) => t + x.count, 0), amount: rows.reduce((t, x) => t + x.amount, 0) }, truncated: r.truncated }
+  return { ...base, source: 'computed', note: `${COMPUTED} ${from} to ${to}; void and draft excluded. Amounts include tax, in base currency.`, columns: [{ key: 'name', label: spec.col }, { key: 'count', label: 'Documents' }, { key: 'amount', label: 'Amount', money: true }], rows, totals: { name: 'Total', count: rows.reduce((t, x) => t + x.count, 0), amount: rows.reduce((t, x) => t + x.amount, 0) }, truncated: r.truncated }
 }

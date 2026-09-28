@@ -41,18 +41,29 @@ export interface AuthorizeUrlInput {
    * refresh token — a silent grant will reuse the old one.
    */
   prompt?: 'consent'
+  /**
+   * Zoho Payments authorises one Payments account, not the whole Zoho user:
+   * its consent is the org endpoint with soid=zohopay.{account_id}. Other
+   * Zoho apps (Books) leave this unset.
+   */
+  soid?: string
 }
 
 export function buildAuthorizeUrl(config: ZohoOAuthClient, input: AuthorizeUrlInput): string {
   const params = new URLSearchParams({
     response_type: 'code',
     client_id: config.clientId,
-    scope: config.scopes.join(' '),
+    // Zoho's documented separator is a comma.
+    scope: config.scopes.join(','),
     redirect_uri: config.redirectUri,
     state: input.state,
     access_type: input.accessType ?? 'offline',
   })
   if (input.prompt) params.set('prompt', input.prompt)
+  if (input.soid) {
+    params.set('soid', input.soid)
+    return `${config.accountsBase}/oauth/v2/org/auth?${params.toString()}`
+  }
   return `${config.accountsBase}/oauth/v2/auth?${params.toString()}`
 }
 
@@ -195,7 +206,7 @@ export async function exchangeRefreshTokenForAccess(
  * exactly the two READ scopes were granted.
  */
 export function assertScopesGranted(returned: string, required: readonly string[]): string[] {
-  const granted = returned.trim().split(/\s+/).filter(Boolean)
+  const granted = returned.trim().split(/[\s,]+/).filter(Boolean)
   const missing = required.filter((s) => !granted.includes(s))
   if (missing.length) {
     throw new ZohoOAuthError(

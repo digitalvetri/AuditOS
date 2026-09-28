@@ -1,11 +1,12 @@
-import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { useEffect, useRef, useState } from 'react';
+import { Link } from 'react-router-dom';
+import { Ban, ChevronDown, Download, Mail, MessageCircle, Pencil, Printer, Send, Trash2, Wallet } from 'lucide-react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useNavigate, useParams } from 'react-router-dom';
-import { ChevronDown, Download, Eye, Mail, MessageCircle, Printer, Trash2 } from 'lucide-react';
 import {
   invoicesApi, TERM_LABEL, type Invoice,
 } from '@/modules/workstation/invoices/api';
-import { shareDocumentPdf, waNumber, type ShareChannel } from '@/modules/workstation/share';
+import { downloadFile } from '@/modules/workstation/invoices/download';
 import {
   DEFAULT_COMPANY, DEFAULT_LAYOUT, computeTotals, defaultBlocks, inrAmount, lineKey, stateName,
   type BlockSpec, type CompanyInfo, type LayoutConfig,
@@ -20,6 +21,8 @@ import { useToast } from '@/components/Toast';
 import { fmtDate } from '@/lib/format';
 import { can } from '@/platform/rbac/can';
 import { useAuth } from '@/platform/auth/AuthContext';
+import { SendEmailDialog } from '@/modules/workstation/SendEmailDialog';
+import { SendWhatsAppDialog } from '@/modules/workstation/SendWhatsAppDialog';
 
 /**
  * A saved invoice: the document as issued, plus the actions an issued invoice
@@ -97,6 +100,17 @@ function Body({ inv }: { inv: Invoice }) {
   const mayWrite = can(session?.role.code, 'workstation.invoice.manage', 'self');
   const [payOpen, setPayOpen] = useState(false);
   const [cancelOpen, setCancelOpen] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const remove = useMutation({
+    mutationFn: () => invoicesApi.remove(inv.id),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ['invoices.list'] });
+      void qc.invalidateQueries({ queryKey: ['invoices.summary'] });
+      toast.push('success', 'Draft invoice deleted.');
+      navigate('/workstation/invoices');
+    },
+    onError: (e: Error) => { setDeleting(false); toast.push('error', e.message); },
+  });
 
   const after = (msg: string) => (updated: Invoice) => {
     void qc.invalidateQueries({ queryKey: ['invoices.get', updated.id] });
@@ -110,49 +124,48 @@ function Body({ inv }: { inv: Invoice }) {
     onSuccess: after('Invoice sent. Its figures are now fixed.'),
     onError: (e: Error) => toast.push('error', e.message),
   });
-  const [sharing, setSharing] = useState(false);
-  const phone = waNumber(inv.client_contact_number);
-  const shareMessage =
-    `Invoice ${inv.invoice_number}\n${inv.billing_name ?? inv.client_name ?? ''}\n`
-    + `Dated ${fmtDate(inv.invoice_date)} · Due ${fmtDate(inv.due_date)}`;
-  const share = async (channel: ShareChannel) => {
-    setSharing(true);
-    try {
-      await shareDocumentPdf({
-        issueUrl: () => invoicesApi.pdfUrl(inv.id),
-        fileName: `${inv.invoice_number ?? 'invoice'}.pdf`,
-        subject: `Invoice ${inv.invoice_number}`,
-        message: shareMessage,
-        channel, phone, email: inv.client_email,
-      });
-    } catch (e) {
-      toast.push('error', (e as { message?: string })?.message ?? 'The PDF could not be sent.');
-    } finally {
-      setSharing(false);
-    }
-  };
+  const pdf = useMutation({
+    mutationFn: () => invoicesApi.pdfUrl(inv.id),
+    onSuccess: (r) => downloadFile(r.url, `${inv.invoice_number ?? 'invoice'}.pdf`),
+    onError: (e: Error) => toast.push('error', e.message),
+  });
 
-  function printDocument() {
-    document.documentElement.classList.add('qdoc-printing');
-    const done = () => {
-      document.documentElement.classList.remove('qdoc-printing');
-      window.removeEventListener('afterprint', done);
-    };
-    window.addEventListener('afterprint', done);
-    window.print();
-  }
+
+  // Share as a PDF FILE: WhatsApp via the share sheet (or download + WhatsApp
+  // Web), email sent by the server with the PDF attached.
+  const [emailing, setEmailing] = useState(false);
+  const fileName = `${inv.invoice_number ?? 'invoice'}.pdf`;
+  const note =
+    `Dear ${inv.billing_name || inv.client_name || 'Sir/Madam'},\n\nPlease find attached invoice ${inv.invoice_number} dated ${fmtDate(inv.invoice_date)}.\n`
+    + `Amount: ₹${inrAmount(inv.total_paise)}`
+    + (inv.balance_due_paise > 0 && inv.due_date ? `\nBalance due: ₹${inrAmount(inv.balance_due_paise)} by ${fmtDate(inv.due_date)}` : '')
+    + `\n\nRegards`;
+  const [whatsapping, setWhatsapping] = useState(false);
 
   return (
     <>
+      <Modal open={deleting} title="Delete draft invoice?" onClose={() => setDeleting(false)} footer={
+        <>
+          <Button onClick={() => setDeleting(false)}>Cancel</Button>
+          <Button variant="danger" disabled={remove.isPending} onClick={() => remove.mutate()}>{remove.isPending ? 'Deleting…' : 'Delete invoice'}</Button>
+        </>
+      }>
+        <p className="p-4 text-13 text-neutral-700">This draft has no invoice number yet and is removed permanently.</p>
+      </Modal>
+      <SendEmailDialog
+        open={emailing} onClose={() => setEmailing(false)} kind="invoice" id={inv.id} fileName={fileName}
+        to={inv.party_email} subject={`Invoice ${inv.invoice_number} from ${docFromInvoice(inv).company.name}`} message={note}
+      />
+      <SendWhatsAppDialog
+        open={whatsapping} onClose={() => setWhatsapping(false)} kind="invoice" id={inv.id} phone={inv.party_contact_number}
+        fileName={fileName} note={note} issueUrl={() => invoicesApi.pdfUrl(inv.id)}
+      />
       <div className="qdoc-screen-only">
         <PageHeader
           title={inv.invoice_number}
           subtitle={<>{inv.billing_name || inv.client_name} · <StatusPill status={inv.status} /></>}
           action={
-            <span className="flex gap-2 flex-wrap items-center">
-              {mayWrite && inv.is_editable ? (
-                <Button onClick={() => navigate(`/workstation/invoices/${inv.id}/edit`)}>Edit draft</Button>
-              ) : null}
+            <span className="flex gap-2 flex-wrap">
               {mayWrite && inv.stored_status === 'draft' ? (
                 <Button variant="primary" disabled={send.isPending} onClick={() => send.mutate()}>Send</Button>
               ) : null}
@@ -160,23 +173,17 @@ function Body({ inv }: { inv: Invoice }) {
                 <Button variant="primary" onClick={() => setPayOpen(true)}>Record payment</Button>
               ) : null}
               <Button
-                disabled={sharing || !phone}
-                title={phone ? undefined : 'No contact number on the client record'}
-                onClick={() => share('whatsapp')}
+                disabled={!inv.party_contact_number}
+                title={inv.party_contact_number ? undefined : 'No contact number on the client record'}
+                onClick={() => setWhatsapping(true)}
               >
                 <MessageCircle size={14} /> WhatsApp
               </Button>
-              <ActionsMenu
-                inv={inv}
-                sharing={sharing}
-                phone={phone}
-                onPreview={() => navigate(`/workstation/invoices/${inv.id}/preview`)}
-                onPrint={printDocument}
-                onDownload={() => share('download')}
-                onWhatsapp={() => share('whatsapp')}
-                onEmail={() => share('email')}
-                onCancel={() => setCancelOpen(true)}
-                mayWrite={mayWrite}
+              <InvoiceActionsMenu
+                inv={inv} mayWrite={mayWrite} pdfBusy={pdf.isPending}
+                onDownload={() => pdf.mutate()} onWhatsApp={() => setWhatsapping(true)} onEmail={() => setEmailing(true)}
+                onSend={() => send.mutate()} onPay={() => setPayOpen(true)} onCancel={() => setCancelOpen(true)}
+                onDelete={() => setDeleting(true)}
               />
             </span>
           }
@@ -307,30 +314,17 @@ function CancelModal({ inv, open, onClose, onDone }: {
 }
 
 /**
- * Invoice Actions dropdown — mirrors EngagementActions and the quotation
- * Share menu so all three document pages open the same way. Utility
- * actions (Preview, Print, share as PDF, Cancel) live here; primary
- * workflow buttons (Edit draft, Send, Record payment) stay inline in the
- * header so a filer's next step is one click, not two.
+ * Everything an invoice supports, in one menu — the same shape as the
+ * quotation's Actions menu. Each item is enabled only in the states the
+ * server accepts it.
  */
-function ActionsMenu({
-  inv, sharing, phone, mayWrite,
-  onPreview, onPrint, onDownload, onWhatsapp, onEmail, onCancel,
-}: {
-  inv: Invoice;
-  sharing: boolean;
-  phone: string;
-  mayWrite: boolean;
-  onPreview: () => void;
-  onPrint: () => void;
-  onDownload: () => void;
-  onWhatsapp: () => void;
-  onEmail: () => void;
-  onCancel: () => void;
+function InvoiceActionsMenu({ inv, mayWrite, pdfBusy, onDownload, onWhatsApp, onEmail, onSend, onPay, onCancel, onDelete }: {
+  inv: Invoice; mayWrite: boolean; pdfBusy: boolean;
+  onDownload: () => void; onWhatsApp: () => void; onEmail: () => void;
+  onSend: () => void; onPay: () => void; onCancel: () => void; onDelete: () => void;
 }) {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
-
   useEffect(() => {
     if (!open) return;
     const away = (e: MouseEvent) => { if (!ref.current?.contains(e.target as Node)) setOpen(false); };
@@ -340,54 +334,61 @@ function ActionsMenu({
     return () => { document.removeEventListener('mousedown', away); document.removeEventListener('keydown', esc); };
   }, [open]);
 
-  const run = (fn: () => void) => () => { setOpen(false); fn(); };
-  const canCancel = mayWrite && inv.stored_status !== 'cancelled' && inv.stored_status !== 'paid';
+  const st = inv.stored_status;
+  const canPay = inv.balance_due_paise > 0 && st !== 'draft' && st !== 'cancelled';
+  const item = (disabled?: boolean, danger?: boolean) =>
+    'w-full flex items-center gap-2 px-3 py-2 text-left ' +
+    (disabled ? 'text-neutral-400 cursor-not-allowed' : danger ? 'text-red hover:bg-neutral-50' : 'text-neutral-800 hover:bg-neutral-50');
+  const act = (fn: () => void) => () => { setOpen(false); fn(); };
 
   return (
     <div className="relative" ref={ref}>
       <button
         type="button" onClick={() => setOpen((v) => !v)} aria-haspopup="menu" aria-expanded={open}
-        className="h-8 px-3 inline-flex items-center gap-1.5 text-13 rounded border border-neutral-300 bg-white hover:bg-neutral-50"
+        className="h-10 px-4 inline-flex items-center gap-1.5 text-14 font-medium rounded-md border border-border bg-surface hover:bg-canvas"
       >
         Actions <ChevronDown size={14} />
       </button>
-
       {open ? (
-        <div role="menu" className="absolute right-0 top-9 z-20 w-64 py-1 bg-white border border-neutral-200 rounded-md shadow-lg text-13">
-          <MenuItem onClick={run(onPreview)}><Eye size={14} /> Preview</MenuItem>
-          <MenuItem onClick={run(onPrint)}><Printer size={14} /> Print / Save as PDF</MenuItem>
-          <MenuItem disabled={sharing} onClick={run(onDownload)}><Download size={14} /> Download PDF</MenuItem>
-          <MenuItem
-            disabled={!phone || sharing}
-            title={phone ? undefined : 'No contact number on the client record'}
-            onClick={run(onWhatsapp)}
-          ><MessageCircle size={14} /> Send on WhatsApp</MenuItem>
-          <MenuItem
-            disabled={!inv.client_email || sharing}
-            title={inv.client_email ? undefined : 'No email on the client record'}
-            onClick={run(onEmail)}
-          ><Mail size={14} /> Send by email</MenuItem>
-
-          {canCancel ? (
-            <>
-              <div className="my-1 border-t border-neutral-200" />
-              <MenuItem danger onClick={run(onCancel)}><Trash2 size={14} /> Cancel invoice</MenuItem>
-            </>
-          ) : null}
+        <div role="menu" className="absolute right-0 top-11 z-20 w-64 py-1 bg-white border border-neutral-200 rounded-md shadow-lg text-13">
+          <Link to={`/workstation/invoices/${inv.id}/preview`} className={item()} onClick={() => setOpen(false)}>
+            <Printer size={14} /> Print / Save as PDF
+          </Link>
+          <button type="button" className={item(pdfBusy)} disabled={pdfBusy} onClick={act(onDownload)}><Download size={14} /> Download PDF</button>
+          <button type="button" className={item()} onClick={act(onWhatsApp)}><MessageCircle size={14} /> Send on WhatsApp</button>
+          <button type="button" className={item(!inv.party_email)} disabled={!inv.party_email}
+            title={inv.party_email ? undefined : 'No email address for this client'} onClick={act(onEmail)}>
+            <Mail size={14} /> Send by email
+          </button>
+          <div className="my-1 border-t border-neutral-200" />
+          {mayWrite && inv.is_editable ? (
+            <Link to={`/workstation/invoices/${inv.id}/edit`} className={item()} onClick={() => setOpen(false)}>
+              <Pencil size={14} /> Edit invoice
+            </Link>
+          ) : (
+            <button type="button" className={item(true)} disabled title={mayWrite ? 'A sent invoice is fixed — cancel it and raise a new one' : 'Your role cannot edit invoices'}>
+              <Pencil size={14} /> Edit invoice
+            </button>
+          )}
+          <button type="button" className={item(!mayWrite || st !== 'draft')} disabled={!mayWrite || st !== 'draft'}
+            title={st === 'draft' ? undefined : 'Only a draft can be marked sent'} onClick={act(onSend)}>
+            <Send size={14} /> Mark as sent
+          </button>
+          <button type="button" className={item(!mayWrite || !canPay)} disabled={!mayWrite || !canPay}
+            title={canPay ? undefined : st === 'draft' ? 'Send the invoice first' : 'Nothing is due on this invoice'} onClick={act(onPay)}>
+            <Wallet size={14} /> Record payment
+          </button>
+          <button type="button" className={item(!mayWrite || st === 'cancelled' || st === 'paid')} disabled={!mayWrite || st === 'cancelled' || st === 'paid'}
+            title={st === 'cancelled' ? 'Already cancelled' : st === 'paid' ? 'A paid invoice cannot be cancelled' : undefined} onClick={act(onCancel)}>
+            <Ban size={14} /> Cancel invoice
+          </button>
+          <div className="my-1 border-t border-neutral-200" />
+          <button type="button" className={item(!mayWrite || !inv.is_editable, true)} disabled={!mayWrite || !inv.is_editable}
+            title={inv.is_editable ? undefined : 'Only a draft can be deleted — cancel a sent invoice instead'} onClick={act(onDelete)}>
+            <Trash2 size={14} /> Delete invoice
+          </button>
         </div>
       ) : null}
     </div>
-  );
-}
-
-function MenuItem({ children, disabled, danger, title, onClick }: {
-  children: ReactNode; disabled?: boolean; danger?: boolean; title?: string; onClick: () => void;
-}) {
-  const cls = 'w-full px-3 py-1.5 flex items-center gap-2 text-left '
-    + (disabled ? 'text-neutral-400 cursor-not-allowed' : danger ? 'text-red hover:bg-neutral-50' : 'text-neutral-900 hover:bg-neutral-50');
-  return (
-    <button type="button" role="menuitem" title={title} disabled={disabled} onClick={onClick} className={cls}>
-      {children}
-    </button>
   );
 }

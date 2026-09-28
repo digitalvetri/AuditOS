@@ -5,70 +5,72 @@ import {
   normalizeSection,
   normalizeTan,
   normalizeQuarter,
-  toIsoDate,
+  tdsDate,
   toPaise,
+  TAN_RE,
 } from './tdsTypes.js'
 
 /**
- * Parser for a Tally XML voucher export containing TDS entries.
+ * The client's own books, as a Tally XML voucher export — the TDS its
+ * customers deducted, which 26AS must show as credits.
  *
- * TDS in Tally lives as ledger entries within Purchase / Journal
- * vouchers whose LEDGERNAME matches TDS patterns. Structure (relevant
- * fields):
- *   <VOUCHER VCHTYPE="Purchase" or "Journal">
- *     <DATE>20260615</DATE>
- *     <VOUCHERNUMBER>...</VOUCHERNUMBER>
- *     <PARTYNAME>Acme Steel</PARTYNAME>
- *     <PARTYGSTIN>...</PARTYGSTIN>      (may hold TAN in some setups)
- *     <PARTYTAN>BLRA00001A</PARTYTAN>   (Tally's TDS master field)
- *     <ALLLEDGERENTRIES.LIST>
- *       <LEDGERNAME>Professional Fees</LEDGERNAME>
- *       <AMOUNT>-100000.00</AMOUNT>
- *     </ALLLEDGERENTRIES.LIST>
- *     <ALLLEDGERENTRIES.LIST>
- *       <LEDGERNAME>TDS on Professional Fees 194J</LEDGERNAME>
- *       <AMOUNT>10000.00</AMOUNT>
- *     </ALLLEDGERENTRIES.LIST>
+ * In the books that is a debit to a TDS-receivable ledger, usually in the
+ * receipt that settles the customer's invoice:
+ *
+ *   <VOUCHER VCHTYPE="Receipt">
+ *     <DATE>20260615</DATE> <VOUCHERNUMBER>RC-12</VOUCHERNUMBER>
+ *     <PARTYLEDGERNAME>Acme Steel Pvt Ltd</PARTYLEDGERNAME>
+ *     <ALLLEDGERENTRIES.LIST> Acme Steel Pvt Ltd    AMOUNT  100000.00  (credit — the gross settled)
+ *     <ALLLEDGERENTRIES.LIST> HDFC Bank             AMOUNT  -90000.00  (debit)
+ *     <ALLLEDGERENTRIES.LIST> TDS Receivable 194J   AMOUNT  -10000.00  (debit — the credit to claim)
  *   </VOUCHER>
  *
- * We extract one entry per (voucher, TDS ledger). Section is inferred
- * from the ledger name (falls back to attribute).
+ * Tally writes debits as negative amounts. A credit to the receivable
+ * ledger (a reversal) comes through as a negative entry. TDS the client
+ * itself deducted (TDS payable, credited in purchases) is not a 26AS
+ * credit and is skipped.
+ *
+ * The deductor's TAN is read from the voucher when Tally carries it
+ * (PARTYTAN / DEDUCTORTAN / TANNUMBER); a GSTIN is never taken for a TAN.
+ * Without a TAN the matcher pairs by the deductor's name.
  */
 
-interface TallyVoucher {
-  DATE?: string
-  VOUCHERNUMBER?: string
-  PARTYNAME?: string
-  PARTYTAN?: string
-  PARTYGSTIN?: string
-  PARTYLEDGERNAME?: string
-  'ALLLEDGERENTRIES.LIST'?: TallyLedgerEntry | TallyLedgerEntry[]
-  ['@_VCHTYPE']?: string
-}
+type Val = string | number | undefined
 interface TallyLedgerEntry {
-  LEDGERNAME?: string
-  AMOUNT?: string | number
-  TDSDEDUCTEEAMOUNT?: string | number
+  LEDGERNAME?: Val
+  AMOUNT?: Val
+  ISDEEMEDPOSITIVE?: Val
+  ISPARTYLEDGER?: Val
+  [k: string]: unknown
+}
+interface TallyVoucher {
+  DATE?: Val
+  EFFECTIVEDATE?: Val
+  VOUCHERNUMBER?: Val
+  REFERENCE?: Val
+  PARTYNAME?: Val
+  PARTYLEDGERNAME?: Val
+  PARTYTAN?: Val
+  DEDUCTORTAN?: Val
+  TANNUMBER?: Val
+  NARRATION?: Val
+  'ALLLEDGERENTRIES.LIST'?: TallyLedgerEntry | TallyLedgerEntry[]
+  'LEDGERENTRIES.LIST'?: TallyLedgerEntry | TallyLedgerEntry[]
+  ['@_VCHTYPE']?: string
+  [k: string]: unknown
 }
 
-const TDS_RE = /(tds|tax\s*deducted)/i
+const TDS_RE = /\b(tds|tcs)\b|tax\s*(deducted|collected)\s*at\s*source/i
+const PAYABLE_RE = /payable|\bpay\b|deducted\s*by\s*us|on\s*purchase/i
+const RECEIVABLE_RE = /receivable|recoverable|\brec\b|advance|claim|asset/i
 
-function tallyDateToIso(v: string | undefined): string {
-  if (!v) return ''
-  const m = /^(\d{4})(\d{2})(\d{2})$/.exec(v.trim())
-  if (m) return `${m[1]}-${m[2]}-${m[3]}`
-  return toIsoDate(v)
-}
-
-function amountToPaise(v: unknown): number {
-  const n = Math.abs(Number(v ?? 0))
-  return Number.isFinite(n) ? toPaise(n) : 0
-}
+const str = (v: Val) => (v === undefined || v === null ? '' : String(v).trim())
+const amt = (v: Val) => { const n = Number(str(v).replace(/,/g, '')); return Number.isFinite(n) ? n : 0 }
 
 export function parseTdsBooksTallyXml(bytes: Buffer): ParsedTdsBooks {
   const parser = new XMLParser({
     ignoreAttributes: false, attributeNamePrefix: '@_',
-    parseAttributeValue: false, trimValues: true,
+    parseAttributeValue: false, parseTagValue: false, trimValues: true,
   })
   let doc: unknown
   try { doc = parser.parse(bytes.toString('utf8')) } catch {
@@ -89,33 +91,43 @@ export function parseTdsBooksTallyXml(bytes: Buffer): ParsedTdsBooks {
 
   const entries: NormalizedTdsEntry[] = []
   for (const v of vouchers) {
-    const vchType = v['@_VCHTYPE'] ?? ''
-    if (vchType && !/purchase|journal/i.test(vchType)) continue
+    const vchType = str(v['@_VCHTYPE'] as Val)
+    if (/purchase|payment/i.test(vchType)) continue
+    const raw = v['ALLLEDGERENTRIES.LIST'] ?? v['LEDGERENTRIES.LIST']
+    const ledger: TallyLedgerEntry[] = Array.isArray(raw) ? raw : raw ? [raw] : []
+    const date = tdsDate(str(v.DATE) || str(v.EFFECTIVEDATE))
+    if (!date) continue
 
-    const raw = v['ALLLEDGERENTRIES.LIST']
-    const ledger: TallyLedgerEntry[] = Array.isArray(raw) ? (raw as TallyLedgerEntry[]) : raw ? [raw as TallyLedgerEntry] : []
+    const party = str(v.PARTYLEDGERNAME) || str(v.PARTYNAME)
+    const isTds = (e: TallyLedgerEntry) => TDS_RE.test(str(e.LEDGERNAME)) && !PAYABLE_RE.test(str(e.LEDGERNAME))
+    const partyEntry = ledger.find((e) => str(e.ISPARTYLEDGER).toLowerCase() === 'yes' || (party && str(e.LEDGERNAME).toLowerCase() === party.toLowerCase()))
+    const tanRaw = normalizeTan(str(v.PARTYTAN) || str(v.DEDUCTORTAN) || str(v.TANNUMBER))
+    const tan = TAN_RE.test(tanRaw) ? tanRaw : ''
+    // Section: from the TDS ledger's name, else anywhere on the voucher (a TDS nature-of-payment field, the narration).
+    const voucherSection = normalizeSection(Object.entries(v)
+      .filter(([k, val]) => typeof val === 'string' && /TDS|NATURE|SECTION|NARRATION/i.test(k)).map(([, val]) => val as string).join(' '))
 
-    // Find the base-amount entry (non-TDS ledger with the largest absolute amount).
-    const nonTds = ledger.filter((e) => e.LEDGERNAME && !TDS_RE.test(e.LEDGERNAME))
-    const base = nonTds.sort((a, b) => Math.abs(Number(b.AMOUNT ?? 0)) - Math.abs(Number(a.AMOUNT ?? 0)))[0]
-
-    const tan = normalizeTan(v.PARTYTAN ?? v.PARTYGSTIN ?? '')
-    const tdsDate = tallyDateToIso(v.DATE)
-    if (!tan || !tdsDate) continue
-
-    // One entry per TDS ledger row in this voucher.
     for (const e of ledger) {
-      if (!e.LEDGERNAME || !TDS_RE.test(e.LEDGERNAME)) continue
-      const section = normalizeSection(e.LEDGERNAME)
-      if (!section) continue
+      const name = str(e.LEDGERNAME)
+      if (!name || !isTds(e)) continue
+      const a = amt(e.AMOUNT)
+      if (!a) continue
+      const debit = a < 0 || str(e.ISDEEMEDPOSITIVE).toLowerCase() === 'yes'
+      // A credit to a plain "TDS" ledger in a receipt is ambiguous; only a named receivable ledger is reversed.
+      if (!debit && !RECEIVABLE_RE.test(name)) continue
+      const sign = debit ? 1 : -1
+      const gross = partyEntry ? Math.abs(amt(partyEntry.AMOUNT)) : ledger.filter((x) => x !== e && amt(x.AMOUNT) > 0).reduce((t, x) => t + amt(x.AMOUNT), 0)
       entries.push({
-        section,
+        section: normalizeSection(name) || voucherSection,
         deductorTan: tan,
-        deductorName: v.PARTYNAME ?? v.PARTYLEDGERNAME ?? undefined,
-        quarter: normalizeQuarter(tdsDate),
-        amountPaid: amountToPaise(base?.AMOUNT ?? 0),
-        tdsAmount: amountToPaise(e.AMOUNT),
-        tdsDate,
+        deductorName: party || undefined,
+        quarter: normalizeQuarter(date),
+        amountPaid: sign * toPaise(gross),
+        tdsAmount: sign * toPaise(Math.abs(a)),
+        tdsDate: date,
+        glCode: name,
+        reference: str(v.REFERENCE) || str(v.VOUCHERNUMBER) || undefined,
+        voucherType: vchType || undefined,
       })
     }
   }

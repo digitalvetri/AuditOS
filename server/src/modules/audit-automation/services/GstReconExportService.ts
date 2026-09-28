@@ -34,140 +34,107 @@ async function scopedJob(session: Session, jobId: string) {
   return job
 }
 
+type Row = Awaited<ReturnType<typeof loadRows>>[number]
+function loadRows(jobId: string) {
+  return prisma.aaGstReconRow.findMany({
+    where: { jobId },
+    orderBy: [{ matchStatus: 'asc' }, { createdAt: 'asc' }],
+    include: { filing2BEntry: true, purchaseRegisterEntry: true },
+  })
+}
+
+const SHEETS: { status: string; name: string; paired: boolean }[] = [
+  { status: 'matched', name: 'Matched', paired: true },
+  { status: 'partial', name: 'Partial', paired: true },
+  { status: 'variance', name: 'Variance', paired: true },
+  { status: 'only_2b', name: 'Missing in books', paired: false },
+  { status: 'only_pr', name: 'Missing in 2B', paired: false },
+  { status: 'duplicate', name: 'Duplicates', paired: false },
+]
+
+/** One flat record per row — the same columns for the workbook sheets and the CSV. */
+function flat(r: Row) {
+  const a = r.filing2BEntry
+  const b = r.purchaseRegisterEntry
+  const e = a ?? b
+  const d = (x: number | undefined | null, y: number | undefined | null) => (x == null || y == null ? null : paiseToRupees(x - y))
+  return {
+    status: r.matchStatus,
+    method: r.matchMethod ?? '',
+    doc_type: e?.docType ?? '',
+    section: a?.section ?? '',
+    gstin: e?.supplierGstin ?? '',
+    supplier: e?.supplierName ?? '',
+    inv_2b: a?.invoiceNumber ?? '', date_2b: a?.invoiceDate ?? '',
+    inv_pr: b?.invoiceNumber ?? '', date_pr: b?.invoiceDate ?? '',
+    value_2b: a?.invoiceValue != null ? paiseToRupees(a.invoiceValue) : null,
+    taxable_2b: a ? paiseToRupees(a.taxableValue) : null, taxable_pr: b ? paiseToRupees(b.taxableValue) : null, taxable_diff: d(a?.taxableValue, b?.taxableValue),
+    igst_2b: a ? paiseToRupees(a.igst) : null, igst_pr: b ? paiseToRupees(b.igst) : null,
+    cgst_2b: a ? paiseToRupees(a.cgst) : null, cgst_pr: b ? paiseToRupees(b.cgst) : null,
+    sgst_2b: a ? paiseToRupees(a.sgst) : null, sgst_pr: b ? paiseToRupees(b.sgst) : null,
+    cess_2b: a ? paiseToRupees(a.cess) : null, cess_pr: b ? paiseToRupees(b.cess) : null,
+    tax_diff: a && b ? paiseToRupees((a.igst + a.cgst + a.sgst + a.cess) - (b.igst + b.cgst + b.sgst + b.cess)) : null,
+    reverse_charge: (a?.reverseCharge || b?.reverseCharge) ? 'Y' : '',
+    itc_in_2b: a ? (a.itcAvailable ? 'Y' : 'N') : '',
+    gl: b?.glCode ?? '',
+    differences: r.mismatchFields.replace(/,/g, ', '),
+    itc_class: r.itcClassification,
+    itc_reason: r.itcReason ?? '',
+    note: r.auditorNote ?? '',
+  }
+}
+const COLS: [keyof ReturnType<typeof flat>, string, number, boolean?][] = [
+  ['status', 'Status', 11], ['method', 'Matched by', 12], ['doc_type', 'Doc', 6], ['section', 'Section', 8],
+  ['gstin', 'Supplier GSTIN', 18], ['supplier', 'Supplier', 28],
+  ['inv_2b', 'Invoice (2B)', 16], ['date_2b', 'Date (2B)', 11], ['inv_pr', 'Invoice (books)', 16], ['date_pr', 'Date (books)', 11],
+  ['value_2b', 'Invoice value (2B)', 14, true],
+  ['taxable_2b', 'Taxable (2B)', 14, true], ['taxable_pr', 'Taxable (books)', 14, true], ['taxable_diff', 'Taxable Δ', 12, true],
+  ['igst_2b', 'IGST (2B)', 12, true], ['igst_pr', 'IGST (books)', 12, true], ['cgst_2b', 'CGST (2B)', 12, true], ['cgst_pr', 'CGST (books)', 12, true],
+  ['sgst_2b', 'SGST (2B)', 12, true], ['sgst_pr', 'SGST (books)', 12, true], ['cess_2b', 'Cess (2B)', 11, true], ['cess_pr', 'Cess (books)', 11, true],
+  ['tax_diff', 'Tax Δ', 12, true], ['reverse_charge', 'RCM', 5], ['itc_in_2b', 'ITC in 2B', 8], ['gl', 'GL / ledger', 18],
+  ['differences', 'Differences', 26], ['itc_class', 'ITC class', 11], ['itc_reason', 'ITC reason', 48], ['note', 'Reviewer note', 36],
+]
+
 export const GstReconExportService = {
   async workbook(session: Session, jobId: string): Promise<Buffer> {
     const job = await scopedJob(session, jobId)
-    const rows = await prisma.aaGstReconRow.findMany({
-      where: { jobId },
-      include: { filing2BEntry: true, purchaseRegisterEntry: true },
-    })
-
+    const rows = await loadRows(job.id)
     const wb = new ExcelJS.Workbook()
-    wb.creator = 'Audit OS · Audit Automation'
-    wb.created = new Date()
-
-    // ── Summary ─────────────────────────────────────────────────────────
-    const summary = wb.addWorksheet('Summary')
-    summary.columns = [
-      { header: 'Field', key: 'field', width: 32 },
-      { header: 'Value', key: 'value', width: 40 },
-    ]
-    const totals = job.totalsJson ? JSON.parse(job.totalsJson) as Record<string, { taxable: number; igst: number; cgst: number; sgst: number; cess: number; count: number }> : null
-    const summaryRows: [string, string | number][] = [
-      ['Client', job.client.companyName],
-      ['Period', `${String(job.filing2B.periodMonth).padStart(2, '0')}-${job.filing2B.periodYear}`],
-      ['GSTR-2B file', job.filing2B.originalFilename],
-      ['Purchase Register file', job.purchaseRegister.originalFilename],
-      ['Reconciled on', job.completedAt?.toISOString().slice(0, 19).replace('T', ' ') ?? ''],
-      ['', ''],
-      ['Matched', job.matchedCount],
-      ['Partial', job.partialCount],
-      ['Only in 2B', job.only2BCount],
-      ['Only in PR', job.onlyPRCount],
-    ]
-    if (totals) {
-      summaryRows.push(['', ''])
-      summaryRows.push(['Bucket', 'Taxable (₹) · IGST · CGST · SGST · Cess'])
-      for (const bucket of ['matched', 'partial', 'only_2b', 'only_pr'] as const) {
-        const t = totals[bucket]
-        summaryRows.push([
-          bucket.toUpperCase(),
-          `${paiseToRupees(t.taxable).toFixed(2)} · ${paiseToRupees(t.igst).toFixed(2)} · ${paiseToRupees(t.cgst).toFixed(2)} · ${paiseToRupees(t.sgst).toFixed(2)} · ${paiseToRupees(t.cess).toFixed(2)}`,
-        ])
-      }
+    const sum = wb.addWorksheet('Summary')
+    sum.columns = [{ header: 'Bucket', key: 'b', width: 22 }, { header: 'Count', key: 'c', width: 10 }, { header: 'Taxable', key: 't', width: 16 }, { header: 'IGST', key: 'i', width: 14 }, { header: 'CGST', key: 'cg', width: 14 }, { header: 'SGST', key: 's', width: 14 }, { header: 'Cess', key: 'ce', width: 12 }]
+    sum.addRow({ b: `Client: ${job.client.companyName}` })
+    sum.addRow({ b: `2B period: ${String(job.filing2B.periodMonth).padStart(2, '0')}/${job.filing2B.periodYear}` })
+    sum.addRow({ b: `Flags: ${job.flags || 'none'}` })
+    sum.addRow({})
+    const totals = job.totalsJson ? JSON.parse(job.totalsJson) as Record<string, { taxable: number; igst: number; cgst: number; sgst: number; cess: number; count: number }> : {}
+    for (const s of SHEETS) {
+      const t = totals[s.status]
+      if (t) sum.addRow({ b: s.name, c: t.count, t: paiseToRupees(t.taxable), i: paiseToRupees(t.igst), cg: paiseToRupees(t.cgst), s: paiseToRupees(t.sgst), ce: paiseToRupees(t.cess) })
     }
-    summaryRows.forEach((r) => summary.addRow({ field: r[0], value: r[1] }))
-    summary.getRow(1).font = { bold: true }
-
-    // ── Matched / Partial / Only 2B / Only PR sheets ────────────────────
-    addPairedSheet(wb, 'Matched', rows.filter((r) => r.matchStatus === 'matched'))
-    addPairedSheet(wb, 'Partial', rows.filter((r) => r.matchStatus === 'partial'))
-    addSingleSideSheet(wb, 'Only in 2B', rows.filter((r) => r.matchStatus === 'only_2b'), 'two')
-    addSingleSideSheet(wb, 'Only in PR', rows.filter((r) => r.matchStatus === 'only_pr'), 'pr')
-
+    const byItc = new Map<string, number>()
+    for (const r of rows) byItc.set(r.itcClassification, (byItc.get(r.itcClassification) ?? 0) + 1)
+    sum.addRow({})
+    sum.addRow({ b: 'ITC class', c: 'Rows' })
+    for (const [k, v] of byItc) sum.addRow({ b: k, c: v })
+    for (const k of ['t', 'i', 'cg', 's', 'ce']) sum.getColumn(k).numFmt = RUPEES
+    for (const s of SHEETS) {
+      const ws = wb.addWorksheet(s.name)
+      const cols = COLS.filter(([k]) => s.paired || !['taxable_diff', 'tax_diff'].includes(k))
+      ws.columns = cols.map(([key, header, width, money]) => ({ key, header, width, ...(money ? { style: { numFmt: RUPEES } } : {}) }))
+      ws.getRow(1).font = { bold: true }
+      ws.views = [{ state: 'frozen', ySplit: 1 }]
+      for (const r of rows.filter((x) => x.matchStatus === s.status)) ws.addRow(flat(r))
+    }
     return Buffer.from(await wb.xlsx.writeBuffer())
   },
-}
 
-function addPairedSheet(wb: ExcelJS.Workbook, name: string, rows: Array<{
-  matchStatus: string; mismatchFields: string; itcClassification: string; auditorNote: string | null;
-  filing2BEntry: { supplierGstin: string; supplierName: string | null; invoiceNumber: string; invoiceDate: string; taxableValue: number; igst: number; cgst: number; sgst: number; cess: number; itcAvailable: boolean } | null;
-  purchaseRegisterEntry: { supplierGstin: string; supplierName: string | null; invoiceNumber: string; invoiceDate: string; taxableValue: number; igst: number; cgst: number; sgst: number; cess: number } | null;
-}>) {
-  const ws = wb.addWorksheet(name)
-  ws.columns = [
-    { header: 'Supplier GSTIN', key: 'gstin', width: 20 },
-    { header: 'Supplier Name', key: 'name', width: 28 },
-    { header: 'Invoice #', key: 'inv', width: 18 },
-    { header: 'Invoice Date', key: 'date', width: 12 },
-    { header: '2B Taxable', key: '2bTax', width: 14, style: { numFmt: RUPEES } },
-    { header: 'PR Taxable', key: 'prTax', width: 14, style: { numFmt: RUPEES } },
-    { header: 'Δ Taxable', key: 'dTax', width: 14, style: { numFmt: RUPEES } },
-    { header: '2B IGST', key: '2bIgst', width: 12, style: { numFmt: RUPEES } },
-    { header: 'PR IGST', key: 'prIgst', width: 12, style: { numFmt: RUPEES } },
-    { header: '2B CGST', key: '2bCgst', width: 12, style: { numFmt: RUPEES } },
-    { header: 'PR CGST', key: 'prCgst', width: 12, style: { numFmt: RUPEES } },
-    { header: '2B SGST', key: '2bSgst', width: 12, style: { numFmt: RUPEES } },
-    { header: 'PR SGST', key: 'prSgst', width: 12, style: { numFmt: RUPEES } },
-    { header: 'ITC in 2B', key: 'itc2b', width: 10 },
-    { header: 'Mismatches', key: 'mism', width: 24 },
-    { header: 'ITC Classification', key: 'itc', width: 18 },
-    { header: 'Auditor Note', key: 'note', width: 36 },
-  ]
-  ws.getRow(1).font = { bold: true }
-  for (const r of rows) {
-    const two = r.filing2BEntry
-    const pr = r.purchaseRegisterEntry
-    ws.addRow({
-      gstin: two?.supplierGstin ?? pr?.supplierGstin ?? '',
-      name: two?.supplierName ?? pr?.supplierName ?? '',
-      inv: two?.invoiceNumber ?? pr?.invoiceNumber ?? '',
-      date: two?.invoiceDate ?? pr?.invoiceDate ?? '',
-      '2bTax': two ? two.taxableValue / 100 : null,
-      prTax: pr ? pr.taxableValue / 100 : null,
-      dTax: two && pr ? (two.taxableValue - pr.taxableValue) / 100 : null,
-      '2bIgst': two ? two.igst / 100 : null, prIgst: pr ? pr.igst / 100 : null,
-      '2bCgst': two ? two.cgst / 100 : null, prCgst: pr ? pr.cgst / 100 : null,
-      '2bSgst': two ? two.sgst / 100 : null, prSgst: pr ? pr.sgst / 100 : null,
-      itc2b: two ? (two.itcAvailable ? 'Y' : 'N') : '',
-      mism: r.mismatchFields,
-      itc: r.itcClassification,
-      note: r.auditorNote ?? '',
-    })
-  }
-}
-
-function addSingleSideSheet(wb: ExcelJS.Workbook, name: string, rows: Array<{
-  itcClassification: string; auditorNote: string | null;
-  filing2BEntry: { supplierGstin: string; supplierName: string | null; invoiceNumber: string; invoiceDate: string; taxableValue: number; igst: number; cgst: number; sgst: number; cess: number; itcAvailable: boolean } | null;
-  purchaseRegisterEntry: { supplierGstin: string; supplierName: string | null; invoiceNumber: string; invoiceDate: string; taxableValue: number; igst: number; cgst: number; sgst: number; cess: number } | null;
-}>, side: 'two' | 'pr') {
-  const ws = wb.addWorksheet(name)
-  ws.columns = [
-    { header: 'Supplier GSTIN', key: 'gstin', width: 20 },
-    { header: 'Supplier Name', key: 'name', width: 28 },
-    { header: 'Invoice #', key: 'inv', width: 18 },
-    { header: 'Invoice Date', key: 'date', width: 12 },
-    { header: 'Taxable', key: 'tax', width: 14, style: { numFmt: RUPEES } },
-    { header: 'IGST', key: 'igst', width: 12, style: { numFmt: RUPEES } },
-    { header: 'CGST', key: 'cgst', width: 12, style: { numFmt: RUPEES } },
-    { header: 'SGST', key: 'sgst', width: 12, style: { numFmt: RUPEES } },
-    { header: 'ITC in 2B', key: 'itc2b', width: 10 },
-    { header: 'ITC Classification', key: 'itc', width: 18 },
-    { header: 'Auditor Note', key: 'note', width: 36 },
-  ]
-  ws.getRow(1).font = { bold: true }
-  for (const r of rows) {
-    const e = side === 'two' ? r.filing2BEntry : r.purchaseRegisterEntry
-    if (!e) continue
-    ws.addRow({
-      gstin: e.supplierGstin, name: e.supplierName ?? '',
-      inv: e.invoiceNumber, date: e.invoiceDate,
-      tax: e.taxableValue / 100,
-      igst: e.igst / 100, cgst: e.cgst / 100, sgst: e.sgst / 100,
-      itc2b: side === 'two' && r.filing2BEntry ? (r.filing2BEntry.itcAvailable ? 'Y' : 'N') : '',
-      itc: r.itcClassification,
-      note: r.auditorNote ?? '',
-    })
-  }
+  /** Every row in one CSV, for other tools. */
+  async csv(session: Session, jobId: string): Promise<string> {
+    const job = await scopedJob(session, jobId)
+    const rows = await loadRows(job.id)
+    const q = (v: unknown) => { const s = v == null ? '' : String(v); return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s }
+    const lines = [COLS.map(([, h]) => q(h)).join(',')]
+    for (const r of rows) { const f = flat(r); lines.push(COLS.map(([k]) => q(f[k])).join(',')) }
+    return lines.join('\r\n') + '\r\n'
+  },
 }

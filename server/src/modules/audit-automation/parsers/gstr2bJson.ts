@@ -34,28 +34,64 @@ import { type NormalizedEntry, type ParsedFiling2B, toPaise, toIsoDate } from '.
  * Amounts in the JSON are in rupees (decimal) — toPaise() converts.
  */
 
-const SECTIONS = ['b2b', 'b2ba', 'cdnr', 'cdnra', 'isd', 'isda', 'impg', 'imps'] as const
-
+const SECTIONS = ['b2b', 'b2ba', 'cdnr', 'cdnra', 'isd', 'isda', 'impg', 'impgsez', 'imps'] as const
 type Section = typeof SECTIONS[number]
 
-interface RawSupplier {
-  ctin?: string
-  trdnm?: string
-  inv?: RawInvoice[]
-  nt?: RawInvoice[]   // credit/debit notes use `nt` in some envelopes
+type Num = number | string | undefined
+/**
+ * One document in GSTR-2B's JSON. Invoices (b2b/b2ba) use inum/dt; notes
+ * (cdnr/cdnra) use ntnum/dt with typ C|D; ISD documents use docnum/docdt;
+ * bills of entry (impg) use boenum/boedt. `idt`/`ntdt` are accepted too
+ * (older / third-party exports).
+ */
+interface RawDoc {
+  inum?: string; ntnum?: string; docnum?: string; boenum?: string
+  dt?: string; idt?: string; ntdt?: string; docdt?: string; boedt?: string
+  oinum?: string; ontnum?: string; odocnum?: string
+  typ?: string; doctyp?: string
+  val?: Num; txval?: Num; igst?: Num; cgst?: Num; sgst?: Num; cess?: Num
+  rev?: string; itcavl?: string; itcelg?: string; rsn?: string
+  portcd?: string
 }
-interface RawInvoice {
-  inum?: string
-  idt?: string
-  ntnum?: string      // note number for CDNR
-  ntdt?: string       // note date
-  txval?: number | string
-  val?: number | string
-  igst?: number | string
-  cgst?: number | string
-  sgst?: number | string
-  cess?: number | string
-  itcavl?: string     // "Y" | "N"
+interface RawSupplier { ctin?: string; trdnm?: string; inv?: RawDoc[]; nt?: RawDoc[]; doclist?: RawDoc[] }
+
+function asList(x: unknown): unknown[] { return Array.isArray(x) ? x : x && typeof x === 'object' ? [x] : [] }
+
+function toEntry(section: Section, doc: RawDoc, supplier: { ctin?: string; trdnm?: string }): NormalizedEntry | null {
+  const isNote = section === 'cdnr' || section === 'cdnra'
+  const isIsd = section === 'isd' || section === 'isda'
+  const isBoe = section === 'impg' || section === 'impgsez'
+  const number = isBoe
+    ? (doc.boenum ? `BOE-${doc.portcd ?? ''}-${doc.boenum}` : '')
+    : (doc.inum ?? doc.ntnum ?? doc.docnum ?? '')
+  if (!number) return null
+  const date = toIsoDate(doc.dt ?? doc.idt ?? doc.ntdt ?? doc.docdt ?? doc.boedt ?? '')
+  // A credit note (or an ISD credit-note document) reduces ITC: negative amounts.
+  const noteType = (doc.typ ?? doc.doctyp ?? '').toUpperCase()
+  const credit = (isNote || isIsd) && (noteType === 'C' || noteType === 'CN' || noteType === 'CR')
+  const sign = credit ? -1 : 1
+  const amt = (v: Num) => sign * toPaise(v ?? 0)
+  const docType = isBoe ? 'BOE' : isIsd ? 'ISD' : isNote ? (credit ? 'CRN' : 'DBN') : 'INV'
+  const eligible = (doc.itcavl ?? doc.itcelg ?? 'Y').toUpperCase() !== 'N'
+  return {
+    section,
+    docType,
+    supplierGstin: supplier.ctin ?? (isBoe ? 'IMPORT' : ''),
+    supplierName: supplier.trdnm ?? (isBoe ? 'Import of goods (customs)' : undefined),
+    invoiceNumber: number,
+    invoiceDate: date,
+    taxableValue: amt(doc.txval),
+    igst: amt(doc.igst),
+    cgst: amt(doc.cgst),
+    sgst: amt(doc.sgst),
+    cess: amt(doc.cess),
+    invoiceValue: doc.val !== undefined ? amt(doc.val) : undefined,
+    reverseCharge: (doc.rev ?? 'N').toUpperCase() === 'Y',
+    originalInvoiceNumber: doc.oinum ?? doc.ontnum ?? doc.odocnum ?? undefined,
+    itcAvailable: eligible,
+    itcReason: !eligible && doc.rsn ? String(doc.rsn) : undefined,
+    rawJson: JSON.stringify({ supplier: { ctin: supplier.ctin, trdnm: supplier.trdnm }, doc }),
+  }
 }
 
 export function parseGstr2BJson(bytes: Buffer): ParsedFiling2B {
@@ -66,32 +102,16 @@ export function parseGstr2BJson(bytes: Buffer): ParsedFiling2B {
   const data = (json as { data?: Record<string, unknown> }).data ?? (json as Record<string, unknown>)
   const gstin = typeof data.gstin === 'string' ? data.gstin : undefined
   const gendt = typeof data.gendt === 'string' ? toIsoDate(data.gendt) : undefined
-  const docdata = ((data.docdata as Record<string, unknown>) ?? {}) as Record<Section, RawSupplier[]>
+  const docdata = ((data.docdata as Record<string, unknown>) ?? {}) as Record<string, unknown>
 
   const entries: NormalizedEntry[] = []
   for (const section of SECTIONS) {
-    const suppliers = docdata[section]
-    if (!Array.isArray(suppliers)) continue
-    for (const supplier of suppliers) {
-      const invoices = supplier.inv ?? supplier.nt ?? []
-      for (const inv of invoices) {
-        const invoiceNumber = inv.inum ?? inv.ntnum ?? ''
-        const invoiceDate = toIsoDate(inv.idt ?? inv.ntdt ?? '')
-        if (!invoiceNumber) continue
-        entries.push({
-          section,
-          supplierGstin: supplier.ctin ?? '',
-          supplierName: supplier.trdnm ?? undefined,
-          invoiceNumber,
-          invoiceDate,
-          taxableValue: toPaise(inv.txval ?? 0),
-          igst: toPaise(inv.igst ?? 0),
-          cgst: toPaise(inv.cgst ?? 0),
-          sgst: toPaise(inv.sgst ?? 0),
-          cess: toPaise(inv.cess ?? 0),
-          itcAvailable: (inv.itcavl ?? 'Y').toUpperCase() !== 'N',
-          rawJson: JSON.stringify({ supplier: { ctin: supplier.ctin, trdnm: supplier.trdnm }, inv }),
-        })
+    for (const item of asList(docdata[section]) as RawSupplier[]) {
+      // Bills of entry sit directly in the section; everything else is grouped by supplier.
+      const docs = (item.inv ?? item.nt ?? item.doclist) ? asList(item.inv ?? item.nt ?? item.doclist) as RawDoc[] : [item as RawDoc]
+      for (const doc of docs) {
+        const e = toEntry(section, doc, item)
+        if (e) entries.push(e)
       }
     }
   }

@@ -145,6 +145,10 @@ export interface InvoiceImportOutcome {
   errors: { row: number; message: string }[];
   warnings: { row: number; message: string }[];
   probableProposed: number;
+  /** Every invoice the file carried (new or already imported) — the collect-payment step starts from these. */
+  invoices?: { id: string; invoice_number: string; amount_paise: number }[];
+  /** Present when the upload was a PDF: how it was read, and what was left out. */
+  pdf?: { source: 'register' | 'invoices'; read: number; skipped: string[] };
 }
 
 
@@ -230,4 +234,31 @@ export const zpayApi = {
     api.post<{ paymentId: string; matchType: 'manual' }>(
       `/api/zpay/payments/${paymentId}/confirm-probable`,
     ),
+};
+
+// ── collect payment ───────────────────────────────────────────────────
+
+export interface ZpayPaymentLinkSummary {
+  id: string; url: string; status: string; amount_paise: number; amount_paid_paise: number;
+  expires_at: string | null; email: string | null; phone: string | null; created_at: string; last_checked_at: string | null;
+}
+export interface InvoicePaymentState {
+  invoice: {
+    id: string; invoice_number: string; issued_on: string; due_date: string | null; amount_paise: number;
+    client_name: string | null; client_email: string | null; client_phone: string | null;
+  };
+  paid_paise: number;
+  owed_paise: number;
+  state: 'paid' | 'part_paid' | 'unpaid';
+  connected: boolean;
+  links: ZpayPaymentLinkSummary[];
+  payments: { id: string; zoho_payment_id: string; amount_paise: number; paid_at: string; mode: string | null; status: string }[];
+}
+
+export const zpayCollect = {
+  state: (invoiceId: string) => api.get<InvoicePaymentState>(`/api/zpay/invoices/${invoiceId}/payment`),
+  createLink: (invoiceId: string, body: { email?: string; phone?: string; expires_at?: string; notify_email?: boolean; notify_sms?: boolean }) =>
+    api.post<{ reused: boolean; state: InvoicePaymentState }>(`/api/zpay/invoices/${invoiceId}/payment-link`, body),
+  refreshLink: (linkId: string) =>
+    api.post<{ matched: number; unsynced: number; state: InvoicePaymentState }>(`/api/zpay/payment-links/${linkId}/refresh`),
 };

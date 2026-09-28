@@ -10,6 +10,7 @@ import {
 } from '@/modules/workstation/quotations/document';
 import { caretOffset, setCaret } from '@/modules/workstation/engagement/richtext';
 import { DateField, PlainField, forceSync, requestFocus } from '@/pages/workstation/engagement/Editable';
+import { footerReservePx, unitHeights } from '@/modules/workstation/paginate';
 
 /**
  * THE QUOTATION RENDERER.
@@ -346,17 +347,15 @@ function usePagination(ids: string[], contentHeightPx: number, doc: DocumentMode
   useLayoutEffect(() => {
     const root = measureRef.current;
     if (!root) return;
-    const heights = new Map<string, number>();
-    root.querySelectorAll<HTMLElement>('[data-block]').forEach((el) => {
-      heights.set(el.dataset.block!, el.getBoundingClientRect().height);
-    });
+    const heights = unitHeights(root, 'block');
+    const room = contentHeightPx - footerReservePx(pagesRef.current);
 
     const next: string[][] = [];
     let current: string[] = [];
     let used = 0;
     for (const id of ids) {
       const h = heights.get(id) ?? 0;
-      if (current.length > 0 && used + h > contentHeightPx) {
+      if (current.length > 0 && used + h > room) {
         next.push(current);
         current = [];
         used = 0;
@@ -599,8 +598,11 @@ function ClientBlock({ doc, e, live }: BP) {
   const fixed: [string, string][] = [
     ['GSTIN', doc.clientGstin ?? ''], ['Email', doc.clientEmail ?? ''], ['Phone', doc.clientPhone ?? ''],
   ];
+  // Compliance template: these five are shown in the client table above the
+  // fees (ClientTable); only GSTIN / email / phone remain here.
+  const inTable = doc.templateId === 'jns-compliance';
   const rows = [
-    ...snap.filter(([k]) => editing || String(c[k] ?? '').trim())
+    ...snap.filter(([k]) => !inTable && (editing || String(c[k] ?? '').trim()))
       .map(([k, label]) => ({ label, node: (
         <F live={L} id={`client:${k}`} value={String(c[k] ?? '')} placeholder={label}
           onChange={(v) => e?.client(k, v)} />
@@ -645,6 +647,43 @@ function AddRow({ label, onClick }: { label: string; onClick: () => void }) {
   );
 }
 
+/**
+ * Client particulars as a 5-column table in the fees table's own style,
+ * rendered at the top of the fee block so the page-breaker measures the two
+ * tables as ONE unit — they always land on the same page. Shown when the
+ * Client Information block is enabled (compliance template).
+ */
+const CLIENT_COLS: [keyof ClientSnapshot, string][] = [
+  ['name', 'Name'], ['client_type', 'Client Type'], ['industry', 'Industry'],
+  ['location', 'Location'], ['transactions', 'Transactions'],
+];
+const clientTableOn = (doc: BP['doc']) =>
+  doc.templateId === 'jns-compliance' && doc.blocks.some((b) => b.key === 'client_information' && b.enabled);
+
+function ClientTable({ doc, e, live }: BP) {
+  const editing = Boolean(e);
+  const L = live && editing;
+  const c = doc.client;
+  if (!editing && CLIENT_COLS.every(([k]) => !String(c[k] ?? '').trim())) return null;
+  return (
+    <table className={`qdoc-table qdoc-table-${doc.layout.tableStyle} qdoc-client-table`}>
+      <thead>
+        <tr>{CLIENT_COLS.map(([k, label]) => <th key={k}>{label}</th>)}</tr>
+      </thead>
+      <tbody>
+        <tr>
+          {CLIENT_COLS.map(([k, label]) => (
+            <td key={k}>
+              <F live={L} id={`client:${k}`} value={String(c[k] ?? '')} placeholder={label}
+                onChange={(v) => e?.client(k, v)} />
+            </td>
+          ))}
+        </tr>
+      </tbody>
+    </table>
+  );
+}
+
 function FeeTable({ doc, e, live }: BP) {
   const editing = Boolean(e);
   const L = live && editing;
@@ -666,19 +705,15 @@ function FeeTable({ doc, e, live }: BP) {
     <F live={L} id={`item:${i.key}:description`} value={i.raw ? i.raw.description : i.description}
       placeholder="Particulars" onChange={(v) => e?.item(i.key, { description: v })} />
   );
-  const detail = (i: DocItem) => ((editing && L) || i.detail ? (
-    <F live={L} id={`item:${i.key}:detail`} as="div" className="qdoc-muted qdoc-detail"
-      value={i.raw ? i.raw.detail : (i.detail ?? '')} placeholder="Description (optional)"
-      onChange={(v) => e?.item(i.key, { detail: v })} />
-  ) : null);
   const gutter = (i: DocItem, n: number) => (L && e ? (
     <RowGutter k={i.key} e={e} isFirst={n === 0} isLast={n === doc.items.length - 1} />
   ) : null);
 
   if (compliance) {
     return (
-      <div className="qdoc-block">
-        <table className={styleClass}>
+      <div className="qdoc-block qdoc-keep-together">
+        {clientTableOn(doc) ? <ClientTable doc={doc} e={e} live={live} /> : null}
+        <table className={`${styleClass} qdoc-fee-table`}>
           <thead>
             <tr>
               <th className="qdoc-w-sl">Sl. No</th>
@@ -691,7 +726,7 @@ function FeeTable({ doc, e, live }: BP) {
             {doc.items.map((i, n) => (
               <tr key={i.key} className={L ? 'el-feerow relative' : undefined}>
                 <td style={L ? { position: 'relative' } : undefined}>{gutter(i, n)}{n + 1}</td>
-                <td>{desc(i)}{detail(i)}</td>
+                <td>{desc(i)}</td>
                 <td>
                   {L ? (
                     <F live={L} id={`item:${i.key}:frequency`} value={i.raw?.frequency ?? ''} placeholder="Frequency"

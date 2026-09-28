@@ -19,7 +19,8 @@ process.env.ZBOOKS_ENCRYPTION_KEY = Buffer.alloc(32, 7).toString('base64')
 process.env.ZBOOKS_RATE_PER_MINUTE = '10000'
 resetBooksConfigForTests()
 
-type Handler = (url: URL, init: RequestInit) => { status?: number; json?: unknown; body?: Buffer } | undefined
+type FakeResponse = { status?: number; json?: unknown; body?: Buffer }
+type Handler = (url: URL, init: RequestInit) => FakeResponse | Promise<FakeResponse> | undefined
 interface Call { method: string; url: URL; body?: unknown; auth?: string }
 let calls: Call[] = []
 let oauthCalls: Record<string, string>[] = []
@@ -35,7 +36,7 @@ const INVOICES = [
   { invoice_id: '1003', invoice_number: 'INV-3', customer_id: '12', customer_name: 'Beta', date: today, due_date: today, total: 300, balance: 0, status: 'void', currency_code: 'INR' },
 ]
 
-function zoho(url: URL, init: RequestInit): { status?: number; json?: unknown; body?: Buffer } {
+function zoho(url: URL, init: RequestInit): FakeResponse | Promise<FakeResponse> {
   for (const o of overrides) { const r = o(url, init); if (r) return r }
   const p = url.pathname.replace('/books/v3/', '')
   const m = init.method ?? 'GET'
@@ -65,7 +66,7 @@ async function fakeHttp(url: string, init: RequestInit): Promise<Response> {
   if (u.pathname === '/oauth/v2/token/revoke') { calls.push({ method: 'REVOKE', url: u }); return new Response('{}', { status: 200 }) }
   const headers = init.headers as Record<string, string> | undefined
   calls.push({ method: init.method ?? 'GET', url: u, body: typeof init.body === 'string' ? JSON.parse(init.body) : undefined, auth: headers?.Authorization })
-  const r = zoho(u, init)
+  const r = await zoho(u, init)
   if (r.body) return new Response(r.body, { status: r.status ?? 200, headers: { 'Content-Type': 'application/pdf' } })
   return new Response(JSON.stringify(r.json), { status: r.status ?? 200, headers: { 'Content-Type': 'application/json' } })
 }
@@ -405,5 +406,119 @@ describe('Books — sync, dashboard and reports', () => {
     expect(pl.body.data.source).toBe('unavailable')
     expect(pl.body.data.rows).toHaveLength(0)
     expect(pl.body.data.note).toContain('not available through the current Zoho Books API integration')
+  })
+})
+
+describe('Books — review fixes', () => {
+  it('a Zoho role refusal does not expire the connection for the firm', async () => {
+    const ref = await connectAndActivate()
+    overrides.push((url) => (url.pathname.endsWith('/bankaccounts') ? { status: 401, json: { code: 57, message: 'You are not authorized to perform this operation' } } : undefined))
+    const r = await api(`/api/books/o/${ref}/e/bankaccounts`, { cookie: admin.cookie })
+    expect(r.status).toBe(403)
+    // One forced refresh to rule out a stale token, then it is the role.
+    expect(oauthCalls.filter((c) => c.grant_type === 'refresh_token')).toHaveLength(1)
+    const conn = await prisma.booksZohoConnection.findFirstOrThrow({ where: { organisationId: firmId, connectedAt: { not: null } } })
+    expect(conn.status).toBe('connected')
+    // Everything else keeps working.
+    expect((await api(`/api/books/o/${ref}/e/customers`, { cookie: admin.cookie })).status).toBe(200)
+  })
+
+  it('reconnecting a live connection keeps it usable until the new grant lands', async () => {
+    const ref = await connectAndActivate()
+    const conn = await prisma.booksZohoConnection.findFirstOrThrow({ where: { organisationId: firmId, status: 'connected' } })
+    const start = await api(`/api/books/connections/${conn.id}/reconnect`, { method: 'POST', cookie: admin.cookie })
+    expect(start.status).toBe(200)
+    // The user closes the Zoho tab: nothing breaks.
+    expect((await prisma.booksZohoConnection.findUniqueOrThrow({ where: { id: conn.id } })).status).toBe('connected')
+    expect((await api(`/api/books/o/${ref}/e/customers`, { cookie: admin.cookie })).status).toBe(200)
+    // Or finishes consent: the new grant replaces the old one.
+    const state = new URL(start.body.data.authorizeUrl).searchParams.get('state')!
+    const oauthBefore = oauthCalls.length
+    const cb = await api(`/api/books/callback?code=good&state=${encodeURIComponent(state)}`)
+    expect(cb.location).toContain('zoho=connected')
+    expect(oauthCalls.slice(oauthBefore).some((c) => c.grant_type === 'authorization_code')).toBe(true)
+    // A refused re-consent leaves the working grant in place.
+    const again = await api(`/api/books/connections/${conn.id}/reconnect`, { method: 'POST', cookie: admin.cookie })
+    const st2 = new URL(again.body.data.authorizeUrl).searchParams.get('state')!
+    await api(`/api/books/callback?code=bad&state=${encodeURIComponent(st2)}`)
+    expect((await prisma.booksZohoConnection.findUniqueOrThrow({ where: { id: conn.id } })).status).toBe('connected')
+  })
+
+  it('uses a token another process already refreshed instead of refreshing again', async () => {
+    const ref = await connectAndActivate()
+    await prisma.booksZohoConnection.updateMany({ where: { organisationId: firmId }, data: { accessTokenExpiresAt: new Date(Date.now() - 1000) } })
+    await api(`/api/books/o/${ref}/e/customers`, { cookie: admin.cookie }) // refreshes once
+    const before = oauthCalls.length
+    // The row this request loads is now fresh — but simulate a stale in-memory copy by
+    // expiring only what a second request would have read, then reading through the API.
+    const r = await api(`/api/books/o/${ref}/e/customers?search_text=x`, { cookie: admin.cookie })
+    expect(r.status).toBe(200)
+    expect(oauthCalls.length).toBe(before)
+    // A forced refresh (Zoho refused the token just sent) where the stored token
+    // is already a different, newer one: use that one, don't refresh again.
+    const conn = await prisma.booksZohoConnection.findFirstOrThrow({ where: { organisationId: firmId, status: 'connected' } })
+    const { encryptToken } = await import('../../zpay/crypto.js')
+    let refused = true
+    overrides.push((url, init) => {
+      const auth = (init.headers as Record<string, string>).Authorization
+      if (!url.pathname.endsWith('/items')) return undefined
+      if (!(refused && auth === 'Zoho-oauthtoken access-1')) return { json: { code: 0, items: [], page_context: {} } }
+      refused = false
+      // Meanwhile another process refreshed: the stored token is now access-77.
+      return prisma.booksZohoConnection.update({ where: { id: conn.id }, data: { accessTokenEncrypted: encryptToken('access-77', Buffer.alloc(32, 7)), accessTokenExpiresAt: new Date(Date.now() + 3_000_000) } })
+        .then(() => ({ status: 401, json: { code: 57, message: 'You are not authorized to perform this operation' } }))
+    })
+    expect((await api(`/api/books/o/${ref}/e/items`, { cookie: admin.cookie })).status).toBe(200)
+    expect(oauthCalls.length).toBe(before)
+    expect(calls.at(-1)!.auth).toBe('Zoho-oauthtoken access-77')
+  })
+
+  it('does not treat inherited object keys as resources or actions', async () => {
+    const ref = await connectAndActivate()
+    const n = calls.length
+    expect((await api(`/api/books/o/${ref}/e/constructor`, { cookie: admin.cookie })).status).toBe(404)
+    expect((await api(`/api/books/o/${ref}/e/constructor/123`, { cookie: admin.cookie })).status).toBe(404)
+    expect((await api(`/api/books/o/${ref}/e/invoices/1001/a/constructor`, { method: 'POST', cookie: admin.cookie, body: {} })).status).toBe(404)
+    expect(calls.length).toBe(n)
+  })
+
+  it('matches a bank transaction with POST, as Zoho documents', async () => {
+    const ref = await connectAndActivate()
+    overrides.push((url, init) => (url.pathname.endsWith('/banktransactions/uncategorized/777/match') ? { json: { code: 0, message: init.method } } : undefined))
+    const r = await api(`/api/books/o/${ref}/e/banktransactions/777/a/match`, { method: 'POST', cookie: admin.cookie, body: { transactions_to_be_matched: [{ transaction_id: '1', transaction_type: 'invoice' }] } })
+    expect(r.status).toBe(200)
+    expect(r.body.data.message).toBe('POST')
+  })
+
+  it('refuses a receipt upload without permission before reading it', async () => {
+    const ref = await connectAndActivate()
+    const form = new FormData()
+    form.append('receipt', new Blob([Buffer.alloc(1024)], { type: 'application/pdf' }), 'r.pdf')
+    const res = await fetch(`${base}/api/books/o/${ref}/e/expenses/123/receipt`, { method: 'POST', headers: { Cookie: employee.cookie }, body: form })
+    expect([403, 404]).toContain(res.status)
+    const big = new FormData()
+    big.append('receipt', new Blob([Buffer.alloc(11 * 1024 * 1024)], { type: 'application/pdf' }), 'big.pdf')
+    const tooBig = await fetch(`${base}/api/books/o/${ref}/e/expenses/123/receipt`, { method: 'POST', headers: { Cookie: admin.cookie }, body: big })
+    expect(tooBig.status).toBe(413)
+  })
+
+  it('takes over a sync left running by a crashed process', async () => {
+    const ref = await connectAndActivate()
+    await prisma.booksZohoOrganization.update({ where: { id: ref }, data: { syncStatus: 'syncing', lastSyncAttemptAt: new Date(Date.now() - 10 * 60_000), snapshotJson: null } })
+    const r = await api(`/api/books/o/${ref}/dashboard`, { cookie: admin.cookie })
+    expect(r.status).toBe(200)
+    expect(r.body.data.sync_status).toBe('synced')
+  })
+
+  it('adds foreign-currency documents in base currency', async () => {
+    const ref = await connectAndActivate()
+    overrides.push((url) => {
+      if (!url.pathname.endsWith('/invoices')) return undefined
+      return { json: { code: 0, invoices: [{ invoice_id: '3001', invoice_number: 'USD-1', customer_id: '11', date: today, due_date: '2999-01-01', total: 100, balance: 100, status: 'sent', currency_code: 'USD', exchange_rate: 83 }], page_context: { page: 1, per_page: 200, has_more_page: false } } }
+    })
+    const r = await api(`/api/books/o/${ref}/sync`, { method: 'POST', cookie: admin.cookie })
+    expect(r.status).toBe(200)
+    expect(r.body.data.snapshot.totals.receivables).toBe(8300)
+    expect(r.body.data.snapshot.totals.revenue).toBe(8300)
   })
 })

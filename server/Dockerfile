@@ -47,6 +47,19 @@ CMD ["sh", "-c", "npx prisma db execute --schema prisma/schema.prisma --file pri
 # ── Runtime ───────────────────────────────────────────────────────────────
 FROM base AS runtime
 ENV NODE_ENV=production
+# The binaries Tools shells out to (AUDIT_OS_TOOLS.md §10.1). Runtime only —
+# the build and migrate stages never run them:
+#   qpdf                       Unlock PDF (every AES variant)
+#   ghostscript                Compress PDF; Unlock fallback
+#   poppler-utils              page thumbnails, OCR rasters (pdftoppm)
+#   libreoffice writer + calc  Word → PDF, Excel → PDF (headless soffice)
+#   fonts-dejavu/liberation    so converted documents keep readable glyphs
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends \
+      qpdf ghostscript poppler-utils \
+      libreoffice-writer-nogui libreoffice-calc-nogui \
+      fonts-dejavu-core fonts-liberation \
+ && rm -rf /var/lib/apt/lists/*
 COPY package.json package-lock.json ./
 RUN npm ci --omit=dev && npm cache clean --force
 # The generated client comes ACROSS from the build stage rather than being

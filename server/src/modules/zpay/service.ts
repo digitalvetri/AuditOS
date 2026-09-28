@@ -78,6 +78,19 @@ export async function beginConsent(input: BeginConsentInput): Promise<BeginConse
 
   assertTransition(conn.status as ZpayStatus, 'consent_pending')
 
+  // Zoho Payments consent is per Payments account (soid=zohopay.{account_id}),
+  // so the account must be added first — and a connection holds one account.
+  const accounts = await prisma.zpayAccount.findMany({
+    where: { connectionId: conn.id, deletedAt: null },
+    select: { accountId: true },
+  })
+  if (accounts.length === 0) {
+    throw ApiError.badRequest('Add the Zoho Payments account (its account ID) to this connection before connecting.')
+  }
+  if (accounts.length > 1) {
+    throw ApiError.badRequest('Zoho Payments authorises one account per sign-in. Use a separate connection for each Zoho Payments account.')
+  }
+
   const state = signState({
     cid: conn.id,
     uid: input.userId,
@@ -100,6 +113,7 @@ export async function beginConsent(input: BeginConsentInput): Promise<BeginConse
     state,
     accessType: 'offline',
     prompt: 'consent',
+    soid: `zohopay.${accounts[0].accountId}`,
   })
   return { authorizeUrl }
 }

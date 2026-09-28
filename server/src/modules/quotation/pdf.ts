@@ -217,6 +217,39 @@ export function streamQuotationPdf(res: Response, q: QuotationPdfRow) {
 
       case 'fee_table': {
         if (!q.items.length) break
+
+        // Client table (compliance template, Client Information block on):
+        // Name | Client Type | Industry | Location | Transactions, drawn
+        // straight above the services and kept on the same page as their
+        // heading, header and first row — as in the builder's preview.
+        const snap = (q.clientSnapshot ?? {}) as Record<string, string | undefined>
+        const cols: [string, string][] = [['name', 'Name'], ['client_type', 'Client Type'], ['industry', 'Industry'], ['location', 'Location'], ['transactions', 'Transactions']]
+        const showClient = q.templateId === 'jns-compliance'
+          && (Array.isArray(q.blockConfig) ? (q.blockConfig as unknown as BlockSpec[]).some((x) => x?.key === 'client_information' && x.enabled !== false) : true)
+          && cols.some(([k]) => (snap[k] ?? '').trim())
+        if (showClient) {
+          const cw = width / cols.length
+          doc.font('Helvetica').fontSize(9)
+          const cellH = Math.max(...cols.map(([k]) => doc.heightOfString(snap[k] || '—', { width: cw - 8 })))
+          // Client table + Services heading + header row + one service row.
+          ensure(18 + cellH + 12 + 46 + 40)
+          doc.moveDown(0.6)
+          const y0 = doc.y
+          doc.font('Helvetica-Bold').fontSize(8.5).fillColor(INK)
+          cols.forEach(([, label], i) => doc.text(label.toUpperCase(), left + i * cw + 4, y0 + 4, { width: cw - 8 }))
+          const y1 = y0 + 18
+          doc.font('Helvetica').fontSize(9)
+          cols.forEach(([k], i) => doc.text(snap[k] || '—', left + i * cw + 4, y1 + 4, { width: cw - 8 }))
+          const y2 = y1 + cellH + 8
+          doc.strokeColor(INK).lineWidth(0.8)
+          doc.rect(left, y0, width, y2 - y0).stroke()
+          doc.moveTo(left, y1).lineTo(left + width, y1).stroke()
+          for (let i = 1; i < cols.length; i++) doc.moveTo(left + i * cw, y0).lineTo(left + i * cw, y2).stroke()
+          doc.y = y2
+          home()
+        } else {
+          ensure(46 + 40)
+        }
         heading('Services')
 
         const wSl = 30
@@ -264,14 +297,6 @@ export function streamQuotationPdf(res: Response, q: QuotationPdfRow) {
         header()
         for (const [i, it] of q.items.entries()) {
           row(String(i + 1), it.description, it.frequency ?? '', money(it.amountPaise))
-          if (it.detail) {
-            doc.font('Helvetica').fontSize(8).fillColor(MUTED)
-            const h = doc.heightOfString(it.detail, { width: wDesc })
-            if (doc.y + h > bottom) { doc.addPage(); home() }
-            doc.text(it.detail, xDesc, doc.y, { width: wDesc })
-            doc.moveDown(0.2)
-            home()
-          }
         }
         rule(0.3)
 

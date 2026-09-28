@@ -18,6 +18,7 @@
 import ExcelJS from 'exceljs'
 import { ToolError } from '../errors.js'
 import { PDFService, type PageText } from './PDFService.js'
+import * as F140 from './tds-form140.js'
 
 // ── Shared helpers ───────────────────────────────────────────────────────
 
@@ -224,6 +225,113 @@ interface GstFlatRow {
   cgst: string
   sgst: string
   cess: string
+}
+
+// ── Form 140 deductor details ────────────────────────────────────────────
+
+/** Deductor and responsible-person details for the Form 140 batch header. */
+export interface TdsStatementOptions {
+  quarter?: string; fy?: string
+  tan?: string; pan?: string; name?: string; type?: string; gstin?: string
+  address?: string[]; state?: string; pincode?: string; email?: string; phone?: string
+  rpName?: string; rpDesignation?: string; rpPan?: string
+  rpAddress?: string[]; rpState?: string; rpPincode?: string; rpEmail?: string; rpPhone?: string
+  filedEarlier?: boolean; previousToken?: string
+}
+
+/** Today's date in India, at UTC midnight — the FVU's "no future date" line. */
+function istToday(): Date {
+  const t = new Date(Date.now() + 330 * 60_000)
+  return new Date(Date.UTC(t.getUTCFullYear(), t.getUTCMonth(), t.getUTCDate()))
+}
+
+/** Date (UTC) → "dd/mm/yyyy". */
+const fmtDmy = (t: Date) =>
+  `${String(t.getUTCDate()).padStart(2, '0')}/${String(t.getUTCMonth() + 1).padStart(2, '0')}/${t.getUTCFullYear()}`
+
+/** A state as the spec's two-digit code, from a code or a name. */
+function stateCode(v: string): string {
+  const s = v.trim().toUpperCase()
+  if (/^\d{1,2}$/.test(s)) { const c = s.padStart(2, '0'); return F140.STATE_CODE_VALUES.has(c) ? c : '' }
+  return F140.STATE_CODES[s.replace(/\s+AND\s+/g, ' AND ')] ?? ''
+}
+
+/**
+ * Every batch-header field the spec marks mandatory, checked up front and
+ * reported together — a missing email is found before the sheet is read,
+ * not after the FVU rejects the file.
+ */
+function checkDeductor(o: TdsStatementOptions) {
+  const problems: string[] = []
+  const need = (ok: boolean, msg: string) => { if (!ok) problems.push(msg) }
+  const PAN = /^[A-Z]{5}\d{4}[A-Z]$/
+  const EMAIL = /^[^\s@^]+@[^\s@^]+\.[^\s@^]+$/
+  const addr = (a: string[] | undefined) => Array.from({ length: 5 }, (_, i) => F140.text(a?.[i] ?? '', 25))
+  const digits = (v: string | undefined) => (v ?? '').replace(/\D/g, '')
+
+  const quarter = (o.quarter ?? '').toUpperCase()
+  need(/^Q[1-4]$/.test(quarter), 'Choose a quarter.')
+  const fy = (o.fy ?? '').trim().match(/^(\d{4})-(\d{2}|\d{4})$/)
+  const startYear = fy ? Number(fy[1]) : 0
+  need(!!fy, 'Write the tax year as 2026-27.')
+  if (fy && startYear < 2026) {
+    problems.push(`Form 140 starts with tax year 2026-27. For ${fy[0]} and earlier, the return is Form 26Q — prepare it in NSDL's RPU 6.0.`)
+  }
+
+  const tan = (o.tan ?? '').trim().toUpperCase()
+  need(/^[A-Z]{4}\d{5}[A-Z]$/.test(tan), 'Deductor TAN must be 4 letters, 5 digits and a letter.')
+  const pan = (o.pan ?? '').trim().toUpperCase()
+  need(PAN.test(pan) || pan === 'PANNOTREQD', 'Deductor PAN must be a valid PAN (or PANNOTREQD).')
+  const name = F140.text(o.name ?? '', 75)
+  need(/[A-Za-z0-9]/.test(name), 'Deductor name is required, exactly as registered with TRACES.')
+  const type = (o.type ?? '').trim().toUpperCase()
+  need(type in F140.DEDUCTOR_TYPES, 'Choose the deductor type.')
+  const gstin = (o.gstin ?? '').trim().toUpperCase()
+  need(!gstin || /^\d{2}[A-Z]{5}\d{4}[A-Z][A-Z0-9]Z[A-Z0-9]$/.test(gstin), 'Deductor GSTIN is not a valid GSTIN.')
+
+  const address = addr(o.address)
+  need(/[A-Za-z0-9]/.test(address[0]), 'Deductor address line 1 (flat / door / block) is required.')
+  const state = stateCode(o.state ?? '')
+  need(!!state, 'Choose the deductor\'s state.')
+  const pincode = digits(o.pincode)
+  need(/^[1-9]\d{5}$/.test(pincode), 'Deductor PIN code must be 6 digits.')
+  const email = (o.email ?? '').trim()
+  need(EMAIL.test(email), 'Deductor email is not a valid email address.')
+  const phone = digits(o.phone).replace(/^(91|0)(?=\d{10}$)/, '')
+  need(/^\d{10}$/.test(phone), 'Deductor contact number must be 10 digits.')
+
+  const rpName = F140.text(o.rpName ?? '', 75)
+  need(/[A-Za-z]/.test(rpName), 'Name of the person responsible is required.')
+  const rpDesignation = F140.text(o.rpDesignation ?? '', 20)
+  need(/[A-Za-z]/.test(rpDesignation), 'Designation of the person responsible is required.')
+  const rpPan = (o.rpPan ?? '').trim().toUpperCase()
+  need(PAN.test(rpPan), 'PAN of the person responsible must be a valid PAN.')
+  const rpAddress = addr(o.rpAddress)
+  need(/[A-Za-z0-9]/.test(rpAddress[0]), 'Responsible person\'s address line 1 is required.')
+  const rpState = stateCode(o.rpState ?? '')
+  need(!!rpState, 'Choose the responsible person\'s state.')
+  const rpPincode = digits(o.rpPincode)
+  need(/^[1-9]\d{5}$/.test(rpPincode), 'Responsible person\'s PIN code must be 6 digits.')
+  const rpEmail = (o.rpEmail ?? '').trim()
+  need(EMAIL.test(rpEmail), 'Responsible person\'s email is not a valid email address.')
+  const rpPhone = digits(o.rpPhone).replace(/^(91|0)(?=\d{10}$)/, '')
+  need(/^\d{10}$/.test(rpPhone), 'Responsible person\'s contact number must be 10 digits.')
+
+  const filedEarlier = !!o.filedEarlier
+  const previousToken = digits(o.previousToken)
+  need(!filedEarlier || /^\d{15}$/.test(previousToken), 'Give the 15-digit token number of the previous regular Form 140 statement.')
+
+  if (problems.length) {
+    throw new ToolError('invalid_options', problems.join(' '), { problems })
+  }
+  const ay = `${startYear + 1}${String(startYear + 2).slice(2)}`
+  return {
+    quarter, startYear, fyLabel: `${startYear}-${String(startYear + 1).slice(2)}`,
+    ty: `${startYear}${String(startYear + 1).slice(2)}`, ay,
+    tan, pan, name, type, gstin, address, state, pincode, email, phone, phoneCc: 91, country: 'INDIA',
+    rpName, rpDesignation, rpPan, rpAddress, rpState, rpPincode, rpEmail, rpPhone, rpPhoneCc: 91, rpCountry: 'INDIA',
+    filedEarlier, previousToken: filedEarlier ? previousToken : '',
+  }
 }
 
 export const ComplianceService = {
@@ -805,107 +913,218 @@ export const ComplianceService = {
     }
   },
 
-  // ── 5. TDS Text / FVU generator ────────────────────────────────────────
+  // ── 5. TDS return text file (Form No. 140, formerly 26Q) ─────────────────
 
   /**
-   * The NSDL return text file is `^`-delimited, one line per record, in a
-   * fixed order: FH (file header), BH (batch header), CD (challan), DD
-   * (deductee). Line 1 of each record is its running number, line 2 its
-   * type. This builds that structure from a deductee sheet, grouping rows
-   * into challans by (BSR code, challan serial, challan date).
+   * The quarterly non-salary TDS statement in Protean's Form 140 layout
+   * (spec v1.1, Tax Year 2026-27 onwards): one FH, one BH, then each CD
+   * (challan) followed by its DD (deductee) records, `^`-delimited, CRLF
+   * line endings. Rows are grouped into challans by (BSR code, challan
+   * serial, challan date).
    *
-   * It is deliberately NOT called a validated FVU: the .fvu extension is
-   * produced by NSDL's own File Validation Utility. This is the input text
-   * file that utility consumes, which is the part a firm cannot assemble by
-   * hand. The tool says so on screen rather than implying the file is
-   * portal-ready.
+   * The file is what NSDL's FVU 1.2 validates into the .fvu that gets
+   * uploaded. This tool can't make the .fvu itself, and the FVU also
+   * checks challans against the .csi file from Challan Status Inquiry.
+   * Every rule the spec states per row is checked here, so a row the FVU
+   * would reject is skipped with a reason instead.
    */
-  async tdsTextFile(bytes: Buffer, opts: { formType?: string; quarter?: string; fy?: string; tan?: string; deductorName?: string } = {}): Promise<{
+  async tdsTextFile(bytes: Buffer, opts: TdsStatementOptions): Promise<{
     bytes: Buffer; deductees: number; challans: number; skipped: number; totalTds: number; warning?: string
   }> {
+    const d = checkDeductor(opts)
+    const { from: qFrom, to: qTo } = F140.quarterRange(d.startYear, d.quarter)
+    const today = istToday()
+    const earliestChallan = new Date(Date.UTC(d.startYear - 1, 3, 1))
+
     const sheet = await readSheet(bytes)
     const c = requireCols(sheet, {
       pan: ['PAN', 'Deductee PAN', 'PAN of Deductee'],
       name: ['Name', 'Deductee Name', 'Name of Deductee'],
-      paid: ['Amount Paid', 'Amount Credited', 'Amount'],
-      tds: ['TDS', 'TDS Deducted', 'Tax Deducted'],
+      section: ['Section Code', 'Section', 'Nature of Payment'],
+      date: ['Date of Payment', 'Payment Date', 'Date of Credit', 'Date'],
+      paid: ['Amount Paid', 'Amount Credited', 'Amount Paid/Credited', 'Payment Amount', 'Gross Amount', 'Amount'],
+      tds: ['TDS', 'TDS Deducted', 'TDS Amount', 'TDS Amt', 'Amount of TDS', 'Tax Deducted', 'Total Tax Deducted'],
+      bsr: ['BSR Code', 'BSR'],
+      chNo: ['Challan No', 'Challan Serial No', 'Challan Serial', 'Challan Number'],
+      chDate: ['Challan Date', 'Date of Deposit', 'Deposit Date'],
     })
-    const cSection = col(sheet, 'Section', 'Nature of Payment')
-    const cDate = col(sheet, 'Date of Payment', 'Payment Date', 'Date')
     const cDeductDate = col(sheet, 'Date of Deduction', 'Deduction Date')
-    const cRate = col(sheet, 'Rate', 'TDS Rate')
-    const cBsr = col(sheet, 'BSR Code', 'BSR')
-    const cChNo = col(sheet, 'Challan No', 'Challan Serial No', 'Challan Serial')
-    const cChDate = col(sheet, 'Challan Date', 'Date of Deposit')
+    const cRate = col(sheet, 'Rate', 'TDS Rate', 'Rate of TDS')
+    const cDeposited = col(sheet, 'TDS Deposited', 'Tax Deposited')
+    const cRemark = col(sheet, 'Remark', 'Remarks', 'Reason', 'Reason Code', 'Reason for non-deduction')
+    const cCert = col(sheet, 'Certificate No', 'Certificate Number', 'Lower Deduction Certificate')
+    const cChTax = col(sheet, 'Challan Tax', 'Challan Amount', 'Tax Deposited in Challan')
+    const cChInterest = col(sheet, 'Challan Interest', 'Interest')
+    const cChFee = col(sheet, 'Challan Fee', 'Fee', 'Late Fee')
+    const cChOthers = col(sheet, 'Challan Others', 'Penalty', 'Others')
 
-    interface Deductee { pan: string; name: string; section: string; paid: number; tds: number; rate: string; paidOn: string; deductedOn: string }
-    const challans = new Map<string, { bsr: string; serial: string; date: string; rows: Deductee[] }>()
+    interface Deductee {
+      pan: string; name: string; section: string; paidOn: string; paid: number
+      tds: number; deposited: number; deductedOn: string; rate: number; remark: string; cert: string
+    }
+    interface Challan {
+      bsr: string; serial: string; date: string
+      tax: number | null; interest: number; fee: number; others: number
+      rows: Deductee[]
+    }
+    const challans = new Map<string, Challan>()
     const skipped: SkipNote[] = []
-    let totalTds = 0
+    const inQuarter = (dmy: string) => { const t = F140.dmyToDate(dmy); return t >= qFrom && t <= qTo }
+    const future = (dmy: string) => F140.dmyToDate(dmy) > today
 
     sheet.rows.forEach((r, i) => {
       const rowNo = i + 2
-      const pan = at(r, c.pan).toUpperCase()
-      if (!/^[A-Z]{5}\d{4}[A-Z]$/.test(pan)) { skipped.push({ row: rowNo, reason: `"${pan || 'blank'}" is not a valid PAN` }); return }
-      const paid = parseAmount(at(r, c.paid))
-      const tds = parseAmount(at(r, c.tds))
-      if (paid === null) { skipped.push({ row: rowNo, reason: `unreadable amount paid "${at(r, c.paid)}"` }); return }
-      if (tds === null) { skipped.push({ row: rowNo, reason: `unreadable TDS "${at(r, c.tds)}"` }); return }
+      const skip = (reason: string) => { skipped.push({ row: rowNo, reason }) }
 
-      const bsr = at(r, cBsr)
-      const serial = at(r, cChNo)
-      const chDate = parseDate(at(r, cChDate)) ?? ''
+      const pan = at(r, c.pan).toUpperCase().replace(/\s/g, '')
+      const isDefaultPan = F140.DEFAULT_PANS.has(pan)
+      if (!/^[A-Z]{5}\d{4}[A-Z]$/.test(pan) && !isDefaultPan) return skip(`"${pan || 'blank'}" is not a valid PAN (or PANNOTAVBL / PANAPPLIED / PANINVALID)`)
+      const name = F140.text(at(r, c.name), 75)
+      if (!/[A-Za-z0-9]/.test(name)) return skip('no deductee name')
+
+      const paid = parseAmount(at(r, c.paid))
+      if (paid === null || paid <= 0) return skip(`amount paid "${at(r, c.paid)}" must be more than 0`)
+      const tds = parseAmount(at(r, c.tds))
+      if (tds === null || tds < 0) return skip(`unreadable TDS "${at(r, c.tds)}"`)
+      const rateRaw = at(r, cRate).replace(/%/g, '')
+      const givenRate = rateRaw ? parseAmount(rateRaw) : null
+      if (rateRaw && givenRate === null) return skip(`unreadable rate "${at(r, cRate)}"`)
+
+      const sec = F140.resolveSection(at(r, c.section), pan, givenRate)
+      if ('problem' in sec) return skip(sec.problem)
+      if (F140.UNSUPPORTED_SECTIONS.has(sec.code)) return skip(`section ${sec.code} (cash withdrawal) needs the withdrawal amounts — prepare it in the RPU`)
+      const inKind = F140.IN_KIND_SECTIONS.has(sec.code)
+      if (inKind && isDefaultPan) return skip(`section ${sec.code} does not allow ${pan}`)
+      if (inKind && tds !== 0) return skip(`section ${sec.code} is paid in kind, so TDS must be 0.00`)
+
+      const paidOn = parseDate(at(r, c.date))
+      if (!paidOn) return skip(`unreadable date of payment "${at(r, c.date)}"`)
+      if (!inQuarter(paidOn)) return skip(`date of payment ${paidOn} is outside ${d.quarter} of tax year ${d.fyLabel}`)
+      if (future(paidOn)) return skip(`date of payment ${paidOn} is in the future`)
+
+      let deductedOn = ''
+      if (tds > 0) {
+        deductedOn = parseDate(at(r, cDeductDate)) ?? (at(r, cDeductDate) ? '' : paidOn)
+        if (!deductedOn) return skip(`unreadable date of deduction "${at(r, cDeductDate)}"`)
+        if (F140.dmyToDate(deductedOn) < qFrom) return skip(`date of deduction ${deductedOn} is before ${d.quarter}`)
+        if (future(deductedOn)) return skip(`date of deduction ${deductedOn} is in the future`)
+      }
+
+      const deposited = cDeposited >= 0 && at(r, cDeposited) ? parseAmount(at(r, cDeposited)) : tds
+      if (deposited === null || deposited < 0) return skip(`unreadable TDS deposited "${at(r, cDeposited)}"`)
+      if (inKind && deposited !== 0) return skip(`section ${sec.code} is paid in kind, so TDS deposited must be 0.00`)
+
+      const rate = inKind || tds === 0 ? 0 : givenRate ?? Math.round((tds / paid) * 100 * 10000) / 10000
+
+      const remark = at(r, cRemark).toUpperCase()
+      if (remark && !F140.REMARK_CODES.has(remark)) return skip(`remark "${remark}" is not a Form 140 reason code`)
+      const cert = at(r, cCert).toUpperCase().replace(/\s/g, '')
+      if (remark === 'A' && !/^[A-Z0-9]{10}([A-Z0-9]{5})?$/.test(cert)) return skip('remark A needs the 10 or 15 character certificate number')
+      if (tds === 0 && !remark) return skip('TDS is 0.00 but no reason code (A, B, Y…) says why')
+
+      const bsr = at(r, c.bsr).replace(/\s/g, '')
+      if (!/^\d{7}$/.test(bsr)) return skip(`BSR code "${bsr || 'blank'}" must be 7 digits`)
+      const serial = at(r, c.chNo).replace(/\s/g, '').replace(/^0+(?=\d)/, '')
+      if (!/^\d{1,5}$/.test(serial)) return skip(`challan serial "${serial || 'blank'}" must be up to 5 digits`)
+      const chDate = parseDate(at(r, c.chDate))
+      if (!chDate) return skip(`unreadable challan date "${at(r, c.chDate)}"`)
+      if (F140.dmyToDate(chDate) < earliestChallan) return skip(`challan date ${chDate} is before 1 April ${d.startYear - 1}`)
+      if (future(chDate)) return skip(`challan date ${chDate} is in the future`)
+
       const key = `${bsr}|${serial}|${chDate}`
-      if (!challans.has(key)) challans.set(key, { bsr, serial, date: chDate, rows: [] })
-      challans.get(key)!.rows.push({
-        pan, name: at(r, c.name), section: at(r, cSection),
-        paid, tds, rate: at(r, cRate),
-        paidOn: parseDate(at(r, cDate)) ?? '',
-        deductedOn: parseDate(at(r, cDeductDate)) ?? parseDate(at(r, cDate)) ?? '',
-      })
-      totalTds = round2(totalTds + tds)
+      let ch = challans.get(key)
+      if (!ch) {
+        const n = (ci: number) => (ci >= 0 && at(r, ci) ? parseAmount(at(r, ci)) : 0) ?? 0
+        ch = {
+          bsr, serial, date: chDate,
+          tax: cChTax >= 0 && at(r, cChTax) ? parseAmount(at(r, cChTax)) : null,
+          interest: n(cChInterest), fee: n(cChFee), others: n(cChOthers), rows: [],
+        }
+        challans.set(key, ch)
+      }
+      ch.rows.push({ pan, name, section: sec.code, paidOn, paid, tds, deposited, deductedOn, rate, remark, cert })
     })
+
+    // Challan amounts are whole rupees, and the challan has to cover what
+    // its deductees say was deposited against it.
+    for (const [key, ch] of challans) {
+      const depositedSum = round2(ch.rows.reduce((s, x) => s + x.deposited, 0))
+      const tax = ch.tax ?? Math.ceil(depositedSum)
+      const whole = [tax, ch.interest, ch.fee, ch.others].every((v) => Number.isInteger(v))
+      if (!whole || tax < depositedSum) {
+        const reason = `challan ${ch.bsr}/${ch.serial} of ${ch.date}: ${!whole ? 'challan amounts must be whole rupees' : `challan tax ₹${tax} is less than the ₹${depositedSum} its deductees deposited`}`
+        skipped.push(...ch.rows.map(() => ({ row: 0, reason })))
+        challans.delete(key)
+        continue
+      }
+      ch.tax = tax
+    }
 
     const deductees = [...challans.values()].reduce((n, ch) => n + ch.rows.length, 0)
     if (deductees === 0) {
-      throw new ToolError('empty', `No deductee row could be read. ${skipped.length} ${skipped.length === 1 ? 'row was' : 'rows were'} skipped — check the PAN, Amount Paid and TDS columns.`)
+      throw new ToolError('empty', `No deductee row could be used. ${skipped.length} ${skipped.length === 1 ? 'row was' : 'rows were'} skipped — first: ${skipped.slice(0, 3).map((s) => (s.row ? `row ${s.row}: ` : '') + s.reason).join('; ')}.`)
     }
 
-    const form = (opts.formType ?? '26Q').toUpperCase()
-    const quarter = (opts.quarter ?? 'Q1').toUpperCase()
-    const fy = opts.fy ?? ''
-    const tan = (opts.tan ?? '').toUpperCase()
-    const deductor = opts.deductorName ?? ''
-
+    const { FIELD_COUNT: N, amt, record } = F140
     const L: string[] = []
-    let n = 0
-    const line = (...f: (string | number)[]) => { n++; L.push([n, ...f].join('^')) }
+    const line = () => L.length + 1
+    const empty = (k: number) => Array<string>(k).fill('')
 
-    // FH — file header. Record count is filled in after the body is built.
-    const fhIndex = L.length
-    line('FH', 'NSDL', 'r1.0', form, '', '', tan, '', deductor, '', '', '', '')
-    // BH — one batch.
-    line('BH', 1, form, tan, '', deductor, '', '', fy, quarter, '', '', '', '', '')
+    // FH — fields 11–18 (hashes, versions) are left for the FVU.
+    L.push(record([line(), 'FH', 'NS1', 'R', F140.ddmmyyyy(fmtDmy(today)), 1, 'D', d.tan, 1, 'AuditOS', ...empty(8)], N.FH))
 
-    let challanNo = 0
-    for (const ch of challans.values()) {
-      challanNo++
-      const chTds = round2(ch.rows.reduce((s, d) => s + d.tds, 0))
-      line('CD', 1, challanNo, '', ch.bsr, ch.date, ch.serial, chTds, 0, 0, chTds, '', '', '')
-      ch.rows.forEach((d, i) => {
-        line('DD', 1, challanNo, i + 1, '', d.pan, d.name, d.paid, d.tds, d.rate, d.section, d.paidOn, d.deductedOn, '', '')
+    const list = [...challans.values()]
+    const chTotal = (ch: Challan) => ch.tax! + ch.interest + ch.fee + ch.others
+    L.push(record([
+      line(), 'BH', 1, list.length, '140',          // 1–5
+      '', '', '',                                   // 6–8 not applicable
+      d.filedEarlier ? d.previousToken : '',        // 9 previous regular token
+      '', '', '', d.tan, '',                        // 10–14
+      d.pan, d.ay, d.ty, d.quarter, d.name,         // 15–19
+      d.country, d.address[0], d.address[1], d.address[2], d.address[3], d.address[4], // 20–25
+      d.state, d.pincode, d.email, d.phoneCc, d.phone, '', // 26–31
+      d.type, d.rpName, d.rpDesignation,            // 32–34
+      d.rpAddress[0], d.rpAddress[1], d.rpAddress[2], d.rpAddress[3], d.rpAddress[4], // 35–39
+      d.rpState, d.rpPincode, d.rpEmail, d.rpCountry, d.rpPhoneCc, d.rpPhone, '', // 40–46
+      amt(list.reduce((s, ch) => s + chTotal(ch), 0)), // 47 batch total of deposits
+      '', '', '', '',                               // 48–51
+      d.filedEarlier ? 'Y' : 'N', '', '',           // 52–54
+      '', '', '', '',                               // 55–58 (state/ministry: govt deductors only)
+      d.rpPan,                                      // 59
+      ...empty(8),                                  // 60–67 fillers
+      '', d.gstin, '', '', '',                      // 68–72
+    ], N.BH))
+
+    list.forEach((ch, ci) => {
+      const deducted = round2(ch.rows.reduce((s, x) => s + x.tds, 0))
+      const deposited = round2(ch.rows.reduce((s, x) => s + x.deposited, 0))
+      L.push(record([
+        line(), 'CD', 1, ci + 1, ch.rows.length, 'N', '', // 1–7
+        amt(ch.tax!), amt(ch.interest), amt(ch.fee), amt(ch.others), amt(chTotal(ch)), // 8–12
+        'C', '', ch.bsr, '', ch.serial, '', F140.ddmmyyyy(ch.date), '', // 13–20
+        amt(deposited), amt(deducted), 200,         // 21–23 (minor head 200: TDS payable by taxpayer)
+        amt(ch.interest), amt(ch.others),           // 24–25 allocations, as fields 9 and 11
+        ...empty(5),                                // 26–30
+      ], N.CD))
+      ch.rows.forEach((x, di) => {
+        L.push(record([
+          line(), 'DD', 1, di + 1, ci + 1, 'O', '', x.pan, x.name, // 1–9
+          ...empty(5), x.section, '', '',           // 10–17
+          'Y', F140.ddmmyyyy(x.paidOn), amt(x.paid), '', '', '', // 18–23
+          amt(x.tds), amt(x.deposited), '',         // 24–26
+          x.deductedOn ? F140.ddmmyyyy(x.deductedOn) : '', x.rate.toFixed(4), // 27–28
+          '', '', '', x.remark, x.cert,             // 29–33
+          ...empty(12),                             // 34–45
+        ], N.DD))
       })
-    }
+    })
 
-    // FH carries the total record count in its last field.
-    L[fhIndex] = `${L[fhIndex]}^${n}`
-
-    const text = L.join('\n') + '\n'
+    const totalTds = round2(list.reduce((s, ch) => s + ch.rows.reduce((t, x) => t + x.tds, 0), 0))
     return {
-      bytes: Buffer.from(text, 'utf8'),
-      deductees, challans: challans.size, skipped: skipped.length, totalTds,
+      bytes: Buffer.from(L.join('\r\n') + '\r\n', 'ascii'),
+      deductees, challans: list.length, skipped: skipped.length, totalTds,
       warning: skipped.length
-        ? `${deductees} deductee ${deductees === 1 ? 'row' : 'rows'} written. ${skipped.length} ${skipped.length === 1 ? 'row was' : 'rows were'} skipped: ${skipped.slice(0, 3).map((s) => `row ${s.row} (${s.reason})`).join(', ')}${skipped.length > 3 ? ', …' : ''}.`
+        ? `${deductees} deductee ${deductees === 1 ? 'row' : 'rows'} written. ${skipped.length} ${skipped.length === 1 ? 'row was' : 'rows were'} skipped: ${skipped.slice(0, 3).map((s) => (s.row ? `row ${s.row} (${s.reason})` : s.reason)).join(', ')}${skipped.length > 3 ? ', …' : ''}.`
         : undefined,
     }
   },

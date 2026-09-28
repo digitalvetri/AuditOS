@@ -1,21 +1,25 @@
 import { useMemo, useRef, useState, type DragEvent, type FormEvent } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { useQuery } from '@tanstack/react-query';
-import { ArrowLeft, Upload, X, Check, ArrowRight } from 'lucide-react';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { ArrowLeft, Upload, X, Check, ArrowRight, Trash2 } from 'lucide-react';
 import { Button } from '@/components/Button';
 import { useToast } from '@/components/Toast';
 import { workstationApi } from '@/modules/workstation/api';
 import type { ClientListItem } from '@/modules/workstation/types';
-import { gstApi, type ColumnMap, type RegisterPreview } from '@/modules/tools/audit-automation/gst';
+import { gstApi, type ColumnMap, type RegisterPreview, type Filing2BSummary, type RegisterSummary } from '@/modules/tools/audit-automation/gst';
 import type { ApiError } from '@/services/api';
 
 /**
  * /audit-automation/gst/new — three-step reconciliation wizard.
  *
  *   1. Client + period (month + FY)
- *   2. GSTR-2B — drag-drop; format auto-detected (JSON | XLSX)
+ *   2. GSTR-2B — drag-drop; format auto-detected (JSON | XLSX), or reuse
+ *      one uploaded earlier for this client
  *   3. Purchase Register — drag-drop; if Excel, show column-mapping
- *      table using the preview endpoint
+ *      table using the preview endpoint; or reuse an earlier one
+ *
+ * Uploading a file that is already on record for the client reuses that
+ * record instead of failing.
  *
  * On submit, POSTs /recon and navigates to the detail page.
  */
@@ -27,12 +31,14 @@ export function GstNewReconPage() {
   const [periodMonth, setPeriodMonth] = useState<number>(new Date().getMonth() + 1);
   const [periodYear, setPeriodYear] = useState<number>(new Date().getFullYear());
 
-  const [file2B, setFile2B] = useState<File | null>(null);
+  const qc = useQueryClient();
+  const [file2B, setFile2B] = useState<{ name: string; note: string } | null>(null);
   const [filing2BId, setFiling2BId] = useState<string | null>(null);
   const [uploading2B, setUploading2B] = useState(false);
   const [error2B, setError2B] = useState<string | null>(null);
 
   const [filePR, setFilePR] = useState<File | null>(null);
+  const [chosenPR, setChosenPR] = useState<{ name: string; note: string } | null>(null);
   const [registerId, setRegisterId] = useState<string | null>(null);
   const [preview, setPreview] = useState<RegisterPreview | null>(null);
   const [uploadingPR, setUploadingPR] = useState(false);
@@ -47,6 +53,45 @@ export function GstNewReconPage() {
     queryFn: () => workstationApi.listClients(),
   });
 
+  const earlier2BQ = useQuery({
+    queryKey: ['gst.2b', clientId],
+    enabled: Boolean(clientId),
+    queryFn: () => gstApi.list2B(clientId),
+  });
+  const earlierPRQ = useQuery({
+    queryKey: ['gst.pr', clientId],
+    enabled: Boolean(clientId),
+    queryFn: () => gstApi.listPR(clientId),
+  });
+
+  function use2B(f: Filing2BSummary) {
+    setFiling2BId(f.id); setError2B(null);
+    setFile2B({ name: f.original_filename, note: `${monthName(f.period_month)} ${f.period_year} · ${f.entry_count} entries${f.gstin ? ` · ${f.gstin}` : ''}` });
+    if (f.period_month !== periodMonth || f.period_year !== periodYear) toast.push('info', `That GSTR-2B is for ${monthName(f.period_month)} ${f.period_year}, not the period picked above.`);
+  }
+  function usePR(r: RegisterSummary) {
+    setRegisterId(r.id); setErrorPR(null); setPreview(null); setPrFormat(r.source_format);
+    setChosenPR({ name: r.original_filename, note: `${monthName(r.period_month)} ${r.period_year} · ${r.entry_count} entries · ${r.source_format === 'tally_xml' ? 'Tally XML' : 'Excel'}` });
+  }
+  async function delete2B(f: Filing2BSummary) {
+    if (!window.confirm(`Delete the GSTR-2B “${f.original_filename}”?`)) return;
+    try {
+      await gstApi.delete2B(f.id);
+      if (filing2BId === f.id) { setFiling2BId(null); setFile2B(null); }
+      await qc.invalidateQueries({ queryKey: ['gst.2b', clientId] });
+      toast.push('success', 'GSTR-2B deleted.');
+    } catch (err) { toast.push('error', (err as ApiError).message); }
+  }
+  async function deletePR(r: RegisterSummary) {
+    if (!window.confirm(`Delete the purchase register “${r.original_filename}”?`)) return;
+    try {
+      await gstApi.deletePR(r.id);
+      if (registerId === r.id) { setRegisterId(null); setChosenPR(null); }
+      await qc.invalidateQueries({ queryKey: ['gst.pr', clientId] });
+      toast.push('success', 'Purchase register deleted.');
+    } catch (err) { toast.push('error', (err as ApiError).message); }
+  }
+
   const readyToRecon = Boolean(clientId && filing2BId && registerId);
 
   async function do2BUpload(file: File) {
@@ -54,12 +99,18 @@ export function GstNewReconPage() {
     setUploading2B(true); setError2B(null);
     try {
       const result = await gstApi.upload2B({ clientId, periodMonth, periodYear, file });
-      setFile2B(file);
+      setFile2B({ name: file.name, note: `${(file.size / 1024).toFixed(0)} KB · ${result.entry_count} entries parsed` });
       setFiling2BId(result.filing_id);
+      void qc.invalidateQueries({ queryKey: ['gst.2b', clientId] });
       toast.push('success', `2B parsed — ${result.entry_count} entries.`);
     } catch (err) {
       const e = err as ApiError;
-      setError2B(e.message);
+      const existing = (e.details as { existing_filing_id?: string } | undefined)?.existing_filing_id;
+      if (e.code === 'duplicate_upload' && existing) {
+        setFiling2BId(existing);
+        setFile2B({ name: file.name, note: 'already uploaded — using the earlier copy' });
+        toast.push('info', 'This GSTR-2B was uploaded before — using that copy.');
+      } else setError2B(e.message);
     } finally {
       setUploading2B(false);
     }
@@ -77,11 +128,18 @@ export function GstNewReconPage() {
         setColumnMap({});
       } else if (result.register_id) {
         setRegisterId(result.register_id);
+        setChosenPR({ name: file.name, note: `Tally XML · ${result.entry_count ?? 0} entries parsed` });
+        void qc.invalidateQueries({ queryKey: ['gst.pr', clientId] });
         toast.push('success', `Purchase register parsed — ${result.entry_count ?? 0} entries.`);
       }
     } catch (err) {
       const e = err as ApiError;
-      setErrorPR(e.message);
+      const existing = (e.details as { existing_register_id?: string } | undefined)?.existing_register_id;
+      if (e.code === 'duplicate_upload' && existing) {
+        setRegisterId(existing);
+        setChosenPR({ name: file.name, note: 'already uploaded — using the earlier copy' });
+        toast.push('info', 'This purchase register was uploaded before — using that copy.');
+      } else setErrorPR(e.message);
     } finally {
       setUploadingPR(false);
     }
@@ -103,6 +161,8 @@ export function GstNewReconPage() {
       const result = await gstApi.uploadPR({ clientId, periodMonth, periodYear, file: filePR, columnMap: map });
       if (result.register_id) {
         setRegisterId(result.register_id);
+        setChosenPR({ name: filePR.name, note: `Excel · ${result.entry_count ?? 0} entries parsed` });
+        void qc.invalidateQueries({ queryKey: ['gst.pr', clientId] });
         setPreview(null);
         toast.push('success', `Purchase register parsed — ${result.entry_count ?? 0} entries.`);
       }
@@ -155,7 +215,11 @@ export function GstNewReconPage() {
           <div className="grid grid-cols-1 md:grid-cols-[1fr_160px_140px] gap-3 mt-2">
             <select
               value={clientId}
-              onChange={(e) => setClientId(e.target.value)}
+              onChange={(e) => {
+                setClientId(e.target.value);
+                setFiling2BId(null); setFile2B(null);
+                setRegisterId(null); setChosenPR(null); setFilePR(null); setPreview(null); setPrFormat(null);
+              }}
               className="h-9 px-2 text-13 border border-neutral-300 rounded bg-white focus:outline-none focus:border-gold"
               data-testid="gst-client-select"
             >
@@ -190,16 +254,26 @@ export function GstNewReconPage() {
           <StepTitle n={2} title="GSTR-2B" done={Boolean(filing2BId)} />
           <p className="text-12 text-neutral-500 mt-1">Download the offline JSON or portal Excel from gst.gov.in.</p>
           {filing2BId ? (
-            <ChosenFile file={file2B!} onRemove={() => { setFile2B(null); setFiling2BId(null); }} note="2B parsed" />
+            <ChosenFile name={file2B!.name} note={file2B!.note} onRemove={() => { setFile2B(null); setFiling2BId(null); }} />
           ) : (
+            <>
+            <Earlier
+              items={(earlier2BQ.data?.items ?? []).map((f) => ({
+                id: f.id, name: f.original_filename,
+                meta: `${monthName(f.period_month)} ${f.period_year} · ${f.entry_count} entries · ${f.source_format.toUpperCase()}`,
+                samePeriod: f.period_month === periodMonth && f.period_year === periodYear,
+                onUse: () => use2B(f), onDelete: () => delete2B(f),
+              }))}
+            />
             <Dropzone
-              accept=".json,.xlsx,.xls,application/json,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+              accept=".json,.xlsx,application/json,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
               onFile={do2BUpload}
               busy={uploading2B}
               label="Drop the GSTR-2B here, or browse"
               hint="JSON or XLSX · max 25 MB"
               testId="gst-2b-dropzone"
             />
+            </>
           )}
           {error2B ? <InlineError message={error2B} /> : null}
         </section>
@@ -209,18 +283,28 @@ export function GstNewReconPage() {
           <StepTitle n={3} title="Purchase Register" done={Boolean(registerId)} />
           <p className="text-12 text-neutral-500 mt-1">Client's book — Excel with any layout, or Tally XML export.</p>
           {registerId ? (
-            <ChosenFile file={filePR!} onRemove={() => { setFilePR(null); setRegisterId(null); setPreview(null); setPrFormat(null); }} note={`${prFormat === 'tally_xml' ? 'Tally XML' : 'Excel'} parsed`} />
+            <ChosenFile name={chosenPR?.name ?? filePR?.name ?? ''} note={chosenPR?.note ?? `${prFormat === 'tally_xml' ? 'Tally XML' : 'Excel'} parsed`} onRemove={() => { setFilePR(null); setChosenPR(null); setRegisterId(null); setPreview(null); setPrFormat(null); }} />
           ) : preview && prFormat === 'excel' ? (
             <ColumnMapping preview={preview} value={columnMap} onChange={setColumnMap} onConfirm={confirmColumnMap} busy={uploadingPR} />
           ) : (
+            <>
+            <Earlier
+              items={(earlierPRQ.data?.items ?? []).map((r) => ({
+                id: r.id, name: r.original_filename,
+                meta: `${monthName(r.period_month)} ${r.period_year} · ${r.entry_count} entries · ${r.source_format === 'tally_xml' ? 'Tally XML' : 'Excel'}`,
+                samePeriod: r.period_month === periodMonth && r.period_year === periodYear,
+                onUse: () => usePR(r), onDelete: () => deletePR(r),
+              }))}
+            />
             <Dropzone
-              accept=".xlsx,.xls,.xml,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,text/xml,application/xml"
+              accept=".xlsx,.xml,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,text/xml,application/xml"
               onFile={doPRUploadPreview}
               busy={uploadingPR}
               label="Drop the Purchase Register here, or browse"
               hint="Excel or Tally XML · max 25 MB"
               testId="gst-pr-dropzone"
             />
+            </>
           )}
           {errorPR ? <InlineError message={errorPR} /> : null}
         </section>
@@ -242,7 +326,7 @@ function StepTitle({ n, title, done }: { n: number; title: string; done?: boolea
     <div className="flex items-center gap-2">
       <span className={
         'inline-flex items-center justify-center w-5 h-5 rounded-full text-11 font-semibold ' +
-        (done ? 'bg-green-100 text-green-700' : 'bg-neutral-100 text-neutral-600')
+        (done ? 'bg-success/10 text-success' : 'bg-neutral-100 text-neutral-600')
       }>
         {done ? <Check size={12} strokeWidth={2.5} /> : n}
       </span>
@@ -285,12 +369,36 @@ function Dropzone({ accept, onFile, busy, label, hint, testId }: {
   );
 }
 
-function ChosenFile({ file, onRemove, note }: { file: File; onRemove: () => void; note: string }) {
+function Earlier({ items }: { items: { id: string; name: string; meta: string; samePeriod: boolean; onUse: () => void; onDelete: () => void }[] }) {
+  if (!items.length) return null;
+  const sorted = [...items].sort((a, b) => Number(b.samePeriod) - Number(a.samePeriod));
+  return (
+    <div className="mt-2 border border-neutral-200 rounded">
+      <div className="px-3 py-1.5 text-11 tracking-[0.06em] text-neutral-500 border-b border-neutral-100">UPLOADED EARLIER FOR THIS CLIENT</div>
+      <ul className="max-h-[180px] overflow-y-auto">
+        {sorted.map((i) => (
+          <li key={i.id} className="flex items-center gap-3 px-3 py-1.5 border-t border-neutral-100 first:border-t-0">
+            <div className="min-w-0 flex-1">
+              <div className="text-13 text-neutral-900 truncate">{i.name}</div>
+              <div className="text-11 text-neutral-500">{i.meta}{i.samePeriod ? ' · this period' : ''}</div>
+            </div>
+            <Button type="button" variant="secondary" size="sm" onClick={i.onUse}>Use</Button>
+            <button type="button" onClick={i.onDelete} aria-label={`Delete ${i.name}`} title="Delete" className="text-neutral-400 hover:text-danger">
+              <Trash2 size={14} strokeWidth={1.75} />
+            </button>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
+function ChosenFile({ name, onRemove, note }: { name: string; onRemove: () => void; note: string }) {
   return (
     <div className="mt-2 flex items-center gap-3 bg-neutral-50 border border-neutral-200 rounded px-3 py-2">
       <div className="min-w-0 flex-1">
-        <div className="text-13 text-neutral-900 truncate">{file.name}</div>
-        <div className="text-12 text-neutral-500">{(file.size / 1024).toFixed(0)} KB · {note}</div>
+        <div className="text-13 text-neutral-900 truncate">{name}</div>
+        <div className="text-12 text-neutral-500">{note}</div>
       </div>
       <button type="button" onClick={onRemove} aria-label="Remove file" className="text-neutral-400 hover:text-neutral-700">
         <X size={16} strokeWidth={1.75} />

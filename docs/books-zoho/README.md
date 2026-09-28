@@ -36,10 +36,7 @@ The browser never sees a Zoho client secret, access token or refresh token.
    | `ZBOOKS_SCOPES` | Default `ZohoBooks.fullaccess.all` |
    | `WEB_ORIGIN` | First origin is where the callback sends the browser back to |
 
-3. Create the Books tables. On a database that still has the old native Books ledger, drop its
-   tables first (`npm --prefix server run db:drop-legacy-books`: the 23 old `Books*` tables only, a
-   no-op once they are gone), then `npm --prefix server run prisma:push`. Docker's `migrate` service
-   does both automatically. Then open
+3. Run `npm run db:setup` or `prisma db push` so the Books tables exist. Then open
    **Tools → Books → Settings → Connect Zoho Books**.
 
 ## Connect with a code (Self Client)

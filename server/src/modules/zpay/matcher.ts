@@ -72,6 +72,7 @@ function escapeRegex(s: string): string {
 // ── Probable-tier matcher (spec §4.2) ────────────────────────────────
 
 import { prisma } from '../../lib/prisma.js'
+import { collectedWhere } from './statuses.js'
 
 /** ±15 days is the spec's default window. Kept configurable for tests. */
 const PROBABLE_WINDOW_DAYS = 15
@@ -147,7 +148,7 @@ export async function proposeProbableForPayment(paymentId: string): Promise<void
  */
 export async function runProbableForAccount(accountRowId: string): Promise<{ proposed: number }> {
   const targets = await prisma.zpayPayment.findMany({
-    where: { accountRowId, matchType: 'unmatched' },
+    where: { accountRowId, matchType: 'unmatched', ...collectedWhere },
     select: { id: true },
     take: 5_000, // safety cap
   })
