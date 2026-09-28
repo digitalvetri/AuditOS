@@ -652,7 +652,7 @@ function FileCell({ clientId, record, canManage }: { clientId: string; record: T
         </a>
       ) : null}
       {canManage ? (
-        <label className={btn + ' cursor-pointer'} title={doc ? 'Replace the file (keeps the old version)' : 'Attach receipt / certificate (PDF, JPG, PNG, ZIP, TXT)'}>
+        <label className={btn + ' relative cursor-pointer'} title={doc ? 'Replace the file (keeps the old version)' : 'Attach receipt / certificate (PDF, JPG, PNG, ZIP, TXT)'}>
           <Upload size={12} strokeWidth={2} />
           {up.isPending ? 'Uploading…' : doc ? 'Replace' : 'Attach'}
           <input type="file" className="sr-only" accept=".pdf,.jpg,.jpeg,.png,.zip,.txt,.csi,.fvu" disabled={up.isPending}

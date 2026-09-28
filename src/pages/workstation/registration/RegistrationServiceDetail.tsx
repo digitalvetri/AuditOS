@@ -32,11 +32,11 @@ export function RegistrationServiceDetail({
           subtitle="No registration matches that address."
         />
         <Link
-          to="/workstation/services/registration"
+          to="/workstation/services"
           className="inline-flex items-center gap-1 text-13 text-primary"
         >
           <ChevronLeft size={16} strokeWidth={2} />
-          Back to Registration
+          Back to Services
         </Link>
       </div>
     );
@@ -50,11 +50,11 @@ export function RegistrationServiceDetail({
     <div className={embedded ? 'space-y-4' : 'm-page space-y-4'}>
       {embedded ? null : (
         <Link
-          to="/workstation/services/registration"
+          to="/workstation/services"
           className="inline-flex items-center gap-1 min-h-[44px] md:min-h-0 text-13 text-neutral-500 hover:text-neutral-900"
         >
           <ChevronLeft size={16} strokeWidth={2} />
-          Registration
+          Services
         </Link>
       )}
 

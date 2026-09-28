@@ -23,8 +23,11 @@ export function AppShellV2() {
       <div className="flex-1 flex flex-col min-w-0 min-h-0">
         <TopBar onOpenMobileNav={() => setMobileNavOpen(true)} />
         {/* `m-main` adds bottom-nav clearance and safe-area gutters below
-            768px and is inert above it, so desktop padding is unchanged. */}
-        <main className="m-main flex-1 min-h-0 overflow-y-auto p-3 md:p-5 lg:p-6">
+            768px and is inert above it, so desktop padding is unchanged.
+            `relative` keeps absolutely positioned content (sr-only file
+            inputs) inside this scroller; without it they stretch the
+            document and the whole shell scrolls up, leaving a blank band. */}
+        <main className="m-main relative flex-1 min-h-0 overflow-y-auto p-3 md:p-5 lg:p-6">
           <Outlet />
         </main>
       </div>
