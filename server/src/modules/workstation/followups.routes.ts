@@ -158,14 +158,29 @@ followUpsRouter.patch('/:id', handler(async (req, res) => {
   v.throwIfAny()
   data.updatedBy = session.userId
 
+  // A status change keeps the completion stamp honest: set when a follow-up
+  // becomes completed, cleared when it is moved back out of completed.
+  const statusChanged = typeof data.status === 'string' && data.status !== before.status
+  if (statusChanged && data.status === 'completed') {
+    data.completedByEmployeeId = session.employeeId
+    data.completedAt = new Date()
+  } else if (statusChanged && before.status === 'completed') {
+    data.completedByEmployeeId = null
+    data.completedAt = null
+  }
+
   const row = await prisma.followUp.update({ where: { id: before.id }, data, include })
 
   await writeActivity({
     session,
     subjectType: row.leadId ? 'lead' : 'client',
     subjectId: (row.leadId ?? row.clientId)!,
-    action: data.scheduledAt ? 'followup.rescheduled' : 'followup.updated',
-    description: data.scheduledAt ? `Follow-up rescheduled — ${row.title}.` : `Follow-up updated — ${row.title}.`,
+    action: data.scheduledAt ? 'followup.rescheduled' : statusChanged ? `followup.${row.status}` : 'followup.updated',
+    description: data.scheduledAt
+      ? `Follow-up rescheduled — ${row.title}.`
+      : statusChanged
+        ? `Follow-up marked ${row.status} — ${row.title}.`
+        : `Follow-up updated — ${row.title}.`,
     entityType: 'FollowUp', entityId: row.id,
   })
   await writeAudit({
