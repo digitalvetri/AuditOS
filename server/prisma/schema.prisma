@@ -3332,6 +3332,11 @@ model BookkeepingCompany {
   email               String?
   website             String?
   baseCurrency        String  @default("INR")
+  /// When true, this client's export sales are zero-rated under a Letter
+  /// of Undertaking — Output CGST/SGST/IGST are legitimately absent from
+  /// their invoices, and the GST report will look empty by design. The
+  /// flag is what stops that from tripping "missing tax" bugs elsewhere.
+  exportUnderLut      Boolean @default(false)
   /// regular | composition | unregistered | sez | overseas
   gstRegistrationType String  @default("regular")
   gstin               String?
@@ -3363,6 +3368,9 @@ model BookkeepingCompany {
   payHeads        BookkeepingPayHead[]
   payrollRuns     BookkeepingPayrollRun[]
   backups         BookkeepingBackup[]
+  importMappings  BookkeepingImportMapping[]
+  importRuns      BookkeepingImportRun[]
+  clientReports   BookkeepingClientReport[]
 
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt
@@ -3370,6 +3378,138 @@ model BookkeepingCompany {
 
   @@unique([organisationId, name])
   @@index([organisationId])
+}
+
+/// A saved column-mapping for a client's flat register (BOOKKEEPING-REBUILD §3.1).
+///
+/// The client's Excel is not a chart of accounts — it is a flat list of what
+/// they billed or bought. Every client's file is different, so the import is
+/// not a parser; it is a mapping that gets saved and reused: month one is
+/// slow, month twelve is one click. Same compounding pattern as the Tally
+/// ledger rules table.
+///
+/// One mapping per (company, target). Re-uploading the same target's file
+/// with different columns re-shows the mapping screen pre-filled, with the
+/// changed columns highlighted — enforced at the service layer.
+model BookkeepingImportMapping {
+  id                  String   @id @default(uuid())
+  tallyCompanyId      String
+  /// Sheet tab the operator picked, e.g. "Sales" or "Purchase". Kept so
+  /// the next month we can validate the same tab still exists.
+  sheetName           String
+  /// sales_register | purchase_register | receipt_register | payment_register
+  target              String
+  /// 1-based row number the header sits on. Data begins at headerRow + 1.
+  headerRow           Int      @default(1)
+  /// Column letter → target field, e.g. { "A": "date", "B": "invoice_no",
+  /// "D": "customer", "F": "currency", "H": "foreign_amount",
+  /// "J": "amount_inr", "K": "exchange_rate" }. "ignore" or absence means
+  /// the column is skipped.
+  columnMapJson       Json
+  /// The strftime-style pattern that column-A dates follow — the client's
+  /// file uses "DD/MM/YYYY" but we cannot assume it; keep the value as
+  /// typed on the mapping screen.
+  dateFormat          String   @default("DD/MM/YYYY")
+  /// Free-form alias table, e.g. { "S$": "SGD", "$": "USD" }. Populated
+  /// when the operator confirms "map S$ to SGD? [Yes, and remember]".
+  currencyAliasesJson Json
+  /// Bumped every time the operator re-saves. The changed-column
+  /// highlight on re-import compares against the current version.
+  version             Int      @default(1)
+  createdByUserId     String?
+  updatedByUserId     String?
+
+  company BookkeepingCompany @relation(fields: [tallyCompanyId], references: [id])
+  runs    BookkeepingImportRun[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([tallyCompanyId, target])
+  @@index([tallyCompanyId])
+}
+
+/// One row per import commit (BOOKKEEPING-REBUILD §3.4).
+///
+/// The audit record for what was actually run — file, checksum, counts,
+/// which mapping version was in force, who ran it, when. This is what
+/// answers "why does this voucher exist?" three months later, and it is
+/// what lets the operator re-download the exact file they imported.
+///
+/// Written by the commit path, never by preview / derive.
+model BookkeepingImportRun {
+  id              String   @id @default(uuid())
+  tallyCompanyId  String
+  target          String   /// same value set as BookkeepingImportMapping.target
+  fileName        String
+  /// SHA-256 hex digest of the raw upload bytes. Used to detect a
+  /// re-import of the same file even before the row-level idempotency
+  /// check runs, and to prove which bytes produced the vouchers.
+  fileSha256      String
+  mappingId       String
+  /// Frozen at commit time; the mapping might change later but this run
+  /// was produced against a specific version.
+  mappingVersion  Int
+  rowsScanned     Int
+  rowsDerived     Int
+  vouchersCreated Int      @default(0)
+  vouchersSkipped Int      @default(0)
+  /// CHANGED rows the operator explicitly Updated (cancel + re-post). MVP: 0.
+  vouchersUpdated Int      @default(0)
+  ledgersCreated  Int      @default(0)
+  /// Sum of created vouchers' totals, INR paise. Skipped rows excluded.
+  totalPaise      Int      @default(0)
+  currenciesJson  Json
+  /// A brief JSON summary the History tab renders: { flags: {…}, changed_rows: [...] }.
+  /// Kept small — the details are recoverable by re-running derive on the
+  /// stored file bytes, which we don't hold, so this is the audit stub.
+  summaryJson     Json
+  createdByUserId String?
+
+  company BookkeepingCompany       @relation(fields: [tallyCompanyId], references: [id])
+  mapping BookkeepingImportMapping @relation(fields: [mappingId], references: [id])
+
+  createdAt DateTime @default(now())
+
+  @@index([tallyCompanyId, createdAt])
+  @@index([mappingId])
+}
+
+/// One row per generated client dashboard file (BOOKKEEPING-REBUILD §6).
+///
+/// The HTML file the firm actually sends to the client — offline, no
+/// network, print-safe. This row records what was in it so a dispute
+/// three months later can be answered by opening the exact bytes.
+///
+/// The bytes live under uploads/bookkeeping/client-reports/<companyId>/
+/// <id>.html; storagePath is the relative path from the uploads root.
+model BookkeepingClientReport {
+  id              String   @id @default(uuid())
+  tallyCompanyId  String
+  /// Period the report covered (inclusive).
+  from            String
+  to              String
+  /// Human label from the period bar — "May 2025", "Q1 FY 25-26", etc.
+  /// Kept so the history tab reads naturally without recomputing.
+  periodLabel     String
+  /// Which sections were included. { header:true, kpis:true, trend:true,
+  /// ageing:true, outstanding_top10:true, prior:false }
+  sectionsJson    Json
+  /// Relative to uploads root.
+  storagePath     String
+  fileName        String
+  /// SHA-256 of the file bytes — proves which file was sent.
+  fileSha256      String
+  /// Optional free-text: who this was sent to. Manually filled by the
+  /// firm; not the trigger for anything.
+  sentTo          String?
+  createdByUserId String?
+
+  company BookkeepingCompany @relation(fields: [tallyCompanyId], references: [id])
+
+  createdAt DateTime @default(now())
+
+  @@index([tallyCompanyId, createdAt])
 }
 
 /// Financial year for a Tally company. Every future voucher will
@@ -3561,6 +3701,20 @@ model BookkeepingVoucher {
   roundOffPaise     Int     @default(0)
   grandTotalPaise   Int     @default(0)
   dueDate           String?
+  /// Header-level currency for the source document. Every posting amount
+  /// on this voucher (totalDebitPaise, taxableValuePaise, etc.) is INR
+  /// paise — that is what the ledger, trial balance, P&L and balance
+  /// sheet ever read. The two fields below carry the foreign side for
+  /// display and audit only.
+  ///
+  /// ISO-4217 3-letter code. Defaults to INR so every pre-existing
+  /// voucher is treated as an INR voucher without a backfill.
+  currency          String  @default("INR")
+  /// Exchange rate as typed on the source document — the RATE THE CLIENT
+  /// FILLED IN. Do not fetch from an API, do not compute. Null when the
+  /// voucher currency is INR (rate is implicitly 1). Decimal(18,8)
+  /// carries eight fractional digits, enough for any published rate.
+  exchangeRate      Decimal? @db.Decimal(18, 8)
   /// Optimistic-lock / edit counter. Every alteration writes a
   /// BookkeepingVoucherRevision and bumps this.
   version           Int     @default(1)
@@ -3600,7 +3754,21 @@ model BookkeepingVoucherEntry {
   ledgerId       String
   /// dr | cr
   entryType      String
+  /// The amount that posts to the ledger. ALWAYS INR paise, always the
+  /// only field trial balance, P&L, balance sheet and every report ever
+  /// reads. The three currency fields below are display and audit only.
   amountPaise    Int
+  /// ISO-4217 3-letter code the source document was written in.
+  /// Defaults to INR so pre-existing lines are treated as INR lines.
+  currency       String  @default("INR")
+  /// Minor units of `currency` (cents / paise / sen). Null on INR lines
+  /// where the foreign side is the same as `amountPaise`. Signed the
+  /// same way as amountPaise — magnitude only.
+  foreignAmountMinor Int?
+  /// Exchange rate as typed on the source document. Null on INR lines.
+  /// Assert: round(foreignAmountMinor × exchangeRate) == amountPaise
+  /// within ₹1, or the row is flagged and never silently posted.
+  exchangeRate   Decimal? @db.Decimal(18, 8)
   narration      String?
   position       Int     @default(0)
   /// Marks the party line so receivable/payable reports can find it.

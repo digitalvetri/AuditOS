@@ -8,6 +8,8 @@ import { BookkeepingFinancialYearService } from './services/BookkeepingFinancial
 import { BookkeepingGroupService } from './services/BookkeepingGroupService.js'
 import { BookkeepingLedgerService } from './services/BookkeepingLedgerService.js'
 import { registerExtendedBookkeepingRoutes } from './routes.extended.js'
+import { registerBookkeepingImportRoutes } from './routes.imports.js'
+import { registerBookkeepingClientReportRoutes } from './routes.clientReports.js'
 
 /**
  * Tally HTTP surface (Slice 1: Foundation).
@@ -389,3 +391,5 @@ bookkeepingRouter.delete('/companies/:id/ledgers/:ledgerId', handler(async (req,
 // import/export, backup, settings, dashboard and search. Registered last
 // so the foundation routes above keep first claim on their paths.
 registerExtendedBookkeepingRoutes(bookkeepingRouter)
+registerBookkeepingImportRoutes(bookkeepingRouter)
+registerBookkeepingClientReportRoutes(bookkeepingRouter)

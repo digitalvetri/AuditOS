@@ -51,15 +51,151 @@ export function DrCr({ paise }: { paise: number }) {
 
 // ── Period (company-wide date range) ─────────────────────────────────
 
+/**
+ * The four period modes per BOOKKEEPING-REBUILD §5.
+ *   month | quarter | year — snap the range to the containing period.
+ *   custom                 — the raw date-range picker (fallback).
+ * The mode lives in `?p=` so a shared URL opens on the same period.
+ */
+export type PeriodMode = 'month' | 'quarter' | 'year' | 'custom';
+
 export interface TallyPeriodValue {
   from: string;
   to: string;
   fyId: string | null;
-  setPeriod: (next: { from?: string; to?: string; fyId?: string | null }) => void;
+  mode: PeriodMode;
+  /** True when vs-Prior is enabled. Reports render the priorFrom/priorTo columns. */
+  vsPrior: boolean;
+  /** Auto-derived prior period when vsPrior is on; null otherwise. */
+  priorFrom: string | null;
+  priorTo: string | null;
+  /** A human label for the current period: "May 2025", "Q1 FY 25-26", "FY 25-26". */
+  label: string;
+  setPeriod: (next: { from?: string; to?: string; fyId?: string | null; mode?: PeriodMode; vsPrior?: boolean }) => void;
   financialYears: BookkeepingFinancialYear[];
 }
 
 const PeriodContext = createContext<TallyPeriodValue | null>(null);
+
+/** yyyy-mm-dd → Date at UTC midnight. */
+function toDate(iso: string): Date { return new Date(iso + 'T00:00:00Z'); }
+/** Date → yyyy-mm-dd. */
+function toIso(d: Date): string { return d.toISOString().slice(0, 10); }
+
+function addMonths(iso: string, months: number): string {
+  const d = toDate(iso);
+  d.setUTCMonth(d.getUTCMonth() + months);
+  return toIso(d);
+}
+function firstOfMonth(iso: string): string {
+  return `${iso.slice(0, 7)}-01`;
+}
+function lastOfMonth(iso: string): string {
+  const d = toDate(iso);
+  const next = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + 1, 0));
+  return toIso(next);
+}
+/** Days between two isos, inclusive of the shift direction. Prior period length. */
+function daysBetweenInclusive(fromIso: string, toIso: string): number {
+  return Math.round((toDate(toIso).getTime() - toDate(fromIso).getTime()) / 86_400_000);
+}
+
+/**
+ * FY-anchored quarter of a date. Indian FY starts in April, so Q1 =
+ * Apr-Jun, Q2 = Jul-Sep, Q3 = Oct-Dec, Q4 = Jan-Mar. The FY start month
+ * is taken from the FY row when available.
+ */
+function quarterRangeFor(iso: string, fyStartMonth: number): { from: string; to: string; quarter: number; fyLabelHint: string } {
+  const d = toDate(iso);
+  const m = d.getUTCMonth() + 1; // 1-12
+  const y = d.getUTCFullYear();
+  // Months since FY start, 0-11.
+  const monthsSinceFyStart = ((m - fyStartMonth) + 12) % 12;
+  const quarter = Math.floor(monthsSinceFyStart / 3) + 1;
+  const startMonth = ((fyStartMonth - 1 + (quarter - 1) * 3) % 12) + 1;
+  const startYear = m >= fyStartMonth ? y : y - 1;
+  // The quarter's own calendar year — it can straddle a Dec/Jan boundary
+  // for Q4 of an April-start FY.
+  const quarterYear = startMonth >= fyStartMonth ? startYear : startYear + 1;
+  const from = `${quarterYear}-${String(startMonth).padStart(2, '0')}-01`;
+  const to = lastOfMonth(addMonths(from, 2));
+  const fyEnd = String((startYear + 1) % 100).padStart(2, '0');
+  const fyStart = String(startYear % 100).padStart(2, '0');
+  return { from, to, quarter, fyLabelHint: `${fyStart}-${fyEnd}` };
+}
+
+/**
+ * Snap the range to the mode. Uses `to` as the anchor — the user has
+ * navigated somewhere and picking a mode shouldn't teleport them off
+ * into a different half of the year.
+ */
+function snapRange(
+  mode: PeriodMode,
+  currentTo: string,
+  fy: BookkeepingFinancialYear | null,
+): { from: string; to: string } {
+  const fyStartMonth = fy ? Number(fy.start_date.slice(5, 7)) : 4;
+  if (mode === 'month') {
+    return { from: firstOfMonth(currentTo), to: lastOfMonth(currentTo) };
+  }
+  if (mode === 'quarter') {
+    const q = quarterRangeFor(currentTo, fyStartMonth);
+    return { from: q.from, to: q.to };
+  }
+  if (mode === 'year') {
+    return { from: fy?.start_date ?? firstOfMonth(currentTo), to: fy?.end_date ?? lastOfMonth(currentTo) };
+  }
+  return { from: currentTo, to: currentTo }; // custom — caller passes explicit dates
+}
+
+/**
+ * Prior period of the same length. For mode=year we back up by one FY.
+ * Custom mode subtracts the range length from both ends.
+ */
+function priorRange(
+  mode: PeriodMode,
+  from: string,
+  to: string,
+  fys: BookkeepingFinancialYear[],
+  fy: BookkeepingFinancialYear | null,
+): { from: string; to: string } {
+  if (mode === 'month') {
+    const prevAnchor = addMonths(from, -1);
+    return { from: firstOfMonth(prevAnchor), to: lastOfMonth(prevAnchor) };
+  }
+  if (mode === 'quarter') {
+    const prevAnchor = addMonths(from, -1); // one month before the quarter start lands in the prior quarter
+    const fyStartMonth = fy ? Number(fy.start_date.slice(5, 7)) : 4;
+    const q = quarterRangeFor(prevAnchor, fyStartMonth);
+    return { from: q.from, to: q.to };
+  }
+  if (mode === 'year') {
+    const idx = fy ? fys.findIndex((f) => f.id === fy.id) : -1;
+    const prior = idx >= 0 && idx + 1 < fys.length ? fys[idx + 1] : null;
+    if (prior) return { from: prior.start_date, to: prior.end_date };
+    // Fall back: shift by 12 months.
+    return { from: addMonths(from, -12), to: addMonths(to, -12) };
+  }
+  // Custom: same-length window immediately before.
+  const days = daysBetweenInclusive(from, to) + 1;
+  return { from: toIso(new Date(toDate(from).getTime() - days * 86_400_000)),
+           to:   toIso(new Date(toDate(from).getTime() - 86_400_000)) };
+}
+
+function labelFor(mode: PeriodMode, from: string, to: string, fy: BookkeepingFinancialYear | null): string {
+  if (mode === 'month') {
+    const d = toDate(from);
+    return d.toLocaleDateString('en-IN', { month: 'short', year: 'numeric', timeZone: 'UTC' });
+  }
+  if (mode === 'quarter') {
+    const q = quarterRangeFor(from, fy ? Number(fy.start_date.slice(5, 7)) : 4);
+    return `Q${q.quarter} FY ${q.fyLabelHint}`;
+  }
+  if (mode === 'year') {
+    return `FY ${fy?.label ?? '?'}`;
+  }
+  return `${from} to ${to}`;
+}
 
 export function PeriodProvider({ financialYears, children }: { financialYears: BookkeepingFinancialYear[]; children: ReactNode }) {
   const [params, setParams] = useSearchParams();
@@ -67,11 +203,30 @@ export function PeriodProvider({ financialYears, children }: { financialYears: B
     const fyId = params.get('fy');
     return financialYears.find((f) => f.id === fyId) ?? financialYears[0] ?? null;
   }, [params, financialYears]);
+  const rawMode = params.get('p');
+  const mode: PeriodMode =
+    rawMode === 'month' || rawMode === 'quarter' || rawMode === 'year' || rawMode === 'custom'
+      ? rawMode
+      : 'year'; // Default: full FY, matches the pre-mode behaviour.
+  const vsPrior = params.get('vp') === '1';
+
+  const anchoredTo = params.get('to') || active?.end_date || '';
+  const snapped = mode === 'custom'
+    ? { from: params.get('from') || active?.start_date || '', to: anchoredTo }
+    : snapRange(mode, anchoredTo, active);
+  const prior = vsPrior && snapped.from && snapped.to
+    ? priorRange(mode, snapped.from, snapped.to, financialYears, active)
+    : null;
 
   const value: TallyPeriodValue = {
-    from: params.get('from') || active?.start_date || '',
-    to: params.get('to') || active?.end_date || '',
+    from: snapped.from,
+    to: snapped.to,
     fyId: active?.id ?? null,
+    mode,
+    vsPrior,
+    priorFrom: prior?.from ?? null,
+    priorTo: prior?.to ?? null,
+    label: labelFor(mode, snapped.from, snapped.to, active),
     financialYears,
     setPeriod: (next) => {
       const p = new URLSearchParams(params);
@@ -79,8 +234,15 @@ export function PeriodProvider({ financialYears, children }: { financialYears: B
         const fy = financialYears.find((f) => f.id === next.fyId);
         if (fy) { p.set('fy', fy.id); p.set('from', fy.start_date); p.set('to', fy.end_date); }
       }
+      if (next.mode !== undefined) {
+        p.set('p', next.mode);
+        // When switching to a snapped mode, reset `from` so snapRange
+        // takes over on the next render.
+        if (next.mode !== 'custom') p.delete('from');
+      }
       if (next.from !== undefined) p.set('from', next.from);
       if (next.to !== undefined) p.set('to', next.to);
+      if (next.vsPrior !== undefined) p.set('vp', next.vsPrior ? '1' : '0');
       setParams(p, { replace: true });
     },
   };
@@ -93,8 +255,17 @@ export function usePeriod(): TallyPeriodValue {
   return ctx;
 }
 
+/**
+ * Period bar per BOOKKEEPING-REBUILD §5. Chip group for M/Q/Y — one
+ * click, not a date-range picker — plus a vs-Prior toggle. Custom
+ * mode reveals the raw date inputs for the (rare) case where a user
+ * wants an unusual window. `<input type="date">` renders in the
+ * browser's locale, so on en-IN it shows DD/MM/YYYY.
+ */
 export function PeriodBar({ compact }: { compact?: boolean }) {
-  const { from, to, fyId, financialYears, setPeriod } = usePeriod();
+  const { from, to, fyId, financialYears, setPeriod, mode, vsPrior, label } = usePeriod();
+  const modeClass = (m: PeriodMode) =>
+    `h-8 px-2 text-12 border ${mode === m ? 'border-neutral-900 bg-neutral-900 text-white' : 'border-neutral-300 bg-white text-neutral-700 hover:bg-neutral-50'} first:rounded-l last:rounded-r`;
   return (
     <div className="flex items-center gap-2 flex-wrap" data-testid="tally-period-bar">
       {financialYears.length > 0 ? (
@@ -111,17 +282,37 @@ export function PeriodBar({ compact }: { compact?: boolean }) {
       ) : null}
       {compact ? null : (
         <>
-          <input
-            type="date" value={from} onChange={(e) => setPeriod({ from: e.target.value })}
-            className="h-8 px-2 text-12 border border-neutral-300 rounded bg-white focus:outline-none focus:border-gold"
-            aria-label="From date"
-          />
-          <span className="text-12 text-neutral-400">to</span>
-          <input
-            type="date" value={to} onChange={(e) => setPeriod({ to: e.target.value })}
-            className="h-8 px-2 text-12 border border-neutral-300 rounded bg-white focus:outline-none focus:border-gold"
-            aria-label="To date"
-          />
+          <div className="inline-flex" role="tablist" aria-label="Period mode">
+            <button type="button" className={modeClass('month')} onClick={() => setPeriod({ mode: 'month' })}>Month</button>
+            <button type="button" className={modeClass('quarter')} onClick={() => setPeriod({ mode: 'quarter' })}>Quarter</button>
+            <button type="button" className={modeClass('year')} onClick={() => setPeriod({ mode: 'year' })}>Year</button>
+            <button type="button" className={modeClass('custom')} onClick={() => setPeriod({ mode: 'custom' })}>Custom</button>
+          </div>
+          <span className="text-12 text-neutral-500" title={`${from} to ${to}`}>{label}</span>
+          {mode === 'custom' ? (
+            <>
+              <input
+                type="date" value={from} onChange={(e) => setPeriod({ from: e.target.value })}
+                className="h-8 px-2 text-12 border border-neutral-300 rounded bg-white focus:outline-none focus:border-gold"
+                aria-label="From date"
+              />
+              <span className="text-12 text-neutral-400">to</span>
+              <input
+                type="date" value={to} onChange={(e) => setPeriod({ to: e.target.value })}
+                className="h-8 px-2 text-12 border border-neutral-300 rounded bg-white focus:outline-none focus:border-gold"
+                aria-label="To date"
+              />
+            </>
+          ) : null}
+          <label className="inline-flex items-center gap-1 text-12 text-neutral-700 cursor-pointer select-none">
+            <input
+              type="checkbox"
+              checked={vsPrior}
+              onChange={(e) => setPeriod({ vsPrior: e.target.checked })}
+              className="accent-neutral-900"
+            />
+            vs prior
+          </label>
         </>
       )}
     </div>

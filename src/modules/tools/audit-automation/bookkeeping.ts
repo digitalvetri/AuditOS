@@ -622,4 +622,299 @@ export const bookkeepingAccountingApi = {
   dashboard: (c: string, f: BookkeepingPeriod & { fy_id?: string } = {}) => api.get<BookkeepingDashboard>(`${base(c)}/dashboard${qs(f)}`),
   search: (c: string, q: string) =>
     api.get<{ query: string; hits: { type: string; id: string; label: string; sublabel: string | null; route: string }[] }>(`${base(c)}/search${qs({ q })}`),
+
+  // ── Import mapping (BOOKKEEPING-REBUILD §3.1) ──────────────────────
+  // The primary way client data enters the books. See the type block
+  // ImportMapping below for the persistent shape.
+  previewWorkbook: (c: string, file: File) => {
+    const fd = new FormData();
+    fd.append('file', file);
+    return api.postForm<WorkbookPreview>(`${base(c)}/imports/preview`, fd);
+  },
+  listImportMappings: (c: string) =>
+    api.get<{ items: ImportMapping[] }>(`${base(c)}/imports/mappings`),
+  getImportMapping: (c: string, target: ImportTarget) =>
+    api.get<ImportMapping>(`${base(c)}/imports/mappings/${target}`),
+  saveImportMapping: (c: string, input: SaveImportMappingInput) =>
+    api.post<ImportMapping>(`${base(c)}/imports/mappings`, input),
+
+  // Step 2 — derive vouchers from a mapped file. The saved mapping is
+  // read from the DB (see route.imports.ts); we just POST the file and
+  // the target and get the derived batch back for the preview panel.
+  deriveImportVouchers: (c: string, target: ImportTarget, file: File) => {
+    const fd = new FormData();
+    fd.append('file', file);
+    return api.postForm<ClassifiedBatch>(`${base(c)}/imports/derive?target=${encodeURIComponent(target)}`, fd);
+  },
+
+  // Step 3 — commit: post the NEW rows through the existing engine and
+  // write a BookkeepingImportRun. CHANGED rows default to skip until
+  // §3.5's update path lands. Named commitImportBatch to avoid the
+  // older commitImport helper (line 604) that pushes rows into a
+  // BookkeepingDataService entity — different pipeline entirely.
+  commitImportBatch: (c: string, input: CommitImportInput) =>
+    api.post<CommitImportResult>(`${base(c)}/imports/commit`, input),
+
+  // History of committed imports for this company (newest first).
+  listImportRuns: (c: string) =>
+    api.get<{ items: ImportRun[] }>(`${base(c)}/imports/runs`),
+
+  // ── Client dashboard reports (BOOKKEEPING-REBUILD §6) ────────────
+  generateClientReport: (c: string, input: {
+    from: string; to: string;
+    period_label: string; fy_label: string;
+    prepared_by: string; firm_contact?: string | null;
+  }) => api.post<{ id: string; fileName: string; fileSha256: string }>(`${base(c)}/client-reports`, input),
+
+  listClientReports: (c: string) =>
+    api.get<{ items: ClientReport[] }>(`${base(c)}/client-reports`),
+
+  clientReportDownloadUrl: (c: string, reportId: string) =>
+    `${base(c)}/client-reports/${reportId}/download`,
 };
+
+export interface ClientReport {
+  id: string;
+  from: string;
+  to: string;
+  periodLabel: string;
+  sectionsJson: Record<string, boolean>;
+  fileName: string;
+  fileSha256: string;
+  sentTo: string | null;
+  createdAt: string;
+}
+
+/** Same target list as server/src/modules/bookkeeping/services/BookkeepingImportService.ts. */
+export const IMPORT_TARGETS = [
+  'sales_register',
+  'purchase_register',
+  'receipt_register',
+  'payment_register',
+] as const;
+export type ImportTarget = (typeof IMPORT_TARGETS)[number];
+
+/** Same field list as the server. Keep this in sync — the wizard's dropdowns are rendered from it. */
+export const MAPPABLE_FIELDS = [
+  'ignore',
+  'date',
+  'invoice_no',
+  'bill_no',
+  'customer',
+  'supplier',
+  'description',
+  'currency',
+  'foreign_amount',
+  'amount_inr',
+  'exchange_rate',
+  'taxable_value',
+  'cgst',
+  'sgst',
+  'igst',
+  'cess',
+  'total',
+  'gstin',
+  'hsn',
+] as const;
+export type MappableField = (typeof MAPPABLE_FIELDS)[number];
+
+export const MAPPABLE_FIELD_LABEL: Record<MappableField, string> = {
+  ignore: 'Ignore',
+  date: 'Date',
+  invoice_no: 'Invoice no',
+  bill_no: 'Bill no',
+  customer: 'Customer',
+  supplier: 'Supplier',
+  description: 'Description',
+  currency: 'Currency',
+  foreign_amount: 'Foreign amount',
+  amount_inr: 'Amount (INR)',
+  exchange_rate: 'Exchange rate',
+  taxable_value: 'Taxable value',
+  cgst: 'CGST',
+  sgst: 'SGST',
+  igst: 'IGST',
+  cess: 'Cess',
+  total: 'Total',
+  gstin: 'GSTIN',
+  hsn: 'HSN',
+};
+
+export interface SheetPreview {
+  name: string;
+  rowCount: number;
+  columns: string[];       // ['A', 'B', 'C', ...]
+  headerRow: string[];     // trimmed text of row 1
+  sampleRows: string[][];  // up to ten rows after the header
+}
+
+export interface WorkbookPreview {
+  sheets: SheetPreview[];
+}
+
+export interface ImportMapping {
+  id: string;
+  tallyCompanyId: string;
+  sheetName: string;
+  target: ImportTarget;
+  headerRow: number;
+  columnMapJson: Record<string, MappableField>;
+  dateFormat: string;
+  currencyAliasesJson: Record<string, string>;
+  version: number;
+  createdByUserId: string | null;
+  updatedByUserId: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface SaveImportMappingInput {
+  sheet_name: string;
+  target: ImportTarget;
+  header_row: number;
+  column_map: Record<string, MappableField>;
+  date_format: string;
+  currency_aliases: Record<string, string>;
+}
+
+// ── Derived voucher batch (Step 2 preview) ────────────────────────────
+// Mirror of server/src/modules/bookkeeping/engine/deriveVouchers.ts.
+
+export type DerivedVoucherType = 'sales' | 'purchase';
+
+export interface DerivedEntry {
+  side: 'dr' | 'cr';
+  role:
+    | 'party'
+    | 'sales'
+    | 'purchase'
+    | 'cgst_output'
+    | 'sgst_output'
+    | 'igst_output'
+    | 'cgst_input'
+    | 'sgst_input'
+    | 'igst_input'
+    | 'cess';
+  ledgerId: string | null;
+  displayLabel: string;
+  amountPaise: number;
+}
+
+export interface DerivedVoucher {
+  rowNumber: number;
+  type: DerivedVoucherType;
+  date: string | null;
+  invoiceOrBillNo: string | null;
+  partyName: string;
+  partyLedgerId: string | null;
+  currency: string;
+  foreignAmountMinor: number | null;
+  exchangeRate: string | null;
+  totalPaise: number;
+  balanced: boolean;
+  entries: DerivedEntry[];
+}
+
+export interface RowFlag {
+  rowNumber: number;
+  kind:
+    | 'foreign_base_mismatch'
+    | 'missing_date'
+    | 'missing_party'
+    | 'missing_amount'
+    | 'unbalanced'
+    | 'no_sales_ledger'
+    | 'no_purchase_ledger';
+  message: string;
+}
+
+export interface PartyProposal {
+  name: string;
+  normalizedName: string;
+  group: 'sundry_debtors' | 'sundry_creditors';
+  occurrenceCount: number;
+  fuzzyMatches: { ledgerId: string; name: string; score: number }[];
+}
+
+export interface DerivedBatch {
+  vouchers: DerivedVoucher[];
+  proposals: PartyProposal[];
+  flags: RowFlag[];
+  totals: {
+    rowsScanned: number;
+    rowsDerived: number;
+    totalPaise: number;
+    currencies: string[];
+  };
+}
+
+// ── Step 3: idempotency + commit ─────────────────────────────────────
+
+export type ExistenceStatus = 'new' | 'unchanged' | 'changed' | 'skip';
+
+export interface VoucherClassification {
+  rowNumber: number;
+  existence: ExistenceStatus;
+  existingVoucherId?: string;
+  changedFields?: ('amount' | 'date' | 'party')[];
+}
+
+export interface ClassifiedBatch extends DerivedBatch {
+  classification: Record<number, VoucherClassification>;
+  counts: {
+    new: number;
+    unchanged: number;
+    changed: number;
+    skipped: number;
+  };
+  /** Round-trip context the commit endpoint needs — never touched by the UI. */
+  _import: {
+    mappingId: string;
+    mappingVersion: number;
+    fileName: string;
+    fileSha256: string;
+  };
+}
+
+export interface CommitImportInput {
+  target: ImportTarget;
+  file_name: string;
+  file_sha256: string;
+  mapping_id: string;
+  mapping_version: number;
+  party_decisions: {
+    name: string;
+    action: 'create' | 'use';
+    use_existing_ledger_id?: string;
+  }[];
+  changed_row_decisions: { row_number: number; action: 'skip' }[];
+  batch: ClassifiedBatch;
+}
+
+export interface CommitImportResult {
+  runId: string;
+  vouchersCreated: number;
+  vouchersSkipped: number;
+  vouchersUpdated: number;
+  ledgersCreated: number;
+  totalPaise: number;
+  errors: { rowNumber: number; message: string }[];
+}
+
+export interface ImportRun {
+  id: string;
+  target: ImportTarget;
+  fileName: string;
+  fileSha256: string;
+  mappingId: string;
+  mappingVersion: number;
+  rowsScanned: number;
+  rowsDerived: number;
+  vouchersCreated: number;
+  vouchersSkipped: number;
+  vouchersUpdated: number;
+  ledgersCreated: number;
+  totalPaise: number;
+  currenciesJson: string[];
+  createdAt: string;
+}

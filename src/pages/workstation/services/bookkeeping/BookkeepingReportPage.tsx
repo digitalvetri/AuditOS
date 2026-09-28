@@ -35,8 +35,17 @@ export function BookkeepingReportPage() {
 
 function useCtx() {
   const { companyId = '' } = useParams();
-  const { from, to } = usePeriod();
-  return { companyId, from, to, base: `/workstation/services/bookkeeping/companies/${companyId}` };
+  const p = usePeriod();
+  return {
+    companyId,
+    from: p.from,
+    to: p.to,
+    base: `/workstation/services/bookkeeping/companies/${companyId}`,
+    vsPrior: p.vsPrior,
+    priorFrom: p.priorFrom,
+    priorTo: p.priorTo,
+    periodLabel: p.label,
+  };
 }
 
 function BackLink() {
@@ -111,7 +120,10 @@ function TrialBalanceReport() {
       key: 'ledger', label: 'Ledger', value: (r) => r.ledgerName,
       render: (r) => <Link to={`${base}/reports/ledger/${r.ledgerId}?from=${from}&to=${to}`} className="text-neutral-900 hover:text-gold">{r.ledgerName}</Link>,
     },
-    { key: 'group', label: 'Group', value: (r) => r.groupName, render: (r) => <span className="text-neutral-500">{r.groupName}</span> },
+    // Spec §5 asks for Group + Sub-group as separate columns — primary
+    // is the top-level, group is the immediate parent (may coincide).
+    { key: 'primaryGroup', label: 'Group', value: (r) => r.primaryGroupName, render: (r) => <span className="text-neutral-700">{r.primaryGroupName}</span> },
+    { key: 'group', label: 'Sub-group', value: (r) => r.groupName, render: (r) => <span className="text-neutral-500">{r.groupName === r.primaryGroupName ? '—' : r.groupName}</span> },
     { key: 'opening', label: 'Opening', align: 'right', value: (r) => r.openingPaise / 100, render: (r) => <DrCr paise={r.openingPaise} /> },
     { key: 'debit', label: 'Debit', align: 'right', value: (r) => r.debitPaise / 100, render: (r) => <Money paise={r.debitPaise} /> },
     { key: 'credit', label: 'Credit', align: 'right', value: (r) => r.creditPaise / 100, render: (r) => <Money paise={r.creditPaise} /> },
@@ -136,13 +148,14 @@ function TrialBalanceReport() {
       </div>
       <Panel>
         <DataTable
-          minWidth="880px"
+          minWidth="1000px"
           rows={q.data!.rows.filter((r) => r.openingPaise || r.debitPaise || r.creditPaise || r.closingPaise)}
           rowKey={(r) => r.ledgerId}
           columns={columns}
           footer={
             <tr>
-              <td className="px-3 py-2" colSpan={3}>Total</td>
+              {/* Ledger, Group, Sub-group, Opening — 4 label cells for the Total */}
+              <td className="px-3 py-2" colSpan={4}>Total</td>
               <td className="px-3 py-2 text-right"><Money paise={t.debitPaise} bold /></td>
               <td className="px-3 py-2 text-right"><Money paise={t.creditPaise} bold /></td>
               <td className="px-3 py-2 text-right"><Money paise={t.closingDebitPaise} bold /></td>
@@ -157,14 +170,23 @@ function TrialBalanceReport() {
 
 // ── P&L ──────────────────────────────────────────────────────────────
 function ProfitAndLossReport() {
-  const { companyId, from, to, base } = useCtx();
+  const { companyId, from, to, base, vsPrior, priorFrom, priorTo, periodLabel } = useCtx();
   const q = useQuery({
     queryKey: ['tally.pl', companyId, from, to],
     queryFn: () => bookkeepingAccountingApi.profitAndLoss(companyId, { from, to }),
   });
+  // Prior-period fetch, only when vs-Prior is on and we have a range.
+  // Same shape as the current fetch — the compute is deterministic per
+  // (from, to), so nothing new lands on the server.
+  const priorQ = useQuery({
+    queryKey: ['tally.pl', companyId, priorFrom, priorTo],
+    queryFn: () => bookkeepingAccountingApi.profitAndLoss(companyId, { from: priorFrom!, to: priorTo! }),
+    enabled: vsPrior && !!priorFrom && !!priorTo,
+  });
   if (q.isLoading) return <Loading />;
   if (q.isError) return <ErrorNote message={(q.error as Error).message} />;
   const pl = q.data!;
+  const prior = vsPrior ? priorQ.data ?? null : null;
   const side = (rows: { ledgerId: string; ledgerName: string; groupName: string; amountPaise: number }[]) => (
     <ul className="divide-y divide-neutral-100">
       {rows.length === 0 ? <li className="px-3 py-3 text-13 text-neutral-500">Nothing in this period.</li> : null}
@@ -181,20 +203,99 @@ function ProfitAndLossReport() {
   return (
     <div data-testid="tally-pl">
       <BackLink />
-      <ReportHeader title="Profit &amp; Loss" subtitle={`${from} to ${to}`} actions={<ExportButtons filename="profit-and-loss.csv" rows={[...pl.income.rows.map((r) => ({ ...r, side: 'Income' })), ...pl.expenses.rows.map((r) => ({ ...r, side: 'Expense' }))]} columns={[{ key: 'side', label: 'Side', value: (r) => r.side }, { key: 'ledger', label: 'Ledger', value: (r) => r.ledgerName }, { key: 'group', label: 'Group', value: (r) => r.groupName }, { key: 'amount', label: 'Amount', value: (r) => r.amountPaise / 100 }]} />} />
+      <ReportHeader title="Profit &amp; Loss" subtitle={periodLabel} actions={<ExportButtons filename="profit-and-loss.csv" rows={[...pl.income.rows.map((r) => ({ ...r, side: 'Income' })), ...pl.expenses.rows.map((r) => ({ ...r, side: 'Expense' }))]} columns={[{ key: 'side', label: 'Side', value: (r) => r.side }, { key: 'ledger', label: 'Ledger', value: (r) => r.ledgerName }, { key: 'group', label: 'Group', value: (r) => r.groupName }, { key: 'amount', label: 'Amount', value: (r) => r.amountPaise / 100 }]} />} />
+
+      {vsPrior && prior && <PriorComparison prior={prior} current={pl} priorFrom={priorFrom} priorTo={priorTo} />}
+
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         <Panel title={`Expenses — ₹${(pl.expenses.totalPaise / 100).toLocaleString('en-IN', { minimumFractionDigits: 2 })}`}>{side(pl.expenses.rows)}</Panel>
         <Panel title={`Income — ₹${(pl.income.totalPaise / 100).toLocaleString('en-IN', { minimumFractionDigits: 2 })}`}>{side(pl.income.rows)}</Panel>
       </div>
+      {/*
+       * Margin percentages per BOOKKEEPING-REBUILD §5: the P&L is the
+       * one place a CA looks for margin at a glance. GP margin uses
+       * income as the denominator, not COGS.
+       */}
       <div className="mt-4 grid grid-cols-1 md:grid-cols-2 gap-4">
         <Panel title="Gross profit">
-          <div className="p-3 text-16 font-semibold"><Money paise={pl.grossProfitPaise} signed /></div>
+          <div className="p-3 flex items-baseline gap-3">
+            <span className="text-16 font-semibold"><Money paise={pl.grossProfitPaise} signed /></span>
+            {pl.income.totalPaise > 0 && (
+              <span className={`text-13 ${pl.grossProfitPaise >= 0 ? 'text-emerald-700' : 'text-danger'}`}>
+                {((pl.grossProfitPaise / pl.income.totalPaise) * 100).toFixed(1)}% margin
+              </span>
+            )}
+          </div>
           <p className="px-3 pb-3 text-11 text-neutral-500">Sales and direct income less purchases and direct expenses.</p>
         </Panel>
         <Panel title={pl.netProfitPaise >= 0 ? 'Net profit' : 'Net loss'}>
-          <div className="p-3 text-16 font-semibold"><Money paise={pl.netProfitPaise} signed /></div>
+          <div className="p-3 flex items-baseline gap-3">
+            <span className="text-16 font-semibold"><Money paise={pl.netProfitPaise} signed /></span>
+            {pl.income.totalPaise > 0 && (
+              <span className={`text-13 ${pl.netProfitPaise >= 0 ? 'text-emerald-700' : 'text-danger'}`}>
+                {((pl.netProfitPaise / pl.income.totalPaise) * 100).toFixed(1)}% margin
+              </span>
+            )}
+          </div>
           <p className="px-3 pb-3 text-11 text-neutral-500">Carried to the balance sheet alongside capital.</p>
         </Panel>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * The vs-Prior comparison strip on the P&L. Shows four numbers side-by-
+ * side: Revenue, Expenses, GP, NP — current vs prior — with a signed
+ * delta rendered in the direction the CA reads (revenue up = green,
+ * expenses up = danger).
+ */
+function PriorComparison({ prior, current, priorFrom, priorTo }: {
+  prior: { income: { totalPaise: number }; expenses: { totalPaise: number }; grossProfitPaise: number; netProfitPaise: number };
+  current: { income: { totalPaise: number }; expenses: { totalPaise: number }; grossProfitPaise: number; netProfitPaise: number };
+  priorFrom: string | null;
+  priorTo: string | null;
+}) {
+  const delta = (curr: number, prev: number) => curr - prev;
+  const pct = (curr: number, prev: number) => (prev === 0 ? null : ((curr - prev) / Math.abs(prev)) * 100);
+  const cells: { label: string; curr: number; prev: number; higherIsBetter: boolean }[] = [
+    { label: 'Revenue', curr: current.income.totalPaise, prev: prior.income.totalPaise, higherIsBetter: true },
+    { label: 'Expenses', curr: current.expenses.totalPaise, prev: prior.expenses.totalPaise, higherIsBetter: false },
+    { label: 'Gross profit', curr: current.grossProfitPaise, prev: prior.grossProfitPaise, higherIsBetter: true },
+    { label: 'Net profit', curr: current.netProfitPaise, prev: prior.netProfitPaise, higherIsBetter: true },
+  ];
+  return (
+    <div className="mb-4 border border-neutral-200 rounded bg-white p-3">
+      <div className="text-11 uppercase tracking-[0.08em] text-neutral-500 mb-2">
+        vs prior period ({priorFrom} to {priorTo})
+      </div>
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-13">
+        {cells.map((c) => {
+          const d = delta(c.curr, c.prev);
+          const p = pct(c.curr, c.prev);
+          const good = c.higherIsBetter ? d >= 0 : d <= 0;
+          const deltaClass = d === 0 ? 'text-neutral-500' : good ? 'text-emerald-700' : 'text-danger';
+          const arrow = d === 0 ? '—' : d > 0 ? '↑' : '↓';
+          return (
+            <div key={c.label}>
+              <div className="text-11 uppercase tracking-[0.08em] text-neutral-400">{c.label}</div>
+              <div className="text-14 font-semibold text-neutral-900 tabular-nums">
+                <Money paise={c.curr} />
+              </div>
+              <div className="text-11 text-neutral-500 tabular-nums">
+                prior <Money paise={c.prev} />
+              </div>
+              <div className={`text-12 tabular-nums ${deltaClass}`}>
+                {arrow} <Money paise={Math.abs(d)} />
+                {p !== null && (
+                  <span className="ml-1">
+                    ({p >= 0 ? '+' : ''}{p.toFixed(1)}%)
+                  </span>
+                )}
+              </div>
+            </div>
+          );
+        })}
       </div>
     </div>
   );
@@ -234,7 +335,26 @@ function BalanceSheetReport() {
   return (
     <div data-testid="tally-balance-sheet">
       <BackLink />
-      <ReportHeader title="Balance Sheet" subtitle={`As at ${to}`} />
+      <ReportHeader
+        title="Balance Sheet"
+        subtitle={`As at ${to}`}
+        actions={
+          /*
+           * Balanced badge per BOOKKEEPING-REBUILD §5. The engine
+           * already guarantees this, but a CA looks for the badge as
+           * confirmation — silence looked like an oversight.
+           */
+          bs.balanced ? (
+            <span className="inline-flex items-center gap-1 rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-12 text-emerald-800">
+              <span className="text-emerald-700">✓</span> Balanced
+            </span>
+          ) : (
+            <span className="inline-flex items-center gap-1 rounded-full border border-danger/30 bg-red-50 px-2 py-0.5 text-12 text-danger">
+              Out of balance
+            </span>
+          )
+        }
+      />
       {!bs.balanced ? (
         <div className="mb-3 rounded border border-danger/30 bg-red-50 px-3 py-2 text-13 text-danger">
           The two sides differ by ₹{(Math.abs(bs.differencePaise) / 100).toFixed(2)}. Check the trial balance.
@@ -356,12 +476,39 @@ function OutstandingsReport() {
   if (q.isError) return <ErrorNote message={(q.error as Error).message} />;
   const d: Outstandings = q.data!;
   const flat = d.parties.flatMap((p) => p.bills.map((b) => ({ party: p.ledger_name, ...b })));
+
+  // Summary numbers per BOOKKEEPING-REBUILD §5 — "the most-used
+  // number in the whole module. Build it properly." Total is signed
+  // the way the party expects (positive means we're owed); the
+  // average is rounded to the nearest rupee for readability.
+  const partyCount = d.parties.length;
+  const avgPaise = partyCount > 0 ? Math.round(d.totalPaise / partyCount) : 0;
+  const overdueBills = d.parties.reduce(
+    (s, p) => s + p.bills.filter((b) => b.days_overdue > 0).length,
+    0,
+  );
+  const overduePaise = d.parties.reduce(
+    (s, p) => s + p.bills.filter((b) => b.days_overdue > 0).reduce((s2, b) => s2 + b.pending_paise, 0),
+    0,
+  );
+
+  // Ageing bars scale to the largest bucket so the visual makes the
+  // over-90 slice obvious when there is one, not lost in the total.
+  const overdueBuckets = d.ageing.filter((a) => a.key !== 'not_due');
+  const maxBucketPaise = Math.max(1, ...overdueBuckets.map((a) => Math.abs(a.amount_paise)));
+  const invoicesPerBucket = d.parties.reduce((map, p) => {
+    for (const b of p.bills) {
+      map[b.ageing_bucket] = (map[b.ageing_bucket] ?? 0) + 1;
+    }
+    return map;
+  }, {} as Record<string, number>);
+
   return (
     <div data-testid={`tally-outstandings-${side}`}>
       <BackLink />
       <ReportHeader
         title={side === 'receivable' ? 'Receivables' : 'Payables'}
-        subtitle={`As at ${d.as_of} · total ₹${(d.totalPaise / 100).toLocaleString('en-IN', { minimumFractionDigits: 2 })}`}
+        subtitle={`As at ${d.as_of}`}
         actions={
           <>
             <Link to={`${base}/reports/outstandings?side=${side === 'receivable' ? 'payable' : 'receivable'}`} className="h-8 px-2 inline-flex items-center text-12 border border-neutral-300 rounded bg-white hover:bg-neutral-50">
@@ -382,14 +529,48 @@ function OutstandingsReport() {
         }
       />
 
+      {/* Summary KPIs — §5's "Summary (total outstanding, count, average)". */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4 bg-white border border-neutral-200 rounded p-3">
+        <OutstandingsStat label="Total outstanding" value={`₹ ${(d.totalPaise / 100).toLocaleString('en-IN', { minimumFractionDigits: 2 })}`} />
+        <OutstandingsStat label={side === 'receivable' ? 'Customers' : 'Suppliers'} value={String(partyCount)} />
+        <OutstandingsStat label="Average per party" value={`₹ ${(avgPaise / 100).toLocaleString('en-IN', { minimumFractionDigits: 2 })}`} />
+        <OutstandingsStat
+          label="Overdue"
+          value={overdueBills === 0 ? '0 bills' : `${overdueBills} bill${overdueBills === 1 ? '' : 's'} · ₹${(overduePaise / 100).toLocaleString('en-IN', { minimumFractionDigits: 2 })}`}
+          tone={overdueBills > 0 ? 'warn' : 'muted'}
+        />
+      </div>
+
+      {/* Ageing bars — the visual §5 (and §6) call for.
+       *   Under 30 days   ████████████████░░░░  ₹2,41,000  4 invoices
+       *   31–60 days      ██████░░░░░░░░░░░░░░  ₹  92,400  2 invoices
+       *   61–90 days      ███░░░░░░░░░░░░░░░░░  ₹  48,260  2 invoices
+       *   Over 90 days    ██░░░░░░░░░░░░░░░░░░  ₹  31,000  1 invoice   ← 2px left border
+       */}
       <Panel title="Ageing" className="mb-4">
-        <div className="p-3 flex flex-wrap gap-4">
-          {d.ageing.map((a) => (
-            <div key={a.key} className="min-w-[110px]">
-              <div className="text-11 text-neutral-500">{a.label}</div>
-              <div className="text-14 font-semibold text-neutral-900"><Money paise={a.amount_paise} /></div>
-            </div>
-          ))}
+        <div className="p-3 space-y-2">
+          {overdueBuckets.map((a) => {
+            const pct = Math.round((Math.abs(a.amount_paise) / maxBucketPaise) * 100);
+            const count = invoicesPerBucket[a.key] ?? 0;
+            const isOverNinety = a.key === '90_plus' && a.amount_paise !== 0;
+            return (
+              <div key={a.key} className={`flex items-center gap-3 ${isOverNinety ? 'border-l-2 border-danger pl-2' : ''}`}>
+                <div className="w-[110px] text-13 text-neutral-700">{a.label}</div>
+                <div className="flex-1 h-4 bg-neutral-100 rounded overflow-hidden">
+                  <div
+                    className={`h-full ${isOverNinety ? 'bg-danger' : 'bg-neutral-500'}`}
+                    style={{ width: `${pct}%` }}
+                  />
+                </div>
+                <div className="w-[130px] text-right text-13 tabular-nums text-neutral-900">
+                  <Money paise={a.amount_paise} />
+                </div>
+                <div className="w-[80px] text-right text-12 text-neutral-500 tabular-nums">
+                  {count === 0 ? '—' : `${count} bill${count === 1 ? '' : 's'}`}
+                </div>
+              </div>
+            );
+          })}
         </div>
       </Panel>
 
@@ -610,6 +791,25 @@ function RatiosReport() {
         </ul>
       </Panel>
       <p className="mt-2 text-11 text-neutral-500">A ratio whose denominator is zero is shown as n/a rather than as 0.00.</p>
+    </div>
+  );
+}
+
+/**
+ * The Outstandings summary cell. Distinct from the generic Stat helper
+ * above because it takes a pre-formatted text value (party counts,
+ * "N bills · ₹X" mixed lines) and supports a warning tone for the
+ * overdue KPI.
+ */
+function OutstandingsStat({ label, value, tone }: { label: string; value: string; tone?: 'muted' | 'warn' }) {
+  const valueClass =
+    tone === 'warn' ? 'text-danger' :
+    tone === 'muted' ? 'text-neutral-500' :
+    'text-neutral-900';
+  return (
+    <div>
+      <div className="text-11 uppercase tracking-[0.08em] text-neutral-400">{label}</div>
+      <div className={`text-15 font-medium tabular-nums ${valueClass}`}>{value}</div>
     </div>
   );
 }

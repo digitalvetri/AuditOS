@@ -82,10 +82,29 @@ export function BookkeepingPayroll() {
       />
 
       {employees.length === 0 ? (
-        <Panel><div className="px-3 py-6 text-13 text-neutral-500">
-          No employees yet. Payroll needs employees, pay heads mapped to ledgers, and a salary structure per employee.
-          Add them through the API or seed them, then process a month here.
-        </div></Panel>
+        <Panel>
+          {/*
+           * BOOKKEEPING-REBUILD §7: the previous empty state said "Add
+           * them through the API or seed them" which reads as
+           * unfinished on a product a firm is about to pay for. This
+           * copy explains what payroll needs and where it comes from
+           * (the client company's own HR / an import) — the same
+           * empty-state pattern the rest of the module uses.
+           */}
+          <div className="px-3 py-6 text-13 text-neutral-500 max-w-[560px]">
+            <div className="text-neutral-900 font-medium mb-1">Payroll is set up per company.</div>
+            <p className="mb-2">
+              This company's books have no employees, pay-heads or salary structures yet.
+              Once they exist, processing a month posts one Salary voucher per employee to the
+              right ledgers automatically.
+            </p>
+            <p className="text-11 text-neutral-500">
+              Employees, pay-heads and structures are imported from the client's HR file. Ask your
+              admin to bring them in, or use Excel import (Administration → Excel import) to load a
+              payroll register month by month while the master data is being prepared.
+            </p>
+          </div>
+        </Panel>
       ) : null}
 
       <div className="grid grid-cols-1 xl:grid-cols-2 gap-4 mb-4">
