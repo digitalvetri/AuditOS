@@ -78,7 +78,7 @@ function readBlocks(raw: unknown): BlockSpec[] {
   return (raw as BlockSpec[]).filter((b) => b && typeof b.key === 'string')
 }
 
-interface Company {
+export interface Company {
   name?: string; addressLine1?: string; addressLine2?: string; city?: string
   state?: string; pin?: string; phone?: string; email?: string; website?: string; gstin?: string
   /** Path (`/file.png`) or data-URL for the letterhead logo. Draws at the
@@ -90,7 +90,7 @@ interface Company {
  * Used only when an invoice stored no company block. Not a hardcoded
  * letterhead: anything the invoice carries wins, field by field.
  */
-const FALLBACK_COMPANY: Company = {
+export const FALLBACK_COMPANY: Company = {
   name: 'JNS Accounting Solutions',
   addressLine1: '83 PV Krishnan Street',
   addressLine2: 'KK Pudur, Opp. to Bharathi Stores',

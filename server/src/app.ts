@@ -21,6 +21,8 @@ import { signedRouter } from './modules/signed.routes.js'
 // Workstation (AUDIT_OS_WORKSTATION.md §8) — the operational workspace.
 import { leadsRouter } from './modules/workstation/leads.routes.js'
 import { clientsRouter } from './modules/workstation/clients.routes.js'
+import { clientFoldersRouter, clientFilesSignedRouter } from './modules/workstation/client-folders.routes.js'
+import { clientMergeRouter } from './modules/workstation/client-merge.routes.js'
 import { servicesRouter, serviceCatalogRouter } from './modules/workstation/services.routes.js'
 import { bookkeepingServiceRouter } from './modules/bookkeeping-service/routes.js'
 import { forKind, partnershipRouter, partnershipSignedRouter } from './modules/partnership/routes.js'
@@ -120,6 +122,8 @@ export function createApp() {
   app.use('/api', toolsSignedRouter)
   // Partnership Registration uploads — real bytes, same signed-link rule.
   app.use('/api', partnershipSignedRouter)
+  // Imported source files listed in a client's Documents folders.
+  app.use('/api', clientFilesSignedRouter)
 
   // Zoho Payments OAuth callback. Public because the redirect from
   // accounts.zoho.in is a top-level browser navigation and we cannot
@@ -172,6 +176,9 @@ export function createApp() {
   // /api/clients so the client-scoped paths (/:id/einvoice-ewb) sit next
   // to the sibling GST and EWB routes on clientsRouter.
   app.use('/api/clients', einvoiceEwbRouter)
+  // Every document for one client, grouped into folders.
+  app.use('/api/clients', clientFoldersRouter)
+  app.use('/api/clients', clientMergeRouter)
   app.use('/api/services', servicesRouter)
   app.use('/api/service-catalog', serviceCatalogRouter)
   app.use('/api/follow-ups', followUpsRouter)

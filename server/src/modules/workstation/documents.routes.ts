@@ -1,10 +1,13 @@
+import crypto from 'node:crypto'
 import { Router } from 'express'
+import multer from 'multer'
 import { prisma, alive } from '../../lib/prisma.js'
 import { ApiError, handler, ok } from '../../lib/http.js'
 import { requireSession } from '../../platform/auth.js'
 import { writeAudit } from '../../platform/audit.js'
 import { writeActivity } from '../../platform/workstation/activity.js'
 import { signedLink, verifyResourceToken } from '../../platform/signedUrl.js'
+import { mailConfigured, MailError, sendMail } from '../../lib/mailer.js'
 import {
   assertCanSeeClient, clientScopeWhere, requireWorkstation,
 } from '../../platform/workstation/scope.js'
@@ -12,6 +15,11 @@ import {
   clientDocumentToApi, documentCategoryToApi, documentVersionToApi, employeeMap,
 } from '../../api/workstation.serialize.js'
 import { body, DOCUMENT_STATUSES, FieldErrors } from './validate.js'
+import {
+  CLIENT_DOC_MAX_MB, CLIENT_DOC_MIME, clientDocumentStorage, readVersionBytes, sendFile,
+} from './client-folders.routes.js'
+
+const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: CLIENT_DOC_MAX_MB * 1024 * 1024, files: 1 } })
 
 /**
  * DOCUMENTS (AUDIT_OS_WORKSTATION.md §7.6).
@@ -132,7 +140,17 @@ documentsRouter.patch('/:id', handler(async (req, res) => {
  * today): a version records its metadata and a `fileKey`, and the download
  * route serves a derived payload through a signed URL.
  */
-documentsRouter.post('/:id/versions', handler(async (req, res) => {
+documentsRouter.post('/:id/versions', (req, res, next) => {
+  // Multipart carries the real file; a JSON body still records metadata only.
+  if (!req.is('multipart/form-data')) return next()
+  upload.single('file')(req, res, (err: unknown) => {
+    if (!err) return next()
+    if ((err as { code?: string }).code === 'LIMIT_FILE_SIZE') {
+      return next(ApiError.unprocessable('too_large', `File is larger than the ${CLIENT_DOC_MAX_MB} MB limit.`))
+    }
+    next(ApiError.badRequest('Upload could not be read.'))
+  })
+}, handler(async (req, res) => {
   const session = requireSession(req)
   const scope = requireWorkstation(session, 'workstation.document.manage')
   const b = body(req)
@@ -170,6 +188,21 @@ documentsRouter.post('/:id/versions', handler(async (req, res) => {
   }
   v.throwIfAny()
 
+  // The original file, when one was sent — stored before the version row so a
+  // failed write never leaves a version pointing at nothing.
+  let stored: { key: string; originalName: string; mimeType: string; size: number } | null = null
+  if (req.file) {
+    const ext = (req.file.originalname.split('.').pop() ?? '').toLowerCase()
+    const mimeType = CLIENT_DOC_MIME[ext]
+    if (!mimeType) {
+      throw ApiError.unprocessable('file_type', `Allowed types: ${Object.keys(CLIENT_DOC_MIME).join(', ').toUpperCase()}.`)
+    }
+    const safe = req.file.originalname.replace(/[^A-Za-z0-9._-]/g, '_').slice(-120)
+    const key = `${doc.clientId}/${doc.id}/${crypto.randomUUID()}-${safe}`
+    await clientDocumentStorage.put(key, req.file.buffer)
+    stored = { key, originalName: req.file.originalname, mimeType, size: req.file.size }
+  }
+
   const updated = await prisma.$transaction(async (tx) => {
     const current = await tx.clientDocument.findUniqueOrThrow({ where: { id: doc.id } })
     const nextVersion = requestedVersion ?? current.currentVersion + 1
@@ -180,10 +213,12 @@ documentsRouter.post('/:id/versions', handler(async (req, res) => {
       data: {
         documentId: doc.id,
         version: nextVersion,
-        fileKey: `workstation/${doc.clientId}/${doc.id}/v${nextVersion}`,
+        fileKey: stored?.key ?? `workstation/${doc.clientId}/${doc.id}/v${nextVersion}`,
+        originalName: stored?.originalName ?? null,
+        mimeType: stored?.mimeType ?? null,
         uploadedBy: uploader ?? session.employeeId ?? session.userId,
         ...(uploadedAt ? { uploadedAt } : {}),
-        sizeBytes,
+        sizeBytes: stored?.size ?? sizeBytes,
         notes: notes ?? null,
         previousVersionId: previous?.id ?? null,
       },
@@ -212,6 +247,75 @@ documentsRouter.post('/:id/versions', handler(async (req, res) => {
     updated.requestedByEmployeeId, updated.verifiedByEmployeeId, ...updated.versions.map((x) => x.uploadedBy),
   ])
   ok(res, clientDocumentToApi(updated, m), 201)
+}))
+
+/**
+ * POST /api/client-documents/:id/send-request — ask the client for this
+ * document by email or WhatsApp.
+ *
+ *   { channel: 'email', to: [..], subject, message } → sent by the server (SMTP)
+ *   { channel: 'whatsapp', to, message }             → logged only; the browser
+ *     opens WhatsApp with the message typed in, since a free-form WhatsApp
+ *     message cannot be sent server-side without the Business API.
+ *
+ * Either way the request lands in the client's activity trail.
+ */
+documentsRouter.post('/:id/send-request', handler(async (req, res) => {
+  const session = requireSession(req)
+  const scope = requireWorkstation(session, 'workstation.document.manage')
+  const b = body(req)
+
+  const doc = await prisma.clientDocument.findFirst({ where: { id: req.params.id, ...alive }, include: { client: true } })
+  if (!doc) throw ApiError.notFound('Document not found.')
+  await assertCanSeeClient(session, scope, doc.clientId)
+
+  const channel = b.channel === 'email' || b.channel === 'whatsapp' ? b.channel : null
+  if (!channel) throw ApiError.badRequest('Choose email or WhatsApp.')
+  const message = typeof b.message === 'string' ? b.message.slice(0, 5000) : ''
+  if (!message.trim()) throw ApiError.badRequest('Write the message to send.', { message: 'Write the message to send.' })
+
+  let to: string[]
+  if (channel === 'email') {
+    to = (Array.isArray(b.to) ? b.to : [b.to]).filter((x): x is string => typeof x === 'string').map((x) => x.trim()).filter(Boolean)
+    if (to.length === 0 || to.some((x) => !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(x))) {
+      throw ApiError.badRequest('Enter a valid email address.', { to: 'Enter a valid email address.' })
+    }
+    const subject = typeof b.subject === 'string' && b.subject.trim() ? b.subject.trim().slice(0, 250) : `Document required: ${doc.name}`
+    if (b.via !== 'mail_app') {
+      if (!mailConfigured()) {
+        throw new ApiError(503, 'mail_not_configured', 'Email is not configured on the server. Add SMTP_HOST, SMTP_USER and SMTP_PASS to server/.env.')
+      }
+      try {
+        await sendMail({ to, replyTo: session.email, subject, text: message })
+      } catch (e) {
+        if (e instanceof MailError) throw new ApiError(502, 'mail_failed', e.message)
+        throw e
+      }
+    }
+  } else {
+    to = [typeof b.to === 'string' ? b.to.trim().slice(0, 30) : '']
+  }
+
+  // A request that goes out moves a not-yet-asked document to "requested".
+  if (doc.status === 'pending') {
+    await prisma.clientDocument.update({
+      where: { id: doc.id },
+      data: { status: 'requested', requestedAt: new Date(), requestedByEmployeeId: session.employeeId ?? null, updatedBy: session.userId },
+    })
+  }
+
+  const via = channel === 'email' ? (b.via === 'mail_app' ? 'email (mail app)' : 'email') : 'WhatsApp'
+  await writeActivity({
+    session, subjectType: 'client', subjectId: doc.clientId,
+    action: 'document.request_sent',
+    description: `Requested ${doc.name} from the client by ${via} (${to.join(', ')}).`,
+    entityType: 'ClientDocument', entityId: doc.id,
+  })
+  await writeAudit({
+    actorUserId: session.userId, action: 'client_document.request_sent',
+    entityType: 'ClientDocument', entityId: doc.id, after: { channel, via, to }, req,
+  })
+  ok(res, { sent: channel === 'email' && b.via !== 'mail_app', logged: true, channel, to })
 }))
 
 // POST /api/documents/:id/verify — verify or reject (supervisory, §6)
@@ -305,7 +409,18 @@ workstationSignedRouter.get('/workstation-documents/:versionId/download', handle
   })
   if (!version) throw ApiError.notFound('Version not found.')
 
-  // No real object store in this build; the payload is derived from metadata
+  // Versions uploaded with real bytes (TDS receipts, partnership filings…)
+  // are served as-is — inline, so they open in the browser, unless ?download=1.
+  if (version.mimeType) {
+    const bytes = await readVersionBytes(version.fileKey)
+    if (bytes) {
+      sendFile(res, bytes, version.originalName ?? `${version.document.name}.v${version.version}`,
+        version.mimeType, req.query.download === '1')
+      return
+    }
+  }
+
+  // Metadata-only versions have no bytes; the payload is derived from metadata
   // so the demo produces a genuine download rather than a fake button.
   const doc = version.document
   const payload = [

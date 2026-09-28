@@ -13,6 +13,10 @@ import { can } from '@/platform/rbac/can';
 import { useAuth } from '@/platform/auth/AuthContext';
 import type { ClientDocument, ListResponse } from '@/modules/workstation/types';
 import { fmtDate } from '@/lib/format';
+import { StatusSelect, useSetDocumentStatus } from '@/modules/workstation/documents/StatusSelect';
+import {
+  RequestButtons, SendRequestDialog, needsRequest, type RequestChannel, type RequestTarget,
+} from '@/modules/workstation/documents/SendRequestDialog';
 
 /**
  * §7.6 — the document list, grouped BY CLIENT.
@@ -47,6 +51,9 @@ export function DocumentsPage() {
   const clients = useQuery({ queryKey: ['workstation', 'clients', 'picker'], queryFn: () => workstationApi.listClients() });
   const { session } = useAuth();
   const canAdd = can(session?.role.code, 'workstation.document.manage', 'self');
+  const canVerify = can(session?.role.code, 'workstation.document.verify', 'self');
+  const setStatus = useSetDocumentStatus();
+  const [request, setRequest] = useState<{ target: RequestTarget; channel: RequestChannel } | null>(null);
   const [addOpen, setAddOpen] = useState(false);
 
   return (
@@ -65,6 +72,11 @@ export function DocumentsPage() {
         defaultClientId={clientId}
         clients={(clients.data?.items ?? []).map((c) => ({ id: c.id, label: `${c.client_id} · ${c.company_name}` }))}
         categories={categories.data?.items ?? []}
+      />
+      <SendRequestDialog
+        target={request?.target ?? null}
+        channel={request?.channel ?? 'whatsapp'}
+        onClose={() => setRequest(null)}
       />
 
       <FilterBar>
@@ -99,7 +111,7 @@ export function DocumentsPage() {
             <div className="space-y-4">
               {Array.from(byClient.entries()).map(([clientLabel, items]) => (
                 <Card key={clientLabel} title={clientLabel}>
-                  <Table head={['Document', 'Category', 'FY', 'Version', 'Uploaded By', 'Upload Date', 'Status']}>
+                  <Table head={['Document', 'Category', 'FY', 'Version', 'Uploaded By', 'Upload Date', 'Status', ...(canAdd ? ['Request'] : [])]}>
                     {items.map((d) => (
                       <Row
                         key={d.id}
@@ -120,7 +132,27 @@ export function DocumentsPage() {
                         <Cell muted>
                           {d.versions.length === 0 ? '—' : fmtDate(d.versions[d.versions.length - 1].uploaded_at)}
                         </Cell>
-                        <Cell><Status value={d.status} /></Cell>
+                        <Cell>
+                          {canAdd ? (
+                            <StatusSelect
+                              value={d.status}
+                              canVerify={canVerify}
+                              onChange={(next) => setStatus.mutate({ id: d.id, status: next })}
+                            />
+                          ) : <Status value={d.status} />}
+                        </Cell>
+                        {canAdd ? (
+                          <Cell>
+                            {needsRequest(d.status, d.version === 0) ? (
+                              <RequestButtons
+                                onPick={(channel) => setRequest({
+                                  channel,
+                                  target: { documentId: d.id, documentName: d.name, financialYear: d.financial_year, clientId: d.client_id },
+                                })}
+                              />
+                            ) : <span className="text-12 text-neutral-400">—</span>}
+                          </Cell>
+                        ) : null}
                       </Row>
                     ))}
                   </Table>
