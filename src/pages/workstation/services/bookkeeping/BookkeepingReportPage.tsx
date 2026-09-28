@@ -35,8 +35,17 @@ export function BookkeepingReportPage() {
 
 function useCtx() {
   const { companyId = '' } = useParams();
-  const { from, to } = usePeriod();
-  return { companyId, from, to, base: `/workstation/services/bookkeeping/companies/${companyId}` };
+  const p = usePeriod();
+  return {
+    companyId,
+    from: p.from,
+    to: p.to,
+    base: `/workstation/services/bookkeeping/companies/${companyId}`,
+    vsPrior: p.vsPrior,
+    priorFrom: p.priorFrom,
+    priorTo: p.priorTo,
+    periodLabel: p.label,
+  };
 }
 
 function BackLink() {
@@ -161,14 +170,23 @@ function TrialBalanceReport() {
 
 // ── P&L ──────────────────────────────────────────────────────────────
 function ProfitAndLossReport() {
-  const { companyId, from, to, base } = useCtx();
+  const { companyId, from, to, base, vsPrior, priorFrom, priorTo, periodLabel } = useCtx();
   const q = useQuery({
     queryKey: ['tally.pl', companyId, from, to],
     queryFn: () => bookkeepingAccountingApi.profitAndLoss(companyId, { from, to }),
   });
+  // Prior-period fetch, only when vs-Prior is on and we have a range.
+  // Same shape as the current fetch — the compute is deterministic per
+  // (from, to), so nothing new lands on the server.
+  const priorQ = useQuery({
+    queryKey: ['tally.pl', companyId, priorFrom, priorTo],
+    queryFn: () => bookkeepingAccountingApi.profitAndLoss(companyId, { from: priorFrom!, to: priorTo! }),
+    enabled: vsPrior && !!priorFrom && !!priorTo,
+  });
   if (q.isLoading) return <Loading />;
   if (q.isError) return <ErrorNote message={(q.error as Error).message} />;
   const pl = q.data!;
+  const prior = vsPrior ? priorQ.data ?? null : null;
   const side = (rows: { ledgerId: string; ledgerName: string; groupName: string; amountPaise: number }[]) => (
     <ul className="divide-y divide-neutral-100">
       {rows.length === 0 ? <li className="px-3 py-3 text-13 text-neutral-500">Nothing in this period.</li> : null}
@@ -185,7 +203,10 @@ function ProfitAndLossReport() {
   return (
     <div data-testid="tally-pl">
       <BackLink />
-      <ReportHeader title="Profit &amp; Loss" subtitle={`${from} to ${to}`} actions={<ExportButtons filename="profit-and-loss.csv" rows={[...pl.income.rows.map((r) => ({ ...r, side: 'Income' })), ...pl.expenses.rows.map((r) => ({ ...r, side: 'Expense' }))]} columns={[{ key: 'side', label: 'Side', value: (r) => r.side }, { key: 'ledger', label: 'Ledger', value: (r) => r.ledgerName }, { key: 'group', label: 'Group', value: (r) => r.groupName }, { key: 'amount', label: 'Amount', value: (r) => r.amountPaise / 100 }]} />} />
+      <ReportHeader title="Profit &amp; Loss" subtitle={periodLabel} actions={<ExportButtons filename="profit-and-loss.csv" rows={[...pl.income.rows.map((r) => ({ ...r, side: 'Income' })), ...pl.expenses.rows.map((r) => ({ ...r, side: 'Expense' }))]} columns={[{ key: 'side', label: 'Side', value: (r) => r.side }, { key: 'ledger', label: 'Ledger', value: (r) => r.ledgerName }, { key: 'group', label: 'Group', value: (r) => r.groupName }, { key: 'amount', label: 'Amount', value: (r) => r.amountPaise / 100 }]} />} />
+
+      {vsPrior && prior && <PriorComparison prior={prior} current={pl} priorFrom={priorFrom} priorTo={priorTo} />}
+
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         <Panel title={`Expenses — ₹${(pl.expenses.totalPaise / 100).toLocaleString('en-IN', { minimumFractionDigits: 2 })}`}>{side(pl.expenses.rows)}</Panel>
         <Panel title={`Income — ₹${(pl.income.totalPaise / 100).toLocaleString('en-IN', { minimumFractionDigits: 2 })}`}>{side(pl.income.rows)}</Panel>
@@ -218,6 +239,63 @@ function ProfitAndLossReport() {
           </div>
           <p className="px-3 pb-3 text-11 text-neutral-500">Carried to the balance sheet alongside capital.</p>
         </Panel>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * The vs-Prior comparison strip on the P&L. Shows four numbers side-by-
+ * side: Revenue, Expenses, GP, NP — current vs prior — with a signed
+ * delta rendered in the direction the CA reads (revenue up = green,
+ * expenses up = danger).
+ */
+function PriorComparison({ prior, current, priorFrom, priorTo }: {
+  prior: { income: { totalPaise: number }; expenses: { totalPaise: number }; grossProfitPaise: number; netProfitPaise: number };
+  current: { income: { totalPaise: number }; expenses: { totalPaise: number }; grossProfitPaise: number; netProfitPaise: number };
+  priorFrom: string | null;
+  priorTo: string | null;
+}) {
+  const delta = (curr: number, prev: number) => curr - prev;
+  const pct = (curr: number, prev: number) => (prev === 0 ? null : ((curr - prev) / Math.abs(prev)) * 100);
+  const cells: { label: string; curr: number; prev: number; higherIsBetter: boolean }[] = [
+    { label: 'Revenue', curr: current.income.totalPaise, prev: prior.income.totalPaise, higherIsBetter: true },
+    { label: 'Expenses', curr: current.expenses.totalPaise, prev: prior.expenses.totalPaise, higherIsBetter: false },
+    { label: 'Gross profit', curr: current.grossProfitPaise, prev: prior.grossProfitPaise, higherIsBetter: true },
+    { label: 'Net profit', curr: current.netProfitPaise, prev: prior.netProfitPaise, higherIsBetter: true },
+  ];
+  return (
+    <div className="mb-4 border border-neutral-200 rounded bg-white p-3">
+      <div className="text-11 uppercase tracking-[0.08em] text-neutral-500 mb-2">
+        vs prior period ({priorFrom} to {priorTo})
+      </div>
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-13">
+        {cells.map((c) => {
+          const d = delta(c.curr, c.prev);
+          const p = pct(c.curr, c.prev);
+          const good = c.higherIsBetter ? d >= 0 : d <= 0;
+          const deltaClass = d === 0 ? 'text-neutral-500' : good ? 'text-emerald-700' : 'text-danger';
+          const arrow = d === 0 ? '—' : d > 0 ? '↑' : '↓';
+          return (
+            <div key={c.label}>
+              <div className="text-11 uppercase tracking-[0.08em] text-neutral-400">{c.label}</div>
+              <div className="text-14 font-semibold text-neutral-900 tabular-nums">
+                <Money paise={c.curr} />
+              </div>
+              <div className="text-11 text-neutral-500 tabular-nums">
+                prior <Money paise={c.prev} />
+              </div>
+              <div className={`text-12 tabular-nums ${deltaClass}`}>
+                {arrow} <Money paise={Math.abs(d)} />
+                {p !== null && (
+                  <span className="ml-1">
+                    ({p >= 0 ? '+' : ''}{p.toFixed(1)}%)
+                  </span>
+                )}
+              </div>
+            </div>
+          );
+        })}
       </div>
     </div>
   );
