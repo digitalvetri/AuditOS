@@ -661,8 +661,7 @@ export const bookkeepingAccountingApi = {
 
   // ── Client dashboard reports (BOOKKEEPING-REBUILD §6) ────────────
   generateClientReport: (c: string, input: {
-    from: string; to: string;
-    period_label: string; fy_label: string;
+    from: string; to: string; fy_id?: string | null;
     prepared_by: string; firm_contact?: string | null;
   }) => api.post<{ id: string; fileName: string; fileSha256: string }>(`${base(c)}/client-reports`, input),
 
@@ -671,7 +670,12 @@ export const bookkeepingAccountingApi = {
 
   clientReportDownloadUrl: (c: string, reportId: string) =>
     `${base(c)}/client-reports/${reportId}/download`,
+
+  /** The live client dashboard page (for an iframe) — the same page the generated file carries. */
+  clientDashboardViewUrl: (c: string, p: { from: string; to: string; fy_id?: string; prepared_by?: string; firm_contact?: string }) =>
+    `${base(c)}/client-dashboard/view${qs(p)}`,
 };
+
 
 export interface ClientReport {
   id: string;
