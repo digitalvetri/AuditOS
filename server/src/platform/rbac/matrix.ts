@@ -68,6 +68,8 @@ export type PermissionCode =
   | 'workstation.gst.portal.reveal'
   | 'workstation.tds.portal.view'
   | 'workstation.tds.portal.reveal'
+  | 'workstation.registration.portal.view'
+  | 'workstation.registration.portal.reveal'
   | 'workstation.eway.read'
   | 'workstation.eway.generate'
   | 'workstation.eway.cancel'
@@ -268,6 +270,8 @@ export const MATRIX: Record<RoleCode, Grant[]> = {
     { permission: 'workstation.gst.portal.reveal', scope: 'organisation' },
     { permission: 'workstation.tds.portal.view', scope: 'organisation' },
     { permission: 'workstation.tds.portal.reveal', scope: 'organisation' },
+    { permission: 'workstation.registration.portal.view', scope: 'organisation' },
+    { permission: 'workstation.registration.portal.reveal', scope: 'organisation' },
     { permission: 'workstation.eway.read', scope: 'organisation' },
     { permission: 'workstation.eway.generate', scope: 'organisation' },
     { permission: 'workstation.eway.cancel', scope: 'organisation' },
@@ -433,6 +437,8 @@ export const MATRIX: Record<RoleCode, Grant[]> = {
     { permission: 'workstation.gst.portal.reveal', scope: 'organisation' },
     { permission: 'workstation.tds.portal.view', scope: 'organisation' },
     { permission: 'workstation.tds.portal.reveal', scope: 'organisation' },
+    { permission: 'workstation.registration.portal.view', scope: 'organisation' },
+    { permission: 'workstation.registration.portal.reveal', scope: 'organisation' },
     { permission: 'workstation.eway.read', scope: 'organisation' },
     { permission: 'workstation.eway.generate', scope: 'organisation' },
     { permission: 'workstation.eway.cancel', scope: 'organisation' },
@@ -568,6 +574,8 @@ export const PERMISSION_DESCRIPTIONS: Record<string, string> = {
   'workstation.gst.portal.view': 'See a client’s GST portal credentials record (passwords stay masked)',
   'workstation.tds.portal.view': 'See a client’s TDS portal User ID (TAN) and whether a password is saved; add / edit / delete the record',
   'workstation.tds.portal.reveal': 'Decrypt a client’s TDS portal password — writes an audit row per reveal',
+  'workstation.registration.portal.view': 'See a client’s registration logins (MSME, Shops, IEC, PF, ESI, E-Invoice, E-Way Bill) and add / edit / delete them',
+  'workstation.registration.portal.reveal': 'Decrypt a client’s registration portal password — writes an audit row per reveal',
   'workstation.gst.portal.reveal': 'Decrypt a portal / e-way bill / IRP password field — writes an audit row per reveal',
   'workstation.eway.read': 'View e-way bills',
   'workstation.eway.generate': 'Generate a (simulated) e-way bill',
