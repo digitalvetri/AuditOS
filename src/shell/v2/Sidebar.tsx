@@ -121,14 +121,10 @@ export function Sidebar({ mobileOpen, onMobileClose }: Props) {
       { to: '/workstation/services',    label: 'Services',   icon: Briefcase,     end: true, visible: can(role, 'workstation.service.read', 'self'),
         children: [
           { to: '/workstation/services/tds',           label: 'TDS' },
-          /* BOOKKEEPING-REBUILD §7 renames — "Bookkeeping" (the
-             accounting engine) becomes "Books" and "Bookkeeping
-             Service" (the checklist tracker) becomes "Bookkeeping
-             Engagement". Two entries one line apart with the same
-             leading word was the exact confusion the spec calls out. */
+          /* BOOKKEEPING-REBUILD §7 renames "Bookkeeping" (the
+             accounting engine) to "Books". */
           { to: '/workstation/services/bookkeeping',   label: 'Books' },
           { to: '/workstation/services/tally-export',  label: 'Tally Export' },
-          { to: '/workstation/services/bookkeeping-service', label: 'Bookkeeping Engagement' },
           { to: '/workstation/services/registration',  label: 'Registration',
             children: REGISTRATION_SERVICES.map((r) => ({
               to: `/workstation/services/registration/${r.slug}`,

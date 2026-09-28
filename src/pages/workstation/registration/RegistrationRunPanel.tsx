@@ -23,6 +23,8 @@ import { Card } from '@/modules/workstation/components';
 import { useToast } from '@/components/Toast';
 import { fmtDate } from '@/lib/format';
 import { MINIMAL_REGISTRATION_PAGES, type RegistrationService } from './services';
+import { CREDENTIAL_REGISTRATIONS } from '@/modules/registrationCredentials/api';
+import { RegistrationCredentialsCard } from './RegistrationCredentialsCard';
 
 /** GST work files under the GST category; everything else under Basic. */
 function categoryFor(slug: string): string {
@@ -152,6 +154,16 @@ export function RegistrationRunPanel({ service }: { service: RegistrationService
             ))}
           </div>
         </Step>
+
+        {/* Saved login / reference details for this client — entered once,
+            shown every time after. */}
+        {client && CREDENTIAL_REGISTRATIONS.has(service.slug) ? (
+          <RegistrationCredentialsCard
+            key={`${service.slug}:${client.id}`}
+            type={service.slug}
+            client={{ id: client.id, company_name: client.company_name }}
+          />
+        ) : null}
 
         {/* ── 2 · portal ─────────────────────────────────────────────── */}
         <Step n={2} title="Open the official portal" done={false}>

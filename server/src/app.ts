@@ -24,7 +24,6 @@ import { clientsRouter } from './modules/workstation/clients.routes.js'
 import { clientFoldersRouter, clientFilesSignedRouter } from './modules/workstation/client-folders.routes.js'
 import { clientMergeRouter } from './modules/workstation/client-merge.routes.js'
 import { servicesRouter, serviceCatalogRouter } from './modules/workstation/services.routes.js'
-import { bookkeepingServiceRouter } from './modules/bookkeeping-service/routes.js'
 import { forKind, partnershipRouter, partnershipSignedRouter } from './modules/partnership/routes.js'
 import { registrationsRouter } from './modules/registration/routes.js'
 import { followUpsRouter } from './modules/workstation/followups.routes.js'
@@ -56,6 +55,7 @@ import { checklistRouter } from './modules/checklist/routes.js'
 import { gstRouter as gstComplianceRouter } from './modules/gst/routes.js'
 import { gstPortalRouter } from './modules/gst-portal/routes.js'
 import { tdsPortalRouter } from './modules/tds-portal/routes.js'
+import { registrationCredentialsRouter } from './modules/registration/credentials.routes.js'
 import { tdsServiceRouter } from './modules/tds/routes.js'
 // Tally Export — bank statement → TallyPrime Excel file (docs/tally-export/README.md).
 import { tallyExportRouter } from './modules/tally-export/routes.js'
@@ -182,8 +182,6 @@ export function createApp() {
   app.use('/api/services', servicesRouter)
   app.use('/api/service-catalog', serviceCatalogRouter)
   app.use('/api/follow-ups', followUpsRouter)
-  // Bookkeeping Service — the service-management layer over Books.
-  app.use('/api/bookkeeping-service', bookkeepingServiceRouter)
   // Incorporation Service — case management for company/LLP/firm formation.
   // Calls no external portal: every government fact it holds was recorded by
   // an employee and is attributed to them.
@@ -249,6 +247,7 @@ export function createApp() {
   // codes gate view and reveal. GST-RETURNS-CASE-SCREEN §9-5.
   app.use('/api/gst-portal', gstPortalRouter)
   app.use('/api/tds-portal', tdsPortalRouter)
+  app.use('/api/registration-credentials', registrationCredentialsRouter)
   app.use('/api/tds', tdsServiceRouter)
 
   // ── Books ──────────────────────────────────────────────────────────────
