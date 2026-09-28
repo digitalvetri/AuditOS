@@ -744,8 +744,10 @@ export interface SheetPreview {
   name: string;
   rowCount: number;
   columns: string[];       // ['A', 'B', 'C', ...]
-  headerRow: string[];     // trimmed text of row 1
+  headerRow: string[];     // trimmed text of the detected header row
   sampleRows: string[][];  // up to ten rows after the header
+  /** 1-based row number the parser guessed the header is on. */
+  headerRowIndex: number;
 }
 
 export interface WorkbookPreview {

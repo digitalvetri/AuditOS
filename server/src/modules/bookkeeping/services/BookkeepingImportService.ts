@@ -74,8 +74,12 @@ export interface SheetPreview {
   name: string
   rowCount: number
   columns: string[]      // ['A', 'B', ...] up to first empty header or PREVIEW_MAX_COLS
-  headerRow: string[]    // trimmed text of the assumed header row
+  headerRow: string[]    // trimmed text of the detected header row
   sampleRows: string[][] // up to PREVIEW_ROWS rows AFTER the header
+  /** 1-based row number the parser guessed the header is on. The wizard
+   *  can display + let the operator override; on save this becomes the
+   *  BookkeepingImportMapping.headerRow field. */
+  headerRowIndex: number
 }
 
 export interface WorkbookPreview {
@@ -105,29 +109,54 @@ export async function previewWorkbook(bytes: Buffer): Promise<WorkbookPreview> {
   return { sheets }
 }
 
+/** How many top rows we scan for content when deciding column count.
+ *  The client's KS Sales file has "25-26" in A1 (the FY marker per
+ *  BOOKKEEPING-REBUILD §1.1) with the real headers on row 2 — scanning
+ *  only row 1 wrongly collapsed the UI to a single column. Five rows
+ *  is enough to survive an arbitrary metadata block above the header. */
+const HEADER_SCAN_ROWS = 5
+
 function previewSheet(ws: ExcelJS.Worksheet): SheetPreview {
-  // Find the width by scanning row 1 for content. Some files export empty
-  // trailing columns; ws.columnCount reports those too, which would drown
-  // the UI in blank pickers.
+  // Find the width by scanning the top rows for content. Some files
+  // export empty trailing columns and ws.columnCount reports those
+  // too, which would drown the UI in blank pickers. Scanning multiple
+  // rows also catches files whose row 1 carries an FY marker or a
+  // "Company: X" label with the headers on row 2.
   const rawMaxCol = Math.min(ws.columnCount || 0, PREVIEW_MAX_COLS)
+  const scanRows = Math.min(ws.rowCount, HEADER_SCAN_ROWS)
   let effectiveMaxCol = 0
   for (let c = 1; c <= rawMaxCol; c++) {
-    const v = String(ws.getRow(1).getCell(c).text ?? '').trim()
-    if (v !== '') effectiveMaxCol = c
+    for (let r = 1; r <= scanRows; r++) {
+      const v = String(ws.getRow(r).getCell(c).text ?? '').trim()
+      if (v !== '') { effectiveMaxCol = c; break }
+    }
   }
-  // If row 1 is entirely empty, keep a small default so the operator can
-  // still map columns manually. Ten is enough for any bank/register.
+  // Nothing at all in the top rows: keep a small default so the operator
+  // can still map columns manually. Ten is enough for any bank/register.
   if (effectiveMaxCol === 0) effectiveMaxCol = Math.min(rawMaxCol, 10)
+
+  // Pick the header row. Preference: the first row whose non-empty cell
+  // count matches the effective column count best. A row where every
+  // used column has content beats a row with just one label.
+  let headerRowIndex = 1
+  let bestNonEmpty = 0
+  for (let r = 1; r <= scanRows; r++) {
+    let nonEmpty = 0
+    for (let c = 1; c <= effectiveMaxCol; c++) {
+      if (String(ws.getRow(r).getCell(c).text ?? '').trim() !== '') nonEmpty++
+    }
+    if (nonEmpty > bestNonEmpty) { bestNonEmpty = nonEmpty; headerRowIndex = r }
+  }
 
   const columns: string[] = []
   const headerRow: string[] = []
   for (let c = 1; c <= effectiveMaxCol; c++) {
     columns.push(numberToColLetter(c))
-    headerRow.push(String(ws.getRow(1).getCell(c).text ?? '').trim())
+    headerRow.push(String(ws.getRow(headerRowIndex).getCell(c).text ?? '').trim())
   }
   const sampleRows: string[][] = []
-  const dataRows = Math.min(ws.rowCount, PREVIEW_ROWS + 1)
-  for (let r = 2; r <= dataRows; r++) {
+  const dataRows = Math.min(ws.rowCount, headerRowIndex + PREVIEW_ROWS)
+  for (let r = headerRowIndex + 1; r <= dataRows; r++) {
     const row = ws.getRow(r)
     const vals: string[] = []
     for (let c = 1; c <= effectiveMaxCol; c++) {
@@ -137,10 +166,12 @@ function previewSheet(ws: ExcelJS.Worksheet): SheetPreview {
   }
   return {
     name: ws.name,
-    rowCount: Math.max(0, ws.rowCount - 1), // header row is not "data"
+    // rowCount is data rows, so exclude everything up to and including the header.
+    rowCount: Math.max(0, ws.rowCount - headerRowIndex),
     columns,
     headerRow,
     sampleRows,
+    headerRowIndex,
   }
 }
 

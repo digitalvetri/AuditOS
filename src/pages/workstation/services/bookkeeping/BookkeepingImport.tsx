@@ -73,7 +73,11 @@ export function BookkeepingImportPage() {
       bookkeepingAccountingApi.saveImportMapping(companyId, {
         sheet_name: sheetName,
         target,
-        header_row: 1,
+        // Use the header row the backend detected. Files with an FY
+        // marker (like "25-26") in A1 have the real header on row 2 —
+        // hard-coding 1 here made the derive path start at row 2, so
+        // the headers themselves got treated as data.
+        header_row: activeSheet?.headerRowIndex ?? 1,
         column_map: columnMap,
         date_format: dateFormat,
         currency_aliases: {}, // populated by Step 2's alias flow
@@ -247,7 +251,12 @@ export function BookkeepingImportPage() {
           {activeSheet && (
             <>
               <div>
-                <div className="text-13 font-medium text-neutral-900 mb-1">3. Map the columns</div>
+                <div className="text-13 font-medium text-neutral-900 mb-1">
+                  3. Map the columns
+                  <span className="ml-2 text-11 font-normal text-neutral-500">
+                    · {activeSheet.columns.length} column{activeSheet.columns.length === 1 ? '' : 's'} · header on row {activeSheet.headerRowIndex}
+                  </span>
+                </div>
                 <div className="text-12 text-neutral-500">
                   Every column needs a target field, or leave it as <span className="italic">Ignore</span>.
                   Exactly one column must be mapped to Date. Amount (INR) or Total is required.
