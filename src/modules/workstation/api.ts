@@ -3,6 +3,7 @@ import type {
   Activity, AssignableEmployee, ClientDetail, ClientDocument, ClientListItem,
   ClientService, DashboardResponse, DocumentCategory, EwayResponse, FollowUp,
   GstProfile, Lead, ListResponse, SearchResponse, ServiceCatalogItem, Task,
+  ClientDocumentFolders,
 } from './types';
 
 /**
@@ -147,6 +148,39 @@ export const workstationApi = {
     api.post<ClientDocument>(`/api/client-documents/${id}/versions`, input),
   verifyDocument: (id: string, approve: boolean, rejection_reason?: string) =>
     api.post<ClientDocument>(`/api/client-documents/${id}/verify`, { approve, rejection_reason }),
+  uploadDocumentFile: (id: string, file: File) => {
+    const form = new FormData();
+    form.append('file', file);
+    return api.postForm<ClientDocument>(`/api/client-documents/${id}/versions`, form);
+  },
+  uploadToFolder: (clientId: string, folderKey: string, file: File) => {
+    const form = new FormData();
+    form.append('file', file);
+    return api.postForm<{ id: string; name: string; folder: string }>(
+      `/api/clients/${clientId}/document-folders/${encodeURIComponent(folderKey)}/upload`, form,
+    );
+  },
+  /** Several of a client's documents as one PDF. Returns the file itself. */
+  mergeClientDocuments: async (clientId: string, items: { source: string; ref: string }[], title?: string) => {
+    const res = await fetch(`/api/clients/${clientId}/document-folders/merge`, {
+      method: 'POST',
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ items, title }),
+    });
+    if (!res.ok) {
+      const j = await res.json().catch(() => null) as { error?: { message?: string } } | null;
+      throw new Error(j?.error?.message ?? `Merge failed (${res.status}).`);
+    }
+    const name = /filename="([^"]+)"/.exec(res.headers.get('Content-Disposition') ?? '')?.[1] ?? 'combined.pdf';
+    return { blob: await res.blob(), fileName: name, skipped: Number(res.headers.get('X-Merged-Skipped') ?? 0) };
+  },
+  clientDocumentFolders: (clientId: string) =>
+    api.get<ClientDocumentFolders>(`/api/clients/${clientId}/document-folders`),
+  openClientDocument: (clientId: string, source: string, ref: string) =>
+    api.get<{ url: string; expires_at: string }>(
+      `/api/clients/${clientId}/document-folders/open${qs({ source, ref })}`,
+    ),
   documentLink: (id: string, version: number) =>
     api.get<{ url: string; expires_at: string }>(`/api/client-documents/${id}/versions/${version}/link`),
 

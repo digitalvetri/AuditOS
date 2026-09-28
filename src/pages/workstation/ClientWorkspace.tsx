@@ -7,7 +7,7 @@ import {
   Table, fieldErrors, inputClass, textareaClass,
 } from '@/modules/workstation/components';
 import type {
-  Activity, ClientDetail, ClientDocument, ClientService, EwayResponse,
+  Activity, ClientDetail, ClientService, EwayResponse,
   GstProfile, FollowUp, ListResponse, Task,
 } from '@/modules/workstation/types';
 import { Button } from '@/components/Button';
@@ -20,6 +20,11 @@ import { invoicesApi } from '@/modules/workstation/invoices/api';
 import { engagementApi, type EngagementLetter } from '@/modules/workstation/engagement/api';
 import { useAuth } from '@/platform/auth/AuthContext';
 import { BillingSliceCard } from '@/modules/zpay/BillingSliceCard';
+import { ClientDocumentFolders } from '@/modules/workstation/documents/ClientDocumentFolders';
+import { useSetDocumentStatus } from '@/modules/workstation/documents/StatusSelect';
+import {
+  SendRequestDialog, type RequestChannel, type RequestTarget,
+} from '@/modules/workstation/documents/SendRequestDialog';
 
 /**
  * THE CLIENT WORKSPACE (§7.3).
@@ -667,14 +672,10 @@ function DocumentsTab({ client }: { client: ClientDetail }) {
   const role = session?.role.code;
   const [requestOpen, setRequestOpen] = useState(false);
 
-  const docs = useQuery({
-    queryKey: ['workstation', 'client', client.id, 'documents'],
-    queryFn: () => workstationApi.clientDocuments(client.id),
-  });
   const categories = useQuery({ queryKey: ['workstation', 'doc-categories'], queryFn: workstationApi.documentCategories });
 
   const upload = useMutation({
-    mutationFn: (id: string) => workstationApi.addDocumentVersion(id),
+    mutationFn: ({ id, file }: { id: string; file: File }) => workstationApi.uploadDocumentFile(id, file),
     onSuccess: (doc) => {
       void qc.invalidateQueries({ queryKey: ['workstation'] });
       toast.push('success', `${doc.name} uploaded as v${doc.version}.`);
@@ -690,113 +691,79 @@ function DocumentsTab({ client }: { client: ClientDetail }) {
     },
     onError: (e: Error) => toast.push('error', e.message),
   });
+  const setStatus = useSetDocumentStatus();
+  const [sending, setSending] = useState<{ target: RequestTarget; channel: RequestChannel } | null>(null);
 
   const canManage = can(role, 'workstation.document.manage', 'self');
   const canVerify = can(role, 'workstation.document.verify', 'self');
 
   return (
     <>
-      <Card
-        title="Documents"
-        right={canManage ? <Button variant="primary" onClick={() => setRequestOpen(true)}>Request Document</Button> : undefined}
-      >
-        <QueryState query={docs} empty="No documents for this client yet.">
-          {(data: ListResponse<ClientDocument>) => {
-            // Client → Category → Document (§10.2).
-            const byCategory = new Map<string, ClientDocument[]>();
-            for (const d of data.items) {
-              const key = d.category_name ?? 'Other';
-              byCategory.set(key, [...(byCategory.get(key) ?? []), d]);
-            }
-            return (
-              <div>
-                {Array.from(byCategory.entries()).map(([category, items]) => (
-                  <div key={category}>
-                    <div className="h-8 px-4 flex items-center bg-neutral-50 border-b border-neutral-200 text-11 uppercase tracking-[0.06em] text-neutral-500">
-                      {category}
-                    </div>
-                    <Table head={['Document', 'FY', 'Version', 'Uploaded By', 'Status', 'Actions']}>
-                      {items.map((d) => (
-                        <Row key={d.id} status={d.status}>
-                          <Cell className="font-medium">{d.name}</Cell>
-                          <Cell muted>{d.financial_year ?? '—'}</Cell>
-                          <Cell muted>{d.version > 0 ? `v${d.version}` : '—'}</Cell>
-                          <Cell muted>
-                            {d.versions.length === 0
-                              ? '—'
-                              : d.versions[d.versions.length - 1].uploaded_via_portal
-                                ? 'Client Portal'
-                                : d.versions[d.versions.length - 1].uploaded_by_employee?.full_name ?? '—'}
-                          </Cell>
-                          <Cell><Status value={d.status} /></Cell>
-                          <Cell>
-                            <div className="flex gap-2">
-                              {canManage ? (
-                                <button
-                                  type="button"
-                                  className="text-12 text-neutral-700 underline hover:text-neutral-900"
-                                  onClick={() => upload.mutate(d.id)}
-                                >
-                                  Upload new version
-                                </button>
-                              ) : null}
-                              {canVerify && d.version > 0 && d.status !== 'verified' ? (
-                                <button
-                                  type="button"
-                                  className="text-12 text-neutral-700 underline hover:text-neutral-900"
-                                  onClick={() => verify.mutate({ id: d.id, approve: true })}
-                                >
-                                  Verify
-                                </button>
-                              ) : null}
-                            </div>
-                          </Cell>
-                        </Row>
-                      ))}
-                    </Table>
-                  </div>
-                ))}
-              </div>
-            );
-          }}
-        </QueryState>
-      </Card>
+      {/* Client → Folder → Document: everything the firm holds for this client. */}
+      <ClientDocumentFolders
+        clientId={client.id}
+        headerRight={canManage ? <Button variant="primary" onClick={() => setRequestOpen(true)}>Request Document</Button> : undefined}
+        actions={{
+          canManage,
+          canVerify,
+          onUpload: (id, file) => upload.mutate({ id, file }),
+          onVerify: (id) => verify.mutate({ id, approve: true }),
+          onStatus: (id, status) => setStatus.mutate({ id, status }),
+        }}
+      />
 
       <RequestDocumentModal
         client={client}
         categories={categories.data?.items ?? []}
         open={requestOpen}
         onClose={() => setRequestOpen(false)}
+        onSend={(doc, channel) => setSending({
+          channel,
+          target: { documentId: doc.id, documentName: doc.name, financialYear: doc.financial_year, clientId: client.id },
+        })}
+      />
+      <SendRequestDialog
+        target={sending?.target ?? null}
+        channel={sending?.channel ?? 'whatsapp'}
+        onClose={() => setSending(null)}
       />
     </>
   );
 }
 
+type SendVia = RequestChannel | 'none';
+
 function RequestDocumentModal({
-  client, categories, open, onClose,
+  client, categories, open, onClose, onSend,
 }: {
   client: ClientDetail;
   categories: { id: string; name: string }[];
   open: boolean;
   onClose: () => void;
+  /** After the request is saved: open the WhatsApp / email message for it. */
+  onSend: (doc: { id: string; name: string; financial_year: string | null }, channel: RequestChannel) => void;
 }) {
   const qc = useQueryClient();
   const toast = useToast();
   const [form, setForm] = useState({ name: '', category_id: '', financial_year: '2026-27' });
   const set = (k: keyof typeof form, v: string) => setForm((f) => ({ ...f, [k]: v }));
+  const [via, setVia] = useState<SendVia>(client.contact_number ? 'whatsapp' : client.email ? 'email' : 'none');
 
   const create = useMutation({
     mutationFn: () => workstationApi.requestDocument(client.id, {
       name: form.name, category_id: form.category_id,
       financial_year: form.financial_year || undefined, status: 'requested',
     }),
-    onSuccess: () => {
+    onSuccess: (doc) => {
       void qc.invalidateQueries({ queryKey: ['workstation'] });
-      toast.push('success', 'Document request recorded.');
       onClose();
+      setForm((f) => ({ ...f, name: '' }));
+      if (via === 'none') toast.push('success', 'Document request recorded.');
+      else onSend(doc, via);
     },
   });
   const e = fieldErrors(create.error);
+  const sendLabel = via === 'whatsapp' ? 'Next: WhatsApp message' : via === 'email' ? 'Next: Email message' : 'Save Request';
 
   return (
     <Modal
@@ -804,7 +771,7 @@ function RequestDocumentModal({
       footer={
         <>
           <Button onClick={onClose}>Cancel</Button>
-          <Button variant="primary" disabled={create.isPending} onClick={() => create.mutate()}>Send Request</Button>
+          <Button variant="primary" disabled={create.isPending} onClick={() => create.mutate()}>{sendLabel}</Button>
         </>
       }
     >
@@ -823,11 +790,31 @@ function RequestDocumentModal({
       <Field label="Financial Year" error={e.financial_year}>
         <input className={inputClass} value={form.financial_year} onChange={(ev) => set('financial_year', ev.target.value)} />
       </Field>
-      {/* The Client Portal handoff is MODELLED, not built (§7.6). */}
-      <SimulatedNotice>
-        Client Portal is not yet available. This request is recorded in JNS Accounting Solutions; no
-        message is sent to the client.
-      </SimulatedNotice>
+      <Field label="Send to client">
+        <div className="flex border border-neutral-200 w-fit">
+          {([
+            ['whatsapp', 'WhatsApp'],
+            ['email', 'Email'],
+            ['none', "Don't send"],
+          ] as const).map(([key, label]) => (
+            <button
+              key={key}
+              type="button"
+              onClick={() => setVia(key)}
+              className={`h-8 px-3 text-13 ${via === key ? 'bg-neutral-900 text-white' : 'bg-white text-neutral-700 hover:bg-neutral-50'}`}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+        <p className="text-12 text-neutral-500 mt-1.5">
+          {via === 'whatsapp'
+            ? (client.contact_number ? `To ${client.contact_person} on ${client.contact_number}. You can review the message before it goes.` : 'No phone number on this client — you can type one in the next step.')
+            : via === 'email'
+              ? (client.email ? `To ${client.email}. You can review the message before it goes.` : 'No email on this client — you can type one in the next step.')
+              : 'The request is only recorded here; nothing is sent to the client.'}
+        </p>
+      </Field>
     </Modal>
   );
 }

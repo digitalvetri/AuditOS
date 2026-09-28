@@ -19,7 +19,7 @@
  * logo silently; a broken URL is a reason to render without a logo, never
  * a reason to fail the whole download.
  */
-import { readFileSync } from 'node:fs'
+import { existsSync, readFileSync } from 'node:fs'
 import { basename, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { dirname } from 'node:path'
@@ -27,8 +27,12 @@ import { dirname } from 'node:path'
 const __dirname = dirname(fileURLToPath(import.meta.url))
 // dist/src/modules/pdf/logo.js  →  dist/src/../..  →  the image's /app root.
 // The assets folder sits at /app/assets/logos when the Dockerfile has done
-// its COPY, and beside dist/ in dev.
-const ASSETS_ROOT = resolve(__dirname, '..', '..', '..', '..', 'assets', 'logos')
+// its COPY, and beside dist/ in dev. Run from source (tsx), the same file is
+// src/modules/pdf/logo.ts — one level shallower — so try that root too.
+const ASSETS_ROOT = [
+  resolve(__dirname, '..', '..', '..', '..', 'assets', 'logos'),
+  resolve(__dirname, '..', '..', '..', 'assets', 'logos'),
+].find((p) => existsSync(p)) ?? resolve(__dirname, '..', '..', '..', '..', 'assets', 'logos')
 
 const DATA_URL_RE = /^data:image\/(png|jpe?g|webp);base64,(.+)$/
 const ALLOWED_EXT = new Set(['png', 'jpg', 'jpeg', 'webp'])

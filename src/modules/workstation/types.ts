@@ -359,3 +359,37 @@ export interface SearchResponse {
   documents: ClientDocument[];
   total: number;
 }
+
+// ── Client document folders — every document for one client ─────────────
+export type FolderItemOpenable = 'pdf' | 'file' | 'record' | 'missing' | 'none';
+
+export interface ClientFolderItem {
+  id: string;
+  source: string;
+  title: string;
+  subtitle: string | null;
+  date: string | null;
+  status: string | null;
+  amount_paise: number | null;
+  openable: FolderItemOpenable;
+  file_name: string | null;
+  mime_type: string | null;
+  fields: [string, string][] | null;
+  document_id: string | null;
+}
+
+export interface ClientFolder {
+  key: string;
+  label: string;
+  group: 'compliance' | 'billing' | 'uploads' | 'imports';
+  count: number;
+  /** The caller may upload files into this folder. */
+  can_upload: boolean;
+  items: ClientFolderItem[];
+}
+
+export interface ClientDocumentFolders {
+  folders: ClientFolder[];
+  total: number;
+  generated_at: string;
+}
