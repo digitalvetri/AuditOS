@@ -20,6 +20,13 @@ import {
 } from './services/BookkeepingImportService.js'
 import { buildLedgerSnapshot } from './services/BookkeepingLedgerSnapshot.js'
 import { deriveBatch } from './engine/deriveVouchers.js'
+import {
+  classifyExistence,
+  commitBatch,
+  sha256Hex,
+  type PartyDecision,
+  type ChangedRowDecision,
+} from './services/BookkeepingImportCommitService.js'
 
 /**
  * BOOKKEEPING · IMPORT MAPPING ROUTES (BOOKKEEPING-REBUILD §3.1).
@@ -244,7 +251,119 @@ export function registerBookkeepingImportRoutes(router: Router): void {
         ledgers: snapshot,
       })
 
-      ok(res, batch)
+      // Enrich with idempotency classification (Step 3, §3.4). The
+      // preview panel shows `X new · X unchanged · X CHANGED` counts and
+      // decides which rows will actually be posted on commit.
+      const classified = await classifyExistence(prisma, req.params.companyId, batch)
+
+      // Include the fields the commit endpoint will need back so the
+      // client doesn't have to hold both the batch and the mapping
+      // identity separately. The mapping's SHA is computed from the
+      // uploaded bytes; the commit path re-verifies it.
+      ok(res, {
+        ...classified,
+        _import: {
+          mappingId: mapping.id,
+          mappingVersion: mapping.version,
+          fileName: file.originalname,
+          fileSha256: sha256Hex(file.buffer),
+        },
+      })
+    }),
+  )
+
+  // POST /companies/:companyId/imports/commit
+  //
+  // Take a ClassifiedBatch (produced by /derive) plus the operator's
+  // decisions on party proposals and CHANGED rows, and write:
+  //   • any new party ledgers under Sundry Debtors / Creditors
+  //   • one voucher per NEW row via postVoucher() — the existing engine,
+  //     never a second posting path
+  //   • one BookkeepingImportRun row recording what happened
+  //
+  // Response is a CommitResult summary the UI can render as
+  // "12 posted · 4 skipped (unchanged) · 3 skipped (CHANGED)".
+  router.post(
+    '/companies/:companyId/imports/commit',
+    handler(async (req, res) => {
+      const session = requireSession(req)
+      requireImportManage(session)
+
+      const body = z.object({
+        target: z.enum(IMPORT_TARGETS as unknown as [ImportTarget, ...ImportTarget[]]),
+        file_name: z.string().min(1),
+        file_sha256: z.string().regex(/^[a-f0-9]{64}$/i, 'file_sha256 must be a 64-char hex string.'),
+        mapping_id: z.string().min(1),
+        mapping_version: z.number().int().min(1),
+        party_decisions: z.array(z.object({
+          name: z.string().min(1),
+          action: z.enum(['create', 'use']),
+          use_existing_ledger_id: z.string().optional(),
+        })).default([]),
+        changed_row_decisions: z.array(z.object({
+          row_number: z.number().int().min(1),
+          action: z.literal('skip'),
+        })).default([]),
+        batch: z.any(),
+      }).safeParse(req.body)
+      if (!body.success) throw ApiError.badRequest(body.error.issues[0]?.message ?? 'Invalid input.')
+
+      const partyDecisions: PartyDecision[] = body.data.party_decisions.map((d) => ({
+        name: d.name,
+        action: d.action,
+        useExistingLedgerId: d.use_existing_ledger_id,
+      }))
+      const changedRowDecisions: ChangedRowDecision[] = body.data.changed_row_decisions.map((d) => ({
+        rowNumber: d.row_number,
+        action: d.action,
+      }))
+
+      const result = await commitBatch(
+        req.params.companyId,
+        {
+          target: body.data.target,
+          fileName: body.data.file_name,
+          fileSha256: body.data.file_sha256,
+          mappingId: body.data.mapping_id,
+          mappingVersion: body.data.mapping_version,
+          partyDecisions,
+          changedRowDecisions,
+          batch: body.data.batch,
+        },
+        session.userId,
+      )
+
+      await writeAudit({
+        actorUserId: session.userId,
+        action: 'bookkeeping.import_run.commit',
+        entityType: 'bookkeeping_import_run',
+        entityId: result.runId,
+        after: {
+          created: result.vouchersCreated,
+          skipped: result.vouchersSkipped,
+          ledgersCreated: result.ledgersCreated,
+          target: body.data.target,
+        },
+        req,
+      })
+
+      ok(res, result)
+    }),
+  )
+
+  // GET /companies/:companyId/imports/runs — the history tab. Ordered
+  // newest-first, capped at 50 rows for now.
+  router.get(
+    '/companies/:companyId/imports/runs',
+    handler(async (req, res) => {
+      const session = requireSession(req)
+      requireImportRead(session)
+      const items = await prisma.bookkeepingImportRun.findMany({
+        where: { tallyCompanyId: req.params.companyId },
+        orderBy: { createdAt: 'desc' },
+        take: 50,
+      })
+      ok(res, { items })
     }),
   )
 }

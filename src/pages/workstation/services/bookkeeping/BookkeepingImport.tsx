@@ -18,7 +18,8 @@ import {
   IMPORT_TARGETS,
   MAPPABLE_FIELDS,
   MAPPABLE_FIELD_LABEL,
-  type DerivedBatch,
+  type ClassifiedBatch,
+  type CommitImportResult,
   type ImportTarget,
   type MappableField,
   type SheetPreview,
@@ -44,7 +45,8 @@ export function BookkeepingImportPage() {
   const [columnMap, setColumnMap] = useState<Record<string, MappableField>>({});
   const [dateFormat, setDateFormat] = useState<string>('DD/MM/YYYY');
   const [saved, setSaved] = useState<string | null>(null);
-  const [derived, setDerived] = useState<DerivedBatch | null>(null);
+  const [derived, setDerived] = useState<ClassifiedBatch | null>(null);
+  const [commitResult, setCommitResult] = useState<CommitImportResult | null>(null);
 
   const mappingsQ = useQuery({
     queryKey: ['bk.import.mappings', companyId],
@@ -94,10 +96,37 @@ export function BookkeepingImportPage() {
     },
     onSuccess: (b) => {
       setDerived(b);
+      setCommitResult(null);
       setError(null);
     },
     onError: (e: Error) => {
       setDerived(null);
+      setError(e.message);
+    },
+  });
+
+  const commitMut = useMutation({
+    mutationFn: () => {
+      if (!derived) throw new Error('Preview the file before committing.');
+      return bookkeepingAccountingApi.commitImport(companyId, {
+        target,
+        file_name: derived._import.fileName,
+        file_sha256: derived._import.fileSha256,
+        mapping_id: derived._import.mappingId,
+        mapping_version: derived._import.mappingVersion,
+        // MVP: every proposal defaults to "create" and every CHANGED
+        // row to "skip". Explicit operator overrides land with §3.5.
+        party_decisions: [],
+        changed_row_decisions: [],
+        batch: derived,
+      });
+    },
+    onSuccess: (r) => {
+      setCommitResult(r);
+      setError(null);
+    },
+    onError: (e: Error) => {
+      setCommitResult(null);
       setError(e.message);
     },
   });
@@ -302,7 +331,14 @@ export function BookkeepingImportPage() {
         </div>
       )}
 
-      {derived && <DerivedBatchPanel batch={derived} />}
+      {derived && (
+        <DerivedBatchPanel
+          batch={derived}
+          commitPending={commitMut.isPending}
+          commitResult={commitResult}
+          onCommit={() => commitMut.mutate()}
+        />
+      )}
 
       {error && (
         <div className="border-l-2 border-red-500 bg-red-50 p-3 text-13 text-red-800">
@@ -317,17 +353,38 @@ function inr(paise: number): string {
   return (paise / 100).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
-function DerivedBatchPanel({ batch }: { batch: DerivedBatch }) {
-  const { totals, vouchers, proposals, flags } = batch;
+function DerivedBatchPanel({
+  batch,
+  commitPending,
+  commitResult,
+  onCommit,
+}: {
+  batch: ClassifiedBatch;
+  commitPending: boolean;
+  commitResult: CommitImportResult | null;
+  onCommit: () => void;
+}) {
+  const { totals, vouchers, proposals, flags, counts, classification } = batch;
   const allBalanced = vouchers.every((v) => v.balanced);
+  const alreadyCommitted = commitResult !== null;
   return (
     <div className="border border-neutral-200 rounded p-3 bg-white space-y-3">
-      <div className="text-11 uppercase tracking-[0.08em] text-neutral-500">Derived preview — nothing posted yet</div>
+      <div className="text-11 uppercase tracking-[0.08em] text-neutral-500">
+        {alreadyCommitted ? 'Import committed' : 'Derived preview — nothing posted yet'}
+      </div>
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-13">
         <Stat label="Rows scanned" value={String(totals.rowsScanned)} />
         <Stat label="Vouchers derived" value={String(totals.rowsDerived)} />
         <Stat label="Total (INR)" value={`₹ ${inr(totals.totalPaise)}`} />
         <Stat label="Currencies" value={totals.currencies.join(', ') || '—'} />
+      </div>
+
+      {/* Idempotency counts — the four numbers that matter (§3.4). */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-13 border-t border-neutral-100 pt-3">
+        <Stat label="New" value={String(counts.new)} tone="new" />
+        <Stat label="Unchanged (skip)" value={String(counts.unchanged)} tone="muted" />
+        <Stat label="Changed (skip)" value={String(counts.changed)} tone={counts.changed > 0 ? 'warn' : 'muted'} />
+        <Stat label="Unresolved party" value={String(counts.skipped)} tone={counts.skipped > 0 ? 'warn' : 'muted'} />
       </div>
 
       <div className="text-12 text-neutral-500 flex gap-3">
@@ -339,6 +396,42 @@ function DerivedBatchPanel({ batch }: { batch: DerivedBatch }) {
         <span>·</span>
         <span className={flags.length ? 'text-amber-700' : 'text-neutral-500'}>{flags.length} row flags</span>
       </div>
+
+      {/* Commit button + result. Nothing else on the page can post. */}
+      <div className="flex items-center gap-3 flex-wrap pt-2 border-t border-neutral-100">
+        <button
+          type="button"
+          disabled={commitPending || counts.new === 0 || alreadyCommitted}
+          onClick={onCommit}
+          className="text-13 px-3 py-1 border border-neutral-900 bg-neutral-900 text-white rounded disabled:opacity-40"
+          title={
+            counts.new === 0
+              ? 'No new vouchers to commit.'
+              : `Post ${counts.new} new voucher${counts.new === 1 ? '' : 's'} to the ledger.`
+          }
+        >
+          {commitPending ? 'Committing…' : alreadyCommitted ? 'Committed' : `Commit ${counts.new} voucher${counts.new === 1 ? '' : 's'}`}
+        </button>
+        {commitResult && (
+          <span className="text-13 text-green-700">
+            ✓ {commitResult.vouchersCreated} posted · {commitResult.ledgersCreated} party ledger{commitResult.ledgersCreated === 1 ? '' : 's'} created · {commitResult.vouchersSkipped} skipped
+          </span>
+        )}
+      </div>
+      {commitResult && commitResult.errors.length > 0 && (
+        <details open className="border-l-2 border-red-500 bg-red-50 p-2">
+          <summary className="cursor-pointer text-12 text-red-800 font-medium">
+            {commitResult.errors.length} row{commitResult.errors.length === 1 ? '' : 's'} could not be posted
+          </summary>
+          <ul className="mt-1 space-y-0.5">
+            {commitResult.errors.map((e, i) => (
+              <li key={i} className="text-12 text-red-800">
+                <span className="font-mono">R{e.rowNumber}</span> — {e.message}
+              </li>
+            ))}
+          </ul>
+        </details>
+      )}
 
       {proposals.length > 0 && (
         <details open className="border-t border-neutral-100 pt-2">
@@ -386,6 +479,7 @@ function DerivedBatchPanel({ batch }: { batch: DerivedBatch }) {
             <thead>
               <tr className="border-b border-neutral-200">
                 <th className="text-left font-medium text-neutral-500 py-1.5 pr-3">Row</th>
+                <th className="text-left font-medium text-neutral-500 py-1.5 pr-3">Status</th>
                 <th className="text-left font-medium text-neutral-500 py-1.5 pr-3">Date</th>
                 <th className="text-left font-medium text-neutral-500 py-1.5 pr-3">Inv/Bill</th>
                 <th className="text-left font-medium text-neutral-500 py-1.5 pr-3">Party</th>
@@ -395,24 +489,40 @@ function DerivedBatchPanel({ batch }: { batch: DerivedBatch }) {
               </tr>
             </thead>
             <tbody>
-              {vouchers.map((v) => (
-                <tr key={v.rowNumber} className="border-b border-neutral-100">
-                  <td className="py-1 pr-3 font-mono text-neutral-500">{v.rowNumber}</td>
-                  <td className="py-1 pr-3 text-neutral-700">{v.date}</td>
-                  <td className="py-1 pr-3 text-neutral-700">{v.invoiceOrBillNo ?? '—'}</td>
-                  <td className="py-1 pr-3 text-neutral-700">
-                    {v.partyName}
-                    {v.partyLedgerId === null && (
-                      <span className="ml-1 text-11 text-amber-700">new</span>
-                    )}
-                  </td>
-                  <td className="py-1 pr-3 text-neutral-500">{v.currency}</td>
-                  <td className="py-1 pr-3 text-right font-mono">{inr(v.totalPaise)}</td>
-                  <td className="py-1">
-                    {v.balanced ? <span className="text-green-700">✓</span> : <span className="text-red-700">✗</span>}
-                  </td>
-                </tr>
-              ))}
+              {vouchers.map((v) => {
+                const cls = classification[v.rowNumber];
+                const status = cls?.existence ?? 'new';
+                const statusTone =
+                  status === 'new' ? 'text-green-700' :
+                  status === 'changed' ? 'text-amber-700' :
+                  'text-neutral-500';
+                return (
+                  <tr key={v.rowNumber} className="border-b border-neutral-100">
+                    <td className="py-1 pr-3 font-mono text-neutral-500">{v.rowNumber}</td>
+                    <td className={`py-1 pr-3 text-12 uppercase tracking-wide ${statusTone}`}>
+                      {status}
+                      {status === 'changed' && cls?.changedFields && (
+                        <span className="ml-1 text-11 text-neutral-500 normal-case">
+                          ({cls.changedFields.join(', ')})
+                        </span>
+                      )}
+                    </td>
+                    <td className="py-1 pr-3 text-neutral-700">{v.date}</td>
+                    <td className="py-1 pr-3 text-neutral-700">{v.invoiceOrBillNo ?? '—'}</td>
+                    <td className="py-1 pr-3 text-neutral-700">
+                      {v.partyName}
+                      {v.partyLedgerId === null && (
+                        <span className="ml-1 text-11 text-amber-700">new</span>
+                      )}
+                    </td>
+                    <td className="py-1 pr-3 text-neutral-500">{v.currency}</td>
+                    <td className="py-1 pr-3 text-right font-mono">{inr(v.totalPaise)}</td>
+                    <td className="py-1">
+                      {v.balanced ? <span className="text-green-700">✓</span> : <span className="text-red-700">✗</span>}
+                    </td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         </div>
@@ -421,11 +531,16 @@ function DerivedBatchPanel({ batch }: { batch: DerivedBatch }) {
   );
 }
 
-function Stat({ label, value }: { label: string; value: string }) {
+function Stat({ label, value, tone }: { label: string; value: string; tone?: 'new' | 'warn' | 'muted' }) {
+  const valueClass =
+    tone === 'new' ? 'text-green-700' :
+    tone === 'warn' ? 'text-amber-700' :
+    tone === 'muted' ? 'text-neutral-500' :
+    'text-neutral-900';
   return (
     <div>
       <div className="text-11 uppercase tracking-[0.08em] text-neutral-400">{label}</div>
-      <div className="text-15 text-neutral-900 font-medium tabular-nums">{value}</div>
+      <div className={`text-15 font-medium tabular-nums ${valueClass}`}>{value}</div>
     </div>
   );
 }

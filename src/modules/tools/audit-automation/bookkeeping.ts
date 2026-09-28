@@ -644,8 +644,18 @@ export const bookkeepingAccountingApi = {
   deriveImportVouchers: (c: string, target: ImportTarget, file: File) => {
     const fd = new FormData();
     fd.append('file', file);
-    return api.postForm<DerivedBatch>(`${base(c)}/imports/derive?target=${encodeURIComponent(target)}`, fd);
+    return api.postForm<ClassifiedBatch>(`${base(c)}/imports/derive?target=${encodeURIComponent(target)}`, fd);
   },
+
+  // Step 3 — commit: post the NEW rows through the existing engine and
+  // write a BookkeepingImportRun. CHANGED rows default to skip until
+  // §3.5's update path lands.
+  commitImport: (c: string, input: CommitImportInput) =>
+    api.post<CommitImportResult>(`${base(c)}/imports/commit`, input),
+
+  // History of committed imports for this company (newest first).
+  listImportRuns: (c: string) =>
+    api.get<{ items: ImportRun[] }>(`${base(c)}/imports/runs`),
 };
 
 /** Same target list as server/src/modules/bookkeeping/services/BookkeepingImportService.ts. */
@@ -809,4 +819,75 @@ export interface DerivedBatch {
     totalPaise: number;
     currencies: string[];
   };
+}
+
+// ── Step 3: idempotency + commit ─────────────────────────────────────
+
+export type ExistenceStatus = 'new' | 'unchanged' | 'changed' | 'skip';
+
+export interface VoucherClassification {
+  rowNumber: number;
+  existence: ExistenceStatus;
+  existingVoucherId?: string;
+  changedFields?: ('amount' | 'date' | 'party')[];
+}
+
+export interface ClassifiedBatch extends DerivedBatch {
+  classification: Record<number, VoucherClassification>;
+  counts: {
+    new: number;
+    unchanged: number;
+    changed: number;
+    skipped: number;
+  };
+  /** Round-trip context the commit endpoint needs — never touched by the UI. */
+  _import: {
+    mappingId: string;
+    mappingVersion: number;
+    fileName: string;
+    fileSha256: string;
+  };
+}
+
+export interface CommitImportInput {
+  target: ImportTarget;
+  file_name: string;
+  file_sha256: string;
+  mapping_id: string;
+  mapping_version: number;
+  party_decisions: {
+    name: string;
+    action: 'create' | 'use';
+    use_existing_ledger_id?: string;
+  }[];
+  changed_row_decisions: { row_number: number; action: 'skip' }[];
+  batch: ClassifiedBatch;
+}
+
+export interface CommitImportResult {
+  runId: string;
+  vouchersCreated: number;
+  vouchersSkipped: number;
+  vouchersUpdated: number;
+  ledgersCreated: number;
+  totalPaise: number;
+  errors: { rowNumber: number; message: string }[];
+}
+
+export interface ImportRun {
+  id: string;
+  target: ImportTarget;
+  fileName: string;
+  fileSha256: string;
+  mappingId: string;
+  mappingVersion: number;
+  rowsScanned: number;
+  rowsDerived: number;
+  vouchersCreated: number;
+  vouchersSkipped: number;
+  vouchersUpdated: number;
+  ledgersCreated: number;
+  totalPaise: number;
+  currenciesJson: string[];
+  createdAt: string;
 }

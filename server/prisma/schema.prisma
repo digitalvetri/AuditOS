@@ -3341,6 +3341,7 @@ model BookkeepingCompany {
   payrollRuns     BookkeepingPayrollRun[]
   backups         BookkeepingBackup[]
   importMappings  BookkeepingImportMapping[]
+  importRuns      BookkeepingImportRun[]
 
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt
@@ -3390,12 +3391,59 @@ model BookkeepingImportMapping {
   updatedByUserId     String?
 
   company BookkeepingCompany @relation(fields: [tallyCompanyId], references: [id])
+  runs    BookkeepingImportRun[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
   @@unique([tallyCompanyId, target])
   @@index([tallyCompanyId])
+}
+
+/// One row per import commit (BOOKKEEPING-REBUILD §3.4).
+///
+/// The audit record for what was actually run — file, checksum, counts,
+/// which mapping version was in force, who ran it, when. This is what
+/// answers "why does this voucher exist?" three months later, and it is
+/// what lets the operator re-download the exact file they imported.
+///
+/// Written by the commit path, never by preview / derive.
+model BookkeepingImportRun {
+  id              String   @id @default(uuid())
+  tallyCompanyId  String
+  target          String   /// same value set as BookkeepingImportMapping.target
+  fileName        String
+  /// SHA-256 hex digest of the raw upload bytes. Used to detect a
+  /// re-import of the same file even before the row-level idempotency
+  /// check runs, and to prove which bytes produced the vouchers.
+  fileSha256      String
+  mappingId       String
+  /// Frozen at commit time; the mapping might change later but this run
+  /// was produced against a specific version.
+  mappingVersion  Int
+  rowsScanned     Int
+  rowsDerived     Int
+  vouchersCreated Int      @default(0)
+  vouchersSkipped Int      @default(0)
+  /// CHANGED rows the operator explicitly Updated (cancel + re-post). MVP: 0.
+  vouchersUpdated Int      @default(0)
+  ledgersCreated  Int      @default(0)
+  /// Sum of created vouchers' totals, INR paise. Skipped rows excluded.
+  totalPaise      Int      @default(0)
+  currenciesJson  Json
+  /// A brief JSON summary the History tab renders: { flags: {…}, changed_rows: [...] }.
+  /// Kept small — the details are recoverable by re-running derive on the
+  /// stored file bytes, which we don't hold, so this is the audit stub.
+  summaryJson     Json
+  createdByUserId String?
+
+  company BookkeepingCompany       @relation(fields: [tallyCompanyId], references: [id])
+  mapping BookkeepingImportMapping @relation(fields: [mappingId], references: [id])
+
+  createdAt DateTime @default(now())
+
+  @@index([tallyCompanyId, createdAt])
+  @@index([mappingId])
 }
 
 /// Financial year for a Tally company. Every future voucher will
