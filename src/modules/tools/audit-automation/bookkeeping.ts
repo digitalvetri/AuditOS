@@ -637,6 +637,15 @@ export const bookkeepingAccountingApi = {
     api.get<ImportMapping>(`${base(c)}/imports/mappings/${target}`),
   saveImportMapping: (c: string, input: SaveImportMappingInput) =>
     api.post<ImportMapping>(`${base(c)}/imports/mappings`, input),
+
+  // Step 2 — derive vouchers from a mapped file. The saved mapping is
+  // read from the DB (see route.imports.ts); we just POST the file and
+  // the target and get the derived batch back for the preview panel.
+  deriveImportVouchers: (c: string, target: ImportTarget, file: File) => {
+    const fd = new FormData();
+    fd.append('file', file);
+    return api.postForm<DerivedBatch>(`${base(c)}/imports/derive?target=${encodeURIComponent(target)}`, fd);
+  },
 };
 
 /** Same target list as server/src/modules/bookkeeping/services/BookkeepingImportService.ts. */
@@ -729,4 +738,75 @@ export interface SaveImportMappingInput {
   column_map: Record<string, MappableField>;
   date_format: string;
   currency_aliases: Record<string, string>;
+}
+
+// ── Derived voucher batch (Step 2 preview) ────────────────────────────
+// Mirror of server/src/modules/bookkeeping/engine/deriveVouchers.ts.
+
+export type DerivedVoucherType = 'sales' | 'purchase';
+
+export interface DerivedEntry {
+  side: 'dr' | 'cr';
+  role:
+    | 'party'
+    | 'sales'
+    | 'purchase'
+    | 'cgst_output'
+    | 'sgst_output'
+    | 'igst_output'
+    | 'cgst_input'
+    | 'sgst_input'
+    | 'igst_input'
+    | 'cess';
+  ledgerId: string | null;
+  displayLabel: string;
+  amountPaise: number;
+}
+
+export interface DerivedVoucher {
+  rowNumber: number;
+  type: DerivedVoucherType;
+  date: string | null;
+  invoiceOrBillNo: string | null;
+  partyName: string;
+  partyLedgerId: string | null;
+  currency: string;
+  foreignAmountMinor: number | null;
+  exchangeRate: string | null;
+  totalPaise: number;
+  balanced: boolean;
+  entries: DerivedEntry[];
+}
+
+export interface RowFlag {
+  rowNumber: number;
+  kind:
+    | 'foreign_base_mismatch'
+    | 'missing_date'
+    | 'missing_party'
+    | 'missing_amount'
+    | 'unbalanced'
+    | 'no_sales_ledger'
+    | 'no_purchase_ledger';
+  message: string;
+}
+
+export interface PartyProposal {
+  name: string;
+  normalizedName: string;
+  group: 'sundry_debtors' | 'sundry_creditors';
+  occurrenceCount: number;
+  fuzzyMatches: { ledgerId: string; name: string; score: number }[];
+}
+
+export interface DerivedBatch {
+  vouchers: DerivedVoucher[];
+  proposals: PartyProposal[];
+  flags: RowFlag[];
+  totals: {
+    rowsScanned: number;
+    rowsDerived: number;
+    totalPaise: number;
+    currencies: string[];
+  };
 }

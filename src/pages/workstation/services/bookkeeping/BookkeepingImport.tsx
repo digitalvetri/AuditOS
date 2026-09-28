@@ -18,6 +18,7 @@ import {
   IMPORT_TARGETS,
   MAPPABLE_FIELDS,
   MAPPABLE_FIELD_LABEL,
+  type DerivedBatch,
   type ImportTarget,
   type MappableField,
   type SheetPreview,
@@ -43,6 +44,7 @@ export function BookkeepingImportPage() {
   const [columnMap, setColumnMap] = useState<Record<string, MappableField>>({});
   const [dateFormat, setDateFormat] = useState<string>('DD/MM/YYYY');
   const [saved, setSaved] = useState<string | null>(null);
+  const [derived, setDerived] = useState<DerivedBatch | null>(null);
 
   const mappingsQ = useQuery({
     queryKey: ['bk.import.mappings', companyId],
@@ -81,6 +83,21 @@ export function BookkeepingImportPage() {
     },
     onError: (e: Error) => {
       setSaved(null);
+      setError(e.message);
+    },
+  });
+
+  const deriveMut = useMutation({
+    mutationFn: () => {
+      if (!file) throw new Error('Upload the file first.');
+      return bookkeepingAccountingApi.deriveImportVouchers(companyId, target, file);
+    },
+    onSuccess: (b) => {
+      setDerived(b);
+      setError(null);
+    },
+    onError: (e: Error) => {
+      setDerived(null);
       setError(e.message);
     },
   });
@@ -269,6 +286,15 @@ export function BookkeepingImportPage() {
                 >
                   {saveMut.isPending ? 'Saving…' : 'Save mapping'}
                 </button>
+                <button
+                  type="button"
+                  disabled={deriveMut.isPending || !file}
+                  onClick={() => deriveMut.mutate()}
+                  className="text-13 px-3 py-1 border border-neutral-300 rounded bg-white hover:bg-neutral-50 disabled:opacity-50"
+                  title="Runs the saved mapping over this file and shows what would post — nothing is written yet."
+                >
+                  {deriveMut.isPending ? 'Deriving…' : 'Preview vouchers'}
+                </button>
                 {saved && <span className="text-12 text-green-700">{saved}</span>}
               </div>
             </>
@@ -276,11 +302,130 @@ export function BookkeepingImportPage() {
         </div>
       )}
 
+      {derived && <DerivedBatchPanel batch={derived} />}
+
       {error && (
         <div className="border-l-2 border-red-500 bg-red-50 p-3 text-13 text-red-800">
           {error}
         </div>
       )}
+    </div>
+  );
+}
+
+function inr(paise: number): string {
+  return (paise / 100).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
+function DerivedBatchPanel({ batch }: { batch: DerivedBatch }) {
+  const { totals, vouchers, proposals, flags } = batch;
+  const allBalanced = vouchers.every((v) => v.balanced);
+  return (
+    <div className="border border-neutral-200 rounded p-3 bg-white space-y-3">
+      <div className="text-11 uppercase tracking-[0.08em] text-neutral-500">Derived preview — nothing posted yet</div>
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-13">
+        <Stat label="Rows scanned" value={String(totals.rowsScanned)} />
+        <Stat label="Vouchers derived" value={String(totals.rowsDerived)} />
+        <Stat label="Total (INR)" value={`₹ ${inr(totals.totalPaise)}`} />
+        <Stat label="Currencies" value={totals.currencies.join(', ') || '—'} />
+      </div>
+
+      <div className="text-12 text-neutral-500 flex gap-3">
+        <span className={allBalanced ? 'text-green-700' : 'text-red-700'}>
+          {allBalanced ? '✓ every voucher balances' : '⚠ one or more vouchers do not balance'}
+        </span>
+        <span>·</span>
+        <span>{proposals.length} new party proposals</span>
+        <span>·</span>
+        <span className={flags.length ? 'text-amber-700' : 'text-neutral-500'}>{flags.length} row flags</span>
+      </div>
+
+      {proposals.length > 0 && (
+        <details open className="border-t border-neutral-100 pt-2">
+          <summary className="cursor-pointer text-13 font-medium text-neutral-900">
+            New party ledgers ({proposals.length})
+          </summary>
+          <ul className="mt-2 space-y-1">
+            {proposals.map((p) => (
+              <li key={p.normalizedName} className="text-13 text-neutral-700">
+                <span className="font-medium">{p.name}</span>
+                <span className="text-neutral-500"> · {p.group === 'sundry_debtors' ? 'Sundry Debtors' : 'Sundry Creditors'}</span>
+                <span className="text-neutral-500"> · {p.occurrenceCount} row{p.occurrenceCount === 1 ? '' : 's'}</span>
+                {p.fuzzyMatches.length > 0 && (
+                  <span className="ml-2 text-amber-700 text-12">
+                    ⚠ similar to {p.fuzzyMatches.map((m) => `"${m.name}"`).join(', ')}
+                  </span>
+                )}
+              </li>
+            ))}
+          </ul>
+        </details>
+      )}
+
+      {flags.length > 0 && (
+        <details className="border-t border-neutral-100 pt-2">
+          <summary className="cursor-pointer text-13 font-medium text-amber-800">
+            Row flags ({flags.length})
+          </summary>
+          <ul className="mt-2 space-y-1">
+            {flags.map((f, i) => (
+              <li key={i} className="text-12 text-amber-800">
+                <span className="font-mono">R{f.rowNumber}</span> · <span className="font-medium">{f.kind}</span> — {f.message}
+              </li>
+            ))}
+          </ul>
+        </details>
+      )}
+
+      <details className="border-t border-neutral-100 pt-2">
+        <summary className="cursor-pointer text-13 font-medium text-neutral-900">
+          Derived vouchers ({vouchers.length})
+        </summary>
+        <div className="mt-2 overflow-x-auto">
+          <table className="text-13 min-w-full border-collapse">
+            <thead>
+              <tr className="border-b border-neutral-200">
+                <th className="text-left font-medium text-neutral-500 py-1.5 pr-3">Row</th>
+                <th className="text-left font-medium text-neutral-500 py-1.5 pr-3">Date</th>
+                <th className="text-left font-medium text-neutral-500 py-1.5 pr-3">Inv/Bill</th>
+                <th className="text-left font-medium text-neutral-500 py-1.5 pr-3">Party</th>
+                <th className="text-left font-medium text-neutral-500 py-1.5 pr-3">Cur</th>
+                <th className="text-right font-medium text-neutral-500 py-1.5 pr-3">Total (INR)</th>
+                <th className="text-left font-medium text-neutral-500 py-1.5">Bal</th>
+              </tr>
+            </thead>
+            <tbody>
+              {vouchers.map((v) => (
+                <tr key={v.rowNumber} className="border-b border-neutral-100">
+                  <td className="py-1 pr-3 font-mono text-neutral-500">{v.rowNumber}</td>
+                  <td className="py-1 pr-3 text-neutral-700">{v.date}</td>
+                  <td className="py-1 pr-3 text-neutral-700">{v.invoiceOrBillNo ?? '—'}</td>
+                  <td className="py-1 pr-3 text-neutral-700">
+                    {v.partyName}
+                    {v.partyLedgerId === null && (
+                      <span className="ml-1 text-11 text-amber-700">new</span>
+                    )}
+                  </td>
+                  <td className="py-1 pr-3 text-neutral-500">{v.currency}</td>
+                  <td className="py-1 pr-3 text-right font-mono">{inr(v.totalPaise)}</td>
+                  <td className="py-1">
+                    {v.balanced ? <span className="text-green-700">✓</span> : <span className="text-red-700">✗</span>}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </details>
+    </div>
+  );
+}
+
+function Stat({ label, value }: { label: string; value: string }) {
+  return (
+    <div>
+      <div className="text-11 uppercase tracking-[0.08em] text-neutral-400">{label}</div>
+      <div className="text-15 text-neutral-900 font-medium tabular-nums">{value}</div>
     </div>
   );
 }

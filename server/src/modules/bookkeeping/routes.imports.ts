@@ -5,6 +5,7 @@ import { ApiError, handler, ok } from '../../lib/http.js'
 import { can, requireSession, type Session } from '../../platform/auth.js'
 import { writeAudit } from '../../platform/audit.js'
 import { prisma } from '../../lib/prisma.js'
+import ExcelJS from 'exceljs'
 import {
   previewWorkbook,
   saveMapping,
@@ -17,6 +18,8 @@ import {
   type ImportTarget,
   type MappableField,
 } from './services/BookkeepingImportService.js'
+import { buildLedgerSnapshot } from './services/BookkeepingLedgerSnapshot.js'
+import { deriveBatch } from './engine/deriveVouchers.js'
 
 /**
  * BOOKKEEPING · IMPORT MAPPING ROUTES (BOOKKEEPING-REBUILD §3.1).
@@ -161,6 +164,87 @@ export function registerBookkeepingImportRoutes(router: Router): void {
         req,
       })
       ok(res, saved)
+    }),
+  )
+
+  // POST /companies/:companyId/imports/derive
+  //
+  // Uses the saved mapping for the requested target, parses the uploaded
+  // workbook's matching sheet, and returns a derived-voucher batch WITH
+  // party proposals and per-row flags. Nothing is written to the ledger
+  // — the preview screen (Step 3) commits.
+  //
+  // Body (multipart): `file`. Query: `target=sales_register|purchase_register|...`
+  router.post(
+    '/companies/:companyId/imports/derive',
+    (req, res, next) => {
+      upload.single('file')(req, res, (err: unknown) => {
+        if (!err) return next()
+        const code = (err as { code?: string }).code
+        if (code === 'LIMIT_FILE_SIZE') {
+          return next(ApiError.unprocessable('too_large', `File is larger than ${MAX_MB} MB.`))
+        }
+        next(ApiError.badRequest('Upload could not be read.'))
+      })
+    },
+    handler(async (req, res) => {
+      const session = requireSession(req)
+      requireImportManage(session)
+
+      const target = String(req.query.target ?? '')
+      if (!isImportTarget(target)) {
+        throw ApiError.badRequest(`target= must be one of: ${IMPORT_TARGETS.join(', ')}.`)
+      }
+      const file = req.file
+      if (!file || file.size === 0) throw ApiError.unprocessable('empty', 'Choose a file to upload.')
+
+      const mapping = await getMapping(prisma, req.params.companyId, target)
+      if (!mapping) {
+        throw ApiError.badRequest(
+          `No saved mapping for ${target} yet — save one on the Import screen first.`,
+        )
+      }
+
+      // Load only the sheet the mapping points at. If it's missing —
+      // the client renamed the tab — say so specifically so the operator
+      // knows to re-map, not "empty preview".
+      const wb = new ExcelJS.Workbook()
+      try {
+        await wb.xlsx.load(file.buffer as unknown as ArrayBuffer)
+      } catch {
+        throw ApiError.badRequest('The workbook could not be read as .xlsx.')
+      }
+      const ws = wb.worksheets.find((s) => s.name === mapping.sheetName)
+      if (!ws) {
+        throw ApiError.badRequest(
+          `The saved mapping points at sheet "${mapping.sheetName}" but that tab is not in this workbook. Re-map on the Import screen.`,
+        )
+      }
+
+      // Read from headerRow + 1 to the end. ExcelJS is 1-indexed.
+      const rows: string[][] = []
+      const width = Math.min(ws.columnCount || 0, 200)
+      for (let r = mapping.headerRow + 1; r <= ws.rowCount; r++) {
+        const excelRow = ws.getRow(r)
+        const vals: string[] = []
+        for (let c = 1; c <= width; c++) vals.push(String(excelRow.getCell(c).text ?? '').trim())
+        rows.push(vals)
+      }
+
+      const snapshot = await buildLedgerSnapshot(prisma, req.params.companyId)
+      const columnMap = mapping.columnMapJson as Record<string, MappableField>
+      const currencyAliases = mapping.currencyAliasesJson as Record<string, string>
+
+      const batch = deriveBatch(rows, {
+        target,
+        columnMap,
+        headerRow: mapping.headerRow,
+        dateFormat: mapping.dateFormat,
+        currencyAliases,
+        ledgers: snapshot,
+      })
+
+      ok(res, batch)
     }),
   )
 }
