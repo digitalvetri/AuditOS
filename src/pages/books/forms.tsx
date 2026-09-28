@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Plus, Trash2 } from 'lucide-react';
 import { useToast } from '@/components/Toast';
@@ -117,6 +117,7 @@ function FormModal({ title, onClose, onSubmit, saving, error, children, wide }: 
 
 const s = (v: unknown) => (v === null || v === undefined ? '' : String(v));
 const n = (v: string) => (v.trim() === '' ? undefined : Number(v));
+const st = (...xs: [string, string][]) => xs.map(([value, label]) => ({ value, label }));
 
 /**
  * Whether the Zoho organisation is registered for GST. Zoho rejects every GST
@@ -135,6 +136,24 @@ const NoGstNote = () => (
     GST fields are hidden: this Zoho Books organisation is not registered for GST. Turn GST on in Zoho Books → Settings → Taxes → GST Settings, then they appear here.
   </p>
 );
+
+// ── recurrence (recurring invoices, bills, expenses) ──────────────────────
+const FREQUENCIES = st(['days', 'Day(s)'], ['weeks', 'Week(s)'], ['months', 'Month(s)'], ['years', 'Year(s)']);
+export interface Recurrence { every: string; frequency: string }
+const recurrenceOf = (r?: ZRecord): Recurrence => ({ every: s(r?.repeat_every) || '1', frequency: s(r?.recurrence_frequency) || 'months' });
+const recurrenceError = (x: Recurrence) => (!(Number.isInteger(Number(x.every)) && Number(x.every) >= 1) ? 'Repeat every must be a whole number, 1 or more.' : null);
+const recurrenceBody = (x: Recurrence) => ({ repeat_every: Number(x.every), recurrence_frequency: x.frequency });
+
+function RepeatEvery({ value, onChange }: { value: Recurrence; onChange: (v: Recurrence) => void }) {
+  return (
+    <Field label="Repeat every *">
+      <div className="flex gap-2">
+        <div className="w-20"><NumberInput value={value.every} onChange={(every) => onChange({ ...value, every })} /></div>
+        <div className="flex-1"><Select value={value.frequency} onChange={(frequency) => onChange({ ...value, frequency })} options={FREQUENCIES} /></div>
+      </div>
+    </Field>
+  );
+}
 
 // ── contacts ──────────────────────────────────────────────────────────────
 const GST_TREATMENTS = [
@@ -272,6 +291,20 @@ export function ItemForm({ record, onClose, onSaved }: { record?: ZRecord; onClo
 export interface TxnSpec {
   entity: string; idField: string; title: string; party: 'customer' | 'vendor'; numberField: string; numberLabel: string; numberRequired?: boolean;
   secondDate?: { field: string; label: string }; purchase?: boolean;
+  /** A recurring profile: the number field holds the profile name, the date is when it starts, and it carries a schedule. */
+  recurring?: boolean;
+  /** Zoho takes no discounts on this document. */
+  noDiscount?: boolean;
+  /** Lines are a description and rate only — no item, quantity or tax (retainer invoices). */
+  simpleLines?: boolean;
+  /** Lines must be items: Zoho takes no free-text line, description or account here (sales receipts). */
+  itemsOnly?: boolean;
+  /** Paid on the spot (sales receipts): the payment mode is required. */
+  receipt?: boolean;
+  /** Zoho always numbers it; the create body has no number field (retainer invoices). */
+  autoNumber?: boolean;
+  /** Zoho takes no notes or terms on create (recurring invoices). */
+  noNotes?: boolean;
 }
 export const TXN: Record<string, TxnSpec> = {
   estimates: { entity: 'estimates', idField: 'estimate_id', title: 'estimate', party: 'customer', numberField: 'estimate_number', numberLabel: 'Estimate #', secondDate: { field: 'expiry_date', label: 'Expiry date' } },
@@ -281,7 +314,14 @@ export const TXN: Record<string, TxnSpec> = {
   purchaseorders: { entity: 'purchaseorders', idField: 'purchaseorder_id', title: 'purchase order', party: 'vendor', numberField: 'purchaseorder_number', numberLabel: 'PO #', secondDate: { field: 'delivery_date', label: 'Delivery date' }, purchase: true },
   bills: { entity: 'bills', idField: 'bill_id', title: 'bill', party: 'vendor', numberField: 'bill_number', numberLabel: 'Bill #', numberRequired: true, secondDate: { field: 'due_date', label: 'Due date' }, purchase: true },
   vendorcredits: { entity: 'vendorcredits', idField: 'vendor_credit_id', title: 'debit note', party: 'vendor', numberField: 'vendor_credit_number', numberLabel: 'Debit note #', purchase: true },
+  recurringinvoices: { entity: 'recurringinvoices', idField: 'recurring_invoice_id', title: 'recurring invoice', party: 'customer', numberField: 'recurrence_name', numberLabel: 'Profile name', numberRequired: true, secondDate: { field: 'end_date', label: 'Ends on' }, recurring: true, noDiscount: true, noNotes: true },
+  recurringbills: { entity: 'recurringbills', idField: 'recurring_bill_id', title: 'recurring bill', party: 'vendor', numberField: 'recurrence_name', numberLabel: 'Profile name', numberRequired: true, secondDate: { field: 'end_date', label: 'Ends on' }, purchase: true, recurring: true },
+  retainerinvoices: { entity: 'retainerinvoices', idField: 'retainerinvoice_id', title: 'retainer invoice', party: 'customer', numberField: 'retainerinvoice_number', numberLabel: 'Retainer invoice #', simpleLines: true, noDiscount: true, autoNumber: true },
+  deliverychallans: { entity: 'deliverychallans', idField: 'deliverychallan_id', title: 'delivery challan', party: 'customer', numberField: 'deliverychallan_number', numberLabel: 'Challan #' },
+  salesreceipts: { entity: 'salesreceipts', idField: 'sales_receipt_id', title: 'sales receipt', party: 'customer', numberField: 'receipt_number', numberLabel: 'Receipt #', receipt: true, itemsOnly: true, noDiscount: true },
 };
+/** The document date's field: a recurring profile has a start date instead. */
+const dateFieldOf = (spec: TxnSpec) => (spec.recurring ? 'start_date' : 'date');
 
 interface Line {
   line_item_id?: string; item_id: string; item_label: string; account_id: string; description: string; quantity: string; rate: string; discount: string; tax_id: string;
@@ -300,8 +340,8 @@ const lineGross = (l: Line) => (Number(l.quantity) || 0) * (Number(l.rate) || 0)
 const hasValue = (raw: string) => raw.trim() !== '' && Number(raw.trim().replace(/%$/, '')) !== 0;
 
 /** Zoho documents `discount_type` / `place_of_supply` only on these. */
-const DISCOUNT_TYPE_DOCS = new Set(['invoices', 'estimates', 'salesorders']);
-const PLACE_OF_SUPPLY_DOCS = new Set(['invoices', 'estimates', 'salesorders']);
+const DISCOUNT_TYPE_DOCS = new Set(['invoices', 'estimates', 'salesorders', 'deliverychallans']);
+const PLACE_OF_SUPPLY_DOCS = new Set(['invoices', 'estimates', 'salesorders', 'recurringinvoices', 'retainerinvoices', 'deliverychallans']);
 
 /** The organisation's home state code (e.g. "TN") and whether it is GST-registered. */
 function useOrgGst() {
@@ -333,13 +373,16 @@ export function TxnEditor({ spec, record, prefill, onClose, onSaved }: { spec: T
   const items = useLookup('items', { filter_by: 'Status.Active' });
   const { gst, home } = useOrgGst();
   // Zoho: bills take no discount at all; purchase orders only one on the total.
-  const lineDiscountOk = !spec.purchase;
-  const headDiscountOk = !spec.purchase || spec.entity === 'purchaseorders';
+  const lineDiscountOk = !spec.purchase && !spec.noDiscount;
+  const headDiscountOk = !spec.noDiscount && (!spec.purchase || spec.entity === 'purchaseorders');
+  const dateField = dateFieldOf(spec);
+  const [recur, setRecur] = useState(() => recurrenceOf(record));
+  const [mode, setMode] = useState(s(record?.payment_mode) || 'cash');
   const itemLevelSource = s(src?.discount_type) === 'item_level';
   const [head, setHead] = useState({
     party: s(src?.[partyId]), partyLabel: s(src?.[partyName]),
     number: record ? s(record[spec.numberField]) : '', reference: record ? s(record.reference_number) : s(prefill?.estimate_number ?? prefill?.salesorder_number ?? prefill?.reference_number),
-    date: record ? s(record.date) : today(), second: record && spec.secondDate ? s(record[spec.secondDate.field]) : '',
+    date: record ? s(record[dateField]) : today(), second: record && spec.secondDate ? s(record[spec.secondDate.field]) : '',
     discount: itemLevelSource ? '' : s(src?.discount_percent ? `${src.discount_percent}%` : src?.discount || ''), notes: s(src?.notes), terms: s(src?.terms),
     pos: s(src?.place_of_supply).toUpperCase(),
   });
@@ -390,11 +433,14 @@ export function TxnEditor({ spec, record, prefill, onClose, onSaved }: { spec: T
   const submit = () => {
     if (!head.party) return setErr(`Choose a ${spec.party}.`);
     if (spec.numberRequired && !head.number.trim()) return setErr(`${spec.numberLabel} is required.`);
-    if (!head.date) return setErr('Date is required.');
+    if (!head.date) return setErr(spec.recurring ? 'Start date is required.' : 'Date is required.');
+    if (spec.recurring && recurrenceError(recur)) return setErr(recurrenceError(recur));
     const used = lines.filter((l) => l.item_id || l.description.trim() || l.rate);
     if (!used.length) return setErr('Add at least one line.');
     for (const l of used) {
-      if (!(Number(l.quantity) > 0)) return setErr('Every line needs a quantity above zero.');
+      if (spec.simpleLines && !l.description.trim()) return setErr('Every line needs a description.');
+      if (spec.itemsOnly && !l.item_id) return setErr('Every line needs an item: Zoho takes only items on a sales receipt.');
+      if (!spec.simpleLines && !(Number(l.quantity) > 0)) return setErr('Every line needs a quantity above zero.');
       if (l.rate === '' || Number.isNaN(Number(l.rate))) return setErr('Every line needs a rate.');
       if (!l.item_id && !l.description.trim()) return setErr('Every line needs an item or a description.');
       if (spec.purchase && !l.item_id && !l.account_id) return setErr('A purchase line without an item needs an account.');
@@ -407,10 +453,12 @@ export function TxnEditor({ spec, record, prefill, onClose, onSaved }: { spec: T
     const cleared = (v: string, empty: string | number) => (v.trim() === '' ? (record ? empty : undefined) : v);
     const anyDiscount = itemLevel || hasValue(head.discount);
     const body: ZRecord = {
-      [partyId]: head.party, date: head.date,
-      reference_number: cleared(head.reference, ''), notes: cleared(head.notes, ''), terms: cleared(head.terms, ''),
+      [partyId]: head.party, [dateField]: head.date,
+      reference_number: spec.recurring || spec.receipt ? undefined : cleared(head.reference, ''),
+      notes: spec.noNotes ? undefined : cleared(head.notes, ''), terms: spec.noNotes ? undefined : cleared(head.terms, ''),
       discount: headDiscountOk ? (itemLevel ? (record ? 0 : undefined) : cleared(head.discount, 0)) : undefined,
-      line_items: used.map((l) => ({
+      line_items: used.map((l) => (spec.simpleLines ? { line_item_id: l.line_item_id, description: l.description.trim(), rate: Number(l.rate) }
+        : spec.itemsOnly ? { line_item_id: l.line_item_id, item_id: l.item_id, quantity: Number(l.quantity), rate: Number(l.rate), tax_id: cleared(l.tax_id, '') } : {
         line_item_id: l.line_item_id, item_id: l.item_id || undefined, account_id: l.account_id || undefined, name: l.item_id ? undefined : l.description.slice(0, 100),
         description: cleared(l.description, ''), quantity: Number(l.quantity), rate: Number(l.rate),
         discount: lineDiscountOk ? cleared(l.discount, 0) : undefined, tax_id: cleared(l.tax_id, ''),
@@ -425,8 +473,10 @@ export function TxnEditor({ spec, record, prefill, onClose, onSaved }: { spec: T
     if (typeof src?.is_inclusive_tax === 'boolean') body.is_inclusive_tax = src.is_inclusive_tax;
     if (prefill && spec.entity === 'invoices' && prefill.estimate_id && !prefill.salesorder_id) body.invoiced_estimate_id = prefill.estimate_id;
     if (prefill && spec.entity === 'bills' && prefill.purchaseorder_id) body.purchaseorder_ids = [prefill.purchaseorder_id];
-    if (head.number.trim()) body[spec.numberField] = head.number.trim();
+    if (head.number.trim() && !spec.autoNumber) body[spec.numberField] = head.number.trim();
     if (spec.secondDate && head.second) body[spec.secondDate.field] = head.second;
+    if (spec.recurring) Object.assign(body, recurrenceBody(recur));
+    if (spec.receipt) body.payment_mode = mode;
     save.mutate(body);
   };
 
@@ -436,44 +486,46 @@ export function TxnEditor({ spec, record, prefill, onClose, onSaved }: { spec: T
         <Field label={`${spec.party === 'customer' ? 'Customer' : 'Vendor'} *`} className="sm:col-span-2">
           <ContactPicker kind={spec.party} value={head.party} label={head.partyLabel} onChange={pickParty} disabled={Boolean(record)} />
         </Field>
-        <Field label={`${spec.numberLabel}${spec.numberRequired ? ' *' : ''}`} hint={spec.numberRequired ? undefined : 'Leave blank for Zoho’s next number'}><TextInput value={head.number} onChange={(x) => setHead({ ...head, number: x })} /></Field>
-        <Field label="Reference #"><TextInput value={head.reference} onChange={(x) => setHead({ ...head, reference: x })} /></Field>
-        <Field label="Date *"><TextInput type="date" value={head.date} onChange={(x) => setHead({ ...head, date: x })} /></Field>
+        {spec.autoNumber ? null : <Field label={`${spec.numberLabel}${spec.numberRequired ? ' *' : ''}`} hint={spec.numberRequired ? undefined : 'Leave blank for Zoho’s next number'}><TextInput value={head.number} onChange={(x) => setHead({ ...head, number: x })} /></Field>}
+        {spec.recurring ? <RepeatEvery value={recur} onChange={setRecur} /> : spec.receipt ? null : <Field label="Reference #"><TextInput value={head.reference} onChange={(x) => setHead({ ...head, reference: x })} /></Field>}
+        <Field label={spec.recurring ? 'Starts on *' : 'Date *'}><TextInput type="date" value={head.date} onChange={(x) => setHead({ ...head, date: x })} /></Field>
         {spec.secondDate ? <Field label={spec.secondDate.label}><TextInput type="date" value={head.second} onChange={(x) => setHead({ ...head, second: x })} /></Field> : null}
         {gst && PLACE_OF_SUPPLY_DOCS.has(spec.entity) ? (
           <Field label="Place of supply" hint={interState ? `Inter-state (${home} → ${head.pos}): IGST applies` : home ? `State code; ${home} is intra-state` : 'Two-letter state code, e.g. TN'}>
             <TextInput value={head.pos} onChange={setPos} placeholder="TN" />
           </Field>
         ) : null}
+        {spec.receipt ? <Field label="Payment mode *"><Select value={mode} onChange={setMode} options={RECEIPT_MODES} /></Field> : null}
       </div>
+      {spec.recurring ? <p className="text-12 text-inkMuted">Zoho Books creates {spec.party === 'customer' ? 'an invoice' : 'a bill'} on the start date and then on this schedule, until the end date (if any).</p> : null}
 
       <div className="overflow-x-auto border border-border rounded">
         <table className="w-full min-w-[900px] border-collapse">
           <thead><tr className="border-b border-border text-11 uppercase tracking-[0.06em] text-inkMuted">
-            <th className="text-left px-2 h-8 font-medium w-[22%]">Item</th>
+            {spec.simpleLines ? null : <th className="text-left px-2 h-8 font-medium w-[22%]">Item</th>}
             {spec.purchase ? <th className="text-left px-2 font-medium w-[16%]">Account</th> : null}
-            <th className="text-left px-2 font-medium">Description</th>
-            <th className="text-right px-2 font-medium w-20">Qty</th>
+            {spec.itemsOnly ? null : <th className="text-left px-2 h-8 font-medium">Description</th>}
+            {spec.simpleLines ? null : <th className="text-right px-2 font-medium w-20">Qty</th>}
             <th className="text-right px-2 font-medium w-28">Rate</th>
             {lineDiscountOk ? <th className="text-right px-2 font-medium w-24">Discount</th> : null}
-            <th className="text-left px-2 font-medium w-36">Tax</th>
+            {spec.simpleLines ? null : <th className="text-left px-2 font-medium w-36">Tax</th>}
             <th className="text-right px-2 font-medium w-28">Amount</th>
             <th className="w-8" />
           </tr></thead>
           <tbody>
             {lines.map((l, i) => (
               <tr key={i} className="border-b border-border last:border-b-0 align-top">
-                <td className="p-1"><Select value={l.item_id} onChange={(v) => pickItem(i, v)} options={itemOptions.some((o) => o.value === l.item_id) || !l.item_id ? itemOptions : [{ value: l.item_id, label: l.item_label }, ...itemOptions]} placeholder={items.isLoading ? 'Loading…' : '— Item —'} /></td>
+                {spec.simpleLines ? null : <td className="p-1"><Select value={l.item_id} onChange={(v) => pickItem(i, v)} options={itemOptions.some((o) => o.value === l.item_id) || !l.item_id ? itemOptions : [{ value: l.item_id, label: l.item_label }, ...itemOptions]} placeholder={items.isLoading ? 'Loading…' : '— Item —'} /></td>}
                 {spec.purchase ? <td className="p-1"><Select value={l.account_id} onChange={(v) => setL(i, { account_id: v })} options={accounts} placeholder="From item" /></td> : null}
-                <td className="p-1"><TextInput value={l.description} onChange={(v) => setL(i, { description: v })} /></td>
-                <td className="p-1"><NumberInput value={l.quantity} onChange={(v) => setL(i, { quantity: v })} /></td>
+                {spec.itemsOnly ? null : <td className="p-1"><TextInput value={l.description} onChange={(v) => setL(i, { description: v })} /></td>}
+                {spec.simpleLines ? null : <td className="p-1"><NumberInput value={l.quantity} onChange={(v) => setL(i, { quantity: v })} /></td>}
                 <td className="p-1"><NumberInput value={l.rate} onChange={(v) => setL(i, { rate: v })} /></td>
                 {lineDiscountOk ? (
                   <td className="p-1" title={hasValue(head.discount) ? 'Clear the discount on the total to discount lines' : undefined}>
                     <NumberInput value={l.discount} onChange={(v) => setL(i, { discount: v })} placeholder="0 or 10%" disabled={hasValue(head.discount)} />
                   </td>
                 ) : null}
-                <td className="p-1"><Select value={l.tax_id} onChange={(v) => setL(i, { tax_id: v })} options={taxes} placeholder="None" /></td>
+                {spec.simpleLines ? null : <td className="p-1"><Select value={l.tax_id} onChange={(v) => setL(i, { tax_id: v })} options={taxes} placeholder="None" /></td>}
                 <td className="p-1 pt-2.5 text-right text-13 tabular-nums">{money(lineAmount(l))}</td>
                 <td className="p-1 pt-2"><button type="button" aria-label="Remove line" className="text-inkMuted hover:text-danger disabled:opacity-30" disabled={lines.length === 1} onClick={() => setLines(lines.filter((_, j) => j !== i))}><Trash2 size={15} /></button></td>
               </tr>
@@ -496,10 +548,12 @@ export function TxnEditor({ spec, record, prefill, onClose, onSaved }: { spec: T
           <p className="text-12 text-inkMuted">{inclusive ? 'Rates include tax. ' : ''}Tax, rounding and the final total are calculated by Zoho Books when saved.</p>
         </div>
       </div>
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-        <Field label={spec.party === 'customer' ? 'Customer notes' : 'Notes'}><TextArea value={head.notes} onChange={(x) => setHead({ ...head, notes: x })} /></Field>
-        <Field label="Terms & conditions"><TextArea value={head.terms} onChange={(x) => setHead({ ...head, terms: x })} /></Field>
-      </div>
+      {spec.noNotes ? null : (
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+          <Field label={spec.party === 'customer' ? 'Customer notes' : 'Notes'}><TextArea value={head.notes} onChange={(x) => setHead({ ...head, notes: x })} /></Field>
+          <Field label="Terms & conditions"><TextArea value={head.terms} onChange={(x) => setHead({ ...head, terms: x })} /></Field>
+        </div>
+      )}
     </FormModal>
   );
 }
@@ -558,6 +612,8 @@ export function ExpenseForm({ record, onClose, onSaved }: { record?: ZRecord; on
 }
 
 // ── payments ──────────────────────────────────────────────────────────────
+/** Sales receipts take Zoho's payment-mode codes, not the display names payments use. */
+const RECEIPT_MODES = st(['cash', 'Cash'], ['bank_transfer', 'Bank transfer'], ['check', 'Cheque'], ['credit_card', 'Credit card']);
 const MODES = ['Cash', 'Bank Transfer', 'Cheque', 'Credit Card', 'UPI', 'Bank Remittance', 'Others'].map((m) => ({ value: m, label: m }));
 
 /**
@@ -713,6 +769,362 @@ export function BankAccountForm({ record, onClose, onSaved }: { record?: ZRecord
         <Field label="IFSC / routing"><TextInput value={v.routing_number} onChange={(x) => setV({ ...v, routing_number: x })} /></Field>
       </div>
       <Field label="Description"><TextArea value={v.description} onChange={(x) => setV({ ...v, description: x })} rows={2} /></Field>
+    </FormModal>
+  );
+}
+
+// ── manual journals ───────────────────────────────────────────────────────
+interface JLine { account_id: string; description: string; debit: string; credit: string }
+const blankJLine = (): JLine => ({ account_id: '', description: '', debit: '', credit: '' });
+const anyAccount = () => true;
+
+export function JournalForm({ onClose, onSaved }: { record?: ZRecord; onClose: () => void; onSaved: (r: ZRecord) => void }) {
+  const org = useOrg();
+  const accounts = useAccountOptions(anyAccount);
+  const [head, setHead] = useState({ date: today(), reference: '', notes: '', publish: true });
+  const [lines, setLines] = useState<JLine[]>([blankJLine(), blankJLine()]);
+  const [err, setErr] = useState<string | null>(null);
+  const save = useSave('journals', undefined, onSaved);
+  const setL = (i: number, patch: Partial<JLine>) => setLines((ls) => ls.map((l, j) => (j === i ? { ...l, ...patch } : l)));
+  const amt = (x: string) => Number(x) || 0;
+  const debits = lines.reduce((t, l) => t + amt(l.debit), 0);
+  const credits = lines.reduce((t, l) => t + amt(l.credit), 0);
+  const off = Math.round((debits - credits) * 100) / 100;
+  const submit = () => {
+    if (!head.date) return setErr('Date is required.');
+    const used = lines.filter((l) => l.account_id || amt(l.debit) || amt(l.credit));
+    if (used.length < 2) return setErr('A journal needs at least two lines.');
+    for (const l of used) {
+      if (!l.account_id) return setErr('Every line needs an account.');
+      if ((amt(l.debit) > 0) === (amt(l.credit) > 0)) return setErr('Each line takes a debit or a credit, not both.');
+      if (amt(l.debit) < 0 || amt(l.credit) < 0) return setErr('Amounts cannot be negative.');
+    }
+    if (off !== 0) return setErr(`Debits and credits must be equal (difference ${money(Math.abs(off), org.currency_code)}).`);
+    setErr(null);
+    save.mutate({
+      journal_date: head.date, reference_number: head.reference.trim() || undefined, notes: head.notes.trim() || undefined,
+      status: head.publish ? 'published' : 'draft',
+      line_items: used.map((l) => ({ account_id: l.account_id, description: l.description.trim() || undefined, debit_or_credit: amt(l.debit) > 0 ? 'debit' : 'credit', amount: amt(l.debit) || amt(l.credit) })),
+    });
+  };
+  return (
+    <FormModal title="New manual journal" onClose={onClose} onSubmit={submit} saving={save.isPending} error={err ?? save.error} wide>
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+        <Field label="Date *"><TextInput type="date" value={head.date} onChange={(x) => setHead({ ...head, date: x })} /></Field>
+        <Field label="Reference #"><TextInput value={head.reference} onChange={(x) => setHead({ ...head, reference: x })} /></Field>
+        <Field label="Save as"><Select value={head.publish ? 'published' : 'draft'} onChange={(x) => setHead({ ...head, publish: x === 'published' })} options={st(['published', 'Published (posts to the ledger)'], ['draft', 'Draft'])} /></Field>
+      </div>
+      <div className="overflow-x-auto border border-border rounded">
+        <table className="w-full min-w-[720px] border-collapse">
+          <thead><tr className="border-b border-border text-11 uppercase tracking-[0.06em] text-inkMuted">
+            <th className="text-left px-2 h-8 font-medium w-[32%]">Account</th><th className="text-left px-2 font-medium">Description</th>
+            <th className="text-right px-2 font-medium w-32">Debit</th><th className="text-right px-2 font-medium w-32">Credit</th><th className="w-8" />
+          </tr></thead>
+          <tbody>
+            {lines.map((l, i) => (
+              <tr key={i} className="border-b border-border last:border-b-0">
+                <td className="p-1"><Select value={l.account_id} onChange={(v) => setL(i, { account_id: v })} options={accounts} placeholder="— Account —" /></td>
+                <td className="p-1"><TextInput value={l.description} onChange={(v) => setL(i, { description: v })} /></td>
+                <td className="p-1"><NumberInput value={l.debit} onChange={(v) => setL(i, { debit: v, credit: v ? '' : l.credit })} /></td>
+                <td className="p-1"><NumberInput value={l.credit} onChange={(v) => setL(i, { credit: v, debit: v ? '' : l.debit })} /></td>
+                <td className="p-1"><button type="button" aria-label="Remove line" className="text-inkMuted hover:text-danger disabled:opacity-30" disabled={lines.length <= 2} onClick={() => setLines(lines.filter((_, j) => j !== i))}><Trash2 size={15} /></button></td>
+              </tr>
+            ))}
+          </tbody>
+          <tfoot><tr className="border-t border-border text-13 font-medium">
+            <td className="px-2 h-9" colSpan={2}>Total{off !== 0 ? <span className="ml-2 text-12 text-danger font-normal">Difference {money(Math.abs(off), org.currency_code)}</span> : null}</td>
+            <td className="px-2 text-right tabular-nums">{money(debits, org.currency_code)}</td><td className="px-2 text-right tabular-nums">{money(credits, org.currency_code)}</td><td />
+          </tr></tfoot>
+        </table>
+      </div>
+      <Btn variant="ghost" onClick={() => setLines([...lines, blankJLine()])}><Plus size={14} />Add line</Btn>
+      <Field label="Notes"><TextArea value={head.notes} onChange={(x) => setHead({ ...head, notes: x })} rows={2} /></Field>
+    </FormModal>
+  );
+}
+
+// ── recurring expenses ────────────────────────────────────────────────────
+/** Zoho's create body for recurring expenses has no paid-through account or vendor; those are set on the expense Zoho raises. */
+export function RecurringExpenseForm({ onClose, onSaved }: { record?: ZRecord; onClose: () => void; onSaved: (r: ZRecord) => void }) {
+  const expense = useAccountOptions(isExpenseAcct);
+  const taxes = useTaxOptions();
+  const [v, setV] = useState({ name: '', account_id: '', amount: '', tax_id: '', inclusive: false, start: today(), end: '', customer_id: '', customer_label: '', billable: false });
+  const [recur, setRecur] = useState(() => recurrenceOf());
+  const [err, setErr] = useState<string | null>(null);
+  const save = useSave('recurringexpenses', undefined, onSaved);
+  const submit = () => {
+    if (!v.name.trim()) return setErr('Profile name is required.');
+    if (!v.account_id) return setErr('Choose an expense account.');
+    if (!(Number(v.amount) > 0)) return setErr('Amount must be above zero.');
+    if (!v.start) return setErr('Start date is required.');
+    if (recurrenceError(recur)) return setErr(recurrenceError(recur));
+    if (v.end && v.end < v.start) return setErr('The end date cannot be before the start date.');
+    setErr(null);
+    save.mutate({
+      recurrence_name: v.name.trim(), account_id: v.account_id, amount: Number(v.amount), start_date: v.start, end_date: v.end || undefined, ...recurrenceBody(recur),
+      tax_id: v.tax_id || undefined, is_inclusive_tax: v.tax_id ? v.inclusive : undefined, customer_id: v.customer_id || undefined, is_billable: v.customer_id ? v.billable : undefined,
+    });
+  };
+  return (
+    <FormModal title="New recurring expense" onClose={onClose} onSubmit={submit} saving={save.isPending} error={err ?? save.error} wide>
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+        <Field label="Profile name *"><TextInput value={v.name} onChange={(x) => setV({ ...v, name: x })} autoFocus /></Field>
+        <Field label="Expense account *"><Select value={v.account_id} onChange={(x) => setV({ ...v, account_id: x })} options={expense} placeholder="—" /></Field>
+        <Field label="Amount *"><NumberInput value={v.amount} onChange={(x) => setV({ ...v, amount: x })} /></Field>
+        <RepeatEvery value={recur} onChange={setRecur} />
+        <Field label="Starts on *"><TextInput type="date" value={v.start} onChange={(x) => setV({ ...v, start: x })} /></Field>
+        <Field label="Ends on"><TextInput type="date" value={v.end} onChange={(x) => setV({ ...v, end: x })} /></Field>
+        <Field label="Tax" hint={v.tax_id ? <label className="inline-flex items-center gap-1.5"><input type="checkbox" checked={v.inclusive} onChange={(e) => setV({ ...v, inclusive: e.target.checked })} />Amount includes tax</label> : undefined}>
+          <Select value={v.tax_id} onChange={(x) => setV({ ...v, tax_id: x })} options={taxes} placeholder="None" />
+        </Field>
+        <Field label="Customer (to bill)"><ContactPicker kind="customer" value={v.customer_id} label={v.customer_label} onChange={(id, r) => setV({ ...v, customer_id: id, customer_label: r?.contact_name ?? '' })} /></Field>
+        <Field label="Billable"><label className="inline-flex items-center gap-2 h-9 text-13"><input type="checkbox" disabled={!v.customer_id} checked={v.billable} onChange={(e) => setV({ ...v, billable: e.target.checked })} />Bill to the customer</label></Field>
+      </div>
+    </FormModal>
+  );
+}
+
+// ── projects and time ─────────────────────────────────────────────────────
+const BILLING_TYPES = st(['fixed_cost_for_project', 'Fixed cost for project'], ['based_on_project_hours', 'Based on project hours'], ['based_on_task_hours', 'Based on task hours'], ['based_on_staff_hours', 'Based on staff hours']);
+function useUserOptions() {
+  const u = useLookup('users');
+  return useMemo(() => (u.data?.items ?? []).map((x) => ({ value: String(x.user_id), label: x.name ? `${x.name}${x.email ? ` · ${x.email}` : ''}` : s(x.email) })), [u.data]);
+}
+
+export function ProjectForm({ onClose, onSaved }: { record?: ZRecord; onClose: () => void; onSaved: (r: ZRecord) => void }) {
+  const users = useUserOptions();
+  const [v, setV] = useState({ name: '', customer_id: '', customer_label: '', billing_type: 'based_on_project_hours', rate: '', user_id: '', description: '' });
+  const [err, setErr] = useState<string | null>(null);
+  const save = useSave('projects', undefined, onSaved);
+  const needsRate = v.billing_type === 'fixed_cost_for_project' || v.billing_type === 'based_on_project_hours';
+  const submit = () => {
+    if (!v.name.trim()) return setErr('Project name is required.');
+    if (!v.customer_id) return setErr('Choose a customer.');
+    if (!v.user_id) return setErr('Choose the user responsible for the project.');
+    if (needsRate && !(Number(v.rate) > 0)) return setErr(v.billing_type === 'fixed_cost_for_project' ? 'Enter the project cost.' : 'Enter the hourly rate.');
+    setErr(null);
+    save.mutate({ project_name: v.name.trim(), customer_id: v.customer_id, billing_type: v.billing_type, rate: needsRate ? v.rate : undefined, user_id: v.user_id, description: v.description.trim() || undefined });
+  };
+  return (
+    <FormModal title="New project" onClose={onClose} onSubmit={submit} saving={save.isPending} error={err ?? save.error}>
+      <Field label="Project name *"><TextInput value={v.name} onChange={(x) => setV({ ...v, name: x })} maxLength={100} autoFocus /></Field>
+      <Field label="Customer *"><ContactPicker kind="customer" value={v.customer_id} label={v.customer_label} onChange={(id, r) => setV({ ...v, customer_id: id, customer_label: r?.contact_name ?? '' })} /></Field>
+      <div className="grid grid-cols-2 gap-3">
+        <Field label="Billing method *"><Select value={v.billing_type} onChange={(x) => setV({ ...v, billing_type: x })} options={BILLING_TYPES} /></Field>
+        {needsRate ? <Field label={v.billing_type === 'fixed_cost_for_project' ? 'Project cost *' : 'Rate per hour *'}><NumberInput value={v.rate} onChange={(x) => setV({ ...v, rate: x })} /></Field> : <div />}
+      </div>
+      <Field label="User *" hint="The Zoho Books user the project is created for."><Select value={v.user_id} onChange={(x) => setV({ ...v, user_id: x })} options={users} placeholder="—" /></Field>
+      <Field label="Description"><TextArea value={v.description} onChange={(x) => setV({ ...v, description: x })} rows={2} /></Field>
+      <p className="text-12 text-inkMuted">Add tasks to the project in Zoho Books or when logging time; task and staff rates follow the billing method.</p>
+    </FormModal>
+  );
+}
+
+export function TimeEntryForm({ onClose, onSaved }: { record?: ZRecord; onClose: () => void; onSaved: (r: ZRecord) => void }) {
+  const org = useOrg();
+  const projects = useLookup('projects', { filter_by: 'Status.Active' });
+  const users = useUserOptions();
+  const [v, setV] = useState({ project_id: '', task_id: '', user_id: '', date: today(), time: '', billable: true, notes: '' });
+  const tasks = useQuery({ queryKey: ['books', org.id, 'tasks', v.project_id], queryFn: () => booksApi.org(org.id).projectTasks(v.project_id), enabled: Boolean(v.project_id) });
+  const [err, setErr] = useState<string | null>(null);
+  const save = useSave('timeentries', undefined, onSaved);
+  const submit = () => {
+    if (!v.project_id) return setErr('Choose a project.');
+    if (!v.task_id) return setErr('Choose a task.');
+    if (!v.user_id) return setErr('Choose who worked.');
+    if (!v.date) return setErr('Date is required.');
+    const m = /^(\d{1,2}):([0-5]\d)$/.exec(v.time.trim());
+    if (!m || Number(m[1]) > 23 || (Number(m[1]) === 0 && Number(m[2]) === 0)) return setErr('Time is hours and minutes, e.g. 2:30.');
+    setErr(null);
+    save.mutate({ project_id: v.project_id, task_id: v.task_id, user_id: v.user_id, log_date: v.date, log_time: `${m[1].padStart(2, '0')}:${m[2]}`, is_billable: v.billable, notes: v.notes.trim() || undefined });
+  };
+  const projectOptions = (projects.data?.items ?? []).map((p) => ({ value: String(p.project_id), label: `${p.project_name}${p.customer_name ? ` · ${p.customer_name}` : ''}` }));
+  const taskOptions = (tasks.data?.items ?? []).map((t) => ({ value: String(t.task_id), label: s(t.task_name) }));
+  return (
+    <FormModal title="Log time" onClose={onClose} onSubmit={submit} saving={save.isPending} error={err ?? save.error}>
+      <Field label="Project *"><Select value={v.project_id} onChange={(x) => setV({ ...v, project_id: x, task_id: '' })} options={projectOptions} placeholder={projects.isLoading ? 'Loading…' : '—'} /></Field>
+      <Field label="Task *" hint={v.project_id && tasks.data && !taskOptions.length ? 'This project has no tasks yet — add one in the project first.' : undefined}>
+        <Select value={v.task_id} onChange={(x) => setV({ ...v, task_id: x })} options={taskOptions} placeholder={!v.project_id ? 'Choose a project first' : tasks.isLoading ? 'Loading…' : '—'} disabled={!v.project_id} />
+      </Field>
+      <Field label="User *"><Select value={v.user_id} onChange={(x) => setV({ ...v, user_id: x })} options={users} placeholder="—" /></Field>
+      <div className="grid grid-cols-2 gap-3">
+        <Field label="Date *"><TextInput type="date" value={v.date} onChange={(x) => setV({ ...v, date: x })} /></Field>
+        <Field label="Time spent *" hint="Hours:minutes"><TextInput value={v.time} onChange={(x) => setV({ ...v, time: x })} placeholder="2:30" /></Field>
+      </div>
+      <label className="inline-flex items-center gap-2 text-13"><input type="checkbox" checked={v.billable} onChange={(e) => setV({ ...v, billable: e.target.checked })} />Billable</label>
+      <Field label="Notes"><TextArea value={v.notes} onChange={(x) => setV({ ...v, notes: x })} rows={2} /></Field>
+    </FormModal>
+  );
+}
+
+// ── price lists ───────────────────────────────────────────────────────────
+export function PriceListForm({ onClose, onSaved }: { record?: ZRecord; onClose: () => void; onSaved: (r: ZRecord) => void }) {
+  const items = useLookup('items', { filter_by: 'Status.Active' });
+  const [v, setV] = useState({ name: '', description: '', side: 'sales', type: 'fixed_percentage', direction: 'decrease', percentage: '', rounding: 'no_rounding' });
+  const [rates, setRates] = useState<Record<string, string>>({});
+  const [err, setErr] = useState<string | null>(null);
+  const save = useSave('pricebooks', undefined, onSaved);
+  const submit = () => {
+    if (!v.name.trim()) return setErr('Name is required.');
+    const body: ZRecord = { name: v.name.trim(), description: v.description.trim() || undefined, sales_or_purchase_type: v.side, pricebook_type: v.type };
+    if (v.type === 'fixed_percentage') {
+      const p = Number(v.percentage);
+      if (v.percentage === '' || !(p > 0 && p <= 100)) return setErr('Percentage must be above 0 and at most 100.');
+      Object.assign(body, { percentage: p, is_increase: v.direction === 'increase', rounding_type: v.rounding });
+    } else {
+      const set = Object.entries(rates).filter(([, r]) => r.trim() !== '');
+      if (!set.length) return setErr('Give a custom rate for at least one item.');
+      if (set.some(([, r]) => !(Number(r) >= 0))) return setErr('Rates must be numbers, 0 or more.');
+      Object.assign(body, { pricing_scheme: 'unit', pricebook_items: set.map(([item_id, r]) => ({ item_id, pricebook_rate: Number(r) })) });
+    }
+    setErr(null);
+    save.mutate(body);
+  };
+  const rateOf = (it: ZRecord) => (v.side === 'sales' ? it.rate : it.purchase_rate ?? it.rate);
+  return (
+    <FormModal title="New price list" onClose={onClose} onSubmit={submit} saving={save.isPending} error={err ?? save.error} wide>
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+        <Field label="Name *" className="md:col-span-2"><TextInput value={v.name} onChange={(x) => setV({ ...v, name: x })} autoFocus /></Field>
+        <Field label="Used for"><Select value={v.side} onChange={(x) => setV({ ...v, side: x })} options={st(['sales', 'Sales'], ['purchases', 'Purchases'])} /></Field>
+        <Field label="Price list type" className="md:col-span-3">
+          <Select value={v.type} onChange={(x) => setV({ ...v, type: x })} options={st(['fixed_percentage', 'Mark up or down all items by a percentage'], ['per_item', 'Set a custom rate for each item'])} />
+        </Field>
+      </div>
+      {v.type === 'fixed_percentage' ? (
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+          <Field label="Direction"><Select value={v.direction} onChange={(x) => setV({ ...v, direction: x })} options={st(['decrease', 'Markdown'], ['increase', 'Markup'])} /></Field>
+          <Field label="Percentage *"><NumberInput value={v.percentage} onChange={(x) => setV({ ...v, percentage: x })} placeholder="10" /></Field>
+          <Field label="Rounding"><Select value={v.rounding} onChange={(x) => setV({ ...v, rounding: x })} options={st(['no_rounding', 'No rounding'], ['round_to_dollor', 'To the nearest whole number'])} /></Field>
+        </div>
+      ) : (
+        <div className="border border-border rounded max-h-80 overflow-y-auto">
+          <table className="w-full">
+            <thead><tr className="border-b border-border text-11 uppercase tracking-[0.06em] text-inkMuted"><th className="text-left px-3 h-8 font-medium">Item</th><th className="text-right px-3 font-medium">{v.side === 'sales' ? 'Selling price' : 'Cost price'}</th><th className="text-right px-3 font-medium w-40">Custom rate</th></tr></thead>
+            <tbody>
+              {items.isLoading ? <tr><td colSpan={3} className="px-3 py-2 text-12 text-inkMuted">Loading items…</td></tr> : null}
+              {(items.data?.items ?? []).map((it) => (
+                <tr key={it.item_id} className="border-b border-border last:border-b-0">
+                  <td className="px-3 py-1 text-13">{it.name}</td><td className="px-3 text-right text-13 tabular-nums text-inkMuted">{money(rateOf(it))}</td>
+                  <td className="px-3 py-1"><NumberInput value={rates[String(it.item_id)] ?? ''} onChange={(x) => setRates({ ...rates, [String(it.item_id)]: x })} placeholder="—" /></td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+      <Field label="Description"><TextArea value={v.description} onChange={(x) => setV({ ...v, description: x })} rows={2} /></Field>
+    </FormModal>
+  );
+}
+
+// ── base currency adjustment ──────────────────────────────────────────────
+/**
+ * Revalue foreign-currency balances at a new rate. Zoho lists the affected
+ * accounts with the gain or loss on each; the user picks which to post.
+ */
+export function CurrencyAdjustmentForm({ onClose, onSaved }: { record?: ZRecord; onClose: () => void; onSaved: (r: ZRecord) => void }) {
+  const org = useOrg();
+  const qc = useQueryClient();
+  const toast = useToast();
+  const currencies = useQuery({ queryKey: ['books', org.id, 'currencies'], queryFn: () => booksApi.org(org.id).currencies(), staleTime: 5 * 60_000 });
+  const foreign = (currencies.data?.items ?? []).filter((c) => !c.is_base_currency);
+  const [v, setV] = useState({ currency_id: '', date: today(), rate: '', notes: '' });
+  const [picked, setPicked] = useState<Record<string, boolean>>({});
+  const [err, setErr] = useState<string | null>(null);
+  const find = useMutation({
+    mutationFn: () => booksApi.org(org.id).adjustmentAccounts({ currency_id: v.currency_id, date: v.date, rate: v.rate, notes: v.notes.trim() }),
+    onSuccess: (r) => setPicked(Object.fromEntries(r.items.map((a) => [String(a.account_id), true]))),
+  });
+  const save = useMutation({
+    mutationFn: () => booksApi.org(org.id).createAdjustment({ currency_id: v.currency_id, adjustment_date: v.date, exchange_rate: Number(v.rate), notes: v.notes.trim(), account_ids: Object.keys(picked).filter((id) => picked[id]) }),
+    onSuccess: (rec) => { void qc.invalidateQueries({ queryKey: ['books', org.id] }); toast.push('success', 'Currency adjustment posted in Zoho Books.'); onSaved(rec); },
+  });
+  const inputs = () => {
+    if (!v.currency_id) return 'Choose a currency.';
+    if (!v.date) return 'Choose the adjustment date.';
+    if (!(Number(v.rate) > 0)) return 'The exchange rate must be above zero.';
+    if (!v.notes.trim()) return 'Notes are required.';
+    return null;
+  };
+  const lookUp = () => { const e = inputs(); setErr(e); if (!e) find.mutate(); };
+  const submit = () => {
+    const e = inputs() ?? (!find.data ? 'Find the accounts to adjust first.' : !Object.values(picked).some(Boolean) ? 'Choose at least one account.' : null);
+    setErr(e);
+    if (!e) save.mutate();
+  };
+  // A change to the inputs makes the listed gains and losses stale.
+  const change = (patch: Partial<typeof v>) => { setV({ ...v, ...patch }); find.reset(); setPicked({}); };
+  const cur = foreign.find((c) => String(c.currency_id) === v.currency_id);
+  const accounts = find.data?.items ?? [];
+  return (
+    <FormModal title="New currency adjustment" onClose={onClose} onSubmit={submit} saving={save.isPending} error={err ?? find.error ?? save.error} wide>
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+        <Field label="Currency *" hint={currencies.data && !foreign.length ? 'This organisation has no foreign currencies.' : cur ? `Current rate ${cur.exchange_rate ?? '—'}` : undefined}>
+          <Select value={v.currency_id} onChange={(x) => change({ currency_id: x, rate: s(foreign.find((c) => String(c.currency_id) === x)?.exchange_rate) })} options={foreign.map((c) => ({ value: String(c.currency_id), label: `${c.currency_code} — ${c.currency_name}` }))} placeholder={currencies.isLoading ? 'Loading…' : '—'} />
+        </Field>
+        <Field label="Adjustment date *"><TextInput type="date" value={v.date} onChange={(x) => change({ date: x })} /></Field>
+        <Field label={`Exchange rate *${cur ? ` (1 ${cur.currency_code} = ? ${org.currency_code ?? ''})` : ''}`}><NumberInput value={v.rate} onChange={(x) => change({ rate: x })} /></Field>
+      </div>
+      <Field label="Notes *"><TextInput value={v.notes} onChange={(x) => change({ notes: x })} maxLength={500} placeholder="e.g. Month-end revaluation of USD balances" /></Field>
+      <Btn onClick={lookUp} loading={find.isPending}>Find accounts to adjust</Btn>
+      {find.data ? (
+        accounts.length === 0 ? <Notice>No account has a {cur?.currency_code ?? 'foreign-currency'} balance to revalue on this date.</Notice> : (
+          <div className="border border-border rounded overflow-x-auto">
+            <table className="w-full min-w-[560px]">
+              <thead><tr className="border-b border-border text-11 uppercase tracking-[0.06em] text-inkMuted"><th className="w-8" /><th className="text-left px-3 h-8 font-medium">Account</th><th className="text-right px-3 font-medium">Balance ({cur?.currency_code})</th><th className="text-right px-3 font-medium">Revalued</th><th className="text-right px-3 font-medium">Gain / loss</th></tr></thead>
+              <tbody>
+                {accounts.map((a) => (
+                  <tr key={a.account_id} className="border-b border-border last:border-b-0 text-13">
+                    <td className="px-2"><input type="checkbox" aria-label={`Adjust ${a.account_name}`} checked={Boolean(picked[String(a.account_id)])} onChange={(e) => setPicked({ ...picked, [String(a.account_id)]: e.target.checked })} /></td>
+                    <td className="px-3 py-1.5">{a.account_name}</td>
+                    <td className="px-3 text-right tabular-nums">{money(a.fcy_balance, cur?.currency_code)}</td>
+                    <td className="px-3 text-right tabular-nums">{money(a.adjusted_balance, org.currency_code)}</td>
+                    <td className={`px-3 text-right tabular-nums ${Number(a.gain_or_loss) < 0 ? 'text-danger' : ''}`}>{money(a.gain_or_loss, org.currency_code)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )
+      ) : null}
+    </FormModal>
+  );
+}
+
+// ── chart of accounts ─────────────────────────────────────────────────────
+/** Bank and credit-card accounts are created from Banking, which also takes the bank details. */
+const ACCOUNT_TYPES = st(
+  ['other_current_asset', 'Other current asset'], ['fixed_asset', 'Fixed asset'], ['other_asset', 'Other asset'], ['cash', 'Cash'],
+  ['other_current_liability', 'Other current liability'], ['long_term_liability', 'Long-term liability'], ['other_liability', 'Other liability'],
+  ['equity', 'Equity'], ['income', 'Income'], ['other_income', 'Other income'],
+  ['expense', 'Expense'], ['cost_of_goods_sold', 'Cost of goods sold'], ['other_expense', 'Other expense'],
+);
+
+export function AccountForm({ record, onClose, onSaved }: { record?: ZRecord; onClose: () => void; onSaved: (r: ZRecord) => void }) {
+  const [v, setV] = useState({ account_name: s(record?.account_name), account_code: s(record?.account_code), account_type: s(record?.account_type) || 'expense', parent_account_id: s(record?.parent_account_id), description: s(record?.description) });
+  const sameType = useCallback((a: ZRecord) => a.account_type === v.account_type && String(a.account_id) !== s(record?.account_id), [v.account_type, record]);
+  const parents = useAccountOptions(sameType);
+  const [err, setErr] = useState<string | null>(null);
+  const save = useSave('accounts', record?.account_id, onSaved);
+  const submit = () => {
+    if (!v.account_name.trim()) return setErr('Account name is required.');
+    setErr(null);
+    const clr = (x: string) => x.trim() || (record ? '' : undefined);
+    save.mutate({ account_name: v.account_name.trim(), account_code: clr(v.account_code), account_type: v.account_type, parent_account_id: clr(v.parent_account_id), description: clr(v.description) });
+  };
+  const system = record?.is_system_account === true;
+  return (
+    <FormModal title={record ? 'Edit account' : 'New account'} onClose={onClose} onSubmit={submit} saving={save.isPending} error={err ?? save.error}>
+      <Field label="Account name *"><TextInput value={v.account_name} onChange={(x) => setV({ ...v, account_name: x })} autoFocus /></Field>
+      <div className="grid grid-cols-2 gap-3">
+        <Field label="Type *" hint={system ? 'System accounts keep their type.' : undefined}>
+          <Select value={v.account_type} onChange={(x) => setV({ ...v, account_type: x, parent_account_id: '' })} options={ACCOUNT_TYPES} disabled={Boolean(record)} />
+        </Field>
+        <Field label="Account code"><TextInput value={v.account_code} onChange={(x) => setV({ ...v, account_code: x })} /></Field>
+      </div>
+      <Field label="Sub-account of" hint="Only accounts of the same type can be parents."><Select value={v.parent_account_id} onChange={(x) => setV({ ...v, parent_account_id: x })} options={parents} placeholder="None (top level)" /></Field>
+      <Field label="Description"><TextArea value={v.description} onChange={(x) => setV({ ...v, description: x })} rows={2} /></Field>
+      <p className="text-12 text-inkMuted">Bank and credit-card accounts are added from Banking, with their bank details.</p>
     </FormModal>
   );
 }

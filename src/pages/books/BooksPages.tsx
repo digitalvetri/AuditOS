@@ -378,3 +378,164 @@ export function ZohoOnlyPage({ title, zohoPath, why }: { title: string; zohoPath
     </div>
   );
 }
+
+// ── transaction locking ───────────────────────────────────────────────────
+const LOCK_MODULES = [
+  { value: 'sales', label: 'Sales' }, { value: 'purchase', label: 'Purchases' }, { value: 'banking', label: 'Banking' },
+  { value: 'accountant', label: 'Accountant' }, { value: 'inventory_adjustments', label: 'Inventory adjustments' },
+];
+
+/** Stops edits to transactions dated on or before the lock date, per module, in Zoho Books. */
+export function TransactionLockingPage() {
+  const org = useOrg();
+  const { can } = useBooks();
+  const qc = useQueryClient();
+  const toast = useToast();
+  const locks = useQuery({ queryKey: ['books', org.id, 'transactionlocks'], queryFn: () => booksApi.org(org.id).transactionLocks(), enabled: can.settings });
+  const [locking, setLocking] = useState(false);
+  const [unlocking, setUnlocking] = useState<ZRecord | null>(null);
+  const [v, setV] = useState({ module: 'sales', date: today(), reason: '' });
+  const [reason, setReason] = useState('');
+  const refresh = () => void qc.invalidateQueries({ queryKey: ['books', org.id, 'transactionlocks'] });
+  const lock = useMutation({
+    mutationFn: () => booksApi.org(org.id).lock(v),
+    onSuccess: () => { refresh(); toast.push('success', 'Transactions locked in Zoho Books.'); setLocking(false); setV({ module: 'sales', date: today(), reason: '' }); },
+  });
+  const unlock = useMutation({
+    mutationFn: () => booksApi.org(org.id).unlock(String(unlocking?.transaction_lock_id), reason.trim()),
+    onSuccess: () => { refresh(); toast.push('success', 'Lock removed in Zoho Books.'); setUnlocking(null); setReason(''); },
+  });
+  if (!can.settings) return <div className="space-y-4"><PageHeader title="Transaction Locking" /><Section><Empty title="Your role cannot manage transaction locks." /></Section></div>;
+  const items = locks.data?.items ?? [];
+  return (
+    <div className="space-y-4">
+      <PageHeader title="Transaction Locking" subtitle="Stop edits to transactions on or before a date. Locks apply in Zoho Books too."
+        right={<Btn variant="primary" onClick={() => setLocking(true)}><Plus size={14} />Lock transactions</Btn>} />
+      <Section>
+        {locks.isLoading ? <Skeleton rows={4} /> : locks.isError ? <ErrorState error={errorText(locks.error)} onRetry={() => locks.refetch()} /> : items.length === 0 ? <Empty title="No transactions are locked." /> : (
+          <Table cols={[{ label: 'Scope' }, { label: 'Locked up to' }, { label: 'Status' }, { label: 'Locked by' }, { label: 'Reason' }, { label: '' }]} minWidth={720}>
+            {items.map((l) => (
+              <Row key={l.transaction_lock_id}>
+                <Cell>{l.lock_scope_formatted || l.accounting_period_name || '—'}</Cell>
+                <Cell>{date(l.transaction_lock_date)}</Cell>
+                <Cell><Badge status={l.lock_status_formatted ?? l.transaction_lock_status ?? l.status} /></Cell>
+                <Cell muted>{l.locked_by || '—'}</Cell>
+                <Cell muted>{l.reason || '—'}</Cell>
+                <Cell right><Btn variant="ghost" onClick={() => setUnlocking(l)}>Unlock</Btn></Cell>
+              </Row>
+            ))}
+          </Table>
+        )}
+      </Section>
+      {locking ? (
+        <Modal title="Lock transactions" onClose={() => setLocking(false)} footer={<><Btn onClick={() => setLocking(false)}>Cancel</Btn><Btn variant="primary" loading={lock.isPending} disabled={!v.reason.trim() || !v.date} onClick={() => lock.mutate()}>Lock</Btn></>}>
+          <div className="space-y-4">
+            {lock.error ? <Notice tone="error">{errorText(lock.error)}</Notice> : null}
+            <Field label="Module"><Select value={v.module} onChange={(x) => setV({ ...v, module: x })} options={LOCK_MODULES} /></Field>
+            <Field label="Lock up to *" hint="Transactions dated on or before this day can no longer be created, edited or deleted."><TextInput type="date" value={v.date} onChange={(x) => setV({ ...v, date: x })} /></Field>
+            <Field label="Reason *"><TextInput value={v.reason} onChange={(x) => setV({ ...v, reason: x })} maxLength={500} placeholder="e.g. FY 2025-26 books closed after audit" /></Field>
+          </div>
+        </Modal>
+      ) : null}
+      {unlocking ? (
+        <Modal title="Remove lock" onClose={() => setUnlocking(null)} footer={<><Btn onClick={() => setUnlocking(null)}>Cancel</Btn><Btn variant="danger" loading={unlock.isPending} disabled={!reason.trim()} onClick={() => unlock.mutate()}>Unlock</Btn></>}>
+          <div className="space-y-4">
+            {unlock.error ? <Notice tone="error">{errorText(unlock.error)}</Notice> : null}
+            <p className="text-13 text-ink">Transactions up to {date(unlocking.transaction_lock_date)} become editable again in Audit OS and Zoho Books.</p>
+            <Field label="Reason *"><TextInput value={reason} onChange={setReason} maxLength={500} /></Field>
+          </div>
+        </Modal>
+      ) : null}
+    </div>
+  );
+}
+
+// ── bulk update ───────────────────────────────────────────────────────────
+const anyAcct = () => true;
+
+/** Move many posted transactions from one account to another in one step (Zoho's account-register bulk update). */
+export function BulkUpdatePage() {
+  const org = useOrg();
+  const { can } = useBooks();
+  const qc = useQueryClient();
+  const toast = useToast();
+  const accounts = useAccountOptions(anyAcct);
+  const fyStart = (() => { const [y, m] = today().split('-').map(Number); return `${m >= 4 ? y : y - 1}-04-01`; })();
+  const [filter, setFilter] = useState({ account: '', from: fyStart, to: today() });
+  const [page, setPage] = useState(1);
+  const [picked, setPicked] = useState<Record<string, ZRecord>>({});
+  const [target, setTarget] = useState({ account: '', reason: '' });
+  const [confirming, setConfirming] = useState(false);
+  const ready = Boolean(filter.account && filter.from && filter.to && filter.from <= filter.to);
+  const rows = useQuery({
+    queryKey: ['books', org.id, 'register', filter, page],
+    queryFn: () => booksApi.org(org.id).register(filter.account, filter.from, filter.to, page),
+    enabled: can.accountant && ready,
+  });
+  const run = useMutation({
+    mutationFn: () => booksApi.org(org.id).bulkUpdate(filter.account, {
+      account_id: target.account, reason: target.reason.trim(),
+      entities: Object.values(picked).map((t) => ({ entity_id: String(t.transaction_id), entity_type: String(t.transaction_type) })),
+    }),
+    onSuccess: (r) => { setConfirming(false); setPicked({}); void qc.invalidateQueries({ queryKey: ['books', org.id] }); toast.push('success', r.message || 'Bulk update completed.'); },
+  });
+  const setF = (patch: Partial<typeof filter>) => { setFilter({ ...filter, ...patch }); setPage(1); setPicked({}); };
+  const keyOf = (t: ZRecord) => `${t.transaction_type}:${t.transaction_id}`;
+  const items = rows.data?.items ?? [];
+  const allPicked = items.length > 0 && items.every((t) => picked[keyOf(t)]);
+  const count = Object.keys(picked).length;
+  const label = (id: string) => accounts.find((a) => a.value === id)?.label ?? '';
+  if (!can.accountant) return <div className="space-y-4"><PageHeader title="Bulk Update" /><Section><Empty title="Your role cannot bulk-update transactions." /></Section></div>;
+  return (
+    <div className="space-y-4">
+      <PageHeader title="Bulk Update" subtitle="Move posted transactions from one account to another in a single step. Zoho Books records the change and the reason." />
+      <Section>
+        <div className="flex flex-wrap items-end gap-3 px-4 py-3 border-b border-border">
+          <div className="w-full sm:w-72"><Field label="Transactions in account"><Select value={filter.account} onChange={(x) => setF({ account: x })} options={accounts} placeholder="— Account —" /></Field></div>
+          <div className="w-40"><Field label="From"><TextInput type="date" value={filter.from} onChange={(x) => setF({ from: x })} /></Field></div>
+          <div className="w-40"><Field label="To"><TextInput type="date" value={filter.to} onChange={(x) => setF({ to: x })} /></Field></div>
+        </div>
+        {!ready ? <Empty title="Choose an account and a date range to list its transactions." />
+          : rows.isLoading ? <Skeleton rows={6} />
+          : rows.isError ? <ErrorState error={errorText(rows.error)} onRetry={() => rows.refetch()} />
+          : items.length === 0 ? <Empty title="No transactions in this account for these dates." /> : (
+            <>
+              <Table cols={[{ label: '' }, { label: 'Date' }, { label: 'Type' }, { label: 'Debit', right: true }, { label: 'Credit', right: true }]} minWidth={560}>
+                <Row>
+                  <Cell><input type="checkbox" aria-label="Select all on this page" checked={allPicked} onChange={(e) => setPicked((p) => { const n = { ...p }; for (const t of items) { if (e.target.checked) n[keyOf(t)] = t; else delete n[keyOf(t)]; } return n; })} /></Cell>
+                  <Cell muted>Select all on this page</Cell><Cell /><Cell /><Cell />
+                </Row>
+                {items.map((t) => (
+                  <Row key={keyOf(t)}>
+                    <Cell><input type="checkbox" aria-label="Select transaction" checked={Boolean(picked[keyOf(t)])} onChange={(e) => setPicked((p) => { const n = { ...p }; if (e.target.checked) n[keyOf(t)] = t; else delete n[keyOf(t)]; return n; })} /></Cell>
+                    <Cell>{date(t.transaction_date)}</Cell>
+                    <Cell>{t.transaction_type_formatted || String(t.transaction_type ?? '').replace(/_/g, ' ')}</Cell>
+                    <Cell right>{Number(t.debit_amount) ? money(t.debit_amount, org.currency_code) : '—'}</Cell>
+                    <Cell right>{Number(t.credit_amount) ? money(t.credit_amount, org.currency_code) : '—'}</Cell>
+                  </Row>
+                ))}
+              </Table>
+              <Pager page={page} hasMore={Boolean(rows.data?.has_more)} onPage={setPage} loading={rows.isFetching} />
+            </>
+          )}
+      </Section>
+      {ready ? (
+        <Section title="Move selected transactions">
+          <div className="flex flex-wrap items-end gap-3 px-4 py-3">
+            <div className="w-full sm:w-72"><Field label="To account *"><Select value={target.account} onChange={(x) => setTarget({ ...target, account: x })} options={accounts.filter((a) => a.value !== filter.account)} placeholder="— Account —" /></Field></div>
+            <div className="flex-1 min-w-[220px]"><Field label="Reason *"><TextInput value={target.reason} onChange={(x) => setTarget({ ...target, reason: x })} maxLength={500} placeholder="e.g. Reclassify office rent" /></Field></div>
+            <Btn variant="primary" disabled={!count || !target.account || !target.reason.trim()} onClick={() => setConfirming(true)}>Update {count || ''} transaction{count === 1 ? '' : 's'}</Btn>
+          </div>
+        </Section>
+      ) : null}
+      {confirming ? (
+        <Modal title="Bulk update" onClose={() => setConfirming(false)} footer={<><Btn onClick={() => setConfirming(false)}>Cancel</Btn><Btn variant="danger" loading={run.isPending} onClick={() => run.mutate()}>Update</Btn></>}>
+          <div className="space-y-3">
+            {run.error ? <Notice tone="error">{errorText(run.error)}</Notice> : null}
+            <p className="text-13 text-ink">Move {count} transaction{count === 1 ? '' : 's'} from <b>{label(filter.account)}</b> to <b>{label(target.account)}</b>? This changes the posted entries in Zoho Books.</p>
+          </div>
+        </Modal>
+      ) : null}
+    </div>
+  );
+}

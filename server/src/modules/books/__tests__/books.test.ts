@@ -331,18 +331,73 @@ describe('Books — resources', () => {
     expect(calls.length).toBe(before)
   })
 
-  it('exposes the rest of Zoho Books\' navigation as resources (read + delete only)', async () => {
+  it('exposes the rest of Zoho Books\' navigation as resources', async () => {
     const ref = await connectAndActivate()
-    for (const e of ['recurringinvoices', 'retainerinvoices', 'deliverychallans', 'salesreceipts', 'recurringexpenses', 'recurringbills', 'projects', 'timeentries', 'journals', 'currencyadjustments', 'budgets', 'documents', 'pricebooks', 'inventoryadjustments', 'accounts']) {
+    const creatable = ['recurringinvoices', 'retainerinvoices', 'deliverychallans', 'salesreceipts', 'recurringexpenses', 'recurringbills', 'projects', 'timeentries', 'journals', 'pricebooks', 'accounts']
+    const readOnly = ['currencyadjustments', 'budgets', 'documents', 'inventoryadjustments', 'users']
+    for (const e of [...creatable, ...readOnly]) {
       // Known resource: the list call is forwarded to Zoho (an unknown one is rejected before).
       const before = calls.length
       await api(`/api/books/o/${ref}/e/${e}`, { cookie: admin.cookie })
       expect(calls.length, e).toBe(before + 1)
-      // Created in Zoho Books itself — no create through Audit OS, and Zoho is not called.
-      const beforeCreate = calls.length
-      expect((await api(`/api/books/o/${ref}/e/${e}`, { method: 'POST', cookie: admin.cookie, body: { x: 1 } })).status).not.toBe(200)
-      expect(calls.length, `${e} create`).toBe(beforeCreate)
     }
+    for (const e of creatable) {
+      // Zoho documents a create endpoint: the body is forwarded.
+      const before = calls.length
+      await api(`/api/books/o/${ref}/e/${e}`, { method: 'POST', cookie: admin.cookie, body: { x: 1 } })
+      expect(calls.length, `${e} create`).toBeGreaterThan(before)
+      expect(calls.at(-1)?.method, `${e} create`).toBe('POST')
+    }
+    for (const e of readOnly) {
+      // No create endpoint in Zoho: rejected before Zoho is called.
+      const before = calls.length
+      expect((await api(`/api/books/o/${ref}/e/${e}`, { method: 'POST', cookie: admin.cookie, body: { x: 1 } })).status).not.toBe(200)
+      expect(calls.length, `${e} create`).toBe(before)
+    }
+  })
+
+  it('locks and unlocks transactions, and needs a reason', async () => {
+    const ref = await connectAndActivate()
+    overrides.push((url, init) => (url.pathname.endsWith('/transactionlock') && init?.method === 'PUT' ? { status: 200, json: { code: 0, message: 'Transaction lock has been updated.', transaction_lock: { transaction_lock_id: '77', transaction_lock_date: '2026-03-31' } } } : undefined))
+    const before = calls.length
+    expect((await api(`/api/books/o/${ref}/transactionlock`, { method: 'PUT', cookie: admin.cookie, body: { module: 'sales', date: '2026-03-31' } })).status).toBe(400)
+    expect((await api(`/api/books/o/${ref}/transactionlock`, { method: 'PUT', cookie: admin.cookie, body: { module: 'payroll', date: '2026-03-31', reason: 'x' } })).status).toBe(400)
+    expect(calls.length).toBe(before)
+    const r = await api(`/api/books/o/${ref}/transactionlock`, { method: 'PUT', cookie: admin.cookie, body: { module: 'sales', date: '2026-03-31', reason: 'FY closed' } })
+    expect(r.status).toBe(200)
+    expect(calls.at(-1)?.body).toMatchObject({ transaction_lock_status: 'enabled', transaction_lock_module: 'sales', transaction_lock_date: '2026-03-31', reason: 'FY closed' })
+    expect(await prisma.auditLog.count({ where: { action: 'books.transactionlock.locked', entityId: '77' } })).toBe(1)
+    expect((await api(`/api/books/o/${ref}/transactionlock/77/unlock`, { method: 'POST', cookie: admin.cookie, body: {} })).status).toBe(400)
+  })
+
+  it('posts a currency adjustment for the chosen accounts only', async () => {
+    const ref = await connectAndActivate()
+    overrides.push((url, init) => (url.pathname.endsWith('/basecurrencyadjustment') && init?.method === 'POST' ? { status: 201, json: { code: 0, data: { base_currency_adjustment_id: '88' } } } : undefined))
+    const before = calls.length
+    const bad = { currency_id: '5', adjustment_date: '2026-03-31', exchange_rate: 83.2, notes: 'Month end', account_ids: [] }
+    expect((await api(`/api/books/o/${ref}/currencyadjustment`, { method: 'POST', cookie: admin.cookie, body: bad })).status).toBe(400)
+    expect((await api(`/api/books/o/${ref}/currencyadjustment`, { method: 'POST', cookie: admin.cookie, body: { ...bad, account_ids: ['7'], exchange_rate: 0 } })).status).toBe(400)
+    expect(calls.length).toBe(before)
+    expect((await api(`/api/books/o/${ref}/currencyadjustment`, { method: 'POST', cookie: admin.cookie, body: { ...bad, account_ids: ['7', '9'] } })).status).toBe(201)
+    const call = calls.at(-1)!
+    expect(call.url.searchParams.get('account_ids')).toBe('7,9')
+    expect(call.body).toEqual({ currency_id: '5', adjustment_date: '2026-03-31', exchange_rate: 83.2, notes: 'Month end' })
+  })
+
+  it('bulk-updates register transactions with a reason, to a different account', async () => {
+    const ref = await connectAndActivate()
+    overrides.push((url, init) => (url.pathname.endsWith('/transactions/bulkupdate') && init?.method === 'PUT' ? { status: 200, json: { code: 0, message: 'Bulk update completed.' } } : undefined))
+    const url = `/api/books/o/${ref}/registers/100/bulkupdate`
+    const entities = [{ entity_id: '501', entity_type: 'expense' }]
+    const before = calls.length
+    expect((await api(url, { method: 'PUT', cookie: admin.cookie, body: { account_id: '200', entities } })).status).toBe(400)
+    expect((await api(url, { method: 'PUT', cookie: admin.cookie, body: { account_id: '100', reason: 'x', entities } })).status).toBe(400)
+    expect((await api(url, { method: 'PUT', cookie: admin.cookie, body: { account_id: '200', reason: 'x', entities: [{ entity_id: '../x', entity_type: 'expense' }] } })).status).toBe(400)
+    expect(calls.length).toBe(before)
+    expect((await api(url, { method: 'PUT', cookie: admin.cookie, body: { account_id: '200', reason: 'Reclassify rent', entities } })).status).toBe(200)
+    expect(calls.at(-1)?.url.pathname).toContain('/registers/100/transactions/bulkupdate')
+    expect(calls.at(-1)?.body).toEqual({ account_id: '200', bulk_update_reason: 'Reclassify rent', entities })
+    expect(await prisma.auditLog.count({ where: { action: 'books.accounts.bulk_updated', entityId: '100' } })).toBe(1)
   })
 
   it('maps Zoho outages to a clean error', async () => {
