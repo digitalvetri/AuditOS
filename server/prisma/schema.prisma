@@ -3335,6 +3335,7 @@ model BookkeepingCompany {
   payHeads        BookkeepingPayHead[]
   payrollRuns     BookkeepingPayrollRun[]
   backups         BookkeepingBackup[]
+  importMappings  BookkeepingImportMapping[]
 
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt
@@ -3342,6 +3343,54 @@ model BookkeepingCompany {
 
   @@unique([organisationId, name])
   @@index([organisationId])
+}
+
+/// A saved column-mapping for a client's flat register (BOOKKEEPING-REBUILD §3.1).
+///
+/// The client's Excel is not a chart of accounts — it is a flat list of what
+/// they billed or bought. Every client's file is different, so the import is
+/// not a parser; it is a mapping that gets saved and reused: month one is
+/// slow, month twelve is one click. Same compounding pattern as the Tally
+/// ledger rules table.
+///
+/// One mapping per (company, target). Re-uploading the same target's file
+/// with different columns re-shows the mapping screen pre-filled, with the
+/// changed columns highlighted — enforced at the service layer.
+model BookkeepingImportMapping {
+  id                  String   @id @default(uuid())
+  tallyCompanyId      String
+  /// Sheet tab the operator picked, e.g. "Sales" or "Purchase". Kept so
+  /// the next month we can validate the same tab still exists.
+  sheetName           String
+  /// sales_register | purchase_register | receipt_register | payment_register
+  target              String
+  /// 1-based row number the header sits on. Data begins at headerRow + 1.
+  headerRow           Int      @default(1)
+  /// Column letter → target field, e.g. { "A": "date", "B": "invoice_no",
+  /// "D": "customer", "F": "currency", "H": "foreign_amount",
+  /// "J": "amount_inr", "K": "exchange_rate" }. "ignore" or absence means
+  /// the column is skipped.
+  columnMapJson       Json
+  /// The strftime-style pattern that column-A dates follow — the client's
+  /// file uses "DD/MM/YYYY" but we cannot assume it; keep the value as
+  /// typed on the mapping screen.
+  dateFormat          String   @default("DD/MM/YYYY")
+  /// Free-form alias table, e.g. { "S$": "SGD", "$": "USD" }. Populated
+  /// when the operator confirms "map S$ to SGD? [Yes, and remember]".
+  currencyAliasesJson Json
+  /// Bumped every time the operator re-saves. The changed-column
+  /// highlight on re-import compares against the current version.
+  version             Int      @default(1)
+  createdByUserId     String?
+  updatedByUserId     String?
+
+  company BookkeepingCompany @relation(fields: [tallyCompanyId], references: [id])
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([tallyCompanyId, target])
+  @@index([tallyCompanyId])
 }
 
 /// Financial year for a Tally company. Every future voucher will

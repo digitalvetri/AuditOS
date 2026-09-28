@@ -155,6 +155,7 @@ function SecondaryNav({ companyId }: { companyId: string }) {
     {
       heading: 'Administration',
       rows: [
+        { to: `${base}/import`, label: 'Excel import', icon: Wrench },
         { to: `${base}/utilities`, label: 'Import / Backup', icon: Wrench },
         { to: `${base}/settings`, label: 'Settings', icon: Settings },
       ],

@@ -622,4 +622,111 @@ export const bookkeepingAccountingApi = {
   dashboard: (c: string, f: BookkeepingPeriod & { fy_id?: string } = {}) => api.get<BookkeepingDashboard>(`${base(c)}/dashboard${qs(f)}`),
   search: (c: string, q: string) =>
     api.get<{ query: string; hits: { type: string; id: string; label: string; sublabel: string | null; route: string }[] }>(`${base(c)}/search${qs({ q })}`),
+
+  // ── Import mapping (BOOKKEEPING-REBUILD §3.1) ──────────────────────
+  // The primary way client data enters the books. See the type block
+  // ImportMapping below for the persistent shape.
+  previewWorkbook: (c: string, file: File) => {
+    const fd = new FormData();
+    fd.append('file', file);
+    return api.postForm<WorkbookPreview>(`${base(c)}/imports/preview`, fd);
+  },
+  listImportMappings: (c: string) =>
+    api.get<{ items: ImportMapping[] }>(`${base(c)}/imports/mappings`),
+  getImportMapping: (c: string, target: ImportTarget) =>
+    api.get<ImportMapping>(`${base(c)}/imports/mappings/${target}`),
+  saveImportMapping: (c: string, input: SaveImportMappingInput) =>
+    api.post<ImportMapping>(`${base(c)}/imports/mappings`, input),
 };
+
+/** Same target list as server/src/modules/bookkeeping/services/BookkeepingImportService.ts. */
+export const IMPORT_TARGETS = [
+  'sales_register',
+  'purchase_register',
+  'receipt_register',
+  'payment_register',
+] as const;
+export type ImportTarget = (typeof IMPORT_TARGETS)[number];
+
+/** Same field list as the server. Keep this in sync — the wizard's dropdowns are rendered from it. */
+export const MAPPABLE_FIELDS = [
+  'ignore',
+  'date',
+  'invoice_no',
+  'bill_no',
+  'customer',
+  'supplier',
+  'description',
+  'currency',
+  'foreign_amount',
+  'amount_inr',
+  'exchange_rate',
+  'taxable_value',
+  'cgst',
+  'sgst',
+  'igst',
+  'cess',
+  'total',
+  'gstin',
+  'hsn',
+] as const;
+export type MappableField = (typeof MAPPABLE_FIELDS)[number];
+
+export const MAPPABLE_FIELD_LABEL: Record<MappableField, string> = {
+  ignore: 'Ignore',
+  date: 'Date',
+  invoice_no: 'Invoice no',
+  bill_no: 'Bill no',
+  customer: 'Customer',
+  supplier: 'Supplier',
+  description: 'Description',
+  currency: 'Currency',
+  foreign_amount: 'Foreign amount',
+  amount_inr: 'Amount (INR)',
+  exchange_rate: 'Exchange rate',
+  taxable_value: 'Taxable value',
+  cgst: 'CGST',
+  sgst: 'SGST',
+  igst: 'IGST',
+  cess: 'Cess',
+  total: 'Total',
+  gstin: 'GSTIN',
+  hsn: 'HSN',
+};
+
+export interface SheetPreview {
+  name: string;
+  rowCount: number;
+  columns: string[];       // ['A', 'B', 'C', ...]
+  headerRow: string[];     // trimmed text of row 1
+  sampleRows: string[][];  // up to ten rows after the header
+}
+
+export interface WorkbookPreview {
+  sheets: SheetPreview[];
+}
+
+export interface ImportMapping {
+  id: string;
+  tallyCompanyId: string;
+  sheetName: string;
+  target: ImportTarget;
+  headerRow: number;
+  columnMapJson: Record<string, MappableField>;
+  dateFormat: string;
+  currencyAliasesJson: Record<string, string>;
+  version: number;
+  createdByUserId: string | null;
+  updatedByUserId: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface SaveImportMappingInput {
+  sheet_name: string;
+  target: ImportTarget;
+  header_row: number;
+  column_map: Record<string, MappableField>;
+  date_format: string;
+  currency_aliases: Record<string, string>;
+}
