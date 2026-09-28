@@ -106,11 +106,13 @@ export function Sidebar({ mobileOpen, onMobileClose }: Props) {
     // workstation.access grant see nothing here.
     const workstationItems: NavItem[] = [
       { to: '/workstation',             label: 'Overview',   icon: LayoutGrid,    end: true, visible: can(role, 'workstation.access', 'self') },
-      /* Quotation is its own module. Billing — invoices, receipts, what is
-         actually charged — is a separate thing and gets its own row when it
-         exists; a quotation is a proposal and is not billing. */
-      { to: '/workstation/quotations',  label: 'Quotation',  icon: FileSignature, end: true, visible: can(role, 'workstation.quotation.read', 'self') },
-      { to: '/workstation/invoices',    label: 'Invoice',    icon: ReceiptText,   end: true, visible: can(role, 'workstation.invoice.read', 'self') },
+      /* Practice-billing rows: what JNS charges its own clients for
+         services. Renamed from "Quotation" / "Invoice" (BOOKKEEPING-
+         REBUILD §7) because Services → Books → Sales carries a
+         + Quotation / + Sales invoice inside a *client's* books, and
+         the naming collision was making staff conflate the two. */
+      { to: '/workstation/quotations',  label: 'Practice Quotation',  icon: FileSignature, end: true, visible: can(role, 'workstation.quotation.read', 'self') },
+      { to: '/workstation/invoices',    label: 'Practice Invoice',    icon: ReceiptText,   end: true, visible: can(role, 'workstation.invoice.read', 'self') },
       { to: '/workstation/engagement',  label: 'Engagement', icon: ScrollText,    visible: can(role, 'workstation.engagement.read', 'self') },
       { to: '/workstation/doc',         label: 'Doc',        icon: FileText,      visible: can(role, 'workstation.doc.read', 'self') },
       { to: '/workstation/leads',       label: 'Leads',      icon: PhoneCall,     visible: can(role, 'workstation.lead.read', 'self') },
@@ -119,9 +121,14 @@ export function Sidebar({ mobileOpen, onMobileClose }: Props) {
       { to: '/workstation/services',    label: 'Services',   icon: Briefcase,     end: true, visible: can(role, 'workstation.service.read', 'self'),
         children: [
           { to: '/workstation/services/tds',           label: 'TDS' },
-          { to: '/workstation/services/bookkeeping',   label: 'Bookkeeping' },
+          /* BOOKKEEPING-REBUILD §7 renames — "Bookkeeping" (the
+             accounting engine) becomes "Books" and "Bookkeeping
+             Service" (the checklist tracker) becomes "Bookkeeping
+             Engagement". Two entries one line apart with the same
+             leading word was the exact confusion the spec calls out. */
+          { to: '/workstation/services/bookkeeping',   label: 'Books' },
           { to: '/workstation/services/tally-export',  label: 'Tally Export' },
-          { to: '/workstation/services/bookkeeping-service', label: 'Bookkeeping Service' },
+          { to: '/workstation/services/bookkeeping-service', label: 'Bookkeeping Engagement' },
           { to: '/workstation/services/registration',  label: 'Registration',
             children: REGISTRATION_SERVICES.map((r) => ({
               to: `/workstation/services/registration/${r.slug}`,
