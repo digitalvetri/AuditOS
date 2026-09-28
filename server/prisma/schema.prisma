@@ -3304,6 +3304,11 @@ model BookkeepingCompany {
   email               String?
   website             String?
   baseCurrency        String  @default("INR")
+  /// When true, this client's export sales are zero-rated under a Letter
+  /// of Undertaking — Output CGST/SGST/IGST are legitimately absent from
+  /// their invoices, and the GST report will look empty by design. The
+  /// flag is what stops that from tripping "missing tax" bugs elsewhere.
+  exportUnderLut      Boolean @default(false)
   /// regular | composition | unregistered | sez | overseas
   gstRegistrationType String  @default("regular")
   gstin               String?
@@ -3533,6 +3538,20 @@ model BookkeepingVoucher {
   roundOffPaise     Int     @default(0)
   grandTotalPaise   Int     @default(0)
   dueDate           String?
+  /// Header-level currency for the source document. Every posting amount
+  /// on this voucher (totalDebitPaise, taxableValuePaise, etc.) is INR
+  /// paise — that is what the ledger, trial balance, P&L and balance
+  /// sheet ever read. The two fields below carry the foreign side for
+  /// display and audit only.
+  ///
+  /// ISO-4217 3-letter code. Defaults to INR so every pre-existing
+  /// voucher is treated as an INR voucher without a backfill.
+  currency          String  @default("INR")
+  /// Exchange rate as typed on the source document — the RATE THE CLIENT
+  /// FILLED IN. Do not fetch from an API, do not compute. Null when the
+  /// voucher currency is INR (rate is implicitly 1). Decimal(18,8)
+  /// carries eight fractional digits, enough for any published rate.
+  exchangeRate      Decimal? @db.Decimal(18, 8)
   /// Optimistic-lock / edit counter. Every alteration writes a
   /// BookkeepingVoucherRevision and bumps this.
   version           Int     @default(1)
@@ -3572,7 +3591,21 @@ model BookkeepingVoucherEntry {
   ledgerId       String
   /// dr | cr
   entryType      String
+  /// The amount that posts to the ledger. ALWAYS INR paise, always the
+  /// only field trial balance, P&L, balance sheet and every report ever
+  /// reads. The three currency fields below are display and audit only.
   amountPaise    Int
+  /// ISO-4217 3-letter code the source document was written in.
+  /// Defaults to INR so pre-existing lines are treated as INR lines.
+  currency       String  @default("INR")
+  /// Minor units of `currency` (cents / paise / sen). Null on INR lines
+  /// where the foreign side is the same as `amountPaise`. Signed the
+  /// same way as amountPaise — magnitude only.
+  foreignAmountMinor Int?
+  /// Exchange rate as typed on the source document. Null on INR lines.
+  /// Assert: round(foreignAmountMinor × exchangeRate) == amountPaise
+  /// within ₹1, or the row is flagged and never silently posted.
+  exchangeRate   Decimal? @db.Decimal(18, 8)
   narration      String?
   position       Int     @default(0)
   /// Marks the party line so receivable/payable reports can find it.
