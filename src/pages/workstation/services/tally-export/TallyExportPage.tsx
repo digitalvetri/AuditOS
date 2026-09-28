@@ -17,10 +17,10 @@
  * the review UI grows Apply-to-similar / Save-as-rule inline actions,
  * the Preview tab can lift into its own file.
  */
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { AlertTriangle, Check, Info, Trash2 } from 'lucide-react';
-import { rupees, ReportHeader, Panel, Loading, ErrorNote } from '@/modules/tools/bookkeeping/ui';
+import { AlertTriangle, Check, Info, Trash2, Upload } from 'lucide-react';
+import { rupees, ReportHeader, Panel, Loading, ErrorNote, parseCsv } from '@/modules/tools/bookkeeping/ui';
 import { bookkeepingApi, bookkeepingAccountingApi } from '@/modules/tools/audit-automation/bookkeeping';
 import {
   tallyExportApi, MATCH_TYPES, VOUCHER_TYPES,
@@ -263,6 +263,7 @@ function RulesPanel({ companyId }: { companyId: string }) {
 
 function PreviewPanel({ companyId }: { companyId: string }) {
   const toast = useToast();
+  const qc = useQueryClient();
   const asOf = new Date().toISOString().slice(0, 10);
   const accountsQ = useQuery({
     queryKey: ['tally.bankAccounts', companyId, asOf],
@@ -342,6 +343,16 @@ function PreviewPanel({ companyId }: { companyId: string }) {
             {generate.isPending ? 'Generating…' : 'Download Tally XML'}
           </button>
         </div>
+        <StatementUploader
+          companyId={companyId}
+          bankLedgerId={effectiveScope.bankLedgerId}
+          onImported={(count) => {
+            toast.push('success', `${count} statement line${count === 1 ? '' : 's'} imported.`);
+            // Preflight reads from what was just imported, so refetch.
+            void qc.invalidateQueries({ queryKey: ['tallyExport.preflight'] });
+            void qc.invalidateQueries({ queryKey: ['tally.bankAccounts', companyId] });
+          }}
+        />
       </Panel>
 
       {preflightQ.isLoading ? <Loading /> : preflightQ.isError ? <ErrorNote message={(preflightQ.error as Error).message} /> : preflightQ.data ? (
@@ -730,4 +741,168 @@ function BulkImportDialog({
       </div>
     </div>
   );
+}
+
+/**
+ * Bank-statement uploader embedded in the Tally Export Scope panel.
+ *
+ * By design the export reads from Books' bank ledger — the same source
+ * used by every other report — so an "upload here" affordance in Tally
+ * Export would either need its own staging table (a parallel source of
+ * truth, bad) or route the import through the existing endpoint. This
+ * takes the second route: the upload calls
+ * `bookkeepingAccountingApi.importStatement`, which is exactly what
+ * Books → Banking → Statement uses. Result: one file lands in the
+ * bank ledger and the preflight query re-runs against it, without
+ * anyone having to leave the Tally Export screen.
+ *
+ * Accepts a .csv file OR a pasted textarea. Recognised columns:
+ *   date | description | debit | credit | balance | ref
+ * plus common aliases (txn_date, value_date, withdrawal, deposit,
+ * narration, particulars, reference, cheque_no) so most bank exports
+ * work with no massaging.
+ */
+function StatementUploader({
+  companyId,
+  bankLedgerId,
+  onImported,
+}: {
+  companyId: string;
+  bankLedgerId: string;
+  onImported: (importedCount: number) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [csv, setCsv] = useState('');
+  const [err, setErr] = useState<string | null>(null);
+  const [importedNote, setImportedNote] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
+
+  const importM = useMutation({
+    mutationFn: () => {
+      if (!bankLedgerId) throw new Error('Pick a bank account first.');
+      const { rows } = parseCsv(csv);
+      const parsed = rows
+        .map((r) => ({
+          date: normaliseDateInline(r.date ?? r.txn_date ?? r.value_date ?? ''),
+          description: r.description ?? r.narration ?? r.particulars ?? '',
+          ref_number: r.ref ?? r.reference ?? r.cheque_no ?? null,
+          debit_paise: moneyInline(r.debit ?? r.withdrawal ?? ''),
+          credit_paise: moneyInline(r.credit ?? r.deposit ?? ''),
+          balance_paise: r.balance ? moneyInline(r.balance) : null,
+        }))
+        .filter((r) => /^\d{4}-\d{2}-\d{2}$/.test(r.date) && (r.debit_paise || r.credit_paise));
+      if (!parsed.length) {
+        throw new Error('No usable rows. Expected columns include date, description, debit, credit, balance.');
+      }
+      return bookkeepingAccountingApi.importStatement(companyId, bankLedgerId, parsed);
+    },
+    onSuccess: (r) => {
+      setImportedNote(
+        r.duplicates_skipped
+          ? `Imported ${r.imported} · skipped ${r.duplicates_skipped} duplicate${r.duplicates_skipped === 1 ? '' : 's'}.`
+          : `Imported ${r.imported} line${r.imported === 1 ? '' : 's'}.`,
+      );
+      setCsv('');
+      setErr(null);
+      onImported(r.imported);
+    },
+    onError: (e: Error) => { setErr(e.message); setImportedNote(null); },
+  });
+
+  async function onFilePicked(e: React.ChangeEvent<HTMLInputElement>) {
+    setErr(null);
+    setImportedNote(null);
+    const f = e.target.files?.[0];
+    if (!f) return;
+    try {
+      const text = await f.text();
+      setCsv(text);
+    } catch (readErr) {
+      setErr(`Could not read the file — ${(readErr as Error).message}`);
+    } finally {
+      // Reset the input so re-picking the same file still fires onChange.
+      if (fileInputRef.current) fileInputRef.current.value = '';
+    }
+  }
+
+  if (!open) {
+    return (
+      <div className="px-3 pb-3 -mt-2">
+        <button
+          type="button"
+          onClick={() => setOpen(true)}
+          className="inline-flex items-center gap-1 text-12 text-neutral-600 hover:text-neutral-900"
+        >
+          <Upload size={12} /> Upload bank statement (CSV) instead
+        </button>
+      </div>
+    );
+  }
+
+  return (
+    <div className="px-3 pb-3 -mt-2">
+      <div className="border border-neutral-200 rounded p-3 bg-neutral-50 space-y-2">
+        <div className="flex items-center justify-between">
+          <div className="text-12 font-medium text-neutral-800 flex items-center gap-1">
+            <Upload size={12} /> Upload bank statement (CSV)
+          </div>
+          <button type="button" onClick={() => setOpen(false)} className="text-12 text-neutral-500 hover:text-neutral-900">Hide</button>
+        </div>
+        <p className="text-11 text-neutral-500">
+          The CSV lands in the selected bank account's ledger — same source Books → Banking → Statement writes to.
+          Recognised columns: <code className="text-11">date, description, debit, credit, balance, ref</code>. Duplicates skipped.
+        </p>
+
+        <div className="flex items-center gap-3 flex-wrap">
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept=".csv,text/csv"
+            onChange={onFilePicked}
+            className="text-12"
+          />
+          <span className="text-11 text-neutral-400">or paste below</span>
+        </div>
+
+        <textarea
+          value={csv}
+          onChange={(e) => setCsv(e.target.value)}
+          rows={4}
+          placeholder={'date,description,debit,credit,balance\n2026-04-15,NEFT XYZ CUSTOMERS,,100000,540000'}
+          className="w-full px-2 py-1 text-12 font-mono border border-neutral-300 rounded focus:outline-none focus:border-neutral-500 bg-white"
+        />
+
+        {err && <div className="text-12 text-red-600">{err}</div>}
+        {importedNote && <div className="text-12 text-emerald-700">{importedNote}</div>}
+
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            disabled={!csv.trim() || !bankLedgerId || importM.isPending}
+            onClick={() => { setErr(null); setImportedNote(null); importM.mutate(); }}
+            className="h-8 px-3 text-12 border border-neutral-300 rounded bg-white hover:bg-neutral-50 disabled:opacity-50"
+            title={!bankLedgerId ? 'Pick a bank account above first' : ''}
+          >
+            {importM.isPending ? 'Importing…' : 'Import lines'}
+          </button>
+          {!bankLedgerId && (
+            <span className="text-11 text-amber-700">Pick a bank account above first.</span>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/** Kept identical to BookkeepingBanking.tsx — small, duplicated on purpose
+ *  so a change to one doesn't silently change the parser in the other. */
+function moneyInline(v: string): number {
+  const n = Number(String(v).replace(/[₹,\s]/g, ''));
+  return Number.isFinite(n) ? Math.round(n * 100) : 0;
+}
+function normaliseDateInline(v: string): string {
+  const s = v.trim();
+  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
+  const m = s.match(/^(\d{2})[/-](\d{2})[/-](\d{4})$/);
+  return m ? `${m[3]}-${m[2]}-${m[1]}` : '';
 }
