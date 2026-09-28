@@ -429,8 +429,9 @@ function NavItemRow({ item, collapsed }: { item: NavItem; collapsed: boolean }) 
 }
 
 /**
- * A second-level row. With grandchildren it gets its own chevron and a third
- * level indented under it; without, it is the plain link it always was.
+ * A second-level row. With grandchildren it is only a group header — the
+ * whole row opens and closes the third level indented under it, and has no
+ * page of its own; without, it is the plain link it always was.
  */
 function NavChildRow({ child }: { child: NavChild }) {
   const location = useLocation();
@@ -439,42 +440,42 @@ function NavChildRow({ child }: { child: NavChild }) {
   const [open, setOpen] = useState(onBranch);
   useEffect(() => { if (onBranch) setOpen(true); }, [onBranch]);
 
-  const link = (
-    <NavLink
-      to={child.to}
-      end={hasKids}
-      className={({ isActive }) =>
-        'flex items-center h-9 pl-11 pr-3 rounded-lg text-14 transition-colors ' +
-        (hasKids ? 'flex-1 min-w-0 ' : '') +
-        (isActive
-          ? 'bg-sidebarActive text-sidebarText font-semibold'
-          : 'text-sidebarText font-medium hover:bg-sidebarHover')
-      }
-    >
-      <span className="truncate">{child.label}</span>
-    </NavLink>
-  );
-
-  if (!hasKids) return link;
+  if (!hasKids) {
+    return (
+      <NavLink
+        to={child.to}
+        className={({ isActive }) =>
+          'flex items-center h-9 pl-11 pr-3 rounded-lg text-14 transition-colors ' +
+          (isActive
+            ? 'bg-sidebarActive text-sidebarText font-semibold'
+            : 'text-sidebarText font-medium hover:bg-sidebarHover')
+        }
+      >
+        <span className="truncate">{child.label}</span>
+      </NavLink>
+    );
+  }
 
   return (
     <>
-      <div className="flex items-center">
-        {link}
-        <button
-          type="button"
-          onClick={() => setOpen((o) => !o)}
-          aria-expanded={open}
-          aria-label={(open ? 'Collapse' : 'Expand') + ' ' + child.label}
-          className="shrink-0 h-9 w-7 flex items-center justify-center rounded-lg text-sidebarText hover:bg-sidebarHover transition-colors"
-        >
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        aria-expanded={open}
+        className={
+          'w-full flex items-center h-9 pl-11 pr-0 rounded-lg text-14 text-sidebarText hover:bg-sidebarHover transition-colors ' +
+          (onBranch ? 'font-semibold' : 'font-medium')
+        }
+      >
+        <span className="flex-1 min-w-0 truncate text-left">{child.label}</span>
+        <span className="shrink-0 w-7 flex items-center justify-center" aria-hidden>
           <ChevronDown
             size={12}
             strokeWidth={2.5}
             className={'transition-transform ' + (open ? '' : '-rotate-90')}
           />
-        </button>
-      </div>
+        </span>
+      </button>
       {open ? (
         <ul className="mt-px space-y-px">
           {child.children!.map((leaf) => (

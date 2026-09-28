@@ -81,9 +81,6 @@ import { BookkeepingSettings } from '@/pages/workstation/services/bookkeeping/Bo
 // shape-based workspace dispatcher (recurring period board / project case
 // pipeline) + weekly notice-check discovery workflow.
 // See docs/gst-services/README.md.
-// Registration — Workstation → Services → Registration. Nav structure and
-// reference only; nothing files a registration yet.
-import { RegistrationServicesLanding } from '@/pages/workstation/registration/RegistrationServicesLanding';
 // GST compliance lives inside the GST Registration entry — see GstShell.
 import { PartnershipShell } from '@/pages/workstation/registration/partnership/PartnershipShell';
 import { PartnershipDashboard } from '@/pages/workstation/registration/partnership/PartnershipDashboard';
@@ -256,7 +253,9 @@ export default function App() {
                   every remaining slug resolves to the same Services page. */}
               {/* Registration category — declared BEFORE the :category
                   catch-all below, or that would swallow the slug. */}
-              <Route path="workstation/services/registration" element={<RegistrationServicesLanding />} />
+              {/* Registration has no page of its own — it is a sidebar group.
+                  Old links to it land on the first registration. */}
+              <Route path="workstation/services/registration" element={<Navigate to="/workstation/services/registration/gst" replace />} />
               {/* GST Registration is a real module, so it is declared BEFORE
                   the :slug catch-all below — which would otherwise swallow
                   /registration/gst/dashboard and render "not found". */}
