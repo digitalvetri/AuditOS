@@ -649,8 +649,10 @@ export const bookkeepingAccountingApi = {
 
   // Step 3 — commit: post the NEW rows through the existing engine and
   // write a BookkeepingImportRun. CHANGED rows default to skip until
-  // §3.5's update path lands.
-  commitImport: (c: string, input: CommitImportInput) =>
+  // §3.5's update path lands. Named commitImportBatch to avoid the
+  // older commitImport helper (line 604) that pushes rows into a
+  // BookkeepingDataService entity — different pipeline entirely.
+  commitImportBatch: (c: string, input: CommitImportInput) =>
     api.post<CommitImportResult>(`${base(c)}/imports/commit`, input),
 
   // History of committed imports for this company (newest first).

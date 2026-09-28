@@ -108,7 +108,7 @@ export function BookkeepingImportPage() {
   const commitMut = useMutation({
     mutationFn: () => {
       if (!derived) throw new Error('Preview the file before committing.');
-      return bookkeepingAccountingApi.commitImport(companyId, {
+      return bookkeepingAccountingApi.commitImportBatch(companyId, {
         target,
         file_name: derived._import.fileName,
         file_sha256: derived._import.fileSha256,
