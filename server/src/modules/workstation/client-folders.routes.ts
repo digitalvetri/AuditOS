@@ -13,7 +13,7 @@ import { assertCanSeeClient, requireWorkstation, workstationScope } from '../../
 import { LocalStorageAdapter } from '../tools/storage/LocalStorageAdapter.js'
 import type { StorageAdapter } from '../tools/storage/StorageAdapter.js'
 import { aaStorage } from '../audit-automation/storage.js'
-import { bookkeepingImportStorage } from '../bookkeeping-service/storage.js'
+import { bookkeepingImportStorage } from './bookkeepingImportStorage.js'
 import { partnershipStorage } from '../partnership/storage.js'
 import { streamEInvoicePdf, streamEwayBillPdf, streamGstFilingPdf } from './record-pdf.js'
 
