@@ -15,7 +15,7 @@ import {
   paymentToApi, payslipToApi, salaryStructureToApi,
 } from '../../api/serialize.js'
 import { nextPaymentNo, postJournal, type JournalLeg } from '../accounts/ledger.js'
-import { CATEGORIES } from '../../platform/constants.js'
+import { CATEGORIES, TDS_PLAN_GROSS_THRESHOLD_PAISE } from '../../platform/constants.js'
 import type { PayrollDeductions } from '../../domain/payroll/calc.js'
 
 /**
@@ -219,13 +219,40 @@ payrollRouter.get('/runs/:id', handler(async (req, res) => {
     }),
   ])
 
-  const blockers = activeEmployees
-    .filter((e) => e.salaryStructures.length === 0)
-    .map((e) => ({
-      employee: employeeRefWithDept(e),
-      reason: 'no_salary_structure',
-      message: `No salary structure covering ${run.periodStart} to ${run.periodEnd}.`,
-    }))
+  const blockers: {
+    employee: ReturnType<typeof employeeRefWithDept>
+    reason: 'no_salary_structure' | 'tds_plan_missing'
+    message: string
+  }[] = []
+  for (const e of activeEmployees) {
+    if (e.salaryStructures.length === 0) {
+      blockers.push({
+        employee: employeeRefWithDept(e),
+        reason: 'no_salary_structure',
+        message: `No salary structure covering ${run.periodStart} to ${run.periodEnd}.`,
+      })
+      continue
+    }
+    // TDS plan blocker (§2.6). Read the actual gross for this run's item
+    // if one exists (post-calculate); fall back to structure sum for the
+    // pre-calculate preview.
+    const item = items.find((i) => i.employeeId === e.id)
+    const s = e.salaryStructures[0]
+    const grossForCheck = item?.grossPaise
+      ?? (s.basicPaise + s.hraPaise + s.conveyancePaise + s.specialAllowancePaise)
+    const exempt = (e.tdsExemptReason ?? '').trim().length > 0
+    if (
+      grossForCheck > TDS_PLAN_GROSS_THRESHOLD_PAISE
+      && e.annualTdsPlanPaise === 0
+      && !exempt
+    ) {
+      blockers.push({
+        employee: employeeRefWithDept(e),
+        reason: 'tds_plan_missing',
+        message: `Gross above ₹${(TDS_PLAN_GROSS_THRESHOLD_PAISE / 100).toLocaleString('en-IN')} with no annual TDS plan. Set the plan on the employee, or mark "no TDS applicable" with a reason.`,
+      })
+    }
+  }
 
   // Variance banner: same headcount month-over-month, but gross moved by
   // more than one employee-month's floor (₹1,000 by default). If the
@@ -303,6 +330,11 @@ payrollRouter.post('/runs/:id/calculate', handler(async (req, res) => {
       }),
     ])
     const summary = summarize(attendance, leaves, run.periodStart, run.periodEnd)
+    // Monthly TDS = annual plan ÷ 12, rounded to nearest paise. Not a
+    // slab calculator — the spec deliberately keeps the number the firm's
+    // decision. Zero plan means zero deducted this month; the process
+    // gate above catches "zero plan but should have been non-zero".
+    const monthlyTds = Math.round((emp.annualTdsPlanPaise ?? 0) / 12)
     const calc = calculatePayrollItem({
       structure: {
         basic_paise: structure.basicPaise,
@@ -314,6 +346,7 @@ payrollRouter.post('/runs/:id/calculate', handler(async (req, res) => {
       attendance: summary,
       snap,
       periodStartMonth,
+      tds_paise: monthlyTds,
     })
     prepared.push({ employeeId: emp.id, salaryStructureId: structure.id, summary, calc })
   }
@@ -440,28 +473,58 @@ payrollRouter.post('/runs/:id/process', handler(async (req, res) => {
   }
   if (run.stage !== 'approved') throw ApiError.conflict('wrong_stage', `Run is ${run.stage}; approve first.`)
 
-  // Blocker check (§2.5). An employee active during the period with no
-  // salary structure would be silently dropped from gross while still
-  // counting toward headcount — the ₹41,666 September gap. Refuse rather
-  // than process a run with a known silent hole.
-  const missingStructures = await prisma.employee.findMany({
+  // Blocker check (§2.5 + §2.6). Refuse to process while any active
+  // employee has (a) no salary structure covering this period, or (b)
+  // gross above the TDS threshold with a zero annual TDS plan and no
+  // exempt reason. Both classes surface as UI blocker rows too.
+  const activeEmployees = await prisma.employee.findMany({
     where: {
       deletedAt: null,
       status: { not: 'inactive' },
       joiningDate: { lte: run.periodEnd },
+    },
+    include: {
       salaryStructures: {
-        none: {
+        where: {
           deletedAt: null,
           effectiveFrom: { lte: run.periodStart },
           OR: [{ effectiveTo: null }, { effectiveTo: { gte: run.periodStart } }],
         },
+        take: 1,
       },
     },
-    select: { id: true, fullName: true, employeeCode: true },
   })
+  const missingStructures: string[] = []
+  const missingTdsPlan: string[] = []
+  const itemsForCheck = await prisma.payrollItem.findMany({
+    where: { payrollRunId: run.id, deletedAt: null },
+    select: { employeeId: true, grossPaise: true },
+  })
+  for (const e of activeEmployees) {
+    if (e.salaryStructures.length === 0) {
+      missingStructures.push(e.fullName)
+      continue
+    }
+    const item = itemsForCheck.find((i) => i.employeeId === e.id)
+    const s = e.salaryStructures[0]
+    const grossForCheck = item?.grossPaise
+      ?? (s.basicPaise + s.hraPaise + s.conveyancePaise + s.specialAllowancePaise)
+    const exempt = (e.tdsExemptReason ?? '').trim().length > 0
+    if (
+      grossForCheck > TDS_PLAN_GROSS_THRESHOLD_PAISE
+      && e.annualTdsPlanPaise === 0
+      && !exempt
+    ) {
+      missingTdsPlan.push(e.fullName)
+    }
+  }
   if (missingStructures.length > 0) {
     throw ApiError.unprocessable('blockers_present',
-      `${missingStructures.length} employee(s) in the headcount have no salary structure covering this period: ${missingStructures.map((e) => e.fullName).join(', ')}. Add a structure or remove them from the run before processing.`)
+      `${missingStructures.length} employee(s) in the headcount have no salary structure covering this period: ${missingStructures.join(', ')}. Add a structure or remove them from the run before processing.`)
+  }
+  if (missingTdsPlan.length > 0) {
+    throw ApiError.unprocessable('blockers_present',
+      `${missingTdsPlan.length} employee(s) above the ₹${(TDS_PLAN_GROSS_THRESHOLD_PAISE / 100).toLocaleString('en-IN')} monthly threshold have no annual TDS plan and are not marked exempt: ${missingTdsPlan.join(', ')}. Set the plan or mark "no TDS applicable" with a reason.`)
   }
 
   const items = await prisma.payrollItem.findMany({
@@ -635,12 +698,24 @@ salaryRouter.get('/', handler(async (req, res) => {
     can(session, 'salary.manage', 'organisation') || can(session, 'payroll.view', 'organisation')
   if (!canRead) throw ApiError.forbidden()
 
-  const rows = await prisma.salaryStructure.findMany({
-    where: { employeeId: req.params.id, deletedAt: null }, orderBy: { effectiveFrom: 'desc' },
-  })
+  const [rows, employee] = await Promise.all([
+    prisma.salaryStructure.findMany({
+      where: { employeeId: req.params.id, deletedAt: null }, orderBy: { effectiveFrom: 'desc' },
+    }),
+    prisma.employee.findUnique({
+      where: { id: req.params.id },
+      select: { annualTdsPlanPaise: true, tdsExemptReason: true },
+    }),
+  ])
   ok(res, {
     current: rows.find((r) => r.effectiveTo === null) ? salaryStructureToApi(rows.find((r) => r.effectiveTo === null)!) : null,
     history: rows.map(salaryStructureToApi),
+    tds_plan: employee ? {
+      annual_tds_plan_paise: employee.annualTdsPlanPaise,
+      monthly_tds_paise: Math.round(employee.annualTdsPlanPaise / 12),
+      exempt_reason: employee.tdsExemptReason,
+      threshold_paise: TDS_PLAN_GROSS_THRESHOLD_PAISE,
+    } : null,
   })
 }))
 
@@ -701,6 +776,65 @@ salaryRouter.patch('/', handler(async (req, res) => {
     before: current ? salaryStructureToApi(current) : null, after: salaryStructureToApi(row), req,
   })
   ok(res, { structure: salaryStructureToApi(row) })
+}))
+
+// ── Annual TDS plan — /api/employees/:id/tds-plan ────────────────────────
+//
+// Manual, once-per-year figure (§2.6). The payroll engine reads it as
+// plan ÷ 12 for the monthly deduction. Marking exempt is an explicit
+// opt-out that carries a reason on the row — peer review can trace who
+// decided what.
+salaryRouter.patch('/tds-plan', handler(async (req, res) => {
+  const session = requireSession(req)
+  if (!can(session, 'salary.manage', 'organisation')) {
+    throw ApiError.forbidden('Only HR/MD can set the TDS plan.')
+  }
+  const employeeId = req.params.id
+  const b = z.object({
+    annual_tds_plan_paise: z.number().int().min(0),
+    exempt_reason: z.string().trim().max(500).optional().nullable(),
+  }).safeParse(req.body ?? {})
+  if (!b.success) throw ApiError.badRequest('annual_tds_plan_paise required.')
+
+  const employee = await prisma.employee.findUnique({ where: { id: employeeId } })
+  if (!employee) throw ApiError.notFound('Employee not found.')
+
+  const exempt = (b.data.exempt_reason ?? '').trim() || null
+  // Refuse the combination "non-zero plan AND marked exempt": that's a
+  // contradiction the UI should never send, and storing it would confuse
+  // peer review reading the audit trail.
+  if (b.data.annual_tds_plan_paise > 0 && exempt) {
+    throw ApiError.unprocessable('inconsistent_tds',
+      'An employee cannot have both a non-zero TDS plan and a "no TDS applicable" reason. Clear one.')
+  }
+
+  const updated = await prisma.employee.update({
+    where: { id: employeeId },
+    data: {
+      annualTdsPlanPaise: b.data.annual_tds_plan_paise,
+      tdsExemptReason: exempt,
+      updatedBy: session.userId,
+    },
+  })
+  await writeAudit({
+    actorUserId: session.userId, action: 'employee.tds_plan_updated',
+    entityType: 'Employee', entityId: employeeId,
+    before: {
+      annual_tds_plan_paise: employee.annualTdsPlanPaise,
+      exempt_reason: employee.tdsExemptReason,
+    },
+    after: {
+      annual_tds_plan_paise: updated.annualTdsPlanPaise,
+      exempt_reason: updated.tdsExemptReason,
+    },
+    req,
+  })
+  ok(res, {
+    employee_id: employeeId,
+    annual_tds_plan_paise: updated.annualTdsPlanPaise,
+    monthly_tds_paise: Math.round(updated.annualTdsPlanPaise / 12),
+    exempt_reason: updated.tdsExemptReason,
+  })
 }))
 
 /** Exported so the dashboard widget can reuse the "today" convention. */

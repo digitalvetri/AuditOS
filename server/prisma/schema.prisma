@@ -370,6 +370,17 @@ model Employee {
   emergencyContactPhone String?
   bankAccountMasked     String?
 
+  // Annual TDS plan (§2.6). Set once at the start of the financial year;
+  // monthly TDS deducted at payroll = plan ÷ 12. 0 means "not planned yet"
+  // and, above a configurable gross threshold, blocks Process unless
+  // tdsExemptReason is set. The spec chose manual entry over a slab
+  // calculator; this is the field the calculator would have produced.
+  annualTdsPlanPaise Int     @default(0)
+  // Set to a short reason string ("no salary income above threshold" etc)
+  // to opt an employee out of the TDS-plan-zero block. Empty/null = not
+  // exempt. Stored so peer review can trace who decided what.
+  tdsExemptReason    String?
+
   organisation Organisation @relation(fields: [organisationId], references: [id])
   department   Department   @relation(fields: [departmentId], references: [id])
   designation  Designation  @relation(fields: [designationId], references: [id])

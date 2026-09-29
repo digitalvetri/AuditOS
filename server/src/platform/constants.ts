@@ -57,3 +57,12 @@ export type LiabilityCategory = (typeof LIABILITY_CATEGORIES)[number]
 
 /** Simulated payments only — the UI says so in as many words. */
 export const MOCK_PAYMENT_NOTICE = 'Simulated payment — no bank integration.'
+
+/**
+ * Gross monthly threshold (paise) above which a zero TDS plan is a
+ * Process blocker (§2.6). Set roughly at the point where either regime
+ * starts to deduct — an employee earning ~₹1L/month × 12 = ₹12L annually
+ * will cross the taxable threshold under the new regime. Kept as a
+ * single constant here; lift to a Setting only when the firm asks.
+ */
+export const TDS_PLAN_GROSS_THRESHOLD_PAISE = 100_000_00
