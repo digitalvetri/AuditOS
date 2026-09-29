@@ -13,7 +13,7 @@ import { Button } from '@/components/Button';
 import { useToast } from '@/components/Toast';
 import { useAuth } from '@/platform/auth/AuthContext';
 import { can } from '@/platform/rbac/can';
-import { accountsApi, LEDGER_TYPES, type LedgerRowWithEmp } from '@/modules/accounts/api';
+import { accountsApi, LEDGER_TYPES, type LedgerRowWithEmp, type LedgerSort } from '@/modules/accounts/api';
 import { NewPaymentModal } from '@/modules/accounts/NewPaymentModal';
 import { CollectionsSection } from '@/modules/zpay/CollectionsSection';
 import { MatchingQueueSection } from '@/modules/zpay/MatchingQueueSection';
@@ -155,10 +155,13 @@ function Kpi({ label, value, emphasise }: { label: string; value: string; emphas
 // ── Ledger ────────────────────────────────────────────────────────────────
 function LedgerSection({ canManage }: { canManage: boolean }) {
   const [type, setType] = useState<string>('');
+  const [sort, setSort] = useState<LedgerSort>('date');
   const q = useQuery({
-    queryKey: ['accounts', 'ledger', { type }],
-    queryFn: () => accountsApi.ledger({ type: type || undefined }),
+    queryKey: ['accounts', 'ledger', { type, sort }],
+    queryFn: () => accountsApi.ledger({ type: type || undefined, sort }),
   });
+  const showBalance = q.data?.running_balance_available ?? false;
+  const [reverseTarget, setReverseTarget] = useState<LedgerRowWithEmp | null>(null);
   return (
     <div className="space-y-3" data-testid="accounts-ledger">
       <div className="flex items-end gap-3 flex-wrap">
@@ -174,6 +177,25 @@ function LedgerSection({ canManage }: { canManage: boolean }) {
             {LEDGER_TYPES.map((t) => (<option key={t} value={t}>{t}</option>))}
           </select>
         </label>
+        <label className="block">
+          <span className="block text-11 uppercase tracking-[0.06em] text-neutral-500 mb-1">Sort by</span>
+          <select
+            value={sort}
+            onChange={(e) => setSort(e.target.value as LedgerSort)}
+            className="h-8 px-2 text-13 bg-white border border-neutral-300 rounded"
+            data-testid="ledger-sort"
+          >
+            <option value="date">Date (running balance)</option>
+            <option value="amount">Amount</option>
+            <option value="type">Type</option>
+            <option value="employee">Employee</option>
+          </select>
+        </label>
+        {!showBalance && !q.isLoading && q.data ? (
+          <span className="text-11 text-neutral-500 pb-2">
+            Running balance hidden — meaningful only in date order.
+          </span>
+        ) : null}
       </div>
       <div className="bg-white border border-neutral-200 rounded overflow-x-auto">
         {q.isLoading ? (
@@ -184,7 +206,7 @@ function LedgerSection({ canManage }: { canManage: boolean }) {
           <table className="w-full border-collapse tabular-nums">
             <thead>
               <tr>
-                {['Date', 'Type', 'Description', 'Employee', 'Debit', 'Credit', 'Running', 'Reference', 'Status', canManage ? '' : null]
+                {(['Date', 'Type', 'Description', 'Employee', 'Debit', 'Credit', showBalance ? 'Running' : null, 'Reference', 'Status', canManage ? '' : null] as (string | null)[])
                   .filter((c) => c !== null)
                   .map((c) => (
                     <th key={c as string} className="text-left text-11 uppercase tracking-[0.06em] text-neutral-500 px-3 py-2 border-b border-neutral-300 font-medium">
@@ -195,27 +217,31 @@ function LedgerSection({ canManage }: { canManage: boolean }) {
             </thead>
             <tbody>
               {q.data!.items.map((r) => (
-                <LedgerRow key={r.id} row={r} canManage={canManage} />
+                <LedgerRow
+                  key={r.id}
+                  row={r}
+                  canManage={canManage}
+                  showBalance={showBalance}
+                  onReverse={() => setReverseTarget(r)}
+                />
               ))}
             </tbody>
           </table>
         )}
       </div>
+      <ReverseLedgerModal
+        row={reverseTarget}
+        onClose={() => setReverseTarget(null)}
+      />
     </div>
   );
 }
 
-function LedgerRow({ row, canManage }: { row: LedgerRowWithEmp; canManage: boolean }) {
-  const toast = useToast();
-  const qc = useQueryClient();
-  const reverse = useMutation({
-    mutationFn: () => accountsApi.reverse(row.id),
-    onSuccess: () => {
-      toast.push('success', 'Contra entry posted.');
-      qc.invalidateQueries({ queryKey: ['accounts'] });
-    },
-    onError: (e: Error) => toast.push('error', e.message),
-  });
+function LedgerRow({
+  row, canManage, showBalance, onReverse,
+}: {
+  row: LedgerRowWithEmp; canManage: boolean; showBalance: boolean; onReverse: () => void;
+}) {
   const s: { variant: StatusVariant; label: string } =
     row.status === 'reversed'
       ? { variant: 'awaiting', label: 'Reversed' }
@@ -226,7 +252,12 @@ function LedgerRow({ row, canManage }: { row: LedgerRowWithEmp; canManage: boole
     <tr className="border-b border-neutral-200" data-testid={`ledger-row-${row.id}`}>
       <td className={`px-3 py-2 border-l-2 ${border} text-13 text-neutral-900`}>{fmtDate(row.date + 'T00:00:00Z')}</td>
       <td className="px-3 py-2 text-13 text-neutral-700">{row.type}</td>
-      <td className="px-3 py-2 text-13 text-neutral-900 max-w-[280px]">{row.description}</td>
+      <td className="px-3 py-2 text-13 text-neutral-900 max-w-[280px]">
+        {row.description}
+        {row.reversal_reason ? (
+          <div className="text-11 text-neutral-500 mt-1">Reason: {row.reversal_reason}</div>
+        ) : null}
+      </td>
       <td className="px-3 py-2 text-13 text-neutral-500">{row.employee?.full_name ?? '—'}</td>
       <td className={'px-3 py-2 text-13 ' + (row.debit_paise > 0 ? 'text-neutral-900' : 'text-neutral-400')}>
         {row.debit_paise > 0 ? inr(row.debit_paise) : '—'}
@@ -234,17 +265,21 @@ function LedgerRow({ row, canManage }: { row: LedgerRowWithEmp; canManage: boole
       <td className={'px-3 py-2 text-13 ' + (row.credit_paise > 0 ? 'text-neutral-900' : 'text-neutral-400')}>
         {row.credit_paise > 0 ? inr(row.credit_paise) : '—'}
       </td>
-      <td className="px-3 py-2 text-13 text-neutral-900 font-medium">{inr(row.running_balance_paise)}</td>
-      <td className="px-3 py-2 text-11 text-neutral-500 max-w-[160px]">{row.reference_id}</td>
+      {showBalance ? (
+        <td className="px-3 py-2 text-13 text-neutral-900 font-medium">
+          {inr(row.running_balance_paise ?? 0)}
+        </td>
+      ) : null}
+      <td className="px-3 py-2 text-11 text-neutral-500 whitespace-nowrap">
+        {row.reference_label ?? row.transaction_ref}
+      </td>
       <td className="px-3 py-2"><StatusLabel variant={s.variant} label={s.label} /></td>
       {canManage ? (
         <td className="px-3 py-2">
-          {row.status === 'posted' ? (
+          {row.status === 'posted' && !row.reverses_id ? (
             <Button
               variant="ghost"
-              onClick={() => {
-                if (confirm(`Post a contra entry to reverse "${row.description}"?`)) reverse.mutate();
-              }}
+              onClick={onReverse}
               data-testid={`ledger-reverse-${row.id}`}
             >
               Reverse
@@ -253,6 +288,72 @@ function LedgerRow({ row, canManage }: { row: LedgerRowWithEmp; canManage: boole
         </td>
       ) : null}
     </tr>
+  );
+}
+
+function ReverseLedgerModal({
+  row, onClose,
+}: {
+  row: LedgerRowWithEmp | null; onClose: () => void;
+}) {
+  const toast = useToast();
+  const qc = useQueryClient();
+  const [reason, setReason] = useState('');
+  const reverse = useMutation({
+    mutationFn: (r: string) => accountsApi.reverse(row!.id, r),
+    onSuccess: (res) => {
+      const n = res.cluster_size;
+      toast.push('success',
+        n > 1
+          ? `Reversed the whole ${n}-leg journal.`
+          : 'Contra entry posted.',
+      );
+      qc.invalidateQueries({ queryKey: ['accounts'] });
+      setReason('');
+      onClose();
+    },
+    onError: (e: Error) => toast.push('error', e.message),
+  });
+  if (!row) return null;
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-neutral-900/40 px-4">
+      <div className="bg-white border border-neutral-300 rounded max-w-[480px] w-full p-5 space-y-4">
+        <div>
+          <div className="text-11 uppercase tracking-[0.06em] text-neutral-500">Reverse ledger entry</div>
+          <div className="text-15 text-neutral-900 font-medium mt-1">{row.description}</div>
+          <div className="text-11 text-neutral-500 mt-1">
+            {row.transaction_ref} · {row.debit_paise > 0 ? `Dr ${inr(row.debit_paise)}` : `Cr ${inr(row.credit_paise)}`}
+          </div>
+        </div>
+        <p className="text-13 text-neutral-700">
+          {row.payment_id
+            ? 'This row is one leg of a multi-leg journal — reversing it will reverse the WHOLE journal to keep the books balanced.'
+            : 'A contra entry will be posted and the original marked reversed. The original row is never edited.'}
+        </p>
+        <label className="block">
+          <span className="block text-11 uppercase tracking-[0.06em] text-neutral-500 mb-1">Reason (required)</span>
+          <textarea
+            value={reason}
+            onChange={(e) => setReason(e.target.value)}
+            rows={3}
+            className="w-full px-2 py-1 text-13 bg-white border border-neutral-300 rounded"
+            placeholder="Why is this being reversed?"
+            data-testid="reverse-reason"
+          />
+        </label>
+        <div className="flex justify-end gap-2">
+          <Button variant="ghost" onClick={onClose}>Cancel</Button>
+          <Button
+            variant="primary"
+            onClick={() => reverse.mutate(reason.trim())}
+            disabled={reason.trim().length < 3 || reverse.isPending}
+            data-testid="reverse-confirm"
+          >
+            {reverse.isPending ? 'Reversing…' : 'Reverse'}
+          </Button>
+        </div>
+      </div>
+    </div>
   );
 }
 

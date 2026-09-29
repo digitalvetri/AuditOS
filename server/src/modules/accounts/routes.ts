@@ -40,26 +40,87 @@ const ledgerQuery = z.object({
   employeeId: z.string().optional(),
   from: z.string().optional(),
   to: z.string().optional(),
+  // 'date' (the accounting-correct order — Bug 7 fix), 'amount', 'type',
+  // 'employee'. Anything but 'date' suppresses running_balance_paise.
+  sort: z.enum(['date', 'amount', 'type', 'employee']).optional(),
+  dir: z.enum(['asc', 'desc']).optional(),
 })
 
 /**
- * The stored running balance is a snapshot of the FULL ledger at write time.
- * When the caller filters, we recompute over the returned rows so the balance
- * column reads correctly for that view.
+ * Running balance is meaningful ONLY when rows are in transaction-date
+ * order — "the balance as at 22 Aug" cannot be answered from a list sorted
+ * by amount. So we compute the balance in the accounting order (date,
+ * createdAt, id) regardless of how the caller wants the list back, and
+ * only surface it when the CALLER'S order matches that. Any other sort
+ * returns rows without a running_balance_paise field, and the UI hides
+ * the column.
  */
-function withRunningBalance<T extends { debit_paise: number; credit_paise: number; sequence: number }>(rows: T[]): T[] {
-  const ascending = [...rows].sort((a, b) => a.sequence - b.sequence)
-  let running = 0
-  return ascending.map((r) => {
-    running += r.debit_paise - r.credit_paise
-    return { ...r, running_balance_paise: running }
+function withRunningBalance<T extends {
+  id: string; debit_paise: number; credit_paise: number; created_at: string; date: string
+}>(rows: T[]): (T & { running_balance_paise: number })[] {
+  const ascending = [...rows].sort((a, b) => {
+    if (a.date !== b.date) return a.date < b.date ? -1 : 1
+    if (a.created_at !== b.created_at) return a.created_at < b.created_at ? -1 : 1
+    return a.id < b.id ? -1 : 1
   })
+  const map = new Map<string, number>()
+  let running = 0
+  for (const r of ascending) {
+    running += r.debit_paise - r.credit_paise
+    map.set(r.id, running)
+  }
+  return rows.map((r) => ({ ...r, running_balance_paise: map.get(r.id) ?? 0 }))
+}
+
+/**
+ * A short human reference for the ledger's REFERENCE column. Never a UUID.
+ * Payroll rows → `PR/YYYY-MM`. Expense rows → the expense number.
+ * Manual payments / remittances → the payment number. Reversals point at
+ * the original row's transactionRef.
+ */
+async function buildReferenceLabels(rows: { id: string; referenceId: string; referenceType: string }[]) {
+  const payrollItemIds = rows.filter((r) => r.referenceType === 'PayrollItem').map((r) => r.referenceId)
+  const expenseIds = rows.filter((r) => r.referenceType === 'Expense').map((r) => r.referenceId)
+  const paymentIds = rows.filter((r) => r.referenceType === 'Payment' || r.referenceType === 'LiabilityRemittance').map((r) => r.referenceId)
+  const ledgerIds = rows.filter((r) => r.referenceType === 'LedgerReversal').map((r) => r.referenceId)
+
+  const [items, expenses, payments, reversedRows] = await Promise.all([
+    payrollItemIds.length
+      ? prisma.payrollItem.findMany({ where: { id: { in: payrollItemIds } }, include: { payrollRun: true } })
+      : Promise.resolve([]),
+    expenseIds.length
+      ? prisma.expense.findMany({ where: { id: { in: expenseIds } }, select: { id: true, expenseNo: true } })
+      : Promise.resolve([]),
+    paymentIds.length
+      ? prisma.payment.findMany({ where: { id: { in: paymentIds } }, select: { id: true, paymentNo: true } })
+      : Promise.resolve([]),
+    ledgerIds.length
+      ? prisma.ledgerTransaction.findMany({ where: { id: { in: ledgerIds } }, select: { id: true, transactionRef: true } })
+      : Promise.resolve([]),
+  ])
+
+  const labels = new Map<string, string>()
+  for (const it of items) {
+    // `PR/2026-08` from '2026-08-01', regardless of period_end drift.
+    labels.set(`PayrollItem:${it.id}`, `PR/${it.payrollRun.periodStart.slice(0, 7)}`)
+  }
+  for (const e of expenses) labels.set(`Expense:${e.id}`, e.expenseNo)
+  for (const p of payments) {
+    labels.set(`Payment:${p.id}`, p.paymentNo)
+    labels.set(`LiabilityRemittance:${p.id}`, p.paymentNo)
+  }
+  for (const r of reversedRows) labels.set(`LedgerReversal:${r.id}`, r.transactionRef)
+  return labels
 }
 
 async function listLedger(req: Request, res: Response) {
   const session = requireSession(req)
   requireRead(session)
   const q = ledgerQuery.parse(req.query)
+  const sort = q.sort ?? 'date'
+  // Traditional accounting convention: oldest first, so the running balance
+  // reads top-to-bottom as it accrues. Callers can flip via ?dir=desc.
+  const dir = q.dir ?? 'asc'
 
   const rows = await prisma.ledgerTransaction.findMany({
     where: {
@@ -68,12 +129,52 @@ async function listLedger(req: Request, res: Response) {
       ...(q.from || q.to ? { date: { ...(q.from ? { gte: q.from } : {}), ...(q.to ? { lte: q.to } : {}) } } : {}),
     },
     include: { employee: true },
-    orderBy: { sequence: 'asc' },
+    // Fetch in accounting order so running_balance_paise, when we compute
+    // it, is always over the same series regardless of the caller's `sort`.
+    orderBy: [{ date: 'asc' }, { createdAt: 'asc' }, { id: 'asc' }],
   })
 
-  const serialized = rows.map((r) => ({ ...ledgerToApi(r), employee: employeeRef(r.employee) }))
-  const items = withRunningBalance(serialized).reverse() // newest first for the table
-  ok(res, { items, count: items.length })
+  const labels = await buildReferenceLabels(rows)
+  const serialized = rows.map((r) => ({
+    ...ledgerToApi(r),
+    employee: employeeRef(r.employee),
+    reference_label: labels.get(`${r.referenceType}:${r.referenceId}`) ?? null,
+  }))
+
+  // Running balance is computed once, in date order. If the caller asked
+  // for anything other than the date sort we STRIP the field rather than
+  // show a running balance that no longer refers to "as at this date".
+  const withBalance = withRunningBalance(serialized)
+  let items: Array<(typeof withBalance)[number] | Omit<(typeof withBalance)[number], 'running_balance_paise'>> = withBalance
+  const sortCmp = (a: (typeof withBalance)[number], b: (typeof withBalance)[number]) => {
+    if (sort === 'date') {
+      if (a.date !== b.date) return a.date < b.date ? -1 : 1
+      if (a.created_at !== b.created_at) return a.created_at < b.created_at ? -1 : 1
+      return a.id < b.id ? -1 : 1
+    }
+    if (sort === 'amount') {
+      const av = (a.debit_paise || 0) + (a.credit_paise || 0)
+      const bv = (b.debit_paise || 0) + (b.credit_paise || 0)
+      if (av !== bv) return av - bv
+    }
+    if (sort === 'type') {
+      if (a.type !== b.type) return a.type < b.type ? -1 : 1
+    }
+    if (sort === 'employee') {
+      const ae = a.employee?.full_name ?? ''
+      const be = b.employee?.full_name ?? ''
+      if (ae !== be) return ae < be ? -1 : 1
+    }
+    return 0
+  }
+  const sorted = [...withBalance].sort(sortCmp)
+  if (dir === 'desc') sorted.reverse()
+  if (sort !== 'date') {
+    items = sorted.map(({ running_balance_paise: _, ...rest }) => rest)
+  } else {
+    items = sorted
+  }
+  ok(res, { items, count: items.length, sort, dir, running_balance_available: sort === 'date' })
 }
 
 accountsRouter.get('/ledger', handler(listLedger))
@@ -213,11 +314,29 @@ accountsRouter.post('/liabilities/remit', handler(async (req, res) => {
 }))
 
 // POST /api/accounts/ledger/:id/reverse — the only correction path.
+//
+// A reason is required and stored on every contra row, so the audit trail
+// survives even if the AuditLog is compacted. When the target is one leg
+// of a multi-leg journal (payment cluster), the WHOLE cluster is reversed
+// atomically: reversing one leg alone would break Σdr = Σcr.
+//
+// Reversing a Liability Remittance ("unremit") is permitted intentionally
+// — a mistaken EPFO/state payment should be correctable. The reason field
+// is the audit trail; a Finance user cannot un-remit silently.
 accountsRouter.post('/ledger/:id/reverse', handler(async (req, res) => {
   const session = requireSession(req)
   if (!can(session, 'accounts.manage', 'organisation')) {
     throw ApiError.forbidden('Only Finance can reverse.')
   }
+  const b = z.object({
+    reason: z.string().trim().min(3, 'A reason of at least 3 characters is required.').max(500),
+  }).safeParse(req.body ?? {})
+  if (!b.success) {
+    const msg = b.error.issues[0]?.message ?? 'A reason is required to reverse a ledger row.'
+    throw ApiError.badRequest(msg)
+  }
+  const reason = b.data.reason
+
   const original = await prisma.ledgerTransaction.findUnique({ where: { id: req.params.id } })
   if (!original) throw ApiError.notFound('Ledger row not found.')
   if (original.status === 'reversed') {
@@ -226,48 +345,59 @@ accountsRouter.post('/ledger/:id/reverse', handler(async (req, res) => {
   if (original.reversesId) {
     throw ApiError.conflict('is_contra', 'A contra entry cannot itself be reversed.')
   }
-  // Under double-entry, a payroll or expense posting is a cluster of legs
-  // that share a paymentId. Reversing one leg would break Σdr = Σcr and
-  // turn the Overview strip from "✓ balanced" to false in one click.
-  // Whole-cluster reversal ships in Step 2 (with the reason field); until
-  // then, refuse the multi-leg case rather than silently unbalance.
-  if (original.paymentId) {
-    const clusterSize = await prisma.ledgerTransaction.count({
-      where: { paymentId: original.paymentId, status: 'posted' },
-    })
-    if (clusterSize > 1) {
-      throw ApiError.conflict('multi_leg_reversal',
-        `This row is one leg of a ${clusterSize}-leg journal. Reversing a single leg would unbalance the ledger — use the source correction flow (unpay expense, or a manual counter-journal) until the cluster-reverse action lands in Step 2.`)
-    }
-  }
 
-  const { reverse, updatedOriginal } = await prisma.$transaction(async (tx) => {
-    const contra = await postLedger(tx, {
-      date: istToday(),
-      type: original.type as LedgerType,
-      description: `Reversal — ${original.description}`,
-      employeeId: original.employeeId,
-      category: original.category,
-      // Swap the sides. The original row's amounts are never rewritten.
-      debitPaise: original.creditPaise,
-      creditPaise: original.debitPaise,
-      referenceId: original.id,
-      referenceType: 'LedgerReversal',
-      reversesId: original.id,
-      createdBy: session.userId,
+  // If this row is one leg of a payment cluster, reverse them all — every
+  // posted row that shares the paymentId. Otherwise reverse just this row.
+  const clusterRows = original.paymentId
+    ? await prisma.ledgerTransaction.findMany({
+      where: {
+        paymentId: original.paymentId, status: 'posted', reversesId: null,
+      },
+      orderBy: { sequence: 'asc' },
     })
-    const updated = await tx.ledgerTransaction.update({
-      where: { id: original.id }, data: { status: 'reversed' },
-    })
-    return { reverse: contra, updatedOriginal: updated }
+    : [original]
+
+  const { contras, updatedOriginals } = await prisma.$transaction(async (tx) => {
+    const created: (typeof clusterRows)[number][] = []
+    const marked: (typeof clusterRows)[number][] = []
+    for (const row of clusterRows) {
+      const contra = await postLedger(tx, {
+        date: istToday(),
+        type: row.type as LedgerType,
+        description: `Reversal — ${row.description}`,
+        employeeId: row.employeeId,
+        category: row.category,
+        // Swap the sides. The original row's amounts are never rewritten.
+        debitPaise: row.creditPaise,
+        creditPaise: row.debitPaise,
+        referenceId: row.id,
+        referenceType: 'LedgerReversal',
+        reversesId: row.id,
+        reversalReason: reason,
+        createdBy: session.userId,
+      })
+      const updated = await tx.ledgerTransaction.update({
+        where: { id: row.id }, data: { status: 'reversed' },
+      })
+      created.push(contra)
+      marked.push(updated)
+    }
+    return { contras: created, updatedOriginals: marked }
   })
 
   await writeAudit({
     actorUserId: session.userId, action: 'accounts.ledger_reversed',
     entityType: 'LedgerTransaction', entityId: original.id,
-    before: { status: original.status }, after: { reverse_id: reverse.id }, req,
+    before: { status: original.status, cluster_size: clusterRows.length },
+    after: { reverse_ids: contras.map((c) => c.id), reason },
+    req,
   })
-  ok(res, { original: ledgerToApi(updatedOriginal), reverse: ledgerToApi(reverse) })
+  ok(res, {
+    originals: updatedOriginals.map(ledgerToApi),
+    contras: contras.map(ledgerToApi),
+    reason,
+    cluster_size: clusterRows.length,
+  })
 }))
 
 // ── Payments ──────────────────────────────────────────────────────────────

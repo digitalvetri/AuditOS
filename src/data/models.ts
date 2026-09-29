@@ -592,17 +592,26 @@ export interface ExpenseApproval {
 
 export interface LedgerTransaction {
   id: ID;
+  transaction_ref: string;
+  sequence: number;
   date: ISODate;
-  type: 'Payroll' | 'Expense Reimbursement' | 'Office Expense' | 'Employee Advance' | 'Advance Recovery' | 'Payment';
+  type: 'Payroll' | 'Expense Reimbursement' | 'Office Expense' | 'Employee Advance' | 'Advance Recovery' | 'Payment' | 'Liability Remittance';
   description: string;
   employee_id: ID | null;
   category: string | null;
   debit_paise: number;
   credit_paise: number;
-  running_balance_paise: number;
+  // Only present when the caller sorts by date (the accounting order);
+  // any other sort strips it because "the balance as at X" no longer
+  // refers to a single point in time.
+  running_balance_paise?: number;
   reference_id: string;
   reference_type: string;
+  reference_label: string | null;
   status: 'posted' | 'reversed';
+  reverses_id: ID | null;
+  reversal_reason: string | null;
+  payment_id: ID | null;
   created_at: ISODateTime;
   created_by: ID | null;
 }

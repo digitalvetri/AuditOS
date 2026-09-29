@@ -10,28 +10,65 @@ export interface PaymentWithEmp extends Payment {
 }
 
 export interface AccountsSummary {
-  totals: { debit_paise: number; credit_paise: number; balance_paise: number };
+  totals: { debit_paise: number; credit_paise: number; balance_paise: number; balanced: boolean };
   this_month: { debit_paise: number; credit_paise: number };
   by_type: { type: string; debit: number; credit: number; count: number }[];
 }
 
+export type LedgerSort = 'date' | 'amount' | 'type' | 'employee';
+export type LedgerDir = 'asc' | 'desc';
+
+export interface LedgerListResponse {
+  items: LedgerRowWithEmp[];
+  count: number;
+  sort: LedgerSort;
+  dir: LedgerDir;
+  running_balance_available: boolean;
+}
+
+export interface HeldLiability {
+  category: 'PF Payable' | 'ESI Payable' | 'Professional Tax Payable' | 'TDS Payable';
+  balance_paise: number;
+}
+
 export const accountsApi = {
-  ledger: (filters: { type?: string; employeeId?: string; from?: string; to?: string } = {}) => {
+  ledger: (
+    filters: {
+      type?: string; employeeId?: string; from?: string; to?: string;
+      sort?: LedgerSort; dir?: LedgerDir;
+    } = {},
+  ) => {
     const p = new URLSearchParams();
     if (filters.type) p.set('type', filters.type);
     if (filters.employeeId) p.set('employeeId', filters.employeeId);
     if (filters.from) p.set('from', filters.from);
     if (filters.to) p.set('to', filters.to);
+    if (filters.sort) p.set('sort', filters.sort);
+    if (filters.dir) p.set('dir', filters.dir);
     const qs = p.toString();
-    return api.get<{ items: LedgerRowWithEmp[]; count: number }>(
+    return api.get<LedgerListResponse>(
       `/api/accounts/ledger${qs ? `?${qs}` : ''}`,
     );
   },
   summary: () => api.get<AccountsSummary>('/api/accounts/summary'),
-  reverse: (id: string) =>
-    api.post<{ original: LedgerTransaction; reverse: LedgerTransaction }>(
-      `/api/accounts/ledger/${id}/reverse`,
-    ),
+  heldLiabilities: () =>
+    api.get<{ items: HeldLiability[] }>('/api/accounts/liabilities/held'),
+  remit: (body: {
+    category: HeldLiability['category'];
+    amount_paise: number;
+    reference: string;
+    date?: string;
+    notes?: string;
+  }) => api.post<{ payment: Payment; ledger_rows: LedgerTransaction[] }>(
+    '/api/accounts/liabilities/remit', body,
+  ),
+  reverse: (id: string, reason: string) =>
+    api.post<{
+      originals: LedgerTransaction[];
+      contras: LedgerTransaction[];
+      reason: string;
+      cluster_size: number;
+    }>(`/api/accounts/ledger/${id}/reverse`, { reason }),
   payments: {
     list: (filters: { employeeId?: string; status?: string } = {}) => {
       const p = new URLSearchParams();

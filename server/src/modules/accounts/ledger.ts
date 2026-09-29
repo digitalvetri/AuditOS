@@ -47,6 +47,7 @@ export interface PostLedgerInput {
   referenceType: string
   paymentId?: string | null
   reversesId?: string | null
+  reversalReason?: string | null
   createdBy: string | null
 }
 
@@ -86,6 +87,7 @@ export async function postLedger(tx: Prisma.TransactionClient, input: PostLedger
       referenceType: input.referenceType,
       paymentId: input.paymentId ?? null,
       reversesId: input.reversesId ?? null,
+      reversalReason: input.reversalReason ?? null,
       status: 'posted',
       createdBy: input.createdBy,
     },

@@ -524,6 +524,7 @@ export function ledgerToApi(l: LedgerTransaction) {
     reference_type: l.referenceType,
     status: l.status,
     reverses_id: l.reversesId,
+    reversal_reason: l.reversalReason,
     payment_id: l.paymentId,
     created_at: isoReq(l.createdAt),
     created_by: l.createdBy,

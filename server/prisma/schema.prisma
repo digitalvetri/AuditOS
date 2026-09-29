@@ -836,6 +836,10 @@ model LedgerTransaction {
 
   paymentId  String?
   reversesId String?
+  // Populated only on a contra entry (reversesId != null). Storing the
+  // reason on the append means the reversal audit survives even if the
+  // AuditLog row is compacted.
+  reversalReason String?
 
   employee Employee? @relation(fields: [employeeId], references: [id])
   payment  Payment?  @relation(fields: [paymentId], references: [id])
@@ -845,6 +849,9 @@ model LedgerTransaction {
 
   @@index([date])
   @@index([type])
+  // Ledger UI sorts by transaction date, then insertion order — the
+  // running balance is computed over this order, not by sequence.
+  @@index([date, createdAt])
 }
 
 // ============================================================

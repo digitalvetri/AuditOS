@@ -160,6 +160,8 @@ export const accountsHandlers = [
 
       const reverse: LedgerTransaction = {
         id: `lt-rev-${crypto.randomUUID()}`,
+        transaction_ref: `LT-REV-${crypto.randomUUID().slice(0, 6)}`,
+        sequence: db.read().ledger.length + 1,
         date: nowISO().slice(0, 10),
         type: orig.type,
         description: `Reversal — ${orig.description}`,
@@ -170,6 +172,10 @@ export const accountsHandlers = [
         running_balance_paise: runningAfter,
         reference_id: orig.id,
         reference_type: 'LedgerReversal',
+        reference_label: orig.transaction_ref,
+        reverses_id: orig.id,
+        reversal_reason: 'Mock reversal',
+        payment_id: null,
         status: 'posted',
         created_at: nowISO(),
         created_by: user.id,
@@ -268,6 +274,8 @@ export const accountsHandlers = [
         const running = d.ledger.reduce((s, l) => s + l.credit_paise - l.debit_paise, 0) - body.amount_paise!;
         d.ledger.push({
           id: `lt-pay-${paymentId}`,
+          transaction_ref: `LT-PAY-${paymentId.slice(0, 6)}`,
+          sequence: d.ledger.length + 1,
           date: now.slice(0, 10),
           type: ledgerType,
           description: body.description ?? `${ledgerType} — ${emp.full_name}`,
@@ -278,6 +286,10 @@ export const accountsHandlers = [
           running_balance_paise: running,
           reference_id: paymentId,
           reference_type: 'Payment',
+          reference_label: `PMT-${paymentId.slice(0, 5)}`,
+          reverses_id: null,
+          reversal_reason: null,
+          payment_id: paymentId,
           status: 'posted',
           created_at: now,
           created_by: user.id,
