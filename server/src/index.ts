@@ -5,6 +5,7 @@ import { attachRealtime } from './modules/messages/realtime.js'
 import { prisma } from './lib/prisma.js'
 import { applyTaskInvariants } from './modules/task/db/invariants.js'
 import { startEinvoiceEwbScheduler } from './modules/workstation/einvoice-ewb/scheduler.js'
+import { startTdsReminderScheduler } from './modules/tds/reminders.js'
 import { AaExtractService } from './modules/audit-automation/services/AaExtractService.js'
 
 const app = createApp()
@@ -16,6 +17,7 @@ applyTaskInvariants(prisma).then((n) => console.log(`Task invariants applied (${
 
 // E-Invoice & E-Way Bill monthly pull (E-INVOICE-EWAYBILL.md §2.4 / §3.4).
 startEinvoiceEwbScheduler(prisma)
+startTdsReminderScheduler(prisma)
 
 http.listen(env.port, () => {
   // Bank statements a restart interrupted mid-read are read again, not left "queued".

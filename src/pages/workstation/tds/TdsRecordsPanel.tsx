@@ -9,7 +9,7 @@
  * type, responsible person) and writes the allotted TAN onto the client.
  */
 import { useState } from 'react';
-import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { CheckCircle2, Paperclip, Pencil, Plus, Trash2, Upload } from 'lucide-react';
 import { useAuth } from '@/platform/auth/AuthContext';
 import { can } from '@/platform/rbac/can';
@@ -56,6 +56,7 @@ const SLUG_KIND: Record<TdsSubServiceSlug, TdsKind> = {
   'correction-filing': 'correction',
   'form-16': 'certificate',
   'notices': 'notice',
+  'challan-statements': 'challan_statement',
 };
 
 function fieldsFor(kind: TdsKind, data: TdsData, fy: string): FieldSpec[] {
@@ -117,6 +118,22 @@ function fieldsFor(kind: TdsKind, data: TdsData, fy: string): FieldSpec[] {
         { key: 'amount_tax', label: 'Demand (₹)', type: 'money' },
         { key: 'notes', label: 'Default summary', type: 'textarea', hint: 'Short deduction, short payment, late filing fee (234E), interest…' },
       ];
+    case 'challan_statement':
+      return [
+        { key: 'form_type', label: 'Form', type: 'select', required: true, locked: true, options: [
+          { value: '26QB', label: '26QB — purchase of property' }, { value: '26QC', label: '26QC — rent (individual / HUF)' },
+          { value: '26QD', label: '26QD — contract / professional fees (individual / HUF)' }] },
+        { key: 'period', label: 'Deduction month', type: 'month', required: true, locked: true },
+        { key: 'status', label: 'Status', type: 'select', options: STATUS_OPTIONS.paid },
+        { key: 'party_name', label: 'Seller / landlord / contractor', type: 'text', required: true },
+        { key: 'party_pan', label: 'Their PAN', type: 'text', hint: '5 letters, 4 digits, 1 letter' },
+        { key: 'gross_amount', label: 'Transaction amount (₹)', type: 'money' },
+        { key: 'amount_tax', label: 'TDS paid (₹)', type: 'money', required: true, hint: '26QB 1% · 26QC 2% · 26QD 2%' },
+        { key: 'reference', label: 'Acknowledgement number', type: 'text', required: true },
+        { key: 'event_date', label: 'Payment date', type: 'date', required: true },
+        { key: 'cert_issued_on', label: 'Form 16B / 16C / 16D issued on', type: 'date', hint: 'Leave blank until issued — due 15 days after the statement' },
+        { key: 'notes', label: 'Notes', type: 'textarea' },
+      ];
     default:
       return [];
   }
@@ -140,7 +157,15 @@ export function TdsRecordsPanel({ slug, data, fy }: { slug: TdsSubServiceSlug; d
   const [form, setForm] = useState<FormState | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  const invalidate = () => qc.invalidateQueries({ queryKey: ['tds', clientId] });
+  const invalidate = () => { void qc.invalidateQueries({ queryKey: ['tds', clientId] }); void qc.invalidateQueries({ queryKey: ['tds-register', clientId] }); };
+
+  // Challans: what the deductee register says was deducted each month.
+  const registerQ = useQuery({
+    queryKey: ['tds-register', clientId, fy, data.active_tan],
+    queryFn: () => tdsApi.register(clientId, fy, data.active_tan),
+    enabled: kind === 'challan' && !!data.active_tan,
+  });
+  const deductedIn = (ym: string) => registerQ.data?.months.find((m) => m.month === ym) ?? null;
 
   const save = useMutation({
     mutationFn: async (f: FormState) => {
@@ -178,7 +203,10 @@ export function TdsRecordsPanel({ slug, data, fy }: { slug: TdsSubServiceSlug; d
 
   const open = (record: TdsRecord | null, preset: TdsRecordInput = {}) => {
     setError(null);
-    setForm({ recordId: record?.id ?? null, values: toValues(record, preset) });
+    // A new challan starts from what the register says was deducted that month.
+    const reg = kind === 'challan' && !record && preset.period ? deductedIn(preset.period) : null;
+    const withTax = reg && reg.deducted > 0 ? { ...preset, amount_tax: reg.deducted } : preset;
+    setForm({ recordId: record?.id ?? null, values: toValues(record, withTax) });
   };
 
   const formEl = form ? (
@@ -223,6 +251,7 @@ export function TdsRecordsPanel({ slug, data, fy }: { slug: TdsSubServiceSlug; d
                 <Plus size={12} strokeWidth={2} /> {kind === 'notice' ? 'Record notice / default' : 'Record registration'}
               </button>
             ) : null}
+            {canManage && kind === 'challan_statement' ? <StatementStart fy={fy} onPick={(form_type, period) => open(null, { form_type, period })} /> : null}
             {canManage && kind === 'correction' ? (
               <CorrectionStart data={data} fy={fy} onPick={(id) => open(null, { original_id: id })} />
             ) : null}
@@ -246,6 +275,7 @@ export function TdsRecordsPanel({ slug, data, fy }: { slug: TdsSubServiceSlug; d
                       <div className="flex-1 min-w-[160px] text-12 text-neutral-500 truncate">
                         {it.record ? summarize(it.record) : `Due ${fmtDate(it.due)}`}
                         <Penalty data={data} item={it} />
+                        {kind === 'challan' ? <RegisterNote total={deductedIn(it.period)} deposited={it.record?.amount_tax ?? null} /> : null}
                       </div>
                       {it.record ? <FileCell clientId={clientId} record={it.record} canManage={canManage} /> : null}
                       <button
@@ -267,7 +297,7 @@ export function TdsRecordsPanel({ slug, data, fy }: { slug: TdsSubServiceSlug; d
           )
         ) : (
           <RecordList
-            records={data.records.filter((r) => r.kind === kind && (kind !== 'correction' || r.fy === fy))}
+            records={data.records.filter((r) => r.kind === kind && ((kind !== 'correction' && kind !== 'challan_statement') || r.fy === fy))}
             kind={kind}
             data={data}
             canManage={canManage}
@@ -296,6 +326,11 @@ function summarize(r: TdsRecord): string {
     if (r.bsr_code) parts.push(`BSR ${r.bsr_code}`);
     const total = (r.amount_tax ?? 0) + (r.amount_interest ?? 0) + (r.amount_fee ?? 0);
     parts.push(`₹${total.toLocaleString('en-IN')}`);
+  } else if (r.kind === 'challan_statement') {
+    if (r.party_name) parts.push(`${r.party_name}${r.party_pan ? ` (${r.party_pan})` : ''}`);
+    if (r.amount_tax !== null) parts.push(`TDS ₹${r.amount_tax.toLocaleString('en-IN')}`);
+    if (r.reference) parts.push(`Ack ${r.reference}`);
+    parts.push(r.cert_issued_on ? `Certificate issued ${fmtDate(r.cert_issued_on)}` : 'Certificate not issued');
   } else if (r.reference) {
     parts.push(r.kind === 'registration' ? `Ack ${r.reference}` : r.kind === 'notice' ? r.reference : `Token ${r.reference}`);
   }
@@ -336,7 +371,9 @@ function RecordList({
   if (records.length === 0) {
     return <Empty text={kind === 'registration'
       ? data.active_tan ? `TAN ${data.active_tan} is on record. No Form 49B filing recorded here.` : 'No registration recorded yet.'
-      : kind === 'correction' ? 'No corrections recorded for this FY.' : 'No notices or defaults recorded.'} />;
+      : kind === 'correction' ? 'No corrections recorded for this FY.'
+      : kind === 'challan_statement' ? 'No 26QB / 26QC / 26QD statements this FY. Record one when the client buys property over ₹50 lakh, or pays rent over ₹50,000 a month or contract fees over ₹50 lakh a year as an individual / HUF.'
+      : 'No notices or defaults recorded.'} />;
   }
   const original = (id: string | null) => data.records.find((r) => r.id === id);
   return (
@@ -347,11 +384,12 @@ function RecordList({
           <li key={r.id}>
             <div className="flex items-center gap-3 px-3 py-2 flex-wrap">
               <div className="w-44 text-13 font-medium text-neutral-900 truncate">
-                {o ? `${o.form_type} · ${o.period}` : r.kind === 'notice' ? (r.reference || 'Notice') : r.kind === 'registration' ? 'Form 49B' : monthLabel(r.period ?? '')}
+                {o ? `${o.form_type} · ${o.period}` : r.kind === 'notice' ? (r.reference || 'Notice') : r.kind === 'registration' ? 'Form 49B'
+                  : r.kind === 'challan_statement' ? `${r.form_type} · ${monthLabel(r.period ?? '')}` : monthLabel(r.period ?? '')}
               </div>
               <span className="inline-flex items-center justify-center w-24 h-6 text-11 font-medium rounded-md"
                 style={{ backgroundColor: PILL[r.status === 'done' ? 'done' : r.status === 'in_progress' ? 'in_progress' : 'overdue'].bg, color: PILL[r.status === 'done' ? 'done' : r.status === 'in_progress' ? 'in_progress' : 'overdue'].fg }}>
-                {r.kind === 'notice' ? { pending: 'Open', in_progress: 'Responding', done: 'Closed' }[r.status] : r.status === 'done' ? 'Filed' : 'In progress'}
+                {r.kind === 'notice' ? { pending: 'Open', in_progress: 'Responding', done: 'Closed' }[r.status] : r.status === 'done' ? (r.kind === 'challan_statement' ? 'Paid' : 'Filed') : 'In progress'}
               </span>
               <div className="flex-1 min-w-[160px] text-12 text-neutral-500 truncate" title={r.notes ?? undefined}>
                 {summarize(r)}{r.notes ? ` · ${r.notes}` : ''}
@@ -413,6 +451,8 @@ function RecordForm({
                   {...common}
                   type={s.type === 'money' ? 'number' : s.type}
                   min={s.type === 'money' ? 0 : undefined}
+                  // Nothing is recorded for a date that hasn't happened yet (the server refuses it too).
+                  max={s.type === 'date' ? todayIso() : s.type === 'month' ? todayIso().slice(0, 7) : undefined}
                   step={s.type === 'money' ? '0.01' : undefined}
                   className={inputCls + (s.type === 'text' ? ' font-mono' : '')}
                   onChange={(e) => set(e.target.value)}
@@ -429,7 +469,7 @@ function RecordForm({
           <span className="text-12 text-neutral-700">Delete this record? The client and other records are not affected.</span>
           <button type="button" className={btn} onClick={() => setConfirmDelete(false)}>Cancel</button>
           <button type="button" onClick={onDelete}
-            className="inline-flex items-center gap-1 h-8 px-3 text-12 font-medium text-white bg-red-600 hover:bg-red-700 rounded-md">
+            className="inline-flex items-center gap-1 h-8 px-3 text-12 font-medium text-white bg-danger hover:opacity-90 rounded-md">
             <Trash2 size={12} strokeWidth={2} /> Delete
           </button>
         </div>
@@ -466,6 +506,42 @@ function AddChallanMonth({ fy, data, onPick }: { fy: string; data: TdsData; onPi
       <option value="">+ Record another month…</option>
       {months.map((m) => <option key={m} value={m}>{monthLabel(m)}</option>)}
     </select>
+  );
+}
+
+/** Under a challan month: what the deductee register recorded as deducted, and whether the deposit matches. */
+function RegisterNote({ total, deposited }: { total: { deducted: number; entries: number } | null; deposited: number | null }) {
+  if (!total || total.entries === 0) return null;
+  const d = Math.round(total.deducted * 100) / 100;
+  const mismatch = deposited !== null && Math.abs(deposited - d) >= 1;
+  return (
+    <span className={'block ' + (mismatch ? 'text-danger' : 'text-neutral-500')}
+      title="From the deductee register (Deductions & deductees).">
+      Register: ₹{d.toLocaleString('en-IN')} deducted ({total.entries} entr{total.entries === 1 ? 'y' : 'ies'})
+      {mismatch ? ` · deposited ₹${deposited!.toLocaleString('en-IN')} — ${deposited! < d ? 'short by' : 'excess'} ₹${Math.abs(deposited! - d).toLocaleString('en-IN')}` : ''}
+    </span>
+  );
+}
+
+function StatementStart({ fy, onPick }: { fy: string; onPick: (form: string, period: string) => void }) {
+  const [formType, setFormType] = useState('26QB');
+  const start = Number(fy.split('-')[0]);
+  const thisMonth = todayIso().slice(0, 7);
+  const months = Array.from({ length: 12 }, (_, i) => {
+    const m0 = (3 + i) % 12;
+    return `${m0 < 3 ? start + 1 : start}-${String(m0 + 1).padStart(2, '0')}`;
+  }).filter((m) => m <= thisMonth);
+  return (
+    <span className="inline-flex gap-2">
+      <select className="h-8 px-2 text-12 border border-neutral-200 rounded-md bg-white" value={formType} onChange={(e) => setFormType(e.target.value)} aria-label="Form">
+        <option value="26QB">26QB · property</option><option value="26QC">26QC · rent</option><option value="26QD">26QD · contract</option>
+      </select>
+      <select className="h-8 px-2 text-12 border border-neutral-200 rounded-md bg-white" value=""
+        onChange={(e) => e.target.value && onPick(formType, e.target.value)} aria-label="Deduction month" disabled={!months.length}>
+        <option value="">{months.length ? '+ Record for month…' : 'No month of this FY yet'}</option>
+        {months.map((m) => <option key={m} value={m}>{monthLabel(m)}</option>)}
+      </select>
+    </span>
   );
 }
 
@@ -556,8 +632,8 @@ function ProfileEditor({ data, canManage }: { data: TdsData; canManage: boolean 
           </div>
         </div>
         <label className="block">
-          <span className="block text-11 text-neutral-500 mb-1">Deductor type</span>
-          <select className={inputCls} value={st.deductor} onChange={(e) => setSt({ ...st, deductor: e.target.value })}>
+          <span className="block text-11 text-neutral-500 mb-1">Deductor type <span className="text-danger">*</span></span>
+          <select className={inputCls + (!st.deductor ? ' border-danger' : '')} value={st.deductor} onChange={(e) => setSt({ ...st, deductor: e.target.value })}>
             <option value="">— Not set —</option>
             {DEDUCTOR_TYPES.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
           </select>
@@ -594,9 +670,11 @@ function ProfileEditor({ data, canManage }: { data: TdsData; canManage: boolean 
       </div>
       {error ? <div className="text-12 text-danger whitespace-pre-line mt-3">{error}</div> : null}
       <div className="mt-3" hidden={!canManage}>
-        <button type="button" className={primaryBtn} disabled={!dirty || st.forms.length === 0 || save.isPending} onClick={() => save.mutate()}>
+        <button type="button" className={primaryBtn} disabled={!dirty || st.forms.length === 0 || !st.deductor || save.isPending} onClick={() => save.mutate()}
+          title={!st.deductor ? 'Choose the deductor type first' : undefined}>
           {save.isPending ? 'Saving…' : 'Save profile'}
         </button>
+        {!st.deductor ? <span className="ml-3 text-12 text-danger">Choose the deductor type to save.</span> : null}
       </div>
     </div>
   );

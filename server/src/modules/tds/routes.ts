@@ -3,7 +3,9 @@
  *
  *   GET    /api/tds/:clientId?fy=2026-27&tan=…  client TANs + profile + that TAN's records (FY rows, registration, notices)
  *   PUT    /api/tds/:clientId/profile           return forms, deductor type, Form 49B details, additional TANs
- *   POST   /api/tds/:clientId/records           record a registration / challan / return / correction / certificate / notice(-check)
+ *   GET    /api/tds/overview?fy=2026-27         firm-wide board: every client TAN's due / overdue work (overview.ts)
+ *   …      /api/tds/:clientId/deductees|deductions|lower-certificates|declarations   deductee register (deductions.ts)
+ *   POST   /api/tds/:clientId/records           record a registration / challan / return / correction / certificate / notice(-check) / 26QB-QC-QD
  *   PATCH  /api/tds/:clientId/records/:id
  *   DELETE /api/tds/:clientId/records/:id       soft delete
  *   POST   /api/tds/:clientId/records/:id/file  attach receipt / ack / certificate (multipart `file`) — new version on replace
@@ -32,6 +34,9 @@ import { writeAudit } from '../../platform/audit.js'
 import { requireWorkstation, assignedClientIds } from '../../platform/workstation/scope.js'
 import { body, FieldErrors } from '../workstation/validate.js'
 import { LocalStorageAdapter } from '../tools/storage/LocalStorageAdapter.js'
+import { fyMonths, fyOf, monthStart, quarterEnd, todayIst, type Quarter } from './calendar.js'
+import { buildOverview, DUE_SOON_DAYS } from './overview.js'
+import { registerDeductionRoutes } from './deductions.js'
 
 /** Resolved per call so TDS_STORAGE_ROOT can be set after import (tests, ops). */
 const tdsStorage = () => new LocalStorageAdapter(process.env.TDS_STORAGE_ROOT
@@ -48,13 +53,17 @@ const TDS_DOC_CATEGORY = 'tds'
 const READ = ['workstation.service.read', 'workstation.service.manage'] as const
 const MANAGE = ['workstation.service.manage'] as const
 
-const KINDS = ['registration', 'challan', 'return', 'correction', 'certificate', 'notice_check', 'notice'] as const
+const KINDS = ['registration', 'challan', 'return', 'correction', 'certificate', 'notice_check', 'notice', 'challan_statement'] as const
 type Kind = (typeof KINDS)[number]
 const STATUSES = ['pending', 'in_progress', 'done'] as const
 const RETURN_FORMS = ['24Q', '26Q', '27Q', '27EQ'] as const
 const CERT_FORMS = ['16', '16A', '27D'] as const
 const DEDUCTOR_TYPES = ['company', 'firm', 'individual', 'government', 'trust', 'aop', 'other'] as const
 const QUARTERS = ['Q1', 'Q2', 'Q3', 'Q4'] as const
+const STATEMENT_FORMS = ['26QB', '26QC', '26QD'] as const
+/** Kinds that do not need a TAN: registration (TAN not allotted yet) and 26QB/QC/QD (PAN-based). */
+const TANLESS = ['registration', 'challan_statement']
+const PAN_RE = /^[A-Z]{5}[0-9]{4}[A-Z]$/
 
 const TAN_RE = /^[A-Z]{4}[0-9]{5}[A-Z]$/
 const FY_RE = /^\d{4}-\d{2}$/
@@ -104,6 +113,7 @@ function toApi(r: Row, doc: DocInfo = null) {
     reference: r.reference, bsr_code: r.bsrCode, event_date: r.eventDate,
     amount_tax: n(r.amountTax), amount_interest: n(r.amountInterest), amount_fee: n(r.amountFee),
     filed_by: r.filedBy, notes: r.notes, original_id: r.originalId,
+    party_name: r.partyName, party_pan: r.partyPan, gross_amount: n(r.grossAmount), cert_issued_on: r.certIssuedOn,
     created_at: r.createdAt, updated_at: r.updatedAt,
   }
 }
@@ -146,6 +156,19 @@ function profileApi(p: ({ returnForms: string; deductorType: string | null } & R
     ...Object.fromEntries(Object.entries(PROFILE_TEXT).map(([k, [col]]) => [k, (p?.[col] as string | null | undefined) ?? null])),
   }
 }
+
+registerDeductionRoutes(tdsServiceRouter, { assertClient, resolveTan, storedTan, tanWhere })
+
+// Declared before '/:clientId' so "overview" is not read as a client id.
+tdsServiceRouter.get('/overview', handler(async (req, res) => {
+  const session = requireSession(req)
+  const scope = requireWorkstation(session, ...READ)
+  const today = todayIst()
+  const fy = typeof req.query.fy === 'string' && FY_RE.test(req.query.fy) ? req.query.fy : fyOf(today)
+  const ids = await assignedClientIds(session, scope)
+  const rows = await buildOverview(prisma, ids, fy, today)
+  ok(res, { fy, today, due_soon_days: DUE_SOON_DAYS, rows })
+}))
 
 tdsServiceRouter.get('/:clientId', handler(async (req, res) => {
   const session = requireSession(req)
@@ -221,6 +244,10 @@ tdsServiceRouter.put('/:clientId/profile', handler(async (req, res) => {
     else if (re && !re.test(t)) e.add(key, msg!)
     else text[col] = t || null
   }
+  // Deductor type decides the return rules — required once a profile is saved.
+  if (deductorType === null || (deductorType === undefined && !(await prisma.tdsProfile.findUnique({ where: { clientId: client.id }, select: { deductorType: true } }))?.deductorType)) {
+    e.add('deductor_type', 'Choose the deductor type.')
+  }
   e.throwIfAny()
 
   const data = {
@@ -241,6 +268,47 @@ tdsServiceRouter.put('/:clientId/profile', handler(async (req, res) => {
   })
   ok(res, { profile: profileApi(saved) })
 }))
+
+const upper = (v: string | null | undefined) => (typeof v === 'string' ? v.toUpperCase() : v)
+
+/**
+ * Dates must be real and consistent with what they record: nothing in the
+ * future, a challan deposited no earlier than its deduction month, a return
+ * filed after its quarter ends, a certificate issued after the quarter, a
+ * correction filed after the original. `r` is the record as it will be saved.
+ */
+function assertDates(kind: string, r: { fy?: unknown; period?: unknown; eventDate?: unknown; certIssuedOn?: unknown }, originalFiledOn?: string | null) {
+  const e = new FieldErrors()
+  const today = todayIst()
+  const ev = typeof r.eventDate === 'string' ? r.eventDate : null
+  const fy = typeof r.fy === 'string' ? r.fy : null
+  const period = typeof r.period === 'string' ? r.period : null
+  const label: Record<string, string> = {
+    registration: 'Submission date', challan: 'Deposit date', return: 'Filing date', correction: 'Filing date',
+    certificate: 'Issue date', notice_check: 'Check date', notice: 'Date', challan_statement: 'Payment date',
+  }
+  if (ev && ev > today) e.add('event_date', `${label[kind] ?? 'Date'} can't be in the future.`)
+  if (typeof r.certIssuedOn === 'string' && r.certIssuedOn > today) e.add('cert_issued_on', "Issue date can't be in the future.")
+  if (kind === 'challan' && fy && period) {
+    if (!fyMonths(fy).includes(period)) e.add('period', `${period} is not a month of FY ${fy}.`)
+    else if (ev && ev < monthStart(period)) e.add('event_date', `Deposit date can't be before the deduction month (${period}).`)
+  }
+  if ((kind === 'return' || kind === 'correction' || kind === 'certificate') && fy && period && /^Q[1-4]$/.test(period) && ev) {
+    const end = quarterEnd(period as Quarter, fy)
+    if (ev <= end) e.add('event_date', `${label[kind]} must be after the quarter ends (${end}).`)
+  }
+  if (kind === 'certificate' && fy && period === 'FY' && ev && ev <= quarterEnd('Q4', fy)) {
+    e.add('event_date', `Form 16 is issued after the FY ends (${quarterEnd('Q4', fy)}).`)
+  }
+  if (kind === 'correction' && ev && originalFiledOn && ev < originalFiledOn) {
+    e.add('event_date', `A correction can't be filed before the original return (${originalFiledOn}).`)
+  }
+  if (kind === 'challan_statement' && period) {
+    if (ev && ev < monthStart(period)) e.add('event_date', `Payment date can't be before the deduction month (${period}).`)
+    if (typeof r.certIssuedOn === 'string' && ev && r.certIssuedOn < ev) e.add('cert_issued_on', 'The certificate is issued after the statement is filed.')
+  }
+  e.throwIfAny()
+}
 
 /** Validate a record body. `partial` = PATCH (only supplied keys). */
 function parseRecord(b: Record<string, unknown>, partial: boolean, kindForPatch?: string) {
@@ -301,6 +369,12 @@ function parseRecord(b: Record<string, unknown>, partial: boolean, kindForPatch?
     case 'notice':
       reference = str('reference', 60)
       break
+    case 'challan_statement':
+      period = str('period', 7, MONTH_RE, 'Deduction month must look like 2026-08.')
+      formType = str('form_type', 4)
+      if (formType && !(STATEMENT_FORMS as readonly string[]).includes(formType)) e.add('form_type', `Must be one of ${STATEMENT_FORMS.join(', ')}.`)
+      reference = str('reference', 20, /^[A-Z0-9]{5,20}$/i, 'Acknowledgement number is 5–20 letters or digits.')
+      break
   }
 
   const data = {
@@ -313,7 +387,13 @@ function parseRecord(b: Record<string, unknown>, partial: boolean, kindForPatch?
     filedBy: str('filed_by', 120),
     notes: str('notes', 2000),
     originalId: kind === 'correction' ? str('original_id', 64) : undefined,
+    partyName: kind === 'challan_statement' ? str('party_name', 150) : undefined,
+    partyPan: kind === 'challan_statement' ? upper(str('party_pan', 10, /^[A-Za-z]{5}[0-9]{4}[A-Za-z]$/, 'PAN must be 5 letters, 4 digits, 1 letter.')) : undefined,
+    grossAmount: kind === 'challan_statement' ? money('gross_amount') : undefined,
+    certIssuedOn: kind === 'challan_statement' ? str('cert_issued_on', 10, DATE_RE, 'Date must be YYYY-MM-DD.') : undefined,
   }
+  // A 26QB / 26QC / 26QD statement belongs to the FY of its deduction month.
+  if (kind === 'challan_statement' && period) data.fy = fyOf(`${period}-01`)
   const tan = kind === 'registration' ? str('tan', 10, TAN_RE, 'TAN must be 4 letters, 5 digits, 1 letter — e.g. CHEK09876B.') : undefined
 
   // Required fields on create — the "evidence capture is a gate" rule.
@@ -329,7 +409,9 @@ function parseRecord(b: Record<string, unknown>, partial: boolean, kindForPatch?
       if (kind === 'challan') { need('reference', reference); need('bsr_code', data.bsrCode); need('event_date', data.eventDate); need('amount_tax', data.amountTax) }
       if (kind === 'return' || kind === 'correction') { need('reference', reference); need('event_date', data.eventDate) }
       if (kind === 'certificate') need('event_date', data.eventDate)
+      if (kind === 'challan_statement') { need('reference', reference); need('event_date', data.eventDate); need('amount_tax', data.amountTax); need('party_name', data.partyName) }
     }
+    if (kind === 'challan_statement') { need('period', period); need('form_type', formType) }
     if (kind === 'correction') need('original_id', data.originalId)
   }
   e.throwIfAny()
@@ -353,6 +435,23 @@ async function syncTan(client: ScopedClient, tan: string | null | undefined, use
 
 /** One return / challan / certificate per (period, form) per FY — duplicates are a data error, not history. */
 async function assertNoDuplicate(client: ScopedClient, tan: string | null, kind: string, d: Record<string, unknown>, exceptId?: string) {
+  // A notice / default is one record whose status moves Open → Closed; a
+  // 26QB/QC/QD acknowledgement is unique. Same reference twice = duplicate.
+  if ((kind === 'notice' || kind === 'challan_statement') && typeof d.reference === 'string' && d.reference) {
+    const same = await prisma.tdsFiling.findFirst({
+      where: {
+        clientId: client.id, kind, deletedAt: null, reference: { equals: d.reference, mode: 'insensitive' },
+        ...(kind === 'notice' ? { AND: [tanWhere(client, tan)] } : {}),
+        ...(exceptId ? { id: { not: exceptId } } : {}),
+      },
+    })
+    if (same) {
+      throw ApiError.conflict('duplicate', kind === 'notice'
+        ? `Notice ${d.reference} is already recorded — edit it to change its status instead of adding it again.`
+        : `Acknowledgement ${d.reference} is already recorded.`)
+    }
+    return
+  }
   if (!['challan', 'return', 'certificate'].includes(kind)) return
   const clash = await prisma.tdsFiling.findFirst({
     where: {
@@ -371,16 +470,19 @@ tdsServiceRouter.post('/:clientId/records', handler(async (req, res) => {
   const b = body(req)
   const { data, tan } = parseRecord(b, false)
   const kind = b.kind as Kind
-  // Registration can be for a not-yet-allotted TAN, so it may be filed with no TAN in scope.
-  const forTan = kind === 'registration' && !client.tan ? null : resolveTan(client, b.for_tan)
-  if (kind !== 'registration' && !forTan) throw ApiError.badRequest('Record the TAN under TDS Registration first.')
+  // Registration can be for a not-yet-allotted TAN; 26QB/QC/QD work on PAN.
+  const forTan = TANLESS.includes(kind) && !client.tan ? null : kind === 'challan_statement' ? client.tan : resolveTan(client, b.for_tan)
+  if (!TANLESS.includes(kind) && !forTan) throw ApiError.badRequest('Record the TAN under TDS Registration first.')
+  let originalFiledOn: string | null = null
   if (kind === 'correction') {
     const orig = await prisma.tdsFiling.findFirst({
       where: { id: data.originalId as string, clientId: client.id, kind: 'return', status: 'done', deletedAt: null, AND: [tanWhere(client, forTan)] },
     })
     if (!orig) throw ApiError.badRequest('A correction must reference a filed return of this client.')
     Object.assign(data, { fy: orig.fy, period: orig.period, formType: orig.formType })
+    originalFiledOn = orig.eventDate
   }
+  assertDates(kind, data, originalFiledOn)
   await assertNoDuplicate(client, forTan, kind, data)
   const saved = await prisma.tdsFiling.create({
     data: { clientId: client.id, tan: storedTan(client, forTan), kind, status: 'done', ...data, createdBy: session.userId, updatedBy: session.userId } as Prisma.TdsFilingUncheckedCreateInput,
@@ -401,8 +503,13 @@ tdsServiceRouter.patch('/:clientId/records/:id', handler(async (req, res) => {
   if (!row) throw ApiError.notFound('Record not found.')
   const { data, tan } = parseRecord(body(req), true, row.kind)
   delete data.originalId // a correction's original is fixed at creation
+  const orig = row.kind === 'correction' && row.originalId
+    ? await prisma.tdsFiling.findFirst({ where: { id: row.originalId }, select: { eventDate: true } })
+    : null
+  assertDates(row.kind, { ...row, ...data }, orig?.eventDate ?? null)
   await assertNoDuplicate(client, row.tan ?? client.tan, row.kind, {
     fy: data.fy ?? row.fy, period: data.period ?? row.period, formType: data.formType ?? row.formType,
+    reference: data.reference ?? row.reference,
   }, row.id)
   const saved = await prisma.tdsFiling.update({ where: { id: row.id }, data: { ...data, updatedBy: session.userId } })
   await syncTan(client, tan, session.userId)
@@ -442,7 +549,7 @@ async function tdsCategoryId(organisationId: string): Promise<string> {
 }
 
 const KIND_LABEL: Record<string, string> = {
-  registration: 'Form 49B acknowledgement', challan: 'Challan receipt', return: 'TDS return receipt',
+  registration: 'Form 49B acknowledgement', challan: 'Challan receipt', return: 'TDS return receipt', challan_statement: '26QB/26QC/26QD acknowledgement',
   correction: 'TDS correction receipt', certificate: 'TDS certificate', notice: 'TDS notice', notice_check: 'TRACES check',
 }
 

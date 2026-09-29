@@ -104,6 +104,7 @@ import { RegistrationServiceDetail } from '@/pages/workstation/registration/Regi
 // Challan Payment, Return Filing, Correction, Form 16/16A, Notices).
 import { TdsServicesLanding } from '@/pages/workstation/tds/TdsServicesLanding';
 import { TdsServiceHandoff } from '@/pages/workstation/tds/TdsServiceHandoff';
+import { TdsRegisterPage } from '@/pages/workstation/tds/TdsRegisterPage';
 
 // Books — Tools → Books, an Audit OS UI over Zoho Books (docs/books-zoho).
 import { BooksShell } from '@/pages/books/BooksShell';
@@ -239,6 +240,8 @@ export default function App() {
               {/* TDS module — copied from GST structure, wins over the
                   :category catch-all below. */}
               <Route path="workstation/services/tds" element={<TdsServicesLanding />} />
+              {/* Declared before :slug so "register" is not read as a sub-service. */}
+              <Route path="workstation/services/tds/register" element={<TdsRegisterPage />} />
               <Route path="workstation/services/tds/:slug" element={<TdsServiceHandoff />} />
               {/* Tally Export — its own Services module (docs/tally-export/README.md). */}
               <Route path="workstation/services/tally-export" element={<TallyExportPage />} />

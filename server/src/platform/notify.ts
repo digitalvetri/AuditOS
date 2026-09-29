@@ -6,7 +6,7 @@ import { prisma } from '../lib/prisma.js'
  * no domain code imports socket.io.
  */
 export type NotificationModule =
-  | 'attendance' | 'leave' | 'payroll' | 'expense' | 'message' | 'document' | 'system'
+  | 'attendance' | 'leave' | 'payroll' | 'expense' | 'message' | 'document' | 'system' | 'workstation'
 
 type Emitter = (userId: string, payload: unknown) => void
 let emit: Emitter = () => {}

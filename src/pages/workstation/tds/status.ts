@@ -202,6 +202,26 @@ export function noticesStatus(data: TdsData, today = todayIso()): SubServiceStat
   return { key: 'active', label: checked };
 }
 
+/** 26QB / 26QC / 26QD: statement due 30 days after the month ends; Form 16B/C/D 15 days after that. */
+export function statementDue(ym: string): string {
+  const [y, m] = ym.split('-').map(Number);
+  return iso(y, m, 30); // day 30 of the following month counting from the last day of month m
+}
+export function statementCertificateDue(ym: string): string {
+  const d = new Date(`${statementDue(ym)}T00:00:00`);
+  return iso(d.getFullYear(), d.getMonth(), d.getDate() + 15);
+}
+
+export function challanStatementsStatus(data: TdsData, fy: string, today = todayIso()): SubServiceStatus {
+  const rows = data.records.filter((r) => r.kind === 'challan_statement' && r.fy === fy);
+  if (!rows.length) return { key: 'active', label: 'None recorded', detail: 'Only when the client buys property, or pays rent / contract fees as an individual' };
+  const owed = rows.filter((r) => r.status === 'done' && !r.cert_issued_on && r.period);
+  const late = owed.filter((r) => today > statementCertificateDue(r.period!));
+  if (late.length) return { key: 'overdue', label: `${late.length} certificate${late.length > 1 ? 's' : ''} overdue`, detail: 'Form 16B / 16C / 16D not issued' };
+  if (owed.length) return { key: 'pending', label: `${owed.length} certificate${owed.length > 1 ? 's' : ''} to issue` };
+  return { key: 'issued', label: `${rows.length} recorded`, detail: 'All certificates issued' };
+}
+
 // ── Interest & late fee (computed guidance — the firm still enters what it paid) ──
 
 const monthIndex = (isoDate: string) => { const [y, m] = isoDate.split('-').map(Number); return y * 12 + (m - 1); };

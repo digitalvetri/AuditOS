@@ -1129,46 +1129,47 @@ model Client {
 
   zpayExternalInvoices ZpayExternalInvoice[]
 
-  contacts            ClientContact[]
-  services            ClientService[]
-  followUps           FollowUp[]
-  documents           ClientDocument[]
-  tasks               Task[]
-  quotations          Quotation[]
-  invoices            Invoice[]
-  engagementLetters   EngagementLetter[]
-  workstationDocs     WorkstationDoc[]
-  ewayBills           EwayBill[]
-  gstProfile          GstProfile?
-  eInvoiceEwbProfile  EInvoiceEwbProfile?
-  eInvoiceIrns        EInvoiceIrn[]
-  eInvoiceEwbPulls    EInvoiceEwbPullRun[]
-  bkEngagement        BookkeepingEngagement?
-  bkTasks             BookkeepingTask[]
-  bkPendingItems      BookkeepingPendingItem[]
-  bkDocumentRequests  BookkeepingDocumentRequest[]
-  bkDeliverables      BookkeepingDeliverable[]
-  bkActivities        BookkeepingActivity[]
-  bkImports           BookkeepingImport[]
-  registrations       ClientRegistration[]
-  incCases            IncorporationCase[]
-  pfrCases            PartnershipCase[]
-  incDocumentRequests IncorporationDocumentRequest[]
-  incDeliverables     IncorporationDeliverable[]
-  incFees             IncorporationFee[]
-  aaBankAccounts      AaBankAccount[]
-  aaSourceDocuments   AaSourceDocument[]
-  aaJobs              AaJob[]
-  aaGstFilings2B      AaGstFiling2B[]
-  aaPurchaseRegisters AaPurchaseRegister[]
-  aaGstReconJobs      AaGstReconJob[]
-  aaTds26AS           AaTds26AS[]
-  aaTdsBooks          AaTdsBooks[]
-  aaTdsReconJobs      AaTdsReconJob[]
-  tdsPortalCredential TdsPortalCredential?
+  contacts                ClientContact[]
+  services                ClientService[]
+  followUps               FollowUp[]
+  documents               ClientDocument[]
+  tasks                   Task[]
+  quotations              Quotation[]
+  invoices                Invoice[]
+  engagementLetters       EngagementLetter[]
+  workstationDocs         WorkstationDoc[]
+  ewayBills               EwayBill[]
+  gstProfile              GstProfile?
+  eInvoiceEwbProfile      EInvoiceEwbProfile?
+  eInvoiceIrns            EInvoiceIrn[]
+  eInvoiceEwbPulls        EInvoiceEwbPullRun[]
+  bkEngagement            BookkeepingEngagement?
+  bkTasks                 BookkeepingTask[]
+  bkPendingItems          BookkeepingPendingItem[]
+  bkDocumentRequests      BookkeepingDocumentRequest[]
+  bkDeliverables          BookkeepingDeliverable[]
+  bkActivities            BookkeepingActivity[]
+  bkImports               BookkeepingImport[]
+  registrations           ClientRegistration[]
+  incCases                IncorporationCase[]
+  pfrCases                PartnershipCase[]
+  incDocumentRequests     IncorporationDocumentRequest[]
+  incDeliverables         IncorporationDeliverable[]
+  incFees                 IncorporationFee[]
+  aaBankAccounts          AaBankAccount[]
+  aaSourceDocuments       AaSourceDocument[]
+  aaJobs                  AaJob[]
+  aaGstFilings2B          AaGstFiling2B[]
+  aaPurchaseRegisters     AaPurchaseRegister[]
+  aaGstReconJobs          AaGstReconJob[]
+  aaTds26AS               AaTds26AS[]
+  aaTdsBooks              AaTdsBooks[]
+  aaTdsReconJobs          AaTdsReconJob[]
+  tdsPortalCredential     TdsPortalCredential?
   registrationCredentials RegistrationCredential[]
-  tdsProfile          TdsProfile?
-  tdsFilings          TdsFiling[]
+  tdsProfile              TdsProfile?
+  tdsDeductees            TdsDeductee[]
+  tdsFilings              TdsFiling[]
 
   createdAt           DateTime              @default(now())
   updatedAt           DateTime              @updatedAt
@@ -1476,31 +1477,31 @@ model ClientDocument {
 /// Never overwrite (§10.6). An upload appends v1 → v2 → v3, each with its own
 /// fileKey and therefore its own signed download URL.
 model ClientDocumentVersion {
-  id                String   @id @default(uuid())
-  documentId        String
-  version           Int
-  fileKey           String
+  id                   String    @id @default(uuid())
+  documentId           String
+  version              Int
+  fileKey              String
   /// An HRMS employee id, or the literal 'portal' when the future Client
   /// Portal delivered it. Seeded both ways so the receiving path is exercised.
-  uploadedBy        String
-  uploadedAt        DateTime @default(now())
-  sizeBytes         Int      @default(0)
-  notes             String?
-  previousVersionId String?
+  uploadedBy           String
+  uploadedAt           DateTime  @default(now())
+  sizeBytes            Int       @default(0)
+  notes                String?
+  previousVersionId    String?
   /// Set only when real bytes sit behind fileKey (Partnership Registration
   /// uploads). Null means the older metadata-only version.
-  originalName      String?
-  mimeType          String?
+  originalName         String?
+  mimeType             String?
   /// This version's own review outcome, so v1 stays "rejected" after v2 is
   /// verified: uploaded | under_review | verified | rejected | replacement_required
-  reviewStatus      String?
+  reviewStatus         String?
   reviewedByEmployeeId String?
-  reviewedAt        DateTime?
-  reviewNote        String?
+  reviewedAt           DateTime?
+  reviewNote           String?
   /// Which "any one" option this file is (e.g. "Voter ID")
-  documentType      String?
+  documentType         String?
   /// Date printed on the document, as entered — for "not older than" checks
-  documentDate      String?
+  documentDate         String?
 
   document ClientDocument @relation(fields: [documentId], references: [id])
 
@@ -1542,9 +1543,9 @@ model GstProfile {
   address            String?
   active             Boolean @default(true)
 
-  client  Client                @relation(fields: [clientId], references: [id])
-  filings GstFiling[]
-  periods GstCompliancePeriod[]
+  client       Client                @relation(fields: [clientId], references: [id])
+  filings      GstFiling[]
+  periods      GstCompliancePeriod[]
   portalAccess GstPortalAccess?
 
   createdAt DateTime  @default(now())
@@ -1571,40 +1572,40 @@ model GstProfile {
 ///   - Viewing this record is its own permission
 ///     (workstation.gst.portal.view), separate from workstation.service.read
 model GstPortalAccess {
-  id                   String  @id @default(uuid())
-  gstProfileId         String  @unique
+  id           String @id @default(uuid())
+  gstProfileId String @unique
 
   /// Portal login name — not secret, needed every login.
-  portalUsername       String?
+  portalUsername           String?
   /// AES-256-GCM ciphertext of the portal password. Null when the client
   /// holds it (passwordHeldBy=client) or the record was never filled in.
   portalPasswordCiphertext String?
   /// firm | client — who holds the portal password. Drives UI + is the
   /// invariant behind the "ciphertext must be null when client" rule.
-  passwordHeldBy       String  @default("firm")
+  passwordHeldBy           String  @default("firm")
 
   /// Number that receives the MFA OTP, masked at rest ('98••••4471').
   /// Full number is not stored — the firm rings the OTP contact instead.
   registeredMobileMasked String?
   /// Person to phone when an OTP is needed. Usually the client or an
   /// employee at the client's office.
-  otpContactName       String?
-  otpContactNumber     String?
+  otpContactName         String?
+  otpContactNumber       String?
 
   /// otp_mobile | authenticator | none
-  mfaMethod            String  @default("otp_mobile")
+  mfaMethod String @default("otp_mobile")
 
   /// E-Way Bill portal — separate credentials, same crypto rules.
-  ewbUsername          String?
+  ewbUsername           String?
   ewbPasswordCiphertext String?
 
   /// Invoice Registration Portal — six IRPs exist, which one matters.
-  irpName              String?
-  irpUsername          String?
+  irpName               String?
+  irpUsername           String?
   irpPasswordCiphertext String?
 
   /// Last time an operator verified the credentials still work.
-  lastVerifiedAt       DateTime?
+  lastVerifiedAt           DateTime?
   lastVerifiedByEmployeeId String?
 
   gstProfile GstProfile @relation(fields: [gstProfileId], references: [id])
@@ -1676,18 +1677,18 @@ model TdsProfile {
 
   // Form 49B details — fed to the Registration field sheet. Stored as the
   // firm types them; the UI warns (never truncates) when over portal limits.
-  rpDesignation String?
-  rpPan         String?
-  rpEmail       String?
-  rpMobile      String?
-  addrFlat      String?
-  addrBuilding  String?
-  addrRoad      String?
-  addrArea      String?
-  addrCity      String?
-  addrPin       String?
+  rpDesignation  String?
+  rpPan          String?
+  rpEmail        String?
+  rpMobile       String?
+  addrFlat       String?
+  addrBuilding   String?
+  addrRoad       String?
+  addrArea       String?
+  addrCity       String?
+  addrPin        String?
   /// 'Area code · AO type · Range code · AO number', e.g. 'CHE W 51 1'.
-  aoCode        String?
+  aoCode         String?
   /// Extra TANs (branches / divisions), comma-separated. Client.tan is the primary.
   additionalTans String?
 
@@ -1708,33 +1709,40 @@ model TdsProfile {
 ///   certificate  Q1..Q4|FY   16A/16/27D           —
 ///   notice_check —           —                    —   (eventDate = checked on)
 ///   notice       —           —                    notice / default reference
+///   challan_statement YYYY-MM 26QB/26QC/26QD    acknowledgement no. (PAN-based; no TAN needed)
 /// Status is what the firm recorded; due/overdue is derived from dates.
 model TdsFiling {
-  id         String  @id @default(uuid())
-  clientId   String
+  id             String   @id @default(uuid())
+  clientId       String
   /// The TAN this row belongs to. Null = the client's primary TAN (Client.tan).
-  tan        String?
-  kind       String
+  tan            String?
+  kind           String
   /// FY label '2026-27'; null for registration.
-  fy         String?
-  period     String?
-  formType   String?
+  fy             String?
+  period         String?
+  formType       String?
   /// pending | in_progress | done   (done = paid / filed / issued / closed)
-  status     String  @default("done")
-  reference  String?
-  bsrCode    String?
+  status         String   @default("done")
+  reference      String?
+  bsrCode        String?
   /// 'YYYY-MM-DD' — deposit / filing / issue / submission / check date.
-  eventDate  String?
+  eventDate      String?
   /// Rupees, as entered. Tracked, never calculated.
   amountTax      Decimal? @db.Decimal(14, 2)
   amountInterest Decimal? @db.Decimal(14, 2)
   amountFee      Decimal? @db.Decimal(14, 2)
-  filedBy    String?
-  notes      String?
-  originalId String?
+  filedBy        String?
+  notes          String?
+  originalId     String?
+  /// 26QB / 26QC / 26QD challan-cum-statements: the other party and the
+  /// Form 16B / 16C / 16D issue date.
+  partyName      String?
+  partyPan       String?
+  grossAmount    Decimal? @db.Decimal(14, 2)
+  certIssuedOn   String?
   /// Receipt / acknowledgement / certificate file, kept in the client's
   /// document store (ClientDocument, category 'tds'); versions on replace.
-  documentId String?
+  documentId     String?
 
   client Client @relation(fields: [clientId], references: [id])
 
@@ -1745,6 +1753,117 @@ model TdsFiling {
   deletedAt DateTime?
 
   @@index([clientId, kind, fy])
+}
+
+/// A payee the client deducts TDS from — contractor, professional, landlord…
+model TdsDeductee {
+  id        String  @id @default(uuid())
+  clientId  String
+  name      String
+  pan       String?
+  /// individual_huf | other — picks the 194C / 194D rate.
+  category  String  @default("other")
+  /// resident | non_resident — non-residents go to 27Q.
+  residency String  @default("resident")
+  email     String?
+  notes     String?
+
+  client       Client                @relation(fields: [clientId], references: [id])
+  deductions   TdsDeduction[]
+  certificates TdsLowerCertificate[]
+  declarations TdsDeclaration[]
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  createdBy String?
+  updatedBy String?
+  deletedAt DateTime?
+
+  @@index([clientId])
+}
+
+/// Lower / nil deduction certificate held by a deductee (Form 13, s. 197).
+model TdsLowerCertificate {
+  id            String   @id @default(uuid())
+  clientId      String
+  deducteeId    String
+  certificateNo String
+  section       String
+  /// Rate % the certificate allows.
+  rate          Decimal  @db.Decimal(5, 2)
+  validFrom     String
+  validTo       String
+  /// Amount the certificate covers; null = no limit stated.
+  amountLimit   Decimal? @db.Decimal(14, 2)
+
+  deductee TdsDeductee @relation(fields: [deducteeId], references: [id])
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  createdBy String?
+  updatedBy String?
+  deletedAt DateTime?
+
+  @@index([clientId, deducteeId])
+}
+
+/// Form 15G / 15H declaration received from a deductee for an FY.
+model TdsDeclaration {
+  id              String   @id @default(uuid())
+  clientId        String
+  deducteeId      String
+  fy              String
+  /// 15G | 15H
+  form            String
+  receivedOn      String
+  estimatedIncome Decimal? @db.Decimal(14, 2)
+  /// UIN the deductor allots when uploading the declaration.
+  uin             String?
+
+  deductee TdsDeductee @relation(fields: [deducteeId], references: [id])
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  createdBy String?
+  updatedBy String?
+  deletedAt DateTime?
+
+  @@index([clientId, deducteeId, fy])
+}
+
+/// One payment / credit and the TDS on it — the deductee register row.
+model TdsDeduction {
+  id            String   @id @default(uuid())
+  clientId      String
+  /// Same convention as TdsFiling.tan: null = the client's primary TAN.
+  tan           String?
+  fy            String
+  /// 'YYYY-MM' of the deduction — ties the row to that month's challan.
+  month         String
+  deducteeId    String
+  section       String
+  paymentDate   String
+  amountPaid    Decimal  @db.Decimal(14, 2)
+  /// What the rules give (calculator); what was actually deducted.
+  expectedTds   Decimal? @db.Decimal(14, 2)
+  tdsAmount     Decimal  @db.Decimal(14, 2)
+  ratePct       Decimal? @db.Decimal(5, 2)
+  /// normal | no_pan | lower_certificate | declaration | below_threshold | manual
+  basis         String   @default("normal")
+  deductionDate String
+  invoiceRef    String?
+  notes         String?
+
+  deductee TdsDeductee @relation(fields: [deducteeId], references: [id])
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  createdBy String?
+  updatedBy String?
+  deletedAt DateTime?
+
+  @@index([clientId, fy, month])
+  @@index([deducteeId, section, fy])
 }
 
 model GstFiling {
@@ -2303,7 +2422,7 @@ model GstAuditLog {
 /// CBIC quietly renumbers the calendar (each supersession is a new row, not
 /// an update — the old row's date stays right for its era).
 model GstDueDateRule {
-  id              String @id @default(uuid())
+  id              String  @id @default(uuid())
   /// GSTR1 | GSTR2B | GSTR3B — matches PartnershipCase.kind for the three.
   kind            String
   /// monthly | quarterly (QRMP).
@@ -2816,9 +2935,9 @@ model AaJob {
   periodTo            String?
   openingBalancePaise BigInt?
   closingBalancePaise BigInt?
-  rowCount            Int     @default(0)
+  rowCount            Int       @default(0)
   /// pending → approved (reviewed, ready for Tally)
-  reviewStatus        String  @default("pending")
+  reviewStatus        String    @default("pending")
   approvedByUserId    String?
   approvedAt          DateTime?
   /// The bank's ledger name in Tally (e.g. "HDFC Bank A/c 1234").
@@ -2885,22 +3004,22 @@ model AaGstFiling2B {
 /// One line item inside a GSTR-2B filing. Sections map to the JSON
 /// envelope: b2b | cdnr | isd | impg | imps + amendments b2ba|cdnra|isda.
 model AaGstFiling2BEntry {
-  id            String  @id @default(uuid())
-  filingId      String
-  section       String
-  supplierGstin String
-  supplierName  String?
-  invoiceNumber String
+  id                    String  @id @default(uuid())
+  filingId              String
+  section               String
+  supplierGstin         String
+  supplierName          String?
+  invoiceNumber         String
   /// YYYY-MM-DD to keep the calendar date IST-stable.
-  invoiceDate   String
+  invoiceDate           String
   /// Amounts in paise (INR minor units) — Int for exact arithmetic.
-  taxableValue  Int
-  igst          Int     @default(0)
-  cgst          Int     @default(0)
-  sgst          Int     @default(0)
-  cess          Int     @default(0)
+  taxableValue          Int
+  igst                  Int     @default(0)
+  cgst                  Int     @default(0)
+  sgst                  Int     @default(0)
+  cess                  Int     @default(0)
   /// GSTN's own "ITC Available" flag from the 2B row.
-  itcAvailable  Boolean @default(true)
+  itcAvailable          Boolean @default(true)
   /// INV | CRN (credit note) | DBN (debit note) | BOE (import) | ISD
   docType               String  @default("INV")
   /// Invoice value incl. tax (2B `val`), paise.
@@ -2912,7 +3031,7 @@ model AaGstFiling2BEntry {
   /// GSTN's reason when ITC is not available (2B `rsn`).
   itcReason             String?
   /// Original source row as JSON so we can re-parse later if needed.
-  rawJson       String?
+  rawJson               String?
 
   filing    AaGstFiling2B   @relation(fields: [filingId], references: [id])
   reconRows AaGstReconRow[] @relation("Filing2BEntryToReconRow")
@@ -2969,9 +3088,9 @@ model AaPurchaseRegisterEntry {
   cess          Int     @default(0)
   /// Ledger / GL code from the register (optional).
   glCode        String?
-  invoiceValue          Int?
-  reverseCharge         Boolean @default(false)
-  docType               String  @default("INV")
+  invoiceValue  Int?
+  reverseCharge Boolean @default(false)
+  docType       String  @default("INV")
   rawJson       String?
 
   register  AaPurchaseRegister @relation(fields: [registerId], references: [id])
@@ -3229,7 +3348,7 @@ model AaTdsReconJob {
 /// Follow-up with one deductor for one client and assessment year — kept
 /// across re-runs and deletions of the reconciliation it was raised from.
 model AaTdsDeductorFollowUp {
-  id              String   @id @default(uuid())
+  id              String    @id @default(uuid())
   organisationId  String
   clientId        String
   assessmentYear  Int
@@ -3238,7 +3357,7 @@ model AaTdsDeductorFollowUp {
   deductorTan     String?
   deductorName    String?
   /// open | contacted | promised | resolved | written_off
-  status          String   @default("open")
+  status          String    @default("open")
   /// YYYY-MM-DD — next follow-up / promised correction date.
   dueDate         String?
   contactEmail    String?
@@ -3348,7 +3467,7 @@ model BookkeepingCompany {
   booksBeginFrom      String
   active              Boolean @default(true)
 
-  organisation   Organisation         @relation(fields: [organisationId], references: [id])
+  organisation   Organisation               @relation(fields: [organisationId], references: [id])
   financialYears BookkeepingFinancialYear[]
   groups         BookkeepingGroup[]
   ledgers        BookkeepingLedger[]
@@ -3392,7 +3511,7 @@ model BookkeepingCompany {
 /// with different columns re-shows the mapping screen pre-filled, with the
 /// changed columns highlighted — enforced at the service layer.
 model BookkeepingImportMapping {
-  id                  String   @id @default(uuid())
+  id                  String  @id @default(uuid())
   tallyCompanyId      String
   /// Sheet tab the operator picked, e.g. "Sales" or "Purchase". Kept so
   /// the next month we can validate the same tab still exists.
@@ -3400,7 +3519,7 @@ model BookkeepingImportMapping {
   /// sales_register | purchase_register | receipt_register | payment_register
   target              String
   /// 1-based row number the header sits on. Data begins at headerRow + 1.
-  headerRow           Int      @default(1)
+  headerRow           Int     @default(1)
   /// Column letter → target field, e.g. { "A": "date", "B": "invoice_no",
   /// "D": "customer", "F": "currency", "H": "foreign_amount",
   /// "J": "amount_inr", "K": "exchange_rate" }. "ignore" or absence means
@@ -3409,17 +3528,17 @@ model BookkeepingImportMapping {
   /// The strftime-style pattern that column-A dates follow — the client's
   /// file uses "DD/MM/YYYY" but we cannot assume it; keep the value as
   /// typed on the mapping screen.
-  dateFormat          String   @default("DD/MM/YYYY")
+  dateFormat          String  @default("DD/MM/YYYY")
   /// Free-form alias table, e.g. { "S$": "SGD", "$": "USD" }. Populated
   /// when the operator confirms "map S$ to SGD? [Yes, and remember]".
   currencyAliasesJson Json
   /// Bumped every time the operator re-saves. The changed-column
   /// highlight on re-import compares against the current version.
-  version             Int      @default(1)
+  version             Int     @default(1)
   createdByUserId     String?
   updatedByUserId     String?
 
-  company BookkeepingCompany @relation(fields: [tallyCompanyId], references: [id])
+  company BookkeepingCompany     @relation(fields: [tallyCompanyId], references: [id])
   runs    BookkeepingImportRun[]
 
   createdAt DateTime @default(now())
@@ -3438,9 +3557,9 @@ model BookkeepingImportMapping {
 ///
 /// Written by the commit path, never by preview / derive.
 model BookkeepingImportRun {
-  id              String   @id @default(uuid())
+  id              String  @id @default(uuid())
   tallyCompanyId  String
-  target          String   /// same value set as BookkeepingImportMapping.target
+  target          String /// same value set as BookkeepingImportMapping.target
   fileName        String
   /// SHA-256 hex digest of the raw upload bytes. Used to detect a
   /// re-import of the same file even before the row-level idempotency
@@ -3452,13 +3571,13 @@ model BookkeepingImportRun {
   mappingVersion  Int
   rowsScanned     Int
   rowsDerived     Int
-  vouchersCreated Int      @default(0)
-  vouchersSkipped Int      @default(0)
+  vouchersCreated Int     @default(0)
+  vouchersSkipped Int     @default(0)
   /// CHANGED rows the operator explicitly Updated (cancel + re-post). MVP: 0.
-  vouchersUpdated Int      @default(0)
-  ledgersCreated  Int      @default(0)
+  vouchersUpdated Int     @default(0)
+  ledgersCreated  Int     @default(0)
   /// Sum of created vouchers' totals, INR paise. Skipped rows excluded.
-  totalPaise      Int      @default(0)
+  totalPaise      Int     @default(0)
   currenciesJson  Json
   /// A brief JSON summary the History tab renders: { flags: {…}, changed_rows: [...] }.
   /// Kept small — the details are recoverable by re-running derive on the
@@ -3484,7 +3603,7 @@ model BookkeepingImportRun {
 /// The bytes live under uploads/bookkeeping/client-reports/<companyId>/
 /// <id>.html; storagePath is the relative path from the uploads root.
 model BookkeepingClientReport {
-  id              String   @id @default(uuid())
+  id              String  @id @default(uuid())
   tallyCompanyId  String
   /// Period the report covered (inclusive).
   from            String
@@ -3672,7 +3791,7 @@ model BookkeepingVoucherType {
 /// type affectsAccounts is rejected at post time unless total debit ==
 /// total credit (integrity rule 1).
 model BookkeepingVoucher {
-  id                String  @id @default(uuid())
+  id                String   @id @default(uuid())
   tallyCompanyId    String
   financialYearId   String
   voucherTypeId     String
@@ -3689,17 +3808,17 @@ model BookkeepingVoucher {
   /// Two-digit state code of the place of supply (GST).
   placeOfSupply     String?
   /// active | cancelled
-  status            String  @default("active")
+  status            String   @default("active")
   /// Denormalised roll-ups, always written from the lines by the engine.
-  totalDebitPaise   Int     @default(0)
-  totalCreditPaise  Int     @default(0)
-  taxableValuePaise Int     @default(0)
-  cgstPaise         Int     @default(0)
-  sgstPaise         Int     @default(0)
-  igstPaise         Int     @default(0)
-  cessPaise         Int     @default(0)
-  roundOffPaise     Int     @default(0)
-  grandTotalPaise   Int     @default(0)
+  totalDebitPaise   Int      @default(0)
+  totalCreditPaise  Int      @default(0)
+  taxableValuePaise Int      @default(0)
+  cgstPaise         Int      @default(0)
+  sgstPaise         Int      @default(0)
+  igstPaise         Int      @default(0)
+  cessPaise         Int      @default(0)
+  roundOffPaise     Int      @default(0)
+  grandTotalPaise   Int      @default(0)
   dueDate           String?
   /// Header-level currency for the source document. Every posting amount
   /// on this voucher (totalDebitPaise, taxableValuePaise, etc.) is INR
@@ -3709,7 +3828,7 @@ model BookkeepingVoucher {
   ///
   /// ISO-4217 3-letter code. Defaults to INR so every pre-existing
   /// voucher is treated as an INR voucher without a backfill.
-  currency          String  @default("INR")
+  currency          String   @default("INR")
   /// Exchange rate as typed on the source document — the RATE THE CLIENT
   /// FILLED IN. Do not fetch from an API, do not compute. Null when the
   /// voucher currency is INR (rate is implicitly 1). Decimal(18,8)
@@ -3717,7 +3836,7 @@ model BookkeepingVoucher {
   exchangeRate      Decimal? @db.Decimal(18, 8)
   /// Optimistic-lock / edit counter. Every alteration writes a
   /// BookkeepingVoucherRevision and bumps this.
-  version           Int     @default(1)
+  version           Int      @default(1)
 
   createdByUserId   String?
   modifiedByUserId  String?
@@ -3748,19 +3867,19 @@ model BookkeepingVoucher {
 /// One debit or credit line of a voucher. The sole source of every
 /// ledger balance in the system.
 model BookkeepingVoucherEntry {
-  id             String  @id @default(uuid())
-  tallyCompanyId String
-  voucherId      String
-  ledgerId       String
+  id                 String   @id @default(uuid())
+  tallyCompanyId     String
+  voucherId          String
+  ledgerId           String
   /// dr | cr
-  entryType      String
+  entryType          String
   /// The amount that posts to the ledger. ALWAYS INR paise, always the
   /// only field trial balance, P&L, balance sheet and every report ever
   /// reads. The three currency fields below are display and audit only.
-  amountPaise    Int
+  amountPaise        Int
   /// ISO-4217 3-letter code the source document was written in.
   /// Defaults to INR so pre-existing lines are treated as INR lines.
-  currency       String  @default("INR")
+  currency           String   @default("INR")
   /// Minor units of `currency` (cents / paise / sen). Null on INR lines
   /// where the foreign side is the same as `amountPaise`. Signed the
   /// same way as amountPaise — magnitude only.
@@ -3768,12 +3887,12 @@ model BookkeepingVoucherEntry {
   /// Exchange rate as typed on the source document. Null on INR lines.
   /// Assert: round(foreignAmountMinor × exchangeRate) == amountPaise
   /// within ₹1, or the row is flagged and never silently posted.
-  exchangeRate   Decimal? @db.Decimal(18, 8)
-  narration      String?
-  position       Int     @default(0)
+  exchangeRate       Decimal? @db.Decimal(18, 8)
+  narration          String?
+  position           Int      @default(0)
   /// Marks the party line so receivable/payable reports can find it.
-  isPartyLedger  Boolean @default(false)
-  costCentre     String?
+  isPartyLedger      Boolean  @default(false)
+  costCentre         String?
 
   /// Bank reconciliation state (only meaningful on bank-ledger lines).
   bankDate            String?
@@ -4322,32 +4441,32 @@ model BookkeepingBackup {
 /// (clientId null). Within a scope, higher `priority` wins. Ties break
 /// by earlier `createdAt` — the rule the operator wrote first.
 model TallyLedgerRule {
-  id           String   @id @default(uuid())
+  id          String  @id @default(uuid())
   /// Null = global rule available to every client of the firm. Non-null
   /// scopes the rule to a single client — that client's rules always
   /// beat global ones.
-  companyId    String?
+  companyId   String?
   /// contains | regex | exact
-  matchType    String
+  matchType   String
   /// The bank-row description pattern. Contains: lower-cased substring.
   /// Regex: JS regex source, matched case-insensitive. Exact: match the
   /// whole description as-typed (used sparingly).
-  pattern      String
+  pattern     String
   /// The Tally ledger name to write into the voucher's counter line.
-  ledgerName   String
+  ledgerName  String
   /// Override the voucher type auto-selection. payment | receipt |
   /// contra | journal. Null = keep the auto-selected type.
-  voucherType  String?
+  voucherType String?
   /// Higher wins first.
-  priority     Int      @default(0)
+  priority    Int     @default(0)
   /// Bumped every time this rule matches a row. Cheap analytics for
   /// deciding which rules earn their keep.
-  hitCount     Int      @default(0)
+  hitCount    Int     @default(0)
 
-  createdBy    String?
-  createdAt    DateTime  @default(now())
-  updatedAt    DateTime  @updatedAt
-  deletedAt    DateTime?
+  createdBy String?
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
 
   @@index([companyId, priority])
   @@index([companyId, matchType])
@@ -4361,33 +4480,33 @@ model TallyLedgerRule {
 /// `scopeJson` as a JSON array of BookkeepingBankStatementLine ids,
 /// which is how §7 detects "these rows were exported before."
 model TallyExport {
-  id            String   @id @default(uuid())
-  companyId     String
+  id           String  @id @default(uuid())
+  companyId    String
   /// BookkeepingLedger id of the bank account.
-  bankLedgerId  String
+  bankLedgerId String
   /// Inclusive from date, YYYY-MM-DD.
-  periodFrom    String
+  periodFrom   String
   /// Inclusive to date, YYYY-MM-DD.
-  periodTo      String
+  periodTo     String
   /// vouchers | ledger_master — vouchers is the voucher sheet; ledger_master
   /// is the smaller sheet that creates missing ledgers in Tally so the
   /// voucher import lands cleanly (spec §6, §7).
-  kind          String
+  kind         String
   /// Statement-line count in scope. Zero for a ledger_master file.
-  rowCount      Int
+  rowCount     Int
   /// Voucher count in the generated file. Zero for a ledger_master file.
-  voucherCount  Int
+  voucherCount Int
   /// Signed-file id; the download URL is minted from this at request time.
-  fileId        String?
+  fileId       String?
   /// SHA-256 of the file bytes. Identity check for re-download and
   /// the duplicate-detection message.
-  checksum      String?
+  checksum     String?
   /// JSON array of BookkeepingBankStatementLine ids. Small (a few KB at
   /// most for a month) and lets §7 spot exact-scope duplicates.
-  scopeJson     String
+  scopeJson    String
 
-  generatedBy   String?
-  generatedAt   DateTime @default(now())
+  generatedBy String?
+  generatedAt DateTime @default(now())
 
   @@index([companyId, bankLedgerId, periodFrom])
   @@index([generatedAt])
@@ -4419,9 +4538,9 @@ model BooksZohoConnection {
   accessTokenExpiresAt  DateTime?
   /// Zoho data-centre hosts returned at consent, e.g. https://accounts.zoho.in
   /// and https://www.zohoapis.in — every later call must use the same DC.
-  accountsServer String?
-  apiDomain      String?
-  scopesGranted  String[]
+  accountsServer        String?
+  apiDomain             String?
+  scopesGranted         String[]
 
   connectedAt   DateTime?
   connectedBy   String?
@@ -4443,7 +4562,7 @@ model BooksZohoConnection {
 /// the firm has chosen to use it in Audit OS; `clientId` optionally ties it
 /// to one Audit OS client (at most one Zoho organisation per client).
 model BooksZohoOrganization {
-  id             String @id @default(uuid())
+  id             String  @id @default(uuid())
   organisationId String
   connectionId   String
   zohoOrgId      String
@@ -4457,14 +4576,14 @@ model BooksZohoOrganization {
   activatedBy String?
 
   /// idle | syncing | synced | failed
-  syncStatus          String    @default("idle")
-  lastSyncAt          DateTime?
-  lastSyncAttemptAt   DateTime?
-  lastSyncError       String?
+  syncStatus         String    @default("idle")
+  lastSyncAt         DateTime?
+  lastSyncAttemptAt  DateTime?
+  lastSyncError      String?
   /// Minutes after which opening the dashboard refreshes the snapshot; 0 = manual only.
-  autoRefreshMinutes  Int       @default(60)
+  autoRefreshMinutes Int       @default(60)
   /// JSON dashboard snapshot computed from Zoho at the last successful sync.
-  snapshotJson        String?
+  snapshotJson       String?
 
   connection BooksZohoConnection @relation(fields: [connectionId], references: [id])
   syncLogs   BooksSyncLog[]
@@ -4494,7 +4613,6 @@ model BooksSyncLog {
 
   @@index([zohoOrgRef, startedAt])
 }
-
 
 // ─────────────────────────────────────────────────────────────────────────
 // BOOKKEEPING SERVICE
@@ -5917,8 +6035,8 @@ model ZpayExternalInvoice {
   importedAt DateTime @default(now())
   importedBy String?
 
-  billingAccount ZpayAccount @relation(fields: [billingAccountId], references: [id])
-  client         Client?     @relation(fields: [clientId], references: [id])
+  billingAccount ZpayAccount       @relation(fields: [billingAccountId], references: [id])
+  client         Client?           @relation(fields: [clientId], references: [id])
   paymentLinks   ZpayPaymentLink[]
 
   createdAt DateTime  @default(now())
@@ -6682,16 +6800,16 @@ model FirmBankAccount {
 // ═══════════════════════════════════════════════════════════════════════════
 
 model PartnershipTemplateCategory {
-  id          String  @id @default(uuid())
+  id              String  @id @default(uuid())
   /// PARTNERSHIP | LLP | GST — which registration service this master belongs to
-  kind        String  @default("PARTNERSHIP")
+  kind            String  @default("PARTNERSHIP")
   /// Repeated once per partner on a case (LLP partner KYC)
-  perPartner  Boolean @default(false)
-  name        String
-  description String?
+  perPartner      Boolean @default(false)
+  name            String
+  description     String?
   /// INFO_COLLECTION | DEED | ROF_FILING | REGISTERED
-  stage       String
-  sortOrder   Int     @default(0)
+  stage           String
+  sortOrder       Int     @default(0)
   /// PROPRIETORSHIP | PARTNERSHIP | LLP_OR_PVT_LTD — restricts the category to
   /// clients of that entity type. Null means all entity types (used by
   /// Business Place Proof and every non-GST category).
@@ -6707,27 +6825,27 @@ model PartnershipTemplateCategory {
 }
 
 model PartnershipTemplateItem {
-  id             String  @id @default(uuid())
-  categoryId     String
-  name           String
-  description    String?
+  id              String  @id @default(uuid())
+  categoryId      String
+  name            String
+  description     String?
   /// REQUIRED | OPTIONAL | CONDITIONAL
-  requirement    String
+  requirement     String
   /// INFO | DOCUMENT | ACTION
-  kind           String
-  perPartner     Boolean @default(false)
-  docKey         String?
+  kind            String
+  perPartner      Boolean @default(false)
+  docKey          String?
   /// RENTED | OWNED — premises the item applies to
-  condition      String?
+  condition       String?
   /// LLP | PVT_LTD — narrows an item within a category to one specific entity
   /// type (MoA & AoA is PVT_LTD only, LLP Agreement is LLP only). Null means
   /// the item follows its category's entity condition.
   entityCondition String?
   /// "Any one" choices, pipe-separated ("Passport|Voter ID|Driving License")
-  docTypeOptions String?
+  docTypeOptions  String?
   /// Document must be dated within this many days (source: "not older than 2 months")
-  maxAgeDays     Int?
-  defaultDueDays Int?
+  maxAgeDays      Int?
+  defaultDueDays  Int?
   /// Default assignee role on the case: ASSIGNEE | REVIEWER
   defaultAssignee String?
   /// Cross-case dependency rule — GST-RETURNS-CASE-SCREEN §9-6. Null means
@@ -6736,8 +6854,8 @@ model PartnershipTemplateItem {
   /// COMPLETED when the referenced case has satisfied it. Format is
   /// 'target:scope' where target is one of gstr1.filed | gstr2b.itc_finalised
   /// and scope is same_period.
-  gateRule       String?
-  sortOrder      Int     @default(0)
+  gateRule        String?
+  sortOrder       Int     @default(0)
 
   category PartnershipTemplateCategory @relation(fields: [categoryId], references: [id])
 
@@ -6788,24 +6906,24 @@ model PartnershipCase {
 
   // Denormalised progress, recomputed after every checklist/document write so
   // the list can filter and sort on it in the database.
-  itemsTotal    Int @default(0)
-  itemsDone     Int @default(0)
-  itemsRequired Int @default(0)
-  itemsRequiredDone Int @default(0)
-  docsRequired  Int @default(0)
-  docsUploaded  Int @default(0)
-  docsVerified  Int @default(0)
-  progressPct   Int @default(0)
-  lastActivityAt DateTime?
+  itemsTotal        Int       @default(0)
+  itemsDone         Int       @default(0)
+  itemsRequired     Int       @default(0)
+  itemsRequiredDone Int       @default(0)
+  docsRequired      Int       @default(0)
+  docsUploaded      Int       @default(0)
+  docsVerified      Int       @default(0)
+  progressPct       Int       @default(0)
+  lastActivityAt    DateTime?
 
   client        Client                      @relation(fields: [clientId], references: [id])
   clientService ClientService?              @relation(fields: [clientServiceId], references: [id])
-  partners     PartnershipPartner[]
-  categories   PartnershipCaseCategory[]
-  items        PartnershipCaseItem[]
-  requirements PartnershipDocRequirement[]
-  activities   PartnershipActivity[]
-  tasks        Task[]
+  partners      PartnershipPartner[]
+  categories    PartnershipCaseCategory[]
+  items         PartnershipCaseItem[]
+  requirements  PartnershipDocRequirement[]
+  activities    PartnershipActivity[]
+  tasks         Task[]
 
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt
@@ -6813,17 +6931,17 @@ model PartnershipCase {
   updatedBy String?
   deletedAt DateTime?
 
-  @@index([clientId])
-  @@index([kind])
-  @@index([status])
-  @@index([assignedEmployeeId])
-  @@index([dueDate])
   /// A client has at most one case per (return kind, period). Registration
   /// kinds set period=null so this constraint is vacuous for them — one
   /// client can still hold multiple registration cases. Nullable columns
   /// participate in uniqueness in Postgres by treating NULL as distinct,
   /// which is the behaviour we want.
   @@unique([clientId, kind, period])
+  @@index([clientId])
+  @@index([kind])
+  @@index([status])
+  @@index([assignedEmployeeId])
+  @@index([dueDate])
   @@index([period])
 }
 
@@ -6916,9 +7034,9 @@ model PartnershipCaseItem {
   /// Snapshot of PartnershipTemplateItem.gateRule at case creation (§9-6).
   gateRule              String?
 
-  case     PartnershipCase         @relation(fields: [caseId], references: [id])
-  category PartnershipCaseCategory @relation(fields: [categoryId], references: [id])
-  partner  PartnershipPartner?     @relation(fields: [partnerId], references: [id])
+  case         PartnershipCase             @relation(fields: [caseId], references: [id])
+  category     PartnershipCaseCategory     @relation(fields: [categoryId], references: [id])
+  partner      PartnershipPartner?         @relation(fields: [partnerId], references: [id])
   requirements PartnershipDocRequirement[]
 
   createdAt DateTime  @default(now())
@@ -6992,19 +7110,19 @@ model ZpayPaymentLink {
   accountRowId String
   invoiceId    String
 
-  zohoLinkId  String
-  url         String
+  zohoLinkId      String
+  url             String
   /// Asked for, in paise (the invoice's outstanding amount when raised).
-  amountPaise Int
-  amountPaidPaise Int @default(0)
+  amountPaise     Int
+  amountPaidPaise Int       @default(0)
   /// Zoho: active | paid | partially_paid | expired | canceled
-  status      String
-  referenceId String?
-  email       String?
-  phone       String?
-  expiresAt   String?
-  lastCheckedAt DateTime?
-  raw         Json
+  status          String
+  referenceId     String?
+  email           String?
+  phone           String?
+  expiresAt       String?
+  lastCheckedAt   DateTime?
+  raw             Json
 
   account ZpayAccount         @relation(fields: [accountRowId], references: [id])
   invoice ZpayExternalInvoice @relation(fields: [invoiceId], references: [id])
@@ -7020,36 +7138,36 @@ model ZpayPaymentLink {
 /// One bank-statement transaction read from an AaJob's statement.
 /// Amounts are BigInt paise: a single transaction can exceed ₹2.1 crore.
 model AaBankTxn {
-  id               String @id @default(uuid())
-  jobId            String
-  organisationId   String
-  clientId         String
-  bankAccountId    String
+  id             String    @id @default(uuid())
+  jobId          String
+  organisationId String
+  clientId       String
+  bankAccountId  String
   /// Order within the statement (1-based, chronological).
-  seq              Int
-  page             Int?
-  txnDate          String
-  valueDate        String?
-  narration        String
-  reference        String?
-  debitPaise       BigInt  @default(0)
-  creditPaise      BigInt  @default(0)
-  balancePaise     BigInt?
+  seq            Int
+  page           Int?
+  txnDate        String
+  valueDate      String?
+  narration      String
+  reference      String?
+  debitPaise     BigInt    @default(0)
+  creditPaise    BigInt    @default(0)
+  balancePaise   BigInt?
   /// Per-client dedupe key: account + date + amounts + balance + narration.
-  fingerprint      String
+  fingerprint    String
   /// ok | flagged | duplicate | excluded
-  status           String  @default("ok")
+  status         String    @default("ok")
   /// CSV: BALANCE_BREAK, NO_AMOUNT, BOTH_AMOUNTS, DATE_ORDER, OUT_OF_PERIOD…
-  flags            String  @default("")
-  duplicateOfId    String?
+  flags          String    @default("")
+  duplicateOfId  String?
   /// Tally counter-ledger and voucher type for this row.
-  ledgerName       String?
-  voucherType      String?
-  matchedRuleId    String?
+  ledgerName     String?
+  voucherType    String?
+  matchedRuleId  String?
   /// Set once a person has changed the row; `original` keeps what was read.
-  editedByUserId   String?
-  editedAt         DateTime?
-  original         Json
+  editedByUserId String?
+  editedAt       DateTime?
+  original       Json
 
   job AaJob @relation(fields: [jobId], references: [id], onDelete: Cascade)
 
