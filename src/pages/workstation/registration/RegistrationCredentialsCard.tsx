@@ -1,6 +1,6 @@
 /**
- * Login and reference details a client holds for one registration — MSME
- * Udyam, Shops & Establishment, IEC, PF, ESI, E-Invoice, E-Way Bill. Entered
+ * Login and reference details a client holds for one registration — Private
+ * Limited, LLP, Partnership Firm, MSME Udyam, Shops & Establishment, IEC, PF, ESI, E-Invoice, E-Way Bill. Entered
  * once per client; after that the card shows what is on file.
  *
  * The fields come from the server (`spec`), so each registration asks for
@@ -11,7 +11,7 @@
  */
 import { useEffect, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Check, ClipboardCopy, Eye, EyeOff, KeyRound, Pencil, Plus, Trash2 } from 'lucide-react';
+import { Check, ChevronDown, ChevronRight, ClipboardCopy, Eye, EyeOff, KeyRound, Pencil, Plus, Trash2 } from 'lucide-react';
 import { useToast } from '@/components/Toast';
 import { workstationApi } from '@/modules/workstation/api';
 import {
@@ -48,6 +48,7 @@ export function RegistrationCredentialsCard({
   const [mode, setMode] = useState<'view' | 'form' | 'confirm-delete'>('view');
   const [shown, setShown] = useState<string | null>(null);
   const [copied, setCopied] = useState<string | null>(null);
+  const [detailsOpen, setDetailsOpen] = useState(false);
 
   useEffect(() => {
     if (shown === null) return;
@@ -150,7 +151,10 @@ export function RegistrationCredentialsCard({
   }
 
   const recMode = record.mode;
-  const visible = spec.fields.filter((f) => inMode(f.modes, recMode) && record.fields[f.key]);
+  const saved = spec.fields.filter((f) => inMode(f.modes, recMode) && record.fields[f.key]);
+  // The login leads; what the first-time application needed stays folded.
+  const visible = saved.filter((f) => f.group !== 'details');
+  const details = saved.filter((f) => f.group === 'details');
   const showPassword = !!spec.password && inMode(spec.password.modes, recMode);
   const modeLabel = spec.modes?.find((m) => m.key === recMode)?.label;
 
@@ -189,6 +193,35 @@ export function RegistrationCredentialsCard({
           </Field>
         ) : null}
       </div>
+
+      {details.length > 0 ? (
+        <div className="mt-4 border border-neutral-200 rounded-md">
+          <button
+            type="button"
+            className="w-full flex items-center gap-1 h-9 px-3 text-12 font-medium text-neutral-700 hover:bg-neutral-50"
+            onClick={() => setDetailsOpen((o) => !o)}
+            aria-expanded={detailsOpen}
+          >
+            {detailsOpen ? <ChevronDown size={14} strokeWidth={2} /> : <ChevronRight size={14} strokeWidth={2} />}
+            Registration details ({details.length})
+          </button>
+          {detailsOpen ? (
+            <div className="grid gap-4 md:grid-cols-2 p-3 pt-1">
+              {details.map((f) => (
+                <Field key={f.key} label={f.label} tall={f.kind === 'textarea'}>
+                  <span className={'flex-1 min-w-0 text-13 text-neutral-900 ' + (f.kind === 'textarea' ? 'whitespace-pre-wrap break-words py-2' : 'truncate') + (f.mono ? ' font-mono' : '')}>
+                    {record.fields[f.key]}
+                  </span>
+                  <button type="button" className={btn} onClick={() => copyText(f.key, record.fields[f.key], f.label)}>
+                    {copied === f.key ? <Check size={12} strokeWidth={2.5} /> : <ClipboardCopy size={12} strokeWidth={2} />}
+                    {copied === f.key ? 'Copied' : 'Copy'}
+                  </button>
+                </Field>
+              ))}
+            </div>
+          ) : null}
+        </div>
+      ) : null}
 
       {mode === 'confirm-delete' ? (
         <div className="mt-4 p-3 border border-neutral-200 rounded-md bg-neutral-50">
@@ -310,13 +343,18 @@ function CredentialForm({
         </div>
       ) : null}
 
-      {fields.map((f) => {
+      {fields.map((f, i) => {
         const req = requiredIn(f.required, regMode);
         const set = (v: string) => setValues((cur) => ({ ...cur, [f.key]: v }));
+        const startsDetails = f.group === 'details' && fields[i - 1]?.group !== 'details';
         return (
-          <label key={f.key} className="block">
+          <div key={f.key}>
+          {startsDetails ? (
+            <div className="text-12 font-semibold text-neutral-700 pt-2 mb-2 border-t border-neutral-200">Registration details</div>
+          ) : null}
+          <label className="block">
             <span className="block text-11 text-neutral-500 mb-1">
-              {f.label}{req ? <span className="text-red-600"> *</span> : null}
+              {f.label}{req ? <span className="text-danger"> *</span> : null}
             </span>
             {f.kind === 'select' ? (
               <select className={input} value={values[f.key] ?? ''} onChange={(e) => set(e.target.value)}>
@@ -334,23 +372,24 @@ function CredentialForm({
             ) : (
               <input
                 className={input + (f.mono || f.kind === 'gstin' ? ' font-mono' : '')}
-                type={f.kind === 'email' ? 'email' : f.kind === 'phone' ? 'tel' : 'text'}
+                type={f.kind === 'email' ? 'email' : f.kind === 'phone' ? 'tel' : f.kind === 'date' ? 'date' : 'text'}
                 value={values[f.key] ?? ''}
                 onChange={(e) => set(f.kind === 'gstin' ? e.target.value.toUpperCase() : e.target.value)}
-                placeholder={f.placeholder ?? `Enter ${f.label}`}
+                placeholder={f.kind === 'date' ? undefined : f.placeholder ?? `Enter ${f.label}`}
                 maxLength={f.kind === 'gstin' ? 15 : 200}
                 autoComplete="off"
               />
             )}
-            {errors[f.key] ? <span className="block text-12 text-red-600 mt-1">{errors[f.key]}</span> : null}
+            {errors[f.key] ? <span className="block text-12 text-danger mt-1">{errors[f.key]}</span> : null}
           </label>
+          </div>
         );
       })}
 
       {usesPassword ? (
         <label className="block">
           <span className="block text-11 text-neutral-500 mb-1">
-            {spec.password!.label}{passwordRequired ? <span className="text-red-600"> *</span> : null}
+            {spec.password!.label}{passwordRequired ? <span className="text-danger"> *</span> : null}
           </span>
           <input
             type="password"
@@ -361,11 +400,11 @@ function CredentialForm({
             maxLength={200}
             autoComplete="new-password"
           />
-          {errors.password ? <span className="block text-12 text-red-600 mt-1">{errors.password}</span> : null}
+          {errors.password ? <span className="block text-12 text-danger mt-1">{errors.password}</span> : null}
         </label>
       ) : null}
 
-      {error && Object.keys(errors).length === 0 ? <div className="text-12 text-red-600">{error}</div> : null}
+      {error && Object.keys(errors).length === 0 ? <div className="text-12 text-danger">{error}</div> : null}
       <div className="flex gap-2">
         <button type="button" className={btn} onClick={onCancel} disabled={save.isPending}>Cancel</button>
         <button type="submit" className={primaryBtn} disabled={missing || save.isPending}>

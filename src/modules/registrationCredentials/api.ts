@@ -1,5 +1,5 @@
 /**
- * Registration credentials client (MSME, Shops, IEC, PF, ESI, E-Invoice,
+ * Registration credentials client (Private Limited, LLP, Partnership, MSME, Shops, IEC, PF, ESI, E-Invoice,
  * E-Way Bill). A record never carries the password — `password_present` says
  * whether one is stored; `reveal` fetches it on demand, audited server-side.
  */
@@ -10,13 +10,14 @@ export type RegistrationMode = 'new' | 'existing';
 export interface RegistrationFieldSpec {
   key: string;
   label: string;
-  kind?: 'text' | 'email' | 'phone' | 'gstin' | 'textarea' | 'select';
+  kind?: 'text' | 'email' | 'phone' | 'gstin' | 'textarea' | 'select' | 'date';
   options?: string[];
   placeholder?: string;
   required?: boolean | RegistrationMode[];
   modes?: RegistrationMode[];
   prefill?: 'gstin' | 'contact_number' | 'email';
   mono?: boolean;
+  group?: 'details';
 }
 
 export interface RegistrationSpec {
@@ -48,6 +49,7 @@ export const registrationCredentialsApi = {
 
 /** Registrations that have a credentials card. */
 export const CREDENTIAL_REGISTRATIONS = new Set([
+  'private-limited', 'llp', 'partnership-firm',
   'msme-udyam', 'shops-establishment', 'import-export-code', 'pf', 'esi', 'e-invoice', 'e-way-bill',
 ]);
 
