@@ -72,6 +72,28 @@ export function monthLabel(isoDate: string): string {
   return `${MONTH_NAMES[m - 1]} ${y}`
 }
 
+/**
+ * Last calendar day of (year, month). Anchored on a canonical UTC-noon
+ * date so a caller cannot slip a timezone shift into the "day 0 of next
+ * month" trick that produced the 2026-12-30 → 2027-01-30 payroll row.
+ */
+export function lastDayOfMonth(year: number, month: number): number {
+  return new Date(Date.UTC(year, month, 0, 12)).getUTCDate()
+}
+
+/** { start: 'YYYY-MM-01', end: 'YYYY-MM-LL' } derived from (year, month). */
+export function monthlyPayrollPeriod(year: number, month: number): { start: string; end: string } {
+  if (!Number.isInteger(year) || year < 2000 || year > 2100) {
+    throw new Error(`invalid year: ${year}`)
+  }
+  if (!Number.isInteger(month) || month < 1 || month > 12) {
+    throw new Error(`invalid month: ${month}`)
+  }
+  const mm = String(month).padStart(2, '0')
+  const dd = String(lastDayOfMonth(year, month)).padStart(2, '0')
+  return { start: `${year}-${mm}-01`, end: `${year}-${mm}-${dd}` }
+}
+
 /** '06 Sep 2026' — display format for exports and PDFs. */
 export function fmtDate(input: string | Date | null | undefined): string {
   if (!input) return '—'

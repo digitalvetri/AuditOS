@@ -39,8 +39,8 @@ export const payrollApi = {
   runs: {
     list: () => api.get<{ items: PayrollRun[] }>('/api/payroll/runs'),
     get: (id: string) => api.get<PayrollRunDetail>(`/api/payroll/runs/${id}`),
-    create: (period_start: string, period_end: string) =>
-      api.post<{ run: PayrollRun }>('/api/payroll/runs', { period_start, period_end }),
+    create: (year: number, month: number) =>
+      api.post<{ run: PayrollRun }>('/api/payroll/runs', { year, month }),
     calculate: (id: string) =>
       api.post<{ run: PayrollRun; items: PayrollItem[] }>(`/api/payroll/runs/${id}/calculate`),
     review: (id: string) => api.post<{ run: PayrollRun }>(`/api/payroll/runs/${id}/review`),

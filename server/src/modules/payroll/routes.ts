@@ -2,7 +2,7 @@ import { Router } from 'express'
 import { z } from 'zod'
 import { ApiError, handler, ok } from '../../lib/http.js'
 import { prisma } from '../../lib/prisma.js'
-import { addDays, istToday, monthLabel } from '../../lib/dates.js'
+import { addDays, istToday, monthLabel, monthlyPayrollPeriod } from '../../lib/dates.js'
 import { calculatePayrollItem, type CustomComponent } from '../../domain/payroll/calc.js'
 import { summarize } from '../../domain/payroll/attendanceSummary.js'
 import { snapshotAt, type StatutorySnapshot } from '../../domain/payroll/statutory.js'
@@ -99,18 +99,59 @@ payrollRouter.post('/runs', handler(async (req, res) => {
   if (!can(session, 'payroll.run', 'organisation')) {
     throw ApiError.forbidden('Only HR/MD can create a payroll run.')
   }
+  // Period is derived from (year, month) — never from date arithmetic on a
+  // caller-supplied range. This is the fix for the malformed
+  // 2026-12-30 → 2027-01-30 row: no way to construct anything other than
+  // first-of-month / last-of-month here.
   const b = z.object({
-    period_start: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
-    period_end: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+    year: z.number().int().min(2000).max(2100).optional(),
+    month: z.number().int().min(1).max(12).optional(),
+    // Back-compat: callers that still send period_start/period_end must
+    // send a value that (year, month) would have produced. Anything else
+    // is refused.
+    period_start: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+    period_end: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
   }).safeParse(req.body ?? {})
-  if (!b.success) throw ApiError.badRequest('period_start and period_end required.')
-  const { period_start, period_end } = b.data
-  if (period_start > period_end) {
-    throw ApiError.unprocessable('invalid_range', 'period_start must be on or before period_end.')
+  if (!b.success) {
+    throw ApiError.badRequest('{ year, month } required (or a matching { period_start, period_end }).')
+  }
+  let year: number
+  let month: number
+  if (b.data.year !== undefined && b.data.month !== undefined) {
+    year = b.data.year
+    month = b.data.month
+  } else if (b.data.period_start && b.data.period_end) {
+    const [y, m, d] = b.data.period_start.split('-').map(Number)
+    if (d !== 1) {
+      throw ApiError.unprocessable('non_monthly_period',
+        'A payroll run covers one calendar month. period_start must be the first day of a month.')
+    }
+    year = y
+    month = m
+    const derived = monthlyPayrollPeriod(y, m)
+    if (b.data.period_start !== derived.start || b.data.period_end !== derived.end) {
+      throw ApiError.unprocessable('non_monthly_period',
+        `Period must be ${derived.start} → ${derived.end}, not ${b.data.period_start} → ${b.data.period_end}.`)
+    }
+  } else {
+    throw ApiError.badRequest('Provide { year, month } (or a matching { period_start, period_end }).')
+  }
+
+  const { start: periodStart, end: periodEnd } = monthlyPayrollPeriod(year, month)
+
+  // Future-period guard. The current month can exist as Draft (for
+  // preview) but nothing further out — that turns a data-entry accident
+  // into an error rather than a Draft row someone might process later.
+  const today = istToday()
+  const currentYm = today.slice(0, 7)
+  const targetYm = periodStart.slice(0, 7)
+  if (targetYm > currentYm) {
+    throw ApiError.unprocessable('future_period',
+      `Cannot create a run for ${monthLabel(periodStart)}: only the current month or earlier is allowed.`)
   }
 
   const overlap = await prisma.payrollRun.findFirst({
-    where: { deletedAt: null, periodStart: { lte: period_end }, periodEnd: { gte: period_start } },
+    where: { deletedAt: null, periodStart, periodEnd },
   })
   if (overlap) throw ApiError.conflict('overlap', 'A payroll run for this period already exists.')
 
@@ -118,8 +159,8 @@ payrollRouter.post('/runs', handler(async (req, res) => {
   const row = await prisma.payrollRun.create({
     data: {
       organisationId: org.id,
-      periodStart: period_start,
-      periodEnd: period_end,
+      periodStart,
+      periodEnd,
       stage: 'draft',
       createdBy: session.userId,
       updatedBy: session.userId,
