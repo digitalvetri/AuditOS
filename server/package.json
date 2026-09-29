@@ -27,7 +27,8 @@
     "seed:tasks": "tsx prisma/seed-tasks.ts",
     "seed:gst-compliance": "tsx prisma/seed-gst-compliance.ts",
     "seed:documents": "tsx prisma/seed-documents.ts",
-    "reset:gst-template": "tsx prisma/reset-gst-template.ts"
+    "reset:gst-template": "tsx prisma/reset-gst-template.ts",
+    "migrate:ledger-both-legs": "tsx scripts/migrate-ledger-both-legs.ts"
   },
   "prisma": {
     "seed": "tsx prisma/seed.ts"
