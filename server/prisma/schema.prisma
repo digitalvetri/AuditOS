@@ -895,6 +895,10 @@ model ChatMember {
   joinedAt   DateTime  @default(now())
   /// Soft leave — the person stops receiving the chat but history is intact.
   leftAt     DateTime?
+  /// "Clear chat": messages up to this moment are hidden for this member only.
+  clearedAt  DateTime?
+  /// "Delete chat": hidden from this member's list until a newer message arrives.
+  hiddenAt   DateTime?
 
   chat     Chat     @relation(fields: [chatId], references: [id])
   employee Employee @relation(fields: [employeeId], references: [id])
@@ -921,11 +925,14 @@ model ChatMessage {
   replies     ChatMessage[]    @relation("MessageReply")
   reads       MessageRead[]
   attachments ChatAttachment[]
+  hiddenFor   ChatMessageHidden[]
 
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt
-  /// Soft delete — messages are retained for audit.
+  /// "Delete for everyone" — the row is kept for audit and shown as
+  /// "This message was deleted"; its text and attachments are never served.
   deletedAt DateTime?
+  deletedByEmployeeId String?
 
   @@index([chatId, createdAt])
 }
@@ -944,12 +951,29 @@ model ChatAttachment {
   /// Sniffed from the magic bytes, not taken from the upload's own header.
   mimeType         String
   fileSize         Int
+  /// image | audio (voice message)
+  kind             String @default("image")
+  /// Voice message length, measured by the recorder.
+  durationMs       Int?
 
   message ChatMessage @relation(fields: [messageId], references: [id])
 
   createdAt DateTime @default(now())
 
   @@index([messageId])
+}
+
+/// "Delete for me" — one member hides one message; others still see it.
+model ChatMessageHidden {
+  id         String   @id @default(uuid())
+  messageId  String
+  employeeId String
+  createdAt  DateTime @default(now())
+
+  message ChatMessage @relation(fields: [messageId], references: [id])
+
+  @@unique([messageId, employeeId])
+  @@index([employeeId])
 }
 
 model MessageRead {

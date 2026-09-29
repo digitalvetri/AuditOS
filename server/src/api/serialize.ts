@@ -586,14 +586,18 @@ export interface ChatListItem extends ReturnType<typeof chatToApi> {
   } | null
   unread: number
   member_count: number
+  /** Groups: whether the viewer can manage it (admin), and is still in it. */
+  my_role: 'admin' | 'member' | null
 }
 
 export type ChatMessageWithAuthor = ReturnType<typeof chatMessageToApi>
 
 /** What a reply preview shows for a message whose only content is images. */
-function previewText(body: string, attachmentCount: number): string {
+function previewText(body: string, attachmentCount: number, voice = false, documents = 0): string {
   const text = body.length > 80 ? `${body.slice(0, 80)}…` : body
   if (text) return text
+  if (voice) return '🎤 Voice message'
+  if (documents) return documents === 1 ? '📄 Document' : `📄 ${documents} documents`
   return attachmentCount === 1 ? 'Photo' : `${attachmentCount} photos`
 }
 
@@ -602,16 +606,19 @@ export function chatMessageToApi(m: ChatMessage & {
   author: Pick<Employee, 'id' | 'fullName' | 'employeeCode'> | null
   parent?: (Pick<ChatMessage, 'id' | 'body' | 'deletedAt'> & {
     author: Pick<Employee, 'fullName'> | null
-    attachments?: { id: string }[]
+    attachments?: { id: string; kind?: string }[]
   }) | null
   reads?: { id: string }[]
-  attachments?: { id: string; originalFilename: string; mimeType: string; fileSize: number }[]
+  attachments?: { id: string; originalFilename: string; mimeType: string; fileSize: number; kind?: string; durationMs?: number | null }[]
 }) {
+  // "Deleted for everyone": the row stays for audit, its content never leaves the server.
+  const deleted = m.deletedAt !== null
   return {
     id: m.id,
     chat_id: m.chatId,
     author_employee_id: m.authorEmployeeId,
-    body: m.body,
+    body: deleted ? '' : m.body,
+    deleted,
     parent_id: m.parentId,
     mentions: parseJson<string[]>(m.mentionsJson, []),
     created_at: isoReq(m.createdAt),
@@ -625,18 +632,20 @@ export function chatMessageToApi(m: ChatMessage & {
           id: m.parent.id,
           body: m.parent.deletedAt
             ? '(deleted message)'
-            : previewText(m.parent.body, m.parent.attachments?.length ?? 0),
+            : previewText(m.parent.body, m.parent.attachments?.length ?? 0, m.parent.attachments?.some((a) => a.kind === 'audio'), m.parent.attachments?.filter((a) => a.kind === 'document').length ?? 0),
           author_full_name: m.parent.author?.fullName ?? null,
         }
       : null,
     read_by_me: (m.reads?.length ?? 0) > 0,
     // `url` is an application path, not a storage path: it resolves to the
     // membership-checked download route, which is the only reader of the bytes.
-    attachments: (m.attachments ?? []).map((a) => ({
+    attachments: deleted ? [] : (m.attachments ?? []).map((a) => ({
       id: a.id,
+      kind: a.kind ?? 'image',
       filename: a.originalFilename,
       mime_type: a.mimeType,
       file_size: a.fileSize,
+      duration_ms: a.durationMs ?? null,
       url: `/api/chat-attachments/${a.id}`,
     })),
   }
