@@ -449,6 +449,8 @@ export const expenseHandlers = [
         const running = d.ledger.reduce((s, l) => s + l.credit_paise - l.debit_paise, 0) - exp.amount_paise;
         d.ledger.push({
           id: `lt-exp-${exp.id}`,
+          transaction_ref: `LT-EXP-${exp.id.slice(0, 6)}`,
+          sequence: d.ledger.length + 1,
           date: nowStamp.slice(0, 10),
           type: 'Expense Reimbursement',
           description: `Reimbursement — ${exp.title}`,
@@ -459,6 +461,10 @@ export const expenseHandlers = [
           running_balance_paise: running,
           reference_id: exp.id,
           reference_type: 'Expense',
+          reference_label: `EXP-${exp.id.slice(0, 5)}`,
+          reverses_id: null,
+          reversal_reason: null,
+          payment_id: paymentId,
           status: 'posted',
           created_at: nowStamp,
           created_by: user.id,

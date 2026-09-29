@@ -169,9 +169,11 @@ function buildHistoricalRun(y: number, m: number): {
     runningLedger -= calc.net_paise;
     ledger.push({
       id: `lt-${runId}-payroll-${emp.id}`,
+      transaction_ref: `LT-PAY-${item.id.slice(0, 6)}`,
+      sequence: ledger.length + 1,
       date: isoDate(y, m, 25),
       type: 'Payroll',
-      description: `Salary — ${emp.full_name} (${period_start} to ${period_end})`,
+      description: `Salary — ${period_start.slice(0, 7)}`,
       employee_id: emp.id,
       category: 'Payroll',
       debit_paise: calc.net_paise,
@@ -179,6 +181,10 @@ function buildHistoricalRun(y: number, m: number): {
       running_balance_paise: runningLedger,
       reference_id: item.id,
       reference_type: 'PayrollItem',
+      reference_label: `PR/${period_start.slice(0, 7)}`,
+      reverses_id: null,
+      reversal_reason: null,
+      payment_id: null,
       status: 'posted',
       created_at: processedAt,
       created_by: null,

@@ -336,7 +336,6 @@ export const payrollHandlers = [
       db.write((d) => {
         let running = d.ledger.reduce((acc, l) => acc + l.credit_paise - l.debit_paise, 0);
         for (const item of items) {
-          const emp = d.employees.find((e) => e.id === item.employee_id);
           const payRef = `SIM-${item.payroll_run_id}-${item.employee_id}`;
           const payment: Payment = {
             id: `pay-${item.payroll_run_id}-${item.employee_id}`,
@@ -378,9 +377,11 @@ export const payrollHandlers = [
           running -= item.net_paise;
           d.ledger.push({
             id: `lt-${item.payroll_run_id}-payroll-${item.employee_id}`,
+            transaction_ref: `LT-PAY-${item.id.slice(0, 6)}`,
+            sequence: d.ledger.length + 1,
             date: run.period_end,
             type: 'Payroll',
-            description: `Salary — ${emp?.full_name ?? item.employee_id}`,
+            description: `Salary — ${run.period_start.slice(0, 7)}`,
             employee_id: item.employee_id,
             category: 'Payroll',
             debit_paise: item.net_paise,
@@ -388,6 +389,10 @@ export const payrollHandlers = [
             running_balance_paise: running,
             reference_id: item.id,
             reference_type: 'PayrollItem',
+            reference_label: `PR/${run.period_start.slice(0, 7)}`,
+            reverses_id: null,
+            reversal_reason: null,
+            payment_id: null,
             status: 'posted',
             created_at: processedAt,
             created_by: user.id,

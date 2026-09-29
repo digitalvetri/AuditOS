@@ -118,6 +118,8 @@ function buildPaidArtifacts(exps: Expense[]): { payments: Payment[]; ledger: Led
     running -= e.amount_paise;
     ledger.push({
       id: `lt-exp-${e.id}`,
+      transaction_ref: `LT-EXP-${e.id.slice(0, 6)}`,
+      sequence: ledger.length + 1,
       date: e.paid_at!.slice(0, 10),
       type: 'Expense Reimbursement',
       description: `Reimbursement — ${e.title}`,
@@ -128,6 +130,10 @@ function buildPaidArtifacts(exps: Expense[]): { payments: Payment[]; ledger: Led
       running_balance_paise: running,
       reference_id: e.id,
       reference_type: 'Expense',
+      reference_label: `EXP-${e.id.slice(0, 5)}`,
+      reverses_id: null,
+      reversal_reason: null,
+      payment_id: null,
       status: 'posted',
       created_at: e.paid_at!,
       created_by: 'usr-fin',
