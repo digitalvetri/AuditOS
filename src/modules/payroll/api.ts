@@ -14,8 +14,15 @@ export interface PayrollItemWithEmp extends PayrollItem {
 
 export interface PayrollBlocker {
   employee: { id: string; full_name: string; employee_code: string; department_id: string } | null;
-  reason: 'no_salary_structure';
+  reason: 'no_salary_structure' | 'tds_plan_missing';
   message: string;
+}
+
+export interface TdsPlan {
+  annual_tds_plan_paise: number;
+  monthly_tds_paise: number;
+  exempt_reason: string | null;
+  threshold_paise: number;
 }
 
 export interface PayrollVariance {
@@ -79,9 +86,22 @@ export const payrollApi = {
   },
   salary: {
     get: (employeeId: string) =>
-      api.get<{ current: SalaryStructure | null; history: SalaryStructure[] }>(
+      api.get<{
+        current: SalaryStructure | null;
+        history: SalaryStructure[];
+        tds_plan: TdsPlan | null;
+      }>(
         `/api/employees/${employeeId}/salary`,
       ),
+    setTdsPlan: (
+      employeeId: string,
+      body: { annual_tds_plan_paise: number; exempt_reason?: string | null },
+    ) => api.patch<{
+      employee_id: string;
+      annual_tds_plan_paise: number;
+      monthly_tds_paise: number;
+      exempt_reason: string | null;
+    }>(`/api/employees/${employeeId}/salary/tds-plan`, body),
     patch: (
       employeeId: string,
       body: { effective_from: string } & Partial<

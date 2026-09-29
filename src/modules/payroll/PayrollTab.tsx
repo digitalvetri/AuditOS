@@ -6,7 +6,7 @@
 import { useState, type FormEvent } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
-import { payrollApi } from './api';
+import { payrollApi, type TdsPlan } from './api';
 import { inr } from '@/lib/format';
 import { istToday } from '@/lib/dates';
 import { Button } from '@/components/Button';
@@ -39,13 +39,117 @@ export function PayrollTab({ employeeId, canManageSalary }: Props) {
   }
 
   const current = salaryQ.data?.current ?? null;
+  const tdsPlan = salaryQ.data?.tds_plan ?? null;
   const payslips = payslipsQ.data?.items ?? [];
 
   return (
     <div className="space-y-6" data-testid="payroll-tab">
       <SalaryCard structure={current} employeeId={employeeId} canManage={canManageSalary} />
+      {tdsPlan ? (
+        <TdsPlanCard tdsPlan={tdsPlan} employeeId={employeeId} canManage={canManageSalary} />
+      ) : null}
       <PayslipHistory items={payslips} />
     </div>
+  );
+}
+
+function TdsPlanCard({
+  tdsPlan,
+  employeeId,
+  canManage,
+}: {
+  tdsPlan: TdsPlan;
+  employeeId: string;
+  canManage: boolean;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [annual, setAnnual] = useState(tdsPlan.annual_tds_plan_paise);
+  const [reason, setReason] = useState(tdsPlan.exempt_reason ?? '');
+  const qc = useQueryClient();
+  const toast = useToast();
+  const save = useMutation({
+    mutationFn: () => payrollApi.salary.setTdsPlan(employeeId, {
+      annual_tds_plan_paise: annual,
+      exempt_reason: reason.trim() ? reason.trim() : null,
+    }),
+    onSuccess: () => {
+      toast.push('success', 'Annual TDS plan saved.');
+      qc.invalidateQueries({ queryKey: ['payroll', 'salary', employeeId] });
+      setEditing(false);
+    },
+    onError: (e: Error) => toast.push('error', e.message),
+  });
+  const exempt = (tdsPlan.exempt_reason ?? '').trim().length > 0;
+  return (
+    <section className="bg-white border border-neutral-200 rounded p-4" data-testid="tds-plan-card">
+      <div className="flex items-baseline justify-between gap-4">
+        <div>
+          <div className="text-11 uppercase tracking-[0.06em] text-neutral-500">Annual TDS plan</div>
+          <div className="text-16 text-neutral-900 mt-1 tabular-nums">
+            {exempt
+              ? <span className="text-neutral-500">No TDS applicable</span>
+              : tdsPlan.annual_tds_plan_paise === 0
+                ? <span className="text-neutral-500">Not set</span>
+                : <>{inr(tdsPlan.annual_tds_plan_paise)} <span className="text-13 text-neutral-500">/year · {inr(tdsPlan.monthly_tds_paise)}/mo</span></>}
+          </div>
+          {exempt ? (
+            <div className="text-11 text-neutral-500 mt-1">Reason: {tdsPlan.exempt_reason}</div>
+          ) : (
+            <div className="text-11 text-neutral-500 mt-1">
+              Payroll deducts {tdsPlan.annual_tds_plan_paise === 0 ? '₹0' : inr(tdsPlan.monthly_tds_paise)} each month. Process is blocked above {inr(tdsPlan.threshold_paise)}/mo gross while this is ₹0.
+            </div>
+          )}
+        </div>
+        {canManage && !editing ? (
+          <Button variant="secondary" onClick={() => setEditing(true)} data-testid="tds-plan-edit">
+            {tdsPlan.annual_tds_plan_paise === 0 && !exempt ? 'Set plan' : 'Edit'}
+          </Button>
+        ) : null}
+      </div>
+      {editing ? (
+        <form
+          onSubmit={(e: FormEvent) => { e.preventDefault(); save.mutate(); }}
+          className="mt-4 grid grid-cols-1 md:grid-cols-3 gap-3"
+        >
+          <PaiseInput
+            label="Annual TDS plan"
+            value={annual}
+            onChange={(v) => setAnnual(v)}
+          />
+          <div className="md:col-span-2">
+            <label className="block">
+              <span className="block text-11 uppercase tracking-[0.06em] text-neutral-500 mb-1">
+                No TDS applicable — reason
+              </span>
+              <textarea
+                value={reason}
+                onChange={(e) => setReason(e.target.value)}
+                rows={2}
+                placeholder="Leave empty if a plan is set."
+                className="w-full px-2 py-1 text-13 bg-white border border-neutral-300 rounded"
+                data-testid="tds-plan-reason"
+              />
+            </label>
+          </div>
+          <div className="col-span-full flex justify-end gap-2">
+            <Button variant="ghost" type="button" onClick={() => setEditing(false)}>Cancel</Button>
+            <Button
+              variant="primary"
+              type="submit"
+              disabled={save.isPending || (annual > 0 && reason.trim().length > 0)}
+              data-testid="tds-plan-save"
+            >
+              {save.isPending ? 'Saving…' : 'Save'}
+            </Button>
+          </div>
+          {annual > 0 && reason.trim().length > 0 ? (
+            <div className="col-span-full text-11 text-red">
+              Set a plan OR mark exempt — not both.
+            </div>
+          ) : null}
+        </form>
+      ) : null}
+    </section>
   );
 }
 
