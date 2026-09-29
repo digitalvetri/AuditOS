@@ -269,6 +269,9 @@ export function documentToApi(d: EmployeeDocument, derivedStatus?: string) {
     name: d.name,
     type: d.type,
     file_key: d.fileKey,
+    /** The uploaded file's own name and size; null on seeded, file-less rows. */
+    original_filename: d.originalFilename,
+    file_size: d.fileSize,
     uploaded_by: d.uploadedBy,
     uploaded_at: isoReq(d.uploadedAt),
     expiry_date: d.expiryDate,

@@ -187,7 +187,11 @@ function Row({
     <tr className="border-b border-neutral-200" data-testid={`document-row-${doc.id}`}>
       <td className={`px-3 py-2 border-l-2 ${border}`}>
         <div className="text-13 text-neutral-900">{doc.name}</div>
-        <div className="text-11 text-neutral-500">{doc.file_key}</div>
+        <div className="text-11 text-neutral-500">
+          {doc.original_filename
+            ? `${doc.original_filename}${doc.file_size ? ` · ${doc.file_size < 1024 * 1024 ? `${Math.max(1, Math.round(doc.file_size / 1024))} KB` : `${(doc.file_size / (1024 * 1024)).toFixed(1)} MB`}` : ''}`
+            : 'No file stored (sample record)'}
+        </div>
       </td>
       <td className="px-3 py-2 text-13 text-neutral-700 capitalize">
         {doc.type.replace('_', ' ')}

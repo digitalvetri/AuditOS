@@ -28,12 +28,22 @@ export const documentsApi = {
     return api.get<DocumentsListResponse>(`/api/documents${qs ? `?${qs}` : ''}`);
   },
 
+  /** Uploads the file itself (multipart) with its details. */
   upload: (body: {
     name: string;
     type: DocumentType;
     employee_id: string;
     expiry_date?: string | null;
-  }) => api.post<{ document: DocumentWithEmp }>('/api/documents', body),
+    file: File;
+  }) => {
+    const form = new FormData();
+    form.set('name', body.name);
+    form.set('type', body.type);
+    form.set('employee_id', body.employee_id);
+    form.set('expiry_date', body.expiry_date ?? '');
+    form.append('file', body.file);
+    return api.postForm<{ document: DocumentWithEmp }>('/api/documents', form);
+  },
 
   delete: (id: string) => api.delete<void>(`/api/documents/${id}`),
 

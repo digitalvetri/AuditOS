@@ -435,6 +435,10 @@ model EmployeeDocument {
   // employment | joining | certificate | hr | tax | bank | company_issued | icai
   type       String
   fileKey    String
+  /// The uploaded file as sent (null on rows seeded before real storage).
+  originalFilename String?
+  mimeType         String?
+  fileSize         Int?
   uploadedBy String
   uploadedAt DateTime @default(now())
   expiryDate String?

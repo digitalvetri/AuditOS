@@ -296,6 +296,9 @@ export interface EmployeeDocument extends Auditable {
   name: string;
   type: DocumentType;
   file_key: string; // storage key — download via signed URL
+  /** The uploaded file's own name and size; absent on sample rows with no stored file. */
+  original_filename?: string | null;
+  file_size?: number | null;
   uploaded_by: ID;
   uploaded_at: ISODateTime;
   expiry_date: ISODate | null;
