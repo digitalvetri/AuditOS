@@ -5,9 +5,16 @@ import { prisma } from '../../lib/prisma.js'
 import { istToday } from '../../lib/dates.js'
 import { can, requireSession, type Session } from '../../platform/auth.js'
 import { writeAudit } from '../../platform/audit.js'
-import { LEDGER_TYPES, MOCK_PAYMENT_NOTICE, type LedgerType } from '../../platform/constants.js'
+import {
+  CATEGORIES,
+  LEDGER_TYPES,
+  LIABILITY_CATEGORIES,
+  MOCK_PAYMENT_NOTICE,
+  type LedgerType,
+  type LiabilityCategory,
+} from '../../platform/constants.js'
 import { employeeRef, ledgerToApi, paymentToApi } from '../../api/serialize.js'
-import { nextPaymentNo, postLedger, reconcile } from './ledger.js'
+import { heldLiabilityBalances, nextPaymentNo, postJournal, postLedger, reconcile } from './ledger.js'
 
 /**
  * ACCOUNTS + PAYMENTS (§8.6 / §9)
@@ -89,8 +96,11 @@ accountsRouter.get('/summary', handler(async (req, res) => {
     totals: {
       debit_paise: totalDebit,
       credit_paise: totalCredit,
-      // A reversed row keeps its amounts; its contra row nets them to zero.
-      balance_paise: totalCredit - totalDebit,
+      // Under double-entry this is 0 for a healthy book; a non-zero balance
+      // is an unbalanced posting to investigate. A reversed row keeps its
+      // amounts; its contra row nets them to zero.
+      balance_paise: totalDebit - totalCredit,
+      balanced: totalDebit === totalCredit,
     },
     this_month: {
       debit_paise: thisMonth.reduce((s, l) => s + l.debitPaise, 0),
@@ -114,6 +124,94 @@ accountsRouter.get('/reconciliation', handler(async (req, res) => {
   ok(res, await reconcile())
 }))
 
+/**
+ * GET /api/accounts/liabilities/held — balances of statutory withholdings
+ * the firm is holding on behalf of staff. Drives the Overview tab's
+ * "Held, not yet remitted" panel.
+ */
+accountsRouter.get('/liabilities/held', handler(async (req, res) => {
+  requireRead(requireSession(req))
+  const balances = await heldLiabilityBalances()
+  ok(res, {
+    items: LIABILITY_CATEGORIES.map((c) => ({ category: c, balance_paise: balances[c] })),
+  })
+}))
+
+/**
+ * POST /api/accounts/liabilities/remit — Finance records a remittance to
+ * EPFO / state / income tax. Writes Dr <Liability> / Cr Bank and refuses
+ * amounts that would drive the liability below zero (remitting more than
+ * we've withheld is a data-entry error, not a valid transaction).
+ */
+accountsRouter.post('/liabilities/remit', handler(async (req, res) => {
+  const session = requireSession(req)
+  if (!can(session, 'accounts.manage', 'organisation')) {
+    throw ApiError.forbidden('Only Finance can record a remittance.')
+  }
+  const b = z.object({
+    category: z.enum(LIABILITY_CATEGORIES),
+    amount_paise: z.number().int().positive(),
+    reference: z.string().trim().min(1).max(120),
+    date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+    notes: z.string().max(500).optional(),
+  }).safeParse(req.body ?? {})
+  if (!b.success) throw ApiError.badRequest('category, positive amount_paise, and reference required.')
+
+  const balances = await heldLiabilityBalances()
+  const category = b.data.category as LiabilityCategory
+  if (b.data.amount_paise > balances[category]) {
+    throw ApiError.unprocessable('exceeds_balance',
+      `Cannot remit more than the held balance (${balances[category]} paise).`)
+  }
+
+  const date = b.data.date ?? istToday()
+  const rows = await prisma.$transaction(async (tx) => {
+    const paymentNo = await nextPaymentNo(tx)
+    const payment = await tx.payment.create({
+      data: {
+        paymentNo,
+        // Remittance is not employee-scoped, but Payment.employeeId is
+        // non-nullable in the schema. Attribute it to the acting user's
+        // employee record so the row is well-formed and traceable.
+        employeeId: session.employeeId ?? (() => {
+          throw ApiError.unprocessable('no_employee', 'Your login has no employee record; cannot record a remittance.')
+        })(),
+        amountPaise: b.data.amount_paise,
+        method: 'mock',
+        reference: b.data.reference,
+        status: 'completed',
+        paidAt: new Date(),
+        createdBy: session.userId,
+        updatedBy: session.userId,
+      },
+    })
+    const legs = await postJournal(tx, {
+      date,
+      type: 'Liability Remittance',
+      description: `Remittance — ${category} — ${b.data.reference}`,
+      referenceId: payment.id,
+      referenceType: 'LiabilityRemittance',
+      paymentId: payment.id,
+      createdBy: session.userId,
+      legs: [
+        { category, debitPaise: b.data.amount_paise },
+        { category: CATEGORIES.BANK, creditPaise: b.data.amount_paise },
+      ],
+    })
+    return { payment, legs }
+  })
+
+  await writeAudit({
+    actorUserId: session.userId, action: 'accounts.liability_remitted',
+    entityType: 'Payment', entityId: rows.payment.id,
+    after: { category, amount_paise: b.data.amount_paise, reference: b.data.reference }, req,
+  })
+  ok(res, {
+    payment: paymentToApi(rows.payment),
+    ledger_rows: rows.legs.map(ledgerToApi),
+  })
+}))
+
 // POST /api/accounts/ledger/:id/reverse — the only correction path.
 accountsRouter.post('/ledger/:id/reverse', handler(async (req, res) => {
   const session = requireSession(req)
@@ -127,6 +225,20 @@ accountsRouter.post('/ledger/:id/reverse', handler(async (req, res) => {
   }
   if (original.reversesId) {
     throw ApiError.conflict('is_contra', 'A contra entry cannot itself be reversed.')
+  }
+  // Under double-entry, a payroll or expense posting is a cluster of legs
+  // that share a paymentId. Reversing one leg would break Σdr = Σcr and
+  // turn the Overview strip from "✓ balanced" to false in one click.
+  // Whole-cluster reversal ships in Step 2 (with the reason field); until
+  // then, refuse the multi-leg case rather than silently unbalance.
+  if (original.paymentId) {
+    const clusterSize = await prisma.ledgerTransaction.count({
+      where: { paymentId: original.paymentId, status: 'posted' },
+    })
+    if (clusterSize > 1) {
+      throw ApiError.conflict('multi_leg_reversal',
+        `This row is one leg of a ${clusterSize}-leg journal. Reversing a single leg would unbalance the ledger — use the source correction flow (unpay expense, or a manual counter-journal) until the cluster-reverse action lands in Step 2.`)
+    }
   }
 
   const { reverse, updatedOriginal } = await prisma.$transaction(async (tx) => {
@@ -213,17 +325,33 @@ paymentsRouter.post('/', handler(async (req, res) => {
         updatedBy: session.userId,
       },
     })
-    await postLedger(tx, {
+    // Chart-of-accounts leg for the debit side depends on the type.
+    // Advance Recovery is money coming IN from an employee, so Bank is debited.
+    const isRecovery = ledgerType === 'Advance Recovery'
+    const drCategory =
+      ledgerType === 'Employee Advance' ? CATEGORIES.EMPLOYEE_ADVANCE
+      : ledgerType === 'Office Expense' ? CATEGORIES.OFFICE_EXPENSE
+      : ledgerType === 'Payment' ? CATEGORIES.REIMBURSEMENT
+      : CATEGORIES.BANK
+    const crCategory = isRecovery ? CATEGORIES.EMPLOYEE_ADVANCE : CATEGORIES.BANK
+    await postJournal(tx, {
       date: istToday(),
       type: ledgerType,
       description: b.data.description ?? `${ledgerType} — ${employee.fullName}`,
       employeeId: employee.id,
-      category: ledgerType,
-      debitPaise: b.data.amount_paise,
       referenceId: created.id,
       referenceType: 'Payment',
       paymentId: created.id,
       createdBy: session.userId,
+      legs: isRecovery
+        ? [
+            { category: CATEGORIES.BANK, debitPaise: b.data.amount_paise },
+            { category: CATEGORIES.EMPLOYEE_ADVANCE, creditPaise: b.data.amount_paise },
+          ]
+        : [
+            { category: drCategory, debitPaise: b.data.amount_paise },
+            { category: crCategory, creditPaise: b.data.amount_paise },
+          ],
     })
     return created
   })

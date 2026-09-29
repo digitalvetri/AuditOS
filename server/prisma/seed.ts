@@ -13,10 +13,12 @@
 import '../src/lib/env.js'
 import { PrismaClient } from '@prisma/client'
 import bcrypt from 'bcryptjs'
-import { addDays, istToday } from '../src/lib/dates.js'
+import { addDays, istToday, monthLabel } from '../src/lib/dates.js'
 import { computeCheckOutStatus } from '../src/domain/attendanceStatus.js'
-import { calculatePayrollItem } from '../src/domain/payroll/calc.js'
+import { calculatePayrollItem, type PayrollDeductions } from '../src/domain/payroll/calc.js'
 import { snapshotAt } from '../src/domain/payroll/statutory.js'
+import { CATEGORIES } from '../src/platform/constants.js'
+import { postJournal } from '../src/modules/accounts/ledger.js'
 import { ALL_PERMISSION_CODES, MATRIX, PERMISSION_DESCRIPTIONS, type RoleCode } from '../src/platform/rbac/matrix.js'
 import { seedWorkstation } from './seed-workstation.js'
 // GST compliance periods are DERIVED from the filings seeded above rather
@@ -67,6 +69,51 @@ function isWorkingDay(dateISO: string): boolean {
 
 function lastDayOfMonth(y: number, m: number): number {
   return new Date(Date.UTC(y, m, 0)).getUTCDate()
+}
+
+/**
+ * Seed one employee's payroll journal (Dr Salaries / Cr Bank + statutory
+ * withholdings). Uses postJournal so the seed exercises the exact same
+ * posting path production does and any regression there breaks the seed.
+ */
+async function seedPayrollJournal(
+  db: PrismaClient,
+  args: {
+    date: string
+    periodLabel: string
+    employeeId: string
+    payrollItemId: string
+    paymentId: string
+    grossPaise: number
+    netPaise: number
+    deductions: PayrollDeductions
+  },
+) {
+  const d = args.deductions
+  const otherPaise =
+    (d.advance_paise ?? 0) +
+    (d.other ?? []).reduce((s, o) => s + o.amount_paise, 0)
+  await db.$transaction((tx) =>
+    postJournal(tx, {
+      date: args.date,
+      type: 'Payroll',
+      description: `Salary — ${args.periodLabel}`,
+      employeeId: args.employeeId,
+      referenceId: args.payrollItemId,
+      referenceType: 'PayrollItem',
+      paymentId: args.paymentId,
+      createdBy: null,
+      legs: [
+        { category: CATEGORIES.SALARIES, debitPaise: args.grossPaise },
+        { category: CATEGORIES.BANK, creditPaise: args.netPaise },
+        { category: CATEGORIES.PF_PAYABLE, creditPaise: d.pf_employee_paise ?? 0 },
+        { category: CATEGORIES.ESI_PAYABLE, creditPaise: d.esi_employee_paise ?? 0 },
+        { category: CATEGORIES.PT_PAYABLE, creditPaise: d.pt_paise ?? 0 },
+        { category: CATEGORIES.TDS_PAYABLE, creditPaise: d.tds_paise ?? 0 },
+        { category: CATEGORIES.OTHER_DEDUCTION, creditPaise: otherPaise },
+      ],
+    }),
+  )
 }
 
 async function main() {
@@ -608,8 +655,6 @@ async function main() {
     const currentYear = Number(TODAY.slice(0, 4))
     const currentMonth = Number(TODAY.slice(5, 7))
 
-    let sequence = 0
-    let running = 0
     let payslipNo = 0
     let paymentNo = 0
 
@@ -701,25 +746,15 @@ async function main() {
             status: 'published',
           },
         })
-        sequence += 1
-        running += r.calc.net_paise
-        await prisma.ledgerTransaction.create({
-          data: {
-            transactionRef: `LT-PAY-${String(sequence).padStart(6, '0')}`,
-            sequence,
-            date: periodEnd,
-            type: 'Payroll',
-            description: `Salary — ${r.employeeId} (${periodStart} to ${periodEnd})`,
-            employeeId: r.employeeId,
-            category: 'Payroll',
-            debitPaise: r.calc.net_paise,
-            creditPaise: 0,
-            runningBalancePaise: running,
-            referenceId: item.id,
-            referenceType: 'PayrollItem',
-            paymentId: payment.id,
-            status: 'posted',
-          },
+        await seedPayrollJournal(prisma, {
+          date: periodEnd,
+          periodLabel: monthLabel(periodStart),
+          employeeId: r.employeeId,
+          payrollItemId: item.id,
+          paymentId: payment.id,
+          grossPaise: r.calc.gross_paise,
+          netPaise: r.calc.net_paise,
+          deductions: r.calc.deductions,
         })
       }
     }
@@ -753,10 +788,6 @@ async function main() {
       { employeeId: 'emp-hr', categoryId: 'ec-office', rupees: 2200, days: -45, title: 'Office plants', desc: 'Reception refresh', stage: 'paid' },
     ]
 
-    let sequence = (await prisma.ledgerTransaction.count())
-    let running = (await prisma.ledgerTransaction.findFirst({
-      orderBy: { sequence: 'desc' }, select: { runningBalancePaise: true },
-    }))?.runningBalancePaise ?? 0
     let paymentNo = await prisma.payment.count()
     let expenseNo = 0
 
@@ -806,26 +837,22 @@ async function main() {
             paidAt: when,
           },
         })
-        sequence += 1
-        running += expense.amountPaise
-        await prisma.ledgerTransaction.create({
-          data: {
-            transactionRef: `LT-EXP-${String(sequence).padStart(6, '0')}`,
-            sequence,
+        await prisma.$transaction((tx) =>
+          postJournal(tx, {
             date: expense.expenseDate,
             type: 'Expense Reimbursement',
             description: `Reimbursement — ${expense.title}`,
             employeeId: e.employeeId,
-            category: 'Expense',
-            debitPaise: expense.amountPaise,
-            creditPaise: 0,
-            runningBalancePaise: running,
             referenceId: expense.id,
             referenceType: 'Expense',
             paymentId: payment.id,
-            status: 'posted',
-          },
-        })
+            createdBy: null,
+            legs: [
+              { category: CATEGORIES.REIMBURSEMENT, debitPaise: expense.amountPaise },
+              { category: CATEGORIES.BANK, creditPaise: expense.amountPaise },
+            ],
+          }),
+        )
         await prisma.expense.update({ where: { id: expense.id }, data: { paymentId: payment.id } })
       }
     }

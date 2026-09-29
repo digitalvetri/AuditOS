@@ -9,7 +9,8 @@ import { notifyEmployee, notifyRole } from '../../platform/notify.js'
 import {
   employeeRef, employeeRefWithDept, expenseApprovalToApi, expenseToApi,
 } from '../../api/serialize.js'
-import { nextPaymentNo, postLedger } from '../accounts/ledger.js'
+import { nextPaymentNo, postJournal } from '../accounts/ledger.js'
+import { CATEGORIES } from '../../platform/constants.js'
 import type { Scope } from '../../platform/rbac/matrix.js'
 
 /**
@@ -341,17 +342,19 @@ expensesRouter.post('/:id/pay', handler(async (req, res) => {
         updatedBy: session.userId,
       },
     })
-    await postLedger(tx, {
+    await postJournal(tx, {
       date: istToday(),
       type: 'Expense Reimbursement',
       description: `Reimbursement — ${row.title}`,
       employeeId: row.employeeId,
-      category: 'Expense',
-      debitPaise: row.amountPaise,
       referenceId: row.id,
       referenceType: 'Expense',
       paymentId: created.id,
       createdBy: session.userId,
+      legs: [
+        { category: CATEGORIES.REIMBURSEMENT, debitPaise: row.amountPaise },
+        { category: CATEGORIES.BANK, creditPaise: row.amountPaise },
+      ],
     })
     const exp = await tx.expense.update({
       where: { id: row.id },

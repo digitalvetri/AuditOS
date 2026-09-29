@@ -14,7 +14,9 @@ import {
   employeeRef, employeeRefWithDept, payrollItemToApi, payrollRunToApi,
   paymentToApi, payslipToApi, salaryStructureToApi,
 } from '../../api/serialize.js'
-import { nextPaymentNo, postLedger } from '../accounts/ledger.js'
+import { nextPaymentNo, postJournal, type JournalLeg } from '../accounts/ledger.js'
+import { CATEGORIES } from '../../platform/constants.js'
+import type { PayrollDeductions } from '../../domain/payroll/calc.js'
 
 /**
  * PAYROLL (§8.4 / §9)
@@ -36,6 +38,40 @@ export const salaryRouter = Router({ mergeParams: true })
 
 function requireView(session: Session) {
   if (!can(session, 'payroll.view', 'organisation')) throw ApiError.forbidden()
+}
+
+/**
+ * Legs for one employee's payroll journal:
+ *   Dr Salaries              gross
+ *       Cr Bank                       net
+ *       Cr PF Payable                 pf_employee
+ *       Cr ESI Payable                esi_employee
+ *       Cr Professional Tax Payable   pt
+ *       Cr TDS Payable                tds
+ *       Cr Other Deduction            advance + lop + other
+ *
+ * Gross is already LOP-adjusted (calc subtracts LOP before returning gross),
+ * so lop_paise is NOT re-added here — that would double-count. Zero legs
+ * are dropped by postJournal.
+ */
+function payrollJournalLegs(
+  grossPaise: number,
+  netPaise: number,
+  deductionsJson: string,
+): JournalLeg[] {
+  const d = JSON.parse(deductionsJson) as PayrollDeductions
+  const otherPaise =
+    (d.advance_paise ?? 0) +
+    (d.other ?? []).reduce((s, o) => s + o.amount_paise, 0)
+  return [
+    { category: CATEGORIES.SALARIES, debitPaise: grossPaise },
+    { category: CATEGORIES.BANK, creditPaise: netPaise },
+    { category: CATEGORIES.PF_PAYABLE, creditPaise: d.pf_employee_paise ?? 0 },
+    { category: CATEGORIES.ESI_PAYABLE, creditPaise: d.esi_employee_paise ?? 0 },
+    { category: CATEGORIES.PT_PAYABLE, creditPaise: d.pt_paise ?? 0 },
+    { category: CATEGORIES.TDS_PAYABLE, creditPaise: d.tds_paise ?? 0 },
+    { category: CATEGORIES.OTHER_DEDUCTION, creditPaise: otherPaise },
+  ]
 }
 
 async function structureEffectiveOn(employeeId: string, onDate: string) {
@@ -339,17 +375,16 @@ payrollRouter.post('/runs/:id/process', handler(async (req, res) => {
       })
       createdPayslips.push(payslip)
 
-      await postLedger(tx, {
+      await postJournal(tx, {
         date: run.periodEnd,
         type: 'Payroll',
-        description: `Salary — ${item.employee.fullName} (${run.periodStart} to ${run.periodEnd})`,
+        description: `Salary — ${monthLabel(run.periodStart)}`,
         employeeId: item.employeeId,
-        category: 'Payroll',
-        debitPaise: item.netPaise,
         referenceId: item.id,
         referenceType: 'PayrollItem',
         paymentId: payment.id,
         createdBy: session.userId,
+        legs: payrollJournalLegs(item.grossPaise, item.netPaise, item.deductionsJson),
       })
     }
 
