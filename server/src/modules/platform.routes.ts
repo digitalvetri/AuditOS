@@ -162,7 +162,7 @@ dashboardRouter.get('/pending-actions', handler(async (req, res) => {
         id: e.id,
         title: `${e.employee.fullName} — ${e.title}`,
         subtitle: `${(e.amountPaise / 100).toLocaleString('en-IN')} · ${e.stage.replace('_', ' ')}`,
-        action_url: e.stage === 'pending_manager' ? '/hrms/expenses?tab=team' : '/hrms/expenses?tab=finance',
+        action_url: e.stage === 'pending_manager' ? '/hrms/accounts/expenses?tab=team' : '/hrms/accounts/expenses?tab=finance',
         created_at: e.createdAt.toISOString(),
       })
     }

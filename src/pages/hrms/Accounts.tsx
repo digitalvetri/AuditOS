@@ -1,18 +1,22 @@
 /**
- * /hrms/accounts — Ledger + Payments + Summary tabs per §8.6.
+ * /hrms/accounts — the consolidated internal-finance module (§6.1).
  *
- * Rules from spec that this page honours:
- *   - append-only ledger (no PATCH, no DELETE — Reverse creates a contra entry)
- *   - "Simulated payment — no bank integration." disclaimer on Payments tab
- *   - Finance-only for reads + mutations; MD read-only; everyone else 403
+ * Sidebar shows ONE "Accounts" entry that opens this layout with six
+ * tabs — Overview | Payroll | Expenses | Payments | Collections | Ledger.
+ * Matching lives as a sub-tab under Collections.
+ *
+ * Legacy /hrms/payroll and /hrms/expenses redirect here (App.tsx). Auth
+ * is per-sub-tab, not on the layout — Payroll needs payroll.view, Ledger
+ * needs accounts.read, etc.
  */
 import { useState } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { NavLink, Outlet, useLocation } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Button } from '@/components/Button';
 import { useToast } from '@/components/Toast';
 import { useAuth } from '@/platform/auth/AuthContext';
 import { can } from '@/platform/rbac/can';
+import type { RoleCode } from '@/data/models';
 import { accountsApi, LEDGER_TYPES, type LedgerRowWithEmp, type LedgerSort } from '@/modules/accounts/api';
 import { NewPaymentModal } from '@/modules/accounts/NewPaymentModal';
 import { CollectionsSection } from '@/modules/zpay/CollectionsSection';
@@ -20,86 +24,157 @@ import { MatchingQueueSection } from '@/modules/zpay/MatchingQueueSection';
 import { fmtDate, fmtDateTime, inr } from '@/lib/format';
 import { StatusLabel, type StatusVariant } from '@/components/StatusRow';
 
-type Tab = 'ledger' | 'payments' | 'summary' | 'collections' | 'matching';
-
-export function AccountsPage() {
-  const { session } = useAuth();
-  const canManage = can(session?.role.code, 'accounts.manage', 'organisation');
-  const canRead = canManage || can(session?.role.code, 'accounts.read', 'organisation');
-  const [params, setParams] = useSearchParams();
-  const initialTab = (params.get('tab') as Tab | null) ?? 'summary';
-  const [tab, setTab] = useState<Tab>(initialTab);
-  const [newPay, setNewPay] = useState(false);
-
-  const setActive = (t: Tab) => {
-    setTab(t);
-    if (t === 'summary') setParams({}, { replace: true });
-    else setParams({ tab: t }, { replace: true });
+/** Which tabs a role can see (nav-render only — the API is the gate). */
+export function accountsTabsFor(role: RoleCode | undefined) {
+  return {
+    overview: true,
+    payroll: can(role, 'payroll.view.own', 'self') || can(role, 'payroll.view', 'organisation'),
+    expenses: can(role, 'expense.submit', 'self') || can(role, 'expense.approve', 'department'),
+    payments: can(role, 'payments.manage', 'organisation'),
+    collections: can(role, 'accounts.read', 'organisation') || can(role, 'accounts.manage', 'organisation'),
+    ledger: can(role, 'accounts.read', 'organisation') || can(role, 'accounts.manage', 'organisation'),
   };
+}
 
-  if (!canRead) {
-    return (
-      <div className="max-w-[720px] mx-auto bg-white border border-neutral-200 rounded p-6">
-        <div className="text-11 uppercase tracking-[0.06em] text-neutral-500">Access denied</div>
-        <h1 className="text-20 font-semibold text-neutral-900 mt-1">
-          Accounts is Finance / MD only.
-        </h1>
-        <p className="text-13 text-neutral-500 mt-2">
-          §8.6: internal JNS Accounting Solutions finance. Client accounting never appears here.
-        </p>
-      </div>
-    );
-  }
-
+export function AccountsLayout() {
+  const { session } = useAuth();
+  const role = session?.role.code as RoleCode | undefined;
+  const tabs = accountsTabsFor(role);
   return (
     <div className="space-y-6">
-      <header className="flex items-baseline justify-between gap-4 flex-wrap">
-        <div>
-          <div className="text-11 uppercase tracking-[0.06em] text-neutral-500">HRMS</div>
-          <h1 className="text-20 font-semibold text-neutral-900 mt-1">Accounts</h1>
-          <p className="text-13 text-neutral-500 mt-1">
-            Internal JNS Accounting Solutions finance. Append-only ledger — corrections are contra entries.
-          </p>
-        </div>
-        {canManage && tab === 'payments' ? (
-          <Button variant="primary" onClick={() => setNewPay(true)} data-testid="new-payment">
-            New payment
-          </Button>
-        ) : null}
+      <header>
+        <div className="text-11 uppercase tracking-[0.06em] text-neutral-500">HRMS</div>
+        <h1 className="text-20 font-semibold text-neutral-900 mt-1">Accounts</h1>
+        <p className="text-13 text-neutral-500 mt-1">
+          Internal JNS Accounting Solutions finance. Append-only ledger — corrections are contra entries.
+        </p>
       </header>
 
       <div className="border-b border-neutral-200 flex items-center gap-4 flex-wrap">
-        <TabBtn id="summary" active={tab === 'summary'} onClick={() => setActive('summary')}>Summary</TabBtn>
-        <TabBtn id="ledger" active={tab === 'ledger'} onClick={() => setActive('ledger')}>Ledger</TabBtn>
-        <TabBtn id="payments" active={tab === 'payments'} onClick={() => setActive('payments')}>Payments</TabBtn>
-        <TabBtn id="collections" active={tab === 'collections'} onClick={() => setActive('collections')}>Collections</TabBtn>
-        <TabBtn id="matching" active={tab === 'matching'} onClick={() => setActive('matching')}>Matching</TabBtn>
+        {tabs.overview    ? <AccountsTabLink to="overview">Overview</AccountsTabLink> : null}
+        {tabs.payroll     ? <AccountsTabLink to="payroll">Payroll</AccountsTabLink> : null}
+        {tabs.expenses    ? <AccountsTabLink to="expenses">Expenses</AccountsTabLink> : null}
+        {tabs.payments    ? <AccountsTabLink to="payments">Payments</AccountsTabLink> : null}
+        {tabs.collections ? <AccountsTabLink to="collections">Collections</AccountsTabLink> : null}
+        {tabs.ledger      ? <AccountsTabLink to="ledger">Ledger</AccountsTabLink> : null}
       </div>
 
-      {tab === 'summary' ? <SummarySection /> : null}
-      {tab === 'ledger' ? <LedgerSection canManage={canManage} /> : null}
-      {tab === 'payments' ? <PaymentsSection /> : null}
-      {tab === 'collections' ? <CollectionsSection onGoToMatching={() => setActive('matching')} /> : null}
-      {tab === 'matching' ? <MatchingQueueSection /> : null}
+      <Outlet />
+    </div>
+  );
+}
 
+function AccountsTabLink({ to, children }: { to: string; children: React.ReactNode }) {
+  return (
+    <NavLink
+      to={to}
+      end={to === 'overview'}
+      className={({ isActive }) =>
+        'h-10 px-1 text-13 -mb-px border-b-2 ' +
+        (isActive ? 'border-gold text-neutral-900 font-medium' : 'border-transparent text-neutral-500 hover:text-neutral-900')
+      }
+      data-testid={`accounts-tab-${to}`}
+    >
+      {children}
+    </NavLink>
+  );
+}
+
+/**
+ * Placeholder — the real Overview lands in Step 8. Rendering something
+ * meaningful (Summary strip) until then keeps the route alive.
+ */
+export function AccountsOverviewPage() {
+  return (
+    <div data-testid="accounts-overview-placeholder">
+      <SummarySection />
+      <p className="text-11 text-neutral-500 mt-4">
+        The full "This month · Needs you · Held, not yet remitted" panel ships in Step 8.
+      </p>
+    </div>
+  );
+}
+
+/** Ledger sub-route — wraps the section with the accounts.read gate. */
+export function AccountsLedgerPage() {
+  const { session } = useAuth();
+  const canManage = can(session?.role.code, 'accounts.manage', 'organisation');
+  const canRead = canManage || can(session?.role.code, 'accounts.read', 'organisation');
+  if (!canRead) return <AccessDenied what="the ledger" />;
+  return <LedgerSection canManage={canManage} />;
+}
+
+/** Payments sub-route — Finance-gated, hosts the New-Payment modal. */
+export function AccountsPaymentsPage() {
+  const { session } = useAuth();
+  const canManage = can(session?.role.code, 'accounts.manage', 'organisation');
+  const canRead = canManage || can(session?.role.code, 'accounts.read', 'organisation');
+  const [newPay, setNewPay] = useState(false);
+  if (!canRead) return <AccessDenied what="payments" />;
+  return (
+    <div>
+      {canManage ? (
+        <div className="flex justify-end mb-3">
+          <Button variant="primary" onClick={() => setNewPay(true)} data-testid="new-payment">
+            New payment
+          </Button>
+        </div>
+      ) : null}
+      <PaymentsSection />
       <NewPaymentModal open={newPay} onClose={() => setNewPay(false)} />
     </div>
   );
 }
 
-function TabBtn({ id, active, onClick, children }: { id: string; active: boolean; onClick: () => void; children: React.ReactNode }) {
+/**
+ * Collections sub-route with Matching as a nested sub-tab. Matching's
+ * breadcrumb is already ACCOUNTS / COLLECTIONS / MATCHING, so this
+ * pathway matches the spec's existing story.
+ */
+export function AccountsCollectionsPage() {
+  const location = useLocation();
+  const onMatching = location.pathname.endsWith('/matching');
   return (
-    <button
-      type="button"
-      onClick={onClick}
-      data-testid={`accounts-tab-${id}`}
-      className={
-        'h-10 px-1 text-13 -mb-px border-b-2 ' +
-        (active ? 'border-gold text-neutral-900 font-medium' : 'border-transparent text-neutral-500 hover:text-neutral-900')
-      }
-    >
-      {children}
-    </button>
+    <div className="space-y-4" data-testid="accounts-collections">
+      <div className="flex items-center gap-4 text-13 border-b border-neutral-200">
+        <NavLink
+          to="."
+          end
+          className={({ isActive }) =>
+            'h-9 px-1 -mb-px border-b-2 ' + (isActive
+              ? 'border-gold text-neutral-900 font-medium'
+              : 'border-transparent text-neutral-500 hover:text-neutral-900')
+          }
+        >
+          Collections
+        </NavLink>
+        <NavLink
+          to="matching"
+          className={({ isActive }) =>
+            'h-9 px-1 -mb-px border-b-2 ' + (isActive
+              ? 'border-gold text-neutral-900 font-medium'
+              : 'border-transparent text-neutral-500 hover:text-neutral-900')
+          }
+        >
+          Matching
+        </NavLink>
+      </div>
+      {onMatching ? <MatchingQueueSection /> : <CollectionsSection onGoToMatching={() => undefined} />}
+    </div>
+  );
+}
+
+function AccessDenied({ what }: { what: string }) {
+  return (
+    <div className="max-w-[720px] mx-auto bg-white border border-neutral-200 rounded p-6">
+      <div className="text-11 uppercase tracking-[0.06em] text-neutral-500">Access denied</div>
+      <h1 className="text-20 font-semibold text-neutral-900 mt-1">
+        {what} is Finance / MD only.
+      </h1>
+      <p className="text-13 text-neutral-500 mt-2">
+        §8.6: internal JNS Accounting Solutions finance. Client accounting never appears here.
+      </p>
+    </div>
   );
 }
 

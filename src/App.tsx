@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { BrowserRouter, Route, Routes, Navigate } from 'react-router-dom';
+import { BrowserRouter, Route, Routes, Navigate, useLocation, useParams } from 'react-router-dom';
 import { AuthProvider } from '@/platform/auth/AuthContext';
 import { ProtectedRoute } from '@/platform/auth/ProtectedRoute';
 // New shell + dashboard per UI-BUILD-PROMPT.md. The v1 shell/dashboard still
@@ -121,7 +121,13 @@ import { PayrollPage, PayrollRunDetailPage } from '@/pages/hrms/Payroll';
 import { PayslipDetailPage } from '@/pages/hrms/PayslipDetail';
 import { MyPayslipsPage } from '@/pages/MyPayslips';
 import { ExpensesPage } from '@/pages/hrms/Expenses';
-import { AccountsPage } from '@/pages/hrms/Accounts';
+import {
+  AccountsLayout,
+  AccountsOverviewPage,
+  AccountsLedgerPage,
+  AccountsPaymentsPage,
+  AccountsCollectionsPage,
+} from '@/pages/hrms/Accounts';
 import { MessagesPage } from '@/pages/hrms/Messages';
 import { ReportsPage } from '@/pages/hrms/Reports';
 import { useAuth } from '@/platform/auth/AuthContext';
@@ -138,6 +144,21 @@ const queryClient = new QueryClient({
     },
   },
 });
+
+/**
+ * Preserve query string (?tab=finance etc) AND :id path params when
+ * redirecting a legacy route. Every historical notification, bookmark
+ * and shared deep-link keeps its filter after the nav merge.
+ */
+function LegacyRedirect({ to }: { to: string }) {
+  const params = useParams()
+  const location = useLocation()
+  let path = to
+  for (const [k, v] of Object.entries(params)) {
+    if (v !== undefined) path = path.replace(`:${k}`, v)
+  }
+  return <Navigate to={{ pathname: path, search: location.search }} replace />
+}
 
 function MyProfileRoute() {
   const { session } = useAuth();
@@ -206,11 +227,29 @@ export default function App() {
               <Route path="hrms/employees/:id" element={<EmployeeDetailPage />} />
               <Route path="hrms/attendance" element={<AttendancePage />} />
               <Route path="hrms/leave" element={<LeavePage />} />
-              <Route path="hrms/payroll" element={<PayrollPage />} />
-              <Route path="hrms/payroll/runs/:id" element={<PayrollRunDetailPage />} />
-              <Route path="hrms/payroll/payslips/:id" element={<PayslipDetailPage />} />
-              <Route path="hrms/expenses" element={<ExpensesPage />} />
-              <Route path="hrms/accounts" element={<AccountsPage />} />
+              {/* Nested Accounts routes — Payroll and Expenses live inside
+                  the single Accounts module now (§6.2). Legacy /hrms/payroll
+                  and /hrms/expenses redirect below rather than 404. */}
+              <Route path="hrms/accounts" element={<AccountsLayout />}>
+                <Route index element={<Navigate to="/hrms/accounts/overview" replace />} />
+                <Route path="overview" element={<AccountsOverviewPage />} />
+                <Route path="payroll" element={<PayrollPage />} />
+                <Route path="payroll/runs/:id" element={<PayrollRunDetailPage />} />
+                <Route path="payroll/payslips/:id" element={<PayslipDetailPage />} />
+                <Route path="expenses" element={<ExpensesPage />} />
+                <Route path="payments" element={<AccountsPaymentsPage />} />
+                <Route path="collections" element={<AccountsCollectionsPage />} />
+                <Route path="collections/matching" element={<AccountsCollectionsPage />} />
+                <Route path="ledger" element={<AccountsLedgerPage />} />
+              </Route>
+
+              {/* Redirects — every route that existed pre-consolidation
+                  MUST forward, not 404 (§0 acceptance criterion). Search
+                  string is preserved so ?tab=finance et al survive. */}
+              <Route path="hrms/payroll" element={<LegacyRedirect to="/hrms/accounts/payroll" />} />
+              <Route path="hrms/payroll/runs/:id" element={<LegacyRedirect to="/hrms/accounts/payroll/runs/:id" />} />
+              <Route path="hrms/payroll/payslips/:id" element={<LegacyRedirect to="/hrms/accounts/payroll/payslips/:id" />} />
+              <Route path="hrms/expenses" element={<LegacyRedirect to="/hrms/accounts/expenses" />} />
               <Route path="hrms/messages" element={<MessagesPage />} />
               <Route path="hrms/documents" element={<DocumentsPage />} />
               <Route path="hrms/reports" element={<ReportsPage />} />

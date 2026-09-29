@@ -28,14 +28,12 @@ import {
   FolderKanban,
   Handshake,
   Home,
-  IndianRupee,
   Landmark,
   LayoutGrid,
   ListChecks,
   MessageSquare,
   PhoneCall,
   Plug,
-  ReceiptIndianRupee,
   Settings,
   Users,
   ScrollText,
@@ -89,13 +87,21 @@ export function Sidebar({ mobileOpen, onMobileClose }: Props) {
   // is what actually enforces access. Employee: no Employees / Accounts /
   // Reports / Settings; no Tools if `tools.access` is not granted.
   const nav = useMemo<NavGroup[]>(() => {
+    // Payroll and Expenses used to be top-level sidebar entries; they
+    // are now tabs INSIDE Accounts (§6.1). One "Accounts" row here,
+    // visible to any role with access to any sub-tab.
+    const canAccountsRead =
+      can(role, 'accounts.read', 'organisation')
+      || can(role, 'accounts.manage', 'organisation')
+      || can(role, 'payroll.view.own', 'self')
+      || can(role, 'payroll.view', 'organisation')
+      || can(role, 'expense.submit', 'self')
+      || can(role, 'expense.approve', 'department')
     const auditItems: NavItem[] = [
       { to: '/hrms/employees',  label: 'Employees',  icon: Users,                visible: can(role, 'employee.read', 'department') },
       { to: '/hrms/attendance', label: 'Attendance', icon: Clock,                visible: can(role, 'attendance.read', 'self') },
       { to: '/hrms/leave',      label: 'Leave',      icon: CalendarDays,         visible: can(role, 'leave.read', 'self') },
-      { to: '/hrms/payroll',    label: 'Payroll',    icon: IndianRupee,          visible: can(role, 'payroll.view.own', 'self') || can(role, 'payroll.view', 'organisation') },
-      { to: '/hrms/expenses',   label: 'Expenses',   icon: ReceiptIndianRupee,   visible: can(role, 'expense.submit', 'self') || can(role, 'expense.approve', 'department') },
-      { to: '/hrms/accounts',   label: 'Accounts',   icon: BookOpen,             visible: can(role, 'accounts.read', 'organisation') || can(role, 'accounts.manage', 'organisation') },
+      { to: '/hrms/accounts',   label: 'Accounts',   icon: BookOpen,             visible: canAccountsRead },
       { to: '/hrms/messages',   label: 'Messages',   icon: MessageSquare,        visible: can(role, 'chat.participate', 'organisation') },
       { to: '/hrms/documents',  label: 'Documents',  icon: FileText,             visible: can(role, 'document.read', 'self') },
       { to: '/hrms/reports',    label: 'Reports',    icon: BarChart3,            visible: can(role, 'reports.hr', 'department') || can(role, 'reports.finance', 'organisation') || can(role, 'reports.all', 'organisation') },

@@ -40,18 +40,14 @@ export function PayrollPage() {
   }
 
   return (
-    <div className="space-y-6">
-      <header className="flex items-baseline justify-between gap-4 flex-wrap">
-        <div>
-          <div className="text-11 uppercase tracking-[0.06em] text-neutral-500">HRMS</div>
-          <h1 className="text-20 font-semibold text-neutral-900 mt-1">Payroll</h1>
-        </div>
-        {canRun ? (
+    <div className="space-y-4">
+      {canRun ? (
+        <div className="flex justify-end">
           <Button variant="primary" onClick={() => setCreating(true)} data-testid="payroll-create-open">
             New run
           </Button>
-        ) : null}
-      </header>
+        </div>
+      ) : null}
 
       {creating ? <CreateRunForm onDone={() => setCreating(false)} /> : null}
 
@@ -92,7 +88,7 @@ export function PayrollPage() {
                     <td className="px-3 py-2 text-13 text-neutral-900">{inr(r.deductions_total_paise)}</td>
                     <td className="px-3 py-2 text-13 text-neutral-900 font-medium">{inr(r.net_total_paise)}</td>
                     <td className="px-3 py-2">
-                      <Link to={`/hrms/payroll/runs/${r.id}`} className="text-13 text-gold hover:text-gold-hover">Open →</Link>
+                      <Link to={`/hrms/accounts/payroll/runs/${r.id}`} className="text-13 text-gold hover:text-gold-hover">Open →</Link>
                     </td>
                   </tr>
                 );
@@ -243,7 +239,7 @@ export function PayrollRunDetailPage() {
   return (
     <div className="space-y-6">
       <div>
-        <Link to="/hrms/payroll" className="text-13 text-neutral-500 hover:text-neutral-900">← Payroll</Link>
+        <Link to="/hrms/accounts/payroll" className="text-13 text-neutral-500 hover:text-neutral-900">← Payroll</Link>
       </div>
       <header className="flex items-baseline justify-between gap-4 flex-wrap">
         <div>

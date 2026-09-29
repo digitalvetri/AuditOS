@@ -110,8 +110,8 @@ export const dashboardAggregateHandlers = [
             subtitle: `${(exp.amount_paise / 100).toLocaleString('en-IN')} · ${exp.stage.replace('_', ' ')}`,
             action_url:
               exp.stage === 'pending_manager'
-                ? '/hrms/expenses?tab=team'
-                : '/hrms/expenses?tab=finance',
+                ? '/hrms/accounts/expenses?tab=team'
+                : '/hrms/accounts/expenses?tab=finance',
             created_at: exp.created_at,
           });
         }
