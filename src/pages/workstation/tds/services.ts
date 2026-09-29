@@ -1,7 +1,8 @@
 /**
  * TDS sub-service catalogue.
  *
- * Six rows per the TDS-PAGE-PROMPT spec. Each entry mirrors the GST
+ * The six TAN-based services from the TDS-PAGE-PROMPT spec, plus the
+ * PAN-based 26QB / 26QC / 26QD challan-cum-statements. Each entry mirrors the GST
  * services.ts shape — portal URL, click path, field sheet, capture schema.
  * Any TDS-specific guardrails (SPICe+ block, TRACES-needs-filed-return
  * caveat, correction requires original token, etc.) live on the entry as
@@ -14,6 +15,7 @@ import {
   Coins,
   FileMinus,
   FilePlus2,
+  Home,
   IdCard,
   RefreshCcw,
   type LucideIcon,
@@ -25,7 +27,8 @@ export type TdsSubServiceSlug =
   | 'return-filing'
   | 'correction-filing'
   | 'form-16'
-  | 'notices';
+  | 'notices'
+  | 'challan-statements';
 
 export interface TdsSubService {
   slug: TdsSubServiceSlug;
@@ -61,6 +64,8 @@ export interface TdsSubService {
    *    registration needs a filed return first" note.
    */
   guards?: {
+    /** PAN-based: works without a TAN (26QB / 26QC / 26QD). */
+    noTanNeeded?: boolean;
     disableWhenIncorporating?: boolean;
     requiresFiledReturn?: boolean;
     requiresOriginalToken?: boolean;
@@ -274,6 +279,34 @@ export const TDS_SUB_SERVICES: TdsSubService[] = [
       { key: 'default_summary', label: 'Default summary (as entered by the firm)' },
       { key: 'last_checked_at', label: 'Last-checked date', required: true },
     ],
+  },
+  {
+    slug: 'challan-statements',
+    name: 'Property, rent & contract TDS',
+    form: '26QB · 26QC · 26QD',
+    icon: Home,
+    summary:
+      'One-off TDS the client pays on its PAN (no TAN needed): 26QB on buying property over ₹50 lakh, 26QC on rent over ₹50,000 a month paid by an individual / HUF, 26QD on contract or professional fees over ₹50 lakh a year by an individual / HUF. Due 30 days after the month of deduction; then issue Form 16B / 16C / 16D from TRACES.',
+    portal: {
+      url: EFILING,
+      label: 'e-Filing portal',
+      navPath: ['e-File', 'e-Pay Tax', 'New Payment', 'TDS on Property / Rent / Contract (26QB · 26QC · 26QD)'],
+      preLogin: false,
+      note: 'Filed with the buyer / tenant / payer PAN. Form 16B / 16C / 16D is downloaded later from TRACES — request, then download.',
+    },
+    fieldSheet: [
+      { label: 'Form', hint: '26QB property · 26QC rent · 26QD contract / professional' },
+      { label: 'Other party name and PAN', hint: 'Seller / landlord / contractor' },
+      { label: 'Transaction amount' },
+      { label: 'TDS amount', hint: '26QB 1% · 26QC 2% · 26QD 2%' },
+      { label: 'Date of payment / credit' },
+    ],
+    capture: [
+      { key: 'ack', label: 'Acknowledgement number', required: true },
+      { key: 'payment_date', label: 'Payment date', required: true },
+      { key: 'certificate', label: 'Form 16B / 16C / 16D issue date' },
+    ],
+    guards: { noTanNeeded: true },
   },
 ];
 

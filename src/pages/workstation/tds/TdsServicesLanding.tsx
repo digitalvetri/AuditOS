@@ -13,11 +13,12 @@
 import { useMemo, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
-import { ChevronRight, ExternalLink, Users } from 'lucide-react';
+import { BookUser, ChevronRight, ExternalLink, GitCompareArrows } from 'lucide-react';
 import { workstationApi } from '@/modules/workstation/api';
 import { TDS_PORTAL, TDS_SUB_SERVICES, type TdsSubService } from './services';
 import { fyLabelForDate, fyRange } from './config';
 import {
+  challanStatementsStatus,
   challanStatus,
   correctionStatus,
   form16Status,
@@ -28,6 +29,7 @@ import {
 } from './status';
 import { tdsApi, type TdsData } from '@/modules/tds/api';
 import { TdsCredentialsCard } from './TdsCredentialsCard';
+import { TdsOverviewBoard } from './TdsOverviewBoard';
 import { tdsPortalApi } from '@/modules/tdsPortal/api';
 
 const STATUS_TINT: Record<SubServiceStatus['key'], { bg: string; fg: string }> = {
@@ -197,7 +199,13 @@ export function TdsServicesLanding() {
         {/* Deductor context strip */}
         {selectedClient && effectiveTan && tds ? (
           <div className="flex flex-wrap items-center gap-x-6 gap-y-1 px-4 py-2 border-t border-neutral-100 text-12 text-neutral-500">
-            <ContextItem label="Deductor">{deductorLabel(tds.profile.deductor_type)}</ContextItem>
+            <ContextItem label="Deductor">
+              {tds.profile.deductor_type ? deductorLabel(tds.profile.deductor_type) : (
+                <Link to={`/workstation/services/tds/registration${buildSuffix({ client: selectedClient.id, fy: fyLabel, tan: effectiveTan })}`} className="text-danger underline">
+                  Not set — set it under TDS Registration
+                </Link>
+              )}
+            </ContextItem>
             <ContextItem label="Responsible person">{tds.profile.responsible_person ?? '—'}</ContextItem>
             <ContextItem label="Returns">{tds.profile.return_forms.join(' · ')}</ContextItem>
             <ContextItem label="TRACES">
@@ -218,11 +226,36 @@ export function TdsServicesLanding() {
       </section>
 
       {!selectedClient ? (
-        <EmptyState />
+        <TdsOverviewBoard
+          fy={fyLabel}
+          onOpen={(id, tan, primary) => {
+            const next = new URLSearchParams(params);
+            next.set('client', id);
+            if (tan && !primary) next.set('tan', tan); else next.delete('tan');
+            setParams(next, { replace: true });
+          }}
+        />
       ) : (
         <>
           {/* Keyed by client so no credential state survives a client switch. */}
           <TdsCredentialsCard key={selectedClient.id} client={selectedClient} />
+
+          <div className="grid gap-3 md:grid-cols-2">
+            <ToolCard
+              to={`/workstation/services/tds/register${buildSuffix({ client: selectedClient.id, fy: fyLabel, tan: effectiveTan })}`}
+              icon={<BookUser size={16} strokeWidth={1.75} />}
+              title="Deductions & deductees"
+              body="Record each payment and the TDS on it. Rates, thresholds, no-PAN, 15G / 15H and lower-deduction certificates are applied for you; short deductions are flagged, monthly totals feed the challan, and the quarter exports for your return software."
+              disabled={!effectiveTan}
+              disabledReason="Record the TAN under TDS Registration first."
+            />
+            <ToolCard
+              to="/audit-automation/tds"
+              icon={<GitCompareArrows size={16} strokeWidth={1.75} />}
+              title="Reconcile with 26AS / TRACES"
+              body="Match the books and deductee records against 26AS / TRACES in Repotic, to catch credits the government shows differently before the client’s return is filed."
+            />
+          </div>
 
           <section className="bg-white border border-neutral-200 rounded-lg shadow-card overflow-hidden">
             {!tds ? (
@@ -253,18 +286,23 @@ export function TdsServicesLanding() {
   );
 }
 
-function EmptyState() {
-  return (
-    <section className="bg-white border border-neutral-200 rounded-lg shadow-card p-8 text-center">
-      <div className="inline-flex items-center justify-center w-10 h-10 rounded-md bg-neutral-100 text-neutral-500 mb-3" aria-hidden>
-        <Users size={20} strokeWidth={1.75} />
+function ToolCard({ to, icon, title, body, disabled, disabledReason }: {
+  to: string; icon: React.ReactNode; title: string; body: string; disabled?: boolean; disabledReason?: string;
+}) {
+  const inner = (
+    <>
+      <span className="inline-flex items-center justify-center w-8 h-8 rounded-md shrink-0 bg-neutral-100 text-neutral-600" aria-hidden>{icon}</span>
+      <div className="min-w-0 flex-1">
+        <div className="text-14 font-medium text-neutral-900 group-hover:text-gold">{title}</div>
+        <p className="text-12 text-neutral-500 mt-0.5">{disabled ? disabledReason : body}</p>
       </div>
-      <div className="text-14 font-medium text-neutral-900">Select a client to view TDS details.</div>
-      <p className="text-12 text-neutral-500 mt-1 max-w-[400px] mx-auto">
-        Nothing renders until a client is selected — TDS work is always TAN-scoped.
-      </p>
-    </section>
+      {!disabled ? <ChevronRight size={16} strokeWidth={2} className="text-neutral-400 group-hover:text-gold shrink-0 mt-1" /> : null}
+    </>
   );
+  const cls = 'flex items-start gap-3 bg-white border border-neutral-200 rounded-lg shadow-card p-4';
+  return disabled
+    ? <div className={cls + ' opacity-70'}>{inner}</div>
+    : <Link to={to} className={cls + ' group hover:bg-neutral-50 transition-colors'}>{inner}</Link>;
 }
 
 function SelectorField({
@@ -297,6 +335,7 @@ function statusFor(service: TdsSubService, data: TdsData, fy: string): SubServic
     case 'correction-filing':   return correctionStatus(data);
     case 'form-16':             return form16Status(data, fy);
     case 'notices':             return noticesStatus(data);
+    case 'challan-statements':  return challanStatementsStatus(data, fy);
   }
 }
 

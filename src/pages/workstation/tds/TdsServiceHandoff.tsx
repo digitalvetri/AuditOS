@@ -279,7 +279,7 @@ export function TdsServiceHandoff() {
             <div className="text-13 text-neutral-500">
               {tdsQuery.isError ? (tdsQuery.error as Error).message : 'Loading TDS records…'}
             </div>
-          ) : service.slug !== 'registration' && !tds.active_tan ? (
+          ) : service.slug !== 'registration' && !service.guards?.noTanNeeded && !tds.active_tan ? (
             <div className="text-13 text-neutral-500">Record the TAN under TDS Registration first.</div>
           ) : (
             <TdsRecordsPanel key={`${selectedClient.id}-${fyLabel}-${tds.active_tan}`} slug={service.slug} data={tds} fy={fyLabel} />
