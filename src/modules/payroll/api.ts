@@ -12,9 +12,26 @@ export interface PayrollItemWithEmp extends PayrollItem {
   employee: { id: string; full_name: string; employee_code: string; department_id: string } | null;
 }
 
+export interface PayrollBlocker {
+  employee: { id: string; full_name: string; employee_code: string; department_id: string } | null;
+  reason: 'no_salary_structure';
+  message: string;
+}
+
+export interface PayrollVariance {
+  previous_run_id: string;
+  previous_label: string;
+  previous_gross_paise: number;
+  delta_paise: number;
+  same_headcount: boolean;
+}
+
 export interface PayrollRunDetail {
-  run: PayrollRun;
+  run: PayrollRun & { label: string };
   items: PayrollItemWithEmp[];
+  blockers: PayrollBlocker[];
+  variance: PayrollVariance | null;
+  can_process: boolean;
 }
 
 export interface PayslipListItem extends Payslip {

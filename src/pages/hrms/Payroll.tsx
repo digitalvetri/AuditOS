@@ -8,7 +8,7 @@
 import { useState, type FormEvent } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { payrollApi, STAGE_LABEL } from '@/modules/payroll/api';
+import { payrollApi, STAGE_LABEL, type PayrollBlocker, type PayrollVariance } from '@/modules/payroll/api';
 import { inr } from '@/lib/format';
 import { Button } from '@/components/Button';
 import { Input } from '@/components/Input';
@@ -237,7 +237,7 @@ export function PayrollRunDetailPage() {
       </div>
     );
   }
-  const { run, items } = q.data;
+  const { run, items, blockers, variance, can_process } = q.data;
   const s = stageStyle(run.stage);
 
   return (
@@ -247,9 +247,9 @@ export function PayrollRunDetailPage() {
       </div>
       <header className="flex items-baseline justify-between gap-4 flex-wrap">
         <div>
-          <div className="text-11 uppercase tracking-[0.06em] text-neutral-500">{run.id}</div>
+          <div className="text-11 uppercase tracking-[0.06em] text-neutral-500">Accounts › Payroll › {run.label}</div>
           <h1 className="text-20 font-semibold text-neutral-900 mt-1">
-            Payroll · {run.period_start} → {run.period_end}
+            {run.label} · {run.period_start} → {run.period_end}
           </h1>
           <div className="mt-1"><StatusLabel variant={s.variant} label={s.label} /></div>
         </div>
@@ -259,6 +259,8 @@ export function PayrollRunDetailPage() {
           canReview={canReview}
           canApprove={canApprove}
           canProcess={canProcess}
+          canProcessBlocked={!can_process}
+          blockerCount={blockers.length}
           onCalculate={() => calc.mutate()}
           onReview={() => review.mutate()}
           onApprove={() => approve.mutate()}
@@ -269,7 +271,11 @@ export function PayrollRunDetailPage() {
 
       <KpiRow run={run} />
 
-      {items.length === 0 ? (
+      {variance && Math.abs(variance.delta_paise) >= 100_000 ? (
+        <VarianceBanner variance={variance} />
+      ) : null}
+
+      {items.length === 0 && blockers.length === 0 ? (
         <div className="bg-white border border-neutral-200 rounded p-6 text-13 text-neutral-500">
           No items — Calculate to populate.
         </div>
@@ -308,6 +314,9 @@ export function PayrollRunDetailPage() {
                   <td className="px-3 py-2 text-13 text-neutral-900 font-medium">{inr(i.net_paise)}</td>
                 </tr>
               ))}
+              {blockers.map((b) => (
+                <BlockerRow key={b.employee?.id ?? b.message} blocker={b} />
+              ))}
             </tbody>
           </table>
         </div>
@@ -320,6 +329,37 @@ export function PayrollRunDetailPage() {
         </div>
       ) : null}
 
+    </div>
+  );
+}
+
+function BlockerRow({ blocker }: { blocker: PayrollBlocker }) {
+  return (
+    <tr className="border-b border-neutral-200" data-testid={`payroll-blocker-${blocker.employee?.id ?? 'unknown'}`}>
+      <td className="px-3 py-2 border-l-2 border-amber">
+        <div className="text-13 text-neutral-900">{blocker.employee?.full_name ?? '—'}</div>
+        <div className="text-11 text-neutral-500">{blocker.message}</div>
+      </td>
+      <td className="px-3 py-2 text-13 text-neutral-500">0 days</td>
+      <td className="px-3 py-2 text-13 text-neutral-400" colSpan={11}>—</td>
+      <td className="px-3 py-2 text-13 text-neutral-400">—</td>
+      <td className="px-3 py-2 text-13 text-neutral-400">—</td>
+    </tr>
+  );
+}
+
+function VarianceBanner({ variance }: { variance: PayrollVariance }) {
+  const abs = Math.abs(variance.delta_paise);
+  const direction = variance.delta_paise < 0 ? 'below' : 'above';
+  return (
+    <div
+      className="bg-white border border-neutral-200 rounded px-4 py-3 border-l-2 border-l-gold"
+      data-testid="payroll-variance-banner"
+    >
+      <div className="text-13 text-neutral-900">
+        Gross is <span className="font-medium">{inr(abs)}</span>{' '}
+        {direction} <span className="font-medium">{variance.previous_label}</span> at the same headcount.
+      </div>
     </div>
   );
 }
@@ -350,6 +390,8 @@ function StageActions({
   canReview,
   canApprove,
   canProcess,
+  canProcessBlocked,
+  blockerCount,
   onCalculate,
   onReview,
   onApprove,
@@ -361,6 +403,8 @@ function StageActions({
   canReview: boolean;
   canApprove: boolean;
   canProcess: boolean;
+  canProcessBlocked: boolean;
+  blockerCount: number;
   onCalculate: () => void;
   onReview: () => void;
   onApprove: () => void;
@@ -370,27 +414,52 @@ function StageActions({
   if (run.stage === 'processed') {
     return <span className="text-13 text-neutral-500">Immutable — Processed {run.processed_at?.slice(0, 10)}</span>;
   }
+  const blockerHint = canProcessBlocked
+    ? `${blockerCount} employee${blockerCount === 1 ? '' : 's'} without a salary structure — resolve before processing.`
+    : null;
   return (
-    <div className="flex items-center gap-2 flex-wrap">
-      {run.stage === 'draft' && canRun ? (
-        <Button variant="secondary" onClick={onCalculate} disabled={busy} data-testid="payroll-calculate">
-          Calculate
-        </Button>
-      ) : null}
-      {(run.stage === 'draft' || run.stage === 'hr_review') && canReview && run.headcount > 0 ? (
-        <Button variant="primary" onClick={onReview} disabled={busy} data-testid="payroll-review">
-          {run.stage === 'draft' ? 'Send to HR review' : 'Send to Finance review'}
-        </Button>
-      ) : null}
-      {run.stage === 'finance_review' && canApprove ? (
-        <Button variant="primary" onClick={onApprove} disabled={busy} data-testid="payroll-approve">
-          Approve
-        </Button>
-      ) : null}
-      {run.stage === 'approved' && canProcess ? (
-        <Button variant="primary" onClick={onProcess} disabled={busy} data-testid="payroll-process">
-          Process (pay + publish)
-        </Button>
+    <div className="flex flex-col items-end gap-1">
+      <div className="flex items-center gap-2 flex-wrap">
+        {run.stage === 'draft' && canRun ? (
+          <Button variant="secondary" onClick={onCalculate} disabled={busy} data-testid="payroll-calculate">
+            Calculate
+          </Button>
+        ) : null}
+        {(run.stage === 'draft' || run.stage === 'hr_review') && canReview && run.headcount > 0 ? (
+          <Button
+            variant="primary"
+            onClick={onReview}
+            disabled={busy || canProcessBlocked}
+            data-testid="payroll-review"
+          >
+            {run.stage === 'draft' ? 'Send to HR review' : 'Send to Finance review'}
+          </Button>
+        ) : null}
+        {run.stage === 'finance_review' && canApprove ? (
+          <Button
+            variant="primary"
+            onClick={onApprove}
+            disabled={busy || canProcessBlocked}
+            data-testid="payroll-approve"
+          >
+            Approve
+          </Button>
+        ) : null}
+        {run.stage === 'approved' && canProcess ? (
+          <Button
+            variant="primary"
+            onClick={onProcess}
+            disabled={busy || canProcessBlocked}
+            data-testid="payroll-process"
+          >
+            Process (pay + publish)
+          </Button>
+        ) : null}
+      </div>
+      {blockerHint ? (
+        <span className="text-11 text-neutral-500" data-testid="payroll-blocker-hint">
+          {blockerHint}
+        </span>
       ) : null}
     </div>
   );

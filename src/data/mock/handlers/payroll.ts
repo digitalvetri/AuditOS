@@ -181,7 +181,40 @@ export const payrollHandlers = [
           employee: emp ? { id: emp.id, full_name: emp.full_name, employee_code: emp.employee_code, department_id: emp.department_id } : null,
         };
       }).sort((a, b) => (a.employee?.employee_code ?? '').localeCompare(b.employee?.employee_code ?? ''));
-      return ok({ run, items: withEmp });
+
+      // Blockers: active employees active during this period who have no
+      // salary structure covering it (§2.5 Bug 3 fix).
+      const structures = db.read().salaryStructures ?? [];
+      const activeEmployees = db.read().employees.filter(
+        (e) => e.status !== 'inactive' && !e.deleted_at && e.joining_date <= run.period_end,
+      );
+      const blockers = activeEmployees
+        .filter((e) => !structures.some(
+          (s) => s.employee_id === e.id && !s.deleted_at
+            && s.effective_from <= run.period_start
+            && (s.effective_to === null || s.effective_to >= run.period_start),
+        ))
+        .map((e) => ({
+          employee: { id: e.id, full_name: e.full_name, employee_code: e.employee_code, department_id: e.department_id },
+          reason: 'no_salary_structure' as const,
+          message: `No salary structure covering ${run.period_start} to ${run.period_end}.`,
+        }));
+
+      // Variance vs the immediately preceding approved/processed run.
+      const prev = [...db.read().payrollRuns]
+        .filter((r) => r.period_start < run.period_start && (r.stage === 'approved' || r.stage === 'processed'))
+        .sort((a, b) => b.period_start.localeCompare(a.period_start))[0];
+      const variance = prev && prev.headcount === run.headcount && run.headcount > 0
+        ? {
+          previous_run_id: prev.id,
+          previous_label: `PR/${prev.period_start.slice(0, 7)}`,
+          previous_gross_paise: prev.gross_total_paise,
+          delta_paise: run.gross_total_paise - prev.gross_total_paise,
+          same_headcount: true,
+        }
+        : null;
+      const runWithLabel = { ...run, label: `PR/${run.period_start.slice(0, 7)}` };
+      return ok({ run: runWithLabel, items: withEmp, blockers, variance, can_process: blockers.length === 0 });
     }),
   ),
 
