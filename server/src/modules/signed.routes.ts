@@ -2,6 +2,7 @@ import { Router } from 'express'
 import { ApiError, handler } from '../lib/http.js'
 import { prisma } from '../lib/prisma.js'
 import { verifyResourceToken } from '../platform/signedUrl.js'
+import { employeeDocStorage } from './documents.storage.js'
 import { streamPayslipPdf } from './payroll/pdf.js'
 import { streamQuotationPdf, QUOTATION_PDF_INCLUDE } from './quotation/pdf.js'
 import { streamInvoicePdf, INVOICE_PDF_INCLUDE } from './invoice/pdf.js'
@@ -30,8 +31,20 @@ signedRouter.get('/documents/:id/download', handler(async (req, res) => {
   const doc = await prisma.employeeDocument.findUnique({ where: { id } })
   if (!doc || doc.deletedAt) throw ApiError.notFound('Document not found.')
 
-  // No object store is wired in this phase; the payload is derived from the
-  // metadata so the download path is exercised end to end.
+  // A real uploaded file: send its bytes under its own name and type.
+  if (doc.originalFilename && doc.mimeType) {
+    if (!(await employeeDocStorage.exists(doc.fileKey))) throw ApiError.notFound('The file for this document is no longer stored.')
+    const bytes = await employeeDocStorage.get(doc.fileKey)
+    res.setHeader('Content-Type', doc.mimeType)
+    res.setHeader('Content-Length', String(bytes.length))
+    res.setHeader('X-Content-Type-Options', 'nosniff')
+    res.setHeader('Cache-Control', 'private, no-store')
+    res.setHeader('Content-Disposition', `attachment; filename="${doc.originalFilename.replace(/[^\x20-\x7e]|"/g, '_')}"; filename*=UTF-8''${encodeURIComponent(doc.originalFilename)}`)
+    return res.send(bytes)
+  }
+
+  // Rows seeded before real storage have no file; their payload is derived
+  // from the metadata so the download path still works end to end.
   const body =
     `Audit OS — document payload\n\n` +
     `id: ${doc.id}\nname: ${doc.name}\ntype: ${doc.type}\n` +

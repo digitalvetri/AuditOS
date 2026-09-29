@@ -198,7 +198,7 @@ export function RegistrationCredentialsCard({
             <button type="button" className={btn} onClick={() => setMode('view')} disabled={del.isPending}>Cancel</button>
             <button
               type="button"
-              className="inline-flex items-center gap-1 h-8 px-3 text-12 font-medium text-white bg-red-600 hover:bg-red-700 rounded-md disabled:opacity-50"
+              className="inline-flex items-center gap-1 h-8 px-3 text-12 font-medium text-white bg-danger hover:opacity-90 rounded-md disabled:opacity-50"
               onClick={() => del.mutate()}
               disabled={del.isPending}
             >

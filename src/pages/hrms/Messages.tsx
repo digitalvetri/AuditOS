@@ -8,9 +8,11 @@
  * at 320px.
  *
  * Scope cuts for this scaffold (documented in module handoff):
- *   Skipped: reactions, @mentions, in-conversation search.
- *   Included: text, image attachments, reply-to, read receipts, unread counts,
- *             DM creation.
+ *   Skipped: reactions, @mentions, in-conversation search, calls (messaging only).
+ *   Included: text, images, documents, voice messages, reply-to, read
+ *             receipts, unread counts, new chat / new group, group info and
+ *             admin actions, clear / delete chat, exit / delete group, and
+ *             delete for me / for everyone (MessagesExtras.tsx).
  */
 import {
   useEffect, useMemo, useRef, useState,
@@ -25,9 +27,10 @@ import {
 import { fmtTime } from '@/lib/format';
 import { useAuth } from '@/platform/auth/AuthContext';
 import {
-  Check, CheckCheck, ChevronLeft, Image as ImageIcon,
+  Ban, Check, CheckCheck, ChevronLeft, Image as ImageIcon, Paperclip,
   Search as SearchIcon, SendHorizontal, Users, X,
 } from 'lucide-react';
+import { DocumentChip, MessageMenu, NewChatButton, ThreadMenu, VoicePlayer, VoiceRecorder } from './MessagesExtras';
 import { useToast } from '@/components/Toast';
 import { useIsMobile } from '@/lib/useIsMobile';
 
@@ -106,7 +109,7 @@ export function MessagesPage() {
   if (isMobile) {
     return activeChat ? (
       <div className="m-thread">
-        <ThreadView chat={activeChat} onBack={() => setParams({}, { replace: true })} mobile />
+        <ThreadView chat={activeChat} onBack={() => setParams({}, { replace: true })} onGone={() => setParams({}, { replace: true })} mobile />
       </div>
     ) : (
       <div className="m-page">
@@ -115,7 +118,7 @@ export function MessagesPage() {
           <h1 className="text-20 font-semibold text-neutral-900 mt-1">Messages</h1>
         </header>
         <div className="m-card flex flex-col" data-testid="chat-sidebar" style={{ minHeight: 320 }}>
-          <ChatList chats={chats} activeId={null} onPick={open} loading={chatsQ.isLoading} mobile />
+          <ChatList chats={chats} activeId={null} onPick={open} loading={chatsQ.isLoading} mobile onNew={open} />
         </div>
       </div>
     );
@@ -134,15 +137,19 @@ export function MessagesPage() {
         className="grid bg-surface border border-border rounded overflow-hidden"
         style={{
           gridTemplateColumns: 'minmax(260px, 340px) 1fr',
+          // One row pinned to the frame's height: a long chat list scrolls
+          // inside the sidebar instead of stretching the frame and pushing the
+          // composer out of view.
+          gridTemplateRows: 'minmax(0, 1fr)',
           height: 'calc(100dvh - 220px)',
           minHeight: 520,
         }}
       >
-        <aside className="flex flex-col border-r border-border min-w-0" data-testid="chat-sidebar">
-          <ChatList chats={chats} activeId={activeChat?.id ?? null} onPick={open} loading={chatsQ.isLoading} />
+        <aside className="flex flex-col border-r border-border min-w-0 min-h-0" data-testid="chat-sidebar">
+          <ChatList chats={chats} activeId={activeChat?.id ?? null} onPick={open} loading={chatsQ.isLoading} onNew={open} />
         </aside>
         {activeChat ? (
-          <ThreadView chat={activeChat} />
+          <ThreadView chat={activeChat} onGone={() => setParams({}, { replace: true })} />
         ) : (
           <section className="chat-wallpaper grid place-items-center p-6 text-13 text-inkMuted">
             Pick a conversation to start.
@@ -156,10 +163,10 @@ export function MessagesPage() {
 // ── Conversation list ─────────────────────────────────────────────────────
 
 function ChatList({
-  chats, activeId, onPick, loading, mobile = false,
+  chats, activeId, onPick, loading, mobile = false, onNew,
 }: {
   chats: ChatListItem[]; activeId: string | null;
-  onPick: (id: string) => void; loading: boolean; mobile?: boolean;
+  onPick: (id: string) => void; loading: boolean; mobile?: boolean; onNew: (id: string) => void;
 }) {
   const [q, setQ] = useState('');
   const needle = q.trim().toLowerCase();
@@ -171,8 +178,8 @@ function ChatList({
 
   return (
     <>
-      <div className="shrink-0 border-b border-border p-3">
-        <div className="relative">
+      <div className="shrink-0 border-b border-border p-3 flex items-center gap-2">
+        <div className="relative flex-1">
           <SearchIcon
             size={16}
             strokeWidth={1.75}
@@ -192,6 +199,7 @@ function ChatList({
             }
           />
         </div>
+        <NewChatButton onOpened={onNew} />
       </div>
 
       <div className="flex-1 min-h-0 overflow-y-auto">
@@ -283,8 +291,8 @@ interface Row {
 }
 
 function ThreadView({
-  chat, onBack, mobile = false,
-}: { chat: ChatListItem; onBack?: () => void; mobile?: boolean }) {
+  chat, onBack, onGone, mobile = false,
+}: { chat: ChatListItem; onBack?: () => void; onGone: () => void; mobile?: boolean }) {
   const { session } = useAuth();
   const qc = useQueryClient();
   const toast = useToast();
@@ -325,8 +333,8 @@ function ThreadView({
   }, [messages.length, chatId]);
 
   const send = useMutation({
-    mutationFn: ({ body, images }: { body: string; images: File[] }) =>
-      messagesApi.send(chatId, body, replyTo?.id, images),
+    mutationFn: ({ body, images, documents }: { body: string; images: File[]; documents: File[] }) =>
+      messagesApi.send(chatId, body, replyTo?.id, images, documents),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['chats', 'messages', chatId] });
       qc.invalidateQueries({ queryKey: ['chats', 'list'] });
@@ -336,6 +344,18 @@ function ThreadView({
   });
 
   const ownId = session?.employee?.id ?? '';
+
+  const sendVoice = useMutation({
+    mutationFn: ({ blob, ms }: { blob: Blob; ms: number }) => messagesApi.sendVoice(chatId, blob, ms, replyTo?.id),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['chats', 'messages', chatId] });
+      qc.invalidateQueries({ queryKey: ['chats', 'list'] });
+      setReplyTo(null);
+    },
+    onError: (e: Error) => toast.push('error', e.message),
+  });
+  // Out of a group (left or removed): history stays readable, the composer goes.
+  const canWrite = chat.type === 'dm' || chat.my_role !== null;
 
   // Group by day, and mark the first message of each same-author run: only it
   // draws a tail and a name, so a burst from one person reads as one block.
@@ -382,6 +402,7 @@ function ThreadView({
             {chat.type === 'group' ? `${chat.member_count} members` : 'Direct message'}
           </div>
         </div>
+        <ThreadMenu chat={chat} onGone={onGone} />
       </div>
 
       <div className="chat-scroll chat-wallpaper px-3 py-3" ref={scrollRef}>
@@ -399,6 +420,7 @@ function ThreadView({
               ) : (
                 <Bubble
                   key={row.key}
+                  chat={chat}
                   message={row.m!}
                   own={!!row.own}
                   head={!!row.head}
@@ -411,15 +433,22 @@ function ThreadView({
         )}
       </div>
 
-      <Composer
-        replyTo={replyTo}
-        onClearReply={() => setReplyTo(null)}
-        onSend={(text, images) => send.mutate({ body: text, images })}
-        onReject={(reason) => toast.push('error', reason)}
-        busy={send.isPending}
-        sent={send.isSuccess}
-        mobile={mobile}
-      />
+      {canWrite ? (
+        <Composer
+          replyTo={replyTo}
+          onClearReply={() => setReplyTo(null)}
+          onSend={(text, images, documents) => send.mutate({ body: text, images, documents })}
+          onVoice={(blob, ms) => sendVoice.mutate({ blob, ms })}
+          onReject={(reason) => toast.push('error', reason)}
+          busy={send.isPending || sendVoice.isPending}
+          sent={send.isSuccess}
+          mobile={mobile}
+        />
+      ) : (
+        <div className="shrink-0 border-t border-border bg-surface p-3 text-center text-13 text-inkMuted">
+          You can’t send messages to this group because you’re no longer a member.
+        </div>
+      )}
     </section>
   );
 }
@@ -436,12 +465,15 @@ function dayLabel(iso: string): string {
 }
 
 function Bubble({
-  message, own, head, group, onReply,
+  chat, message, own, head, group, onReply,
 }: {
-  message: ChatMessageWithAuthor; own: boolean; head: boolean;
+  chat: ChatListItem; message: ChatMessageWithAuthor; own: boolean; head: boolean;
   group: boolean; onReply: () => void;
 }) {
-  const hasImages = message.attachments.length > 0;
+  const images = message.attachments.filter((a) => (a.kind ?? 'image') === 'image');
+  const voice = message.attachments.filter((a) => a.kind === 'audio');
+  const docs = message.attachments.filter((a) => a.kind === 'document');
+  const hasImages = images.length > 0 || docs.length > 0 || voice.length > 0;
   return (
     <div
       className={'flex w-full ' + (own ? 'justify-end' : 'justify-start') + (head ? ' mt-2' : '')}
@@ -470,9 +502,17 @@ function Bubble({
           </div>
         ) : null}
 
-        {hasImages ? <AttachmentGrid attachments={message.attachments} /> : null}
+        {message.deleted ? (
+          <div className="flex items-center gap-1.5 text-13 italic text-inkMuted py-0.5">
+            <Ban size={14} aria-hidden /> {own ? 'You deleted this message' : 'This message was deleted'}
+          </div>
+        ) : null}
 
-        {/* An image-only message has no caption — don't leave an empty line. */}
+        {images.length ? <AttachmentGrid attachments={images} /> : null}
+        {voice.map((a) => <VoicePlayer key={a.id} attachment={a} own={own} />)}
+        {docs.length ? <div className={'flex flex-col gap-1 ' + (images.length ? 'mt-1' : '')}>{docs.map((a) => <DocumentChip key={a.id} attachment={a} />)}</div> : null}
+
+        {/* An attachment-only message has no caption — don't leave an empty line. */}
         {message.body ? (
           <div className={'text-13 text-ink whitespace-pre-wrap break-words ' + (hasImages ? 'mt-1.5' : '')}>
             {message.body}
@@ -483,17 +523,19 @@ function Bubble({
             revealed on hover where there is a pointer, and stays put on touch
             where there is not. */}
         <div className="flex items-center gap-1 mt-0.5 -mb-0.5">
-          <button
-            type="button"
-            onClick={onReply}
-            data-testid={`msg-reply-${message.id}`}
-            className={
-              'text-11 text-inkFaint hover:text-primary mr-auto pr-3 ' +
-              'md:opacity-0 md:group-hover/bubble:opacity-100 md:transition-opacity'
-            }
-          >
-            Reply
-          </button>
+          <span className="mr-auto pr-2 flex items-center gap-1">
+            {!message.deleted && (chat.type === 'dm' || chat.my_role !== null) ? (
+              <button
+                type="button"
+                onClick={onReply}
+                data-testid={`msg-reply-${message.id}`}
+                className="text-11 text-inkFaint hover:text-primary md:opacity-0 md:group-hover/bubble:opacity-100 md:transition-opacity"
+              >
+                Reply
+              </button>
+            ) : null}
+            <MessageMenu chat={chat} message={message} own={own} onReply={onReply} />
+          </span>
           <span className="text-11 tabular-nums text-inkFaint">{fmtTime(message.created_at)}</span>
           {own ? (
             message.read_by_me ? (
@@ -550,16 +592,38 @@ const ACCEPTED_IMAGES = 'image/png,image/jpeg,image/webp,image/gif';
 const MAX_IMAGES = 6;
 const MAX_IMAGE_MB = 10;
 
+const ACCEPTED_DOCUMENTS = '.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.csv,.txt,.zip';
+const MAX_DOCUMENTS = 5;
+const MAX_DOCUMENT_MB = 25;
+
 function Composer({
-  replyTo, onClearReply, onSend, onReject, busy, sent, mobile,
+  replyTo, onClearReply, onSend, onVoice, onReject, busy, sent, mobile,
 }: {
   replyTo: ChatMessageWithAuthor | null; onClearReply: () => void;
-  onSend: (body: string, images: File[]) => void; onReject: (reason: string) => void;
+  onSend: (body: string, images: File[], documents: File[]) => void; onVoice: (blob: Blob, ms: number) => void;
+  onReject: (reason: string) => void;
   busy: boolean; sent: boolean; mobile: boolean;
 }) {
   const [text, setText] = useState('');
   const [images, setImages] = useState<File[]>([]);
+  const [documents, setDocuments] = useState<File[]>([]);
   const fileRef = useRef<HTMLInputElement | null>(null);
+  const docRef = useRef<HTMLInputElement | null>(null);
+  const pickDocs = (e: ChangeEvent<HTMLInputElement>) => {
+    const incoming = Array.from(e.target.files ?? []);
+    e.target.value = '';
+    const ok = incoming.filter((f) => {
+      const ext = (f.name.split('.').pop() ?? '').toLowerCase();
+      if (!ACCEPTED_DOCUMENTS.split(',').includes(`.${ext}`)) { onReject(`"${f.name}" is not a PDF, Word, Excel, PowerPoint, CSV, text or zip file.`); return false; }
+      if (f.size > MAX_DOCUMENT_MB * 1024 * 1024) { onReject(`"${f.name}" is larger than ${MAX_DOCUMENT_MB} MB.`); return false; }
+      return true;
+    });
+    setDocuments((prev) => {
+      const room = MAX_DOCUMENTS - prev.length;
+      if (ok.length > room) onReject(`A message carries at most ${MAX_DOCUMENTS} documents.`);
+      return [...prev, ...ok.slice(0, Math.max(0, room))];
+    });
+  };
 
   // Object URLs are revoked on change, so a long session does not leak a blob
   // per preview. The effect owns the whole list rather than one entry.
@@ -573,7 +637,7 @@ function Composer({
   // Clear the tray only once the send actually succeeded — a failed upload
   // must not silently discard the images the user picked.
   useEffect(() => {
-    if (sent) { setText(''); setImages([]); }
+    if (sent) { setText(''); setImages([]); setDocuments([]); }
   }, [sent]);
 
   /** Shared by the file picker and paste: same limits, same messages. */
@@ -616,17 +680,17 @@ function Composer({
     accept(files);
   };
 
-  const canSend = !busy && (text.trim().length > 0 || images.length > 0);
+  const canSend = !busy && (text.trim().length > 0 || images.length > 0 || documents.length > 0);
   const submit = (e: FormEvent) => {
     e.preventDefault();
     if (!canSend) return;
-    onSend(text.trim(), images);
+    onSend(text.trim(), images, documents);
   };
 
   return (
     <form
       onSubmit={submit}
-      className={'shrink-0 border-t border-border bg-surface ' + (mobile ? 'pt-2 pb-1' : 'p-3')}
+      className={'shrink-0 border-t border-border bg-surface ' + (mobile ? 'pt-2 pb-1' : 'px-3 py-1.5')}
     >
       {replyTo ? (
         <div className="flex items-start justify-between gap-2 mb-2 rounded border-l-2 border-primary bg-canvas px-2 py-1.5">
@@ -669,7 +733,31 @@ function Composer({
         </ul>
       ) : null}
 
-      <div className="flex items-center gap-2">
+      {documents.length > 0 ? (
+        <ul className="flex flex-wrap gap-2 mb-2" data-testid="composer-docs">
+          {documents.map((f, i) => (
+            <li key={`${f.name}-${i}`} className="inline-flex items-center gap-2 max-w-[260px] rounded border border-border bg-canvas pl-2 pr-1 py-1 text-12">
+              <Paperclip size={13} className="shrink-0 text-inkMuted" />
+              <span className="truncate" title={f.name}>{f.name}</span>
+              <button type="button" onClick={() => setDocuments((prev) => prev.filter((_, j) => j !== i))} aria-label={`Remove ${f.name}`} className="shrink-0 text-inkMuted hover:text-ink"><X size={13} /></button>
+            </li>
+          ))}
+        </ul>
+      ) : null}
+
+      <div className="flex items-center gap-1.5">
+        <input ref={docRef} type="file" accept={ACCEPTED_DOCUMENTS} multiple onChange={pickDocs} className="hidden" data-testid="composer-doc-file" />
+        <button
+          type="button"
+          onClick={() => docRef.current?.click()}
+          disabled={documents.length >= MAX_DOCUMENTS}
+          title="Attach a document (PDF, Word, Excel, PowerPoint, CSV, text, zip)"
+          aria-label="Attach a document"
+          className="inline-flex items-center justify-center w-8 h-8 shrink-0 rounded-full text-inkMuted hover:text-ink hover:bg-canvas disabled:opacity-50"
+          data-testid="composer-attach-doc"
+        >
+          <Paperclip size={17} strokeWidth={1.75} />
+        </button>
         <input
           ref={fileRef}
           type="file"
@@ -685,10 +773,10 @@ function Composer({
           disabled={images.length >= MAX_IMAGES}
           title={images.length >= MAX_IMAGES ? `At most ${MAX_IMAGES} images per message` : 'Attach an image'}
           aria-label="Attach an image"
-          className="inline-flex items-center justify-center w-10 h-10 shrink-0 rounded-full text-inkMuted hover:text-ink hover:bg-canvas disabled:opacity-50"
+          className="inline-flex items-center justify-center w-8 h-8 shrink-0 rounded-full text-inkMuted hover:text-ink hover:bg-canvas disabled:opacity-50"
           data-testid="composer-attach"
         >
-          <ImageIcon size={20} strokeWidth={1.75} />
+          <ImageIcon size={17} strokeWidth={1.75} />
         </button>
         <input
           type="text"
@@ -699,19 +787,24 @@ function Composer({
           className={
             'flex-1 min-w-0 px-4 bg-canvas text-ink border border-border rounded-full ' +
             'focus:outline-none focus:border-primary ' +
-            (mobile ? 'h-11 text-14' : 'h-10 text-14')
+            (mobile ? 'h-11 text-14' : 'h-9 text-13')
           }
           data-testid="composer-input"
         />
-        <button
-          type="submit"
-          disabled={!canSend}
-          className="chat-send"
-          aria-label="Send message"
-          data-testid="composer-send"
-        >
-          <SendHorizontal size={18} strokeWidth={2} />
-        </button>
+        {/* Nothing typed or attached: the mic records a voice message instead. */}
+        {canSend || busy ? (
+          <button
+            type="submit"
+            disabled={!canSend}
+            className="chat-send"
+            aria-label="Send message"
+            data-testid="composer-send"
+          >
+            <SendHorizontal size={16} strokeWidth={2} />
+          </button>
+        ) : (
+          <VoiceRecorder onSend={onVoice} disabled={busy} />
+        )}
       </div>
     </form>
   );

@@ -11,7 +11,7 @@ chatBus.setMaxListeners(200)
 export interface ChatEvent {
   chatId: string
   memberEmployeeIds: string[]
-  type: 'message:new' | 'message:updated' | 'message:deleted' | 'chat:read'
+  type: 'message:new' | 'message:updated' | 'message:deleted' | 'chat:read' | 'chat:updated'
   payload: unknown
 }
 

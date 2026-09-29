@@ -1,4 +1,5 @@
 import { Router } from 'express'
+import multer from 'multer'
 import { z } from 'zod'
 import { ApiError, handler, ok } from '../lib/http.js'
 import { prisma } from '../lib/prisma.js'
@@ -8,11 +9,15 @@ import { writeAudit } from '../platform/audit.js'
 import { signedLink } from '../platform/signedUrl.js'
 import { documentToApi, employeeRef } from '../api/serialize.js'
 import type { Scope } from '../platform/rbac/matrix.js'
+import { sanitizeFilename } from './tools/lib/files.js'
+import { checkEmployeeDocument, employeeDocKey, employeeDocStorage, MAX_EMPLOYEE_DOC_MB } from './documents.storage.js'
+
+const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: MAX_EMPLOYEE_DOC_MB * 1024 * 1024, files: 1 } })
 
 /**
  * DOCUMENTS (§8.8 / §9)
  *
- * Download is a two-step signed-URL flow: GET …/download-url returns a
+ * Upload stores the real file (documents.storage.ts). Download is a two-step signed-URL flow: GET …/download-url returns a
  * short-lived HMAC token bound to the document and the caller, and the bytes
  * endpoint verifies it. There is no guessable public path to a document.
  *
@@ -107,18 +112,33 @@ documentsRouter.get('/', handler(async (req, res) => {
   ok(res, { items, count: items.length, scope })
 }))
 
-// POST /api/documents
-documentsRouter.post('/', handler(async (req, res) => {
+// POST /api/documents — multipart: the file on `file`, plus name / type / employee_id / expiry_date.
+documentsRouter.post('/', (req, res, next) => {
+  upload.single('file')(req, res, (err: unknown) => {
+    if (!err) return next()
+    if ((err as { code?: string }).code === 'LIMIT_FILE_SIZE') {
+      return next(ApiError.unprocessable('too_large', `The file is larger than ${MAX_EMPLOYEE_DOC_MB} MB.`))
+    }
+    next(ApiError.badRequest('The upload could not be read.'))
+  })
+}, handler(async (req, res) => {
   const session = requireSession(req)
   const canManage = can(session, 'document.manage', 'organisation')
   const b = z.object({
     name: z.string().trim().min(1),
     type: z.enum(['employment', 'joining', 'certificate', 'hr', 'tax', 'bank', 'company_issued', 'icai']),
     employee_id: z.string().min(1),
-    expiry_date: z.string().nullable().optional(),
+    // Multipart sends an empty field as '' — treat it as no expiry.
+    expiry_date: z.string().nullable().optional().transform((v) => (v ? v : null)),
     status: z.string().optional(),
   }).safeParse(req.body ?? {})
   if (!b.success) throw ApiError.badRequest('name, type and employee_id are required.')
+  const file = req.file
+  if (!file || file.size === 0) throw ApiError.badRequest('Choose the file to upload.', { file: 'Choose a file.' })
+  const kind = checkEmployeeDocument(file.buffer, file.originalname)
+  if (!kind) {
+    throw ApiError.unprocessable('unsupported_file', `"${file.originalname}" is not a PDF, Word, Excel, PowerPoint, CSV, text, zip or image file, or its content does not match its type.`)
+  }
 
   if (!canManage && session.employeeId !== b.data.employee_id) {
     throw ApiError.forbidden('You can only upload to your own record.')
@@ -128,12 +148,18 @@ documentsRouter.post('/', handler(async (req, res) => {
     throw ApiError.unprocessable('invalid_target', 'Target employee not found or inactive.')
   }
 
+  // Bytes first: a storage failure must not leave a row pointing at nothing.
+  const fileKey = employeeDocKey(target.id, kind.ext)
+  await employeeDocStorage.put(fileKey, file.buffer)
   const row = await prisma.employeeDocument.create({
     data: {
       employeeId: target.id,
       name: b.data.name,
       type: b.data.type,
-      fileKey: `uploads/${target.id}/${b.data.name.replace(/\s+/g, '-').toLowerCase()}.pdf`,
+      fileKey,
+      originalFilename: sanitizeFilename(file.originalname, `document.${kind.ext}`),
+      mimeType: kind.mime,
+      fileSize: file.size,
       uploadedBy: session.userId,
       expiryDate: b.data.expiry_date ?? null,
       // An employee uploading their own bank details lands in verification.
@@ -147,7 +173,7 @@ documentsRouter.post('/', handler(async (req, res) => {
   await writeAudit({
     actorUserId: session.userId, action: 'document.uploaded',
     entityType: 'EmployeeDocument', entityId: row.id,
-    after: { name: row.name, type: row.type, employee_id: row.employeeId }, req,
+    after: { name: row.name, type: row.type, employee_id: row.employeeId, file: row.originalFilename, size: row.fileSize }, req,
   })
   ok(res, {
     document: {
