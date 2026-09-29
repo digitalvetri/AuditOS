@@ -31,6 +31,39 @@ export interface HeldLiability {
   balance_paise: number;
 }
 
+export interface OverviewNeedsYouItem {
+  id: string;
+  kind: string;
+  message: string;
+  amount_paise: number | null;
+  count: number | null;
+  action_url: string;
+  action_label: string;
+}
+
+export interface AccountsOverview {
+  month: string;
+  month_label: string;
+  this_month: {
+    salary_cost_paise: number;
+    salary_employee_count: number;
+    expense_claims_paise: number;
+    expense_claim_count: number;
+    paid_out_paise: number;
+    payment_count: number;
+    collected_paise: number;
+    zpay_connected: boolean;
+  };
+  needs_you: OverviewNeedsYouItem[];
+  held_liabilities: HeldLiability[];
+  ledger: {
+    debit_paise: number;
+    credit_paise: number;
+    balance_paise: number;
+    balanced: boolean;
+  };
+}
+
 export const accountsApi = {
   ledger: (
     filters: {
@@ -51,6 +84,8 @@ export const accountsApi = {
     );
   },
   summary: () => api.get<AccountsSummary>('/api/accounts/summary'),
+  overview: (month?: string) =>
+    api.get<AccountsOverview>(`/api/accounts/overview${month ? `?month=${month}` : ''}`),
   heldLiabilities: () =>
     api.get<{ items: HeldLiability[] }>('/api/accounts/liabilities/held'),
   remit: (body: {

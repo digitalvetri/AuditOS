@@ -7,6 +7,7 @@ import { can, requireSession, type Session } from '../../platform/auth.js'
 import { writeAudit } from '../../platform/audit.js'
 import {
   CATEGORIES,
+  INTERNAL_NAMESPACE,
   LEDGER_TYPES,
   LIABILITY_CATEGORIES,
   MOCK_PAYMENT_NOTICE,
@@ -223,6 +224,150 @@ accountsRouter.get('/summary', handler(async (req, res) => {
 accountsRouter.get('/reconciliation', handler(async (req, res) => {
   requireRead(requireSession(req))
   ok(res, await reconcile())
+}))
+
+/**
+ * GET /api/accounts/overview?month=YYYY-MM — the §6.3 dashboard.
+ *
+ * One round trip returns everything the Overview tab needs: four "This
+ * month" tiles, the actionable "Needs you" queue, the "Held, not yet
+ * remitted" liabilities, and the balanced-ledger strip. Month is derived
+ * server-side from (year, month) so the client cannot pass a malformed
+ * range.
+ */
+accountsRouter.get('/overview', handler(async (req, res) => {
+  requireRead(requireSession(req))
+  const q = z.object({
+    month: z.string().regex(/^\d{4}-\d{2}$/).optional(),
+  }).safeParse(req.query)
+  if (!q.success) throw ApiError.badRequest('month must be YYYY-MM.')
+  const today = istToday()
+  const month = q.data.month ?? today.slice(0, 7)
+  const [y, m] = month.split('-').map(Number)
+  const monthStart = `${month}-01`
+  const monthEnd = `${month}-${String(new Date(Date.UTC(y, m, 0, 12)).getUTCDate()).padStart(2, '0')}`
+
+  // ── This month ─────────────────────────────────────────────────────────
+  const [thisRun, monthClaims, monthPayments, heldMap, totals] = await Promise.all([
+    prisma.payrollRun.findFirst({
+      where: { deletedAt: null, periodStart: monthStart, periodEnd: monthEnd },
+    }),
+    prisma.expense.findMany({
+      where: {
+        deletedAt: null,
+        expenseDate: { gte: monthStart, lte: monthEnd },
+      },
+      select: { id: true, amountPaise: true, stage: true, employeeId: true },
+    }),
+    prisma.payment.findMany({
+      where: {
+        deletedAt: null,
+        paidAt: {
+          gte: new Date(`${monthStart}T00:00:00.000Z`),
+          lte: new Date(`${monthEnd}T23:59:59.999Z`),
+        },
+        status: 'completed',
+      },
+      select: { id: true, amountPaise: true, expenseId: true, payrollRunId: true },
+    }),
+    heldLiabilityBalances(),
+    prisma.ledgerTransaction.aggregate({
+      where: { namespace: INTERNAL_NAMESPACE, status: 'posted' },
+      _sum: { debitPaise: true, creditPaise: true },
+    }),
+  ])
+
+  const zpayConnected = await prisma.zpayConnection.count({
+    where: { status: 'connected' },
+  }).catch(() => 0)
+
+  const salaryCost = thisRun?.grossTotalPaise ?? 0
+  const salaryEmployees = thisRun?.headcount ?? 0
+  const expenseClaimsPaise = monthClaims.reduce((s, e) => s + e.amountPaise, 0)
+  const paidOutPaise = monthPayments.reduce((s, p) => s + p.amountPaise, 0)
+
+  // ── Needs you ──────────────────────────────────────────────────────────
+  const needs: Array<{
+    id: string
+    kind: string
+    message: string
+    amount_paise: number | null
+    count: number | null
+    action_url: string
+    action_label: string
+  }> = []
+
+  if (thisRun && ['draft', 'hr_review', 'finance_review', 'approved'].includes(thisRun.stage)) {
+    const label = new Date(Date.UTC(y, m - 1, 1)).toLocaleString('en-IN', { month: 'long' })
+    needs.push({
+      id: `payroll-${thisRun.id}`,
+      kind: 'payroll_open',
+      message: `${label} payroll still in ${thisRun.stage.replace('_', ' ')}`,
+      amount_paise: null,
+      count: null,
+      action_url: `/hrms/accounts/payroll/runs/${thisRun.id}`,
+      action_label: 'Open',
+    })
+  }
+
+  const awaitingFinance = await prisma.expense.findMany({
+    where: { deletedAt: null, stage: 'pending_finance' },
+    select: { amountPaise: true },
+  })
+  if (awaitingFinance.length > 0) {
+    needs.push({
+      id: 'awaiting-finance',
+      kind: 'expense_awaiting_finance',
+      message: `${awaitingFinance.length} expense claim${awaitingFinance.length === 1 ? '' : 's'} awaiting Finance`,
+      amount_paise: awaitingFinance.reduce((s, e) => s + e.amountPaise, 0),
+      count: awaitingFinance.length,
+      action_url: '/hrms/accounts/expenses?tab=finance',
+      action_label: 'Review',
+    })
+  }
+
+  const approvedUnpaid = await prisma.expense.findMany({
+    where: { deletedAt: null, stage: 'approved' },
+    select: { amountPaise: true },
+  })
+  if (approvedUnpaid.length > 0) {
+    needs.push({
+      id: 'approved-unpaid',
+      kind: 'expense_approved_unpaid',
+      message: `${approvedUnpaid.length} claim${approvedUnpaid.length === 1 ? '' : 's'} approved, not yet paid`,
+      amount_paise: approvedUnpaid.reduce((s, e) => s + e.amountPaise, 0),
+      count: approvedUnpaid.length,
+      action_url: '/hrms/accounts/expenses?tab=finance',
+      action_label: 'Pay',
+    })
+  }
+
+  const totalDr = totals._sum.debitPaise ?? 0
+  const totalCr = totals._sum.creditPaise ?? 0
+  ok(res, {
+    month,
+    month_label: new Date(Date.UTC(y, m - 1, 1)).toLocaleString('en-IN', { month: 'long', year: 'numeric' }),
+    this_month: {
+      salary_cost_paise: salaryCost,
+      salary_employee_count: salaryEmployees,
+      expense_claims_paise: expenseClaimsPaise,
+      expense_claim_count: monthClaims.length,
+      paid_out_paise: paidOutPaise,
+      payment_count: monthPayments.length,
+      collected_paise: 0, // Zpay collections aren't ledger-posted yet.
+      zpay_connected: zpayConnected > 0,
+    },
+    needs_you: needs,
+    held_liabilities: LIABILITY_CATEGORIES.map((c) => ({
+      category: c, balance_paise: heldMap[c],
+    })),
+    ledger: {
+      debit_paise: totalDr,
+      credit_paise: totalCr,
+      balance_paise: totalDr - totalCr,
+      balanced: totalDr === totalCr,
+    },
+  })
 }))
 
 /**
