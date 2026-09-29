@@ -748,6 +748,9 @@ model Expense {
   managerApprovedAt DateTime?
   financeApprovedBy String?
   financeApprovedAt DateTime?
+  // Recorded on Pay. Separate from financeApprovedBy so a Finance user
+  // who approves is not implicitly credited with paying too (§4).
+  paidBy            String?
   paidAt            DateTime?
   paymentId         String?
   rejectionReason   String?

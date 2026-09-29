@@ -570,6 +570,7 @@ export interface Expense extends Auditable {
   manager_approved_at: ISODateTime | null;
   finance_approved_by: ID | null;
   finance_approved_at: ISODateTime | null;
+  paid_by: ID | null;
   paid_at: ISODateTime | null;
   payment_id: ID | null;
   rejection_reason: string | null;

@@ -488,6 +488,7 @@ export function expenseToApi(e: Expense) {
     manager_approved_at: iso(e.managerApprovedAt),
     finance_approved_by: e.financeApprovedBy,
     finance_approved_at: iso(e.financeApprovedAt),
+    paid_by: e.paidBy,
     paid_at: iso(e.paidAt),
     payment_id: e.paymentId,
     rejection_reason: e.rejectionReason,

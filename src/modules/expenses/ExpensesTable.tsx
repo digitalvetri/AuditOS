@@ -103,10 +103,15 @@ function Row({ row, mode, showEmployee }: { row: ExpenseWithRefs; mode: Props['m
           <div className="text-11 text-neutral-500">{row.employee?.employee_code}</div>
         </td>
       ) : null}
-      <td className={`px-3 py-2 text-13 text-neutral-900 border-l-2 ${border}`}>{fmtDate(row.expense_date + 'T00:00:00Z')}</td>
+      <td className={`px-3 py-2 text-13 text-neutral-900 border-l-2 ${row.self_approved ? 'border-gold' : border}`}>{fmtDate(row.expense_date + 'T00:00:00Z')}</td>
       <td className="px-3 py-2">
         <div className="text-13 text-neutral-900">{row.title}</div>
         {row.description ? <div className="text-11 text-neutral-500 max-w-[260px]">{row.description}</div> : null}
+        {row.self_approved ? (
+          <div className="text-11 text-gold-hover mt-1" data-testid={`exp-self-approved-${row.id}`}>
+            Your own claim — approved by you
+          </div>
+        ) : null}
       </td>
       <td className="px-3 py-2 text-13 text-neutral-700">{row.category?.name ?? '—'}</td>
       <td className="px-3 py-2 text-13 text-neutral-900 font-medium">{inr(row.amount_paise)}</td>

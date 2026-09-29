@@ -4,11 +4,14 @@
  */
 import { useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
+import { useQuery } from '@tanstack/react-query';
 import { useAuth } from '@/platform/auth/AuthContext';
 import { can } from '@/platform/rbac/can';
 import { Button } from '@/components/Button';
 import { ExpensesTable } from '@/modules/expenses/ExpensesTable';
 import { NewExpenseModal } from '@/modules/expenses/NewExpenseModal';
+import { expensesApi } from '@/modules/expenses/api';
+import { inr } from '@/lib/format';
 
 type Tab = 'mine' | 'team' | 'finance';
 
@@ -53,11 +56,37 @@ export function ExpensesPage() {
         ) : null}
       </div>
 
+      {tab === 'finance' ? <SelfApprovedStrip /> : null}
       {tab === 'mine' ? <ExpensesTable mode="mine" /> : null}
       {tab === 'team' ? <ExpensesTable mode="team" /> : null}
       {tab === 'finance' ? <ExpensesTable mode="finance" /> : null}
 
       <NewExpenseModal open={creating} onClose={() => setCreating(false)} />
+    </div>
+  );
+}
+
+function SelfApprovedStrip() {
+  const q = useQuery({
+    queryKey: ['expenses', 'self-approved-report'],
+    queryFn: () => expensesApi.selfApprovedReport(),
+    retry: false,
+  });
+  if (q.isLoading || q.isError || !q.data) return null;
+  const { count, total_paise } = q.data;
+  if (count === 0) return null;
+  return (
+    <div
+      className="bg-white border border-neutral-200 rounded px-4 py-3 border-l-2 border-l-gold"
+      data-testid="self-approved-report"
+    >
+      <div className="text-13 text-neutral-900">
+        <span className="font-medium">{count}</span> claim{count === 1 ? '' : 's'} where the approver or payer is the claimant.
+        {' '}Total <span className="font-medium">{inr(total_paise)}</span>.
+      </div>
+      <div className="text-11 text-neutral-500 mt-1">
+        Not blocked — the partner approving their own claim is ordinary in a small firm — but recorded here for peer review.
+      </div>
     </div>
   );
 }
