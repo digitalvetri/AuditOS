@@ -176,6 +176,7 @@ export const expenseHandlers = [
         manager_approved_at: null,
         finance_approved_by: null,
         finance_approved_at: null,
+        paid_by: null,
         paid_at: null,
         payment_id: null,
         rejection_reason: null,

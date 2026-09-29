@@ -51,6 +51,44 @@ async function logApproval(
   })
 }
 
+/**
+ * Attach `self_approved: true` to any expense where the manager approver,
+ * the finance approver, or the payer is the same employee as the claimant
+ * — a partner who signed off on their own claim. Never blocked (§4); the
+ * flag makes it queryable and visible. Batches the User→Employee lookups.
+ */
+async function withSelfApprovedFlag<T extends {
+  employee_id: string
+  manager_approved_by: string | null
+  finance_approved_by: string | null
+  paid_by?: string | null
+}>(rows: T[]): Promise<(T & { self_approved: boolean })[]> {
+  const userIds = new Set<string>()
+  for (const r of rows) {
+    if (r.manager_approved_by) userIds.add(r.manager_approved_by)
+    if (r.finance_approved_by) userIds.add(r.finance_approved_by)
+    if (r.paid_by) userIds.add(r.paid_by)
+  }
+  if (userIds.size === 0) return rows.map((r) => ({ ...r, self_approved: false }))
+  const users = await prisma.user.findMany({
+    where: { id: { in: [...userIds] } },
+    select: { id: true, employeeId: true },
+  })
+  const userToEmp = new Map(users.map((u) => [u.id, u.employeeId]))
+  return rows.map((r) => {
+    const emp = r.employee_id
+    const sameAsClaimant = (u: string | null | undefined) =>
+      u != null && userToEmp.get(u) === emp
+    return {
+      ...r,
+      self_approved:
+        sameAsClaimant(r.manager_approved_by)
+        || sameAsClaimant(r.finance_approved_by)
+        || sameAsClaimant(r.paid_by),
+    }
+  })
+}
+
 // GET /api/expenses
 expensesRouter.get('/', handler(async (req, res) => {
   const session = requireSession(req)
@@ -81,12 +119,49 @@ expensesRouter.get('/', handler(async (req, res) => {
   const rows = await prisma.expense.findMany({
     where, include: { employee: true, category: true }, orderBy: { createdAt: 'desc' },
   })
-  const items = rows.map((e) => ({
+  const shaped = rows.map((e) => ({
     ...expenseToApi(e),
     employee: employeeRefWithDept(e.employee),
     category: { id: e.category.id, name: e.category.name, code: e.category.code },
   }))
+  const items = await withSelfApprovedFlag(shaped)
   ok(res, { items, count: items.length, scope })
+}))
+
+/**
+ * GET /api/expenses/reports/self-approved — the audit-firm's own peer
+ * review question: which claims were approved or paid by the claimant?
+ * Returns count + total paise + the rows themselves so Finance can
+ * export it without a second query.
+ */
+expensesRouter.get('/reports/self-approved', handler(async (req, res) => {
+  const session = requireSession(req)
+  // Same read-scope logic as the list endpoint; a Dept Manager sees only
+  // their department, an employee sees only their own claims.
+  const scope = viewScope(session)
+  if (scope === 'blocked') throw ApiError.forbidden()
+  const where: Record<string, unknown> = { deletedAt: null }
+  if (scope === 'self') {
+    if (!session.employeeId) return ok(res, { items: [], count: 0, total_paise: 0 })
+    where.employeeId = session.employeeId
+  } else if (scope === 'department') {
+    where.employee = { departmentId: session.departmentId ?? '__none__' }
+  }
+  // Only stages where an approval / payment has happened at all.
+  where.stage = { in: ['pending_finance', 'approved', 'paid'] }
+
+  const rows = await prisma.expense.findMany({
+    where, include: { employee: true, category: true }, orderBy: { createdAt: 'desc' },
+  })
+  const shaped = rows.map((e) => ({
+    ...expenseToApi(e),
+    employee: employeeRefWithDept(e.employee),
+    category: { id: e.category.id, name: e.category.name, code: e.category.code },
+  }))
+  const withFlag = await withSelfApprovedFlag(shaped)
+  const items = withFlag.filter((e) => e.self_approved)
+  const total_paise = items.reduce((s, e) => s + e.amount_paise, 0)
+  ok(res, { items, count: items.length, total_paise })
 }))
 
 // POST /api/expenses — create as draft
@@ -156,12 +231,13 @@ expensesRouter.get('/:id', handler(async (req, res) => {
   const approvals = await prisma.expenseApproval.findMany({
     where: { expenseId: row.id }, orderBy: { createdAt: 'asc' },
   })
+  const [expWithFlag] = await withSelfApprovedFlag([{
+    ...expenseToApi(row),
+    employee: employeeRefWithDept(row.employee),
+    category: { id: row.category.id, name: row.category.name, code: row.category.code },
+  }])
   ok(res, {
-    expense: {
-      ...expenseToApi(row),
-      employee: employeeRefWithDept(row.employee),
-      category: { id: row.category.id, name: row.category.name, code: row.category.code },
-    },
+    expense: expWithFlag,
     approvals: approvals.map(expenseApprovalToApi),
   })
 }))
@@ -358,7 +434,12 @@ expensesRouter.post('/:id/pay', handler(async (req, res) => {
     })
     const exp = await tx.expense.update({
       where: { id: row.id },
-      data: { stage: 'paid', paidAt: now, paymentId: created.id, updatedBy: session.userId },
+      data: {
+        stage: 'paid', paidAt: now,
+        paidBy: session.userId,
+        paymentId: created.id,
+        updatedBy: session.userId,
+      },
     })
     return { updated: exp, payment: created }
   })

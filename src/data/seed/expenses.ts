@@ -59,6 +59,7 @@ function build(
     manager_approved_at: managerApproved ? now : null,
     finance_approved_by: financeApproved ? 'usr-fin' : null,
     finance_approved_at: financeApproved ? now : null,
+    paid_by: stage === 'paid' ? 'usr-fin' : null,
     paid_at: stage === 'paid' ? now : null,
     payment_id: stage === 'paid' ? `pay-exp-${id}` : null,
     rejection_reason: stage === 'rejected' ? 'Duplicate of expense from last week' : null,

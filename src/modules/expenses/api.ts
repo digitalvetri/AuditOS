@@ -4,6 +4,14 @@ import type { Expense, ExpenseApproval, ExpensePaymentMethod, ExpenseStage } fro
 export interface ExpenseWithRefs extends Expense {
   employee: { id: string; full_name: string; employee_code: string; department_id: string } | null;
   category: { id: string; name: string; code: string } | null;
+  /** True when the manager, finance, or payer is the same employee as the claimant. */
+  self_approved: boolean;
+}
+
+export interface SelfApprovedReport {
+  items: ExpenseWithRefs[];
+  count: number;
+  total_paise: number;
 }
 
 export interface ExpenseListResponse {
@@ -40,6 +48,8 @@ export const expensesApi = {
   approve: (id: string) => api.post<{ expense: Expense }>(`/api/expenses/${id}/approve`),
   reject: (id: string, reason: string) => api.post<{ expense: Expense }>(`/api/expenses/${id}/reject`, { reason }),
   pay: (id: string) => api.post<{ expense: Expense; payment_id: string }>(`/api/expenses/${id}/pay`),
+  selfApprovedReport: () =>
+    api.get<SelfApprovedReport>('/api/expenses/reports/self-approved'),
 };
 
 export const STAGE_LABEL: Record<ExpenseStage, string> = {
