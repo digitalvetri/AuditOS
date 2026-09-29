@@ -108,10 +108,18 @@ export function PayrollPage() {
 function CreateRunForm({ onDone }: { onDone: () => void }) {
   const qc = useQueryClient();
   const toast = useToast();
-  const [start, setStart] = useState('');
-  const [end, setEnd] = useState('');
+  // Payroll periods are one calendar month. A month picker rules out the
+  // 2026-12-30 → 2027-01-30 shape the previous two-date form allowed. The
+  // server derives period_start/end from (year, month); the client never
+  // sends dates.
+  const today = new Date();
+  const defaultMonth = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}`;
+  const [month, setMonth] = useState(defaultMonth);
   const create = useMutation({
-    mutationFn: () => payrollApi.runs.create(start, end),
+    mutationFn: () => {
+      const [y, m] = month.split('-').map(Number);
+      return payrollApi.runs.create(y, m);
+    },
     onSuccess: (res) => {
       toast.push('success', `Run created for ${res.run.period_start} → ${res.run.period_end}.`);
       qc.invalidateQueries({ queryKey: ['payroll', 'runs'] });
@@ -119,6 +127,10 @@ function CreateRunForm({ onDone }: { onDone: () => void }) {
     },
     onError: (e: Error) => toast.push('error', e.message),
   });
+  // Restrict the month picker to the current month or earlier: the future
+  // guard is enforced server-side, but blocking it in the UI cuts the
+  // error round-trip.
+  const maxMonth = defaultMonth;
   return (
     <form
       onSubmit={(e: FormEvent) => {
@@ -127,9 +139,21 @@ function CreateRunForm({ onDone }: { onDone: () => void }) {
       }}
       className="bg-white border border-neutral-200 rounded p-4 flex items-end gap-3 flex-wrap"
     >
-      <Input label="Period start" type="date" value={start} onChange={(e) => setStart(e.target.value)} required data-testid="payroll-create-start" />
-      <Input label="Period end" type="date" value={end} onChange={(e) => setEnd(e.target.value)} required data-testid="payroll-create-end" />
-      <Button variant="primary" type="submit" disabled={create.isPending} data-testid="payroll-create-submit">
+      <Input
+        label="Pay month"
+        type="month"
+        value={month}
+        max={maxMonth}
+        onChange={(e) => setMonth(e.target.value)}
+        required
+        data-testid="payroll-create-month"
+      />
+      <Button
+        variant="primary"
+        type="submit"
+        disabled={create.isPending || !/^\d{4}-\d{2}$/.test(month)}
+        data-testid="payroll-create-submit"
+      >
         Save
       </Button>
       <Button variant="ghost" type="button" onClick={onDone}>Cancel</Button>

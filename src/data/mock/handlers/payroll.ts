@@ -98,25 +98,50 @@ export const payrollHandlers = [
         return err(403, 'forbidden', 'Only HR/MD can create a payroll run.');
       }
       const body = (await request.json().catch(() => ({}))) as {
+        year?: number;
+        month?: number;
         period_start?: string;
         period_end?: string;
       };
-      if (!body.period_start || !body.period_end) {
-        return err(400, 'validation', 'period_start and period_end required.');
+      let year: number;
+      let month: number;
+      if (typeof body.year === 'number' && typeof body.month === 'number') {
+        year = body.year;
+        month = body.month;
+      } else if (body.period_start && body.period_end) {
+        // Back-compat: derive year/month from a legacy caller.
+        const [y, m, d] = body.period_start.split('-').map(Number);
+        if (d !== 1) return err(422, 'non_monthly_period', 'A payroll run covers one calendar month.');
+        year = y;
+        month = m;
+      } else {
+        return err(400, 'validation', '{ year, month } required.');
       }
-      if (body.period_start > body.period_end) {
-        return err(422, 'invalid_range', 'period_start must be on or before period_end.');
+      if (year < 2000 || year > 2100 || month < 1 || month > 12) {
+        return err(422, 'invalid_period', 'Invalid year or month.');
       }
-      // Reject overlapping runs.
+      const mm = String(month).padStart(2, '0');
+      const lastDay = new Date(Date.UTC(year, month, 0, 12)).getUTCDate();
+      const periodStart = `${year}-${mm}-01`;
+      const periodEnd = `${year}-${mm}-${String(lastDay).padStart(2, '0')}`;
+
+      // Future-period guard: current calendar month or earlier only.
+      const now = new Date();
+      const currentYm = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+      if (`${year}-${mm}` > currentYm) {
+        return err(422, 'future_period', 'Cannot create a run for a period that has not ended.');
+      }
+
+      // Reject overlapping runs (which for monthly runs means exact match).
       const overlap = db.read().payrollRuns.some(
-        (r) => !(r.period_end < body.period_start! || r.period_start > body.period_end!),
+        (r) => r.period_start === periodStart && r.period_end === periodEnd,
       );
       if (overlap) return err(409, 'overlap', 'A payroll run for this period already exists.');
       const row: PayrollRun = {
         id: `pr-${crypto.randomUUID()}`,
         organisation_id: db.read().organisation.id,
-        period_start: body.period_start,
-        period_end: body.period_end,
+        period_start: periodStart,
+        period_end: periodEnd,
         stage: 'draft',
         is_calculating: false,
         statutory_snapshot: null,
