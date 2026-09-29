@@ -152,7 +152,7 @@ function FormActions({ pending, onCancel, onDelete, error }: { pending: boolean;
         <button type="submit" className={primaryBtn} disabled={pending}>{pending ? 'Saving…' : 'Save'}</button>
         {onDelete ? (confirm
           ? <span className="ml-auto inline-flex items-center gap-2 text-12">Delete this?<button type="button" className={btn} onClick={() => setConfirm(false)}>No</button>
-              <button type="button" onClick={onDelete} className="inline-flex items-center gap-1 h-8 px-3 text-12 font-medium text-white bg-red-600 hover:bg-red-700 rounded-md"><Trash2 size={12} /> Delete</button></span>
+              <button type="button" onClick={onDelete} className="inline-flex items-center gap-1 h-8 px-3 text-12 font-medium text-white bg-danger hover:opacity-90 rounded-md"><Trash2 size={12} /> Delete</button></span>
           : <button type="button" className={btn + ' ml-auto'} onClick={() => setConfirm(true)}><Trash2 size={12} /> Delete</button>) : null}
       </div>
     </>

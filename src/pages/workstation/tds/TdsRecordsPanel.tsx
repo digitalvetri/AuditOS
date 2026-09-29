@@ -469,7 +469,7 @@ function RecordForm({
           <span className="text-12 text-neutral-700">Delete this record? The client and other records are not affected.</span>
           <button type="button" className={btn} onClick={() => setConfirmDelete(false)}>Cancel</button>
           <button type="button" onClick={onDelete}
-            className="inline-flex items-center gap-1 h-8 px-3 text-12 font-medium text-white bg-red-600 hover:bg-red-700 rounded-md">
+            className="inline-flex items-center gap-1 h-8 px-3 text-12 font-medium text-white bg-danger hover:opacity-90 rounded-md">
             <Trash2 size={12} strokeWidth={2} /> Delete
           </button>
         </div>
