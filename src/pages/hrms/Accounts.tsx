@@ -17,7 +17,13 @@ import { useToast } from '@/components/Toast';
 import { useAuth } from '@/platform/auth/AuthContext';
 import { can } from '@/platform/rbac/can';
 import type { RoleCode } from '@/data/models';
-import { accountsApi, LEDGER_TYPES, type LedgerRowWithEmp, type LedgerSort } from '@/modules/accounts/api';
+import {
+  accountsApi,
+  LEDGER_TYPES,
+  type LedgerRowWithEmp,
+  type LedgerSort,
+  type OverviewNeedsYouItem,
+} from '@/modules/accounts/api';
 import { NewPaymentModal } from '@/modules/accounts/NewPaymentModal';
 import { CollectionsSection } from '@/modules/zpay/CollectionsSection';
 import { MatchingQueueSection } from '@/modules/zpay/MatchingQueueSection';
@@ -81,17 +87,171 @@ function AccountsTabLink({ to, children }: { to: string; children: React.ReactNo
 }
 
 /**
- * Placeholder — the real Overview lands in Step 8. Rendering something
- * meaningful (Summary strip) until then keeps the route alive.
+ * §6.3 Overview dashboard. One round-trip returns everything —
+ * this-month tiles, Needs-you queue, Held-not-yet-remitted, and the
+ * balanced-ledger strip. Month stepper drives ?month=YYYY-MM.
+ *
+ * Sovereign design: one gold accent for the "Needs you" row's left
+ * borders; nothing else competes.
  */
 export function AccountsOverviewPage() {
+  const today = new Date();
+  const defaultMonth = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}`;
+  const [month, setMonth] = useState(defaultMonth);
+  const q = useQuery({
+    queryKey: ['accounts', 'overview', month],
+    queryFn: () => accountsApi.overview(month),
+    retry: false,
+  });
+  if (q.isLoading) return <div className="h-40 bg-neutral-100" />;
+  if (q.isError || !q.data) return <div className="text-13 text-red">Could not load overview.</div>;
+  const o = q.data;
   return (
-    <div data-testid="accounts-overview-placeholder">
-      <SummarySection />
-      <p className="text-11 text-neutral-500 mt-4">
-        The full "This month · Needs you · Held, not yet remitted" panel ships in Step 8.
-      </p>
+    <div className="space-y-6" data-testid="accounts-overview">
+      <MonthStepper month={month} setMonth={setMonth} label={o.month_label} />
+
+      <Section title="This month">
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-4 tabular-nums">
+          <Tile
+            label="Salary cost"
+            value={o.this_month.salary_cost_paise > 0 ? inr(o.this_month.salary_cost_paise) : '—'}
+            hint={o.this_month.salary_employee_count > 0
+              ? `${o.this_month.salary_employee_count} employees`
+              : 'No run yet'}
+          />
+          <Tile
+            label="Expense claims"
+            value={inr(o.this_month.expense_claims_paise)}
+            hint={`${o.this_month.expense_claim_count} claims`}
+          />
+          <Tile
+            label="Paid out"
+            value={inr(o.this_month.paid_out_paise)}
+            hint={`${o.this_month.payment_count} payments`}
+          />
+          <Tile
+            label="Collected"
+            value={o.this_month.zpay_connected ? inr(o.this_month.collected_paise) : '—'}
+            hint={o.this_month.zpay_connected ? 'from Zoho Payments' : 'not synced'}
+          />
+        </div>
+      </Section>
+
+      {o.needs_you.length > 0 ? (
+        <Section title="Needs you">
+          <div className="space-y-2">
+            {o.needs_you.map((n) => <NeedsYouRow key={n.id} item={n} />)}
+          </div>
+        </Section>
+      ) : null}
+
+      <Section title="Held, not yet remitted">
+        <div className="bg-white border border-neutral-200 rounded overflow-hidden">
+          {o.held_liabilities.map((h) => (
+            <div
+              key={h.category}
+              className="flex items-center justify-between px-4 py-2 border-b border-neutral-200 last:border-b-0 tabular-nums"
+              data-testid={`held-${h.category.replace(/\s+/g, '-')}`}
+            >
+              <span className={'text-13 ' + (h.balance_paise > 0 ? 'text-neutral-900' : 'text-neutral-500')}>
+                {h.category}
+              </span>
+              <span className={'text-13 font-medium ' + (h.balance_paise > 0 ? 'text-neutral-900' : 'text-neutral-500')}>
+                {inr(h.balance_paise)}
+              </span>
+            </div>
+          ))}
+        </div>
+      </Section>
+
+      <Section title="Ledger">
+        <div
+          className="bg-white border border-neutral-200 rounded px-4 py-3 flex items-center gap-6 tabular-nums flex-wrap"
+          data-testid="overview-ledger-strip"
+        >
+          <span className="text-13 text-neutral-500">Debits</span>
+          <span className="text-13 text-neutral-900 font-medium">{inr(o.ledger.debit_paise)}</span>
+          <span className="text-13 text-neutral-500">Credits</span>
+          <span className="text-13 text-neutral-900 font-medium">{inr(o.ledger.credit_paise)}</span>
+          <span className="text-13 text-neutral-500">Balance</span>
+          <span className="text-13 text-neutral-900 font-medium">{inr(o.ledger.balance_paise)}</span>
+          <span className={'text-13 ml-auto ' + (o.ledger.balanced ? 'text-neutral-900' : 'text-red font-medium')}>
+            {o.ledger.balanced ? '✓ balanced' : 'unbalanced — investigate'}
+          </span>
+        </div>
+      </Section>
     </div>
+  );
+}
+
+function MonthStepper({
+  month, setMonth, label,
+}: { month: string; setMonth: (m: string) => void; label: string }) {
+  const shift = (delta: number) => {
+    const [y, m] = month.split('-').map(Number);
+    const d = new Date(Date.UTC(y, m - 1 + delta, 1));
+    setMonth(`${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}`);
+  };
+  const today = new Date();
+  const currentYm = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}`;
+  return (
+    <div className="flex items-center gap-2" data-testid="overview-month-stepper">
+      <button
+        type="button"
+        onClick={() => shift(-1)}
+        className="h-8 w-8 border border-neutral-300 rounded text-13 text-neutral-700 hover:text-neutral-900"
+        aria-label="Previous month"
+        data-testid="month-prev"
+      >‹</button>
+      <div className="text-15 text-neutral-900 min-w-[9rem] text-center">{label}</div>
+      <button
+        type="button"
+        onClick={() => shift(1)}
+        disabled={month >= currentYm}
+        className="h-8 w-8 border border-neutral-300 rounded text-13 text-neutral-700 hover:text-neutral-900 disabled:opacity-40 disabled:cursor-not-allowed"
+        aria-label="Next month"
+        data-testid="month-next"
+      >›</button>
+    </div>
+  );
+}
+
+function Section({ title, children }: { title: string; children: React.ReactNode }) {
+  return (
+    <section>
+      <div className="text-11 uppercase tracking-[0.06em] text-neutral-500 mb-2 pb-1 border-b border-neutral-200">
+        {title}
+      </div>
+      {children}
+    </section>
+  );
+}
+
+function Tile({ label, value, hint }: { label: string; value: string; hint: string }) {
+  return (
+    <div className="bg-white border border-neutral-200 rounded px-4 py-3">
+      <div className="text-11 uppercase tracking-[0.06em] text-neutral-500">{label}</div>
+      <div className="text-20 mt-1 text-neutral-900">{value}</div>
+      <div className="text-11 text-neutral-500 mt-1">{hint}</div>
+    </div>
+  );
+}
+
+function NeedsYouRow({ item }: { item: OverviewNeedsYouItem }) {
+  return (
+    <a
+      href={item.action_url}
+      className="flex items-center gap-4 bg-white border border-neutral-200 rounded px-4 py-3 border-l-2 border-l-gold hover:border-l-gold-hover"
+      data-testid={`needs-${item.id}`}
+    >
+      <div className="text-13 text-neutral-900 flex-1">{item.message}</div>
+      {item.amount_paise !== null ? (
+        <div className="text-13 text-neutral-900 tabular-nums font-medium">{inr(item.amount_paise)}</div>
+      ) : null}
+      <div className="text-13 text-gold hover:text-gold-hover">
+        {item.action_label} →
+      </div>
+    </a>
   );
 }
 
@@ -174,55 +334,6 @@ function AccessDenied({ what }: { what: string }) {
       <p className="text-13 text-neutral-500 mt-2">
         §8.6: internal JNS Accounting Solutions finance. Client accounting never appears here.
       </p>
-    </div>
-  );
-}
-
-// ── Summary ───────────────────────────────────────────────────────────────
-function SummarySection() {
-  const q = useQuery({ queryKey: ['accounts', 'summary'], queryFn: accountsApi.summary });
-  if (q.isLoading) return <div className="h-40 bg-neutral-100" />;
-  if (q.isError || !q.data) return <div className="text-13 text-red">Could not load summary.</div>;
-  const s = q.data;
-  return (
-    <div className="space-y-6" data-testid="accounts-summary">
-      <div className="bg-white border border-neutral-200 rounded p-4 grid grid-cols-2 md:grid-cols-3 gap-4 tabular-nums">
-        <Kpi label="Total debit" value={inr(s.totals.debit_paise)} />
-        <Kpi label="Total credit" value={inr(s.totals.credit_paise)} />
-        <Kpi label="Ledger balance" value={inr(s.totals.balance_paise)} emphasise />
-        <Kpi label="This month · debit" value={inr(s.this_month.debit_paise)} />
-        <Kpi label="This month · credit" value={inr(s.this_month.credit_paise)} />
-      </div>
-      <div className="bg-white border border-neutral-200 rounded overflow-hidden">
-        <table className="w-full border-collapse tabular-nums">
-          <thead>
-            <tr>
-              {['Type', 'Debit', 'Credit', 'Rows'].map((c) => (
-                <th key={c} className="text-left text-11 uppercase tracking-[0.06em] text-neutral-500 px-3 py-2 border-b border-neutral-300 font-medium">{c}</th>
-              ))}
-            </tr>
-          </thead>
-          <tbody>
-            {s.by_type.filter((r) => r.count > 0).map((r) => (
-              <tr key={r.type} className="border-b border-neutral-200">
-                <td className="px-3 py-2 text-13 text-neutral-900">{r.type}</td>
-                <td className="px-3 py-2 text-13 text-neutral-900">{inr(r.debit)}</td>
-                <td className="px-3 py-2 text-13 text-neutral-900">{inr(r.credit)}</td>
-                <td className="px-3 py-2 text-13 text-neutral-500">{r.count}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-    </div>
-  );
-}
-
-function Kpi({ label, value, emphasise }: { label: string; value: string; emphasise?: boolean }) {
-  return (
-    <div>
-      <div className="text-11 uppercase tracking-[0.06em] text-neutral-500">{label}</div>
-      <div className={'text-20 mt-1 ' + (emphasise ? 'text-neutral-900 font-semibold' : 'text-neutral-900')}>{value}</div>
     </div>
   );
 }
