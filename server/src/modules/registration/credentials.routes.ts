@@ -1,7 +1,7 @@
 /**
  * REGISTRATION CREDENTIALS — the portal login and reference details a client
- * holds for each registration (MSME Udyam, Shops & Establishment, IEC, PF,
- * ESI, E-Invoice, E-Way Bill). One record per client per registration, so
+ * holds for each registration (Private Limited, LLP, Partnership Firm, MSME
+ * Udyam, Shops & Establishment, IEC, PF, ESI, E-Invoice, E-Way Bill). One record per client per registration, so
  * details entered once are shown the next time instead of asked for again.
  *
  *   GET    /api/registration-credentials/specs                   field layout per registration
@@ -31,7 +31,7 @@ type Mode = 'new' | 'existing'
 interface FieldSpec {
   key: string
   label: string
-  kind?: 'text' | 'email' | 'phone' | 'gstin' | 'textarea' | 'select'
+  kind?: 'text' | 'email' | 'phone' | 'gstin' | 'textarea' | 'select' | 'date'
   options?: string[]
   placeholder?: string
   /** Required in these modes (or always, for a registration without modes). */
@@ -41,6 +41,9 @@ interface FieldSpec {
   /** Pre-filled from the client record on first entry. */
   prefill?: 'gstin' | 'contact_number' | 'email'
   mono?: boolean
+  /** 'details' — filed with the first-time application; the saved card keeps
+   *  these folded away and leads with the login. */
+  group?: 'details'
 }
 
 interface RegistrationSpec {
@@ -57,7 +60,68 @@ const TWO_MODES: RegistrationSpec['modes'] = [
   { key: 'existing', label: 'Already registered', hint: 'The client is already registered — only the login is needed.' },
 ]
 
+// Incorporation / firm registrations: the first time asks for the login and
+// what the application needs; once registered, only the login and the number.
+const FIRST_TIME_MODES: RegistrationSpec['modes'] = [
+  { key: 'new', label: 'First-time registration', hint: 'Registering the client now — save the portal login and the details the application needs.' },
+  { key: 'existing', label: 'Already registered', hint: 'The client is already registered — only the login details are needed.' },
+]
+
+const contactDetails = (who: string): FieldSpec[] => [
+  { key: 'contact_mobile', label: `${who} Mobile`, kind: 'phone', required: ['new'], modes: ['new'], prefill: 'contact_number', group: 'details' },
+  { key: 'contact_email', label: `${who} Email`, kind: 'email', required: ['new'], modes: ['new'], prefill: 'email', group: 'details' },
+]
+
 export const REGISTRATION_SPECS: RegistrationSpec[] = [
+  {
+    code: 'private-limited',
+    title: 'Private Limited Incorporation',
+    modes: FIRST_TIME_MODES,
+    fields: [
+      { key: 'username', label: 'MCA V3 User ID / Username', required: true, mono: true },
+      { key: 'cin', label: 'CIN (Corporate Identification Number)', required: ['existing'], mono: true, placeholder: 'U00000TN0000PTC000000 — once incorporated' },
+      { key: 'proposed_names', label: 'Proposed Company Names', kind: 'textarea', required: ['new'], modes: ['new'], group: 'details', placeholder: 'One per line, in order of preference' },
+      { key: 'directors', label: 'Directors (Name, DIN / PAN)', kind: 'textarea', required: ['new'], modes: ['new'], group: 'details', placeholder: 'At least two directors' },
+      { key: 'authorised_capital', label: 'Authorised Capital (₹)', required: ['new'], modes: ['new'], group: 'details', mono: true },
+      { key: 'paid_up_capital', label: 'Paid-up Capital (₹)', modes: ['new'], group: 'details', mono: true },
+      { key: 'registered_office', label: 'Registered Office Address', kind: 'textarea', required: ['new'], modes: ['new'], group: 'details' },
+      { key: 'srn', label: 'SPICe+ SRN', modes: ['new'], group: 'details', mono: true, placeholder: 'Once the form is filed' },
+      ...contactDetails('Company'),
+    ],
+    password: { label: 'Password', required: true },
+  },
+  {
+    code: 'llp',
+    title: 'LLP Registration',
+    modes: FIRST_TIME_MODES,
+    fields: [
+      { key: 'username', label: 'MCA V3 User ID / Username', required: true, mono: true },
+      { key: 'llpin', label: 'LLPIN', required: ['existing'], mono: true, placeholder: 'AAA-0000 — once incorporated' },
+      { key: 'proposed_names', label: 'Proposed LLP Names', kind: 'textarea', required: ['new'], modes: ['new'], group: 'details', placeholder: 'One per line, in order of preference' },
+      { key: 'designated_partners', label: 'Designated Partners (Name, DPIN / PAN)', kind: 'textarea', required: ['new'], modes: ['new'], group: 'details', placeholder: 'At least two designated partners' },
+      { key: 'contribution', label: 'Total Contribution (₹)', required: ['new'], modes: ['new'], group: 'details', mono: true },
+      { key: 'registered_office', label: 'Registered Office Address', kind: 'textarea', required: ['new'], modes: ['new'], group: 'details' },
+      { key: 'srn', label: 'FiLLiP SRN', modes: ['new'], group: 'details', mono: true, placeholder: 'Once the form is filed' },
+      ...contactDetails('LLP'),
+    ],
+    password: { label: 'Password', required: true },
+  },
+  {
+    code: 'partnership-firm',
+    title: 'Partnership Firm Registration',
+    modes: FIRST_TIME_MODES,
+    fields: [
+      { key: 'username', label: 'Registrar of Firms Portal User ID / Username', required: true, mono: true },
+      { key: 'firm_registration_number', label: 'Firm Registration Number', required: ['existing'], mono: true, placeholder: 'Once registered' },
+      { key: 'firm_name', label: 'Firm Name', required: ['new'], modes: ['new'], group: 'details' },
+      { key: 'partners', label: 'Partners (Name, PAN, Share %)', kind: 'textarea', required: ['new'], modes: ['new'], group: 'details', placeholder: 'One partner per line' },
+      { key: 'deed_date', label: 'Date of Partnership Deed', kind: 'date', required: ['new'], modes: ['new'], group: 'details' },
+      { key: 'principal_place', label: 'Principal Place of Business', kind: 'textarea', required: ['new'], modes: ['new'], group: 'details' },
+      { key: 'nature_of_business', label: 'Nature of Business', modes: ['new'], group: 'details' },
+      ...contactDetails('Firm'),
+    ],
+    password: { label: 'Password', required: true },
+  },
   {
     code: 'msme-udyam',
     title: 'MSME Udyam Registration',
@@ -222,6 +286,7 @@ registrationCredentialsRouter.put('/:type/:clientId', handler(async (req, res) =
     if (f.kind === 'email' && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v)) e.add(`fields.${f.key}`, `Enter a valid email for ${f.label}.`)
     if (f.kind === 'phone' && !/^\+?[0-9\s-]{10,15}$/.test(v)) e.add(`fields.${f.key}`, `Enter a valid mobile number for ${f.label}.`)
     if (f.kind === 'gstin' && !/^\d{2}[A-Z]{5}\d{4}[A-Z][1-9A-Z]Z[0-9A-Z]$/.test(v.toUpperCase())) e.add(`fields.${f.key}`, 'Enter a valid 15-character GSTIN.')
+    if (f.kind === 'date' && (!/^\d{4}-\d{2}-\d{2}$/.test(v) || Number.isNaN(Date.parse(v)))) e.add(`fields.${f.key}`, `Enter a valid date for ${f.label}.`)
     if (f.kind === 'select' && f.options && !f.options.includes(v)) e.add(`fields.${f.key}`, `Choose a value for ${f.label}.`)
     fields[f.key] = f.kind === 'gstin' ? v.toUpperCase() : v
   }
