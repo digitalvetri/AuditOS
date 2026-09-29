@@ -24,8 +24,5 @@ ALTER TABLE "PayrollRun" ADD CONSTRAINT "payroll_run_period_shape"
       "periodEnd" ~ '^\d{4}-\d{2}-31$'
     )
   );
--- @@
--- Uniqueness on (periodStart, periodEnd) already exists via @@unique; add
--- an index on periodStart to keep the "runs for month" lookup fast.
-CREATE INDEX IF NOT EXISTS "payroll_run_period_start_idx"
-  ON "PayrollRun" ("periodStart");
+-- (No extra index needed — the @@unique([periodStart, periodEnd]) index
+-- already covers period-based lookups.)

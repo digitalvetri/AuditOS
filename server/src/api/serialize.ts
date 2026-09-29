@@ -396,6 +396,10 @@ export function payrollRunToApi(r: PayrollRun) {
     organisation_id: r.organisationId,
     period_start: r.periodStart,
     period_end: r.periodEnd,
+    // A short human reference like PR/2026-09. Payslips, ledger rows and
+    // payment references already use this — the raw UUID never surfaces
+    // in the UI (§2.7).
+    label: `PR/${r.periodStart.slice(0, 7)}`,
     stage: r.stage,
     is_calculating: r.isCalculating,
     statutory_snapshot: parseJson<Record<string, string> | null>(r.statutorySnapshotJson, null),

@@ -182,9 +182,78 @@ payrollRouter.get('/runs/:id', handler(async (req, res) => {
     include: { employee: true },
     orderBy: { employee: { employeeCode: 'asc' } },
   })
+
+  // Blockers: active employees who joined on or before the period end but
+  // have no salary structure covering the period. These are the employees
+  // who would silently reduce gross by "one whole person" (Bug 3) if the
+  // run were processed as-is. Draft and hr_review runs surface them so
+  // Finance can either add a structure or take them out of the headcount.
+  const [activeEmployees, previousRun] = await Promise.all([
+    prisma.employee.findMany({
+      where: {
+        deletedAt: null,
+        status: { not: 'inactive' },
+        joiningDate: { lte: run.periodEnd },
+      },
+      include: {
+        department: true,
+        salaryStructures: {
+          where: {
+            deletedAt: null,
+            effectiveFrom: { lte: run.periodStart },
+            OR: [{ effectiveTo: null }, { effectiveTo: { gte: run.periodStart } }],
+          },
+          take: 1,
+        },
+      },
+      orderBy: { employeeCode: 'asc' },
+    }),
+    // The immediately preceding month's run, for the variance banner.
+    prisma.payrollRun.findFirst({
+      where: {
+        deletedAt: null,
+        periodStart: { lt: run.periodStart },
+        stage: { in: ['approved', 'processed'] },
+      },
+      orderBy: { periodStart: 'desc' },
+    }),
+  ])
+
+  const blockers = activeEmployees
+    .filter((e) => e.salaryStructures.length === 0)
+    .map((e) => ({
+      employee: employeeRefWithDept(e),
+      reason: 'no_salary_structure',
+      message: `No salary structure covering ${run.periodStart} to ${run.periodEnd}.`,
+    }))
+
+  // Variance banner: same headcount month-over-month, but gross moved by
+  // more than one employee-month's floor (₹1,000 by default). If the
+  // previous run had a different headcount the banner is silent — the
+  // delta is not "one person disappeared".
+  let variance: {
+    previous_run_id: string
+    previous_label: string
+    previous_gross_paise: number
+    delta_paise: number
+    same_headcount: boolean
+  } | null = null
+  if (previousRun && previousRun.headcount === run.headcount && run.headcount > 0) {
+    variance = {
+      previous_run_id: previousRun.id,
+      previous_label: `PR/${previousRun.periodStart.slice(0, 7)}`,
+      previous_gross_paise: previousRun.grossTotalPaise,
+      delta_paise: run.grossTotalPaise - previousRun.grossTotalPaise,
+      same_headcount: true,
+    }
+  }
+
   ok(res, {
     run: payrollRunToApi(run),
     items: items.map((i) => ({ ...payrollItemToApi(i), employee: employeeRefWithDept(i.employee) })),
+    blockers,
+    variance,
+    can_process: blockers.length === 0,
   })
 }))
 
@@ -370,6 +439,30 @@ payrollRouter.post('/runs/:id/process', handler(async (req, res) => {
     throw ApiError.conflict('already_processed', 'Run is Processed — immutable.')
   }
   if (run.stage !== 'approved') throw ApiError.conflict('wrong_stage', `Run is ${run.stage}; approve first.`)
+
+  // Blocker check (§2.5). An employee active during the period with no
+  // salary structure would be silently dropped from gross while still
+  // counting toward headcount — the ₹41,666 September gap. Refuse rather
+  // than process a run with a known silent hole.
+  const missingStructures = await prisma.employee.findMany({
+    where: {
+      deletedAt: null,
+      status: { not: 'inactive' },
+      joiningDate: { lte: run.periodEnd },
+      salaryStructures: {
+        none: {
+          deletedAt: null,
+          effectiveFrom: { lte: run.periodStart },
+          OR: [{ effectiveTo: null }, { effectiveTo: { gte: run.periodStart } }],
+        },
+      },
+    },
+    select: { id: true, fullName: true, employeeCode: true },
+  })
+  if (missingStructures.length > 0) {
+    throw ApiError.unprocessable('blockers_present',
+      `${missingStructures.length} employee(s) in the headcount have no salary structure covering this period: ${missingStructures.map((e) => e.fullName).join(', ')}. Add a structure or remove them from the run before processing.`)
+  }
 
   const items = await prisma.payrollItem.findMany({
     where: { payrollRunId: run.id, deletedAt: null }, include: { employee: true },
