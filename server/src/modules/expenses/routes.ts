@@ -291,7 +291,7 @@ expensesRouter.post('/:id/submit', handler(async (req, res) => {
     await notifyEmployee(row.employee.managerId, {
       type: 'expense.submitted', module: 'expense', title: 'Expense to review',
       body: `${row.employee.fullName} — ${row.title} · ₹${(row.amountPaise / 100).toLocaleString('en-IN')}`,
-      entityType: 'Expense', entityId: row.id, actionUrl: '/hrms/expenses?tab=team',
+      entityType: 'Expense', entityId: row.id, actionUrl: '/hrms/accounts/expenses?tab=team',
     })
   }
   ok(res, { expense: expenseToApi(updated) })
@@ -339,13 +339,13 @@ expensesRouter.post('/:id/approve', handler(async (req, res) => {
     type: `expense.${next}`, module: 'expense',
     title: next === 'pending_finance' ? 'Expense manager-approved' : 'Expense finance-approved',
     body: `${row.title} → ${next.replace('_', ' ')}`,
-    entityType: 'Expense', entityId: row.id, actionUrl: '/hrms/expenses',
+    entityType: 'Expense', entityId: row.id, actionUrl: '/hrms/accounts/expenses',
   })
   if (next === 'pending_finance') {
     await notifyRole('finance_admin', {
       type: 'expense.pending_finance', module: 'expense', title: 'Expense awaiting Finance',
       body: `${row.employee.fullName} — ${row.title}`,
-      entityType: 'Expense', entityId: row.id, actionUrl: '/hrms/expenses?tab=finance',
+      entityType: 'Expense', entityId: row.id, actionUrl: '/hrms/accounts/expenses?tab=finance',
     })
   }
   ok(res, { expense: expenseToApi(updated) })
@@ -385,7 +385,7 @@ expensesRouter.post('/:id/reject', handler(async (req, res) => {
   await notifyEmployee(row.employeeId, {
     type: 'expense.rejected', module: 'expense', title: 'Expense rejected',
     body: `${row.title}: ${reason}`,
-    entityType: 'Expense', entityId: row.id, actionUrl: '/hrms/expenses',
+    entityType: 'Expense', entityId: row.id, actionUrl: '/hrms/accounts/expenses',
   })
   ok(res, { expense: expenseToApi(updated) })
 }))
@@ -452,7 +452,7 @@ expensesRouter.post('/:id/pay', handler(async (req, res) => {
   await notifyEmployee(row.employeeId, {
     type: 'expense.paid', module: 'expense', title: 'Expense reimbursed',
     body: `${row.title} — ₹${(row.amountPaise / 100).toLocaleString('en-IN')} paid.`,
-    entityType: 'Expense', entityId: row.id, actionUrl: '/hrms/expenses',
+    entityType: 'Expense', entityId: row.id, actionUrl: '/hrms/accounts/expenses',
   })
   ok(res, { expense: expenseToApi(updated), payment_id: payment.id })
 }))

@@ -33,18 +33,14 @@ export function ExpensesPage() {
   };
 
   return (
-    <div className="space-y-6">
-      <header className="flex items-baseline justify-between gap-4 flex-wrap">
-        <div>
-          <div className="text-11 uppercase tracking-[0.06em] text-neutral-500">HRMS</div>
-          <h1 className="text-20 font-semibold text-neutral-900 mt-1">Expenses</h1>
-        </div>
-        {canSubmit ? (
+    <div className="space-y-4">
+      {canSubmit ? (
+        <div className="flex justify-end">
           <Button variant="primary" onClick={() => setCreating(true)} data-testid="expense-new-open">
             New expense
           </Button>
-        ) : null}
-      </header>
+        </div>
+      ) : null}
 
       <div className="border-b border-neutral-200 flex items-center gap-4 flex-wrap">
         <TabBtn id="mine" active={tab === 'mine'} onClick={() => setActive('mine')}>My expenses</TabBtn>

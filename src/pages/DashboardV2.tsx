@@ -235,7 +235,7 @@ function PayrollTile({ runs, loading }: { runs: PayrollRun[] | undefined; loadin
     ? new Date(`${latest.period_start}T00:00:00`).toLocaleDateString('en-IN', { month: 'long', year: 'numeric' })
     : null;
   return (
-    <Tile label="Payroll" href="/hrms/payroll"
+    <Tile label="Payroll" href="/hrms/accounts/payroll"
       value={loading ? '—' : latest ? paise(latest.net_total_paise) : 'No run yet'}
       note={latest ? `${period} · ${STAGE_LABEL[latest.stage] ?? latest.stage} · ${latest.headcount} employees` : 'Start this month’s run'} />
   );

@@ -273,7 +273,7 @@ function PayslipHistory({ items }: { items: Awaited<ReturnType<typeof payrollApi
                 <td className="px-3 py-2 text-13 text-neutral-900">{inr(p.net_paise)}</td>
                 <td className="px-3 py-2 text-13 text-neutral-500">{p.published_at.slice(0, 10)}</td>
                 <td className="px-3 py-2">
-                  <Link to={`/hrms/payroll/payslips/${p.id}`} className="text-13 text-gold hover:text-gold-hover">Open →</Link>
+                  <Link to={`/hrms/accounts/payroll/payslips/${p.id}`} className="text-13 text-gold hover:text-gold-hover">Open →</Link>
                 </td>
               </tr>
             ))}

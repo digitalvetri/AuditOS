@@ -278,7 +278,7 @@ export const expenseHandlers = [
           title: 'Expense to review',
           body: `${employee.full_name} — ${exp.title} · ₹${(exp.amount_paise / 100).toLocaleString('en-IN')}`,
           entity_id: id,
-          action_url: '/hrms/expenses?tab=team',
+          action_url: '/hrms/accounts/expenses?tab=team',
         });
       }
       return ok({ expense: db.read().expenses.find((e) => e.id === id) });
@@ -335,7 +335,7 @@ export const expenseHandlers = [
           title: next === 'pending_finance' ? 'Expense manager-approved' : 'Expense finance-approved',
           body: `${exp.title} → ${next.replace('_', ' ')}`,
           entity_id: id,
-          action_url: '/hrms/expenses',
+          action_url: '/hrms/accounts/expenses',
         });
       }
       // Notify Finance when it lands in their queue.
@@ -347,7 +347,7 @@ export const expenseHandlers = [
             title: 'Expense awaiting Finance',
             body: `${target?.full_name ?? 'Someone'} — ${exp.title}`,
             entity_id: id,
-            action_url: '/hrms/expenses?tab=finance',
+            action_url: '/hrms/accounts/expenses?tab=finance',
           });
         }
       }
@@ -397,7 +397,7 @@ export const expenseHandlers = [
           title: 'Expense rejected',
           body: `${exp.title}: ${reason}`,
           entity_id: id,
-          action_url: '/hrms/expenses',
+          action_url: '/hrms/accounts/expenses',
         });
       }
       return ok({ expense: db.read().expenses.find((e) => e.id === id) });
@@ -481,7 +481,7 @@ export const expenseHandlers = [
           title: 'Expense reimbursed',
           body: `${exp.title} — ₹${(exp.amount_paise / 100).toLocaleString('en-IN')} paid.`,
           entity_id: id,
-          action_url: '/hrms/expenses',
+          action_url: '/hrms/accounts/expenses',
         });
       }
       return ok({ expense: db.read().expenses.find((e) => e.id === id), payment_id: paymentId });
