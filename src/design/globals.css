@@ -456,3 +456,51 @@ span.el-edit:empty { display: inline-block; min-width: 2.5em; }
   .el-empty { display: none !important; }
   .el-ph { background: none !important; padding: 0 !important; color: inherit !important; }
 }
+
+/* ── Engagement letter: the firm's Word templates ────────────────────────
+   Letters made from the Word templates (engagement/templates.ts) are set in
+   points exactly as Word set the originals. Tinos and Carlito are metric
+   twins of Times New Roman and Calibri, bundled so a machine without the
+   Office fonts still breaks every line at the same word. Kerning and
+   ligatures are off because Word applies neither by default — left on, the
+   browser fits a few more letters per line and the wrapping drifts. */
+@font-face { font-family: 'EL Tinos'; src: url('/fonts/Tinos-Regular.ttf') format('truetype'); font-weight: 400; font-style: normal; font-display: swap; }
+@font-face { font-family: 'EL Tinos'; src: url('/fonts/Tinos-Bold.ttf') format('truetype'); font-weight: 700; font-style: normal; font-display: swap; }
+@font-face { font-family: 'EL Tinos'; src: url('/fonts/Tinos-Italic.ttf') format('truetype'); font-weight: 400; font-style: italic; font-display: swap; }
+@font-face { font-family: 'EL Tinos'; src: url('/fonts/Tinos-BoldItalic.ttf') format('truetype'); font-weight: 700; font-style: italic; font-display: swap; }
+@font-face { font-family: 'EL Carlito'; src: url('/fonts/Carlito-Regular.ttf') format('truetype'); font-weight: 400; font-style: normal; font-display: swap; }
+@font-face { font-family: 'EL Carlito'; src: url('/fonts/Carlito-Bold.ttf') format('truetype'); font-weight: 700; font-style: normal; font-display: swap; }
+
+.el-word { font-kerning: none; font-variant-ligatures: none; }
+.el-word .qdoc-page { box-sizing: border-box; }
+/* Lines keep their typed spaces, as Word does; an empty line is one row tall
+   from its placeholder alone, never the classic look's taller minimum. */
+.el-word .el-line { min-height: 0; white-space: pre-wrap; }
+/* Editing highlights must not change a single width, or a line re-wraps. */
+.el-word.el-editing .el-ph { padding: 0; }
+.el-word .el-date { line-height: inherit; }
+.el-word sup { font-size: 0.636em; vertical-align: baseline; position: relative; top: -0.42em; line-height: 0; }
+.el-word-h { text-decoration-thickness: 1.1pt; text-underline-offset: 1.4pt; }
+/* A paragraph's lead-in bullet (Word's Symbol bullet at 15.8pt), on the
+   text's baseline. */
+.el-lead { position: absolute; top: -1.3pt; font-size: 1.328em; line-height: inherit; }
+.el-table td { padding-bottom: 0; }
+
+/* Page break marker: editor only, takes no room on the page. */
+.el-pagebreak {
+  position: absolute; left: 0; right: 0; top: 2px; z-index: 5;
+  display: flex; align-items: center; gap: 6px;
+  border-top: 1px dashed rgb(59 130 246 / 0.55);
+  font: 11px/1.2 system-ui, sans-serif; color: rgb(59 130 246);
+  opacity: 0.55; transition: opacity 120ms;
+}
+.el-pagebreak span { background: #fff; padding: 0 4px; margin-top: -1px; }
+.el-pagebreak:hover { opacity: 1; }
+/* The client company where a template sets it apart (EPR: pasted at 10.5pt). */
+.el-word [data-ph="company_name"], .el-word [data-ph="company_name_caps"] {
+  font-size: var(--el-company-size, inherit); color: var(--el-company-color, inherit);
+}
+
+/* Sidebar menu: scrolls with the wheel or touch, but shows no scrollbar. */
+.sidebar-scroll { scrollbar-width: none; -ms-overflow-style: none; }
+.sidebar-scroll::-webkit-scrollbar { display: none; }

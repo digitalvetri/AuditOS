@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent, 
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
-  ArrowDown, ArrowUp, FileText, Minus, MoveVertical, Pencil, Plus, Printer, Redo2, Save, Trash2, Undo2,
+  ArrowDown, ArrowUp, FileText, LayoutTemplate, Minus, MoveVertical, Pencil, Plus, Printer, Redo2, Save, Trash2, Undo2,
 } from 'lucide-react';
 import { inputClass } from '@/modules/workstation/components';
 import { workstationApi } from '@/modules/workstation/api';
@@ -17,6 +17,7 @@ import {
   type EBlock, type FeeLine, type Line, type Recipient,
 } from '@/modules/workstation/engagement/document';
 import { caretOffset, serializeInline, splitAtCaret, textToInline, unitsIn } from '@/modules/workstation/engagement/richtext';
+import { TEMPLATES, skinOf, templateOf, type EngagementTemplateId } from '@/modules/workstation/engagement/templates';
 import {
   EngagementDocument, LineView, numbering, varsOf, type EditApi, type EngagementDoc, type FieldKey,
 } from './EngagementDocument';
@@ -41,6 +42,14 @@ import { printDocumentOnly } from '@/modules/workstation/print';
  */
 
 export interface LetterState {
+  /** The template the letter was made from — its Word look, and the PDF's. */
+  templateId: EngagementTemplateId;
+  /**
+   * The recipient (and date) are still the template's sample — the client of
+   * the original letter. Choosing a client replaces them outright instead of
+   * only filling blanks. Never saved.
+   */
+  sample: boolean;
   partyKind: 'client' | 'lead';
   partyId: string;
   subject: string;
@@ -63,6 +72,8 @@ export interface LetterState {
 const today = () => new Date().toISOString().slice(0, 10);
 
 const initialState = (): LetterState => ({
+  templateId: 'jns-accounting',
+  sample: false,
   partyKind: 'client',
   partyId: '',
   subject: 'Engagement letter for accounting and compliance services',
@@ -81,10 +92,41 @@ const initialState = (): LetterState => ({
   layout: ENGAGEMENT_LAYOUT,
 });
 
+/**
+ * Switch a letter to another template: its words, fees, letterhead and
+ * signature are replaced by the template's. Who the letter is for is kept
+ * once a client or lead has been chosen; before that the template's own
+ * sample recipient and date come with it, so the page is the original
+ * letter, word for word. One undo step brings the previous letter back.
+ */
+export function applyTemplate(x: LetterState, id: EngagementTemplateId): LetterState {
+  const t = templateOf(id).build();
+  const keepParty = Boolean(x.partyId) || (!x.sample && Boolean(x.recipient.companyName || x.recipient.name));
+  const fees = t.fees.map((f) => newFee({ ...f }));
+  return {
+    ...x,
+    templateId: id,
+    subject: t.subject,
+    company: t.company,
+    blocks: normalizeBlocks(t.blocks),
+    fees,
+    signatoryName: t.signatoryName,
+    signatoryDesignation: t.signatoryDesignation,
+    clientSignatoryName: keepParty ? x.clientSignatoryName : t.clientSignatoryName,
+    clientSignatoryDesignation: keepParty ? x.clientSignatoryDesignation : t.clientSignatoryDesignation,
+    recipient: keepParty ? x.recipient : t.recipient,
+    letterDate: keepParty ? x.letterDate : t.letterDate,
+    sample: !keepParty && id !== 'jns-accounting',
+    layout: ENGAGEMENT_LAYOUT,
+  };
+}
+
 function stateFromApi(l: EngagementLetter): LetterState {
   const rs = (l.recipient_snapshot ?? {}) as Partial<Recipient>;
   const cfg = (l.layout_config ?? {}) as { company?: Partial<CompanyInfo> };
   return {
+    templateId: templateOf(l.template_id).id,
+    sample: false,
     partyKind: l.client_id ? 'client' : 'lead',
     partyId: l.client_id ?? l.lead_id ?? '',
     subject: l.subject,
@@ -209,6 +251,7 @@ export function EngagementBuilderPage() {
   const canManage = can(session?.role.code, 'workstation.engagement.manage', 'self');
   const [searchParams] = useSearchParams();
   const prefillClientId = searchParams.get('client_id');
+  const templateParam = searchParams.get('template');
   const prefilled = useRef(false);
 
   const existingQ = useQuery({ queryKey: ['engagement.get', id], queryFn: () => engagementApi.get(id!), enabled: isEdit });
@@ -232,29 +275,46 @@ export function EngagementBuilderPage() {
 
   const set = <K extends keyof LetterState>(k: K, v: LetterState[K]) => update((x) => ({ ...x, [k]: v }));
 
-  /** Picking a party fills the recipient the way a person would, once. */
+  /**
+   * Picking a party fills the recipient the way a person would, once. While
+   * the recipient is still a template's sample it is replaced outright — the
+   * sample client must never survive into a real letter — and the sample
+   * date gives way to today.
+   */
   function chooseParty(kind: 'client' | 'lead', chosen: string) {
     update((x) => {
-      const next = { ...x, partyKind: kind, partyId: chosen };
+      const base = x.sample && chosen
+        ? { ...x, recipient: EMPTY_RECIPIENT, letterDate: today(), clientSignatoryName: '', clientSignatoryDesignation: '', sample: false }
+        : x;
+      const next = { ...base, partyKind: kind, partyId: chosen };
       if (kind === 'client') {
         const c = (clientsQ.data?.items ?? []).find((y) => y.id === chosen);
         if (c) {
           next.recipient = {
-            ...x.recipient,
+            ...base.recipient,
             companyName: c.company_name,
-            name: x.recipient.name || c.contact_person || '',
-            address: x.recipient.address || c.address || '',
-            email: x.recipient.email || c.email || '',
-            phone: x.recipient.phone || c.contact_number || '',
+            name: base.recipient.name || c.contact_person || '',
+            address: base.recipient.address || c.address || '',
+            email: base.recipient.email || c.email || '',
+            phone: base.recipient.phone || c.contact_number || '',
           };
         }
       } else {
         const l = (leadsQ.data?.items ?? []).find((y) => y.id === chosen);
-        if (l) next.recipient = { ...x.recipient, companyName: x.recipient.companyName || l.name, email: x.recipient.email || l.email || '' };
+        if (l) next.recipient = { ...base.recipient, companyName: base.recipient.companyName || l.name, email: base.recipient.email || l.email || '' };
       }
       return next;
     }, true);
   }
+
+  // /workstation/engagement/new?template=jns-epr opens a new letter on that template.
+  const templated = useRef(false);
+  useEffect(() => {
+    if (id || templated.current || !templateParam) return;
+    templated.current = true;
+    const t = TEMPLATES.find((x) => x.id === templateParam);
+    if (t) reset(applyTemplate(sRef.current, t.id));
+  }, [id, templateParam, reset, sRef]);
 
   useEffect(() => {
     if (id || prefilled.current || !prefillClientId || !clientsQ.data) return;
@@ -408,6 +468,7 @@ export function EngagementBuilderPage() {
   }, [undo, redo]);
 
   const doc: EngagementDoc = useMemo(() => ({
+    templateId: s.templateId,
     letterDate: s.letterDate, subject: s.subject, financialYear: s.financialYear,
     effectiveFrom: s.effectiveFrom, effectiveUntil: s.effectiveUntil,
     company: s.company, recipient: s.recipient, blocks: s.blocks,
@@ -429,7 +490,7 @@ export function EngagementBuilderPage() {
     effective_until: s.effectiveUntil || null,
     financial_year: s.financialYear || null,
     recipient_snapshot: s.recipient as unknown as Record<string, unknown>,
-    template_id: 'jns-accounting',
+    template_id: s.templateId,
     // Empty paragraphs are editing scaffolding, not content.
     block_config: s.blocks.map((b) => (PROSE.has(b.key)
       ? { ...b, lines: (b.lines ?? []).filter((l) => !lineIsEmpty(l)) }
@@ -561,7 +622,14 @@ export function EngagementBuilderPage() {
             ))}
           </nav>
           <fieldset disabled={frozen} className="space-y-3 min-w-0">
-            {tab === 'layout' ? <LayoutTab layout={s.layout} setLayout={(patch) => update((x) => ({ ...x, layout: { ...x.layout, ...patch } }), true)} /> : null}
+            <TemplatePicker value={s.templateId} onPick={(t) => { if (t !== s.templateId) { forceSync(); update((x) => applyTemplate(x, t), true); } }} />
+            {tab === 'layout' ? (skinOf(s.templateId)
+              ? <p className="bg-white border border-neutral-200 rounded p-3 text-13 text-neutral-600">
+                  This letter uses the <strong>{templateOf(s.templateId).name}</strong> template’s own Word layout — its fonts,
+                  margins, spacing and page breaks match the original letter exactly, so they are fixed here. Edit the words
+                  on the page; switch to the Standard template for an adjustable layout.
+                </p>
+              : <LayoutTab layout={s.layout} setLayout={(patch) => update((x) => ({ ...x, layout: { ...x.layout, ...patch } }), true)} />) : null}
             {tab === 'blocks' ? <BlocksTab s={s} edit={edit} update={update} /> : null}
             {tab === 'details' ? (<>
             {/* Who it is for, and what it is about — the two things every letter needs. */}
@@ -620,6 +688,37 @@ export function EngagementBuilderPage() {
   );
 }
 
+/**
+ * The five templates. Choosing one rewrites the letter from it (one undo
+ * step); the recipient stays once a client or lead has been chosen.
+ */
+function TemplatePicker({ value, onPick }: { value: EngagementTemplateId; onPick: (t: EngagementTemplateId) => void }) {
+  return (
+    <section className="bg-white border border-neutral-200 rounded p-3">
+      <div className="flex items-center gap-1.5 text-11 uppercase tracking-[0.06em] text-neutral-500 mb-2">
+        <LayoutTemplate size={13} /> Template
+      </div>
+      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-1.5" role="radiogroup" aria-label="Letter template">
+        {TEMPLATES.map((t) => {
+          const on = t.id === value;
+          return (
+            <button key={t.id} type="button" role="radio" aria-checked={on} onClick={() => onPick(t.id)} title={t.description}
+              style={{ padding: '8px 10px' }} className={`text-left rounded border transition-colors ${on ? 'border-primary bg-primary text-white' : 'border-neutral-200 hover:border-primary/50 hover:bg-neutral-50'}`}>
+              <span className="block text-13 font-medium leading-tight">{t.name}</span>
+              <span className={`block text-11 mt-0.5 leading-snug ${on ? 'text-white/75' : 'text-neutral-500'}`}>
+                {t.pages} pages · {t.id === 'jns-accounting' ? 'adjustable layout' : 'Word original'}
+              </span>
+            </button>
+          );
+        })}
+      </div>
+      <p className="text-11 text-neutral-500 mt-2">
+        Switching replaces the letter’s text with the template’s — Undo (Ctrl+Z) brings it back.
+      </p>
+    </section>
+  );
+}
+
 /** The paper, scaled to the pane's width. */
 function DocumentPane({ doc, edit }: { doc: EngagementDoc; edit?: EditApi }) {
   const ref = useRef<HTMLDivElement>(null);
@@ -645,9 +744,9 @@ function DocumentPane({ doc, edit }: { doc: EngagementDoc; edit?: EditApi }) {
 
 // ── Left panel: the block list ────────────────────────────────────────────
 
-const REMOVABLE = new Set(['paragraph', 'section', 'spacer']);
+const REMOVABLE = new Set(['paragraph', 'section', 'spacer', 'pagebreak', 'table']);
 /** The blocks that hold the letter's words — the only ones listed on the left. */
-const TEXT_KEYS = new Set(['salutation', 'paragraph', 'section', 'fees', 'closing', 'spacer']);
+const TEXT_KEYS = new Set(['salutation', 'paragraph', 'section', 'fees', 'closing', 'spacer', 'pagebreak', 'table']);
 
 const hoverBtn = 'h-6 w-6 inline-flex items-center justify-center rounded text-neutral-400 hover:text-neutral-900 hover:bg-neutral-100 disabled:opacity-30';
 
@@ -743,6 +842,21 @@ function SimpleBlock({ b, s, edit, vars }: { b: EBlock; s: LetterState; edit: Ed
           <span className="inline-flex items-center gap-1"><MoveVertical size={12} /> space</span>
           <SpaceHeight value={b.heightPx ?? 24} onChange={(px) => edit.block(b.id, { heightPx: px })} />
           <span className="flex-1 border-t border-dashed border-neutral-300" />
+        </div>
+      );
+    case 'pagebreak':
+      return (
+        <div className="flex items-center gap-2 text-11 text-neutral-400">
+          <span className="flex-1 border-t border-dashed border-neutral-300" />
+          <span>page break</span>
+          <span className="flex-1 border-t border-dashed border-neutral-300" />
+        </div>
+      );
+    case 'table':
+      return (
+        <div className="text-12 text-neutral-500 border border-dashed border-neutral-300 rounded px-2.5 py-2">
+          Table — {(b.table?.head ?? []).filter(Boolean).join(' · ') || `${b.table?.rows.length ?? 0} rows`}
+          <span className="block text-11 text-neutral-400">Click a cell on the page to edit it.</span>
         </div>
       );
     default:

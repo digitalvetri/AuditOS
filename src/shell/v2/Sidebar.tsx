@@ -254,7 +254,7 @@ export function Sidebar({ mobileOpen, onMobileClose }: Props) {
       >
         <Brand collapsed={collapsed} />
 
-        <nav className="flex-1 min-h-0 overflow-y-auto pt-1 pb-2">
+        <nav className="sidebar-scroll flex-1 min-h-0 overflow-y-auto pt-1 pb-2">
           {nav.map((group, i) => (
             <Section
               key={i}
