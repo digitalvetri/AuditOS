@@ -26,9 +26,9 @@ import { CredentialStatus } from '../tds/TdsCredentialsCard';
 const AUTO_HIDE_SECONDS = 30;
 const MASK = '•'.repeat(12);
 
-const btn = 'inline-flex items-center gap-1 h-8 px-3 text-12 font-medium text-neutral-700 border border-neutral-200 rounded-md hover:bg-neutral-50 disabled:opacity-50 disabled:cursor-not-allowed';
-const primaryBtn = 'inline-flex items-center gap-1 h-8 px-3 text-12 font-medium text-white bg-primary hover:bg-primaryHover rounded-md disabled:opacity-50 disabled:cursor-not-allowed';
-const input = 'w-full h-9 px-3 text-13 bg-white border border-neutral-300 rounded-md focus:outline-none focus:border-gold';
+const btn = 'inline-flex items-center gap-1 h-8 px-3 text-12 font-medium text-primary bg-white border border-neutral-200 rounded-lg hover:border-primary/40 hover:bg-[#f4f7fc] disabled:opacity-50 disabled:cursor-not-allowed';
+const primaryBtn = 'inline-flex items-center gap-1 h-9 px-4 text-13 font-medium text-white bg-primary hover:bg-primaryHover rounded-lg shadow-card disabled:opacity-50 disabled:cursor-not-allowed';
+const input = 'w-full h-9 px-3 text-13 bg-white border border-neutral-200 rounded-lg focus:outline-none focus:border-primary/60 focus:ring-2 focus:ring-primary/10';
 
 export function RegistrationCredentialsCard({
   type, client,
@@ -162,7 +162,7 @@ export function RegistrationCredentialsCard({
     <Card title={title} status>
       {modeLabel ? (
         <div className="mb-3">
-          <span className="inline-flex items-center h-6 px-2 text-11 font-medium rounded bg-neutral-100 text-neutral-700">{modeLabel}</span>
+          <span className="inline-flex items-center h-6 px-2 text-11 font-medium rounded-full bg-[#eef0ff] text-[#4338ca] px-3">{modeLabel}</span>
         </div>
       ) : null}
       <div className="grid gap-4 md:grid-cols-2">
@@ -321,7 +321,7 @@ function CredentialForm({
     >
       <div className="text-13 font-medium text-neutral-900">{editing ? 'Edit Details' : 'Add Details'}</div>
       <label className="block">
-        <span className="block text-11 text-neutral-500 mb-1">Client</span>
+        <span className="block text-12 font-medium text-neutral-500 mb-1">Client</span>
         <input className={input + ' bg-neutral-50'} value={client.company_name} readOnly />
       </label>
 
@@ -353,7 +353,7 @@ function CredentialForm({
             <div className="text-12 font-semibold text-neutral-700 pt-2 mb-2 border-t border-neutral-200">Registration details</div>
           ) : null}
           <label className="block">
-            <span className="block text-11 text-neutral-500 mb-1">
+            <span className="block text-12 font-medium text-neutral-500 mb-1">
               {f.label}{req ? <span className="text-danger"> *</span> : null}
             </span>
             {f.kind === 'select' ? (
@@ -388,7 +388,7 @@ function CredentialForm({
 
       {usesPassword ? (
         <label className="block">
-          <span className="block text-11 text-neutral-500 mb-1">
+          <span className="block text-12 font-medium text-neutral-500 mb-1">
             {spec.password!.label}{passwordRequired ? <span className="text-danger"> *</span> : null}
           </span>
           <input
@@ -417,10 +417,12 @@ function CredentialForm({
 
 function Card({ title, status, children }: { title: string; status?: boolean; children: React.ReactNode }) {
   return (
-    <section className="bg-white border border-neutral-200 rounded-lg shadow-card p-4" aria-label={title}>
-      <div className="flex items-center justify-between gap-3 mb-3">
-        <div className="flex items-center gap-2 text-14 font-semibold text-neutral-900">
-          <KeyRound size={16} strokeWidth={1.75} className="text-neutral-500" />
+    <section className="reg-creds rounded-lg p-4 mb-6 ml-10" aria-label={title}>
+      <div className="flex items-center justify-between gap-3 mb-4">
+        <div className="flex items-center gap-3 text-14 font-semibold text-neutral-900">
+          <span className="h-8 w-8 rounded-lg inline-flex items-center justify-center" style={{ background: '#eef0ff', color: '#4338ca', boxShadow: 'inset 0 0 0 1px #dcdffb' }}>
+            <KeyRound size={15} strokeWidth={1.9} />
+          </span>
           {title}
         </div>
         {status !== undefined ? <CredentialStatus configured={status} /> : null}
@@ -433,8 +435,8 @@ function Card({ title, status, children }: { title: string; status?: boolean; ch
 function Field({ label, tall = false, children }: { label: string; tall?: boolean; children: React.ReactNode }) {
   return (
     <div>
-      <div className="text-11 text-neutral-500 mb-1">{label}</div>
-      <div className={`flex items-center gap-2 ${tall ? 'min-h-10' : 'h-10'} px-3 border border-neutral-200 rounded-md bg-neutral-50`}>{children}</div>
+      <div className="text-12 font-medium text-neutral-500 mb-1">{label}</div>
+      <div className={`flex items-center gap-2 ${tall ? 'min-h-10' : 'h-10'} px-3 border border-neutral-200 rounded-lg bg-white`}>{children}</div>
     </div>
   );
 }

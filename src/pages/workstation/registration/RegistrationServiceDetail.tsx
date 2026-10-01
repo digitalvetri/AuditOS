@@ -7,8 +7,8 @@
  * and no application status is claimed.
  */
 import { Link, useParams } from 'react-router-dom';
-import { ChevronLeft } from 'lucide-react';
-import { Card, PageHeader } from '@/modules/workstation/components';
+import { BadgeCheck, Building, ChevronLeft, FileCheck2, Globe2, Info } from 'lucide-react';
+import { PageHeader } from '@/modules/workstation/components';
 import { KIND_TINT, MINIMAL_REGISTRATION_PAGES, registrationBySlug } from './services';
 import { RegistrationRunPanel } from './RegistrationRunPanel';
 
@@ -58,48 +58,47 @@ export function RegistrationServiceDetail({
         </Link>
       )}
 
-      <header className="flex items-start gap-4">
+      <header className="dash-card reg-hero flex items-start gap-4 p-5">
         <span
-          className="inline-flex items-center justify-center w-12 h-12 rounded-md shrink-0"
-          style={{ backgroundColor: tint.bg, color: tint.fg }}
+          className="inline-flex items-center justify-center w-14 h-14 rounded-lg shrink-0"
+          style={{ backgroundColor: tint.bg, color: tint.fg, boxShadow: `inset 0 0 0 1px ${tint.fg}22` }}
           aria-hidden
         >
-          <Icon size={24} strokeWidth={1.75} />
+          <Icon size={26} strokeWidth={1.75} />
         </span>
-        <div className="min-w-0">
-          <div className="text-11 uppercase tracking-[0.06em] text-neutral-500">
-            Workstation · Services · Registration
+        <div className="min-w-0 flex-1">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="text-12 font-medium text-neutral-500">Services · Registration</span>
+            <span className="inline-flex items-center h-6 px-3 rounded-full text-11 font-semibold" style={{ background: tint.bg, color: tint.fg }}>{tint.label}</span>
           </div>
-          <h1 className="text-20 font-semibold text-neutral-900 mt-1">{service.name}</h1>
+          <h1 className="text-[26px] leading-tight font-semibold tracking-[-0.01em] text-neutral-900 mt-1">{service.name}</h1>
           {showOverview ? (
-            <p className="text-13 text-neutral-500 mt-1 max-w-[720px]">{service.summary}</p>
+            <p className="text-13 text-neutral-500 mt-1 max-w-[760px]">{service.summary}</p>
           ) : null}
         </div>
       </header>
 
       {showOverview ? (
         <>
-          <Card title="At a glance">
-            <dl className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-px bg-neutral-200">
-              <Fact label="Category" value={tint.label} />
-              <Fact label="Granted under" value={service.authority} />
-              <Fact label="Client receives" value={service.form} />
-              <Fact
-                label="Portal"
-                value={
-                  service.portalScope === 'tamil-nadu' ? 'Tamil Nadu (state)'
-                    : service.portalScope === 'india' ? 'Government of India'
-                    : 'No registry exists'
-                }
-              />
-            </dl>
-          </Card>
+          <dl className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-3">
+            <Fact icon={BadgeCheck} label="Category" value={tint.label} />
+            <Fact icon={Building} label="Granted under" value={service.authority} />
+            <Fact icon={FileCheck2} label="Client receives" value={service.form} />
+            <Fact
+              icon={Globe2}
+              label="Portal"
+              value={
+                service.portalScope === 'tamil-nadu' ? 'Tamil Nadu (state)'
+                  : service.portalScope === 'india' ? 'Government of India'
+                  : 'No registry exists'
+              }
+            />
+          </dl>
 
-          <Card title="What this registration is">
-            <div className="p-4">
-              <p className="text-13 text-neutral-700 leading-relaxed">{service.description}</p>
-            </div>
-          </Card>
+          <section className="dash-card p-5">
+            <h2 className="text-14 font-semibold text-neutral-900">What this registration is</h2>
+            <p className="text-13 text-neutral-600 leading-relaxed mt-2">{service.description}</p>
+          </section>
         </>
       ) : null}
 
@@ -108,21 +107,27 @@ export function RegistrationServiceDetail({
       {/* The truth-of-data rule this codebase holds elsewhere: say what the
           system has and has not done, rather than implying a capability. */}
       {showOverview ? (
-        <div className="border-l-2 border-neutral-400 bg-white px-3 py-2 text-12 text-neutral-600">
-          Audit OS does not file this registration and never contacts a government portal. The link
+        <div className="flex items-start gap-3 rounded-lg px-4 py-3 text-12 text-neutral-600" style={{ background: '#f4f7fc', boxShadow: 'inset 3px 0 0 #2a4f8f, inset 0 0 0 1px #e1e9f5' }}>
+          <Info size={15} strokeWidth={1.9} className="text-primary shrink-0 mt-px" aria-hidden />
+          <span>Audit OS does not file this registration and never contacts a government portal. The link
           above opens the official site in a new tab; an employee does the work there and records
-          the outcome here. Nothing on this page has been checked against any government system.
+          the outcome here. Nothing on this page has been checked against any government system.</span>
         </div>
       ) : null}
     </div>
   );
 }
 
-function Fact({ label, value }: { label: string; value: string }) {
+function Fact({ icon: FactIcon, label, value }: { icon: typeof Info; label: string; value: string }) {
   return (
-    <div className="bg-white px-4 py-3 min-w-0">
-      <dt className="text-11 uppercase tracking-[0.06em] text-neutral-500">{label}</dt>
-      <dd className="text-13 text-neutral-900 mt-1 break-words">{value}</dd>
+    <div className="dash-card card-zoom flex items-start gap-3 px-4 py-3 min-w-0">
+      <span className="h-9 w-9 rounded-lg inline-flex items-center justify-center shrink-0" style={{ background: '#eaf2ff', color: '#1d4ed8', boxShadow: 'inset 0 0 0 1px #d4e3fb' }}>
+        <FactIcon size={16} strokeWidth={1.9} />
+      </span>
+      <div className="min-w-0">
+        <dt className="text-12 font-medium text-neutral-500">{label}</dt>
+        <dd className="text-13 font-medium text-neutral-900 mt-0.5 break-words">{value}</dd>
+      </div>
     </div>
   );
 }
