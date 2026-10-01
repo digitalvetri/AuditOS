@@ -53,17 +53,43 @@ async function isMember(chatId: string, employeeId: string): Promise<boolean> {
   return !!row
 }
 
-/** A DM has no name of its own — it is named after the other participant. */
-async function displayName(
-  chat: { id: string; type: string; name: string | null },
+/**
+ * A DM has no name or picture of its own — it shows the other participant's
+ * name and profile photo. A group shows its own.
+ */
+async function displayIdentity(
+  chat: { id: string; type: string; name: string | null; photoUrl: string | null },
   viewerEmployeeId: string,
-): Promise<string> {
-  if (chat.type !== 'dm') return chat.name ?? 'Chat'
+): Promise<{ display_name: string; photo_url: string | null }> {
+  if (chat.type !== 'dm') return { display_name: chat.name ?? 'Chat', photo_url: chat.photoUrl }
   const other = await prisma.chatMember.findFirst({
     where: { chatId: chat.id, employeeId: { not: viewerEmployeeId } },
-    include: { employee: { select: { fullName: true } } },
+    include: { employee: { select: { fullName: true, photoUrl: true } } },
   })
-  return other?.employee.fullName ?? 'Direct message'
+  return { display_name: other?.employee.fullName ?? 'Direct message', photo_url: other?.employee.photoUrl ?? null }
+}
+
+/** A profile / group photo: a small image data: URL, or null to remove it. */
+const PHOTO_RE = /^data:image\/(png|jpeg|webp);base64,[A-Za-z0-9+/=]+$/
+const MAX_PHOTO_CHARS = 400_000
+export function checkPhoto(photo: string | null): string | null {
+  if (photo === null) return null
+  if (photo.length > MAX_PHOTO_CHARS || !PHOTO_RE.test(photo)) {
+    throw ApiError.badRequest('Use a PNG, JPEG or WebP picture under 300 KB.')
+  }
+  return photo
+}
+
+/** Set (or remove) the signed-in person's own profile photo. */
+export async function setMyPhoto(session: Session, photo: string | null) {
+  const employeeId = requireEmployee(session)
+  const saved = await prisma.employee.update({
+    where: { id: employeeId },
+    data: { photoUrl: checkPhoto(photo), updatedBy: session.userId },
+    select: { photoUrl: true },
+  })
+  await writeAudit({ actorUserId: session.userId, action: 'employee.photo_updated', entityType: 'Employee', entityId: employeeId, after: { has_photo: !!saved.photoUrl } })
+  return { photo_url: saved.photoUrl }
 }
 
 /** Unread = messages by others in this chat with no read receipt for me. */
@@ -116,7 +142,7 @@ export async function listChats(session: Session): Promise<{ items: ChatListItem
     const last = lastRaw && (!me?.clearedAt || lastRaw.createdAt > me.clearedAt) ? lastRaw : undefined
     items.push({
       ...chatToApi(c),
-      display_name: await displayName(c, employeeId),
+      ...(await displayIdentity(c, employeeId)),
       last_message: last
         ? {
             id: last.id,
@@ -287,7 +313,7 @@ export async function listMessages(chatId: string, session: Session) {
   })
 
   return {
-    chat: { ...chatToApi(chat), display_name: await displayName(chat, employeeId) },
+    chat: { ...chatToApi(chat), ...(await displayIdentity(chat, employeeId)) },
     items: rows.map(chatMessageToApi),
   }
 }
@@ -576,7 +602,7 @@ export async function chatInfo(chatId: string, session: Session) {
   const me = members.find((m) => m.employeeId === employeeId)
   if (!me && !canManageChats(session)) throw ApiError.forbidden('You are not a member of this chat.')
   return {
-    chat: { ...chatToApi(chat), display_name: await displayName(chat, employeeId) },
+    chat: { ...chatToApi(chat), ...(await displayIdentity(chat, employeeId)) },
     my_role: me && !me.leftAt ? me.role : null,
     left: !!me?.leftAt,
     members: members.filter((m) => !m.leftAt).map((m) => ({
@@ -597,7 +623,7 @@ export async function chatPeople(session: Session) {
   return { items: people.map((p) => ({ id: p.id, full_name: p.fullName, employee_code: p.employeeCode, designation: p.designation?.name ?? null })) }
 }
 
-export async function updateGroup(chatId: string, session: Session, input: { name?: string; description?: string | null }) {
+export async function updateGroup(chatId: string, session: Session, input: { name?: string; description?: string | null; photo_url?: string | null }) {
   const employeeId = requireEmployee(session)
   const chat = await requireGroup(chatId)
   await requireAdmin(chatId, employeeId)
@@ -605,7 +631,12 @@ export async function updateGroup(chatId: string, session: Session, input: { nam
   if (input.name !== undefined && !name) throw ApiError.badRequest('The group needs a name.')
   const saved = await prisma.chat.update({
     where: { id: chatId },
-    data: { ...(name ? { name } : {}), ...(input.description !== undefined ? { description: input.description?.trim() || null } : {}), updatedBy: session.userId },
+    data: {
+      ...(name ? { name } : {}),
+      ...(input.description !== undefined ? { description: input.description?.trim() || null } : {}),
+      ...(input.photo_url !== undefined ? { photoUrl: checkPhoto(input.photo_url) } : {}),
+      updatedBy: session.userId,
+    },
   })
   await writeAudit({ actorUserId: session.userId, action: 'chat.group_updated', entityType: 'Chat', entityId: chatId, before: { name: chat.name, description: chat.description }, after: { name: saved.name, description: saved.description } })
   await notifyMembers(chatId, 'chat:updated', { chat_id: chatId })

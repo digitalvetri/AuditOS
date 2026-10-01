@@ -103,9 +103,9 @@ export function PageHeader({
   title, subtitle, action,
 }: { title: string; subtitle?: ReactNode; action?: ReactNode }) {
   return (
-    <header className="flex items-start gap-4 mb-4">
+    <header className="flex items-start gap-4 flex-wrap mb-5">
       <div className="min-w-0">
-        <h1 className="text-20 font-semibold text-neutral-900">{title}</h1>
+        <h1 className="text-[26px] leading-tight font-semibold tracking-[-0.01em] text-neutral-900">{title}</h1>
         {subtitle ? <p className="text-13 text-neutral-500 mt-1">{subtitle}</p> : null}
       </div>
       <div className="flex-1" />
@@ -118,10 +118,12 @@ export function Card({ title, right, children, className = '' }: {
   title?: string; right?: ReactNode; children: ReactNode; className?: string;
 }) {
   return (
-    <section className={`bg-white border border-neutral-200 rounded ${className}`}>
+    // `ws-card`: a card whose only body is a floating Table drops its own
+    // frame (globals.css), so the rows float on the page like Quotations.
+    <section className={`ws-card bg-white border border-neutral-200 rounded-lg ${className}`}>
       {title ? (
-        <div className="h-10 px-4 flex items-center border-b border-neutral-200">
-          <span className="text-11 uppercase tracking-[0.06em] text-neutral-500">{title}</span>
+        <div className="ws-card-title h-11 px-5 flex items-center border-b border-neutral-200">
+          <span className="text-13 font-semibold text-neutral-900">{title}</span>
           <div className="flex-1" />
           {right}
         </div>
@@ -213,8 +215,10 @@ export function QueryState<T>({
 
 // ── Table ─────────────────────────────────────────────────────────────────
 /**
- * 40px rows, hairline separators, no zebra. Wide tables scroll inside their
- * own container so the page body never scrolls sideways.
+ * The register look shared with Quotations: every row a floating card under
+ * the navy gradient header strip (`table.hr-float` in globals.css, from
+ * tablet width up). Wide tables scroll inside their own container so the
+ * page body never scrolls sideways.
  */
 /**
  * The column headings, published to the Cells beneath them. Below 768px the
@@ -229,7 +233,7 @@ export function Table({ head, children }: { head: string[]; children: ReactNode 
     // `m-cards` is inert above 767px, so the desktop table — including its
     // 720px minimum and its own horizontal scroller — is untouched.
     <div className="m-cards md:overflow-x-auto">
-      <table className="w-full md:min-w-[720px] border-collapse">
+      <table className="hr-float w-full md:min-w-[720px] border-collapse">
         <thead>
           <tr className="border-b border-neutral-200">
             {head.map((h) => (
@@ -305,7 +309,7 @@ export function Select({
 }) {
   return (
     <label className="block">
-      <span className="block text-11 uppercase tracking-[0.06em] text-neutral-500 mb-1">{label}</span>
+      <span className="block text-12 font-medium text-neutral-500 mb-1">{label}</span>
       <select
         value={value}
         onChange={(e) => onChange(e.target.value)}
@@ -393,7 +397,7 @@ export function Field({
 }: { label: string; error?: string; children: ReactNode; hint?: ReactNode }) {
   return (
     <label className="block mb-3">
-      <span className="block text-11 uppercase tracking-[0.06em] text-neutral-500 mb-1">{label}</span>
+      <span className="block text-12 font-medium text-neutral-500 mb-1">{label}</span>
       {children}
       {hint && !error ? <span className="block text-12 text-neutral-500 mt-1">{hint}</span> : null}
       {error ? <span className="block text-12 text-red mt-1">{error}</span> : null}
@@ -402,10 +406,10 @@ export function Field({
 }
 
 export const inputClass =
-  'block w-full h-8 px-3 text-13 bg-white text-neutral-900 border border-neutral-300 rounded focus:outline-none focus:border-gold';
+  'block w-full h-9 px-3 text-13 bg-white text-neutral-900 border border-neutral-200 rounded-lg focus:outline-none focus:border-primary/60 focus:ring-2 focus:ring-primary/10 transition-colors';
 
 export const textareaClass =
-  'block w-full px-3 py-2 text-13 bg-white text-neutral-900 border border-neutral-300 rounded focus:outline-none focus:border-gold';
+  'block w-full px-3 py-2 text-13 bg-white text-neutral-900 border border-neutral-200 rounded-lg focus:outline-none focus:border-primary/60 focus:ring-2 focus:ring-primary/10 transition-colors';
 
 /** Pull the per-field `details` map off an ApiError, if the server sent one. */
 export function fieldErrors(err: unknown): Record<string, string> {

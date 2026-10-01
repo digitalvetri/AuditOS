@@ -1,6 +1,7 @@
 import { useState, type FormEvent } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { SectionShell } from './SectionShell';
+import { StatusLabel } from '@/components/StatusRow';
 import { settingsApi } from './api';
 import { Button } from '@/components/Button';
 import { Input } from '@/components/Input';
@@ -49,7 +50,7 @@ export function ExpenseCategoriesSection() {
             e.preventDefault();
             create.mutate();
           }}
-          className="bg-white border border-neutral-200 rounded p-4 flex items-end gap-3 flex-wrap"
+          className="dash-card p-4 flex items-end gap-3 flex-wrap"
         >
           <Input label="Name" value={name} onChange={(e) => setName(e.target.value)} required />
           <Input label="Code" value={code} onChange={(e) => setCode(e.target.value)} required />
@@ -63,7 +64,7 @@ export function ExpenseCategoriesSection() {
         </form>
       ) : null}
       <div className="bg-white border border-neutral-200 rounded overflow-hidden">
-        <table className="w-full border-collapse tabular-nums">
+        <table className="hr-float w-full border-collapse tabular-nums">
           <thead>
             <tr>
               {['Code', 'Name', 'GL account', 'Receipt required', 'Active', 'Actions'].map((c) => (
@@ -77,10 +78,10 @@ export function ExpenseCategoriesSection() {
             {(q.data?.items ?? []).map((ec) => (
               <tr key={ec.id} className={'border-b border-neutral-200 border-l-2 ' + (ec.is_active ? 'border-transparent' : 'border-neutral-400')}>
                 <td className="px-3 py-2 text-13 text-neutral-500">{ec.code}</td>
-                <td className="px-3 py-2 text-13 text-neutral-900">{ec.name}</td>
+                <td className="px-3 py-2 text-13 font-semibold text-neutral-900">{ec.name}</td>
                 <td className="px-3 py-2 text-13 text-neutral-700">{ec.gl_account ?? '—'}</td>
                 <td className="px-3 py-2 text-13 text-neutral-700">{ec.requires_receipt ? 'Yes' : 'No'}</td>
-                <td className="px-3 py-2 text-13 text-neutral-700">{ec.is_active ? 'Active' : 'Inactive'}</td>
+                <td className="px-3 py-2"><StatusLabel variant={ec.is_active ? 'ok' : 'awaiting'} label={ec.is_active ? 'Active' : 'Inactive'} /></td>
                 <td className="px-3 py-2">
                   <Button variant="ghost" onClick={() => toggle.mutate({ id: ec.id, is_active: !ec.is_active })}>
                     {ec.is_active ? 'Deactivate' : 'Activate'}

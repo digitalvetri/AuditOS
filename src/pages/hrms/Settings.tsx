@@ -6,6 +6,9 @@
  * on the section URL param.
  */
 import { useSearchParams } from 'react-router-dom';
+import {
+  BadgePercent, Briefcase, Building2, CalendarDays, CalendarRange, KeyRound, MapPin, Receipt,
+} from 'lucide-react';
 import { useAuth } from '@/platform/auth/AuthContext';
 import { can } from '@/platform/rbac/can';
 import { DepartmentsSection } from '@/modules/settings/DepartmentsSection';
@@ -27,15 +30,23 @@ type Section =
   | 'statutory-rates'
   | 'roles';
 
-const SECTIONS: { id: Section; label: string; group: string }[] = [
-  { id: 'departments', label: 'Departments', group: 'Organisation' },
-  { id: 'designations', label: 'Designations', group: 'Organisation' },
-  { id: 'work-locations', label: 'Work locations', group: 'Organisation' },
-  { id: 'holidays', label: 'Holiday calendar', group: 'Time & Leave' },
-  { id: 'leave-types', label: 'Leave types', group: 'Time & Leave' },
-  { id: 'expense-categories', label: 'Expense categories', group: 'Finance' },
-  { id: 'statutory-rates', label: 'Statutory rates', group: 'Finance' },
-  { id: 'roles', label: 'Roles & permissions', group: 'Access' },
+/** Each group's tint for the menu's icon squares (the dashboard palette). */
+const GROUP_TINT: Record<string, { bg: string; fg: string }> = {
+  Organisation: { bg: '#e9f9f1', fg: '#047857' },
+  'Time & Leave': { bg: '#eaf2ff', fg: '#1d4ed8' },
+  Finance: { bg: '#fff7e6', fg: '#b45309' },
+  Access: { bg: '#eef0ff', fg: '#4338ca' },
+};
+
+const SECTIONS: { id: Section; label: string; group: string; icon: typeof Building2 }[] = [
+  { id: 'departments', label: 'Departments', group: 'Organisation', icon: Building2 },
+  { id: 'designations', label: 'Designations', group: 'Organisation', icon: Briefcase },
+  { id: 'work-locations', label: 'Work locations', group: 'Organisation', icon: MapPin },
+  { id: 'holidays', label: 'Holiday calendar', group: 'Time & Leave', icon: CalendarDays },
+  { id: 'leave-types', label: 'Leave types', group: 'Time & Leave', icon: CalendarRange },
+  { id: 'expense-categories', label: 'Expense categories', group: 'Finance', icon: Receipt },
+  { id: 'statutory-rates', label: 'Statutory rates', group: 'Finance', icon: BadgePercent },
+  { id: 'roles', label: 'Roles & permissions', group: 'Access', icon: KeyRound },
 ];
 
 export function SettingsPage() {
@@ -46,9 +57,9 @@ export function SettingsPage() {
 
   if (!canManage) {
     return (
-      <div className="w-full max-w-[720px] mx-auto bg-white border border-neutral-200 rounded p-4 md:p-6">
-        <div className="text-11 uppercase tracking-[0.06em] text-neutral-500">Access denied</div>
-        <h1 className="text-20 font-semibold text-neutral-900 mt-1">
+      <div className="w-full max-w-[720px] mx-auto dash-card p-4 md:p-6">
+        <span className="inline-flex items-center h-6 px-3 rounded-full text-12 font-medium bg-[#fef2f2] text-[#b91c1c]">Access denied</span>
+        <h1 className="text-[26px] leading-tight font-semibold tracking-[-0.01em] text-neutral-900">
           Settings are HR/MD only.
         </h1>
         <p className="text-13 text-neutral-500 mt-2">
@@ -64,8 +75,8 @@ export function SettingsPage() {
   return (
     <div className="m-page">
       <header>
-        <div className="text-11 uppercase tracking-[0.06em] text-neutral-500">HRMS</div>
-        <h1 className="text-20 font-semibold text-neutral-900 mt-1">Settings</h1>
+        <h1 className="text-[26px] leading-tight font-semibold tracking-[-0.01em] text-neutral-900">Settings</h1>
+        <p className="text-13 text-neutral-500 mt-1">Organisation, time &amp; leave, finance and access — set once, used everywhere.</p>
       </header>
 
       {/* Mobile category nav. A <select> rather than a chip rail: there are
@@ -77,7 +88,7 @@ export function SettingsPage() {
           <select
             value={section}
             onChange={(e) => setSection(e.target.value as Section)}
-            className="w-full px-3 bg-white text-neutral-900 border border-neutral-300 rounded focus:outline-none focus:border-gold"
+            className="w-full h-9 px-3 text-13 bg-white text-neutral-900 border border-neutral-200 rounded-lg focus:outline-none focus:border-primary/60"
           >
             {groups.map((g) => (
               <optgroup key={g} label={g}>
@@ -90,11 +101,11 @@ export function SettingsPage() {
         </label>
       </div>
 
-      <div className="mt-0 md:mt-6 grid grid-cols-1 md:grid-cols-[220px_1fr] gap-6">
-        <aside data-testid="settings-nav" className="hidden md:block">
+      <div className="mt-0 md:mt-6 grid grid-cols-1 md:grid-cols-[240px_1fr] gap-6 items-start">
+        <aside data-testid="settings-nav" className="hidden md:block dash-card p-3 md:sticky md:top-4">
           {groups.map((g) => (
-            <div key={g} className="mb-4">
-              <div className="text-11 uppercase tracking-[0.06em] text-neutral-500 px-3 mb-1">{g}</div>
+            <div key={g} className="mb-3 last:mb-0">
+              <div className="text-12 font-semibold text-neutral-500 px-3 mb-1 mt-1">{g}</div>
               {SECTIONS.filter((s) => s.group === g).map((s) => {
                 const active = s.id === section;
                 return (
@@ -104,12 +115,17 @@ export function SettingsPage() {
                     onClick={() => setSection(s.id)}
                     data-testid={`settings-nav-${s.id}`}
                     className={
-                      'flex items-center h-8 pl-3 pr-2 text-13 w-full text-left border-l-2 ' +
+                      'flex items-center gap-3 h-10 px-2 text-13 w-full text-left rounded-lg transition-colors ' +
                       (active
-                        ? 'border-gold text-neutral-900 font-medium'
-                        : 'border-transparent text-neutral-700 hover:text-neutral-900')
+                        ? 'bg-[#e8f0fb] text-primary font-medium'
+                        : 'text-neutral-700 hover:bg-neutral-50 hover:text-neutral-900')
                     }
                   >
+                    {/* A tinted icon square per item, coloured by group — as the Reports menu. */}
+                    <span className="shrink-0 rounded-lg inline-flex items-center justify-center"
+                      style={{ width: 28, height: 28, background: GROUP_TINT[s.group]?.bg ?? '#f1f5f9', color: GROUP_TINT[s.group]?.fg ?? '#475569' }} aria-hidden>
+                      <s.icon size={14} strokeWidth={1.9} />
+                    </span>
                     {s.label}
                   </button>
                 );

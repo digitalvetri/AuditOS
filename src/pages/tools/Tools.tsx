@@ -85,7 +85,9 @@ export function ToolsPage() {
 
 function ToolCard({ tool, permitted }: { tool: ToolDefinition; permitted: boolean }) {
   return (
-    <article className="bg-white border border-neutral-200 rounded p-4 flex gap-3 min-h-[112px]" data-testid={`tool-card-${tool.id}`}>
+    // Frosted glass card (`.doc-glass`, shared with Doc) — here without the
+    // colour glows behind it.
+    <article className="doc-glass rounded-md p-4 flex gap-3 min-h-[112px]" data-testid={`tool-card-${tool.id}`}>
       <ToolBadge badge={tool.badge} />
       <div className="min-w-0 flex-1 flex flex-col">
         <h3 className="text-14 font-semibold text-neutral-900 leading-5">{tool.name}</h3>

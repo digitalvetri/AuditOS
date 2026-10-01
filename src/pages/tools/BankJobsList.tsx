@@ -100,7 +100,7 @@ function EmptyState() {
 function JobsTable({ jobs }: { jobs: AaJob[] }) {
   return (
     <div className="bg-white border border-neutral-200 rounded overflow-hidden">
-      <table className="w-full text-13">
+      <table className="hr-float w-full text-13">
         <thead>
           <tr className="text-left text-11 text-neutral-500 tracking-[0.06em]">
             <th className="px-3 py-2 font-normal">UPLOADED</th>

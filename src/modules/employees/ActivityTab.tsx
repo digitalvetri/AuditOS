@@ -28,7 +28,7 @@ export function ActivityTab({ employeeId }: { employeeId: string }) {
 
   return (
     <div className="bg-white border border-neutral-200 rounded overflow-hidden">
-      <table className="w-full border-collapse tabular-nums">
+      <table className="hr-float w-full border-collapse tabular-nums">
         <thead>
           <tr>
             {['When', 'Actor', 'Action', 'Entity'].map((c) => (

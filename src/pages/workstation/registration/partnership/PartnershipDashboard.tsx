@@ -1,7 +1,9 @@
 import { useQuery } from '@tanstack/react-query';
 import { Link, useNavigate } from 'react-router-dom';
 import {  } from '@/modules/partnership/api';
+import { Plus } from 'lucide-react';
 import { Card, Cell, PageHeader, QueryState, Row, Status, Table } from '@/modules/workstation/components';
+import { ListAction } from '@/modules/workstation/listUi';
 import { fmtDateTime } from '@/lib/format';
 import { DueChip, ProgressBar, useSvc } from './shared';
 
@@ -20,11 +22,11 @@ export function PartnershipDashboard() {
       <PageHeader
         title={label}
         subtitle="Deed drafting and registration with the Registrar of Firms, case by case."
-        action={<Link to={`${base}/clients?add=1`} className="h-8 px-3 inline-flex items-center text-13 bg-neutral-900 text-white rounded hover:bg-neutral-800">+ Add Client</Link>}
+        action={<ListAction to={`${base}/clients?add=1`} icon={<Plus size={15} />}>Add Client</ListAction>}
       />
       <QueryState query={overview}>
         {(o) => (
-          <div className="grid grid-cols-2 md:grid-cols-6 gap-2 mb-4">
+          <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-3 mb-5">
             {[
               ['Total Clients', o.total_clients, ''],
               ['In Progress', o.in_progress, 'status=IN_PROGRESS'],
@@ -36,10 +38,10 @@ export function PartnershipDashboard() {
               <Link
                 key={label as string}
                 to={`${base}/clients${filter ? `?${filter}` : ''}`}
-                className="bg-white border border-neutral-200 rounded px-3 py-2 hover:border-neutral-400"
+                className="bg-white border border-neutral-200 rounded-lg px-4 py-3 hover:border-primary/40 hover:shadow-raised transition-all"
               >
-                <div className="text-11 uppercase tracking-[0.06em] text-neutral-500">{label}</div>
-                <div className={`text-20 font-semibold tabular-nums ${label === 'Overdue' && Number(value) > 0 ? 'text-red' : 'text-neutral-900'}`}>{value}</div>
+                <div className="text-12 text-neutral-500">{label}</div>
+                <div className={`text-[24px] leading-tight font-semibold mt-1 tabular-nums ${label === 'Overdue' && Number(value) > 0 ? 'text-red' : 'text-neutral-900'}`}>{value}</div>
               </Link>
             ))}
           </div>

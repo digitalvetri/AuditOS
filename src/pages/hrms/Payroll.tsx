@@ -34,7 +34,7 @@ export function PayrollPage() {
     return (
       <div className="max-w-[720px] mx-auto bg-white border border-neutral-200 rounded p-6">
         <div className="text-11 uppercase tracking-[0.06em] text-neutral-500">Access denied</div>
-        <h1 className="text-20 font-semibold text-neutral-900 mt-1">Payroll is HR / Finance / MD only.</h1>
+        <h1 className="text-[26px] leading-tight font-semibold tracking-[-0.01em] text-neutral-900">Payroll is HR / Finance / MD only.</h1>
       </div>
     );
   }
@@ -57,7 +57,7 @@ export function PayrollPage() {
         ) : (q.data?.items.length ?? 0) === 0 ? (
           <div className="p-6 text-13 text-neutral-500">No payroll runs yet.</div>
         ) : (
-          <table className="w-full border-collapse tabular-nums">
+          <table className="hr-float w-full border-collapse tabular-nums">
             <thead>
               <tr>
                 {['Period', 'Stage', 'Headcount', 'Gross', 'Deductions', 'Net', ''].map((c) => (
@@ -229,7 +229,7 @@ export function PayrollRunDetailPage() {
     return (
       <div className="max-w-[720px] mx-auto bg-white border border-neutral-200 rounded p-6">
         <div className="text-11 uppercase tracking-[0.06em] text-neutral-500">Access denied</div>
-        <h1 className="text-20 font-semibold text-neutral-900 mt-1">You can't view this payroll run.</h1>
+        <h1 className="text-[26px] leading-tight font-semibold tracking-[-0.01em] text-neutral-900">You can't view this payroll run.</h1>
       </div>
     );
   }
@@ -244,7 +244,7 @@ export function PayrollRunDetailPage() {
       <header className="flex items-baseline justify-between gap-4 flex-wrap">
         <div>
           <div className="text-11 uppercase tracking-[0.06em] text-neutral-500">Accounts › Payroll › {run.label}</div>
-          <h1 className="text-20 font-semibold text-neutral-900 mt-1">
+          <h1 className="text-[26px] leading-tight font-semibold tracking-[-0.01em] text-neutral-900">
             {run.label} · {run.period_start} → {run.period_end}
           </h1>
           <div className="mt-1"><StatusLabel variant={s.variant} label={s.label} /></div>
@@ -277,7 +277,7 @@ export function PayrollRunDetailPage() {
         </div>
       ) : (
         <div className="bg-white border border-neutral-200 rounded overflow-x-auto">
-          <table className="w-full border-collapse tabular-nums" data-testid="payroll-items">
+          <table className="hr-float w-full border-collapse tabular-nums" data-testid="payroll-items">
             <thead>
               <tr>
                 {[

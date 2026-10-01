@@ -333,7 +333,7 @@ function CredentialForm({
                 key={m.key}
                 type="button"
                 onClick={() => { setRegMode(m.key); setErrors({}); }}
-                className={`h-8 px-3 text-12 font-medium ${regMode === m.key ? 'bg-neutral-900 text-white' : 'bg-white text-neutral-700 hover:bg-neutral-50'}`}
+                className={`h-8 px-3 text-12 font-medium ${regMode === m.key ? 'bg-primary text-white' : 'bg-white text-neutral-700 hover:bg-neutral-50'}`}
               >
                 {m.label}
               </button>

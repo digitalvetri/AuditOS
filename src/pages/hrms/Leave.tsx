@@ -38,15 +38,14 @@ export function LeavePage() {
     <div className="space-y-6">
       <header className="flex items-baseline justify-between gap-4 flex-wrap">
         <div>
-          <div className="text-11 uppercase tracking-[0.06em] text-neutral-500">HRMS</div>
-          <h1 className="text-20 font-semibold text-neutral-900 mt-1">Leave</h1>
+          <h1 className="text-[26px] leading-tight font-semibold tracking-[-0.01em] text-neutral-900">Leave</h1>
         </div>
         <Button variant="primary" onClick={() => setApplyOpen(true)} data-testid="leave-apply-open">
           Apply for leave
         </Button>
       </header>
 
-      <div className="border-b border-neutral-200 flex items-center gap-4">
+      <div className="flex items-center gap-2 flex-wrap">
         <TabBtn id="balances" active={tab === 'balances'} onClick={() => setTab('balances')}>
           Balances
         </TabBtn>
@@ -86,10 +85,10 @@ function TabBtn({
       onClick={onClick}
       data-testid={`leave-tab-${id}`}
       className={
-        'h-10 px-1 text-13 -mb-px border-b-2 ' +
+        'h-8 px-3 inline-flex items-center text-13 rounded-full border transition-colors whitespace-nowrap ' +
         (active
-          ? 'border-gold text-neutral-900 font-medium'
-          : 'border-transparent text-neutral-500 hover:text-neutral-900')
+          ? 'bg-[#e8f0fb] border-[#b9cde9] text-primary font-medium'
+          : 'bg-white border-neutral-200 text-neutral-700 hover:border-neutral-300 hover:bg-neutral-50')
       }
     >
       {children}

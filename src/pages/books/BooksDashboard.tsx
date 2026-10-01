@@ -1,6 +1,7 @@
 import { Link } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { Bar, BarChart, CartesianGrid, Legend, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
+import { AlertTriangle, ArrowDownLeft, ArrowUpRight, Landmark, Receipt, ShoppingCart, TrendingUp, Wallet } from 'lucide-react';
 import { booksApi, errorText, type ZRecord } from '@/modules/books/api';
 import { useOrg } from '@/modules/books/context';
 import { Badge, Cell, Empty, ErrorState, Notice, Row, Section, Skeleton, Table, Tile, date, dateTime, money } from '@/modules/books/ui';
@@ -28,15 +29,15 @@ export function BooksDashboardPage() {
       {s.mixed_currency ? <Notice tone="warn">Some documents are in a foreign currency; totals convert them at each document’s exchange rate. Bank balances are shown as recorded.</Notice> : null}
 
       <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-3">
-        <Tile label="Total receivables" value={m(t.receivables)} hint={`${s.counts.outstanding_invoices} outstanding invoices`} />
-        <Tile label="Total payables" value={m(t.payables)} hint={`${s.counts.outstanding_bills} outstanding bills`} />
-        <Tile label="Overdue invoices" value={m(t.overdue_receivables)} hint={`${s.counts.overdue_invoices} invoices`} tone={s.counts.overdue_invoices ? 'warn' : 'default'} />
-        <Tile label="Overdue bills" value={m(t.overdue_payables)} hint={`${s.counts.overdue_bills} bills`} tone={s.counts.overdue_bills ? 'warn' : 'default'} />
-        <Tile label="Sales (incl. tax)" value={m(t.revenue)} hint={`Invoiced since ${date(s.period.from)}`} />
-        <Tile label="Expenses (incl. tax)" value={m(t.expenses)} hint="Bills + expenses, same period" />
-        <Tile label="Payments received" value={m(t.payments_received)} hint="Same period" />
-        <Tile label="Payments made" value={m(t.payments_made)} hint="Same period" />
-        {s.bank_accounts.length ? <Tile label="Bank balance" value={m(t.bank_balance)} hint={`${s.bank_accounts.length} accounts in Zoho`} /> : null}
+        <Tile icon={ArrowDownLeft} tint="green" label="Total receivables" value={m(t.receivables)} hint={`${s.counts.outstanding_invoices} outstanding invoices`} />
+        <Tile icon={ArrowUpRight} tint="indigo" label="Total payables" value={m(t.payables)} hint={`${s.counts.outstanding_bills} outstanding bills`} />
+        <Tile icon={AlertTriangle} tint="amber" label="Overdue invoices" value={m(t.overdue_receivables)} hint={`${s.counts.overdue_invoices} invoices`} tone={s.counts.overdue_invoices ? 'warn' : 'default'} />
+        <Tile icon={AlertTriangle} tint="amber" label="Overdue bills" value={m(t.overdue_payables)} hint={`${s.counts.overdue_bills} bills`} tone={s.counts.overdue_bills ? 'warn' : 'default'} />
+        <Tile icon={TrendingUp} tint="blue" label="Sales (incl. tax)" value={m(t.revenue)} hint={`Invoiced since ${date(s.period.from)}`} />
+        <Tile icon={ShoppingCart} tint="teal" label="Expenses (incl. tax)" value={m(t.expenses)} hint="Bills + expenses, same period" />
+        <Tile icon={Receipt} tint="green" label="Payments received" value={m(t.payments_received)} hint="Same period" />
+        <Tile icon={Wallet} tint="indigo" label="Payments made" value={m(t.payments_made)} hint="Same period" />
+        {s.bank_accounts.length ? <Tile icon={Landmark} tint="blue" label="Bank balance" value={m(t.bank_balance)} hint={`${s.bank_accounts.length} accounts in Zoho`} /> : null}
       </div>
 
       <div className="grid grid-cols-1 xl:grid-cols-3 gap-4">
@@ -49,8 +50,8 @@ export function BooksDashboardPage() {
                 <YAxis tickLine={false} axisLine={false} width={70} tick={{ fontSize: 11, fill: 'rgb(var(--c-inkMuted))' }} tickFormatter={(v: number) => new Intl.NumberFormat('en-IN', { notation: 'compact' }).format(v)} />
                 <Tooltip formatter={(v: number) => m(v)} contentStyle={{ fontSize: 12, background: 'rgb(var(--c-surface))', border: '1px solid rgb(var(--c-border))' }} />
                 <Legend wrapperStyle={{ fontSize: 12 }} />
-                <Bar dataKey="revenue" name="Revenue" fill="rgb(var(--c-primary))" radius={[3, 3, 0, 0]} />
-                <Bar dataKey="expenses" name="Expenses" fill="rgb(var(--c-gold))" radius={[3, 3, 0, 0]} />
+                <Bar dataKey="revenue" name="Revenue" fill="#2a4f8f" radius={[6, 6, 0, 0]} />
+                <Bar dataKey="expenses" name="Expenses" fill="#2dd4bf" radius={[6, 6, 0, 0]} />
               </BarChart>
             </ResponsiveContainer>
           </div>
@@ -83,11 +84,11 @@ function Ageing({ title, rows, m }: { title: string; rows: { label: string; amou
   const max = Math.max(1, ...rows.map((r) => r.amount));
   return (
     <Section title={title}>
-      <div className="px-4 py-3 space-y-2">
+      <div className="px-5 py-4 space-y-3">
         {rows.map((r) => (
           <div key={r.label}>
             <div className="flex justify-between text-12"><span className="text-inkMuted">{r.label} · {r.count}</span><span className="tabular-nums text-ink">{m(r.amount)}</span></div>
-            <div className="h-1.5 bg-canvas rounded mt-1"><div className={`h-1.5 rounded ${r.label === 'Current' ? 'bg-primary' : 'bg-danger'}`} style={{ width: `${(r.amount / max) * 100}%` }} /></div>
+            <div className="h-2 bg-neutral-100 rounded-full mt-1 overflow-hidden"><div className="ws-step-bar h-2 rounded-full" style={{ width: `${(r.amount / max) * 100}%`, background: r.label === 'Current' ? 'linear-gradient(90deg, #2a4f8f, #3b6bc4)' : 'linear-gradient(90deg, #f87171, #dc2626)' }} /></div>
           </div>
         ))}
       </div>
@@ -97,7 +98,7 @@ function Ageing({ title, rows, m }: { title: string; rows: { label: string; amou
 
 function Recent({ title, to, rows, cols, amount, status, m }: { title: string; to: string; rows: ZRecord[]; cols: string[]; amount: string; status?: boolean; m: (v: unknown) => string }) {
   return (
-    <Section title={title} right={<Link to={to} className="text-12 text-inkMuted hover:text-ink">View all</Link>}>
+    <Section title={title} right={<Link to={to} className="text-12 font-medium text-primary hover:underline">View all</Link>}>
       {rows.length === 0 ? <Empty title="Nothing yet." /> : (
         <Table cols={[{ label: 'Number' }, { label: 'Name' }, { label: 'Date' }, ...(status ? [{ label: 'Status' }] : []), { label: 'Amount', right: true }]} minWidth={520}>
           {rows.map((r, i) => (

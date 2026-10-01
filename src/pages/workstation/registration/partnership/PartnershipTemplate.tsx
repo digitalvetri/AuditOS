@@ -43,6 +43,7 @@ export function PartnershipTemplate() {
             {d.categories.map((cat) => (
               <Card
                 key={cat.id}
+                className="fr-group"
                 title={`${cat.name}${cat.description ? ` — ${cat.description}` : ''} · ${stageLabel(cat.stage)}${cat.per_partner ? ' · repeated per partner' : ''}`}
                 right={d.can_manage ? (
                   <span className="flex gap-3 text-12">
@@ -52,8 +53,8 @@ export function PartnershipTemplate() {
                   </span>
                 ) : undefined}
               >
-                {cat.items.length === 0 ? <div className="px-4 py-3 text-13 text-neutral-500">No items.</div> : cat.items.map((i) => (
-                  <div key={i.id} className="px-4 py-2 border-b border-neutral-100 last:border-b-0 flex items-start gap-3 text-13">
+                {cat.items.length === 0 ? <div className="fr-row px-4 py-3 text-13 text-neutral-500">No items.</div> : cat.items.map((i) => (
+                  <div key={i.id} className="fr-row px-4 py-3 border-b border-neutral-100 last:border-b-0 flex items-start gap-3 text-13">
                     <div className="flex-1 min-w-0">
                       <div className="flex flex-wrap items-center gap-2">
                         <span className="font-medium">{i.name}</span>

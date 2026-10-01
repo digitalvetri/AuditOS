@@ -17,7 +17,7 @@ import { useAuth } from '@/platform/auth/AuthContext';
 
 const useMyEmployeeId = () => useAuth().session?.employee?.id ?? '';
 
-const menuItem = 'w-full text-left flex items-center gap-2 px-3 py-2 text-13 text-ink hover:bg-canvas';
+const menuItem = 'w-full text-left flex items-center gap-2 px-3 py-2 text-13 text-ink rounded-md hover:bg-[#e8f0fb] hover:text-primary';
 const dangerItem = menuItem + ' text-danger';
 
 /**
@@ -59,7 +59,7 @@ function Popover({ trigger, children, align = 'right' }: { trigger: (open: () =>
       {trigger(open)}
       {pos ? createPortal(
         <div ref={menu} role="menu"
-          className="fixed z-[60] min-w-[210px] bg-surface border border-border rounded-md shadow-card py-1"
+          className="fixed z-[60] min-w-[210px] bg-white border border-border rounded-lg shadow-raised p-1"
           style={{
             top: pos.top, left: pos.left,
             transform: `translate(${align === 'right' ? '-100%' : '0'}, ${pos.up ? '-100%' : '0'})`,
@@ -75,8 +75,8 @@ function Popover({ trigger, children, align = 'right' }: { trigger: (open: () =>
 function Modal({ title, onClose, children, footer }: { title: string; onClose: () => void; children: React.ReactNode; footer?: React.ReactNode }) {
   return (
     <div className="fixed inset-0 z-50 grid place-items-center bg-black/40 p-4" role="dialog" aria-modal aria-label={title} onMouseDown={(e) => { if (e.target === e.currentTarget) onClose(); }}>
-      <div className="w-full max-w-[460px] max-h-[88dvh] flex flex-col bg-surface rounded-lg shadow-card border border-border">
-        <div className="flex items-center justify-between px-4 py-3 border-b border-border">
+      <div className="w-full max-w-[460px] max-h-[88dvh] flex flex-col bg-white rounded-[14px] shadow-drawer border border-border overflow-hidden">
+        <div className="flex items-center justify-between px-5 py-4 border-b border-border">
           <div className="text-15 font-semibold text-ink">{title}</div>
           <button type="button" onClick={onClose} aria-label="Close" className="text-inkMuted hover:text-ink"><X size={18} /></button>
         </div>
@@ -90,8 +90,8 @@ function Modal({ title, onClose, children, footer }: { title: string; onClose: (
 function Confirm({ title, body, action, danger = true, onCancel, onConfirm, busy }: { title: string; body: string; action: string; danger?: boolean; onCancel: () => void; onConfirm: () => void; busy?: boolean }) {
   return (
     <Modal title={title} onClose={onCancel} footer={<>
-      <button type="button" className="h-9 px-4 text-13 rounded-md border border-border hover:bg-canvas" onClick={onCancel}>Cancel</button>
-      <button type="button" disabled={busy} className={'h-9 px-4 text-13 rounded-md text-white disabled:opacity-50 ' + (danger ? 'bg-danger hover:opacity-90' : 'bg-primary hover:bg-primaryHover')} onClick={onConfirm}>{busy ? 'Working…' : action}</button>
+      <button type="button" className="h-9 px-4 text-13 rounded-lg border border-border bg-white hover:bg-[#f4f6fa]" onClick={onCancel}>Cancel</button>
+      <button type="button" disabled={busy} className={'h-9 px-4 text-13 rounded-lg text-white disabled:opacity-50 ' + (danger ? 'bg-danger hover:opacity-90' : 'bg-primary hover:bg-primaryHover')} onClick={onConfirm}>{busy ? 'Working…' : action}</button>
     </>}>
       <p className="text-13 text-inkMuted">{body}</p>
     </Modal>
@@ -119,14 +119,14 @@ function PeoplePicker({ multi, exclude = [], selected, onChange }: { multi: bool
           className="w-full h-9 pl-9 pr-3 text-13 bg-canvas border border-border rounded-full focus:outline-none focus:border-primary" />
       </div>
       {q.isLoading ? <div className="text-13 text-inkMuted p-2">Loading…</div> : people.length === 0 ? <div className="text-13 text-inkMuted p-2">No one matches.</div> : (
-        <ul className="divide-y divide-border">
+        <ul className="space-y-1">
           {people.map((p) => {
             const on = selected.includes(p.id);
             return (
               <li key={p.id}>
                 <button type="button" onClick={() => onChange(multi ? (on ? selected.filter((x) => x !== p.id) : [...selected, p.id]) : [p.id])}
-                  className={'w-full flex items-center gap-3 px-2 py-2 text-left rounded ' + (on ? 'bg-canvas' : 'hover:bg-canvas')}>
-                  <span className="inline-flex items-center justify-center w-9 h-9 rounded-full bg-primary text-white text-12 font-semibold shrink-0">{initials(p.full_name)}</span>
+                  className={'w-full flex items-center gap-3 px-2 py-2 text-left rounded-lg ' + (on ? 'bg-[#e8f0fb]' : 'hover:bg-[#f4f6fa]')}>
+                  <span className="inline-flex items-center justify-center w-9 h-9 rounded-full text-white text-12 font-semibold shrink-0" style={{ background: 'linear-gradient(180deg, #2a4f8f 0%, #1b3a6f 100%)' }}>{initials(p.full_name)}</span>
                   <span className="min-w-0 flex-1">
                     <span className="block text-13 font-medium text-ink truncate">{p.full_name}</span>
                     <span className="block text-11 text-inkMuted truncate">{p.designation ?? p.employee_code}</span>
@@ -280,7 +280,7 @@ function GroupInfo({ chatId, onClose, onGone }: { chatId: string; onClose: () =>
       {!info ? <div className="text-13 text-inkMuted">{q.isError ? (q.error as Error).message : 'Loading…'}</div> : (
         <div className="space-y-4">
           <div className="text-center">
-            <span className="inline-flex items-center justify-center w-16 h-16 rounded-full bg-primary text-white"><Users size={28} /></span>
+            <span className="inline-flex items-center justify-center w-16 h-16 rounded-full text-white shadow-raised" style={{ background: 'linear-gradient(180deg, #2a4f8f 0%, #1b3a6f 100%)' }}><Users size={28} /></span>
             {edit ? (
               <div className="mt-3 space-y-2 text-left">
                 <input value={edit.name} maxLength={120} onChange={(e) => setEdit({ ...edit, name: e.target.value })} className="w-full h-9 px-3 text-14 border border-border rounded-md" />
@@ -321,12 +321,12 @@ function GroupInfo({ chatId, onClose, onGone }: { chatId: string; onClose: () =>
           <ul className="divide-y divide-border">
             {info.members.map((m) => (
               <li key={m.employee_id} className="flex items-center gap-3 py-2">
-                <span className="inline-flex items-center justify-center w-9 h-9 rounded-full bg-neutral-500 text-white text-12 font-semibold shrink-0">{initials(m.full_name)}</span>
+                <span className="inline-flex items-center justify-center w-9 h-9 rounded-full text-white text-12 font-semibold shrink-0" style={{ background: 'linear-gradient(180deg, #2a4f8f 0%, #1b3a6f 100%)' }}>{initials(m.full_name)}</span>
                 <span className="min-w-0 flex-1">
                   <span className="block text-13 font-medium text-ink truncate">{m.full_name}</span>
                   <span className="block text-11 text-inkMuted truncate">{m.designation ?? m.employee_code}</span>
                 </span>
-                {m.role === 'admin' ? <span className="text-11 px-2 py-0.5 rounded-full bg-canvas text-primary border border-border">Group admin</span> : null}
+                {m.role === 'admin' ? <span className="text-11 font-medium px-2 py-0.5 rounded-full bg-[#e8f0fb] text-primary">Group admin</span> : null}
                 {admin && m.employee_id !== myId ? (
                   <Popover trigger={(open) => <button type="button" onClick={open} aria-label={`Options for ${m.full_name}`} className="w-7 h-7 inline-flex items-center justify-center text-inkMuted hover:text-ink"><ChevronDown size={16} /></button>}>
                     {(close) => (
@@ -380,7 +380,7 @@ export function MessageMenu({ chat, message, own, onReply }: { chat: ChatListIte
     <>
       <Popover align={own ? 'right' : 'left'} trigger={(open) => (
         <button type="button" onClick={open} aria-label="Message options" data-testid={`msg-menu-${message.id}`}
-          className="w-6 h-6 inline-flex items-center justify-center rounded-full text-inkFaint hover:text-ink hover:bg-canvas opacity-60 group-hover/bubble:opacity-100 transition-opacity">
+          className={'w-6 h-6 inline-flex items-center justify-center rounded-full opacity-60 group-hover/bubble:opacity-100 transition-opacity ' + (own ? 'text-white/80 hover:text-white hover:bg-white/15' : 'text-inkFaint hover:text-ink hover:bg-[#f1f4f9]')}>
           <ChevronDown size={15} />
         </button>
       )}>
@@ -424,7 +424,7 @@ function MessageInfoModal({ chat, message, onClose }: { chat: ChatListItem; mess
               <ul className="divide-y divide-border">
                 {d.read_by.map((r) => (
                   <li key={r.employee_id} className="flex items-center gap-3 py-2">
-                    <span className="inline-flex items-center justify-center w-8 h-8 rounded-full bg-primary text-white text-11 font-semibold shrink-0">{initials(r.full_name)}</span>
+                    <span className="inline-flex items-center justify-center w-8 h-8 rounded-full text-white text-11 font-semibold shrink-0" style={{ background: 'linear-gradient(180deg, #2a4f8f 0%, #1b3a6f 100%)' }}>{initials(r.full_name)}</span>
                     <span className="flex-1 text-13 text-ink truncate">{r.full_name}</span>
                     <span className="text-11 text-inkMuted tabular-nums">{fmtWhen(r.read_at!)}</span>
                   </li>
@@ -472,13 +472,13 @@ export function VoicePlayer({ attachment, own }: { attachment: ChatAttachment; o
         onTimeUpdate={(e) => setPos(e.currentTarget.currentTime)}
         onLoadedMetadata={(e) => { const d = e.currentTarget.duration; if (Number.isFinite(d) && d > 0) setLen(d); }} />
       <button type="button" onClick={toggle} aria-label={playing ? 'Pause voice message' : 'Play voice message'}
-        className={'w-9 h-9 shrink-0 inline-flex items-center justify-center rounded-full text-white ' + (own ? 'bg-primary' : 'bg-neutral-600')}>
+        className={'w-9 h-9 shrink-0 inline-flex items-center justify-center rounded-full ' + (own ? 'bg-white text-primary' : 'bg-primary text-white')}>
         {playing ? <Pause size={16} /> : <Play size={16} className="ml-0.5" />}
       </button>
       <input type="range" min={0} max={len || 1} step={0.1} value={Math.min(pos, len || 1)} aria-label="Seek"
         onChange={(e) => { const a = ref.current; if (a) { a.currentTime = Number(e.target.value); setPos(a.currentTime); } }}
         className="flex-1 accent-current" />
-      <span className="text-11 tabular-nums text-inkMuted w-9 text-right">{fmtDur((playing || pos ? pos : len) * 1000)}</span>
+      <span className={'text-11 tabular-nums w-9 text-right ' + (own ? 'text-white/75' : 'text-inkMuted')}>{fmtDur((playing || pos ? pos : len) * 1000)}</span>
     </div>
   );
 }
@@ -556,8 +556,8 @@ export function DocumentChip({ attachment }: { attachment: ChatAttachment }) {
   const ext = (attachment.filename.split('.').pop() ?? '').toUpperCase().slice(0, 4);
   const size = attachment.file_size < 1024 * 1024 ? `${Math.max(1, Math.round(attachment.file_size / 1024))} KB` : `${(attachment.file_size / (1024 * 1024)).toFixed(1)} MB`;
   return (
-    <a href={attachment.url} download={attachment.filename} className="flex items-center gap-2 min-w-[220px] max-w-[320px] rounded border border-border bg-canvas px-2 py-2 hover:bg-surface" data-testid={`document-${attachment.id}`}>
-      <span className="inline-flex items-center justify-center w-9 h-10 rounded bg-primary text-white text-[10px] font-bold shrink-0">{ext || 'FILE'}</span>
+    <a href={attachment.url} download={attachment.filename} className="flex items-center gap-2 min-w-[220px] max-w-[320px] rounded-lg border border-border bg-white px-2 py-2 hover:border-primary/40 transition-colors" data-testid={`document-${attachment.id}`}>
+      <span className="inline-flex items-center justify-center w-9 h-10 rounded-md text-white text-[10px] font-bold shrink-0" style={{ background: 'linear-gradient(180deg, #2a4f8f 0%, #1b3a6f 100%)' }}>{ext || 'FILE'}</span>
       <span className="min-w-0 flex-1">
         <span className="block text-13 text-ink truncate" title={attachment.filename}>{attachment.filename}</span>
         <span className="block text-11 text-inkMuted">{size} · {ext}</span>

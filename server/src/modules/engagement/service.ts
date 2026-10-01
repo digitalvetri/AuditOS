@@ -268,6 +268,24 @@ export const EngagementService = {
   },
 
   /**
+   * Out of the archive, back to where the letter stood before it was
+   * archived. The status before archiving is not stored, but the timestamps
+   * are: an accepted letter goes back to accepted (its agreed terms stay
+   * frozen — never a draft), a sent one to sent, anything else to draft.
+   */
+  async unarchive(session: Session, scope: Scope, id: string) {
+    const row = await load(session, scope, id)
+    if (row.status !== 'archived') throw ApiError.badRequest('Only an archived letter can be restored.')
+    const to = row.acceptedAt ? 'accepted' : row.sentAt ? 'sent' : 'draft'
+    const updated = await prisma.engagementLetter.update({
+      where: { id },
+      data: { status: to, updatedBy: session.userId },
+      include: INCLUDE,
+    })
+    return toApi(updated)
+  },
+
+  /**
    * A new DRAFT from any letter — how a sent letter changes, and how last
    * year's terms become this year's. The original stays exactly as it went.
    */

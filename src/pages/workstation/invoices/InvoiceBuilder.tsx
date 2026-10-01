@@ -336,7 +336,7 @@ export function InvoiceBuilderPage() {
     <>
       <header className="flex items-start gap-3 flex-wrap mb-4 qdoc-screen-only">
         <div className="flex-1 min-w-[200px]">
-          <h1 className="text-18 font-semibold text-neutral-900">Invoice builder</h1>
+          <h1 className="text-[26px] leading-tight font-semibold tracking-[-0.01em] text-neutral-900">Invoice builder</h1>
           <p className="text-12 text-neutral-500 mt-1">
             {saved
               ? <>{saved.invoice_number} · <StatusPill status={saved.status} /> {frozen ? '· issued, so the document is locked' : ''}</>
@@ -377,7 +377,7 @@ export function InvoiceBuilderPage() {
             key={v}
             type="button"
             onClick={() => setMobileView(v)}
-            className={`h-8 px-4 text-13 rounded border ${mobileView === v ? 'bg-neutral-900 text-white border-neutral-900' : 'bg-white border-neutral-300'}`}
+            className={`h-8 px-4 text-13 rounded border ${mobileView === v ? 'bg-primary text-white border-primary' : 'bg-white border-neutral-200'}`}
           >
             {v === 'edit' ? 'Edit' : 'Preview'}
           </button>
@@ -391,20 +391,20 @@ export function InvoiceBuilderPage() {
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4 items-start">
         {/* LEFT — the editor. */}
         <div className={`qdoc-screen-only ${mobileView === 'preview' ? 'hidden md:block' : ''}`}>
-          <div className="flex gap-1 border-b border-neutral-200 mb-3">
+          <div className="flex gap-2 flex-wrap mb-4">
             {TABS.map((t) => (
               <button
                 key={t.id}
                 type="button"
                 onClick={() => setTab(t.id)}
-                className={`h-8 px-3 text-13 -mb-px border-b-2 ${tab === t.id ? 'border-neutral-900 text-neutral-900 font-medium' : 'border-transparent text-neutral-500'}`}
+                className={`h-8 px-4 inline-flex items-center text-13 rounded-full border transition-colors ${tab === t.id ? 'bg-[#e8f0fb] border-[#b9cde9] text-primary font-medium' : 'bg-white border-neutral-200 text-neutral-700 hover:border-neutral-300 hover:bg-neutral-50'}`}
               >
                 {t.label}
               </button>
             ))}
           </div>
 
-          <fieldset disabled={frozen} className={frozen ? 'opacity-60' : ''}>
+          <fieldset disabled={frozen} className={'dash-card p-5 min-w-0 ' + (frozen ? 'opacity-60' : '')}>
             {tab === 'details' ? (
               <DetailsTab
                 clients={clientsQ.data?.items ?? []}
@@ -457,7 +457,7 @@ export function InvoiceBuilderPage() {
 
         {/* RIGHT — the live document. */}
         <div className={mobileView === 'edit' ? 'hidden md:block' : ''}>
-          <div className="text-11 uppercase tracking-[0.06em] text-neutral-500 mb-2 qdoc-screen-only">
+          <div className="text-13 font-semibold text-neutral-800 mb-2 qdoc-screen-only">
             Live preview
           </div>
           <PreviewPane doc={doc} />
@@ -513,7 +513,7 @@ function FullPreview({ doc, onClose, onPrint }: {
           <button
             type="button"
             onClick={onPrint}
-            className="h-8 px-3 text-13 rounded bg-neutral-900 text-white hover:bg-neutral-800"
+            className="h-9 px-4 text-13 font-medium rounded-lg bg-primary text-white hover:bg-primaryHover"
           >
             Print
           </button>
@@ -638,7 +638,7 @@ function DetailsTab(p: {
         </Field>
       </Two>
 
-      <div className="text-11 uppercase tracking-[0.06em] text-neutral-500 mt-4 mb-2">Bill to</div>
+      <div className="text-13 font-semibold text-neutral-800 mt-4 mb-2">Bill to</div>
       <Field label="Name">
         <input className={inputClass} value={p.billingName} onChange={(e) => p.setBillingName(e.target.value)} />
       </Field>
@@ -649,7 +649,7 @@ function DetailsTab(p: {
         <input className={inputClass} value={p.customerGstin} onChange={(e) => p.setCustomerGstin(e.target.value.toUpperCase())} />
       </Field>
 
-      <div className="text-11 uppercase tracking-[0.06em] text-neutral-500 mt-4 mb-2">Ship to</div>
+      <div className="text-13 font-semibold text-neutral-800 mt-4 mb-2">Ship to</div>
       <label className="flex items-center gap-2 text-13 mb-2">
         <input type="checkbox" checked={p.shipSame} onChange={(e) => p.setShipSame(e.target.checked)} />
         Same as Bill To
@@ -701,7 +701,7 @@ function ItemsTab(p: {
         return (
           <div key={l.key} className="border border-neutral-200 rounded p-3 mb-3">
             <div className="flex items-center justify-between mb-2">
-              <span className="text-11 uppercase tracking-[0.06em] text-neutral-500">Item {i + 1}</span>
+              <span className="text-13 font-normal text-neutral-600">Item {i + 1}</span>
               <span className="flex gap-1">
                 <IconBtn label="Move up" onClick={() => move(i, -1)} disabled={i === 0}>↑</IconBtn>
                 <IconBtn label="Move down" onClick={() => move(i, 1)} disabled={i === p.lines.length - 1}>↓</IconBtn>
@@ -937,7 +937,7 @@ function LayoutTab(p: {
         {sel('logoPosition', 'Logo position', ['left', 'center', 'right'])}
       </Two>
 
-      <div className="text-11 uppercase tracking-[0.06em] text-neutral-500 mt-4 mb-2">Company</div>
+      <div className="text-13 font-semibold text-neutral-800 mt-4 mb-2">Company</div>
       <p className="text-12 text-neutral-500 mb-2">
         Snapshotted onto the invoice when you save, so a later change of letterhead does not redraw an
         invoice that has already gone out.
@@ -996,7 +996,7 @@ function PaymentTab(p: {
 
       {chosen ? (
         <div className="border border-neutral-200 rounded bg-white px-3 py-2 text-12 text-neutral-600 mb-3">
-          <div className="text-11 uppercase tracking-[0.06em] text-neutral-500 mb-1">On the document</div>
+          <div className="text-13 font-normal text-neutral-600 mb-1">On the document</div>
           <div>A/c {chosen.account_number} · {chosen.bank_name} · IFSC {chosen.ifsc_code}</div>
           {chosen.upi_id ? <div>UPI {chosen.upi_id}</div> : null}
         </div>
@@ -1007,7 +1007,7 @@ function PaymentTab(p: {
         </p>
       )}
 
-      <div className="text-11 uppercase tracking-[0.06em] text-neutral-500 mt-4 mb-2">Payment QR</div>
+      <div className="text-13 font-semibold text-neutral-800 mt-4 mb-2">Payment QR</div>
       <Field label="QR code" hint="Printed beside the bank details on the PDF.">
         <select className={inputClass} value={p.qrMode} onChange={(e) => p.setQrMode(e.target.value as QrMode)}>
           {(Object.keys(QR_MODE_LABEL) as QrMode[]).map((m) => (
@@ -1047,7 +1047,7 @@ function PaymentTab(p: {
         onAdded={(b) => { p.onBankAdded(b); setAddOpen(false); }}
       />
 
-      <div className="text-11 uppercase tracking-[0.06em] text-neutral-500 mt-4 mb-2">Signature</div>
+      <div className="text-13 font-semibold text-neutral-800 mt-4 mb-2">Signature</div>
       <Two>
         <Field label="Signatory name" hint="Leave blank for a bare signature line.">
           <input className={inputClass} value={p.signatoryName} onChange={(e) => p.setSignatoryName(e.target.value)} />
@@ -1057,7 +1057,7 @@ function PaymentTab(p: {
         </Field>
       </Two>
 
-      <div className="text-11 uppercase tracking-[0.06em] text-neutral-500 mt-4 mb-2">Closing text</div>
+      <div className="text-13 font-semibold text-neutral-800 mt-4 mb-2">Closing text</div>
       <Field label="Notes">
         <textarea className={textareaClass} rows={3} value={p.notes} onChange={(e) => p.setNotes(e.target.value)} />
       </Field>

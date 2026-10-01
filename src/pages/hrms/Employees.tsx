@@ -56,8 +56,7 @@ export function EmployeesPage() {
     <div className="space-y-6">
       <header className="flex items-baseline justify-between gap-4 flex-wrap">
         <div>
-          <div className="text-11 uppercase tracking-[0.06em] text-neutral-500">HRMS</div>
-          <h1 className="text-20 font-semibold text-neutral-900 mt-1">Employees</h1>
+          <h1 className="text-[26px] leading-tight font-semibold tracking-[-0.01em] text-neutral-900">Employees</h1>
         </div>
         <div className="flex items-center gap-2">
           <Button
@@ -91,7 +90,7 @@ export function EmployeesPage() {
         ) : (query.data?.items.length ?? 0) === 0 ? (
           <Empty />
         ) : (
-          <table className="w-full border-collapse tabular-nums">
+          <table className="hr-float w-full border-collapse tabular-nums">
             <thead>
               <tr>
                 {columns.map((c) => (

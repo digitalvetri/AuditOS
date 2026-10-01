@@ -59,7 +59,7 @@ export function EmployeeDetailPage({ fixedId }: Props) {
         <div className="text-11 uppercase tracking-[0.06em] text-neutral-500">
           {status === 403 ? 'Access denied' : status === 404 ? 'Not found' : 'Error'}
         </div>
-        <h1 className="text-20 font-semibold text-neutral-900 mt-1">
+        <h1 className="text-[26px] leading-tight font-semibold tracking-[-0.01em] text-neutral-900">
           {status === 403
             ? 'You do not have access to this employee record.'
             : status === 404
@@ -105,7 +105,7 @@ export function EmployeeDetailPage({ fixedId }: Props) {
           <div className="text-11 uppercase tracking-[0.06em] text-neutral-500">
             {emp.employee_code}
           </div>
-          <h1 className="text-20 font-semibold text-neutral-900 mt-1">
+          <h1 className="text-[26px] leading-tight font-semibold tracking-[-0.01em] text-neutral-900">
             {emp.full_name}
           </h1>
           <p className="text-13 text-neutral-500 mt-1">
@@ -128,7 +128,7 @@ export function EmployeeDetailPage({ fixedId }: Props) {
         </div>
       </header>
 
-      <div className="border-b border-neutral-200 flex items-center gap-4 flex-wrap">
+      <div className="flex items-center gap-2 flex-wrap">
         {tabs
           .filter((t) => t.show)
           .map((t) => (
@@ -138,10 +138,10 @@ export function EmployeeDetailPage({ fixedId }: Props) {
               onClick={() => setTab(t.id)}
               data-testid={`employee-tab-${t.id}`}
               className={
-                'h-10 px-1 text-13 -mb-px border-b-2 ' +
+                'h-8 px-3 inline-flex items-center text-13 rounded-full border transition-colors whitespace-nowrap ' +
                 (tab === t.id
-                  ? 'border-gold text-neutral-900 font-medium'
-                  : 'border-transparent text-neutral-500 hover:text-neutral-900')
+                  ? 'bg-[#e8f0fb] border-[#b9cde9] text-primary font-medium'
+                  : 'bg-white border-neutral-200 text-neutral-700 hover:border-neutral-300 hover:bg-neutral-50')
               }
             >
               {t.label}

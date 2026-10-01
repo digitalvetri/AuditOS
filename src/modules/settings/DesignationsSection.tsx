@@ -44,7 +44,7 @@ export function DesignationsSection() {
             e.preventDefault();
             create.mutate();
           }}
-          className="bg-white border border-neutral-200 rounded p-4 flex items-end gap-3"
+          className="dash-card p-4 flex items-end gap-3"
         >
           <Input label="Name" value={name} onChange={(e) => setName(e.target.value)} required />
           <Button variant="primary" type="submit" disabled={create.isPending}>Save</Button>
@@ -52,7 +52,7 @@ export function DesignationsSection() {
         </form>
       ) : null}
       <div className="bg-white border border-neutral-200 rounded overflow-hidden">
-        <table className="w-full border-collapse tabular-nums">
+        <table className="hr-float w-full border-collapse tabular-nums">
           <thead>
             <tr>
               {['Name', 'Actions'].map((c) => (
@@ -65,7 +65,7 @@ export function DesignationsSection() {
           <tbody>
             {(q.data?.items ?? []).map((d) => (
               <tr key={d.id} className="border-b border-neutral-200">
-                <td className="px-3 py-2 text-13 text-neutral-900">{d.name}</td>
+                <td className="px-3 py-2 text-13 font-semibold text-neutral-900">{d.name}</td>
                 <td className="px-3 py-2">
                   <Button
                     variant="ghost"

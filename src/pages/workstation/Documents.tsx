@@ -4,15 +4,17 @@ import { useNavigate, useSearchParams } from 'react-router-dom';
 import { Plus } from 'lucide-react';
 import { workstationApi } from '@/modules/workstation/api';
 import {
-  Card, Cell, Field, FilterBar, Modal, PageHeader, QueryState, Row, Select, Status, Table,
-  fieldErrors, inputClass,
+  Field, Modal, QueryState, fieldErrors, inputClass,
 } from '@/modules/workstation/components';
+import {
+  FilterSelect, ListAction, ListCard, ListEmpty, ListHeader, ListRow, ListTable, ListToolbar, StatusChip,
+  StatusPills, TD, fmtDay,
+} from '@/modules/workstation/listUi';
 import { Button } from '@/components/Button';
 import { useToast } from '@/components/Toast';
 import { can } from '@/platform/rbac/can';
 import { useAuth } from '@/platform/auth/AuthContext';
 import type { ClientDocument, ListResponse } from '@/modules/workstation/types';
-import { fmtDate } from '@/lib/format';
 import { StatusSelect, useSetDocumentStatus } from '@/modules/workstation/documents/StatusSelect';
 import {
   RequestButtons, SendRequestDialog, needsRequest, type RequestChannel, type RequestTarget,
@@ -57,14 +59,14 @@ export function DocumentsPage() {
   const [addOpen, setAddOpen] = useState(false);
 
   return (
-    <div className="">
-      <PageHeader
+    <div className="max-w-[1400px]">
+      <ListHeader
         title="Documents"
-        subtitle="One document store per client, organised by category."
+        meta={docs.data
+          ? <>{docs.data.count} document{docs.data.count === 1 ? '' : 's'} · {docs.data.scope === 'organisation' ? 'all firm documents' : 'documents on clients assigned to you'}</>
+          : 'One document store per client, organised by category.'}
         action={canAdd ? (
-          <Button variant="primary" size="sm" onClick={() => setAddOpen(true)}>
-            <Plus size={14} className="mr-1" /> Add
-          </Button>
+          <ListAction onClick={() => setAddOpen(true)} icon={<Plus size={15} />}>Add</ListAction>
         ) : undefined}
       />
       <AddDocumentModal
@@ -79,27 +81,27 @@ export function DocumentsPage() {
         onClose={() => setRequest(null)}
       />
 
-      <FilterBar>
-        <Select
+      <ListToolbar>
+        <FilterSelect
           label="Client" value={clientId} onChange={(v) => setParam('client_id', v)}
           options={(clients.data?.items ?? []).map((c) => ({ value: c.id, label: `${c.client_id} · ${c.company_name}` }))}
         />
-        <Select
+        <FilterSelect
           label="Category" value={categoryId} onChange={(v) => setParam('category_id', v)}
           options={(categories.data?.items ?? []).map((c) => ({ value: c.id, label: c.name }))}
         />
-        <Select
-          label="Status" value={status} onChange={(v) => setParam('status', v)}
-          options={['requested', 'pending', 'uploaded', 'under_review', 'verified', 'rejected', 'expired']
-            .map((v) => ({ value: v, label: v.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase()) }))}
-        />
-        <Select
+        <FilterSelect
           label="Financial year" value={fy} onChange={(v) => setParam('financial_year', v)}
           options={[{ value: '2026-27', label: '2026-27' }, { value: '2025-26', label: '2025-26' }]}
         />
-      </FilterBar>
+      </ListToolbar>
+      <div className="mb-4">
+        <StatusPills value={status} onChange={(v) => setParam('status', v)}
+          options={[{ value: '', label: 'All' }, ...['requested', 'pending', 'uploaded', 'under_review', 'verified', 'rejected', 'expired']
+            .map((v) => ({ value: v, label: v.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase()) }))]} />
+      </div>
 
-      <QueryState query={docs} empty="No documents match these filters.">
+      <QueryState query={docs} empty={<ListCard><ListEmpty>No documents match these filters.</ListEmpty></ListCard>}>
         {(data: ListResponse<ClientDocument>) => {
           // Client → Category → Document (§10.2).
           const byClient = new Map<string, ClientDocument[]>();
@@ -107,68 +109,59 @@ export function DocumentsPage() {
             const key = `${d.client_code} · ${d.client_name}`;
             byClient.set(key, [...(byClient.get(key) ?? []), d]);
           }
+          if (!byClient.size) return <ListCard><ListEmpty>No documents match these filters.</ListEmpty></ListCard>;
           return (
             <div className="space-y-4">
               {Array.from(byClient.entries()).map(([clientLabel, items]) => (
-                <Card key={clientLabel} title={clientLabel}>
-                  <Table head={['Document', 'Category', 'FY', 'Version', 'Uploaded By', 'Upload Date', 'Status', ...(canAdd ? ['Request'] : [])]}>
-                    {items.map((d) => (
-                      <Row
-                        key={d.id}
-                        status={d.status}
-                        onClick={() => navigate(`/workstation/clients/${d.client_id}/documents`)}
-                      >
-                        <Cell className="font-medium">{d.name}</Cell>
-                        <Cell muted>{d.category_name}</Cell>
-                        <Cell muted>{d.financial_year ?? '—'}</Cell>
-                        <Cell muted>{d.version > 0 ? `v${d.version}` : '—'}</Cell>
-                        <Cell muted>
-                          {d.versions.length === 0
-                            ? '—'
-                            : d.versions[d.versions.length - 1].uploaded_via_portal
-                              ? 'Client Portal'
-                              : d.versions[d.versions.length - 1].uploaded_by_employee?.full_name ?? '—'}
-                        </Cell>
-                        <Cell muted>
-                          {d.versions.length === 0 ? '—' : fmtDate(d.versions[d.versions.length - 1].uploaded_at)}
-                        </Cell>
-                        <Cell>
+                <ListCard key={clientLabel} title={<>{clientLabel} <span className="font-normal text-neutral-500">· {items.length}</span></>}>
+                  <ListTable plainHead cols={['Document', 'Category', 'FY', 'Version', 'Uploaded by', 'Upload date', 'Status', ...(canAdd ? ['Request'] : [])]}>
+                    {items.map((d) => {
+                      const latest = d.versions[d.versions.length - 1];
+                      return (
+                        <ListRow key={d.id} onOpen={() => navigate(`/workstation/clients/${d.client_id}/documents`)}>
+                          <TD first strong>{d.name}</TD>
+                          <TD muted>{d.category_name}</TD>
+                          <TD muted nowrap>{d.financial_year ?? '—'}</TD>
+                          <TD muted>{d.version > 0 ? `v${d.version}` : '—'}</TD>
+                          <TD muted>
+                            {!latest ? '—' : latest.uploaded_via_portal ? 'Client Portal' : latest.uploaded_by_employee?.full_name ?? '—'}
+                          </TD>
+                          <TD muted nowrap>{latest ? fmtDay(latest.uploaded_at) : '—'}</TD>
+                          <TD last={!canAdd}>
+                            {canAdd ? (
+                              <span onClick={(e) => e.stopPropagation()}>
+                                <StatusSelect
+                                  value={d.status}
+                                  canVerify={canVerify}
+                                  onChange={(next) => setStatus.mutate({ id: d.id, status: next })}
+                                />
+                              </span>
+                            ) : <StatusChip value={d.status} />}
+                          </TD>
                           {canAdd ? (
-                            <StatusSelect
-                              value={d.status}
-                              canVerify={canVerify}
-                              onChange={(next) => setStatus.mutate({ id: d.id, status: next })}
-                            />
-                          ) : <Status value={d.status} />}
-                        </Cell>
-                        {canAdd ? (
-                          <Cell>
-                            {needsRequest(d.status, d.version === 0) ? (
-                              <RequestButtons
-                                onPick={(channel) => setRequest({
-                                  channel,
-                                  target: { documentId: d.id, documentName: d.name, financialYear: d.financial_year, clientId: d.client_id },
-                                })}
-                              />
-                            ) : <span className="text-12 text-neutral-400">—</span>}
-                          </Cell>
-                        ) : null}
-                      </Row>
-                    ))}
-                  </Table>
-                </Card>
+                            <TD last>
+                              {needsRequest(d.status, d.version === 0) ? (
+                                <span onClick={(e) => e.stopPropagation()}>
+                                  <RequestButtons
+                                    onPick={(channel) => setRequest({
+                                      channel,
+                                      target: { documentId: d.id, documentName: d.name, financialYear: d.financial_year, clientId: d.client_id },
+                                    })}
+                                  />
+                                </span>
+                              ) : <span className="text-12 text-neutral-400">—</span>}
+                            </TD>
+                          ) : null}
+                                                  </ListRow>
+                      );
+                    })}
+                  </ListTable>
+                </ListCard>
               ))}
             </div>
           );
         }}
       </QueryState>
-
-      {docs.data ? (
-        <p className="text-12 text-neutral-500 mt-3">
-          {docs.data.count} document{docs.data.count === 1 ? '' : 's'} ·{' '}
-          {docs.data.scope === 'organisation' ? 'all firm documents' : 'documents on clients assigned to you'}
-        </p>
-      ) : null}
     </div>
   );
 }

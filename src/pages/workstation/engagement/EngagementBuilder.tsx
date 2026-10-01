@@ -238,8 +238,8 @@ const editEl = (surface: string, id: string) =>
 
 // ── The page ──────────────────────────────────────────────────────────────
 
-const btn = 'h-8 px-3 inline-flex items-center gap-1.5 text-13 rounded border border-neutral-300 bg-white hover:bg-neutral-50 disabled:opacity-50';
-const btnPrimary = 'h-8 px-3 inline-flex items-center gap-1.5 text-13 rounded bg-neutral-900 text-white hover:bg-neutral-800 disabled:opacity-50';
+const btn = 'h-9 px-3 inline-flex items-center gap-2 text-13 rounded-lg border border-neutral-200 bg-white hover:bg-neutral-50 hover:border-neutral-300 transition-colors disabled:opacity-50';
+const btnPrimary = 'h-9 px-4 inline-flex items-center gap-2 text-13 font-medium rounded-lg bg-primary text-white hover:bg-primaryHover shadow-card transition-colors disabled:opacity-50';
 const smallBtn = 'h-7 w-7 inline-flex items-center justify-center rounded border border-neutral-300 bg-white hover:bg-neutral-50 text-neutral-500 disabled:opacity-40';
 
 export function EngagementBuilderPage() {
@@ -550,8 +550,7 @@ export function EngagementBuilderPage() {
     <div className="qb-root" ref={rootRef}>
       <header className="flex items-start gap-3 flex-wrap mb-4 qdoc-screen-only">
         <div className="min-w-0">
-          <div className="text-11 uppercase tracking-[0.06em] text-neutral-500">Workstation · Engagement</div>
-          <h1 className="text-20 font-semibold text-neutral-900 mt-0.5">Engagement Letter Builder</h1>
+          <h1 className="text-[26px] leading-tight font-semibold tracking-[-0.01em] text-neutral-900">Engagement Letter Builder</h1>
           <p className="text-13 text-neutral-500 mt-1">
             {isEdit ? existingQ.data?.letter_code ?? '' : 'The reference number is allocated when you save.'}
             {isEdit ? <> · <span className="capitalize">{status}</span></> : null}
@@ -583,7 +582,7 @@ export function EngagementBuilderPage() {
       <div className="md:hidden flex gap-2 mb-3 qdoc-screen-only">
         {(['edit', 'preview'] as const).map((v) => (
           <button key={v} type="button" onClick={() => setMobileView(v)}
-            className={`h-8 px-4 text-13 rounded border ${mobileView === v ? 'bg-neutral-900 text-white border-neutral-900' : 'bg-white border-neutral-300'}`}>
+            className={`h-8 px-4 text-13 rounded border ${mobileView === v ? 'bg-primary text-white border-primary' : 'bg-white border-neutral-200'}`}>
             {v === 'edit' ? 'Edit' : 'Document'}
           </button>
         ))}
@@ -612,11 +611,11 @@ export function EngagementBuilderPage() {
           className={`el-editing qdoc-screen-only space-y-3 md:max-h-[calc(100dvh-190px)] md:overflow-auto md:pr-1 ${mobileView === 'preview' ? 'hidden md:block' : ''}`}>
           {/* The quotation's three tabs: what the letter SAYS, how it LOOKS,
               and which parts it HAS. */}
-          <nav className="flex gap-x-4 border-b border-neutral-200 mb-3">
+          <nav className="flex gap-2 flex-wrap mb-4">
             {(['details', 'layout', 'blocks'] as const).map((t) => (
               <button key={t} type="button" onClick={() => setTab(t)}
-                className={'h-8 flex items-center text-13 uppercase tracking-[0.06em] border-b-2 -mb-px '
-                  + (tab === t ? 'border-gold text-neutral-900 font-medium' : 'border-transparent text-neutral-500 hover:text-neutral-900')}>
+                className={'h-8 px-4 inline-flex items-center text-13 rounded-full border transition-colors capitalize '
+                  + (tab === t ? 'bg-[#e8f0fb] border-[#b9cde9] text-primary font-medium' : 'bg-white border-neutral-200 text-neutral-700 hover:border-neutral-300 hover:bg-neutral-50')}>
                 {t}
               </button>
             ))}
@@ -624,7 +623,7 @@ export function EngagementBuilderPage() {
           <fieldset disabled={frozen} className="space-y-3 min-w-0">
             <TemplatePicker value={s.templateId} onPick={(t) => { if (t !== s.templateId) { forceSync(); update((x) => applyTemplate(x, t), true); } }} />
             {tab === 'layout' ? (skinOf(s.templateId)
-              ? <p className="bg-white border border-neutral-200 rounded p-3 text-13 text-neutral-600">
+              ? <p className="dash-card p-4 text-13 text-neutral-600">
                   This letter uses the <strong>{templateOf(s.templateId).name}</strong> template’s own Word layout — its fonts,
                   margins, spacing and page breaks match the original letter exactly, so they are fixed here. Edit the words
                   on the page; switch to the Standard template for an adjustable layout.
@@ -633,7 +632,7 @@ export function EngagementBuilderPage() {
             {tab === 'blocks' ? <BlocksTab s={s} edit={edit} update={update} /> : null}
             {tab === 'details' ? (<>
             {/* Who it is for, and what it is about — the two things every letter needs. */}
-            <section className="bg-white border border-neutral-200 rounded p-3 space-y-2">
+            <section className="dash-card p-4 space-y-2">
               <div className="grid grid-cols-[110px_1fr] gap-2">
                 <select value={s.partyKind} aria-label="Recipient type"
                   onChange={(e) => update((x) => ({ ...x, partyKind: e.target.value as 'client' | 'lead', partyId: '' }), true)}
@@ -653,12 +652,12 @@ export function EngagementBuilderPage() {
             </section>
 
             {/* The words of the letter, in order — nothing else. */}
-            <section className="bg-white border border-neutral-200 rounded p-3">
+            <section className="dash-card p-4">
               <SimpleText s={s} edit={edit} update={update} vars={vars} />
             </section>
 
             {/* Everything that is set once and rarely touched, folded away. */}
-            <details className="bg-white border border-neutral-200 rounded group/details">
+            <details className="dash-card group/details">
               <summary className="px-3 py-2.5 cursor-pointer select-none text-13 text-neutral-700 hover:bg-neutral-50">
                 <span className="font-medium">Details</span>
                 <span className="text-neutral-500"> — dates, recipient address, letterhead, signature</span>
@@ -671,7 +670,7 @@ export function EngagementBuilderPage() {
 
         {/* ── RIGHT: the letter itself, editable in place ──────────────── */}
         <div className={mobileView === 'edit' ? 'hidden md:block' : ''}>
-          <div className="text-11 uppercase tracking-[0.06em] text-neutral-500 mb-2 qdoc-screen-only">
+          <div className="text-13 font-semibold text-neutral-800 mb-2 qdoc-screen-only">
             {frozen ? 'Document (read-only)' : 'Document — click any text to edit it'}
           </div>
           <DocumentPane doc={doc} edit={liveEdit} />
@@ -694,8 +693,8 @@ export function EngagementBuilderPage() {
  */
 function TemplatePicker({ value, onPick }: { value: EngagementTemplateId; onPick: (t: EngagementTemplateId) => void }) {
   return (
-    <section className="bg-white border border-neutral-200 rounded p-3">
-      <div className="flex items-center gap-1.5 text-11 uppercase tracking-[0.06em] text-neutral-500 mb-2">
+    <section className="dash-card p-4">
+      <div className="flex items-center gap-1.5 text-13 font-semibold text-neutral-800 mb-2">
         <LayoutTemplate size={13} /> Template
       </div>
       <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-1.5" role="radiogroup" aria-label="Letter template">
@@ -905,7 +904,7 @@ function DetailsPanel({ s, edit, set, vars, letterCode }: {
   letterCode?: string;
 }) {
   const H = ({ children }: { children: ReactNode }) => (
-    <div className="text-11 uppercase tracking-[0.06em] text-neutral-500 mb-1.5">{children}</div>
+    <div className="text-13 font-semibold text-neutral-800 mb-1.5">{children}</div>
   );
   const lbl = (key: string, dflt: string) => {
     const b = s.blocks.find((x) => x.key === key);
@@ -999,8 +998,8 @@ function LayoutTab({ layout, setLayout }: { layout: LayoutConfig; setLayout: (pa
       </select>
     </CardField>
   );
-  const box = 'bg-white border border-neutral-200 rounded p-3';
-  const head = (t: string) => <div className="text-11 uppercase tracking-[0.06em] text-neutral-500 mb-2">{t}</div>;
+  const box = 'dash-card p-4';
+  const head = (t: string) => <div className="text-13 font-semibold text-neutral-800 mb-2">{t}</div>;
   return (
     <div className="space-y-3">
       <section className={box}>
@@ -1047,7 +1046,7 @@ function BlocksTab({ s, edit, update }: {
     return { ...x, blocks: at < 0 ? [...x.blocks, b] : [...x.blocks.slice(0, at), b, ...x.blocks.slice(at)] };
   }, true);
   return (
-    <section className="bg-white border border-neutral-200 rounded p-3">
+    <section className="dash-card p-4">
       <p className="text-11 text-neutral-500 mb-2">Untick to leave a part out; the arrows change where it sits on the page.</p>
       <ul className="space-y-1">
         {s.blocks.map((b, i) => (

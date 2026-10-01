@@ -61,11 +61,11 @@ export function CaseChecklist({ c, onOpenDocuments, onOpenDetails }: { c: CaseDe
           const done = applicable.filter((i) => i.status === 'COMPLETED').length;
           const open = !collapsed[cat.id];
           return (
-            <section key={cat.id} className="bg-white border border-neutral-200 rounded mb-3">
+            <section key={cat.id} className="fr-group bg-white border border-neutral-200 rounded mb-4">
               <button
                 type="button"
                 onClick={() => setCollapsed((s) => ({ ...s, [cat.id]: open }))}
-                className="w-full h-10 px-4 flex items-center gap-2 text-left border-b border-neutral-200"
+                className="fr-head w-full h-11 px-4 flex items-center gap-2 text-left border-b border-neutral-200"
               >
                 <span className="text-neutral-500 w-3">{open ? '▾' : '▸'}</span>
                 <span className="text-13 font-medium text-neutral-900 uppercase tracking-[0.03em]">{cat.name}</span>
@@ -169,7 +169,7 @@ function ItemRow({ c, item, reqById, onUpload }: {
     : null;
 
   return (
-    <div className={`px-4 py-2 border-b border-neutral-100 last:border-b-0 ${na ? 'opacity-60' : ''}`}>
+    <div className={`fr-row px-4 py-3 border-b border-neutral-100 last:border-b-0 ${na ? 'opacity-60' : ''}`}>
       <div className="flex items-start gap-3">
         <input
           type="checkbox"

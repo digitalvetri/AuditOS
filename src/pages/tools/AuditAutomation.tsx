@@ -81,7 +81,7 @@ function PipelineCard({
       className={
         'bg-white border rounded p-4 flex gap-3 min-h-[112px] ' +
         (active
-          ? 'border-neutral-200 hover:border-gold cursor-pointer transition-colors'
+          ? 'dash-card card-zoom border-neutral-200 cursor-pointer'
           : 'border-neutral-200 opacity-70')
       }
       data-testid={`aa-pipeline-${title.toLowerCase().replace(/\s+/g, '-')}`}
