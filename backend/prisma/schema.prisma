@@ -6759,6 +6759,7 @@ model Invoice {
   bankAccount   FirmBankAccount? @relation(fields: [bankAccountId], references: [id])
   client        Client           @relation(fields: [clientId], references: [id])
   items         InvoiceItem[]
+  payments      InvoicePayment[]
 
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt
@@ -6771,6 +6772,38 @@ model Invoice {
   @@index([invoiceDate])
   @@index([dueDate])
   @@index([createdAt])
+}
+
+/// One payment received against an invoice. A client paying in instalments
+/// (a "split") gets one row per instalment; Invoice.amountPaidPaise is the sum
+/// of the live rows. Removing a wrong entry soft-deletes the row and the
+/// invoice's paid / balance / status are recomputed from what remains.
+model InvoicePayment {
+  id             String  @id @default(uuid())
+  organisationId String
+  invoiceId      String
+  /// Denormalised from the invoice so per-client sums need no join.
+  clientId       String
+  amountPaise    Int
+  /// 'YYYY-MM-DD' — the day the money was received, not the day it was typed in.
+  paidOn         String
+  /// cash | bank_transfer | upi | cheque | card | other
+  mode           String  @default("bank_transfer")
+  /// UTR, cheque number, UPI reference…
+  reference      String?
+  note           String?
+
+  invoice Invoice @relation(fields: [invoiceId], references: [id])
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  createdBy String?
+  updatedBy String?
+  deletedAt DateTime?
+
+  @@index([invoiceId])
+  @@index([clientId])
+  @@index([paidOn])
 }
 
 /// One priced line. `taxableAmountPaise` and the three tax figures are

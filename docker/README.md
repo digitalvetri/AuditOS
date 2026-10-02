@@ -61,6 +61,12 @@ permissions holds. To put the defaults back:
 docker compose run --rm migrate npx tsx prisma/setup-roles.ts
 ```
 
+**Payment summary.** `migrate` creates the `InvoicePayment` table (payment
+history / instalments per invoice) like any other additive schema change. On
+start the `api` gives every invoice that was paid before history existed one
+"recorded before payment history" row, so the totals and the history agree —
+nothing to run by hand.
+
 **Database only, for native development** (`npm run dev:full` against it):
 
 ```bash

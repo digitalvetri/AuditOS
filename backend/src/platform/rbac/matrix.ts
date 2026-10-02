@@ -28,6 +28,8 @@ export type PermissionCode =
   | 'reports.hr' | 'reports.finance' | 'reports.all'
   | 'audit.read.hr' | 'audit.read.finance' | 'audit.read.all'
   | 'settings.manage'
+  // Payment summary (HRMS): client invoices — paid, pending, instalments.
+  | 'payment_summary.read' | 'payment_summary.manage'
   // â”€â”€ Workstation (AUDIT_OS_WORKSTATION.md Â§6) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   // Namespaced: `workstation.document.read` is CLIENT documents, never
   // EmployeeDocument. No Workstation code collides with an HRMS code.
@@ -366,6 +368,8 @@ export const MATRIX: Record<RoleCode, Grant[]> = {
     { permission: 'accounts.manage', scope: 'organisation' },
     { permission: 'integrations.access', scope: 'organisation' },
     { permission: 'payments.manage', scope: 'organisation' },
+    { permission: 'payment_summary.read', scope: 'organisation' },
+    { permission: 'payment_summary.manage', scope: 'organisation' },
     { permission: 'chat.participate', scope: 'organisation' },
     { permission: 'reports.finance', scope: 'organisation' },
     { permission: 'audit.read.finance', scope: 'organisation' },
@@ -401,6 +405,8 @@ export const MATRIX: Record<RoleCode, Grant[]> = {
     { permission: 'accounts.manage', scope: 'organisation' },
     { permission: 'integrations.access', scope: 'organisation' },
     { permission: 'payments.manage', scope: 'organisation' },
+    { permission: 'payment_summary.read', scope: 'organisation' },
+    { permission: 'payment_summary.manage', scope: 'organisation' },
     { permission: 'document.read', scope: 'organisation' },
     { permission: 'document.manage', scope: 'organisation' },
     { permission: 'chat.participate', scope: 'organisation' },
@@ -625,4 +631,6 @@ export const PERMISSION_DESCRIPTIONS: Record<string, string> = {
   'books.reports': 'Run Books reports',
   'books.accountant': 'Delete and void, record payments, banking and reconciliation',
   'integrations.access': 'Open Integrations (Zoho Payments)',
+  'payment_summary.read': 'View the payment summary — what each client has paid and owes',
+  'payment_summary.manage': 'Record and remove client invoice payments from the payment summary',
 }

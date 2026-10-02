@@ -131,6 +131,7 @@ import {
 } from '@/pages/hrms/Accounts';
 import { MessagesPage } from '@/pages/hrms/Messages';
 import { ReportsPage } from '@/pages/hrms/Reports';
+import { PaymentSummaryPage } from '@/pages/hrms/PaymentSummary';
 import { useAuth } from '@/platform/auth/AuthContext';
 import { NotFoundPage } from '@/pages/NotFound';
 import { NotificationsPage } from '@/pages/Notifications';
@@ -251,6 +252,7 @@ export default function App() {
               <Route path="hrms/expenses" element={<LegacyRedirect to="/hrms/accounts/expenses" />} />
               <Route path="hrms/messages" element={<MessagesPage />} />
               <Route path="hrms/documents" element={<DocumentsPage />} />
+              <Route path="hrms/payment-summary" element={<PaymentSummaryPage />} />
               <Route path="hrms/reports" element={<ReportsPage />} />
               <Route path="hrms/settings" element={<SettingsPage />} />
               <Route path="integrations/zoho-payments" element={<ZohoPaymentsIntegrationPage />} />
