@@ -1,0 +1,136 @@
+/* ── Dark theme: pastel tints ───────────────────────────────────────────
+   Generated from the arbitrary-value colours the components use (badges,
+   icon tiles, status pills). In dark mode a light pastel fill becomes a
+   translucent wash of the same hue, a slate-grey fill a faint white wash,
+   and a deep text colour lifts to a readable tint of its hue. Print
+   documents (.qdoc-page) are excluded. Regenerate with: python3 scripts/gen-dark-tints.py (from frontend/). */
+:root[data-theme='dark'] .bg-\[\#FDE7EA\]:not(.qdoc-page *):not(.qdoc-stack *) { background-color: rgb(211 69 89 / 0.14); }
+:root[data-theme='dark'] .bg-\[\#e3f4f3\]:not(.qdoc-page *):not(.qdoc-stack *) { background-color: rgb(83 198 191 / 0.14); }
+:root[data-theme='dark'] .bg-\[\#e9f9f1\]:not(.qdoc-page *):not(.qdoc-stack *) { background-color: rgb(75 206 140 / 0.14); }
+:root[data-theme='dark'] .bg-\[\#ecfdf5\]:not(.qdoc-page *):not(.qdoc-stack *) { background-color: rgb(69 211 144 / 0.14); }
+:root[data-theme='dark'] .bg-\[\#f0f2f5\]:not(.qdoc-page *):not(.qdoc-stack *) { background-color: rgb(255 255 255 / 0.06); }
+:root[data-theme='dark'] .bg-\[\#f1f4f9\]:not(.qdoc-page *):not(.qdoc-stack *) { background-color: rgb(255 255 255 / 0.06); }
+:root[data-theme='dark'] .bg-\[\#f1f5f9\]:not(.qdoc-page *):not(.qdoc-stack *) { background-color: rgb(255 255 255 / 0.06); }
+:root[data-theme='dark'] .bg-\[\#f4f6fa\]:not(.qdoc-page *):not(.qdoc-stack *) { background-color: rgb(255 255 255 / 0.06); }
+:root[data-theme='dark'] .bg-\[\#f7f9fc\]:not(.qdoc-page *):not(.qdoc-stack *) { background-color: rgb(255 255 255 / 0.06); }
+:root[data-theme='dark'] .bg-\[\#fafbfd\]:not(.qdoc-page *):not(.qdoc-stack *) { background-color: rgb(255 255 255 / 0.06); }
+:root[data-theme='dark'] .bg-\[\#fbfcfe\]:not(.qdoc-page *):not(.qdoc-stack *) { background-color: rgb(255 255 255 / 0.06); }
+:root[data-theme='dark'] .bg-\[\#fef2f2\]:not(.qdoc-page *):not(.qdoc-stack *) { background-color: rgb(211 69 69 / 0.14); }
+:root[data-theme='dark'] .bg-\[\#fff1ec\]:not(.qdoc-page *):not(.qdoc-stack *) { background-color: rgb(211 107 69 / 0.14); }
+:root[data-theme='dark'] .bg-\[\#fff7e6\]:not(.qdoc-page *):not(.qdoc-stack *) { background-color: rgb(211 166 69 / 0.14); }
+:root[data-theme='dark'] .bg-\[\#fffbeb\]:not(.qdoc-page *):not(.qdoc-stack *) { background-color: rgb(211 183 69 / 0.14); }
+:root[data-theme='dark'] .border-\[\#abd8d4\]:not(.qdoc-page *):not(.qdoc-stack *) { border-color: rgb(83 198 187 / 0.28); }
+:root[data-theme='dark'] .hover\:bg-\[\#d3ecea\]:hover { background-color: rgb(83 198 188 / 0.14); }
+:root[data-theme='dark'] .hover\:bg-\[\#e3f4f3\]:hover { background-color: rgb(83 198 191 / 0.14); }
+:root[data-theme='dark'] .hover\:bg-\[\#ecfdf5\]:hover { background-color: rgb(69 211 144 / 0.14); }
+:root[data-theme='dark'] .hover\:bg-\[\#f1f4f9\]:hover { background-color: rgb(255 255 255 / 0.06); }
+:root[data-theme='dark'] .hover\:bg-\[\#f2f8f8\]:hover { background-color: rgb(83 198 198 / 0.14); }
+:root[data-theme='dark'] .hover\:bg-\[\#f4f6fa\]:hover { background-color: rgb(255 255 255 / 0.06); }
+:root[data-theme='dark'] .hover\:bg-\[\#f7f9fc\]:hover { background-color: rgb(255 255 255 / 0.06); }
+:root[data-theme='dark'] .hover\:bg-\[\#fff5f5\]:hover { background-color: rgb(211 69 69 / 0.14); }
+:root[data-theme='dark'] .ring-\[\#cdeede\]:not(.qdoc-page *):not(.qdoc-stack *) { --tw-ring-color: rgb(83 198 142 / 0.28); }
+:root[data-theme='dark'] .text-\[\#03262a\]:not(.qdoc-page *):not(.qdoc-stack *):not(.dash-hero *) { color: rgb(131 216 226); }
+:root[data-theme='dark'] .text-\[\#047857\]:not(.qdoc-page *):not(.qdoc-stack *):not(.dash-hero *) { color: rgb(131 226 199); }
+:root[data-theme='dark'] .text-\[\#0C7A7A\]:not(.qdoc-page *):not(.qdoc-stack *):not(.dash-hero *) { color: rgb(131 226 226); }
+:root[data-theme='dark'] .text-\[\#0c7a7a\]:not(.qdoc-page *):not(.qdoc-stack *):not(.dash-hero *) { color: rgb(131 226 226); }
+:root[data-theme='dark'] .text-\[\#128C7E\]:not(.qdoc-page *):not(.qdoc-stack *):not(.dash-hero *) { color: rgb(131 226 215); }
+:root[data-theme='dark'] .text-\[\#475569\]:not(.qdoc-page *):not(.qdoc-stack *):not(.dash-hero *) { color: rgb(var(--c-inkMuted)); }
+:root[data-theme='dark'] .text-\[\#B45309\]:not(.qdoc-page *):not(.qdoc-stack *):not(.dash-hero *) { color: rgb(226 172 131); }
+:root[data-theme='dark'] .text-\[\#B91C1C\]:not(.qdoc-page *):not(.qdoc-stack *):not(.dash-hero *) { color: rgb(226 131 131); }
+:root[data-theme='dark'] .text-\[\#b45309\]:not(.qdoc-page *):not(.qdoc-stack *):not(.dash-hero *) { color: rgb(226 172 131); }
+:root[data-theme='dark'] .text-\[\#b91c1c\]:not(.qdoc-page *):not(.qdoc-stack *):not(.dash-hero *) { color: rgb(226 131 131); }
+:root[data-theme='dark'] [style*='background: rgb(223, 242, 240)']:not(.qdoc-page *):not(.qdoc-stack *),
+:root[data-theme='dark'] [style*='background-color: rgb(223, 242, 240)']:not(.qdoc-page *):not(.qdoc-stack *) { background: rgb(83 198 186 / 0.14) !important; }
+:root[data-theme='dark'] [style*='background: rgb(226, 236, 247)']:not(.qdoc-page *):not(.qdoc-stack *),
+:root[data-theme='dark'] [style*='background-color: rgb(226, 236, 247)']:not(.qdoc-page *):not(.qdoc-stack *) { background: rgb(255 255 255 / 0.06) !important; }
+:root[data-theme='dark'] [style*='background: rgb(228, 240, 230)']:not(.qdoc-page *):not(.qdoc-stack *),
+:root[data-theme='dark'] [style*='background-color: rgb(228, 240, 230)']:not(.qdoc-page *):not(.qdoc-stack *) { background: rgb(83 198 102 / 0.14) !important; }
+:root[data-theme='dark'] [style*='background: rgb(231, 231, 246)']:not(.qdoc-page *):not(.qdoc-stack *),
+:root[data-theme='dark'] [style*='background-color: rgb(231, 231, 246)']:not(.qdoc-page *):not(.qdoc-stack *) { background: rgb(83 83 198 / 0.14) !important; }
+:root[data-theme='dark'] [style*='background: rgb(231, 245, 238)']:not(.qdoc-page *):not(.qdoc-stack *),
+:root[data-theme='dark'] [style*='background-color: rgb(231, 245, 238)']:not(.qdoc-page *):not(.qdoc-stack *) { background: rgb(83 198 140 / 0.14) !important; }
+:root[data-theme='dark'] [style*='background: rgb(238, 240, 243)']:not(.qdoc-page *):not(.qdoc-stack *),
+:root[data-theme='dark'] [style*='background-color: rgb(238, 240, 243)']:not(.qdoc-page *):not(.qdoc-stack *) { background: rgb(255 255 255 / 0.06) !important; }
+:root[data-theme='dark'] [style*='background: rgb(248, 227, 230)']:not(.qdoc-page *):not(.qdoc-stack *),
+:root[data-theme='dark'] [style*='background-color: rgb(248, 227, 230)']:not(.qdoc-page *):not(.qdoc-stack *) { background: rgb(209 71 91 / 0.14) !important; }
+:root[data-theme='dark'] [style*='background: rgb(251, 240, 218)']:not(.qdoc-page *):not(.qdoc-stack *),
+:root[data-theme='dark'] [style*='background-color: rgb(251, 240, 218)']:not(.qdoc-page *):not(.qdoc-stack *) { background: rgb(211 164 69 / 0.14) !important; }
+:root[data-theme='dark'] [style*='background: rgb(253, 231, 234)']:not(.qdoc-page *):not(.qdoc-stack *),
+:root[data-theme='dark'] [style*='background-color: rgb(253, 231, 234)']:not(.qdoc-page *):not(.qdoc-stack *) { background: rgb(211 69 89 / 0.14) !important; }
+:root[data-theme='dark'] [style*='background: rgb(254, 243, 199)']:not(.qdoc-page *):not(.qdoc-stack *),
+:root[data-theme='dark'] [style*='background-color: rgb(254, 243, 199)']:not(.qdoc-page *):not(.qdoc-stack *) { background: rgb(211 183 69 / 0.14) !important; }
+:root[data-theme='dark'] [style*='background: rgb(209, 250, 229)']:not(.qdoc-page *):not(.qdoc-stack *),
+:root[data-theme='dark'] [style*='background-color: rgb(209, 250, 229)']:not(.qdoc-page *):not(.qdoc-stack *) { background: rgb(69 211 139 / 0.14) !important; }
+:root[data-theme='dark'] [style*='background: rgb(228, 245, 243)']:not(.qdoc-page *):not(.qdoc-stack *),
+:root[data-theme='dark'] [style*='background-color: rgb(228, 245, 243)']:not(.qdoc-page *):not(.qdoc-stack *) { background: rgb(83 198 184 / 0.14) !important; }
+:root[data-theme='dark'] [style*='background: rgb(230, 248, 246)']:not(.qdoc-page *):not(.qdoc-stack *),
+:root[data-theme='dark'] [style*='background-color: rgb(230, 248, 246)']:not(.qdoc-page *):not(.qdoc-stack *) { background: rgb(76 205 190 / 0.14) !important; }
+:root[data-theme='dark'] [style*='background: rgb(231, 236, 233)']:not(.qdoc-page *):not(.qdoc-stack *),
+:root[data-theme='dark'] [style*='background-color: rgb(231, 236, 233)']:not(.qdoc-page *):not(.qdoc-stack *) { background: rgb(255 255 255 / 0.06) !important; }
+:root[data-theme='dark'] [style*='background: rgb(233, 249, 241)']:not(.qdoc-page *):not(.qdoc-stack *),
+:root[data-theme='dark'] [style*='background-color: rgb(233, 249, 241)']:not(.qdoc-page *):not(.qdoc-stack *) { background: rgb(75 206 140 / 0.14) !important; }
+:root[data-theme='dark'] [style*='background: rgb(236, 253, 245)']:not(.qdoc-page *):not(.qdoc-stack *),
+:root[data-theme='dark'] [style*='background-color: rgb(236, 253, 245)']:not(.qdoc-page *):not(.qdoc-stack *) { background: rgb(69 211 144 / 0.14) !important; }
+:root[data-theme='dark'] [style*='background: rgb(238, 241, 245)']:not(.qdoc-page *):not(.qdoc-stack *),
+:root[data-theme='dark'] [style*='background-color: rgb(238, 241, 245)']:not(.qdoc-page *):not(.qdoc-stack *) { background: rgb(255 255 255 / 0.06) !important; }
+:root[data-theme='dark'] [style*='background: rgb(241, 245, 249)']:not(.qdoc-page *):not(.qdoc-stack *),
+:root[data-theme='dark'] [style*='background-color: rgb(241, 245, 249)']:not(.qdoc-page *):not(.qdoc-stack *) { background: rgb(255 255 255 / 0.06) !important; }
+:root[data-theme='dark'] [style*='background: rgb(242, 248, 248)']:not(.qdoc-page *):not(.qdoc-stack *),
+:root[data-theme='dark'] [style*='background-color: rgb(242, 248, 248)']:not(.qdoc-page *):not(.qdoc-stack *) { background: rgb(83 198 198 / 0.14) !important; }
+:root[data-theme='dark'] [style*='background: rgb(244, 246, 250)']:not(.qdoc-page *):not(.qdoc-stack *),
+:root[data-theme='dark'] [style*='background-color: rgb(244, 246, 250)']:not(.qdoc-page *):not(.qdoc-stack *) { background: rgb(255 255 255 / 0.06) !important; }
+:root[data-theme='dark'] [style*='background: rgb(247, 249, 252)']:not(.qdoc-page *):not(.qdoc-stack *),
+:root[data-theme='dark'] [style*='background-color: rgb(247, 249, 252)']:not(.qdoc-page *):not(.qdoc-stack *) { background: rgb(255 255 255 / 0.06) !important; }
+:root[data-theme='dark'] [style*='background: rgb(254, 242, 242)']:not(.qdoc-page *):not(.qdoc-stack *),
+:root[data-theme='dark'] [style*='background-color: rgb(254, 242, 242)']:not(.qdoc-page *):not(.qdoc-stack *) { background: rgb(211 69 69 / 0.14) !important; }
+:root[data-theme='dark'] [style*='background: rgb(255, 241, 236)']:not(.qdoc-page *):not(.qdoc-stack *),
+:root[data-theme='dark'] [style*='background-color: rgb(255, 241, 236)']:not(.qdoc-page *):not(.qdoc-stack *) { background: rgb(211 107 69 / 0.14) !important; }
+:root[data-theme='dark'] [style*='background: rgb(255, 241, 242)']:not(.qdoc-page *):not(.qdoc-stack *),
+:root[data-theme='dark'] [style*='background-color: rgb(255, 241, 242)']:not(.qdoc-page *):not(.qdoc-stack *) { background: rgb(211 69 79 / 0.14) !important; }
+:root[data-theme='dark'] [style*='background: rgb(255, 245, 245)']:not(.qdoc-page *):not(.qdoc-stack *),
+:root[data-theme='dark'] [style*='background-color: rgb(255, 245, 245)']:not(.qdoc-page *):not(.qdoc-stack *) { background: rgb(211 69 69 / 0.14) !important; }
+:root[data-theme='dark'] [style*='background: rgb(255, 247, 230)']:not(.qdoc-page *):not(.qdoc-stack *),
+:root[data-theme='dark'] [style*='background-color: rgb(255, 247, 230)']:not(.qdoc-page *):not(.qdoc-stack *) { background: rgb(211 166 69 / 0.14) !important; }
+:root[data-theme='dark'] [style*='background: rgb(255, 251, 235)']:not(.qdoc-page *):not(.qdoc-stack *),
+:root[data-theme='dark'] [style*='background-color: rgb(255, 251, 235)']:not(.qdoc-page *):not(.qdoc-stack *) { background: rgb(211 183 69 / 0.14) !important; }
+:root[data-theme='dark'] [style*='border-color: rgb(167, 243, 208)']:not(.qdoc-page *):not(.qdoc-stack *) { border-color: rgb(69 211 146 / 0.28) !important; }
+:root[data-theme='dark'] [style^='color: rgb(4, 120, 87)']:not(.qdoc-page *):not(.qdoc-stack *),
+:root[data-theme='dark'] [style*=' color: rgb(4, 120, 87)']:not(.qdoc-page *):not(.qdoc-stack *) { color: rgb(131 226 199) !important; }
+:root[data-theme='dark'] [style^='color: rgb(5, 150, 105)']:not(.qdoc-page *):not(.qdoc-stack *),
+:root[data-theme='dark'] [style*=' color: rgb(5, 150, 105)']:not(.qdoc-page *):not(.qdoc-stack *) { color: rgb(131 226 196) !important; }
+:root[data-theme='dark'] [style^='color: rgb(12, 122, 122)']:not(.qdoc-page *):not(.qdoc-stack *),
+:root[data-theme='dark'] [style*=' color: rgb(12, 122, 122)']:not(.qdoc-page *):not(.qdoc-stack *) { color: rgb(131 226 226) !important; }
+:root[data-theme='dark'] [style^='color: rgb(12, 122, 122)']:not(.qdoc-page *):not(.qdoc-stack *),
+:root[data-theme='dark'] [style*=' color: rgb(12, 122, 122)']:not(.qdoc-page *):not(.qdoc-stack *) { color: rgb(131 226 226) !important; }
+:root[data-theme='dark'] [style^='color: rgb(15, 118, 110)']:not(.qdoc-page *):not(.qdoc-stack *),
+:root[data-theme='dark'] [style*=' color: rgb(15, 118, 110)']:not(.qdoc-page *):not(.qdoc-stack *) { color: rgb(131 226 219) !important; }
+:root[data-theme='dark'] [style^='color: rgb(20, 163, 160)']:not(.qdoc-page *):not(.qdoc-stack *),
+:root[data-theme='dark'] [style*=' color: rgb(20, 163, 160)']:not(.qdoc-page *):not(.qdoc-stack *) { color: rgb(131 226 224) !important; }
+:root[data-theme='dark'] [style^='color: rgb(22, 101, 52)']:not(.qdoc-page *):not(.qdoc-stack *),
+:root[data-theme='dark'] [style*=' color: rgb(22, 101, 52)']:not(.qdoc-page *):not(.qdoc-stack *) { color: rgb(131 226 167) !important; }
+:root[data-theme='dark'] [style^='color: rgb(43, 87, 151)']:not(.qdoc-page *):not(.qdoc-stack *),
+:root[data-theme='dark'] [style*=' color: rgb(43, 87, 151)']:not(.qdoc-page *):not(.qdoc-stack *) { color: rgb(var(--c-inkMuted)) !important; }
+:root[data-theme='dark'] [style^='color: rgb(47, 107, 58)']:not(.qdoc-page *):not(.qdoc-stack *),
+:root[data-theme='dark'] [style*=' color: rgb(47, 107, 58)']:not(.qdoc-page *):not(.qdoc-stack *) { color: rgb(140 217 154) !important; }
+:root[data-theme='dark'] [style^='color: rgb(51, 65, 85)']:not(.qdoc-page *):not(.qdoc-stack *),
+:root[data-theme='dark'] [style*=' color: rgb(51, 65, 85)']:not(.qdoc-page *):not(.qdoc-stack *) { color: rgb(var(--c-inkMuted)) !important; }
+:root[data-theme='dark'] [style^='color: rgb(71, 85, 105)']:not(.qdoc-page *):not(.qdoc-stack *),
+:root[data-theme='dark'] [style*=' color: rgb(71, 85, 105)']:not(.qdoc-page *):not(.qdoc-stack *) { color: rgb(var(--c-inkMuted)) !important; }
+:root[data-theme='dark'] [style^='color: rgb(138, 98, 18)']:not(.qdoc-page *):not(.qdoc-stack *),
+:root[data-theme='dark'] [style*=' color: rgb(138, 98, 18)']:not(.qdoc-page *):not(.qdoc-stack *) { color: rgb(226 194 131) !important; }
+:root[data-theme='dark'] [style^='color: rgb(146, 64, 14)']:not(.qdoc-page *):not(.qdoc-stack *),
+:root[data-theme='dark'] [style*=' color: rgb(146, 64, 14)']:not(.qdoc-page *):not(.qdoc-stack *) { color: rgb(226 167 131) !important; }
+:root[data-theme='dark'] [style^='color: rgb(153, 27, 27)']:not(.qdoc-page *):not(.qdoc-stack *),
+:root[data-theme='dark'] [style*=' color: rgb(153, 27, 27)']:not(.qdoc-page *):not(.qdoc-stack *) { color: rgb(226 131 131) !important; }
+:root[data-theme='dark'] [style^='color: rgb(163, 58, 74)']:not(.qdoc-page *):not(.qdoc-stack *),
+:root[data-theme='dark'] [style*=' color: rgb(163, 58, 74)']:not(.qdoc-page *):not(.qdoc-stack *) { color: rgb(217 140 152) !important; }
+:root[data-theme='dark'] [style^='color: rgb(180, 83, 9)']:not(.qdoc-page *):not(.qdoc-stack *),
+:root[data-theme='dark'] [style*=' color: rgb(180, 83, 9)']:not(.qdoc-page *):not(.qdoc-stack *) { color: rgb(226 172 131) !important; }
+:root[data-theme='dark'] [style^='color: rgb(185, 28, 28)']:not(.qdoc-page *):not(.qdoc-stack *),
+:root[data-theme='dark'] [style*=' color: rgb(185, 28, 28)']:not(.qdoc-page *):not(.qdoc-stack *) { color: rgb(226 131 131) !important; }
+:root[data-theme='dark'] [style^='color: rgb(180, 83, 9)']:not(.qdoc-page *):not(.qdoc-stack *),
+:root[data-theme='dark'] [style*=' color: rgb(180, 83, 9)']:not(.qdoc-page *):not(.qdoc-stack *) { color: rgb(226 172 131) !important; }
+:root[data-theme='dark'] [style^='color: rgb(185, 28, 28)']:not(.qdoc-page *):not(.qdoc-stack *),
+:root[data-theme='dark'] [style*=' color: rgb(185, 28, 28)']:not(.qdoc-page *):not(.qdoc-stack *) { color: rgb(226 131 131) !important; }
+:root[data-theme='dark'] [style^='color: rgb(190, 18, 60)']:not(.qdoc-page *):not(.qdoc-stack *),
+:root[data-theme='dark'] [style*=' color: rgb(190, 18, 60)']:not(.qdoc-page *):not(.qdoc-stack *) { color: rgb(226 131 154) !important; }

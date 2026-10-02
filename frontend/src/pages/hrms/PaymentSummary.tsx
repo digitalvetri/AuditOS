@@ -37,7 +37,7 @@ const M = ({ paise }: { paise: number }) => <Money value={rupees(paise)} />;
 const STATE_LOOK: Record<PayState, { label: string; bg: string; fg: string; dot: string }> = {
   paid: { label: 'Paid', bg: '#ecfdf5', fg: '#047857', dot: '#10b981' },
   partial: { label: 'Partly paid', bg: '#fffbeb', fg: '#b45309', dot: '#f59e0b' },
-  unpaid: { label: 'Unpaid', bg: '#eef2ff', fg: '#4338ca', dot: '#6366f1' },
+  unpaid: { label: 'Unpaid', bg: '#fff1ec', fg: '#c2492b', dot: '#f07a5a' },
   overdue: { label: 'Overdue', bg: '#fef2f2', fg: '#b91c1c', dot: '#ef4444' },
 };
 
@@ -221,7 +221,7 @@ function ClientRows({ c, isOpen, pct, onToggle, canManage }: {
         <td className="py-3 px-4 hidden lg:table-cell">
           <div className="flex items-center gap-2 w-[120px]">
             <div className="flex-1 h-1.5 rounded-full bg-neutral-100 overflow-hidden" aria-label={`${pct}% received`}>
-              <div className="h-full rounded-full" style={{ width: `${pct}%`, background: pct === 100 ? '#10b981' : '#3b82f6' }} />
+              <div className="h-full rounded-full" style={{ width: `${pct}%`, background: pct === 100 ? '#10b981' : '#14a3a0' }} />
             </div>
             <span className="text-11 text-neutral-500 tabular-nums w-8 text-right">{pct}%</span>
           </div>
@@ -422,7 +422,7 @@ function PaymentModal({ inv, onClose }: { inv: ClientInvoice; onClose: () => voi
 
 function Ageing({ ageing }: { ageing: SummaryResponse['ageing'] }) {
   const parts = [
-    { label: 'Not yet due', value: ageing.current, color: '#3b82f6' },
+    { label: 'Not yet due', value: ageing.current, color: '#14a3a0' },
     { label: '1–30 days overdue', value: ageing.d1_30, color: '#f59e0b' },
     { label: '31–60 days', value: ageing.d31_60, color: '#f97316' },
     { label: '61–90 days', value: ageing.d61_90, color: '#ef4444' },

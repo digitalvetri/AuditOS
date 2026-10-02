@@ -145,7 +145,7 @@ export function TogglePill({ on, onChange, children }: { on: boolean; onChange: 
 }
 
 const pill = (on: boolean) => `h-8 px-3 inline-flex items-center gap-1 text-13 rounded-full border transition-colors whitespace-nowrap ${
-  on ? 'bg-[#e8f0fb] border-[#b9cde9] text-primary font-medium' : 'bg-white border-neutral-200 text-neutral-700 hover:border-neutral-300 hover:bg-neutral-50'
+  on ? 'bg-[#e3f4f3] border-[#abd8d4] text-primary font-medium' : 'bg-white border-neutral-200 text-neutral-700 hover:border-neutral-300 hover:bg-neutral-50'
 }`;
 
 /** Status filter as pills; `counts` shows beside a label when above zero. */
@@ -292,7 +292,7 @@ export const TwoLine = ({ top, sub }: { top: ReactNode; sub?: ReactNode }) => (
 type Tone = { bg: string; fg: string; dot: string };
 const TONES: Record<'grey' | 'blue' | 'green' | 'amber' | 'red', Tone> = {
   grey: { bg: '#f1f5f9', fg: '#475569', dot: '#94a3b8' },
-  blue: { bg: '#eef2ff', fg: '#4338ca', dot: '#6366f1' },
+  blue: { bg: '#fff1ec', fg: '#c2492b', dot: '#f07a5a' },
   green: { bg: '#ecfdf5', fg: '#047857', dot: '#10b981' },
   amber: { bg: '#fffbeb', fg: '#b45309', dot: '#f59e0b' },
   red: { bg: '#fef2f2', fg: '#b91c1c', dot: '#ef4444' },

@@ -58,8 +58,8 @@ export function Section({ title, right, children, className = '' }: { title?: Re
 
 /** Icon-square tints, as on the CRM dashboards. */
 export const TINTS = {
-  blue: { bg: '#eaf2ff', fg: '#1d4ed8', ring: '#d4e3fb' },
-  indigo: { bg: '#eef0ff', fg: '#4338ca', ring: '#dcdffb' },
+  blue: { bg: '#e4f5f3', fg: '#0c7a7a', ring: '#cdebe8' },
+  indigo: { bg: '#fff1ec', fg: '#c2492b', ring: '#fbd9ce' },
   green: { bg: '#e9f9f1', fg: '#047857', ring: '#cdeede' },
   teal: { bg: '#e6f8f6', fg: '#0f766e', ring: '#c9eeea' },
   amber: { bg: '#fff7e6', fg: '#b45309', ring: '#fde7bf' },
@@ -137,7 +137,7 @@ export function TextArea({ value, onChange, rows = 3 }: { value: string; onChang
 export function Btn({ children, onClick, variant = 'secondary', disabled, loading, type = 'button', title }: { children: ReactNode; onClick?: () => void; variant?: 'primary' | 'secondary' | 'danger' | 'ghost'; disabled?: boolean; loading?: boolean; type?: 'button' | 'submit'; title?: string }) {
   const styles = {
     primary: 'bg-primary text-white hover:bg-primaryHover shadow-card',
-    secondary: 'bg-surface text-primary border border-neutral-200 hover:border-primary/40 hover:bg-[#f4f7fc] shadow-card',
+    secondary: 'bg-surface text-primary border border-neutral-200 hover:border-primary/40 hover:bg-[#f2f8f8] shadow-card',
     danger: 'bg-surface text-danger border border-neutral-200 hover:border-danger/40 hover:bg-[#fff5f5]',
     ghost: 'text-inkMuted hover:text-primary hover:bg-[#f1f4f9]',
   }[variant];
@@ -156,7 +156,7 @@ export function Notice({ tone = 'info', children }: { tone?: 'info' | 'warn' | '
     ? { background: '#fff5f5', boxShadow: 'inset 3px 0 0 #dc2626, inset 0 0 0 1px #fde2e2', color: '#991b1b' }
     : tone === 'warn'
       ? { background: '#fffbeb', boxShadow: 'inset 3px 0 0 #f59e0b, inset 0 0 0 1px #fdecc8', color: '#92400e' }
-      : { background: '#f4f7fc', boxShadow: 'inset 3px 0 0 #2a4f8f, inset 0 0 0 1px #e1e9f5', color: '#334155' };
+      : { background: '#f2f8f8', boxShadow: 'inset 3px 0 0 #0f6f6f, inset 0 0 0 1px #d9ecea', color: '#334155' };
   return <div className="rounded-lg px-4 py-2 text-12" style={look}>{children}</div>;
 }
 
@@ -198,7 +198,7 @@ const CHIP: Record<Tone, { bg: string; fg: string; dot: string }> = {
   red: { bg: '#fef2f2', fg: '#b91c1c', dot: '#ef4444' },
   amber: { bg: '#fffbeb', fg: '#b45309', dot: '#f59e0b' },
   grey: { bg: '#f1f5f9', fg: '#475569', dot: '#94a3b8' },
-  blue: { bg: '#eef2ff', fg: '#4338ca', dot: '#6366f1' },
+  blue: { bg: '#fff1ec', fg: '#c2492b', dot: '#f07a5a' },
 };
 export function Badge({ status }: { status: unknown }) {
   const s = String(status ?? '').toLowerCase();

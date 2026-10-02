@@ -82,6 +82,16 @@ export interface ClientDetailResponse {
   invoices: ClientInvoice[];
 }
 
+/** One month of the cash-flow chart (GET /api/payment-summary/monthly). */
+export interface MonthPoint {
+  /** 'YYYY-MM' */
+  month: string;
+  billed_paise: number;
+  collected_paise: number;
+  invoices: number;
+  payments: number;
+}
+
 export interface PaymentBody {
   amount_paise: number;
   paid_on: string;
@@ -98,6 +108,7 @@ export const paymentSummaryApi = {
     const qs = p.toString();
     return api.get<SummaryResponse>(`/api/payment-summary${qs ? `?${qs}` : ''}`);
   },
+  monthly: (months = 6) => api.get<{ months: MonthPoint[] }>(`/api/payment-summary/monthly?months=${months}`),
   client: (clientId: string) => api.get<ClientDetailResponse>(`/api/payment-summary/clients/${clientId}`),
   record: (invoiceId: string, body: PaymentBody) =>
     api.post<{ payment: InvoicePayment }>(`/api/payment-summary/invoices/${invoiceId}/payments`, body),

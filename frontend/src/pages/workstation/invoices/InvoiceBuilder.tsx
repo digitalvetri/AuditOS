@@ -397,7 +397,7 @@ export function InvoiceBuilderPage() {
                 key={t.id}
                 type="button"
                 onClick={() => setTab(t.id)}
-                className={`h-8 px-4 inline-flex items-center text-13 rounded-full border transition-colors ${tab === t.id ? 'bg-[#e8f0fb] border-[#b9cde9] text-primary font-medium' : 'bg-white border-neutral-200 text-neutral-700 hover:border-neutral-300 hover:bg-neutral-50'}`}
+                className={`h-8 px-4 inline-flex items-center text-13 rounded-full border transition-colors ${tab === t.id ? 'bg-[#e3f4f3] border-[#abd8d4] text-primary font-medium' : 'bg-white border-neutral-200 text-neutral-700 hover:border-neutral-300 hover:bg-neutral-50'}`}
               >
                 {t.label}
               </button>

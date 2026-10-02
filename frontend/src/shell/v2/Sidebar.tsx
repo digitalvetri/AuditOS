@@ -11,9 +11,9 @@
  *   TOOLS       — 3 items: Tools (converters), Repotic (bank/GST/TDS),
  *                 Books (Zoho Books). One section, sibling rows.
  */
-import { NavLink, useLocation } from 'react-router-dom';
-import { CHART_ZONE, SidebarBackdrop } from './SidebarBackdrop';
+import { Link, NavLink, useLocation } from 'react-router-dom';
 import { useEffect, useMemo, useState } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import {
   BarChart3,
   BookOpen,
@@ -45,6 +45,12 @@ import {
 } from 'lucide-react';
 import { useAuth } from '@/platform/auth/AuthContext';
 import { can } from '@/platform/rbac/can';
+import { api } from '@/services/api';
+import { Avatar } from '@/components/viz';
+import { usePinnedClients } from '@/modules/workstation/pins';
+import { workstationApi } from '@/modules/workstation/api';
+import { gstApi } from '@/modules/workstation/gst/api';
+import { filingStats, istToday, periodName, previousPeriod, returnCells } from '@/modules/dashboardV2/brief';
 // The rail lists the registrations from the same catalogue the pages
 // render, so a service can never exist in one place and not the other.
 import { REGISTRATION_SERVICES } from '@/pages/workstation/registration/services';
@@ -67,6 +73,9 @@ interface NavItem {
   icon: LucideIcon;
   end?: boolean;
   visible: boolean;
+  /** A count pill on the right (e.g. open approvals); `hot` draws it in the brand colour. */
+  badge?: number;
+  hot?: boolean;
   /** Service categories nested under Workstation → Services. Names only —
       each row deep-links to the Services page scoped by its slug. */
   children?: NavChild[];
@@ -84,6 +93,24 @@ interface Props {
 export function Sidebar({ mobileOpen, onMobileClose }: Props) {
   const { session } = useAuth();
   const role = session?.role.code;
+
+  // Count pills — the same queries (and cache keys) the dashboard uses, so
+  // they cost nothing extra once the dashboard has loaded.
+  const approves = can(role, 'leave.approve', 'department') || can(role, 'expense.approve', 'department')
+    || can(role, 'attendance.correct.approve', 'department');
+  const pending = useQuery({
+    queryKey: ['dashboard', 'pending'],
+    queryFn: () => api.get<{ items: unknown[]; count: number }>('/api/dashboard/pending-actions'),
+    enabled: approves, staleTime: 60_000,
+  });
+  const seesClients = can(role, 'workstation.client.read', 'self');
+  const clients = useQuery({
+    queryKey: ['sidebar', 'client-count'],
+    queryFn: () => workstationApi.listClients({}),
+    enabled: seesClients, staleTime: 300_000,
+  });
+  const pendingCount = pending.data?.count ?? 0;
+  const clientCount = clients.data?.count;
 
   // Role-scoped nav (§6.1). `can()` here is menu-rendering only — the API
   // is what actually enforces access. Employee: no Employees / Accounts /
@@ -123,7 +150,7 @@ export function Sidebar({ mobileOpen, onMobileClose }: Props) {
       { to: '/workstation/engagement',  label: 'Engagement', icon: ScrollText,    visible: can(role, 'workstation.engagement.read', 'self') },
       { to: '/workstation/doc',         label: 'Format',     icon: FileText,      visible: can(role, 'workstation.doc.read', 'self') },
       { to: '/workstation/leads',       label: 'Leads',      icon: PhoneCall,     visible: can(role, 'workstation.lead.read', 'self') },
-      { to: '/workstation/clients',     label: 'Clients',    icon: Handshake,     visible: can(role, 'workstation.client.read', 'self') },
+      { to: '/workstation/clients',     label: 'Clients',    icon: Handshake,     visible: can(role, 'workstation.client.read', 'self'), badge: clientCount },
       { to: '/workstation/follow-ups',  label: 'Follow-ups', icon: Clock,         visible: can(role, 'workstation.followup.read', 'self') },
       { to: '/workstation/calendar',    label: 'Calendar',   icon: CalendarDays,  visible: can(role, 'workstation.followup.read', 'self') },
       { to: '/workstation/services',    label: 'Services',   icon: Briefcase,     end: true, visible: can(role, 'workstation.service.read', 'self'),
@@ -164,13 +191,13 @@ export function Sidebar({ mobileOpen, onMobileClose }: Props) {
         visible: can(role, 'integrations.access', 'organisation') },
     ];
     return [
-      { label: null, items: [{ to: '/', label: 'Dashboard', icon: Home, end: true, visible: true }] },
+      { label: null, items: [{ to: '/', label: 'Dashboard', icon: Home, end: true, visible: true, badge: pendingCount || undefined, hot: true }] },
       { label: 'HRMS', items: auditItems.filter((i) => i.visible) },
       { label: 'WORKSTATION', items: workstationItems.filter((i) => i.visible) },
       { label: 'TOOLS', items: toolsItems.filter((i) => i.visible) },
       { label: 'INTEGRATIONS', items: integrationsItems.filter((i) => i.visible) },
     ].filter((g) => g.items.length > 0);
-  }, [role]);
+  }, [role, pendingCount, clientCount]);
 
   const [collapsed, setCollapsed] = useState<boolean>(() => {
     if (typeof localStorage === 'undefined') return false;
@@ -256,7 +283,6 @@ export function Sidebar({ mobileOpen, onMobileClose }: Props) {
         style={{ width: asideWidth }}
         aria-label="Primary navigation"
       >
-        <SidebarBackdrop collapsed={collapsed && isDesktop} />
         <Brand collapsed={collapsed} />
 
         <nav className="sidebar-scroll sb-nav-limit flex-1 min-h-0 overflow-y-auto pt-1 pb-2">
@@ -270,11 +296,10 @@ export function Sidebar({ mobileOpen, onMobileClose }: Props) {
               onToggle={group.label ? () => toggleSection(group.label!) : undefined}
             />
           ))}
+          {!collapsed ? <Pinned /> : null}
         </nav>
-        {/* The chart's own strip: the menu scrolls above this line and never
-            runs over the growth chart drawn behind it. */}
-        {collapsed && isDesktop ? null : <div className="sb-chart-zone shrink-0" style={{ height: CHART_ZONE }} aria-hidden />}
-        <Collapse collapsed={collapsed} onToggle={() => setCollapsed((c) => !c)} />
+        {!collapsed ? <FilingSeason /> : null}
+        <Profile collapsed={collapsed} onToggle={() => setCollapsed((c) => !c)} />
       </aside>
     </>
   );
@@ -301,14 +326,14 @@ function Brand({ collapsed }: { collapsed: boolean }) {
   // the full lockup on a white plate — the logo already carries the wordmark,
   // so no separate text is rendered beside it.
   return (
-    <div className={'h-20 flex items-center gap-3 shrink-0 border-b border-white/[0.07] ' + (collapsed ? 'justify-center px-0' : 'pl-4 pr-3')}>
+    <div className={'h-20 flex items-center gap-3 shrink-0 ' + (collapsed ? 'justify-center px-0' : 'pl-4 pr-3')}>
       <span
-        className="inline-flex items-center justify-center shrink-0"
+        className="sb-logo inline-flex items-center justify-center shrink-0 rounded-[11px]"
         /* No white plate. The mark sits directly on the navy rail and is
            rendered white, so the brand reads as one piece with the sidebar
            instead of a card floating on it. The rail is navy in BOTH themes
            (--c-sidebar), so white is correct in each. */
-        style={{ height: 44, width: collapsed ? 52 : 84 }}
+        style={{ height: 40, width: collapsed ? 44 : 64, padding: '0 8px' }}
         aria-label="JNS Accounting Solutions"
       >
         <img
@@ -326,8 +351,8 @@ function Brand({ collapsed }: { collapsed: boolean }) {
       </span>
       {!collapsed ? (
         <div className="flex flex-col justify-center min-w-0">
-          <span className="text-15 font-semibold text-sidebarText tracking-tight leading-tight truncate">JNS Accounting</span>
-          <span className="text-12 font-medium text-sidebarText/75 leading-tight mt-0.5 truncate">Solutions</span>
+          <span className="text-14 font-semibold text-sidebarText tracking-tight leading-tight truncate">JNS Accounting</span>
+          <span className="text-12 font-medium text-sidebarMuted leading-tight mt-0.5 truncate">Practice workspace</span>
         </div>
       ) : null}
     </div>
@@ -353,16 +378,16 @@ function Section({ group, collapsed, first, folded, onToggle }: SectionProps) {
           onClick={onToggle}
           aria-expanded={!folded}
           className={
-            'flex items-center gap-2 w-full pl-6 pr-4 pb-2 text-11 font-semibold uppercase ' +
-            'tracking-[0.16em] text-white hover:text-white/80 transition-colors ' +
-            (first ? 'pt-4' : 'pt-5')
+            'group/sec flex items-center justify-between gap-2 w-full pl-5 pr-4 pb-2 text-[10.5px] font-semibold uppercase ' +
+            'tracking-[0.1em] text-sidebarMuted hover:text-white transition-colors ' +
+            (first ? 'pt-3' : 'pt-5')
           }
         >
           <span>{group.label}</span>
           <ChevronDown
-            size={14}
+            size={13}
             strokeWidth={2.5}
-            className={'transition-transform ' + (folded ? '-rotate-90' : '')}
+            className={'opacity-60 group-hover/sec:opacity-100 transition-[transform,opacity] ' + (folded ? '-rotate-90' : '')}
           />
         </button>
       ) : null}
@@ -394,7 +419,7 @@ function NavItemRow({ item, collapsed }: { item: NavItem; collapsed: boolean }) 
       to={item.to}
       end={item.end}
       className={({ isActive }) => {
-        const base = 'group/nav flex items-center gap-3 h-10 rounded-lg text-14 transition-colors';
+        const base = 'group/nav relative flex items-center gap-3 h-[38px] rounded-[10px] text-14 transition-colors';
         const spacing = collapsed ? 'justify-center px-0' : 'px-3';
         const grow = hasChildren ? ' flex-1 min-w-0' : '';
         const state = isActive
@@ -410,6 +435,11 @@ function NavItemRow({ item, collapsed }: { item: NavItem; collapsed: boolean }) 
           <Icon size={18} strokeWidth={1.9}
             className={'shrink-0 ' + (isActive ? 'text-[#99f6e4]' : 'text-white/60 group-hover/nav:text-white')} />
           {!collapsed ? <span className="truncate">{item.label}</span> : null}
+          {item.badge ? (
+            collapsed
+              ? <span className={'absolute top-[6px] right-2 h-2 w-2 rounded-full ' + (item.hot ? 'bg-coral' : 'bg-white/50')} aria-label={`${item.badge}`} />
+              : <span className={'sb-count ml-auto ' + (item.hot ? 'is-hot' : '')}>{item.badge > 99 ? '99+' : item.badge}</span>
+          ) : null}
         </>
       )}
     </NavLink>
@@ -523,21 +553,89 @@ function NavChildRow({ child }: { child: NavChild }) {
   );
 }
 
-function Collapse({ collapsed, onToggle }: { collapsed: boolean; onToggle: () => void }) {
+/** The user's pinned clients (toggled from the Client 360 panel). */
+function Pinned() {
+  const { session } = useAuth();
+  const { pins } = usePinnedClients();
+  if (!pins.length || !can(session?.role.code, 'workstation.client.read', 'self')) return null;
+  return (
+    <div>
+      <div className="pl-5 pr-4 pt-5 pb-2 text-[10.5px] font-semibold uppercase tracking-[0.1em] text-sidebarMuted">Pinned</div>
+      <ul className="px-2 space-y-px">
+        {pins.map((p) => (
+          <li key={p.id}>
+            <NavLink to={`/workstation/clients/${p.id}`} title={p.name}
+              className={({ isActive }) => 'flex items-center gap-3 h-8 px-3 rounded-[9px] text-13 transition-colors ' +
+                (isActive ? 'sb-active text-white font-semibold' : 'text-white/70 sb-hover hover:text-white')}>
+              <Avatar name={p.name} size={20} square />
+              <span className="truncate">{p.name}</span>
+            </NavLink>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
+/**
+ * This month's GST filing progress — the same return-case data and period
+ * the dashboard gauge uses (modules/dashboardV2/brief.ts), so they agree.
+ */
+function FilingSeason() {
+  const { session } = useAuth();
+  const seesGst = can(session?.role.code, 'workstation.gst.read', 'self');
+  const period = previousPeriod(istToday());
+  const gst = useQuery({
+    queryKey: ['gst', 'client-dashboard', period],
+    queryFn: () => gstApi.clientDashboard(period),
+    enabled: seesGst, staleTime: 120_000,
+  });
+  if (!seesGst || !gst.data) return null;
+  const st = filingStats(returnCells(gst.data));
+  if (!st.total) return null;
+  const pct = Math.round(st.progress * 100);
+  return (
+    <Link to="/workstation/services/registration/gst/dashboard"
+      className="sb-season mx-3 mb-2 mt-2 block rounded-[12px] px-3 py-[10px] shrink-0">
+      <div className="flex items-center justify-between text-12 font-medium text-white/85">
+        <span>GST · {periodName(period)} returns</span>
+        <span className="font-semibold text-[#5eead4]">{pct}%</span>
+      </div>
+      <div className="h-[6px] rounded-full bg-white/10 my-2 overflow-hidden">
+        <i className="sb-season-bar block h-full rounded-full" style={{ width: `${Math.max(pct, 2)}%` }} />
+      </div>
+      <div className="text-11 text-sidebarMuted">
+        {st.filed} of {st.total} filed{st.atRisk ? ` · ${st.atRisk} at risk` : ''}
+      </div>
+    </Link>
+  );
+}
+
+/** Signed-in person, with the rail collapse toggle beside them. */
+function Profile({ collapsed, onToggle }: { collapsed: boolean; onToggle: () => void }) {
+  const { session } = useAuth();
+  const name = session?.employee?.full_name ?? session?.user.email ?? '';
   const Icon = collapsed ? ChevronsRight : ChevronsLeft;
   return (
-    <button
-      type="button"
-      onClick={onToggle}
-      className={
-        'h-9 mx-3 mb-3 mt-1 flex items-center gap-2 rounded-lg border border-white/10 bg-white/[0.04] ' +
-        'text-white/60 hover:text-white hover:bg-white/[0.08] text-11 font-semibold uppercase tracking-[0.1em] transition-colors ' +
-        (collapsed ? 'justify-center px-0' : 'pl-3 pr-3')
-      }
-      aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
-    >
-      <Icon size={16} strokeWidth={1.75} />
-      {!collapsed ? <span>COLLAPSE</span> : null}
-    </button>
+    <div className={'shrink-0 flex items-center gap-3 border-t border-white/[0.07] ' + (collapsed ? 'flex-col py-3 px-2' : 'px-4 py-3')}>
+      <Link to="/me/profile" className="flex items-center gap-3 min-w-0 flex-1" title={collapsed ? name : undefined}>
+        <Avatar name={name} src={session?.employee?.photo_url} size={32} style={{ boxShadow: '0 0 0 2px rgb(255 255 255 / 0.12)' }} />
+        {!collapsed ? (
+          <span className="min-w-0">
+            <span className="block text-13 font-semibold text-white truncate">{name}</span>
+            <span className="block text-11 text-sidebarMuted truncate">{session?.role.name}</span>
+          </span>
+        ) : null}
+      </Link>
+      <button
+        type="button"
+        onClick={onToggle}
+        className="shrink-0 h-8 w-8 grid place-items-center rounded-[9px] text-white/60 hover:text-white hover:bg-white/[0.08] transition-colors"
+        aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+        title={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+      >
+        <Icon size={16} strokeWidth={1.9} />
+      </button>
+    </div>
   );
 }

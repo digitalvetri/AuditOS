@@ -8,7 +8,7 @@
  * Row click → /hrms/employees/:id.
  */
 import { useMemo, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { employeeApi, isFullEmployee, type EmployeeFilters, type EmployeeRow } from '@/modules/employees/api';
 import { EMPLOYEE_TYPE_LABEL } from '@/data/models';
@@ -26,7 +26,9 @@ export function EmployeesPage() {
   const navigate = useNavigate();
 
   const [filters, setFilters] = useState<EmployeeFilters>({ q: '' });
-  const [creating, setCreating] = useState(false);
+  const [params] = useSearchParams();
+  // `?add=1` (the top bar's Create menu) opens the add form on arrival.
+  const [creating, setCreating] = useState(() => params.get('add') === '1' && canManage);
   const query = useQuery({
     queryKey: ['employees', 'list', filters],
     queryFn: () => employeeApi.list(filters),

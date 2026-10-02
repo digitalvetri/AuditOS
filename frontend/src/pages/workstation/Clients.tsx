@@ -1,5 +1,5 @@
-import { useState } from 'react';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useMemo, useState } from 'react';
+import { useMutation, useQueries, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { workstationApi } from '@/modules/workstation/api';
 import { Plus } from 'lucide-react';
@@ -7,32 +7,60 @@ import {
   Field, Modal, QueryState, fieldErrors, inputClass, textareaClass,
 } from '@/modules/workstation/components';
 import {
-  FilterSelect, ListAction, ListCard, ListEmpty, ListHeader, ListRow, ListTable, ListToolbar, SearchBox,
-  StatusChip, StatusPills, TD, TogglePill, TwoLine,
+  FilterSelect, ListAction, ListCard, ListEmpty, ListHeader, ListToolbar, SearchBox,
+  StatusChip, TogglePill,
 } from '@/modules/workstation/listUi';
 import type { ClientListItem, ListResponse } from '@/modules/workstation/types';
 import { Button } from '@/components/Button';
 import { useToast } from '@/components/Toast';
 import { can } from '@/platform/rbac/can';
 import { useAuth } from '@/platform/auth/AuthContext';
+import { Avatar, Ring } from '@/components/viz';
+import { paymentSummaryApi } from '@/modules/paymentSummary/api';
+import { gstApi } from '@/modules/workstation/gst/api';
+import { tdsApi } from '@/modules/tds/api';
+import { fyLabelForDate } from '@/pages/workstation/tds/config';
+import { istToday } from '@/modules/dashboardV2/brief';
+import { formatINR } from '@/modules/dashboardV2/format';
+import { clientHealth, gstHistory, lastPeriods, tdsRowsFor, type PeriodState } from '@/modules/workstation/clientInsights';
+import { ClientPanel } from './ClientPanel';
 
-/** §7.3 — the client list. Search covers company · Client ID · GSTIN · contact. */
+/**
+ * §7.3 — the client list. Search covers company · Client ID · GSTIN · contact.
+ *
+ * Saved views across the top (status, plus "Payment overdue" and "My
+ * clients"), each with its count. Rows carry the last six GST periods as a
+ * strip, the amount outstanding and a health score; clicking a row opens the
+ * Client 360 panel beside the list (⌘/Ctrl-click opens the full workspace).
+ * The money, GST and TDS columns appear only for roles that can read them.
+ */
 export function ClientsPage() {
   const [params, setParams] = useSearchParams();
   const navigate = useNavigate();
   const { session } = useAuth();
-  const [addOpen, setAddOpen] = useState(false);
+  const role = session?.role.code;
+  // `?add=1` (the top bar's Create menu) opens the add form on arrival.
+  const [addOpen, setAddOpen] = useState(() => params.get('add') === '1');
 
   const q = params.get('q') ?? '';
   const status = params.get('status') ?? '';
+  const view = params.get('view') ?? '';
   const managerId = params.get('account_manager_id') ?? '';
   const serviceId = params.get('service_id') ?? '';
   const pendingDocs = params.get('pending_documents') === 'true';
+  const openId = params.get('client') ?? '';
 
   const setParam = (key: string, value: string) => {
     const next = new URLSearchParams(params);
     if (value) next.set(key, value);
     else next.delete(key);
+    setParams(next, { replace: true });
+  };
+  const setView = (v: { status?: string; view?: string }) => {
+    const next = new URLSearchParams(params);
+    next.delete('status'); next.delete('view');
+    if (v.status) next.set('status', v.status);
+    if (v.view) next.set('view', v.view);
     setParams(next, { replace: true });
   };
 
@@ -43,22 +71,82 @@ export function ClientsPage() {
       pending_documents: pendingDocs || undefined,
     }),
   });
+  // Unfiltered list — the per-view counts on the tabs (shared with the sidebar's count).
+  const all = useQuery({ queryKey: ['sidebar', 'client-count'], queryFn: () => workstationApi.listClients({}), staleTime: 60_000 });
   const catalog = useQuery({ queryKey: ['workstation', 'catalog'], queryFn: workstationApi.serviceCatalog });
   const employees = useQuery({ queryKey: ['workstation', 'employees'], queryFn: workstationApi.assignableEmployees });
 
-  const canManage = can(session?.role.code, 'workstation.client.manage', 'self');
+  // Per-client signals, each gated on the role's permission.
+  const seesBilling = can(role, 'payment_summary.read', 'organisation');
+  const seesGst = can(role, 'workstation.gst.read', 'self');
+  const seesTds = can(role, 'workstation.service.read', 'self');
+  const money = useQuery({ queryKey: ['payment-summary'], queryFn: () => paymentSummaryApi.summary(), enabled: seesBilling });
+  const periods = useMemo(() => lastPeriods(istToday(), 6), []);
+  const gstQueries = useQueries({
+    queries: periods.map((p) => ({
+      queryKey: ['gst', 'client-dashboard', p],
+      queryFn: () => gstApi.clientDashboard(p),
+      enabled: seesGst, staleTime: 120_000,
+    })),
+  });
+  const gstLoaded = seesGst && gstQueries.every((g) => g.isSuccess);
+  const gst = useMemo(
+    () => (gstLoaded ? gstHistory(periods, gstQueries.map((g) => g.data)) : undefined),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [gstLoaded, periods, ...gstQueries.map((g) => g.dataUpdatedAt)],
+  );
+  const fy = fyLabelForDate(new Date());
+  const tds = useQuery({ queryKey: ['tds', 'overview', fy], queryFn: () => tdsApi.overview(fy), enabled: seesTds });
+
+  const moneyById = useMemo(() => new Map((money.data?.clients ?? []).map((c) => [c.client_id, c])), [money.data]);
+  const knows = { money: !!money.data, gst: !!gst, tds: !!tds.data };
+  const healthOf = (c: ClientListItem) => clientHealth({
+    client: c, money: moneyById.get(c.id), gst: gst?.byClient.get(c.id), tds: tdsRowsFor(tds.data, c.id), knows,
+  });
+
+  const canManage = can(role, 'workstation.client.manage', 'self');
+  const myId = session?.employee?.id;
+  const allItems = all.data?.items ?? [];
+  const views: { key: string; label: string; count: number | null; apply: { status?: string; view?: string }; show: boolean }[] = [
+    { key: '', label: 'All clients', count: all.data ? all.data.count : null, apply: {}, show: true },
+    { key: 'status:active', label: 'Active', count: allItems.filter((c) => c.status === 'active').length, apply: { status: 'active' }, show: true },
+    { key: 'status:onboarding', label: 'Onboarding', count: allItems.filter((c) => c.status === 'onboarding').length, apply: { status: 'onboarding' }, show: true },
+    { key: 'status:pending_documents', label: 'Pending documents', count: allItems.filter((c) => c.status === 'pending_documents').length, apply: { status: 'pending_documents' }, show: true },
+    { key: 'status:service_due', label: 'Service due', count: allItems.filter((c) => c.status === 'service_due').length, apply: { status: 'service_due' }, show: true },
+    { key: 'view:overdue', label: 'Payment overdue', count: money.data ? money.data.clients.filter((c) => c.overdue_paise > 0).length : null, apply: { view: 'overdue' }, show: seesBilling },
+    { key: 'view:mine', label: 'My clients', count: myId ? allItems.filter((c) => c.account_manager_id === myId).length : null, apply: { view: 'mine' }, show: !!myId },
+    { key: 'status:inactive', label: 'Inactive', count: allItems.filter((c) => c.status === 'inactive').length, apply: { status: 'inactive' }, show: true },
+  ];
+  const activeView = status ? `status:${status}` : view ? `view:${view}` : '';
+
+  const rowsFor = (items: ClientListItem[]) => items.filter((c) => {
+    if (view === 'overdue') return (moneyById.get(c.id)?.overdue_paise ?? 0) > 0;
+    if (view === 'mine') return c.account_manager_id === myId;
+    return true;
+  });
+  const opened = (clients.data?.items ?? []).find((c) => c.id === openId) ?? allItems.find((c) => c.id === openId);
 
   return (
-    <div className="max-w-[1400px]">
+    <div className="max-w-[1480px]">
       <ListHeader
         title="Clients"
         meta={clients.data
-          ? <>{clients.data.count} client{clients.data.count === 1 ? '' : 's'} · {clients.data.scope === 'organisation' ? 'all firm clients' : 'clients assigned to you'}</>
+          ? <>{all.data ? `${all.data.count} client${all.data.count === 1 ? '' : 's'} · ` : ''}{clients.data.scope === 'organisation' ? 'every firm client' : 'clients assigned to you'} — services, filing record and money owed in one place.</>
           : 'One record per company. Everything else references it.'}
         action={canManage ? (
           <ListAction onClick={() => setAddOpen(true)} icon={<Plus size={15} />}>Add Client</ListAction>
         ) : undefined}
       />
+
+      <nav className="cl-views flex gap-1 border-b border-border mb-4 overflow-x-auto" aria-label="Client views">
+        {views.filter((v) => v.show).map((v) => (
+          <button key={v.key} type="button" onClick={() => setView(v.apply)}
+            className={'cl-view relative flex items-center gap-2 px-3 pt-2 pb-[10px] text-13 font-medium whitespace-nowrap ' + (activeView === v.key ? 'is-on text-ink' : 'text-inkMuted hover:text-ink')}>
+            {v.label}
+            {v.count !== null ? <span className="cl-count">{v.count}</span> : null}
+          </button>
+        ))}
+      </nav>
 
       <ListToolbar>
         <SearchBox value={q} onChange={(v) => setParam('q', v)} placeholder="Company, Client ID, GSTIN, contact" />
@@ -74,38 +162,128 @@ export function ClientsPage() {
           Pending documents
         </TogglePill>
       </ListToolbar>
-      <div className="mb-4">
-        <StatusPills value={status} onChange={(v) => setParam('status', v)} options={[
-          { value: '', label: 'All' },
-          { value: 'active', label: 'Active' },
-          { value: 'onboarding', label: 'Onboarding' },
-          { value: 'pending_documents', label: 'Pending Documents' },
-          { value: 'service_due', label: 'Service Due' },
-          { value: 'inactive', label: 'Inactive' },
-        ]} />
+
+      <div className={'cl-split grid gap-4 items-start ' + (opened ? 'is-open' : '')}>
+        <ListCard>
+          <QueryState query={clients} empty={<ListEmpty>No clients match these filters.</ListEmpty>}>
+            {(data: ListResponse<ClientListItem>) => {
+              const items = rowsFor(data.items);
+              if (items.length === 0) return <ListEmpty>No clients match these filters.</ListEmpty>;
+              return (
+                <div className="overflow-x-auto">
+                  <table className="cl-table w-full text-13">
+                    <thead>
+                      <tr>
+                        <th>Client</th>
+                        <th className="cl-hide-open cl-hide-xs">Services</th>
+                        <th className="cl-hide-sm">Manager</th>
+                        {seesGst ? <th className="cl-hide-sm" title="GSTR-1 and GSTR-3B for the last six periods">GST · 6 periods</th> : null}
+                        {seesBilling ? <th className="text-right">Outstanding</th> : null}
+                        <th className="cl-hide-open cl-hide-xs">Status</th>
+                        {knows.money || knows.gst || knows.tds ? <th>Health</th> : null}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {items.map((c) => {
+                        const m = moneyById.get(c.id);
+                        const h = healthOf(c);
+                        const row = gst?.byClient.get(c.id);
+                        return (
+                          <tr key={c.id} tabIndex={0}
+                            className={c.id === openId ? 'is-cur' : ''}
+                            onClick={(e) => {
+                              if (e.metaKey || e.ctrlKey) { window.open(`/workstation/clients/${c.id}`, '_blank'); return; }
+                              setParam('client', c.id === openId ? '' : c.id);
+                            }}
+                            onKeyDown={(e) => { if (e.key === 'Enter') setParam('client', c.id); }}
+                            onDoubleClick={() => navigate(`/workstation/clients/${c.id}`)}>
+                            <td>
+                              <div className="flex items-center gap-3 min-w-0">
+                                <Avatar name={c.company_name} size={32} square />
+                                <div className="min-w-0">
+                                  <div className="font-semibold text-ink truncate max-w-[260px]">{c.company_name}</div>
+                                  <div className="font-mono text-[11.5px] text-inkFaint truncate">{c.client_id}{c.gstin ? ` · ${c.gstin}` : ''}</div>
+                                </div>
+                              </div>
+                            </td>
+                            <td className="cl-hide-open cl-hide-xs">
+                              <div className="flex flex-wrap gap-1 max-w-[260px]">
+                                {c.service_names.slice(0, 3).map((n) => <span key={n} className="cl-svc">{n}</span>)}
+                                {c.service_names.length > 3 ? <span className="cl-svc">+{c.service_names.length - 3}</span> : null}
+                                {c.service_names.length === 0 ? <span className="text-inkFaint">—</span> : null}
+                              </div>
+                            </td>
+                            <td className="cl-hide-sm">
+                              {c.account_manager ? (
+                                <span className="flex items-center gap-2 text-inkMuted" title={c.account_manager.full_name}>
+                                  <Avatar name={c.account_manager.full_name} size={24} />
+                                  <span className="truncate max-w-[120px] hidden 2xl:inline">{c.account_manager.full_name}</span>
+                                </span>
+                              ) : <span className="text-inkFaint">—</span>}
+                            </td>
+                            {seesGst ? (
+                              <td className="cl-hide-sm">
+                                {gst ? <Strip states={periods.map((p) => row?.get(p)?.state ?? 'none')} periods={periods} /> : <span className="text-inkFaint">…</span>}
+                              </td>
+                            ) : null}
+                            {seesBilling ? (
+                              <td className={'text-right num-display whitespace-nowrap ' + (m && m.overdue_paise > 0 ? 'text-danger' : 'text-ink')}>
+                                {m && m.pending_paise > 0 ? formatINR(m.pending_paise / 100) : <span className="text-inkFaint font-normal">—</span>}
+                              </td>
+                            ) : null}
+                            <td className="cl-hide-open cl-hide-xs"><StatusChip value={c.status} /></td>
+                            {knows.money || knows.gst || knows.tds ? (
+                              <td title={h ? (h.reasons.length ? h.reasons.join(' · ') : 'No issues found') : undefined}>
+                                {h ? (
+                                  <span className="inline-flex items-center gap-2 font-semibold text-ink tabular-nums">
+                                    <Ring value={h.score / 100} size={22} />{h.score}
+                                  </span>
+                                ) : <span className="text-inkFaint">—</span>}
+                              </td>
+                            ) : null}
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                  <div className="px-5 py-3 border-t border-border text-12 text-inkMuted">
+                    {items.length} of {data.count} client{data.count === 1 ? '' : 's'} · click a row for a quick look, double-click to open
+                  </div>
+                </div>
+              );
+            }}
+          </QueryState>
+        </ListCard>
+
+        {opened ? <div className="cp-scrim" onClick={() => setParam('client', '')} aria-hidden /> : null}
+        {opened ? (
+          <ClientPanel
+            key={opened.id}
+            client={opened}
+            money={moneyById.get(opened.id)}
+            gst={gst}
+            tds={tdsRowsFor(tds.data, opened.id)}
+            health={healthOf(opened)}
+            onClose={() => setParam('client', '')}
+          />
+        ) : null}
       </div>
 
-      <ListCard>
-        <QueryState query={clients} empty={<ListEmpty>No clients match these filters.</ListEmpty>}>
-          {(data: ListResponse<ClientListItem>) => data.items.length === 0 ? <ListEmpty>No clients match these filters.</ListEmpty> : (
-            <ListTable cols={['Company', 'GSTIN', 'Services', 'Account manager', 'Status', { label: 'Documents', align: 'right' }]}>
-              {data.items.map((c) => (
-                <ListRow key={c.id} onOpen={() => navigate(`/workstation/clients/${c.id}`)}>
-                  <TD first><TwoLine top={c.company_name} sub={c.client_id} /></TD>
-                  <TD muted nowrap className="tracking-[0.02em]">{c.gstin ?? '—'}</TD>
-                  <TD muted>{c.service_names.length ? c.service_names.join(' + ') : '—'}</TD>
-                  <TD muted>{c.account_manager?.full_name ?? '—'}</TD>
-                  <TD><StatusChip value={c.status} /></TD>
-                  <TD last right muted nowrap>{c.document_count} document{c.document_count === 1 ? '' : 's'}</TD>
-                </ListRow>
-              ))}
-            </ListTable>
-          )}
-        </QueryState>
-      </ListCard>
-
-      <AddClientModal open={addOpen} onClose={() => setAddOpen(false)} />
+      <AddClientModal open={addOpen && canManage} onClose={() => setAddOpen(false)} />
     </div>
+  );
+}
+
+/** Last six GST periods as small bars: filed · overdue · open · nothing due. */
+function Strip({ states, periods }: { states: PeriodState[]; periods: string[] }) {
+  const label: Record<PeriodState, string> = { filed: 'filed', overdue: 'overdue', pending: 'open', none: 'nothing due' };
+  return (
+    <span className="inline-flex gap-[3px]" aria-label={`GST: ${states.map((s, i) => `${periods[i]} ${label[s]}`).join(', ')}`}>
+      {states.map((s, i) => (
+        <i key={periods[i]} className={'cl-strip is-' + s}
+          title={`${new Date(`${periods[i]}-01T00:00:00`).toLocaleString('en-IN', { month: 'short', year: 'numeric' })}: ${label[s]}`} />
+      ))}
+    </span>
   );
 }
 

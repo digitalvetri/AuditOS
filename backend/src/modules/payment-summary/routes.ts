@@ -3,6 +3,7 @@
  * still owes, built from the Workstation invoices and their payment history.
  *
  *   GET    /api/payment-summary                         firm totals, ageing, per-client rows, recent payments
+ *   GET    /api/payment-summary/monthly?months=6        billed vs collected per month (cash-flow chart)
  *   GET    /api/payment-summary/clients/:clientId       one client's invoices with each instalment
  *   POST   /api/payment-summary/invoices/:id/payments   record a payment / instalment
  *   DELETE /api/payment-summary/invoices/:id/payments/:paymentId   remove a wrong entry
@@ -18,6 +19,7 @@ import { prisma } from '../../lib/prisma.js'
 import { istToday, daysBetween } from '../../lib/dates.js'
 import { requirePermission, requireSession } from '../../platform/auth.js'
 import { writeAudit } from '../../platform/audit.js'
+import { bucketMonthly, monthWindow } from './monthly.js'
 import {
   addPayment, listPayments, paymentBodySchema, paymentToApi, removePayment, toPaymentInput,
 } from '../invoice/payments.js'
@@ -146,6 +148,30 @@ paymentSummaryRouter.get('/', handler(async (req, res) => {
       client_name: p.invoice.client.companyName,
     })),
   })
+}))
+
+// ── GET /api/payment-summary/monthly ──────────────────────────────────────
+// Billed (by invoice date) vs collected (by payment date) for the last N
+// months including this one. Same scope as the summary: billed invoices only
+// (draft and cancelled excluded), and only payments made against them.
+paymentSummaryRouter.get('/monthly', handler(async (req, res) => {
+  const q = z.object({ months: z.coerce.number().int().min(1).max(24).default(6) }).parse(req.query)
+  const months = monthWindow(istToday(), q.months)
+  const from = `${months[0]}-01`
+  const to = `${months[months.length - 1]}-31`
+
+  const [invoices, payments] = await Promise.all([
+    prisma.invoice.findMany({
+      where: { ...BILLED, invoiceDate: { gte: from, lte: to } },
+      select: { invoiceDate: true, totalPaise: true },
+    }),
+    prisma.invoicePayment.findMany({
+      where: { paidOn: { gte: from, lte: to }, invoice: BILLED },
+      select: { paidOn: true, amountPaise: true },
+    }),
+  ])
+
+  ok(res, { months: bucketMonthly(months, invoices, payments) })
 }))
 
 // ── GET /api/payment-summary/clients/:clientId ────────────────────────────

@@ -138,7 +138,7 @@ function OrgBar() {
   return (
     <div className="dash-card px-4 py-3 mb-4 flex flex-wrap items-center gap-x-4 gap-y-2">
       <div className="min-w-0 flex items-center gap-3">
-        <span className="h-9 w-9 rounded-lg inline-flex items-center justify-center shrink-0" style={{ background: '#eaf2ff', color: '#1d4ed8', boxShadow: 'inset 0 0 0 1px #d4e3fb' }}>
+        <span className="h-9 w-9 rounded-lg inline-flex items-center justify-center shrink-0" style={{ background: '#e4f5f3', color: '#0c7a7a', boxShadow: 'inset 0 0 0 1px #cdebe8' }}>
           <Building2 size={17} strokeWidth={1.9} />
         </span>
         {activeOrgs.length > 1 ? (

@@ -6,6 +6,7 @@ import { istToday } from '../lib/dates.js'
 import { can, requireSession, type Session } from '../platform/auth.js'
 import { auditLogToApi, notificationToApi } from '../api/serialize.js'
 import { expiringDocuments } from './documents.routes.js'
+import { canApproveCorrection, canApproveExpense, canApproveLeave } from './dashboard-approvable.js'
 import type { Scope } from '../platform/rbac/matrix.js'
 
 /**
@@ -143,7 +144,12 @@ dashboardRouter.get('/pending-actions', handler(async (req, res) => {
     subtitle: string
     action_url: string
     created_at: string
+    /** True when this viewer can approve it in one click (same rules as the approve endpoint). */
+    approvable: boolean
   }[] = []
+  const rights = (dept: boolean, org: boolean) => ({
+    employeeId: session.employeeId ?? null, departmentId: session.departmentId ?? null, dept, org,
+  })
 
   const expDept = can(session, 'expense.approve', 'department')
   const expOrg = can(session, 'expense.approve', 'organisation')
@@ -164,6 +170,7 @@ dashboardRouter.get('/pending-actions', handler(async (req, res) => {
         subtitle: `${(e.amountPaise / 100).toLocaleString('en-IN')} · ${e.stage.replace('_', ' ')}`,
         action_url: e.stage === 'pending_manager' ? '/hrms/accounts/expenses?tab=team' : '/hrms/accounts/expenses?tab=finance',
         created_at: e.createdAt.toISOString(),
+        approvable: canApproveExpense(rights(expDept, expOrg), { stage: e.stage, employeeDepartmentId: e.employee.departmentId }),
       })
     }
   }
@@ -189,6 +196,7 @@ dashboardRouter.get('/pending-actions', handler(async (req, res) => {
         subtitle: `${r.computedWorkingDays.toFixed(1)} day(s) · ${r.startDate} → ${r.endDate}`,
         action_url: '/hrms/leave?tab=queue',
         created_at: r.createdAt.toISOString(),
+        approvable: canApproveLeave(rights(leaveDept, leaveOrg), { awaitingHr, employeeManagerId: r.employee.managerId }),
       })
     }
   }
@@ -211,6 +219,7 @@ dashboardRouter.get('/pending-actions', handler(async (req, res) => {
         subtitle: `${c.date} · ${c.reason.slice(0, 40)}${c.reason.length > 40 ? '…' : ''}`,
         action_url: '/hrms/attendance?tab=corrections',
         created_at: c.createdAt.toISOString(),
+        approvable: canApproveCorrection(rights(corrDept, corrOrg), { employeeDepartmentId: c.employee.departmentId }),
       })
     }
   }
@@ -224,6 +233,7 @@ dashboardRouter.get('/pending-actions', handler(async (req, res) => {
       action_url: '/hrms/documents?expiringWithinDays=30',
       // Sorted by soonest expiry alongside newest-first items.
       created_at: d.expiry_date,
+      approvable: false,
     })
   }
 

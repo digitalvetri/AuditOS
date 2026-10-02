@@ -17,7 +17,7 @@ import { useAuth } from '@/platform/auth/AuthContext';
 
 const useMyEmployeeId = () => useAuth().session?.employee?.id ?? '';
 
-const menuItem = 'w-full text-left flex items-center gap-2 px-3 py-2 text-13 text-ink rounded-md hover:bg-[#e8f0fb] hover:text-primary';
+const menuItem = 'w-full text-left flex items-center gap-2 px-3 py-2 text-13 text-ink rounded-md hover:bg-[#e3f4f3] hover:text-primary';
 const dangerItem = menuItem + ' text-danger';
 
 /**
@@ -125,8 +125,8 @@ function PeoplePicker({ multi, exclude = [], selected, onChange }: { multi: bool
             return (
               <li key={p.id}>
                 <button type="button" onClick={() => onChange(multi ? (on ? selected.filter((x) => x !== p.id) : [...selected, p.id]) : [p.id])}
-                  className={'w-full flex items-center gap-3 px-2 py-2 text-left rounded-lg ' + (on ? 'bg-[#e8f0fb]' : 'hover:bg-[#f4f6fa]')}>
-                  <span className="inline-flex items-center justify-center w-9 h-9 rounded-full text-white text-12 font-semibold shrink-0" style={{ background: 'linear-gradient(180deg, #2a4f8f 0%, #1b3a6f 100%)' }}>{initials(p.full_name)}</span>
+                  className={'w-full flex items-center gap-3 px-2 py-2 text-left rounded-lg ' + (on ? 'bg-[#e3f4f3]' : 'hover:bg-[#f4f6fa]')}>
+                  <span className="inline-flex items-center justify-center w-9 h-9 rounded-full text-white text-12 font-semibold shrink-0" style={{ background: 'linear-gradient(180deg, #0f6f6f 0%, #0a5355 100%)' }}>{initials(p.full_name)}</span>
                   <span className="min-w-0 flex-1">
                     <span className="block text-13 font-medium text-ink truncate">{p.full_name}</span>
                     <span className="block text-11 text-inkMuted truncate">{p.designation ?? p.employee_code}</span>
@@ -280,7 +280,7 @@ function GroupInfo({ chatId, onClose, onGone }: { chatId: string; onClose: () =>
       {!info ? <div className="text-13 text-inkMuted">{q.isError ? (q.error as Error).message : 'Loading…'}</div> : (
         <div className="space-y-4">
           <div className="text-center">
-            <span className="inline-flex items-center justify-center w-16 h-16 rounded-full text-white shadow-raised" style={{ background: 'linear-gradient(180deg, #2a4f8f 0%, #1b3a6f 100%)' }}><Users size={28} /></span>
+            <span className="inline-flex items-center justify-center w-16 h-16 rounded-full text-white shadow-raised" style={{ background: 'linear-gradient(180deg, #0f6f6f 0%, #0a5355 100%)' }}><Users size={28} /></span>
             {edit ? (
               <div className="mt-3 space-y-2 text-left">
                 <input value={edit.name} maxLength={120} onChange={(e) => setEdit({ ...edit, name: e.target.value })} className="w-full h-9 px-3 text-14 border border-border rounded-md" />
@@ -321,12 +321,12 @@ function GroupInfo({ chatId, onClose, onGone }: { chatId: string; onClose: () =>
           <ul className="divide-y divide-border">
             {info.members.map((m) => (
               <li key={m.employee_id} className="flex items-center gap-3 py-2">
-                <span className="inline-flex items-center justify-center w-9 h-9 rounded-full text-white text-12 font-semibold shrink-0" style={{ background: 'linear-gradient(180deg, #2a4f8f 0%, #1b3a6f 100%)' }}>{initials(m.full_name)}</span>
+                <span className="inline-flex items-center justify-center w-9 h-9 rounded-full text-white text-12 font-semibold shrink-0" style={{ background: 'linear-gradient(180deg, #0f6f6f 0%, #0a5355 100%)' }}>{initials(m.full_name)}</span>
                 <span className="min-w-0 flex-1">
                   <span className="block text-13 font-medium text-ink truncate">{m.full_name}</span>
                   <span className="block text-11 text-inkMuted truncate">{m.designation ?? m.employee_code}</span>
                 </span>
-                {m.role === 'admin' ? <span className="text-11 font-medium px-2 py-0.5 rounded-full bg-[#e8f0fb] text-primary">Group admin</span> : null}
+                {m.role === 'admin' ? <span className="text-11 font-medium px-2 py-0.5 rounded-full bg-[#e3f4f3] text-primary">Group admin</span> : null}
                 {admin && m.employee_id !== myId ? (
                   <Popover trigger={(open) => <button type="button" onClick={open} aria-label={`Options for ${m.full_name}`} className="w-7 h-7 inline-flex items-center justify-center text-inkMuted hover:text-ink"><ChevronDown size={16} /></button>}>
                     {(close) => (
@@ -424,7 +424,7 @@ function MessageInfoModal({ chat, message, onClose }: { chat: ChatListItem; mess
               <ul className="divide-y divide-border">
                 {d.read_by.map((r) => (
                   <li key={r.employee_id} className="flex items-center gap-3 py-2">
-                    <span className="inline-flex items-center justify-center w-8 h-8 rounded-full text-white text-11 font-semibold shrink-0" style={{ background: 'linear-gradient(180deg, #2a4f8f 0%, #1b3a6f 100%)' }}>{initials(r.full_name)}</span>
+                    <span className="inline-flex items-center justify-center w-8 h-8 rounded-full text-white text-11 font-semibold shrink-0" style={{ background: 'linear-gradient(180deg, #0f6f6f 0%, #0a5355 100%)' }}>{initials(r.full_name)}</span>
                     <span className="flex-1 text-13 text-ink truncate">{r.full_name}</span>
                     <span className="text-11 text-inkMuted tabular-nums">{fmtWhen(r.read_at!)}</span>
                   </li>
@@ -557,7 +557,7 @@ export function DocumentChip({ attachment }: { attachment: ChatAttachment }) {
   const size = attachment.file_size < 1024 * 1024 ? `${Math.max(1, Math.round(attachment.file_size / 1024))} KB` : `${(attachment.file_size / (1024 * 1024)).toFixed(1)} MB`;
   return (
     <a href={attachment.url} download={attachment.filename} className="flex items-center gap-2 min-w-[220px] max-w-[320px] rounded-lg border border-border bg-white px-2 py-2 hover:border-primary/40 transition-colors" data-testid={`document-${attachment.id}`}>
-      <span className="inline-flex items-center justify-center w-9 h-10 rounded-md text-white text-[10px] font-bold shrink-0" style={{ background: 'linear-gradient(180deg, #2a4f8f 0%, #1b3a6f 100%)' }}>{ext || 'FILE'}</span>
+      <span className="inline-flex items-center justify-center w-9 h-10 rounded-md text-white text-[10px] font-bold shrink-0" style={{ background: 'linear-gradient(180deg, #0f6f6f 0%, #0a5355 100%)' }}>{ext || 'FILE'}</span>
       <span className="min-w-0 flex-1">
         <span className="block text-13 text-ink truncate" title={attachment.filename}>{attachment.filename}</span>
         <span className="block text-11 text-inkMuted">{size} · {ext}</span>

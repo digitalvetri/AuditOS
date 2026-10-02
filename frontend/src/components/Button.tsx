@@ -22,17 +22,17 @@ export function Button({
     ? 'h-10 px-5 text-14 rounded-md'
     : 'h-8 px-3 text-13 rounded';
   const base =
-    'inline-flex items-center justify-center font-medium transition-colors ' +
+    'inline-flex items-center justify-center font-medium transition-[color,background-color,box-shadow,transform] active:translate-y-px ' +
     'disabled:cursor-not-allowed disabled:opacity-50';
   const styles: Record<Variant, string> = {
     primary:
       'bg-primary text-white hover:bg-primaryHover shadow-card',
     secondary:
-      'bg-surface text-ink border border-border hover:bg-canvas',
+      'bg-surface text-ink border border-border shadow-card hover:bg-canvas',
     ghost:
       'text-inkMuted hover:text-ink hover:bg-canvas',
     danger:
-      'bg-surface text-danger border border-border hover:bg-canvas',
+      'bg-surface text-danger border border-border shadow-card hover:bg-danger/5 hover:border-danger/30',
   };
   return (
     <button className={`${base} ${sizing} ${styles[variant]} ${className}`} {...rest}>

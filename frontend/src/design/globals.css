@@ -21,87 +21,89 @@
   :root {
     --c-white: 255 255 255;
     --c-black: 0 0 0;
-    /* Navy rail per practice-overview mockup. Active row uses a lighter
-       navy pill; text stays white throughout so the existing Sidebar.tsx
-       markup (which uses text-sidebarText for both active and idle rows)
-       still reads correctly on both states. */
-    --c-sidebar: 15 34 73;
-    --c-sidebarHover: 26 48 96;
-    --c-sidebarActive: 42 71 137;
+    /* Teal & Coral. Deep sea-teal rail; the active row is a lifted teal
+       pill and text stays light on every state, so Sidebar.tsx's
+       text-sidebarText reads on both idle and active rows. */
+    --c-sidebar: 3 38 42;
+    --c-sidebarHover: 9 56 61;
+    --c-sidebarActive: 15 88 90;
     --c-sidebarText: 255 255 255;
-    --c-sidebarMuted: 148 163 196;
-    --c-canvas: 247 246 242;
+    --c-sidebarMuted: 141 180 180;
+    --c-canvas: 245 247 248;
     --c-surface: 255 255 255;
-    --c-border: 232 230 223;
-    --c-ink: 26 26 24;
-    --c-inkMuted: 107 107 99;
-    --c-inkFaint: 154 154 144;
-    --c-danger: 179 58 43;
-    --c-warning: 200 149 46;
-    --c-success: 79 107 82;
-    --c-red: 179 58 43;
-    --c-amber: 200 149 46;
-    --c-neutral-50: 250 249 247;
-    --c-neutral-100: 243 241 237;
-    --c-neutral-200: 230 226 219;
-    --c-neutral-300: 208 202 191;
-    --c-neutral-400: 168 161 150;
-    --c-neutral-500: 122 115 106;
-    --c-neutral-600: 88 82 73;
-    --c-neutral-700: 63 58 51;
-    --c-neutral-800: 40 37 31;
-    --c-neutral-900: 23 21 18;
-    --c-gold: 38 100 231;
-    --c-gold-hover: 29 84 199;
-    /* Primary ACTION surface — the sidebar navy, so a button and the
-       rail read as the same brand. Hover lifts to --c-sidebarActive
-       rather than darkening, because the base is already near-black. */
-    --c-primary: 15 34 73;
-    --c-primary-hover: 42 71 137;
+    --c-border: 228 231 236;
+    --c-ink: 11 18 28;
+    --c-inkMuted: 102 112 133;
+    --c-inkFaint: 152 162 179;
+    /* Status. Success is a leaf green so "on time" never reads as the
+       teal brand; danger stays a true red so overdue never reads as coral. */
+    --c-danger: 209 67 47;
+    --c-warning: 194 122 10;
+    --c-success: 47 158 68;
+    --c-red: 209 67 47;
+    --c-amber: 194 122 10;
+    --c-neutral-50: 248 250 251;
+    --c-neutral-100: 242 244 247;
+    --c-neutral-200: 228 231 236;
+    --c-neutral-300: 208 213 221;
+    --c-neutral-400: 154 163 181;
+    --c-neutral-500: 105 115 138;
+    --c-neutral-600: 74 84 104;
+    --c-neutral-700: 52 61 79;
+    --c-neutral-800: 30 37 51;
+    --c-neutral-900: 11 18 28;
+    /* `gold` is the accent (links, focus ring, highlights) — now teal.
+       #0C7A7A holds 5.1:1 on white, so it is safe for 13px link text. */
+    --c-gold: 12 122 122;
+    --c-gold-hover: 8 98 98;
+    /* Primary ACTION surface — the brand teal. Hover deepens. */
+    --c-primary: 12 122 122;
+    --c-primary-hover: 8 98 98;
+    /* Coral — accent fills only (gradients, chart series, highlights).
+       Never body text: it fails contrast on white. */
+    --c-coral: 240 122 90;
   }
   :root[data-theme="dark"] {
-    --c-white: 31 30 27;
+    --c-white: 16 20 28;
     --c-black: 0 0 0;
-    --c-neutral-50: 27 26 23;
-    --c-neutral-100: 36 35 32;
-    --c-neutral-200: 52 50 45;
-    --c-neutral-300: 74 71 63;
-    --c-neutral-400: 122 117 106;
-    --c-neutral-500: 162 156 144;
-    --c-neutral-600: 196 191 180;
-    --c-neutral-700: 218 214 205;
-    --c-neutral-800: 234 231 224;
-    --c-neutral-900: 243 241 236;
-    /* Dark theme keeps the navy rail identity; nudged a shade darker so it
-       still reads as the surface just above the canvas. */
-    --c-sidebar: 12 26 55;
-    --c-sidebarHover: 22 40 78;
-    --c-sidebarActive: 36 62 121;
-    --c-sidebarText: 237 235 229;
-    --c-sidebarMuted: 148 163 196;
-    --c-canvas: 21 20 18;
-    --c-surface: 31 30 27;
-    --c-border: 53 51 46;
-    --c-ink: 237 235 229;
-    --c-inkMuted: 168 163 153;
-    --c-inkFaint: 124 119 110;
-    --c-danger: 224 104 90;
-    --c-warning: 217 166 74;
-    --c-success: 127 163 131;
-    --c-gold: 66 133 244;
-    --c-gold-hover: 96 156 255;
-    /* On a near-black canvas the light theme's #0F2249 would read as
-       a hole, so dark starts at the active shade and lifts. */
-    --c-primary: 42 71 137;
-    --c-primary-hover: 58 94 176;
-    --c-red: 224 104 90;
-    --c-amber: 217 166 74;
+    --c-neutral-50: 14 18 25;
+    --c-neutral-100: 20 25 34;
+    --c-neutral-200: 31 38 50;
+    --c-neutral-300: 45 54 69;
+    --c-neutral-400: 92 103 122;
+    --c-neutral-500: 135 146 166;
+    --c-neutral-600: 170 180 197;
+    --c-neutral-700: 198 206 218;
+    --c-neutral-800: 226 231 238;
+    --c-neutral-900: 238 242 247;
+    /* Dark keeps the teal rail, a shade deeper than the canvas lift. */
+    --c-sidebar: 4 27 30;
+    --c-sidebarHover: 10 46 50;
+    --c-sidebarActive: 16 78 82;
+    --c-sidebarText: 230 240 240;
+    --c-sidebarMuted: 125 160 160;
+    --c-canvas: 9 12 17;
+    --c-surface: 16 20 28;
+    --c-border: 30 37 49;
+    --c-ink: 237 241 247;
+    --c-inkMuted: 140 151 168;
+    --c-inkFaint: 92 103 122;
+    --c-danger: 242 112 94;
+    --c-warning: 234 165 59;
+    --c-success: 76 199 100;
+    --c-gold: 43 184 180;
+    --c-gold-hover: 94 214 208;
+    --c-primary: 15 128 126;
+    --c-primary-hover: 20 150 146;
+    --c-red: 242 112 94;
+    --c-amber: 234 165 59;
+    --c-coral: 247 145 116;
     color-scheme: dark;
   }
 
   html {
     font-family:
-      'Inter Variable', 'Inter', ui-sans-serif, system-ui, -apple-system,
+      'Geist Variable', 'Inter Variable', 'Inter', ui-sans-serif, system-ui, -apple-system,
       'Segoe UI', sans-serif;
     font-feature-settings: 'ss01', 'cv11';
     /* Anchor 1rem = 16px regardless of the user's browser default text
@@ -418,8 +420,8 @@
 /* The page is shown scaled down (~0.6), which thins any outline to almost
    nothing — so the cues are drawn heavier than they will look, and the
    field being edited gets a tint that reads even at small sizes. */
-.el-editing .el-edit:hover { box-shadow: 0 0 0 2px rgb(59 130 246 / 0.55); background: rgb(59 130 246 / 0.06); }
-.el-edit:focus { box-shadow: 0 0 0 2.5px rgb(37 99 235 / 0.9); background: rgb(59 130 246 / 0.12); }
+.el-editing .el-edit:hover { box-shadow: 0 0 0 2px rgb(20 163 160 / 0.55); background: rgb(20 163 160 / 0.06); }
+.el-edit:focus { box-shadow: 0 0 0 2.5px rgb(12 122 122 / 0.9); background: rgb(20 163 160 / 0.12); }
 .el-edit:empty::before, .el-empty[data-placeholder]:empty::before {
   content: attr(data-placeholder); color: #9ca3af; font-style: italic; pointer-events: none;
 }
@@ -440,14 +442,14 @@ span.el-edit:empty { display: inline-block; min-width: 2.5em; }
 
 .el-space { box-sizing: border-box; }
 .el-space::after { content: ''; position: absolute; inset: -6px 0; }
-.el-space:hover { outline: 1px dashed rgb(59 130 246 / 0.5); outline-offset: -1px; }
+.el-space:hover { outline: 1px dashed rgb(20 163 160 / 0.5); outline-offset: -1px; }
 .el-space-bar {
   position: absolute; right: 0; top: 50%; transform: translateY(-50%); z-index: 6;
   display: none; align-items: center; gap: 2px; padding: 2px 4px;
   background: #fff; border: 1px solid #e5e7eb; border-radius: 4px; font-size: 11px; color: #6b7280;
 }
 .el-space:hover .el-space-bar, .el-space-bar:focus-within { display: flex; }
-.el-addfee { font-size: 0.9em; color: #2563eb; background: none; border: 0; padding: 0; cursor: pointer; }
+.el-addfee { font-size: 0.9em; color: #0c7a7a; background: none; border: 0; padding: 0; cursor: pointer; }
 .el-addfee:hover { text-decoration: underline; }
 
 @media print {
@@ -490,8 +492,8 @@ span.el-edit:empty { display: inline-block; min-width: 2.5em; }
 .el-pagebreak {
   position: absolute; left: 0; right: 0; top: 2px; z-index: 5;
   display: flex; align-items: center; gap: 6px;
-  border-top: 1px dashed rgb(59 130 246 / 0.55);
-  font: 11px/1.2 system-ui, sans-serif; color: rgb(59 130 246);
+  border-top: 1px dashed rgb(20 163 160 / 0.55);
+  font: 11px/1.2 system-ui, sans-serif; color: rgb(20 163 160);
   opacity: 0.55; transition: opacity 120ms;
 }
 .el-pagebreak span { background: #fff; padding: 0 4px; margin-top: -1px; }
@@ -523,7 +525,7 @@ span.el-edit:empty { display: inline-block; min-width: 2.5em; }
      strip reads as one piece. */
   background:
     linear-gradient(180deg, rgb(255 255 255 / 0.08), transparent 55%),
-    linear-gradient(180deg, #2a4f8f 0%, #1b3a6f 100%);
+    linear-gradient(180deg, #0f6f6f 0%, #0a5355 100%);
   color: rgb(255 255 255 / 0.9);
   font-size: 11px; font-weight: 500; text-transform: uppercase; letter-spacing: 0.08em;
 }
@@ -540,16 +542,16 @@ span.el-edit:empty { display: inline-block; min-width: 2.5em; }
   transition: box-shadow 120ms ease;
 }
 .ws-float tbody td {
-  background: #fff;
-  border-top: 1px solid rgb(229 231 235 / 0.8);
-  border-bottom: 1px solid rgb(229 231 235 / 0.8);
+  background: rgb(var(--c-surface));
+  border-top: 1px solid rgb(var(--c-border) / 0.9);
+  border-bottom: 1px solid rgb(var(--c-border) / 0.9);
   padding-top: 14px; padding-bottom: 14px;
   transition: border-color 120ms ease;
 }
-.ws-float tbody td:first-child { border-left: 1px solid rgb(229 231 235 / 0.8); border-radius: 10px 0 0 10px; }
-.ws-float tbody td:last-child { border-right: 1px solid rgb(229 231 235 / 0.8); border-radius: 0 10px 10px 0; }
+.ws-float tbody td:first-child { border-left: 1px solid rgb(var(--c-border) / 0.9); border-radius: 10px 0 0 10px; }
+.ws-float tbody td:last-child { border-right: 1px solid rgb(var(--c-border) / 0.9); border-radius: 0 10px 10px 0; }
 .ws-float tbody tr[tabindex]:hover td,
-.ws-float tbody tr[tabindex]:focus-visible td { border-color: rgb(var(--c-primary) / 0.28); background: #fff; }
+.ws-float tbody tr[tabindex]:focus-visible td { border-color: rgb(var(--c-primary) / 0.28); background: rgb(var(--c-surface)); }
 .ws-float tbody tr[tabindex]:hover,
 .ws-float tbody tr[tabindex]:focus-visible { box-shadow: 0 8px 16px -8px rgb(15 23 42 / 0.22); }
 
@@ -567,7 +569,7 @@ span.el-edit:empty { display: inline-block; min-width: 2.5em; }
   table.hr-float thead th {
     background:
       linear-gradient(180deg, rgb(255 255 255 / 0.08), transparent 55%),
-    linear-gradient(180deg, #2a4f8f 0%, #1b3a6f 100%) !important;
+    linear-gradient(180deg, #0f6f6f 0%, #0a5355 100%) !important;
     color: rgb(255 255 255 / 0.9) !important; border: 0 !important;
     font-size: 11px; font-weight: 500; text-transform: uppercase; letter-spacing: 0.08em;
     padding-top: 12px; padding-bottom: 12px;
@@ -575,9 +577,9 @@ span.el-edit:empty { display: inline-block; min-width: 2.5em; }
   table.hr-float thead th:first-child { border-radius: 10px 0 0 10px; padding-left: 20px; }
   table.hr-float thead th:last-child { border-radius: 0 10px 10px 0; padding-right: 20px; }
   table.hr-float tbody td {
-    background: #fff !important;
-    border-top: 1px solid rgb(229 231 235 / 0.8) !important;
-    border-bottom: 1px solid rgb(229 231 235 / 0.8) !important;
+    background: rgb(var(--c-surface)) !important;
+    border-top: 1px solid rgb(var(--c-border) / 0.9) !important;
+    border-bottom: 1px solid rgb(var(--c-border) / 0.9) !important;
     border-left-width: 0; border-right-width: 0;
     padding-top: 12px; padding-bottom: 12px;
     transition: border-color 120ms ease;
@@ -586,8 +588,8 @@ span.el-edit:empty { display: inline-block; min-width: 2.5em; }
   table.hr-float tbody tr { box-shadow: 0 5px 10px -6px rgb(15 23 42 / 0.14); transition: box-shadow 120ms ease; }
   table.hr-float tbody tr.cursor-pointer:hover { box-shadow: 0 8px 16px -8px rgb(15 23 42 / 0.22); }
   table.hr-float tbody td:first-child, table.hr-float thead th:first-child { white-space: nowrap; }
-  table.hr-float tbody td:first-child { border-left: 1px solid rgb(229 231 235 / 0.8) !important; border-radius: 10px 0 0 10px; padding-left: 20px; }
-  table.hr-float tbody td:last-child { border-right: 1px solid rgb(229 231 235 / 0.8) !important; border-radius: 0 10px 10px 0; padding-right: 20px; }
+  table.hr-float tbody td:first-child { border-left: 1px solid rgb(var(--c-border) / 0.9) !important; border-radius: 10px 0 0 10px; padding-left: 20px; }
+  table.hr-float tbody td:last-child { border-right: 1px solid rgb(var(--c-border) / 0.9) !important; border-radius: 0 10px 10px 0; padding-right: 20px; }
   table.hr-float tbody tr.cursor-pointer:hover td { border-color: rgb(var(--c-primary) / 0.28) !important; }
 }
 
@@ -595,8 +597,9 @@ span.el-edit:empty { display: inline-block; min-width: 2.5em; }
    glow behind the brand — the brand navy, given depth. */
 .sb-creative {
   background:
-    radial-gradient(120% 40% at 0% 0%, rgb(255 255 255 / 0.06), transparent 60%),
-    linear-gradient(180deg, #0b1a3a 0%, #102552 45%, #173466 100%);
+    radial-gradient(120% 38% at 0% 0%, rgb(45 212 191 / 0.16), transparent 60%),
+    radial-gradient(90% 30% at 100% 100%, rgb(240 122 90 / 0.14), transparent 65%),
+    linear-gradient(180deg, #03262a 0%, #05313a 50%, #073b40 100%);
 }
 
 /* A shared Workstation Card whose body is a floating Table (components.tsx)
@@ -613,15 +616,16 @@ span.el-edit:empty { display: inline-block; min-width: 2.5em; }
    panel keeps its flat colour. The gradient is an image over the flat
    colour, so the colour still shows while it loads and for print. */
 :is(button, a, [role='button']).bg-primary {
+  box-shadow: 0 1px 2px rgb(10 15 28 / 0.12), 0 4px 12px -3px rgb(12 122 122 / 0.45), inset 0 1px 0 rgb(255 255 255 / 0.14);
   background-image:
     linear-gradient(180deg, rgb(255 255 255 / 0.10), transparent 55%),
-    linear-gradient(180deg, #2a4f8f 0%, #1b3a6f 100%);
-  border-color: #1b3a6f;
+    linear-gradient(180deg, #11807f 0%, #0b6566 100%);
+  border-color: #0b6566;
 }
 :is(button, a, [role='button']).bg-primary:hover:not(:disabled) {
   background-image:
     linear-gradient(180deg, rgb(255 255 255 / 0.14), transparent 55%),
-    linear-gradient(180deg, #33599b 0%, #22437b 100%);
+    linear-gradient(180deg, #149291 0%, #0c7171 100%);
 }
 
 /* ── Grouped lists: floating rows ───────────────────────────────────────
@@ -635,14 +639,14 @@ span.el-edit:empty { display: inline-block; min-width: 2.5em; }
 .fr-group > .ws-card-title, .fr-group > .fr-head {
   background:
     linear-gradient(180deg, rgb(255 255 255 / 0.08), transparent 55%),
-    linear-gradient(180deg, #2a4f8f 0%, #1b3a6f 100%);
+    linear-gradient(180deg, #0f6f6f 0%, #0a5355 100%);
   border: 0 !important; border-radius: 10px;
 }
 .fr-group > .ws-card-title *, .fr-group > .fr-head * { color: rgb(255 255 255 / 0.92) !important; border-color: rgb(255 255 255 / 0.35) !important; }
 .fr-group > .ws-card-title .text-red, .fr-group > .fr-head .text-red { color: #fecaca !important; }
 .fr-row {
-  background: #fff;
-  border: 1px solid rgb(229 231 235 / 0.8) !important;
+  background: rgb(var(--c-surface));
+  border: 1px solid rgb(var(--c-border) / 0.9) !important;
   border-radius: 10px;
   margin-top: 8px;
   box-shadow: 0 5px 10px -6px rgb(15 23 42 / 0.14);
@@ -675,15 +679,15 @@ table.hr-float thead th {
   overflow: hidden;
   /* Pure white — translucent glass let the warm page colour through as a
      sandal tint. The rim, reflection and layered shadow keep the float. */
-  background: #fff;
-  border: 1px solid rgb(229 231 235 / 0.9);
+  background: rgb(var(--c-surface));
+  border: 1px solid rgb(var(--c-border));
   box-shadow:
     inset 0 1.5px 0 rgb(255 255 255 / 0.95),          /* top rim catching light */
     inset 0 -1px 0 rgb(255 255 255 / 0.35),           /* soft bottom rim        */
     inset 0 0 18px rgb(255 255 255 / 0.45),           /* inner glow             */
     0 1px 2px rgb(15 23 42 / 0.06),
     0 12px 28px -10px rgb(15 23 42 / 0.22),
-    0 28px 56px -26px rgb(30 58 138 / 0.30);
+    0 28px 56px -26px rgb(8 80 82 / 0.30);
   transition: transform 220ms cubic-bezier(.2,.8,.2,1), box-shadow 220ms ease, border-color 220ms ease;
 }
 /* A diagonal reflection across the glass, as on a real pane. */
@@ -707,7 +711,7 @@ table.hr-float thead th {
     inset 0 0 22px rgb(255 255 255 / 0.55),
     0 2px 4px rgb(15 23 42 / 0.06),
     0 22px 40px -14px rgb(15 23 42 / 0.28),
-    0 40px 70px -30px rgb(30 58 138 / 0.38);
+    0 40px 70px -30px rgb(8 80 82 / 0.38);
 }
 .doc-glass:hover::before, .doc-glass:focus-within::before { opacity: 1; }
 
@@ -716,8 +720,8 @@ table.hr-float thead th {
    glass cards: white, small curve, layered soft shadow. A card that is a
    link lifts and takes the dark-blue outline on hover. */
 .dash-card {
-  background: #fff;
-  border: 1px solid rgb(229 231 235 / 0.8);
+  background: rgb(var(--c-surface));
+  border: 1px solid rgb(var(--c-border) / 0.9);
   border-radius: 10px;
   box-shadow: 0 1px 2px rgb(15 23 42 / 0.04), 0 10px 24px -12px rgb(15 23 42 / 0.16);
 }
@@ -728,8 +732,8 @@ table.hr-float thead th {
   box-shadow: 0 0 0 1px rgb(var(--c-primary)), 0 2px 4px rgb(15 23 42 / 0.05), 0 18px 32px -14px rgb(15 23 42 / 0.26);
 }
 .dash-row {
-  background: #fff;
-  border: 1px solid rgb(229 231 235 / 0.8);
+  background: rgb(var(--c-surface));
+  border: 1px solid rgb(var(--c-border) / 0.9);
   border-radius: 10px;
   box-shadow: 0 4px 10px -6px rgb(15 23 42 / 0.14);
   transition: transform 180ms cubic-bezier(.2,.8,.2,1), border-color 180ms ease, box-shadow 180ms ease;
@@ -746,10 +750,11 @@ table.hr-float thead th {
 /* Dashboard hero: deep navy with a teal glow, like the reference banner. */
 .dash-hero {
   background:
-    radial-gradient(60% 90% at 88% 50%, rgb(45 212 191 / 0.22), transparent 60%),
-    radial-gradient(40% 60% at 70% 110%, rgb(59 130 246 / 0.25), transparent 70%),
-    linear-gradient(135deg, #0b1a3a 0%, #102552 55%, #0f2f4f 100%);
-  box-shadow: 0 1px 2px rgb(15 23 42 / 0.10), 0 18px 36px -18px rgb(11 26 58 / 0.55);
+    radial-gradient(60% 90% at 88% 50%, rgb(45 212 191 / 0.24), transparent 60%),
+    radial-gradient(45% 70% at 62% 115%, rgb(240 122 90 / 0.28), transparent 70%),
+    radial-gradient(50% 80% at 0% 100%, rgb(20 163 160 / 0.30), transparent 70%),
+    linear-gradient(135deg, #03262a 0%, #06373b 55%, #0a4649 100%);
+  box-shadow: 0 1px 2px rgb(15 23 42 / 0.10), 0 18px 36px -18px rgb(3 38 42 / 0.55);
 }
 .dash-orb {
   position: absolute; right: 12%; top: 50%; width: 220px; height: 220px; transform: translateY(-50%);
@@ -792,7 +797,7 @@ table.hr-float thead th {
 .audit-core {
   position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%);
   width: 56px; height: 56px; border-radius: 18px; display: flex; align-items: center; justify-content: center; color: #fff;
-  background: linear-gradient(135deg, rgb(45 212 191 / 0.55), rgb(59 130 246 / 0.45));
+  background: linear-gradient(135deg, rgb(45 212 191 / 0.55), rgb(240 122 90 / 0.40));
   border: 1px solid rgb(255 255 255 / 0.35);
   box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.45), 0 0 0 6px rgb(255 255 255 / 0.04), 0 0 36px rgb(45 212 191 / 0.45);
   animation: audit-pulse 3.2s ease-in-out infinite;
@@ -835,9 +840,9 @@ table.hr-float thead th {
    geometric face that reads as a number at a glance. Figures are tabular
    so columns of amounts line up. */
 .num-display {
-  font-family: 'Poppins', 'Inter Variable', 'Inter', ui-sans-serif, system-ui, sans-serif;
-  font-weight: 700;
-  letter-spacing: -0.01em;
+  font-family: 'Geist Variable', 'Inter Variable', 'Inter', ui-sans-serif, system-ui, sans-serif;
+  font-weight: 650;
+  letter-spacing: -0.035em;
   font-variant-numeric: tabular-nums;
 }
 
@@ -943,11 +948,11 @@ label .block.uppercase.text-11:not(.qdoc-stack *):not(.qb-preview *) {
   }
   select:not([multiple]):not([size]):not(.appearance-none):open::picker-icon { rotate: 180deg; }
   select:is(:not(.appearance-none), .chip-select)::picker(select) {
-    border: 1px solid rgb(229 231 235);
+    border: 1px solid rgb(var(--c-border));
     border-radius: 10px;
     padding: 4px;
     margin-top: 4px;
-    background: #fff;
+    background: rgb(var(--c-surface));
     box-shadow: 0 12px 28px -10px rgb(15 23 42 / 0.25), 0 2px 6px rgb(15 23 42 / 0.06);
     max-height: 320px;
   }
@@ -962,7 +967,7 @@ label .block.uppercase.text-11:not(.qdoc-stack *):not(.qb-preview *) {
   /* The option already chosen: a quiet pale-blue tint, so it never competes
      with the pointer. */
   select:is(:not(.appearance-none), .chip-select) option:checked {
-    background: #e8f0fb;
+    background: #e3f4f3;
     color: rgb(var(--c-primary));
     font-weight: 500;
   }
@@ -972,12 +977,12 @@ label .block.uppercase.text-11:not(.qdoc-stack *):not(.qb-preview *) {
   select:is(:not(.appearance-none), .chip-select):not(:has(option:hover)) option:focus-visible {
     background:
       linear-gradient(180deg, rgb(255 255 255 / 0.08), transparent 55%),
-      linear-gradient(180deg, #2a4f8f 0%, #1b3a6f 100%);
+      linear-gradient(180deg, #0f6f6f 0%, #0a5355 100%);
     color: #fff;
     outline: none;
   }
   select:is(:not(.appearance-none), .chip-select) option:focus-visible { outline: none; }
-  :root[data-theme='dark'] select:is(:not(.appearance-none), .chip-select) option:checked { background: rgb(66 133 244 / 0.18); color: rgb(var(--c-ink)); }
+  :root[data-theme='dark'] select:is(:not(.appearance-none), .chip-select) option:checked { background: rgb(20 163 160 / 0.18); color: rgb(var(--c-ink)); }
   select:is(:not(.appearance-none), .chip-select) option:disabled { color: rgb(var(--c-inkFaint, 156 163 175)); }
   :root[data-theme='dark'] select:is(:not(.appearance-none), .chip-select)::picker(select) {
     background: rgb(var(--c-surface)); border-color: rgb(var(--c-border));
@@ -990,14 +995,14 @@ label .block.uppercase.text-11:not(.qdoc-stack *):not(.qb-preview *) {
    - global search results — the active result (it follows the pointer and
      the arrow keys) is navy. */
 select[size] option { padding: 6px 10px; border-radius: 6px; }
-select[size] option:checked { background: #e8f0fb; color: rgb(var(--c-primary)); }
+select[size] option:checked { background: #e3f4f3; color: rgb(var(--c-primary)); }
 select[size] option:hover,
 [role='menu'] [role='menuitem']:is(button:not(:disabled), a):hover,
 [role='menu'] [role='menuitem']:is(button:not(:disabled), a):focus-visible,
 [role='listbox'] [role='option'][aria-selected='true'] {
   background:
     linear-gradient(180deg, rgb(255 255 255 / 0.08), transparent 55%),
-    linear-gradient(180deg, #2a4f8f 0%, #1b3a6f 100%);
+    linear-gradient(180deg, #0f6f6f 0%, #0a5355 100%);
   color: #fff;
   outline: none;
 }
@@ -1012,7 +1017,7 @@ select[size] option:hover,
    the same gradient, rim and glow as the shield at its centre. Hovering an
    item gives a fainter wash of the same shade. */
 .sb-active {
-  background: linear-gradient(135deg, rgb(45 212 191 / 0.38), rgb(59 130 246 / 0.30));
+  background: linear-gradient(100deg, rgb(45 212 191 / 0.30), rgb(45 212 191 / 0.10) 70%, rgb(240 122 90 / 0.10));
   box-shadow:
     inset 0 0 0 1px rgb(255 255 255 / 0.22),
     inset 0 1px 0 rgb(255 255 255 / 0.30),
@@ -1021,7 +1026,7 @@ select[size] option:hover,
 .sb-hover { position: relative; transition: background 150ms ease, box-shadow 150ms ease, color 150ms ease; }
 /* Hover looks exactly like the chosen item: same glass, glow and teal bar. */
 .sb-hover:hover {
-  background: linear-gradient(135deg, rgb(45 212 191 / 0.38), rgb(59 130 246 / 0.30));
+  background: linear-gradient(100deg, rgb(45 212 191 / 0.30), rgb(45 212 191 / 0.10) 70%, rgb(240 122 90 / 0.10));
   box-shadow:
     inset 0 0 0 1px rgb(255 255 255 / 0.22),
     inset 0 1px 0 rgb(255 255 255 / 0.30),
@@ -1051,7 +1056,7 @@ select[size] option:hover,
   mask-image: linear-gradient(180deg, transparent, #000 12%, #000 88%, transparent);
 }
 .sb-drift {
-  position: absolute; bottom: -40px; color: rgb(186 230 253);
+  position: absolute; bottom: -40px; color: rgb(153 246 228);
   opacity: 0; animation: sb-rise 28s linear infinite;
 }
 .sb-drift-sway { display: inline-flex; animation: sb-sway 6s ease-in-out infinite alternate; }
@@ -1085,7 +1090,7 @@ select[size] option:hover,
 }
 .sb-bar {
   position: absolute; bottom: 0; border-radius: 3px 3px 0 0; transform-origin: bottom;
-  background: linear-gradient(180deg, rgb(226 240 255 / 0.30), rgb(186 230 253 / 0.10) 45%, rgb(186 230 253 / 0.02));
+  background: linear-gradient(180deg, rgb(220 252 246 / 0.30), rgb(153 246 228 / 0.10) 45%, rgb(153 246 228 / 0.02));
   box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.35);
   animation: sb-grow 6s cubic-bezier(.2,.8,.2,1) infinite;
 }
@@ -1135,20 +1140,20 @@ select[size] option:hover,
 .ws-steps { position: relative; }
 .ws-steps::before {
   content: ''; position: absolute; left: 33px; top: 20px; bottom: 36px; width: 2px;
-  background: linear-gradient(180deg, #c7d6ef, #e5ebf5); border-radius: 2px;
+  background: linear-gradient(180deg, #bfe0de, #e2eeee); border-radius: 2px;
 }
 .ws-step { position: relative; transition: background 150ms ease; }
-.ws-step:hover { background: #f4f7fc; }
+.ws-step:hover { background: #f2f8f8; }
 .ws-step-dot {
   position: relative; z-index: 1; width: 22px; height: 22px; border-radius: 9999px; flex-shrink: 0;
   display: inline-flex; align-items: center; justify-content: center; font-size: 11px; font-weight: 600; color: #fff;
   box-shadow: 0 0 0 3px #fff;
 }
-.ws-step-open { background: linear-gradient(180deg, #2a4f8f 0%, #1b3a6f 100%); }
+.ws-step-open { background: linear-gradient(180deg, #0f6f6f 0%, #0a5355 100%); }
 .ws-step-won  { background: linear-gradient(180deg, #14b8a6 0%, #0f766e 100%); }
 .ws-step-lost { background: #9ca3af; }
 .ws-step-bar { transform-origin: left; animation: ws-grow 900ms cubic-bezier(.2,.8,.2,1) both; }
-.ws-bar-open { background: linear-gradient(90deg, #2a4f8f, #3b6bc4); }
+.ws-bar-open { background: linear-gradient(90deg, #0f6f6f, #f07a5a); }
 .ws-bar-won  { background: linear-gradient(90deg, #0f766e, #2dd4bf); }
 .ws-bar-lost { background: #cbd5e1; }
 :root[data-theme='dark'] .ws-attention { background: rgb(var(--c-surface)); }
@@ -1160,57 +1165,57 @@ select[size] option:hover,
    (Workstation → Documents, one per client), where a deep navy bar over
    every group was too heavy. */
 .ws-float.ws-plain-head thead th {
-  background: linear-gradient(180deg, #edf3fc 0%, #e1eaf8 100%);
-  color: #1b3a6f;
+  background: linear-gradient(180deg, #ecf7f6 0%, #dff1ef 100%);
+  color: #0a5355;
   font-weight: 600 !important;
-  box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.8), inset 0 -1px 0 #d3dff2;
+  box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.8), inset 0 -1px 0 #cbe6e3;
 }
 :root[data-theme='dark'] .ws-float.ws-plain-head thead th {
-  background: rgb(59 130 246 / 0.14); color: rgb(var(--c-ink)); box-shadow: none;
+  background: rgb(20 163 160 / 0.14); color: rgb(var(--c-ink)); box-shadow: none;
 }
 
 /* ── Books section menu (pages/books/BooksShell.tsx) ───────────────────────
    Rounded items; hover is a pale blue wash, the open page is pale blue with
    navy text and a navy bar on its left — the Workstation list look. */
 .books-nav-item { position: relative; transition: background 150ms ease, color 150ms ease; }
-.books-nav-item:hover { background: #f1f5fb; color: rgb(var(--c-primary)); }
-.books-nav-item.is-active { background: #e8f0fb; color: rgb(var(--c-primary)); }
+.books-nav-item:hover { background: #eff7f6; color: rgb(var(--c-primary)); }
+.books-nav-item.is-active { background: #e3f4f3; color: rgb(var(--c-primary)); }
 .books-nav-item.is-active::before {
   content: ''; position: absolute; left: 0; top: 7px; bottom: 7px; width: 3px; border-radius: 9999px;
-  background: linear-gradient(180deg, #2a4f8f, #1b3a6f);
+  background: linear-gradient(180deg, #0f6f6f, #0a5355);
 }
 :root[data-theme='dark'] .books-nav-item:hover,
-:root[data-theme='dark'] .books-nav-item.is-active { background: rgb(59 130 246 / 0.14); color: rgb(var(--c-ink)); }
+:root[data-theme='dark'] .books-nav-item.is-active { background: rgb(20 163 160 / 0.14); color: rgb(var(--c-ink)); }
 
 /* ── Registration pages (workstation/registration/*) ───────────────────── */
-.reg-hero { background: linear-gradient(135deg, #ffffff 0%, #f6f9fe 100%); }
+.reg-hero { background: linear-gradient(135deg, #ffffff 0%, #f4faf9 100%); }
 /* Steps on a vertical rail. */
-.reg-rail { position: absolute; left: 13px; top: 32px; bottom: 4px; width: 2px; border-radius: 2px; background: linear-gradient(180deg, #c7d6ef, #e5ebf5); }
+.reg-rail { position: absolute; left: 13px; top: 32px; bottom: 4px; width: 2px; border-radius: 2px; background: linear-gradient(180deg, #bfe0de, #e2eeee); }
 .reg-dot {
   position: relative; z-index: 1; width: 28px; height: 28px; border-radius: 9999px; flex-shrink: 0;
   display: inline-flex; align-items: center; justify-content: center; font-size: 12px; font-weight: 600;
   background: #f1f4f9; color: #64748b; box-shadow: 0 0 0 4px #fff, inset 0 0 0 1px #e2e8f0;
 }
-.reg-dot.is-active { background: linear-gradient(180deg, #2a4f8f 0%, #1b3a6f 100%); color: #fff; box-shadow: 0 0 0 4px #fff, 0 4px 10px -4px rgb(27 58 111 / 0.6); }
+.reg-dot.is-active { background: linear-gradient(180deg, #0f6f6f 0%, #0a5355 100%); color: #fff; box-shadow: 0 0 0 4px #fff, 0 4px 10px -4px rgb(10 83 85 / 0.6); }
 .reg-dot.is-done { background: linear-gradient(180deg, #14b8a6 0%, #0f766e 100%); color: #fff; box-shadow: 0 0 0 4px #fff, 0 4px 10px -4px rgb(15 118 110 / 0.6); }
 /* Client cards in step 1. */
-.reg-client { background: #fff; box-shadow: inset 0 0 0 1px #e5e9f0; transition: box-shadow 150ms ease, background 150ms ease, transform 150ms ease; }
-.reg-client:hover { box-shadow: inset 0 0 0 1px rgb(var(--c-primary) / 0.45); background: #f8faff; }
+.reg-client { background: rgb(var(--c-surface)); box-shadow: inset 0 0 0 1px rgb(var(--c-border)); transition: box-shadow 150ms ease, background 150ms ease, transform 150ms ease; }
+.reg-client:hover { box-shadow: inset 0 0 0 1px rgb(var(--c-primary) / 0.45); background: #f6fbfa; }
 .reg-client-tick { color: transparent; box-shadow: inset 0 0 0 1.5px #cbd5e1; }
-.reg-client.is-picked { background: #e8f0fb; box-shadow: inset 0 0 0 2px rgb(var(--c-primary)); }
-.reg-client.is-picked .reg-client-tick { color: #fff; background: linear-gradient(180deg, #2a4f8f, #1b3a6f); box-shadow: none; }
+.reg-client.is-picked { background: #e3f4f3; box-shadow: inset 0 0 0 2px rgb(var(--c-primary)); }
+.reg-client.is-picked .reg-client-tick { color: #fff; background: linear-gradient(180deg, #0f6f6f, #0a5355); box-shadow: none; }
 /* Saved login details: a tinted panel tucked under step 1. */
-.reg-creds { background: #f8faff; box-shadow: inset 0 0 0 1px #e1e9f5; }
+.reg-creds { background: #f6fbfa; box-shadow: inset 0 0 0 1px #d9ecea; }
 :root[data-theme='dark'] .reg-hero { background: rgb(var(--c-surface)); }
 :root[data-theme='dark'] .reg-dot { box-shadow: 0 0 0 4px rgb(var(--c-surface)); }
 :root[data-theme='dark'] .reg-client { background: rgb(var(--c-surface)); box-shadow: inset 0 0 0 1px rgb(var(--c-border)); }
 :root[data-theme='dark'] .reg-client.is-picked,
-:root[data-theme='dark'] .reg-creds { background: rgb(59 130 246 / 0.12); }
+:root[data-theme='dark'] .reg-creds { background: rgb(20 163 160 / 0.12); }
 /* Client picker options: one navy row under the pointer. */
 .reg-option { color: rgb(var(--c-ink, 17 24 39)); }
 .reg-option:hover, .reg-option:focus-visible {
   outline: none; color: #fff;
-  background: linear-gradient(180deg, rgb(255 255 255 / 0.08), transparent 55%), linear-gradient(180deg, #2a4f8f 0%, #1b3a6f 100%);
+  background: linear-gradient(180deg, rgb(255 255 255 / 0.08), transparent 55%), linear-gradient(180deg, #0f6f6f 0%, #0a5355 100%);
 }
 
 /* The menu's lower limit: a faint rule where the chart strip begins, and the
@@ -1225,8 +1230,8 @@ select[size] option:hover,
 @media (max-width: 767px) {
   .m-cards table { border-spacing: 0 !important; margin-top: 0 !important; }
   .m-cards tbody tr {
-    background: #fff !important;
-    border: 1px solid #e8ecf3 !important;
+    background: rgb(var(--c-surface)) !important;
+    border: 1px solid rgb(var(--c-border)) !important;
     border-radius: 12px !important;
     box-shadow: 0 1px 2px rgb(15 23 42 / 0.05), 0 6px 14px -8px rgb(15 23 42 / 0.15) !important;
     padding: 6px 14px !important;
@@ -1236,7 +1241,7 @@ select[size] option:hover,
   .m-cards tbody td {
     background: transparent !important; border-radius: 0 !important;
     padding-left: 0 !important; padding-right: 0 !important;
-    border-color: #f1f4f8 !important;
+    border-color: rgb(var(--c-neutral-100)) !important;
     white-space: normal !important;
   }
   .m-cards tbody td[data-label='']:first-child {
@@ -1265,13 +1270,13 @@ select[size] option:hover,
   .m-cards tbody { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
   .m-cards tbody tr {
     height: auto !important; min-height: 0;
-    background: #fff !important; border: 1px solid #e8ecf3 !important; border-radius: 12px !important;
+    background: rgb(var(--c-surface)) !important; border: 1px solid rgb(var(--c-border)) !important; border-radius: 12px !important;
     box-shadow: 0 1px 2px rgb(15 23 42 / 0.05), 0 6px 14px -8px rgb(15 23 42 / 0.15) !important;
     padding: 6px 14px !important; transform: none !important; outline: none !important;
   }
   .m-cards tbody td {
     display: flex; height: auto; align-items: baseline; justify-content: space-between; gap: 12px;
-    padding: 6px 0 !important; border-bottom: 1px solid #f1f4f8; text-align: right;
+    padding: 6px 0 !important; border-bottom: 1px solid rgb(var(--c-neutral-100)); text-align: right;
     background: transparent !important; border-radius: 0 !important; white-space: normal !important;
   }
   .m-cards tbody td:last-child { border-bottom: 0; }
@@ -1296,13 +1301,13 @@ select[size] option:hover,
   .m-cards-tab tbody { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
   .m-cards-tab tbody tr {
     height: auto !important; min-height: 0;
-    background: #fff !important; border: 1px solid #e8ecf3 !important; border-radius: 12px !important;
+    background: rgb(var(--c-surface)) !important; border: 1px solid rgb(var(--c-border)) !important; border-radius: 12px !important;
     box-shadow: 0 1px 2px rgb(15 23 42 / 0.05), 0 6px 14px -8px rgb(15 23 42 / 0.15) !important;
     padding: 6px 14px !important; transform: none !important; outline: none !important;
   }
   .m-cards-tab tbody td {
     display: flex; height: auto; align-items: baseline; justify-content: space-between; gap: 12px;
-    padding: 6px 0 !important; border-bottom: 1px solid #f1f4f8; text-align: right;
+    padding: 6px 0 !important; border-bottom: 1px solid rgb(var(--c-neutral-100)); text-align: right;
     background: transparent !important; border-radius: 0 !important; white-space: normal !important;
   }
   .m-cards-tab tbody td:last-child { border-bottom: 0; }
@@ -1323,7 +1328,7 @@ select[size] option:hover,
   /* Stat tiles: a compact 3 × 2 strip instead of six big boxes. */
   .reg-m .reg-tiles { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
   .reg-m .reg-tile {
-    padding: 10px 10px 9px !important; border-radius: 12px !important; border-color: #e8ecf3 !important;
+    padding: 10px 10px 9px !important; border-radius: 12px !important; border-color: rgb(var(--c-border)) !important;
     box-shadow: 0 1px 2px rgb(15 23 42 / 0.05);
     display: flex; flex-direction: column-reverse; justify-content: flex-end; gap: 2px;
   }
@@ -1351,7 +1356,7 @@ select[size] option:hover,
   .reg-m .m-cards tbody td:last-child a,
   .reg-m .m-cards tbody td:last-child button {
     display: inline-flex; align-items: center; height: 32px; padding: 0 14px; border-radius: 8px;
-    background: #eef3fb; color: rgb(var(--c-primary)); font-weight: 600; text-decoration: none;
+    background: #eaf6f5; color: rgb(var(--c-primary)); font-weight: 600; text-decoration: none;
   }
 
   /* Checklist template: category headings wrap as whole words, with their
@@ -1393,7 +1398,7 @@ select[size] option:hover,
   .lh-action:has(> :only-child) > :is(a, button) {
     width: 56px; height: 56px; padding: 0 !important; border-radius: 9999px !important; justify-content: center;
     font-size: 0 !important; gap: 0 !important;
-    box-shadow: 0 10px 24px -6px rgb(27 58 111 / 0.55), 0 2px 6px rgb(15 23 42 / 0.15) !important;
+    box-shadow: 0 10px 24px -6px rgb(10 83 85 / 0.55), 0 2px 6px rgb(15 23 42 / 0.15) !important;
   }
   .lh-action:has(> :only-child) > :is(a, button) svg { width: 24px; height: 24px; }
   .lh-action:has(> :only-child) > :is(a, button):not(:has(svg))::before { content: '+'; font-size: 28px; line-height: 1; }
@@ -1404,7 +1409,7 @@ select[size] option:hover,
     position: sticky; top: -12px; z-index: 20; flex-wrap: nowrap !important;
     margin: 0 -12px 12px !important; padding: 10px 12px;
     background: rgb(var(--c-canvas, 247 246 243) / 0.94); backdrop-filter: blur(8px);
-    border-bottom: 1px solid rgb(15 23 42 / 0.06);
+    border-bottom: 1px solid rgb(var(--c-border) / 0.7);
   }
   /* 2 · Only search + the Filters button show in the bar … */
   .lt-bar > :not(.lt-search):not(.lt-filter-btn) { display: none !important; }
@@ -1412,17 +1417,17 @@ select[size] option:hover,
   .lt-bar > .lt-search input { height: 40px; border-radius: 12px; }
   .lt-filter-btn {
     display: inline-flex; align-items: center; gap: 6px; flex-shrink: 0; height: 40px; padding: 0 14px;
-    border-radius: 12px; background: #fff; border: 1px solid #e2e8f0; color: rgb(var(--c-primary));
+    border-radius: 12px; background: rgb(var(--c-surface)); border: 1px solid rgb(var(--c-border)); color: rgb(var(--c-primary));
     font-size: 13px; font-weight: 600;
   }
   .lt-filter-count {
     min-width: 18px; height: 18px; padding: 0 5px; border-radius: 9999px; font-size: 11px; line-height: 18px; text-align: center;
-    color: #fff; background: linear-gradient(180deg, #2a4f8f, #1b3a6f);
+    color: #fff; background: linear-gradient(180deg, #0f6f6f, #0a5355);
   }
   /* … and the selects live in a sheet that slides up from the bottom. */
   .lt-sheet-wrap { position: fixed; inset: 0; z-index: 60; background: rgb(15 23 42 / 0.42); display: flex; align-items: flex-end; animation: lt-fade 160ms ease-out; }
   .lt-sheet {
-    width: 100%; max-height: 82dvh; overflow-y: auto; background: #fff; border-radius: 20px 20px 0 0;
+    width: 100%; max-height: 82dvh; overflow-y: auto; background: rgb(var(--c-surface)); border-radius: 20px 20px 0 0;
     padding: 8px 16px calc(16px + var(--safe-b, 0px)); box-shadow: 0 -12px 32px -8px rgb(15 23 42 / 0.25);
     animation: lt-up 220ms cubic-bezier(.2,.8,.2,1);
   }
@@ -1433,7 +1438,7 @@ select[size] option:hover,
   .lt-sheet-body > div { width: 100%; }
   .lt-sheet-done {
     width: 100%; height: 48px; margin-top: 16px; border-radius: 12px; color: #fff; font-size: 15px; font-weight: 600;
-    background: linear-gradient(180deg, rgb(255 255 255 / 0.08), transparent 55%), linear-gradient(180deg, #2a4f8f 0%, #1b3a6f 100%);
+    background: linear-gradient(180deg, rgb(255 255 255 / 0.08), transparent 55%), linear-gradient(180deg, #0f6f6f 0%, #0a5355 100%);
   }
   @keyframes lt-up { from { transform: translateY(100%); } to { transform: none; } }
   @keyframes lt-fade { from { opacity: 0; } to { opacity: 1; } }
@@ -1457,4 +1462,218 @@ select[size] option:hover,
   .m-cards tbody td:first-child { padding-top: 10px !important; padding-bottom: 10px !important; }
   /* Room at the end of a list so the last card is never under the + button. */
   .m-main:has(.lh-action > :only-child) { padding-bottom: calc(var(--m-nav-total, 56px) + 88px) !important; }
+}
+
+/* ── Teal & Coral shell ─────────────────────────────────────────────────
+   Desktop: the rail floats as a rounded panel inset from the window edge,
+   and the top bar melts into the canvas. Phones keep the edge-to-edge
+   drawer exactly as before. */
+@media (min-width: 1024px) {
+  .sb-creative {
+    margin: 10px 0 10px 10px;
+    height: calc(100% - 20px) !important;
+    border-radius: 18px;
+    border: 0 !important;
+    box-shadow: 0 18px 40px -18px rgb(3 38 42 / 0.65), inset 0 1px 0 rgb(255 255 255 / 0.07);
+  }
+}
+
+/* Focus: every text field, select and textarea takes a soft teal halo on
+   top of its own focus border, so the active field is obvious at a glance. */
+/* :where() keeps this at zero specificity, so any component's own
+   `focus:ring-*` (also a box-shadow) still wins. */
+:where(input:not([type='checkbox'], [type='radio'], [type='range'], [type='file']), select, textarea):focus {
+  box-shadow: 0 0 0 3px rgb(var(--c-gold) / 0.14);
+}
+
+/* Dark theme: `--c-white` flips to the dark surface so `bg-white` cards go
+   dark — but surfaces that are deep teal or a solid brand/status colour in
+   BOTH themes (the rail, the heroes, filled buttons and strips) still need
+   real white text, rims and washes on them. Restoring the variable inside
+   those surfaces fixes `text-white`, `text-white/60`, `bg-white/[.05]` and
+   friends in one rule, without touching `bg-ink text-white` chips that rely
+   on the flip. */
+:root[data-theme='dark'] :is(
+  .sb-creative, .dash-hero, .chat-bubble--own,
+  .bg-primary, .bg-sidebar, .bg-sidebarActive, .bg-gold, .bg-coral,
+  .bg-danger, .bg-success, .bg-warning, .bg-red, .bg-amber,
+  .fr-group > .ws-card-title, .fr-head,
+  [style*='rgb(15, 111, 111)'], [style*='rgb(3, 38, 42)']
+) {
+  --c-white: 255 255 255;
+}
+
+/* Phone top bar: on the dark theme the bar is near-black, so the brand mark
+   takes the same white treatment the sidebar gives it on the teal rail. */
+:root[data-theme='dark'] .m-brand-mark { filter: brightness(0) invert(1); }
+
+/* ── Home dashboard (Teal & Coral morning brief) ────────────────────────── */
+/* Cards rise in on load, a beat apart. */
+.dash-rise { animation: dash-rise 0.6s cubic-bezier(.2,.7,.2,1) both; }
+.dash-v3 > :nth-child(2) .dash-rise, .dash-v3 > :nth-child(2).dash-rise { animation-delay: 0.05s; }
+.dash-v3 > :nth-child(3) .dash-rise { animation-delay: 0.1s; }
+.dash-v3 > :nth-child(4) .dash-rise { animation-delay: 0.15s; }
+.dash-v3 > :nth-child(5) .dash-rise { animation-delay: 0.2s; }
+@keyframes dash-rise { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+
+/* Faint ledger grid in the hero, fading out from the gauge corner. */
+.dash-hero-grid {
+  position: absolute; inset: 0; pointer-events: none;
+  background-image: linear-gradient(rgb(255 255 255 / 0.035) 1px, transparent 1px), linear-gradient(90deg, rgb(255 255 255 / 0.035) 1px, transparent 1px);
+  background-size: 28px 28px;
+  mask-image: radial-gradient(70% 90% at 78% 20%, #000, transparent 75%);
+}
+.dash-hero-name {
+  font-style: italic;
+  background: linear-gradient(90deg, #99f6e4, #fbb39c);
+  -webkit-background-clip: text; background-clip: text; color: transparent;
+  padding-right: 0.06em;
+}
+.dash-insight {
+  background: rgb(255 255 255 / 0.05);
+  box-shadow: inset 0 0 0 1px rgb(255 255 255 / 0.08);
+  transition: background 0.2s ease, transform 0.2s ease;
+}
+.dash-insight:hover, .dash-insight:focus-visible { background: rgb(255 255 255 / 0.09); transform: translateX(3px); }
+.dash-glass {
+  background: rgb(255 255 255 / 0.05);
+  box-shadow: inset 0 0 0 1px rgb(255 255 255 / 0.09), inset 0 1px 0 rgb(255 255 255 / 0.08);
+  transition: background 0.2s ease;
+}
+.dash-glass:hover { background: rgb(255 255 255 / 0.08); }
+
+/* Floating bulk-action bar for the approval queue. */
+.dash-bulk {
+  position: absolute; left: 50%; bottom: 14px; z-index: 5;
+  display: flex; align-items: center; gap: 10px; white-space: nowrap;
+  padding: 6px 6px 6px 14px; border-radius: 12px;
+  background: rgb(var(--c-ink)); color: rgb(var(--c-surface));
+  box-shadow: 0 24px 48px -12px rgb(10 15 28 / 0.35), 0 8px 16px -8px rgb(10 15 28 / 0.2);
+  opacity: 0; pointer-events: none; transform: translate(-50%, 16px);
+  transition: opacity 0.25s ease, transform 0.25s cubic-bezier(.2,.7,.2,1);
+}
+.dash-bulk.is-on { opacity: 1; pointer-events: auto; transform: translate(-50%, 0); }
+#approvals:has(.dash-bulk.is-on) { padding-bottom: 56px; }
+
+/* "Live" pulse. */
+.dash-live { animation: dash-live 1.8s infinite; }
+@keyframes dash-live {
+  0% { box-shadow: 0 0 0 0 rgb(var(--c-success) / 0.5); }
+  70% { box-shadow: 0 0 0 7px rgb(var(--c-success) / 0); }
+  100% { box-shadow: 0 0 0 0 rgb(var(--c-success) / 0); }
+}
+
+/* Charts draw themselves in. */
+.viz-draw { stroke-dasharray: 2000; stroke-dashoffset: 2000; animation: viz-draw 1.4s cubic-bezier(.2,.7,.2,1) forwards; }
+@keyframes viz-draw { to { stroke-dashoffset: 0; } }
+.viz-gauge { transition: stroke-dashoffset 1.4s cubic-bezier(.2,.7,.2,1); animation: viz-gauge 1.4s cubic-bezier(.2,.7,.2,1) both; }
+@keyframes viz-gauge { from { stroke-dashoffset: 251.3; } }
+
+@media (prefers-reduced-motion: reduce) {
+  .dash-rise, .viz-draw, .viz-gauge, .dash-live { animation: none !important; }
+  .viz-draw { stroke-dashoffset: 0; }
+}
+
+/* ── Sidebar: brand chip, count pills, filing-season card ──────────────── */
+.sb-logo {
+  background: linear-gradient(140deg, rgb(45 212 191 / 0.30), rgb(12 122 122 / 0.55) 55%, rgb(240 122 90 / 0.35));
+  box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.25), inset 0 0 0 1px rgb(255 255 255 / 0.10), 0 6px 16px -6px rgb(0 0 0 / 0.45);
+}
+.sb-count {
+  min-width: 22px; height: 20px; padding: 0 7px; border-radius: 9999px;
+  display: inline-grid; place-items: center;
+  font-size: 11px; font-weight: 600; font-variant-numeric: tabular-nums;
+  background: rgb(255 255 255 / 0.08); color: rgb(255 255 255 / 0.75);
+}
+.sb-count.is-hot { background: #f07a5a; color: #fff; box-shadow: 0 0 0 3px rgb(240 122 90 / 0.22); }
+.sb-season {
+  background: rgb(255 255 255 / 0.05);
+  box-shadow: inset 0 0 0 1px rgb(255 255 255 / 0.08);
+  transition: background 0.15s ease;
+}
+.sb-season:hover { background: rgb(255 255 255 / 0.09); }
+.sb-season-bar { background: linear-gradient(90deg, #2dd4bf, #f07a5a); box-shadow: 0 0 12px rgb(45 212 191 / 0.55); }
+
+/* ⌘K results panel */
+.gs-panel { animation: gs-in 0.16s cubic-bezier(.2,.7,.2,1); }
+@keyframes gs-in { from { opacity: 0; transform: translateY(-4px) scale(0.99); } to { opacity: 1; transform: none; } }
+.gs-kbd {
+  display: inline-grid; place-items: center; min-width: 18px; height: 18px; padding: 0 4px; margin-right: 3px;
+  border-radius: 4px; border: 1px solid rgb(var(--c-border)); background: rgb(var(--c-surface));
+  font: 500 10.5px inherit; color: rgb(var(--c-inkMuted));
+}
+
+/* ── Clients list + Client 360 panel ─────────────────────────────────────── */
+.cl-view::after { content: ''; position: absolute; left: 10px; right: 10px; bottom: -1px; height: 2px; border-radius: 2px; background: transparent; }
+.cl-view.is-on::after { background: rgb(var(--c-primary)); }
+.cl-count {
+  font-size: 11px; font-weight: 600; padding: 0 7px; border-radius: 9999px; line-height: 18px; font-variant-numeric: tabular-nums;
+  background: rgb(var(--c-neutral-100)); color: rgb(var(--c-inkMuted));
+}
+.cl-view.is-on .cl-count { background: rgb(var(--c-primary) / 0.12); color: rgb(var(--c-primary)); }
+
+.cl-split { grid-template-columns: minmax(0, 1fr); }
+@media (min-width: 1280px) { .cl-split.is-open { grid-template-columns: minmax(0, 1fr) 420px; } }
+@media (min-width: 1280px) { .cl-split.is-open .cl-hide-open { display: none; } }
+@media (max-width: 1023px) { .cl-hide-sm { display: none; } }
+
+.cl-table thead th {
+  text-align: left; white-space: nowrap; padding: 10px 12px;
+  font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.06em;
+  color: rgb(var(--c-inkFaint)); background: rgb(var(--c-neutral-50)); border-bottom: 1px solid rgb(var(--c-border));
+}
+.cl-table thead th:first-child, .cl-table tbody td:first-child { padding-left: 20px; }
+.cl-table thead th:last-child, .cl-table tbody td:last-child { padding-right: 20px; }
+.cl-table tbody td { padding: 11px 12px; border-bottom: 1px solid rgb(var(--c-border)); vertical-align: middle; }
+.cl-table tbody tr { cursor: pointer; transition: background 0.12s ease; }
+.cl-table tbody tr:hover { background: rgb(var(--c-neutral-50)); }
+.cl-table tbody tr:focus-visible { outline: 2px solid rgb(var(--c-gold)); outline-offset: -2px; }
+.cl-table tbody tr.is-cur { background: rgb(var(--c-primary) / 0.07); }
+.cl-table tbody tr.is-cur td:first-child { box-shadow: inset 3px 0 0 rgb(var(--c-primary)); }
+.cl-svc {
+  font-size: 10.5px; font-weight: 600; padding: 2px 7px; border-radius: 6px; white-space: nowrap;
+  background: rgb(var(--c-neutral-100)); color: rgb(var(--c-ink) / 0.75);
+}
+.cl-strip { display: block; width: 11px; height: 16px; border-radius: 3px; }
+.cl-strip.is-filed { background: rgb(var(--c-success) / 0.85); }
+.cl-strip.is-overdue { background: rgb(var(--c-danger) / 0.9); }
+.cl-strip.is-pending { background: rgb(var(--c-warning) / 0.75); }
+.cl-strip.is-none { background: rgb(var(--c-neutral-200)); }
+
+.cp-panel { position: sticky; top: 92px; max-height: calc(100dvh - 116px); animation: cp-in 0.3s cubic-bezier(.2,.7,.2,1); }
+@keyframes cp-in { from { opacity: 0; transform: translateX(12px); } to { opacity: 1; transform: none; } }
+.cp-head {
+  background:
+    radial-gradient(120% 120% at 100% 0%, rgb(var(--c-coral) / 0.14), transparent 55%),
+    radial-gradient(100% 140% at 0% 0%, rgb(var(--c-primary) / 0.10), transparent 60%);
+}
+.cp-tab { position: relative; }
+.cp-tab.is-on::after { content: ''; position: absolute; left: 6px; right: 6px; bottom: -1px; height: 2px; border-radius: 2px; background: rgb(var(--c-primary)); }
+.cp-cell { height: 22px; border-radius: 6px; display: grid; place-items: center; font-style: normal; font-size: 10px; font-weight: 600; }
+.cp-cell.is-done { background: rgb(var(--c-success)); color: #fff; }
+.cp-cell.is-late { background: rgb(var(--c-danger)); color: #fff; }
+.cp-cell.is-open { background: rgb(var(--c-warning) / 0.14); color: rgb(var(--c-warning)); box-shadow: inset 0 0 0 1px rgb(var(--c-warning) / 0.35); }
+.cp-cell.is-none { background: rgb(var(--c-neutral-100)); color: rgb(var(--c-inkFaint)); }
+.cp-list { border-radius: 11px; box-shadow: inset 0 0 0 1px rgb(var(--c-border)); }
+.cp-list li { display: flex; align-items: center; gap: 10px; padding: 9px 12px; border-bottom: 1px solid rgb(var(--c-border)); font-size: 13px; }
+.cp-list li:last-child { border-bottom: 0; }
+.cp-list li b { font-weight: 600; color: rgb(var(--c-ink)); min-width: 0; }
+.cp-list li small { margin-left: auto; white-space: nowrap; font-size: 12px; color: rgb(var(--c-inkMuted)); }
+.cp-tag { font-size: 9.5px; font-weight: 700; letter-spacing: 0.04em; padding: 2px 6px; border-radius: 5px; flex: none; }
+.cp-tag.is-teal { background: rgb(var(--c-primary) / 0.12); color: rgb(var(--c-primary)); }
+.cp-tag.is-coral { background: rgb(var(--c-coral) / 0.16); color: rgb(194 73 43); }
+.cp-tag.is-bad { background: rgb(var(--c-danger) / 0.12); color: rgb(var(--c-danger)); }
+.cp-tag.is-ok { background: rgb(var(--c-success) / 0.14); color: rgb(var(--c-success)); }
+.cp-tag.is-amber { background: rgb(var(--c-warning) / 0.14); color: rgb(var(--c-warning)); }
+:root[data-theme='dark'] .cp-tag.is-coral { color: rgb(var(--c-coral)); }
+@media (max-width: 767px) { .cl-hide-xs { display: none; } }
+/* Below the side-by-side width the Client 360 panel slides over the list. */
+.cp-scrim { display: none; }
+@media (max-width: 1279px) {
+  .cp-scrim { display: block; position: fixed; inset: 0; z-index: 59; background: rgb(8 12 22 / 0.35); backdrop-filter: blur(2px); animation: gs-in 0.2s ease; }
+  .cp-panel {
+    position: fixed; top: 0; right: 0; bottom: 0; z-index: 60;
+    width: min(440px, 100vw); max-height: none; border-radius: 0 !important;
+    box-shadow: -24px 0 48px -12px rgb(10 15 28 / 0.3);
+  }
 }

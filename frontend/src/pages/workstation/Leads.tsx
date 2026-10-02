@@ -22,7 +22,8 @@ export function LeadsPage() {
   const [params, setParams] = useSearchParams();
   const navigate = useNavigate();
   const { session } = useAuth();
-  const [addOpen, setAddOpen] = useState(false);
+  // `?add=1` (the top bar's Create menu) opens the add form on arrival.
+  const [addOpen, setAddOpen] = useState(() => params.get('add') === '1');
 
   const status = params.get('status') ?? '';
   const serviceId = params.get('service_id') ?? '';
@@ -102,7 +103,7 @@ export function LeadsPage() {
         </QueryState>
       </ListCard>
 
-      <AddLeadModal open={addOpen} onClose={() => setAddOpen(false)} />
+      <AddLeadModal open={addOpen && canManage} onClose={() => setAddOpen(false)} />
     </div>
   );
 }

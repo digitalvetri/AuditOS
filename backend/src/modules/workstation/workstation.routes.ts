@@ -149,7 +149,7 @@ workstationRouter.get('/search', handler(async (req, res) => {
     prisma.lead.findMany({
       where: {
         ...alive, ...(await leadScopeWhere(session, scope)),
-        OR: [{ name: { contains: q } }, { leadCode: { contains: q } }, { contactNumber: { contains: q } }],
+        OR: [{ name: { contains: q, mode: 'insensitive' as const } }, { leadCode: { contains: q, mode: 'insensitive' as const } }, { contactNumber: { contains: q, mode: 'insensitive' as const } }],
       },
       include: { service: true }, take: 10,
     }),
@@ -157,8 +157,8 @@ workstationRouter.get('/search', handler(async (req, res) => {
       where: {
         ...alive, ...(await clientIdWhere(session, scope)),
         OR: [
-          { companyName: { contains: q } }, { clientCode: { contains: q } },
-          { gstin: { contains: q } }, { contactPerson: { contains: q } }, { contactNumber: { contains: q } },
+          { companyName: { contains: q, mode: 'insensitive' as const } }, { clientCode: { contains: q, mode: 'insensitive' as const } },
+          { gstin: { contains: q, mode: 'insensitive' as const } }, { contactPerson: { contains: q, mode: 'insensitive' as const } }, { contactNumber: { contains: q, mode: 'insensitive' as const } },
         ],
       },
       take: 10,
@@ -166,7 +166,7 @@ workstationRouter.get('/search', handler(async (req, res) => {
     prisma.clientService.findMany({
       where: {
         ...alive, ...(await clientScopeWhere(session, scope)),
-        OR: [{ service: { name: { contains: q } } }, { client: { companyName: { contains: q } } }],
+        OR: [{ service: { name: { contains: q, mode: 'insensitive' as const } } }, { client: { companyName: { contains: q, mode: 'insensitive' as const } } }],
       },
       include: { service: true, client: true }, take: 10,
     }),
@@ -174,9 +174,9 @@ workstationRouter.get('/search', handler(async (req, res) => {
       where: {
         ...alive, ...(await followUpScopeWhere(session, scope)),
         OR: [
-          { title: { contains: q } },
-          { client: { companyName: { contains: q } } },
-          { lead: { name: { contains: q } } },
+          { title: { contains: q, mode: 'insensitive' as const } },
+          { client: { companyName: { contains: q, mode: 'insensitive' as const } } },
+          { lead: { name: { contains: q, mode: 'insensitive' as const } } },
         ],
       },
       include: { lead: { include: { service: true } }, client: true }, take: 10,
@@ -184,7 +184,7 @@ workstationRouter.get('/search', handler(async (req, res) => {
     prisma.clientDocument.findMany({
       where: {
         ...alive, ...(await clientScopeWhere(session, scope)),
-        OR: [{ name: { contains: q } }, { client: { companyName: { contains: q } } }],
+        OR: [{ name: { contains: q, mode: 'insensitive' as const } }, { client: { companyName: { contains: q, mode: 'insensitive' as const } } }],
       },
       include: { category: true, client: true, versions: true }, take: 10,
     }),

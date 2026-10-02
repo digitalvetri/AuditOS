@@ -49,8 +49,8 @@ const viewAll = 'inline-flex items-center min-h-[44px] md:min-h-0 text-12 font-m
 // ── Tiles ─────────────────────────────────────────────────────────────
 
 const TINT = {
-  blue: { bg: '#eaf2ff', fg: '#1d4ed8', ring: '#d4e3fb' },
-  indigo: { bg: '#eef0ff', fg: '#4338ca', ring: '#dcdffb' },
+  blue: { bg: '#e4f5f3', fg: '#0c7a7a', ring: '#cdebe8' },
+  indigo: { bg: '#fff1ec', fg: '#c2492b', ring: '#fbd9ce' },
   green: { bg: '#e9f9f1', fg: '#047857', ring: '#cdeede' },
   teal: { bg: '#e6f8f6', fg: '#0f766e', ring: '#c9eeea' },
   amber: { bg: '#fff7e6', fg: '#b45309', ring: '#fde7bf' },
@@ -95,8 +95,8 @@ function Hero({ data, meta }: { data: DashboardResponse; meta: ReactNode }) {
   const pct = (part: number, whole: number) => (whole > 0 ? Math.round((part / whole) * 100) : null);
   const rings: Ring[] = [
     { label: 'Win rate', note: `${won} won · ${lost} lost`, value: winRate, color: '#5eead4', color2: '#14b8a6', to: '/workstation/leads?status=won' },
-    { label: 'Follow-ups on time', note: `${k.overdue_follow_ups} of ${k.pending_follow_ups} overdue`, value: pct(Math.max(0, k.pending_follow_ups - k.overdue_follow_ups), k.pending_follow_ups), color: '#60a5fa', color2: '#2563eb', to: '/workstation/follow-ups?range=overdue' },
-    { label: 'Services on track', note: `${k.services_due_soon} of ${k.active_services} due soon`, value: pct(Math.max(0, k.active_services - k.services_due_soon), k.active_services), color: '#eeb4b4', color2: '#cd9b9b', to: '/workstation/services?due=soon' },
+    { label: 'Follow-ups on time', note: `${k.overdue_follow_ups} of ${k.pending_follow_ups} overdue`, value: pct(Math.max(0, k.pending_follow_ups - k.overdue_follow_ups), k.pending_follow_ups), color: '#fbb39c', color2: '#f07a5a', to: '/workstation/follow-ups?range=overdue' },
+    { label: 'Services on track', note: `${k.services_due_soon} of ${k.active_services} due soon`, value: pct(Math.max(0, k.active_services - k.services_due_soon), k.active_services), color: '#a7f3d0', color2: '#34d399', to: '/workstation/services?due=soon' },
   ];
   const stats: { label: string; value: string }[] = [
     { label: 'Total leads', value: String(k.total_leads) },

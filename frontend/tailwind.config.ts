@@ -79,6 +79,9 @@ const config: Config = {
       // encoding. Aliased to danger/warning for consistency.
       red:   'rgb(var(--c-red) / <alpha-value>)',
       amber: 'rgb(var(--c-amber) / <alpha-value>)',
+
+      // Coral — the Teal & Coral accent. Fills and highlights only.
+      coral: 'rgb(var(--c-coral) / <alpha-value>)',
     },
 
     // Radius: 4px for base components, 8px for shell inputs/buttons/nav pills,
@@ -87,8 +90,8 @@ const config: Config = {
       none: '0',
       DEFAULT: '4px',
       sm: '4px',
-      md: '8px',
-      lg: '10px',
+      md: '9px',
+      lg: '12px',
       // Pills and circles: avatars, the search field, unread counts, progress
       // tracks. Thirteen call sites across the app already wrote
       // `rounded-full` — with the scale closed it silently resolved to
@@ -100,9 +103,9 @@ const config: Config = {
     // Elevation levels.
     boxShadow: {
       none: 'none',
-      card:    '0 1px 2px rgba(0,0,0,0.04)',
-      raised:  '0 2px 8px rgba(0,0,0,0.06)',   // dropdowns/modals only
-      drawer:  '0 4px 16px rgba(0,0,0,0.08)',  // legacy — kept for existing modals
+      card:    '0 1px 2px rgba(10,15,28,0.04), 0 2px 8px -2px rgba(10,15,28,0.05)',
+      raised:  '0 4px 12px -2px rgba(10,15,28,0.10), 0 2px 4px -2px rgba(10,15,28,0.06)', // dropdowns/modals only
+      drawer:  '0 24px 48px -12px rgba(10,15,28,0.22), 0 8px 16px -8px rgba(10,15,28,0.08)', // modals, drawers
     },
 
     // Type scale: 11 / 12 / 13 / 14 / 15 / 16 / 18 / 20 / 28 / 34. Nothing else.
@@ -162,6 +165,8 @@ const config: Config = {
     extend: {
       fontFamily: {
         sans: [
+          'Geist Variable',
+          'Inter Variable',
           'Inter',
           'ui-sans-serif',
           'system-ui',
@@ -169,6 +174,8 @@ const config: Config = {
           'Segoe UI',
           'sans-serif',
         ],
+        serif: ['Instrument Serif', 'ui-serif', 'Georgia', 'serif'],
+        mono: ['Geist Mono Variable', 'ui-monospace', 'SFMono-Regular', 'Menlo', 'monospace'],
       },
       borderWidth: {
         DEFAULT: '1px',

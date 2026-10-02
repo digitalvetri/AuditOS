@@ -19,7 +19,7 @@ import { settingsApi, type ModuleAccess, type ModuleCode } from './api';
 
 /** The brand's navy header gradient (as on the register header strips). */
 const NAVY = {
-  background: 'linear-gradient(180deg, rgb(255 255 255 / 0.08), transparent 55%), linear-gradient(180deg, #2a4f8f 0%, #1b3a6f 100%)',
+  background: 'linear-gradient(180deg, rgb(255 255 255 / 0.08), transparent 55%), linear-gradient(180deg, #0f6f6f 0%, #0a5355 100%)',
 };
 
 export function RolesSection() {

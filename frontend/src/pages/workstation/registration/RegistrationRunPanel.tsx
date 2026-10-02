@@ -137,7 +137,7 @@ export function RegistrationRunPanel({ service }: { service: RegistrationService
               <button
                 type="button"
                 onClick={() => { setClientId(''); setQuery(''); setPickerOpen(true); }}
-                className="h-8 px-3 text-12 font-medium text-primary bg-white border border-neutral-200 rounded-lg hover:border-primary/40 hover:bg-[#f4f7fc]"
+                className="h-8 px-3 text-12 font-medium text-primary bg-white border border-neutral-200 rounded-lg hover:border-primary/40 hover:bg-[#f2f8f8]"
               >
                 Change
               </button>

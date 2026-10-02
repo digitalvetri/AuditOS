@@ -26,7 +26,7 @@ import { CredentialStatus } from '../tds/TdsCredentialsCard';
 const AUTO_HIDE_SECONDS = 30;
 const MASK = '•'.repeat(12);
 
-const btn = 'inline-flex items-center gap-1 h-8 px-3 text-12 font-medium text-primary bg-white border border-neutral-200 rounded-lg hover:border-primary/40 hover:bg-[#f4f7fc] disabled:opacity-50 disabled:cursor-not-allowed';
+const btn = 'inline-flex items-center gap-1 h-8 px-3 text-12 font-medium text-primary bg-white border border-neutral-200 rounded-lg hover:border-primary/40 hover:bg-[#f2f8f8] disabled:opacity-50 disabled:cursor-not-allowed';
 const primaryBtn = 'inline-flex items-center gap-1 h-9 px-4 text-13 font-medium text-white bg-primary hover:bg-primaryHover rounded-lg shadow-card disabled:opacity-50 disabled:cursor-not-allowed';
 const input = 'w-full h-9 px-3 text-13 bg-white border border-neutral-200 rounded-lg focus:outline-none focus:border-primary/60 focus:ring-2 focus:ring-primary/10';
 
@@ -162,7 +162,7 @@ export function RegistrationCredentialsCard({
     <Card title={title} status>
       {modeLabel ? (
         <div className="mb-3">
-          <span className="inline-flex items-center h-6 px-2 text-11 font-medium rounded-full bg-[#eef0ff] text-[#4338ca] px-3">{modeLabel}</span>
+          <span className="inline-flex items-center h-6 px-2 text-11 font-medium rounded-full bg-[#fff1ec] text-[#c2492b] px-3">{modeLabel}</span>
         </div>
       ) : null}
       <div className="grid gap-4 md:grid-cols-2">
@@ -420,7 +420,7 @@ function Card({ title, status, children }: { title: string; status?: boolean; ch
     <section className="reg-creds rounded-lg p-4 mb-6 ml-10" aria-label={title}>
       <div className="flex items-center justify-between gap-3 mb-4">
         <div className="flex items-center gap-3 text-14 font-semibold text-neutral-900">
-          <span className="h-8 w-8 rounded-lg inline-flex items-center justify-center" style={{ background: '#eef0ff', color: '#4338ca', boxShadow: 'inset 0 0 0 1px #dcdffb' }}>
+          <span className="h-8 w-8 rounded-lg inline-flex items-center justify-center" style={{ background: '#fff1ec', color: '#c2492b', boxShadow: 'inset 0 0 0 1px #fbd9ce' }}>
             <KeyRound size={15} strokeWidth={1.9} />
           </span>
           {title}

@@ -50,7 +50,7 @@ export function BooksDashboardPage() {
                 <YAxis tickLine={false} axisLine={false} width={70} tick={{ fontSize: 11, fill: 'rgb(var(--c-inkMuted))' }} tickFormatter={(v: number) => new Intl.NumberFormat('en-IN', { notation: 'compact' }).format(v)} />
                 <Tooltip formatter={(v: number) => m(v)} contentStyle={{ fontSize: 12, background: 'rgb(var(--c-surface))', border: '1px solid rgb(var(--c-border))' }} />
                 <Legend wrapperStyle={{ fontSize: 12 }} />
-                <Bar dataKey="revenue" name="Revenue" fill="#2a4f8f" radius={[6, 6, 0, 0]} />
+                <Bar dataKey="revenue" name="Revenue" fill="#0f6f6f" radius={[6, 6, 0, 0]} />
                 <Bar dataKey="expenses" name="Expenses" fill="#2dd4bf" radius={[6, 6, 0, 0]} />
               </BarChart>
             </ResponsiveContainer>
@@ -88,7 +88,7 @@ function Ageing({ title, rows, m }: { title: string; rows: { label: string; amou
         {rows.map((r) => (
           <div key={r.label}>
             <div className="flex justify-between text-12"><span className="text-inkMuted">{r.label} · {r.count}</span><span className="tabular-nums text-ink">{m(r.amount)}</span></div>
-            <div className="h-2 bg-neutral-100 rounded-full mt-1 overflow-hidden"><div className="ws-step-bar h-2 rounded-full" style={{ width: `${(r.amount / max) * 100}%`, background: r.label === 'Current' ? 'linear-gradient(90deg, #2a4f8f, #3b6bc4)' : 'linear-gradient(90deg, #f87171, #dc2626)' }} /></div>
+            <div className="h-2 bg-neutral-100 rounded-full mt-1 overflow-hidden"><div className="ws-step-bar h-2 rounded-full" style={{ width: `${(r.amount / max) * 100}%`, background: r.label === 'Current' ? 'linear-gradient(90deg, #0f6f6f, #f07a5a)' : 'linear-gradient(90deg, #f87171, #dc2626)' }} /></div>
           </div>
         ))}
       </div>
