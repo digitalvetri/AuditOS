@@ -1,0 +1,14 @@
+node_modules
+dist
+dist-ssr
+.git
+.github
+scripts/shots
+scripts/shots-v2
+scripts/snap
+.env
+.env.*
+!.env.example
+*.log
+*.tsbuildinfo
+.vite

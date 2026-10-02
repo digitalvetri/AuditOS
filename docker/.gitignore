@@ -1,0 +1,4 @@
+# Real Docker secrets — never commit. .env.docker.example is the template.
+.env.docker
+.env.*
+!.env.docker.example

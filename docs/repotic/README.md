@@ -1,7 +1,7 @@
 # Repotic — audit automation
 
 Three tools under **Tools → Repotic** (`/audit-automation`). Server code:
-`server/src/modules/audit-automation/`. Money is always paise.
+`backend/src/modules/audit-automation/`. Money is always paise.
 
 ## 1. Bank statements → Tally
 
@@ -125,7 +125,7 @@ Upload (PDF, XLSX or CSV) → read → review → approve → Tally XML.
     removes the stored file and frees its hash for re-upload.
 - **Audit log**: every upload, run, review, pair, export, delete and
   follow-up, with before/after where it changes something.
-- **Tests**: `cd server && npm run test:audit-automation`, which runs bank,
+- **Tests**: `cd backend && npm run test:audit-automation`, which runs bank,
   GST, TDS and preflight.
 
 ## Known limits
@@ -139,4 +139,4 @@ Upload (PDF, XLSX or CSV) → read → review → approve → Tally XML.
 - Tally keeps a party's TAN in the ledger master, not the voucher. Without
   it, books entries are matched by deductor name.
 - No virus scan or encryption at rest for stored uploads. They sit under
-  `server/uploads/audit-automation` (or `AA_STORAGE_ROOT`).
+  `backend/uploads/audit-automation` (or `AA_STORAGE_ROOT`).
