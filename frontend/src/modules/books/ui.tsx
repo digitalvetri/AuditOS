@@ -1,4 +1,4 @@
-import { useEffect, type ReactNode } from 'react';
+import { Children, cloneElement, createContext, isValidElement, useContext, useEffect, type ReactElement, type ReactNode } from 'react';
 import { X, type LucideIcon } from 'lucide-react';
 
 /**
@@ -216,8 +216,9 @@ export function Badge({ status }: { status: unknown }) {
 export interface Col { label: string; right?: boolean; sortKey?: string }
 export function Table({ cols, children, minWidth = 720, sort, onSort }: { cols: Col[]; children: ReactNode; minWidth?: number; sort?: { key: string; dir: 'A' | 'D' }; onSort?: (key: string) => void }) {
   return (
-    <div className="overflow-x-auto">
-      <table className="hr-float w-full border-collapse" style={{ minWidth }}>
+    // Phones: `m-cards` stacks each row as a card with column labels.
+    <div className="m-cards md:overflow-x-auto">
+      <table className="hr-float w-full border-collapse books-table" style={{ ['--books-min' as string]: `${minWidth}px` }}>
         <thead>
           <tr className="border-b border-border">
             {cols.map((c, i) => (
@@ -231,16 +232,21 @@ export function Table({ cols, children, minWidth = 720, sort, onSort }: { cols: 
             ))}
           </tr>
         </thead>
-        <tbody>{children}</tbody>
+        <tbody><BooksCols.Provider value={cols.map((c) => c.label)}>{children}</BooksCols.Provider></tbody>
       </table>
     </div>
   );
 }
+const BooksCols = createContext<string[]>([]);
 export function Row({ onClick, children }: { onClick?: () => void; children: ReactNode }) {
-  return <tr onClick={onClick} className={`h-10 border-b border-border last:border-b-0 ${onClick ? 'cursor-pointer hover:bg-canvas' : ''}`}>{children}</tr>;
+  const cols = useContext(BooksCols);
+  // Each cell learns its column name (the first is the card title on phones).
+  const cells = Children.toArray(children).map((c, i) =>
+    isValidElement(c) ? cloneElement(c as ReactElement<{ 'data-label'?: string }>, { 'data-label': i === 0 ? '' : (cols[i] ?? '') }) : c);
+  return <tr onClick={onClick} className={`h-10 border-b border-border last:border-b-0 ${onClick ? 'cursor-pointer hover:bg-canvas' : ''}`}>{cells}</tr>;
 }
-export function Cell({ children = null, right = false, muted = false, className = '', colSpan }: { children?: ReactNode; right?: boolean; muted?: boolean; className?: string; colSpan?: number }) {
-  return <td colSpan={colSpan} className={`px-3 py-2 text-13 ${muted ? 'text-inkMuted' : 'text-ink'} ${right ? 'text-right tabular-nums whitespace-nowrap' : ''} ${className}`}>{children}</td>;
+export function Cell({ children = null, right = false, muted = false, className = '', colSpan, 'data-label': dataLabel }: { children?: ReactNode; right?: boolean; muted?: boolean; className?: string; colSpan?: number; 'data-label'?: string }) {
+  return <td colSpan={colSpan} data-label={dataLabel} className={`px-3 py-2 text-13 ${muted ? 'text-inkMuted' : 'text-ink'} ${right ? 'text-right tabular-nums whitespace-nowrap' : ''} ${className}`}><span className="td-v">{children}</span></td>;
 }
 
 export function Pager({ page, hasMore, onPage, loading }: { page: number; hasMore: boolean; onPage: (p: number) => void; loading?: boolean }) {

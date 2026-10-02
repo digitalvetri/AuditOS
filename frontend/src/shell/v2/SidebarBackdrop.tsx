@@ -40,13 +40,17 @@ const TICKS: [number, number, number][] = [
 /**
  * The growth chart at the foot: bars stepping up left to right, each taller
  * than the one before, with a trend arrow climbing over their tops. Drawn in
- * a fixed 220×220 box (the open sidebar's inner width).
+ * a fixed 220×170 strip at the foot of the sidebar; the menu stops above it
+ * (Sidebar reserves CHART_ZONE), so text never runs over the chart.
  */
-const CHART = 220;
+const CHART = 220;      // width — the open sidebar's inner width
+const CHART_H = 170;    // height of the chart strip
+/** Height the menu must leave free above the Collapse button so it never runs over the chart (Collapse is ~52px). */
+export const CHART_ZONE = CHART_H - 52;
 const BAR_W = 25;
 const BAR_GAP = 14;
 const BAR_H = [24, 36, 48, 60, 72, 84]; // % of the box, rising
-const tops = BAR_H.map((h, i) => ({ x: i * (BAR_W + BAR_GAP) + BAR_W / 2, y: CHART - (h / 100) * CHART - 16 }));
+const tops = BAR_H.map((h, i) => ({ x: i * (BAR_W + BAR_GAP) + BAR_W / 2, y: CHART_H - (h / 100) * CHART_H - 14 }));
 const trend = tops.map((p, i) => `${i ? 'L' : 'M'}${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(' ');
 // Arrowhead: along the last segment's direction, at the last point.
 const [p1, p2] = [tops[tops.length - 2], tops[tops.length - 1]];
@@ -71,7 +75,7 @@ export function SidebarBackdrop({ collapsed = false }: { collapsed?: boolean }) 
         </span>
       ))}
       {collapsed ? null : (
-        <div className="sb-chart" style={{ width: CHART, height: CHART }}>
+        <div className="sb-chart" style={{ width: CHART, height: CHART_H }}>
           {BAR_H.map((h, i) => (
             <span
               key={`b${i}`}
@@ -79,7 +83,7 @@ export function SidebarBackdrop({ collapsed = false }: { collapsed?: boolean }) 
               style={{ left: i * (BAR_W + BAR_GAP), width: BAR_W, height: `${h}%`, animationDelay: `${i * 0.18}s` }}
             />
           ))}
-          <svg className="sb-trend" width={CHART} height={CHART} viewBox={`0 0 ${CHART} ${CHART}`} fill="none">
+          <svg className="sb-trend" width={CHART} height={CHART_H} viewBox={`0 0 ${CHART} ${CHART_H}`} fill="none">
             <path className="sb-trend-line" d={trend} pathLength={1} />
             <path className="sb-trend-head" d={arrowHead} />
           </svg>

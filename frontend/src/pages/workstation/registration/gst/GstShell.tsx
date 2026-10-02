@@ -33,7 +33,7 @@ export function GstShell() {
   ];
   return (
     <ServiceProvider kind="GST">
-      <div className="m-page">
+      <div className="m-page reg-m">
         <nav className="m-rail flex gap-2 mb-5 overflow-x-auto pb-1">
           {tabs.map((t) => (
             <NavLink

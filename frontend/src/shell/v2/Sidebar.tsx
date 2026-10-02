@@ -12,7 +12,7 @@
  *                 Books (Zoho Books). One section, sibling rows.
  */
 import { NavLink, useLocation } from 'react-router-dom';
-import { SidebarBackdrop } from './SidebarBackdrop';
+import { CHART_ZONE, SidebarBackdrop } from './SidebarBackdrop';
 import { useEffect, useMemo, useState } from 'react';
 import {
   BarChart3,
@@ -256,7 +256,7 @@ export function Sidebar({ mobileOpen, onMobileClose }: Props) {
         <SidebarBackdrop collapsed={collapsed && isDesktop} />
         <Brand collapsed={collapsed} />
 
-        <nav className="sidebar-scroll flex-1 min-h-0 overflow-y-auto pt-1 pb-2">
+        <nav className="sidebar-scroll sb-nav-limit flex-1 min-h-0 overflow-y-auto pt-1 pb-2">
           {nav.map((group, i) => (
             <Section
               key={i}
@@ -268,6 +268,9 @@ export function Sidebar({ mobileOpen, onMobileClose }: Props) {
             />
           ))}
         </nav>
+        {/* The chart's own strip: the menu scrolls above this line and never
+            runs over the growth chart drawn behind it. */}
+        {collapsed && isDesktop ? null : <div className="sb-chart-zone shrink-0" style={{ height: CHART_ZONE }} aria-hidden />}
         <Collapse collapsed={collapsed} onToggle={() => setCollapsed((c) => !c)} />
       </aside>
     </>

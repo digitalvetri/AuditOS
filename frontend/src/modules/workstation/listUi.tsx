@@ -1,6 +1,7 @@
-import type { CSSProperties, ReactNode, KeyboardEvent } from 'react';
+import { Children, cloneElement, createContext, isValidElement, useContext, useLayoutEffect, useRef, useState, type CSSProperties, type ReactElement, type ReactNode, type KeyboardEvent } from 'react';
+import { createPortal } from 'react-dom';
 import { Link } from 'react-router-dom';
-import { Search } from 'lucide-react';
+import { Search, SlidersHorizontal, X } from 'lucide-react';
 
 /**
  * The Workstation register look — Quotations, Invoices, Engagement letters,
@@ -22,7 +23,9 @@ export function ListHeader({ title, meta, action }: { title: string; meta?: Reac
         {meta ? <p className="text-13 text-neutral-500 mt-1">{meta}</p> : null}
       </div>
       <div className="flex-1" />
-      {action}
+      {/* On phones a single primary action floats as a round + button above
+          the bottom bar (globals.css `.lh-action`); in place from 768px up. */}
+      {action ? <div className="lh-action">{action}</div> : null}
     </div>
   );
 }
@@ -39,8 +42,53 @@ export function ListAction({ to, onClick, icon, children }: {
 
 // ── Toolbar ───────────────────────────────────────────────────────────────
 
+/**
+ * Search + narrowing filters. From 768px up: one wrapping row, as before.
+ * On phones: the row sticks to the top while the list scrolls and shows only
+ * the search box plus a "Filters" button; the selects open in a bottom sheet
+ * (the same controls, rendered there too, bound to the same state).
+ */
 export function ListToolbar({ children }: { children: ReactNode }) {
-  return <div className="flex items-center gap-2 flex-wrap mb-4">{children}</div>;
+  const bar = useRef<HTMLDivElement>(null);
+  const [open, setOpen] = useState(false);
+  const [info, setInfo] = useState({ has: false, active: 0 });
+  // How many filters exist / are set — read from the controls themselves.
+  useLayoutEffect(() => {
+    const el = bar.current;
+    if (!el) return;
+    const controls = [...el.querySelectorAll<HTMLInputElement | HTMLSelectElement>(':scope > select, :scope select, :scope input[type=date]')];
+    const switches = [...el.querySelectorAll<HTMLButtonElement>('button[role=switch]')];
+    const active = controls.filter((c) => c.value !== '').length + switches.filter((b) => b.getAttribute('aria-checked') === 'true').length;
+    if (info.has !== (controls.length + switches.length > 0) || info.active !== active) setInfo({ has: controls.length + switches.length > 0, active });
+  });
+  return (
+    <>
+      <div ref={bar} className="lt-bar flex items-center gap-2 flex-wrap mb-4">
+        {children}
+        {info.has ? (
+          <button type="button" onClick={() => setOpen(true)} className="lt-filter-btn md:hidden" aria-label="Filters">
+            <SlidersHorizontal size={16} strokeWidth={2} />
+            Filters
+            {info.active ? <span className="lt-filter-count">{info.active}</span> : null}
+          </button>
+        ) : null}
+      </div>
+      {open ? createPortal(
+        <div className="lt-sheet-wrap md:hidden" onMouseDown={(e) => { if (e.target === e.currentTarget) setOpen(false); }}>
+          <div className="lt-sheet" role="dialog" aria-modal="true" aria-label="Filters">
+            <div className="lt-sheet-grip" aria-hidden />
+            <div className="flex items-center mb-3">
+              <h2 className="text-16 font-semibold text-neutral-900 flex-1">Filters</h2>
+              <button type="button" onClick={() => setOpen(false)} className="h-9 w-9 inline-flex items-center justify-center rounded-full bg-[#f1f4f9] text-neutral-600" aria-label="Close filters"><X size={16} /></button>
+            </div>
+            <div className="lt-sheet-body">{children}</div>
+            <button type="button" onClick={() => setOpen(false)} className="lt-sheet-done">Show results</button>
+          </div>
+        </div>,
+        document.body,
+      ) : null}
+    </>
+  );
 }
 
 export const Spacer = () => <div className="flex-1" />;
@@ -49,7 +97,7 @@ export function SearchBox({ value, onChange, placeholder, label = 'Search' }: {
   value: string; onChange: (v: string) => void; placeholder: string; label?: string;
 }) {
   return (
-    <label className="relative block w-full sm:w-[260px]">
+    <label className="lt-search relative block w-full sm:w-[260px]">
       <span className="sr-only">{label}</span>
       <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-neutral-400 pointer-events-none" />
       <input
@@ -108,7 +156,7 @@ export function StatusPills({ options, value, onChange, counts }: {
   counts?: Record<string, number | undefined>;
 }) {
   return (
-    <div className="flex items-center gap-2 flex-wrap" role="radiogroup" aria-label="Status">
+    <div className="sp-row flex items-center gap-2 flex-wrap" role="radiogroup" aria-label="Status">
       {options.map((p) => {
         const on = value === p.value;
         const n = counts?.[p.value];
@@ -157,7 +205,9 @@ export function ListTable({ cols, children, float = true, plainHead = false }: {
   plainHead?: boolean;
 }) {
   return (
-    <div className={`overflow-x-auto ${float ? 'ws-float' : ''} ${plainHead ? 'ws-plain-head' : ''}`}>
+    // `m-cards` (mobile.css) turns each row into a stacked card below 768px,
+    // printing every cell's column name beside its value; inert above that.
+    <div className={`m-cards md:overflow-x-auto ${float ? 'ws-float' : ''} ${plainHead ? 'ws-plain-head' : ''}`}>
       <table className="w-full text-13">
         <thead>
           <tr className="border-b border-neutral-200 text-left text-12 text-neutral-500">
@@ -172,11 +222,14 @@ export function ListTable({ cols, children, float = true, plainHead = false }: {
             })}
           </tr>
         </thead>
-        <tbody>{children}</tbody>
+        <tbody><ColsContext.Provider value={cols.map((c) => (typeof c === 'string' ? c : c.label))}>{children}</ColsContext.Provider></tbody>
       </table>
     </div>
   );
 }
+
+/** The column names, handed to each row's cells as `data-label` for the phone card layout. */
+const ColsContext = createContext<string[]>([]);
 
 export function ListRow({ onOpen, children }: { onOpen?: () => void; children: ReactNode }) {
   return (
@@ -186,26 +239,42 @@ export function ListRow({ onOpen, children }: { onOpen?: () => void; children: R
       tabIndex={onOpen ? 0 : undefined}
       className={`border-b border-neutral-100 last:border-b-0 transition-colors ${onOpen ? 'cursor-pointer hover:bg-neutral-50 focus:outline-none focus-visible:bg-neutral-50' : ''}`}
     >
-      {children}
+      {labelCells(children, useContext(ColsContext))}
     </tr>
   );
 }
 
+/**
+ * Give each cell its column name by position. The first cell is the card's
+ * title on a phone, so it gets no label and spans the card.
+ */
+function labelCells(children: ReactNode, cols: string[]) {
+  return Children.toArray(children).map((child, i) =>
+    isValidElement(child)
+      ? cloneElement(child as ReactElement<{ 'data-label'?: string }>, { 'data-label': i === 0 ? '' : (cols[i] ?? '') })
+      : child,
+  );
+}
+
 /** A cell. `first` / `last` take the card's wider edge padding. */
-export function TD({ children, first, last, right, strong, muted, nowrap, className = '', title }: {
+export function TD({ children, first, last, right, strong, muted, nowrap, className = '', title, 'data-label': dataLabel }: {
   children: ReactNode; first?: boolean; last?: boolean; right?: boolean; strong?: boolean; muted?: boolean;
   nowrap?: boolean; className?: string; title?: string;
+  /** Set by ListRow — the column name shown beside the value on phones. */
+  'data-label'?: string;
 }) {
   const edge = first ? 'pl-5 pr-4' : last ? 'pl-4 pr-5' : 'px-4';
   return (
-    <td title={title} className={[
+    <td title={title} data-label={dataLabel} className={[
       edge, 'py-3',
       right ? 'text-right' : '',
       strong ? 'font-semibold text-neutral-900' : muted ? 'text-neutral-600' : 'text-neutral-800',
       nowrap ? 'whitespace-nowrap' : '',
       className,
     ].join(' ')}>
-      {children}
+      {/* One wrapper, so on phones (cells are flex rows: label · value) a
+          value made of several pieces — ₹1,000 + .00 — stays together. */}
+      <span className="td-v">{children}</span>
     </td>
   );
 }

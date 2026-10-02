@@ -26,7 +26,7 @@ export function PartnershipShell({ kind = 'PARTNERSHIP' }: { kind?: Registration
   ];
   return (
     <ServiceProvider kind={kind}>
-    <div className={gst ? '' : 'm-page'}>
+    <div className={gst ? 'reg-m' : 'm-page reg-m'}>
       <nav className="m-rail flex gap-2 mb-5 overflow-x-auto pb-1">
         {tabs.map((t) => (
           <NavLink

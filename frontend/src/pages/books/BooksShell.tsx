@@ -66,7 +66,7 @@ export function BooksShell() {
   return (
     <BooksProvider>
       {({ loading, error, ctx }) => (
-        <div className="max-w-[1480px] mx-auto">
+        <div className="books-m max-w-[1480px] mx-auto">
           <div className="mb-5">
             <h1 className="text-[26px] leading-tight font-semibold tracking-[-0.01em] text-ink">Books</h1>
             <p className="text-13 text-inkMuted mt-1">Zoho Books for your clients — sales, purchases, banking and accounts in one place.</p>

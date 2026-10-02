@@ -26,7 +26,7 @@ export function PartnershipDashboard() {
       />
       <QueryState query={overview}>
         {(o) => (
-          <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-3 mb-5">
+          <div className="reg-tiles grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-3 mb-5">
             {[
               ['Total Clients', o.total_clients, ''],
               ['In Progress', o.in_progress, 'status=IN_PROGRESS'],
@@ -38,7 +38,7 @@ export function PartnershipDashboard() {
               <Link
                 key={label as string}
                 to={`${base}/clients${filter ? `?${filter}` : ''}`}
-                className="bg-white border border-neutral-200 rounded-lg px-4 py-3 hover:border-primary/40 hover:shadow-raised transition-all"
+                className="reg-tile bg-white border border-neutral-200 rounded-lg px-4 py-3 hover:border-primary/40 hover:shadow-raised transition-all"
               >
                 <div className="text-12 text-neutral-500">{label}</div>
                 <div className={`text-[24px] leading-tight font-semibold mt-1 tabular-nums ${label === 'Overdue' && Number(value) > 0 ? 'text-red' : 'text-neutral-900'}`}>{value}</div>
