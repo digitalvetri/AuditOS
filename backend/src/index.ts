@@ -5,6 +5,7 @@ import { attachRealtime } from './modules/messages/realtime.js'
 import { prisma } from './lib/prisma.js'
 import { applyTaskInvariants } from './modules/task/db/invariants.js'
 import { applyPayrollInvariants } from './modules/payroll/db/invariants.js'
+import { backfillInvoicePayments } from './modules/invoice/payments.js'
 import { startEinvoiceEwbScheduler } from './modules/workstation/einvoice-ewb/scheduler.js'
 import { startTdsReminderScheduler } from './modules/tds/reminders.js'
 import { AaExtractService } from './modules/audit-automation/services/AaExtractService.js'
@@ -21,6 +22,8 @@ applyTaskInvariants(prisma).then((n) => console.log(`Task invariants applied (${
 // caller that skips it (§3 fix for the malformed 2026-12-30 → 2027-01-30
 // row).
 applyPayrollInvariants(prisma).then((n) => console.log(`Payroll invariants applied (${n} statements)`)).catch((e) => console.error('[payroll] invariants', e))
+// Invoices paid before payment history was kept get one history row each.
+backfillInvoicePayments(prisma).then((n) => { if (n) console.log(`Invoice payment history backfilled (${n} invoices)`) }).catch((e) => console.error('[invoice] payment backfill', e))
 
 // E-Invoice & E-Way Bill monthly pull (E-INVOICE-EWAYBILL.md §2.4 / §3.4).
 startEinvoiceEwbScheduler(prisma)

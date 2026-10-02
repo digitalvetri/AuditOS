@@ -72,6 +72,8 @@ export type PermissionCode =
   | 'audit.read.all'
   // Settings
   | 'settings.manage'
+  // Payment summary (HRMS): client invoices — paid, pending, instalments.
+  | 'payment_summary.read' | 'payment_summary.manage'
   // ── Workstation (AUDIT_OS_WORKSTATION.md §6) ─────────────────────────
   // Namespaced: `workstation.document.read` is CLIENT documents, never
   // EmployeeDocument. No Workstation code collides with an HRMS code.
@@ -408,6 +410,8 @@ export const MATRIX: Record<RoleCode, Grant[]> = {
     { permission: 'accounts.manage', scope: 'organisation' },
     { permission: 'integrations.access', scope: 'organisation' },
     { permission: 'payments.manage', scope: 'organisation' },
+    { permission: 'payment_summary.read', scope: 'organisation' },
+    { permission: 'payment_summary.manage', scope: 'organisation' },
     { permission: 'chat.participate', scope: 'organisation' },
     { permission: 'reports.finance', scope: 'organisation' },
     { permission: 'audit.read.finance', scope: 'organisation' },
@@ -448,6 +452,8 @@ export const MATRIX: Record<RoleCode, Grant[]> = {
     { permission: 'accounts.manage', scope: 'organisation' },
     { permission: 'integrations.access', scope: 'organisation' },
     { permission: 'payments.manage', scope: 'organisation' },
+    { permission: 'payment_summary.read', scope: 'organisation' },
+    { permission: 'payment_summary.manage', scope: 'organisation' },
     { permission: 'document.read', scope: 'organisation' },
     { permission: 'document.manage', scope: 'organisation' },
     { permission: 'chat.participate', scope: 'organisation' },

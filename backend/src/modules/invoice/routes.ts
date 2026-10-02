@@ -6,6 +6,7 @@ import { requireWorkstation } from '../../platform/workstation/scope.js'
 import { signedLink } from '../../platform/signedUrl.js'
 import { InvoiceService, QR_MODES, TERMS, type ItemInput } from './service.js'
 import { GST_RATES } from './totals.js'
+import { listPayments, paymentBodySchema, toPaymentInput } from './payments.js'
 
 /**
  * Invoice HTTP surface — mounted at /api/invoices.
@@ -242,15 +243,26 @@ invoicesRouter.post('/:id/send', handler(async (req, res) => {
   ok(res, await InvoiceService.send(session, scope, req.params.id))
 }))
 
+invoicesRouter.get('/:id/payments', handler(async (req, res) => {
+  const session = requireSession(req)
+  const scope = requireWorkstation(session, 'workstation.invoice.read')
+  await InvoiceService.get(session, scope, req.params.id)
+  ok(res, { items: await listPayments(req.params.id) })
+}))
+
+// One payment, or one instalment of a split. Date / mode / reference are
+// optional so older clients that send only { amount_paise } keep working.
 invoicesRouter.post('/:id/payments', handler(async (req, res) => {
   const session = requireSession(req)
   const scope = requireWorkstation(session, 'workstation.invoice.manage')
-  const body = parse(
-    z.object({ amount_paise: z.coerce.number().int().positive('Enter an amount.') }),
-    req.body,
-    'Check the payment.',
-  )
-  ok(res, await InvoiceService.recordPayment(session, scope, req.params.id, body.amount_paise))
+  const body = parse(paymentBodySchema, req.body, 'Check the payment.')
+  ok(res, await InvoiceService.recordPayment(session, scope, req.params.id, toPaymentInput(body)))
+}))
+
+invoicesRouter.delete('/:id/payments/:paymentId', handler(async (req, res) => {
+  const session = requireSession(req)
+  const scope = requireWorkstation(session, 'workstation.invoice.manage')
+  ok(res, await InvoiceService.removePayment(session, scope, req.params.id, req.params.paymentId))
 }))
 
 invoicesRouter.post('/:id/cancel', handler(async (req, res) => {

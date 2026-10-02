@@ -7,6 +7,7 @@ import { assignedClientIds, assertCanSeeClient } from '../../platform/workstatio
 import { nextInvoiceNumber } from '../../platform/workstation/codes.js'
 import { employeeMap } from '../../api/workstation.serialize.js'
 import { computeTotals, invoiceAmountInWords, paymentState, type LineInput } from './totals.js'
+import { addPayment, removePayment, type PaymentInput } from './payments.js'
 
 /**
  * INVOICE SERVICE — Workstation → Invoice.
@@ -507,32 +508,15 @@ export const InvoiceService = {
    * partially paid. Overpayment is refused because the schema does not model
    * credit (§22).
    */
-  async recordPayment(session: Session, scope: Scope, id: string, amountPaise: number): Promise<SerializedInvoice> {
-    const inv = await this.get(session, scope, id)
-    if (inv.stored_status === 'draft') {
-      throw ApiError.conflict('invoice_not_sent', 'Send the invoice before recording a payment against it.')
-    }
-    if (inv.stored_status === 'cancelled') {
-      throw ApiError.conflict('invoice_cancelled', 'This invoice has been cancelled.')
-    }
-    if (amountPaise <= 0) throw ApiError.badRequest('A payment must be more than zero.')
-    if (amountPaise > inv.balance_due_paise) {
-      throw ApiError.badRequest(
-        `That is more than the balance due. At most ${(inv.balance_due_paise / 100).toFixed(2)} can be recorded.`,
-      )
-    }
-    const paid = inv.amount_paid_paise + amountPaise
-    const state = paymentState(inv.total_paise, paid)
-    await prisma.invoice.update({
-      where: { id },
-      data: {
-        amountPaidPaise: paid,
-        balanceDuePaise: Math.max(0, inv.total_paise - paid),
-        status: state === 'paid' ? 'paid' : 'partially_paid',
-        paidAt: state === 'paid' ? new Date() : null,
-        updatedBy: session.userId,
-      },
-    })
+  async recordPayment(session: Session, scope: Scope, id: string, input: PaymentInput): Promise<SerializedInvoice> {
+    await this.get(session, scope, id) // visibility check
+    await addPayment(id, input, session.userId)
+    return this.get(session, scope, id)
+  },
+
+  async removePayment(session: Session, scope: Scope, id: string, paymentId: string): Promise<SerializedInvoice> {
+    await this.get(session, scope, id)
+    await removePayment(id, paymentId, session.userId)
     return this.get(session, scope, id)
   },
 

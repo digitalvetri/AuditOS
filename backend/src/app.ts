@@ -48,6 +48,7 @@ import { bookkeepingRouter } from './modules/bookkeeping/routes.js'
 import { tasksRouter } from './modules/task/routes.js'
 import { quotationsRouter } from './modules/quotation/routes.js'
 import { invoicesRouter } from './modules/invoice/routes.js'
+import { paymentSummaryRouter } from './modules/payment-summary/routes.js'
 import { engagementRouter } from './modules/engagement/routes.js'
 import { docsRouter } from './modules/docs/routes.js'
 import { checklistRouter } from './modules/checklist/routes.js'
@@ -236,6 +237,8 @@ export function createApp() {
   // Invoice — Workstation → Invoice. Mounted beside Quotation on purpose:
   // the two are one pipeline, a priced proposal and the demand that follows.
   app.use('/api/invoices', invoicesRouter)
+  // HRMS → Payment summary: per-client paid / pending over those invoices.
+  app.use('/api/payment-summary', paymentSummaryRouter)
   app.use('/api/engagement-letters', engagementRouter)
   app.use('/api/share', shareRouter)
   app.use('/api/workstation-docs', docsRouter)

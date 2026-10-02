@@ -22,7 +22,7 @@ import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { Link } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import {
-  Activity, ArrowUpRight, BellRing, CalendarCheck, ChevronRight, ClockAlert, FileWarning, Inbox,
+  Activity, ArrowUpRight, BellRing, CalendarCheck, CalendarDays, ChevronRight, ClockAlert, FileWarning, Inbox,
   Landmark, Plane, Receipt, Users, UserX,
 } from 'lucide-react';
 import { useAuth } from '@/platform/auth/AuthContext';
@@ -35,6 +35,8 @@ import { TodayCard } from '@/modules/attendance/TodayCard';
 import { BalancesCard } from '@/modules/leave/BalancesCard';
 import { attendanceApi, type TodayResponse } from '@/modules/attendance/api';
 import { accountsApi } from '@/modules/accounts/api';
+import { workstationApi } from '@/modules/workstation/api';
+import type { FollowUp } from '@/modules/workstation/types';
 
 /** Roles that run the firm rather than clock in to it. */
 const NO_CHECK_IN_ROLES = ['md'];
@@ -62,11 +64,18 @@ export function DashboardV2Page() {
     || can(role, 'attendance.correct.approve', 'department');
   const seesLedger = can(role, 'accounts.read', 'organisation') || can(role, 'accounts.manage', 'organisation');
   const seesActivity = can(role, 'audit.read.all', 'organisation') || can(role, 'audit.read.hr', 'organisation');
+  const seesCalendar = can(role, 'workstation.followup.read', 'self');
 
   const today = useQuery({ queryKey: ['attendance', 'today'], queryFn: attendanceApi.today, enabled: seesTeam });
   const pending = useQuery({ queryKey: ['dashboard', 'pending'], queryFn: dashboardApi.pending, enabled: approves });
   const ledger = useQuery({ queryKey: ['accounts', 'summary'], queryFn: accountsApi.summary, enabled: seesLedger });
   const activity = useQuery({ queryKey: ['dashboard', 'activity'], queryFn: dashboardApi.activity, enabled: seesActivity });
+  const schedule = useQuery({
+    queryKey: ['workstation', 'follow-ups', 'today'],
+    queryFn: () => workstationApi.listFollowUps({ range: 'today' }),
+    enabled: seesCalendar,
+  });
+  const todays = schedule.data?.items.filter((f) => f.status !== 'cancelled');
 
   const err = (q: { error: unknown }) => (q.error ? 'Could not load.' : null);
   const counts = today.data?.counts;
@@ -83,7 +92,7 @@ export function DashboardV2Page() {
           {/* Staff without a team view get their own leave position instead. */}
           {checksIn && !seesTeam ? <BalancesCard /> : null}
 
-          {(seesLedger || approves) ? (
+          {(seesLedger || approves || seesCalendar) ? (
             <section className="grid gap-4 grid-cols-1 sm:grid-cols-2 2xl:grid-cols-4" data-testid="overview-tiles">
               {approves ? (
                 <Tile label="Waiting on you" href="/hrms/leave?tab=queue" icon={Inbox} tint="amber"
@@ -97,6 +106,11 @@ export function DashboardV2Page() {
                   note={ledger.data
                     ? `This month · out ${paise(ledger.data.this_month.debit_paise)} · in ${paise(ledger.data.this_month.credit_paise)}`
                     : 'Accounts'} />
+              ) : null}
+              {seesCalendar ? (
+                <Tile label="Today's schedule" href="/workstation/calendar" icon={CalendarDays} tint="blue"
+                  value={todays ? String(todays.length) : '—'}
+                  note={todays ? scheduleNote(todays) : 'Calendar'} />
               ) : null}
             </section>
           ) : null}
@@ -262,6 +276,23 @@ function Tile({ label, value, note, href, emphasis, icon: Icon, tint }: {
       <div className="text-12 text-inkMuted mt-1 truncate" title={note}>{note}</div>
     </Link>
   );
+}
+
+/** "2 pending · 1 done · next 11:30 AM" for today's calendar follow-ups. */
+function scheduleNote(items: FollowUp[]): string {
+  if (items.length === 0) return 'Nothing scheduled today';
+  const open = items.filter((f) => f.status === 'pending' || f.status === 'rescheduled');
+  const done = items.filter((f) => f.status === 'completed').length;
+  const missed = items.filter((f) => f.status === 'missed').length;
+  const next = open
+    .map((f) => f.scheduled_at)
+    .filter((at) => new Date(at).getTime() >= Date.now())
+    .sort()[0];
+  const parts = [`${open.length} pending`];
+  if (done) parts.push(`${done} done`);
+  if (missed) parts.push(`${missed} missed`);
+  if (next) parts.push(`next ${formatTime(next)}`);
+  return parts.join(' · ');
 }
 
 function pendingNote(items: PendingAction[]): string {
