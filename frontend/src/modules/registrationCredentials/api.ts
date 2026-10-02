@@ -51,6 +51,7 @@ export const registrationCredentialsApi = {
 export const CREDENTIAL_REGISTRATIONS = new Set([
   'private-limited', 'llp', 'partnership-firm',
   'msme-udyam', 'shops-establishment', 'import-export-code', 'pf', 'esi', 'e-invoice', 'e-way-bill',
+  'income-tax-efiling',
 ]);
 
 export const inMode = (modes: RegistrationMode[] | undefined, mode: RegistrationMode | null) =>

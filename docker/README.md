@@ -31,6 +31,7 @@ are defined next to their code (`../frontend/Dockerfile`,
 | `api` | `../backend` (`runtime` target) | internal `4000` | The Express API. Uploads in the volume `auditos-uploads` |
 | `web` | `../frontend` | `8080` | nginx serving the app and proxying `/api` + `/socket.io` to `api` (one origin, so the session cookie just works) |
 | `adminer` | `adminer:4` image | `58080` | Browser SQL client for the database |
+| `extension-build` | `node:20` image, profile `tools` | — | On demand only: builds the portal-autofill Chrome extension into `extension/dist` (`docker compose --profile tools run --rm extension-build`) |
 
 Start order is enforced: `postgres` healthy → `migrate` completes → `api` → `web`.
 

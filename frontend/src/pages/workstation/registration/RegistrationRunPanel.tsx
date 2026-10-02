@@ -24,6 +24,9 @@ import { fmtDate } from '@/lib/format';
 import { MINIMAL_REGISTRATION_PAGES, type RegistrationService } from './services';
 import { CREDENTIAL_REGISTRATIONS } from '@/modules/registrationCredentials/api';
 import { RegistrationCredentialsCard } from './RegistrationCredentialsCard';
+// Government-portal autofill (Phase 1) — remove with src/modules/portalAutofill.
+import { OpenWithAutofill } from '@/modules/portalAutofill/GovernmentPortals';
+import { portalForSlug } from '@/modules/portalAutofill/api';
 
 /** GST work files under the GST category; everything else under Basic. */
 function categoryFor(slug: string): string {
@@ -234,6 +237,9 @@ export function RegistrationRunPanel({ service }: { service: RegistrationService
                 <ExternalLink size={16} strokeWidth={2} />
                 {client ? `Visit portal for ${client.client_id}` : 'Visit portal'}
               </a>
+              {client && portalForSlug(service.slug) ? (
+                <OpenWithAutofill clientId={client.id} registrationId={portalForSlug(service.slug)!.registrationId} portalId={portalForSlug(service.slug)!.portalId} />
+              ) : null}
               <div className="mt-3 flex flex-wrap items-center gap-2 text-12 text-neutral-500">
                 <span>{service.portalLabel}</span>
                 <span className="inline-flex items-center h-6 px-3 rounded-full bg-[#f1f4f9] text-neutral-700 break-all">{service.portalUrl!.replace(/^https?:\/\//, '')}</span>

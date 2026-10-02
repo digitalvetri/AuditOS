@@ -73,6 +73,11 @@ const TYPES = [
     portalScope: 'india', portalUrl: 'https://ewaybillgst.gov.in/',
     portalLabel: 'E-Way Bill Portal · Goods and Services Tax',
     outputDocument: 'E-Way Bill portal credentials / API access confirmation', renewalMonths: null },
+  { code: 'income-tax-efiling', name: 'Income Tax e-Filing Registration', shortName: 'Income Tax e-Filing', kind: 'tax',
+    authority: 'Income Tax Department · Income-tax Act, 1961', form: 'e-Filing registration → User ID',
+    portalScope: 'india', portalUrl: 'https://www.incometax.gov.in/iec/foportal/',
+    portalLabel: 'Income Tax e-Filing Portal · Income Tax Department',
+    outputDocument: 'Income Tax e-Filing portal credentials / registration confirmation', renewalMonths: null },
 ]
 
 export async function seedRegistration(prisma: PrismaClient, organisationId: string) {
