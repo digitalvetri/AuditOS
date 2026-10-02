@@ -15,9 +15,9 @@ import type { Scope } from '../platform/rbac/matrix.js'
 /**
  * ATTENDANCE (§8.2 / §9)
  *
- * Nothing the client sends about verification is trusted. The geofence is
- * evaluated here from the raw coordinates; a client-supplied `verified` flag
- * is ignored and audited as a forgery attempt.
+ * The GPS geofence was removed with the Work Locations concept. Check-in /
+ * check-out are plain POSTs that record the server timestamp. Lat/lng/
+ * accuracy columns on the Attendance row stay nullable for historical rows.
  */
 export const attendanceRouter = Router()
 
@@ -26,28 +26,6 @@ function viewScope(session: Session): Scope {
   if (can(session, 'attendance.read', 'organisation')) return 'organisation'
   if (can(session, 'attendance.read', 'department')) return 'department'
   return 'self'
-}
-
-const geoSchema = z.object({
-  latitude: z.number(),
-  longitude: z.number(),
-  accuracy_m: z.number(),
-  location_type: z.enum(['office', 'client_site', 'remote', 'field']).optional(),
-  off_site_reason: z.string().optional(),
-  verified: z.unknown().optional(),
-})
-
-async function verifyGeofence(lat: number, lon: number, accuracyM: number) {
-  if (accuracyM > 100) {
-    return { ok: false as const, reason: 'GPS accuracy is poor. Move to an open area and retry.' }
-  }
-  const locations = await prisma.workLocation.findMany({ where: { isActive: true, deletedAt: null } })
-  for (const l of locations) {
-    if (haversineMeters(lat, lon, l.latitude, l.longitude) <= l.radiusM) {
-      return { ok: true as const, locationId: l.id, name: l.name }
-    }
-  }
-  return { ok: false as const, reason: 'You are not within any office geofence.' }
 }
 
 async function requireOwnEmployee(session: Session) {
@@ -68,26 +46,6 @@ attendanceRouter.post('/check-in', handler(async (req, res) => {
   const employee = await requireOwnEmployee(session)
   if (!rateLimit(`checkin:${session.userId}`, 10, 60_000)) throw ApiError.tooMany()
 
-  const parsed = geoSchema.safeParse(req.body ?? {})
-  if (!parsed.success) {
-    throw ApiError.badRequest('latitude, longitude and accuracy_m are required numbers.')
-  }
-  const body = parsed.data
-
-  // §8.2 — a client that claims to have verified itself is recorded, not believed.
-  if (body.verified !== undefined) {
-    await writeAudit({
-      actorUserId: session.userId, action: 'attendance.client_forgery_attempt',
-      entityType: 'Attendance', entityId: employee.id,
-      after: { forged_field: 'verified', value: body.verified }, req,
-    })
-  }
-
-  const locType = body.location_type ?? 'office'
-  if ((locType === 'client_site' || locType === 'field') && !body.off_site_reason?.trim()) {
-    throw ApiError.unprocessable('reason_required', 'Off-site check-in requires a reason.')
-  }
-
   const today = istToday()
   const existing = await prisma.attendance.findUnique({
     where: { employeeId_date: { employeeId: employee.id, date: today } },
@@ -98,33 +56,28 @@ attendanceRouter.post('/check-in', handler(async (req, res) => {
     })
   }
 
-  const geo = await verifyGeofence(body.latitude, body.longitude, body.accuracy_m)
-  if (locType === 'office' && !geo.ok) {
-    throw ApiError.unprocessable('geofence', geo.reason)
-  }
-  const locationId = geo.ok ? geo.locationId : null
-  const locationName = geo.ok ? geo.name : null
-
   const now = new Date()
   const data = {
     employeeId: employee.id,
     date: today,
     checkInAt: now,
     checkOutAt: null,
-    checkInLat: body.latitude,
-    checkInLong: body.longitude,
-    checkInAccuracyM: body.accuracy_m,
+    checkInLat: null,
+    checkInLong: null,
+    checkInAccuracyM: null,
     checkOutLat: null,
     checkOutLong: null,
     checkOutAccuracyM: null,
-    checkInLocationId: locationId,
+    checkInLocationId: null,
     checkOutLocationId: null,
-    locationType: locType,
-    offSiteReason: body.off_site_reason?.trim() ?? null,
+    // locationType is kept on the row for historical rows; new rows default
+    // to 'office' with no off-site reason since the concept is gone.
+    locationType: 'office',
+    offSiteReason: null,
     workedMinutes: null,
     breakMinutes: null,
     status: computeCheckInStatus(now),
-    source: 'web_geo',
+    source: 'web',
     correctionStatus: 'none',
     updatedBy: session.userId,
   }
@@ -135,21 +88,17 @@ attendanceRouter.post('/check-in', handler(async (req, res) => {
   })
 
   await writeAudit({
-    actorUserId: session.userId,
-    action: locType === 'office' ? 'attendance.check_in' : 'attendance.check_in.off_site',
+    actorUserId: session.userId, action: 'attendance.check_in',
     entityType: 'Attendance', entityId: row.id,
-    after: { date: row.date, check_in_at: row.checkInAt, location_type: locType, location_id: locationId }, req,
+    after: { date: row.date, check_in_at: row.checkInAt }, req,
   })
   await notifyUser({
     userId: session.userId, type: 'attendance.checked_in', module: 'attendance',
-    title: 'Checked in',
-    body: locType === 'office'
-      ? `${locationName ?? 'Office'} — location verified`
-      : `Off-site (${locType}) — flagged for review`,
+    title: 'Checked in', body: `Check-in recorded at ${now.toISOString()}.`,
     entityType: 'Attendance', entityId: row.id, actionUrl: '/hrms/attendance',
   })
 
-  ok(res, { attendance: attendanceToApi(row), location: { id: locationId, name: locationName } })
+  ok(res, { attendance: attendanceToApi(row), location: null })
 }))
 
 // ── POST /api/attendance/check-out ───────────────────────────────────────
@@ -157,12 +106,6 @@ attendanceRouter.post('/check-out', handler(async (req, res) => {
   const session = requireSession(req)
   const employee = await requireOwnEmployee(session)
   if (!rateLimit(`checkout:${session.userId}`, 10, 60_000)) throw ApiError.tooMany()
-
-  const parsed = geoSchema.safeParse(req.body ?? {})
-  if (!parsed.success) {
-    throw ApiError.badRequest('latitude, longitude and accuracy_m are required numbers.')
-  }
-  const body = parsed.data
 
   const today = istToday()
   const row = await prisma.attendance.findUnique({
@@ -177,16 +120,15 @@ attendanceRouter.post('/check-out', handler(async (req, res) => {
 
   const now = new Date()
   const { status, workedMinutes, breakMinutes } = computeCheckOutStatus(row.checkInAt, now)
-  const geo = await verifyGeofence(body.latitude, body.longitude, body.accuracy_m)
 
   const updated = await prisma.attendance.update({
     where: { id: row.id },
     data: {
       checkOutAt: now,
-      checkOutLat: body.latitude,
-      checkOutLong: body.longitude,
-      checkOutAccuracyM: body.accuracy_m,
-      checkOutLocationId: geo.ok ? geo.locationId : null,
+      checkOutLat: null,
+      checkOutLong: null,
+      checkOutAccuracyM: null,
+      checkOutLocationId: null,
       workedMinutes,
       breakMinutes,
       // A WFH day stays WFH; otherwise the computed status wins.

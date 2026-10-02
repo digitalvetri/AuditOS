@@ -344,7 +344,8 @@ model Employee {
   designationId  String?
   departmentId   String?
   managerId      String? // self-referential, nullable
-  workLocationId String
+  // Work locations were removed as a concept; FK kept nullable for history.
+  workLocationId String?
   workScheduleId String
 
   email            String  @unique
@@ -386,7 +387,7 @@ model Employee {
   organisation Organisation @relation(fields: [organisationId], references: [id])
   department   Department?  @relation(fields: [departmentId], references: [id])
   designation  Designation? @relation(fields: [designationId], references: [id])
-  workLocation WorkLocation @relation(fields: [workLocationId], references: [id])
+  workLocation WorkLocation? @relation(fields: [workLocationId], references: [id])
   workSchedule WorkSchedule @relation(fields: [workScheduleId], references: [id])
   manager      Employee?    @relation("EmployeeManager", fields: [managerId], references: [id])
   reports      Employee[]   @relation("EmployeeManager")

@@ -191,10 +191,7 @@ employeesRouter.post('/', handler(async (req, res) => {
   const b = body.data
 
   const org = await prisma.organisation.findFirstOrThrow({ where: { deletedAt: null } })
-  const [defaultLocation, defaultSchedule] = await Promise.all([
-    prisma.workLocation.findFirst({ where: { deletedAt: null, isActive: true } }),
-    prisma.workSchedule.findFirst({ where: { deletedAt: null } }),
-  ])
+  const defaultSchedule = await prisma.workSchedule.findFirst({ where: { deletedAt: null } })
   const count = await prisma.employee.count()
 
   const row = await prisma.employee.create({
@@ -209,7 +206,7 @@ employeesRouter.post('/', handler(async (req, res) => {
       designationId: b.designation_id ?? null,
       departmentId: b.department_id ?? null,
       managerId: b.manager_id ?? null,
-      workLocationId: b.work_location_id ?? defaultLocation?.id ?? '',
+      workLocationId: b.work_location_id ?? null,
       workScheduleId: b.work_schedule_id ?? defaultSchedule?.id ?? '',
       email: b.email,
       phone: b.phone ?? '',
@@ -244,7 +241,7 @@ employeesRouter.get('/:id', handler(async (req, res) => {
     target.departmentId ? prisma.department.findUnique({ where: { id: target.departmentId } }) : null,
     target.designationId ? prisma.designation.findUnique({ where: { id: target.designationId } }) : null,
     target.managerId ? prisma.employee.findUnique({ where: { id: target.managerId } }) : null,
-    prisma.workLocation.findUnique({ where: { id: target.workLocationId } }),
+    target.workLocationId ? prisma.workLocation.findUnique({ where: { id: target.workLocationId } }) : null,
   ])
   const today = scope === 'finance' ? new Map() : await todayAttendanceFor([target.id])
 

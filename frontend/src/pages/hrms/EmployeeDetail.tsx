@@ -226,7 +226,6 @@ function OverviewTab({
           <>
             <Field label="Type" value={EMPLOYEE_TYPE_LABEL[(emp as { type: EmployeeType }).type]} />
             <Field label="Manager" value={refs.manager?.full_name ?? '—'} />
-            <Field label="Work location" value={refs.location?.name ?? '—'} />
             <Field label="Joining date" value={fmtDate((emp as { joining_date: string }).joining_date + 'T00:00:00Z')} />
           </>
         ) : null}

@@ -168,17 +168,8 @@ async function main() {
   // exist (as nullable FKs on Employee) for historical rows, but seed
   // creates no new rows and never attaches employees to one.
 
-  const locations = [
-    { id: 'wl-hq', name: 'Head Office · Chennai', address: 'Chennai, Tamil Nadu', latitude: 13.0827, longitude: 80.2707 },
-    { id: 'wl-branch', name: 'Branch · T. Nagar', address: 'T. Nagar, Chennai', latitude: 13.0418, longitude: 80.2341 },
-  ]
-  for (const l of locations) {
-    await prisma.workLocation.upsert({
-      where: { id: l.id }, update: {},
-      create: { ...l, organisationId: org.id, radiusM: 150, isActive: true },
-    })
-  }
-
+  // Work Locations removed as a concept; model stays as dead code so
+  // historical attendance rows that pointed at a location still resolve.
   await prisma.workSchedule.upsert({
     where: { id: 'ws-standard' },
     update: {},
@@ -264,7 +255,7 @@ async function main() {
         type: e.type,
         status: e.status,
         managerId: null, // linked in a second pass so self-references resolve
-        workLocationId: 'wl-hq',
+        workLocationId: null,
         workScheduleId: 'ws-standard',
         email: e.email,
         phone: e.phone,
@@ -563,27 +554,26 @@ async function main() {
         const checkIn = istInstant(date, inH, inM)
         const checkOut = istInstant(date, outH, outM)
         const computed = computeCheckOutStatus(checkIn, checkOut)
-        const offsite = rand() > 0.85
         await prisma.attendance.create({
           data: {
             employeeId,
             date,
             checkInAt: checkIn,
             checkOutAt: checkOut,
-            checkInLat: 13.0827,
-            checkInLong: 80.2707,
-            checkInAccuracyM: 12,
-            checkOutLat: 13.0827,
-            checkOutLong: 80.2707,
-            checkOutAccuracyM: 14,
-            checkInLocationId: offsite ? null : 'wl-hq',
-            checkOutLocationId: offsite ? null : 'wl-hq',
-            locationType: offsite ? 'client_site' : 'office',
-            offSiteReason: offsite ? 'Field audit at client premises' : null,
+            checkInLat: null,
+            checkInLong: null,
+            checkInAccuracyM: null,
+            checkOutLat: null,
+            checkOutLong: null,
+            checkOutAccuracyM: null,
+            checkInLocationId: null,
+            checkOutLocationId: null,
+            locationType: 'office',
+            offSiteReason: null,
             workedMinutes: computed.workedMinutes,
             breakMinutes: computed.breakMinutes,
             status: computed.status,
-            source: 'web_geo',
+            source: 'web',
           },
         })
       }
