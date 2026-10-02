@@ -340,10 +340,11 @@ export const users: User[] = [
 ];
 
 /** Shown on the login screen when VITE_MOCK_MODE=true. */
+/** One demo login per role in Settings → Roles & permissions. */
 export const demoCredentials = [
-  { role: 'MD / Super Admin', email: 'ravi@auditos.local', password: 'md' },
-  { role: 'HR Admin', email: 'priya@auditos.local', password: 'hr' },
-  { role: 'Finance Admin', email: 'anitha@auditos.local', password: 'fin' },
-  { role: 'Dept Manager', email: 'vikram@auditos.local', password: 'mgr' },
-  { role: 'Employee', email: 'meera@auditos.local', password: 'emp' },
+  { role: 'Super Admin', email: 'ravi@auditos.local', password: 'md' },
+  { role: 'Admin', email: 'priya@auditos.local', password: 'hr' },
+  { role: 'Senior Associate', email: 'vikram@auditos.local', password: 'mgr' },
+  { role: 'Associate', email: 'meera@auditos.local', password: 'emp' },
+  { role: 'Intern', email: 'karthik@auditos.local', password: 'art' },
 ] as const;

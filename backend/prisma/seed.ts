@@ -278,15 +278,17 @@ async function main() {
     }
   }
 
-  // Demo logins. Passwords are documented in the README and are development
-  // credentials only — production seeds must not use them.
+  // Demo logins, one per role in Settings → Roles & permissions (Super Admin,
+  // Admin, Senior Associate, Associate, Intern). Passwords are documented in
+  // the README and are development credentials only — production seeds must
+  // not use them.
   const users = [
     { id: 'usr-md', employeeId: 'emp-md', email: 'ravi@auditos.local', password: 'md', roleId: 'role-md' },
     { id: 'usr-hr', employeeId: 'emp-hr', email: 'priya@auditos.local', password: 'hr', roleId: 'role-hr-admin' },
-    { id: 'usr-fin', employeeId: 'emp-fin', email: 'anitha@auditos.local', password: 'fin', roleId: 'role-finance-admin' },
+    { id: 'usr-fin', employeeId: 'emp-fin', email: 'anitha@auditos.local', password: 'fin', roleId: 'role-hr-admin' },
     { id: 'usr-mgr', employeeId: 'emp-mgr', email: 'vikram@auditos.local', password: 'mgr', roleId: 'role-dept-manager' },
     { id: 'usr-emp', employeeId: 'emp-exec', email: 'meera@auditos.local', password: 'emp', roleId: 'role-employee' },
-    { id: 'usr-articled', employeeId: 'emp-articled', email: 'karthik@auditos.local', password: 'art', roleId: 'role-employee' },
+    { id: 'usr-articled', employeeId: 'emp-articled', email: 'karthik@auditos.local', password: 'art', roleId: 'role-intern' },
     { id: 'usr-probation', employeeId: 'emp-probation', email: 'divya@auditos.local', password: 'prb', roleId: 'role-employee' },
   ]
   for (const u of users) {

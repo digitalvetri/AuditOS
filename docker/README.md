@@ -67,6 +67,13 @@ start the `api` gives every invoice that was paid before history existed one
 "recorded before payment history" row, so the totals and the history agree —
 nothing to run by hand.
 
+**Demo logins.** The seed creates one login per role — Super Admin
+`ravi@auditos.local` / `md`, Admin `priya@auditos.local` / `hr`, Senior
+Associate `vikram@auditos.local` / `mgr`, Associate `meera@auditos.local` /
+`emp`, Intern `karthik@auditos.local` / `art`. To list them on the sign-in
+screen, set `VITE_SHOW_DEMO_LOGINS=true` in `docker/.env` and rebuild `web`
+(it is a build-time flag). Development only — never on a real deployment.
+
 **Database only, for native development** (`npm run dev:full` against it):
 
 ```bash

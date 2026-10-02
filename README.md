@@ -210,12 +210,12 @@ mock seed; never deploy with them.
 
 | Role | Email | Password |
 |---|---|---|
-| MD / Super Admin | ravi@auditos.local | `md` |
-| HR Admin | priya@auditos.local | `hr` |
-| Finance Admin | anitha@auditos.local | `fin` |
-| Dept Manager | vikram@auditos.local | `mgr` |
-| Employee | meera@auditos.local | `emp` |
-| Articled Assistant | karthik@auditos.local | `art` |
+| Super Admin | ravi@auditos.local | `md` |
+| Admin | priya@auditos.local | `hr` |
+| Admin | anitha@auditos.local | `fin` |
+| Senior Associate | vikram@auditos.local | `mgr` |
+| Associate | meera@auditos.local | `emp` |
+| Intern | karthik@auditos.local | `art` |
 
 The login screen lists them when `VITE_MOCK_MODE=true`, or when
 `VITE_SHOW_DEMO_LOGINS=true` against the seeded dev backend. A production
