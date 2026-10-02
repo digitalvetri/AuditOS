@@ -47,7 +47,7 @@ export function DepartmentsSection() {
             e.preventDefault();
             create.mutate();
           }}
-          className="bg-white border border-neutral-200 rounded p-4 flex items-end gap-3 flex-wrap"
+          className="dash-card p-4 flex items-end gap-3 flex-wrap"
         >
           <Input label="Name" value={name} onChange={(e) => setName(e.target.value)} required data-testid="dept-name" />
           <Input label="Code" value={code} onChange={(e) => setCode(e.target.value)} required data-testid="dept-code" />
@@ -60,9 +60,9 @@ export function DepartmentsSection() {
 
       <div className="bg-white border border-neutral-200 rounded overflow-hidden" data-testid="departments-table">
         {q.isLoading ? (
-          <div className="h-32 bg-neutral-100" aria-label="Loading" />
+          <div className="dash-card h-32" aria-label="Loading" />
         ) : (
-          <table className="w-full border-collapse tabular-nums">
+          <table className="hr-float w-full border-collapse tabular-nums">
             <thead>
               <tr>
                 {['Code', 'Name', 'Actions'].map((c) => (
@@ -76,7 +76,7 @@ export function DepartmentsSection() {
               {q.data!.items.map((d) => (
                 <tr key={d.id} className="border-b border-neutral-200" data-testid={`dept-row-${d.id}`}>
                   <td className="px-3 py-2 text-13 text-neutral-500">{d.code}</td>
-                  <td className="px-3 py-2 text-13 text-neutral-900">{d.name}</td>
+                  <td className="px-3 py-2 text-13 font-semibold text-neutral-900">{d.name}</td>
                   <td className="px-3 py-2">
                     <Button
                       variant="ghost"

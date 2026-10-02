@@ -132,6 +132,13 @@ for (const to of ['draft', 'sent', 'accepted', 'archived'] as const) {
   }))
 }
 
+engagementRouter.post('/:id/unarchive', handler(async (req, res) => {
+  const session = requireSession(req)
+  const scope = requireWorkstation(session, 'workstation.engagement.manage')
+  requireManage(session)
+  ok(res, await EngagementService.unarchive(session, scope, req.params.id))
+}))
+
 engagementRouter.post('/:id/duplicate', handler(async (req, res) => {
   const session = requireSession(req)
   const scope = requireWorkstation(session, 'workstation.engagement.manage')

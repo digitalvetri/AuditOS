@@ -181,7 +181,7 @@ export function GstDashboard({ focusKind }: { focusKind?: 'GSTR1' | 'GSTR2B' | '
                         className={
                           'px-3 h-8 text-13 rounded border ' +
                           (filter === key
-                            ? 'bg-neutral-900 text-white border-neutral-900'
+                            ? 'bg-primary text-white border-primary'
                             : 'bg-white text-neutral-700 border-neutral-300 hover:border-neutral-400')
                         }>
                   {label}

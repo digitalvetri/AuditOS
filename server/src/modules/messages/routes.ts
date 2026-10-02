@@ -5,7 +5,7 @@ import { ApiError, handler, ok } from '../../lib/http.js'
 import { requirePermission, requireSession } from '../../platform/auth.js'
 import {
   addMembers, chatInfo, chatPeople, clearChat, createChat, deleteChatForMe, deleteGroup, deleteMessage,
-  leaveGroup, listChats, listMessages, markRead, messageInfo, postMessage, readAttachment, removeMember, setMemberRole, updateGroup,
+  leaveGroup, listChats, listMessages, markRead, messageInfo, postMessage, readAttachment, removeMember, setMemberRole, setMyPhoto, updateGroup,
 } from './service.js'
 import { MAX_DOCUMENT_MB, MAX_DOCUMENTS_PER_MESSAGE, MAX_IMAGE_MB, MAX_IMAGES_PER_MESSAGE, MAX_VOICE_MB } from './attachments.js'
 
@@ -16,7 +16,8 @@ import { MAX_DOCUMENT_MB, MAX_DOCUMENTS_PER_MESSAGE, MAX_IMAGE_MB, MAX_IMAGES_PE
  *   GET  /api/chats/people             colleagues a chat can be started with
  *   POST /api/chats                    DM (idempotent per pair) or group (anyone; creator is admin)
  *   GET  /api/chats/:id/info           members + roles (group info panel)
- *   PATCH /api/chats/:id               rename / describe a group (admin)
+ *   PUT  /api/chats/profile-photo      set / remove your own profile photo
+ *   PATCH /api/chats/:id               rename / describe / picture a group (admin)
  *   POST|DELETE|PATCH /api/chats/:id/members[/:employeeId]   add / remove / make admin (admin)
  *   POST /api/chats/:id/leave          exit a group
  *   DELETE /api/chats/:id              delete a group for everyone (admin)
@@ -58,12 +59,18 @@ chatsRouter.get('/people', handler(async (req, res) => {
   ok(res, await chatPeople(requireSession(req)))
 }))
 
+chatsRouter.put('/profile-photo', handler(async (req, res) => {
+  const b = z.object({ photo_url: z.string().nullable() }).safeParse(req.body ?? {})
+  if (!b.success) throw ApiError.badRequest('Send a picture or null.')
+  ok(res, await setMyPhoto(requireSession(req), b.data.photo_url))
+}))
+
 chatsRouter.get('/:id/info', handler(async (req, res) => {
   ok(res, await chatInfo(req.params.id, requireSession(req)))
 }))
 
 chatsRouter.patch('/:id', handler(async (req, res) => {
-  const b = z.object({ name: z.string().max(120).optional(), description: z.string().max(400).nullable().optional() }).safeParse(req.body ?? {})
+  const b = z.object({ name: z.string().max(120).optional(), description: z.string().max(400).nullable().optional(), photo_url: z.string().nullable().optional() }).safeParse(req.body ?? {})
   if (!b.success) throw ApiError.badRequest('Check the group name.')
   ok(res, await updateGroup(req.params.id, requireSession(req), b.data))
 }))

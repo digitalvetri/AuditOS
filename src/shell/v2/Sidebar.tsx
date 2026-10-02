@@ -12,6 +12,7 @@
  *                 Books (Zoho Books). One section, sibling rows.
  */
 import { NavLink, useLocation } from 'react-router-dom';
+import { SidebarBackdrop } from './SidebarBackdrop';
 import { useEffect, useMemo, useState } from 'react';
 import {
   BarChart3,
@@ -243,18 +244,19 @@ export function Sidebar({ mobileOpen, onMobileClose }: Props) {
 
       <aside
         className={
-          'flex flex-col bg-sidebar text-sidebarText lg:border-r lg:border-border ' +
+          'sb-creative flex flex-col bg-sidebar text-sidebarText lg:border-r lg:border-white/5 ' +
           'fixed inset-y-0 left-0 z-50 max-w-[82vw] ' +
           `${drawer} ` +
-          'lg:static lg:z-auto lg:h-full lg:translate-x-0 lg:visible ' +
+          'lg:relative lg:z-auto lg:h-full lg:translate-x-0 lg:visible ' +
           'transition-[transform,width,visibility] shrink-0'
         }
         style={{ width: asideWidth }}
         aria-label="Primary navigation"
       >
+        <SidebarBackdrop collapsed={collapsed && isDesktop} />
         <Brand collapsed={collapsed} />
 
-        <nav className="flex-1 min-h-0 overflow-y-auto pt-1 pb-2">
+        <nav className="sidebar-scroll flex-1 min-h-0 overflow-y-auto pt-1 pb-2">
           {nav.map((group, i) => (
             <Section
               key={i}
@@ -293,7 +295,7 @@ function Brand({ collapsed }: { collapsed: boolean }) {
   // the full lockup on a white plate — the logo already carries the wordmark,
   // so no separate text is rendered beside it.
   return (
-    <div className={'h-20 flex items-center gap-3 shrink-0 border-b border-sidebarHover ' + (collapsed ? 'justify-center px-0' : 'pl-4 pr-3')}>
+    <div className={'h-20 flex items-center gap-3 shrink-0 border-b border-white/[0.07] ' + (collapsed ? 'justify-center px-0' : 'pl-4 pr-3')}>
       <span
         className="inline-flex items-center justify-center shrink-0"
         /* No white plate. The mark sits directly on the navy rail and is
@@ -345,8 +347,8 @@ function Section({ group, collapsed, first, folded, onToggle }: SectionProps) {
           onClick={onToggle}
           aria-expanded={!folded}
           className={
-            'flex items-center gap-2 w-full pl-6 pr-4 pb-2 text-13 font-bold uppercase ' +
-            'tracking-[0.14em] text-sidebarText hover:text-ink transition-colors ' +
+            'flex items-center gap-2 w-full pl-6 pr-4 pb-2 text-11 font-semibold uppercase ' +
+            'tracking-[0.16em] text-white hover:text-white/80 transition-colors ' +
             (first ? 'pt-4' : 'pt-5')
           }
         >
@@ -386,18 +388,24 @@ function NavItemRow({ item, collapsed }: { item: NavItem; collapsed: boolean }) 
       to={item.to}
       end={item.end}
       className={({ isActive }) => {
-        const base = 'flex items-center gap-3 h-11 rounded-lg text-15 transition-colors';
+        const base = 'group/nav flex items-center gap-3 h-10 rounded-lg text-14 transition-colors';
         const spacing = collapsed ? 'justify-center px-0' : 'px-3';
         const grow = hasChildren ? ' flex-1 min-w-0' : '';
         const state = isActive
-          ? 'bg-sidebarActive text-sidebarText font-semibold'
-          : 'text-sidebarText font-medium hover:bg-sidebarHover';
+          ? 'sb-active relative text-white font-semibold before:absolute before:left-0 before:top-2 before:bottom-2 before:w-[3px] before:rounded-full before:bg-[#5eead4]'
+          : 'text-white/70 font-medium sb-hover hover:text-white';
         return `${base} ${spacing} ${state}${grow}`;
       }}
       title={collapsed ? item.label : undefined}
     >
-      <Icon size={20} strokeWidth={2} className="shrink-0" />
-      {!collapsed ? <span className="truncate">{item.label}</span> : null}
+      {({ isActive }) => (
+        <>
+          {/* The accent bar's orange when active, soft white otherwise. */}
+          <Icon size={18} strokeWidth={1.9}
+            className={'shrink-0 ' + (isActive ? 'text-[#99f6e4]' : 'text-white/60 group-hover/nav:text-white')} />
+          {!collapsed ? <span className="truncate">{item.label}</span> : null}
+        </>
+      )}
     </NavLink>
   );
 
@@ -412,7 +420,7 @@ function NavItemRow({ item, collapsed }: { item: NavItem; collapsed: boolean }) 
           onClick={() => setOpen((o) => !o)}
           aria-expanded={open}
           aria-label={(open ? 'Collapse' : 'Expand') + ' ' + item.label}
-          className="shrink-0 h-11 w-7 flex items-center justify-center rounded-lg text-sidebarText hover:bg-sidebarHover transition-colors"
+          className="shrink-0 h-10 w-7 flex items-center justify-center rounded-lg text-white/60 hover:bg-white/[0.05] hover:text-white transition-colors"
         >
           <ChevronDown
             size={14}
@@ -451,10 +459,10 @@ function NavChildRow({ child }: { child: NavChild }) {
       <NavLink
         to={child.to}
         className={({ isActive }) =>
-          'flex items-center h-9 pl-11 pr-3 rounded-lg text-14 transition-colors ' +
+          'flex items-center h-9 pl-11 pr-3 rounded-lg text-13 transition-colors ' +
           (isActive
-            ? 'bg-sidebarActive text-sidebarText font-semibold'
-            : 'text-sidebarText font-medium hover:bg-sidebarHover')
+            ? 'sb-active relative text-white font-semibold before:absolute before:left-0 before:top-2 before:bottom-2 before:w-[3px] before:rounded-full before:bg-[#5eead4]'
+            : 'text-white/70 font-medium sb-hover hover:text-white')
         }
       >
         <span className="truncate">{child.label}</span>
@@ -469,8 +477,8 @@ function NavChildRow({ child }: { child: NavChild }) {
         onClick={() => setOpen((o) => !o)}
         aria-expanded={open}
         className={
-          'w-full flex items-center h-9 pl-11 pr-0 rounded-lg text-14 text-sidebarText hover:bg-sidebarHover transition-colors ' +
-          (onBranch ? 'font-semibold' : 'font-medium')
+          'w-full flex items-center h-9 pl-11 pr-0 rounded-lg text-13 hover:bg-white/[0.05] hover:text-white transition-colors ' +
+          (onBranch ? 'text-white font-semibold' : 'text-white/70 font-medium')
         }
       >
         <span className="flex-1 min-w-0 truncate text-left">{child.label}</span>
@@ -493,10 +501,10 @@ function NavChildRow({ child }: { child: NavChild }) {
                    rail, so the full name lives in the tooltip. */
                 title={leaf.label}
                 className={({ isActive }) =>
-                  'flex items-center h-8 pl-[68px] pr-3 rounded-lg text-13 transition-colors ' +
+                  'flex items-center h-8 pl-[68px] pr-3 rounded-lg text-12 transition-colors ' +
                   (isActive
-                    ? 'bg-sidebarActive text-sidebarText font-semibold'
-                    : 'text-sidebarMuted font-medium hover:bg-sidebarHover hover:text-sidebarText')
+                    ? 'sb-active relative text-white font-semibold before:absolute before:left-0 before:top-2 before:bottom-2 before:w-[3px] before:rounded-full before:bg-[#5eead4]'
+                    : 'text-white/55 font-medium sb-hover hover:text-white')
                 }
               >
                 <span className="truncate">{leaf.label}</span>
@@ -516,8 +524,9 @@ function Collapse({ collapsed, onToggle }: { collapsed: boolean; onToggle: () =>
       type="button"
       onClick={onToggle}
       className={
-        'h-11 flex items-center gap-2 text-sidebarMuted hover:text-ink text-11 font-semibold uppercase tracking-[0.1em] ' +
-        (collapsed ? 'justify-center px-0' : 'pl-5 pr-4')
+        'h-9 mx-3 mb-3 mt-1 flex items-center gap-2 rounded-lg border border-white/10 bg-white/[0.04] ' +
+        'text-white/60 hover:text-white hover:bg-white/[0.08] text-11 font-semibold uppercase tracking-[0.1em] transition-colors ' +
+        (collapsed ? 'justify-center px-0' : 'pl-3 pr-3')
       }
       aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
     >

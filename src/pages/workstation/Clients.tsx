@@ -2,10 +2,14 @@ import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { workstationApi } from '@/modules/workstation/api';
+import { Plus } from 'lucide-react';
 import {
-  Card, Cell, Field, FilterBar, Modal, PageHeader, QueryState, Row, SearchInput,
-  Select, Status, Table, fieldErrors, inputClass, textareaClass,
+  Field, Modal, QueryState, fieldErrors, inputClass, textareaClass,
 } from '@/modules/workstation/components';
+import {
+  FilterSelect, ListAction, ListCard, ListEmpty, ListHeader, ListRow, ListTable, ListToolbar, SearchBox,
+  StatusChip, StatusPills, TD, TogglePill, TwoLine,
+} from '@/modules/workstation/listUi';
 import type { ClientListItem, ListResponse } from '@/modules/workstation/types';
 import { Button } from '@/components/Button';
 import { useToast } from '@/components/Toast';
@@ -45,71 +49,60 @@ export function ClientsPage() {
   const canManage = can(session?.role.code, 'workstation.client.manage', 'self');
 
   return (
-    <div className="">
-      <PageHeader
+    <div className="max-w-[1400px]">
+      <ListHeader
         title="Clients"
-        subtitle="One record per company. Everything else references it."
+        meta={clients.data
+          ? <>{clients.data.count} client{clients.data.count === 1 ? '' : 's'} · {clients.data.scope === 'organisation' ? 'all firm clients' : 'clients assigned to you'}</>
+          : 'One record per company. Everything else references it.'}
         action={canManage ? (
-          <Button variant="primary" onClick={() => setAddOpen(true)}>Add Client</Button>
+          <ListAction onClick={() => setAddOpen(true)} icon={<Plus size={15} />}>Add Client</ListAction>
         ) : undefined}
       />
 
-      <FilterBar>
-        <SearchInput value={q} onChange={(v) => setParam('q', v)} placeholder="Company, Client ID, GSTIN, contact" />
-        <Select
-          label="Status" value={status} onChange={(v) => setParam('status', v)}
-          options={[
-            { value: 'active', label: 'Active' },
-            { value: 'onboarding', label: 'Onboarding' },
-            { value: 'pending_documents', label: 'Pending Documents' },
-            { value: 'service_due', label: 'Service Due' },
-            { value: 'inactive', label: 'Inactive' },
-          ]}
-        />
-        <Select
+      <ListToolbar>
+        <SearchBox value={q} onChange={(v) => setParam('q', v)} placeholder="Company, Client ID, GSTIN, contact" />
+        <FilterSelect
           label="Service" value={serviceId} onChange={(v) => setParam('service_id', v)}
           options={(catalog.data?.items ?? []).map((s) => ({ value: s.id, label: s.name }))}
         />
-        <Select
+        <FilterSelect
           label="Account manager" value={managerId} onChange={(v) => setParam('account_manager_id', v)}
           options={(employees.data?.items ?? []).map((e) => ({ value: e.id, label: e.full_name }))}
         />
-        <label className="flex items-center gap-2 h-8 text-13 text-neutral-700">
-          <input
-            type="checkbox"
-            checked={pendingDocs}
-            onChange={(e) => setParam('pending_documents', e.target.checked ? 'true' : '')}
-          />
+        <TogglePill on={pendingDocs} onChange={(v) => setParam('pending_documents', v ? 'true' : '')}>
           Pending documents
-        </label>
-      </FilterBar>
+        </TogglePill>
+      </ListToolbar>
+      <div className="mb-4">
+        <StatusPills value={status} onChange={(v) => setParam('status', v)} options={[
+          { value: '', label: 'All' },
+          { value: 'active', label: 'Active' },
+          { value: 'onboarding', label: 'Onboarding' },
+          { value: 'pending_documents', label: 'Pending Documents' },
+          { value: 'service_due', label: 'Service Due' },
+          { value: 'inactive', label: 'Inactive' },
+        ]} />
+      </div>
 
-      <Card>
-        <QueryState query={clients} empty="No clients match these filters.">
-          {(data: ListResponse<ClientListItem>) => (
-            <Table head={['Client ID', 'Company', 'GSTIN', 'Services', 'Account Manager', 'Status', 'Documents']}>
+      <ListCard>
+        <QueryState query={clients} empty={<ListEmpty>No clients match these filters.</ListEmpty>}>
+          {(data: ListResponse<ClientListItem>) => data.items.length === 0 ? <ListEmpty>No clients match these filters.</ListEmpty> : (
+            <ListTable cols={['Company', 'GSTIN', 'Services', 'Account manager', 'Status', { label: 'Documents', align: 'right' }]}>
               {data.items.map((c) => (
-                <Row key={c.id} status={c.status} onClick={() => navigate(`/workstation/clients/${c.id}`)}>
-                  <Cell muted>{c.client_id}</Cell>
-                  <Cell className="font-medium">{c.company_name}</Cell>
-                  <Cell muted>{c.gstin ?? '—'}</Cell>
-                  <Cell muted>{c.service_names.length ? c.service_names.join(' + ') : '—'}</Cell>
-                  <Cell muted>{c.account_manager?.full_name ?? '—'}</Cell>
-                  <Cell><Status value={c.status} /></Cell>
-                  <Cell muted>{c.document_count} Document{c.document_count === 1 ? '' : 's'}</Cell>
-                </Row>
+                <ListRow key={c.id} onOpen={() => navigate(`/workstation/clients/${c.id}`)}>
+                  <TD first><TwoLine top={c.company_name} sub={c.client_id} /></TD>
+                  <TD muted nowrap className="tracking-[0.02em]">{c.gstin ?? '—'}</TD>
+                  <TD muted>{c.service_names.length ? c.service_names.join(' + ') : '—'}</TD>
+                  <TD muted>{c.account_manager?.full_name ?? '—'}</TD>
+                  <TD><StatusChip value={c.status} /></TD>
+                  <TD last right muted nowrap>{c.document_count} document{c.document_count === 1 ? '' : 's'}</TD>
+                </ListRow>
               ))}
-            </Table>
+            </ListTable>
           )}
         </QueryState>
-      </Card>
-
-      {clients.data ? (
-        <p className="text-12 text-neutral-500 mt-3">
-          {clients.data.count} client{clients.data.count === 1 ? '' : 's'} ·{' '}
-          {clients.data.scope === 'organisation' ? 'all firm clients' : 'clients assigned to you'}
-        </p>
-      ) : null}
+      </ListCard>
 
       <AddClientModal open={addOpen} onClose={() => setAddOpen(false)} />
     </div>

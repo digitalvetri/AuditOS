@@ -1,10 +1,10 @@
 /**
  * Inline rich text for engagement-letter lines — the DOM side.
  *
- * Stored form: inline HTML limited to b, i, u and br, with {{placeholders}}
+ * Stored form: inline HTML limited to b, i, u, sup and br, with {{placeholders}}
  * as literal text. Everything that reaches the page goes through
  * `sanitizeInline`, which REBUILDS markup from a whitelist rather than
- * filtering it — so whatever was saved, nothing but those four tags and text
+ * filtering it — so whatever was saved, nothing but those five tags and text
  * can ever be injected, and the letter cannot carry a script.
  *
  * Placeholders are shown as non-editable atoms holding the resolved value and
@@ -13,7 +13,7 @@
  * {{company_name}} it stands for.
  */
 
-const TAG: Record<string, string> = { B: 'b', STRONG: 'b', I: 'i', EM: 'i', U: 'u' };
+const TAG: Record<string, string> = { B: 'b', STRONG: 'b', I: 'i', EM: 'i', U: 'u', SUP: 'sup' };
 const BLOCKISH = new Set(['DIV', 'P', 'LI', 'UL', 'OL', 'BLOCKQUOTE', 'H1', 'H2', 'H3', 'H4']);
 
 const esc = (t: string) => t.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
@@ -42,7 +42,7 @@ export function sanitizeInline(html: string): string {
   const doc = new DOMParser().parseFromString(`<div>${html}</div>`, 'text/html');
   const out: string[] = [];
   rebuild(doc.body.firstChild ?? doc.body, out);
-  let s = out.join('').replace(/<(b|i|u)><\/\1>/g, '');
+  let s = out.join('').replace(/<(b|i|u|sup)><\/\1>/g, '');
   // A trailing <br> is the browser's placeholder for an empty line, not content.
   s = s.replace(/(<br>)+$/, '');
   return s;

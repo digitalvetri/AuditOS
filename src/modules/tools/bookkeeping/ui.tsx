@@ -400,7 +400,7 @@ export function DataTable<T>({ columns, rows, rowKey, onRowClick, footer, minWid
   }
   return (
     <div className="overflow-x-auto">
-      <table className="w-full text-13" style={{ minWidth }}>
+      <table className="hr-float w-full text-13" style={{ minWidth }}>
         <thead>
           <tr className="text-left text-11 text-neutral-500 tracking-[0.06em] border-b border-neutral-100">
             {columns.map((c) => (

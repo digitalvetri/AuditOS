@@ -27,14 +27,14 @@ export function PartnershipShell({ kind = 'PARTNERSHIP' }: { kind?: Registration
   return (
     <ServiceProvider kind={kind}>
     <div className={gst ? '' : 'm-page'}>
-      <nav className="m-rail flex gap-1 border-b border-neutral-200 mb-4 overflow-x-auto">
+      <nav className="m-rail flex gap-2 mb-5 overflow-x-auto pb-1">
         {tabs.map((t) => (
           <NavLink
             key={t.to}
             to={t.to}
             className={({ isActive }) =>
-              'px-3 min-h-[44px] md:min-h-0 md:h-9 flex items-center text-13 whitespace-nowrap border-b-2 -mb-px ' +
-              (isActive ? 'border-gold text-neutral-900 font-medium' : 'border-transparent text-neutral-500 hover:text-neutral-900')
+              'px-3 min-h-[44px] md:min-h-0 md:h-8 flex items-center text-13 whitespace-nowrap rounded-full border transition-colors ' +
+              (isActive ? 'bg-[#e8f0fb] border-[#b9cde9] text-primary font-medium' : 'bg-white border-neutral-200 text-neutral-700 hover:border-neutral-300 hover:bg-neutral-50')
             }
           >
             {t.label}

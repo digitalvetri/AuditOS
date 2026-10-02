@@ -579,6 +579,7 @@ export function chatToApi(c: Chat) {
     type: c.type,
     name: c.name,
     description: c.description,
+    photo_url: c.photoUrl,
     subject_type: c.subjectType,
     subject_id: c.subjectId,
     last_message_at: iso(c.lastMessageAt),

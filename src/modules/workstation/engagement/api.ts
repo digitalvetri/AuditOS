@@ -82,6 +82,8 @@ export const engagementApi = {
   send: (id: string) => api.post<EngagementLetter>(`${base}/${id}/send`),
   accept: (id: string) => api.post<EngagementLetter>(`${base}/${id}/accept`),
   archive: (id: string) => api.post<EngagementLetter>(`${base}/${id}/archive`),
+  /** Out of the archive, back to accepted / sent / draft as it was before. */
+  unarchive: (id: string) => api.post<EngagementLetter>(`${base}/${id}/unarchive`),
   /** A sent letter back to draft, so it can be edited and re-sent. */
   reopen: (id: string) => api.post<EngagementLetter>(`${base}/${id}/reopen`),
   duplicate: (id: string) => api.post<EngagementLetter>(`${base}/${id}/duplicate`),

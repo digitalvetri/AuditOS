@@ -889,6 +889,9 @@ model Chat {
   // Groups carry a name; a DM derives its display name from the other member.
   name           String?
   description    String?
+  /// Group picture, as a small data: URL (resized in the browser). A DM shows
+  /// the other member's own Employee.photoUrl instead.
+  photoUrl       String?
 
   // RESERVED FOR WORKSTATION — nullable, no UI in this phase.
   subjectType String?

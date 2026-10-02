@@ -14,6 +14,7 @@ import { useQuery } from '@tanstack/react-query';
 import { attendanceApi, type AttendanceWithEmployee } from './api';
 import { fmtDate, fmtTime, fmtDuration } from '@/lib/format';
 import { addDays, istToday } from '@/lib/dates';
+import { StatusLabel } from '@/components/StatusRow';
 import { styleForStatus } from './statusStyle';
 import type { AttendanceStatus, LocationType } from '@/data/models';
 
@@ -83,13 +84,14 @@ export function RecordsTable({ scopeHint, defaultEmployeeId }: RecordsTableProps
           })
         }
       />
-      <div className="mt-4 bg-white border border-neutral-200 rounded overflow-hidden">
+      {/* No frame round the table: its rows float on the page. */}
+      <div className="mt-4">
         {query.isLoading ? (
-          <div className="h-40 bg-neutral-100" aria-label="Loading records" />
+          <div className="dash-card h-40" aria-label="Loading records" />
         ) : query.isError ? (
-          <div className="p-4 text-13 text-red">Could not load records.</div>
+          <div className="dash-card p-4 text-13 text-red">Could not load records.</div>
         ) : (query.data?.items.length ?? 0) === 0 ? (
-          <Empty />
+          <div className="dash-card"><Empty /></div>
         ) : (
           <Table rows={query.data!.items} showEmployee={showEmployee} />
         )}
@@ -108,7 +110,7 @@ function FiltersBar({
   onReset: () => void;
 }) {
   return (
-    <div className="flex items-end gap-3 flex-wrap">
+    <div className="flex items-end gap-2 flex-wrap">
       <FilterInput
         label="From"
         type="date"
@@ -136,7 +138,7 @@ function FiltersBar({
       <button
         type="button"
         onClick={onReset}
-        className="h-8 px-3 text-13 text-neutral-500 hover:text-neutral-900"
+        className="h-9 px-3 text-13 rounded-full text-primary bg-[#e8f0fb] hover:bg-[#dbe7f8]"
       >
         Reset
       </button>
@@ -150,14 +152,14 @@ function FilterInput({
 }: { label: string; value: string; onChange: (v: string) => void; type: string }) {
   return (
     <label className="block">
-      <span className="block text-11 uppercase tracking-[0.06em] text-neutral-500 mb-1">
+      <span className="block text-12 font-medium text-neutral-500 mb-1">
         {label}
       </span>
       <input
         type={rest.type}
         value={rest.value}
         onChange={(e) => rest.onChange(e.target.value)}
-        className="h-8 px-3 text-13 bg-white border border-neutral-300 rounded"
+        className="h-9 px-3 text-13 bg-white border border-neutral-200 rounded-lg focus:outline-none focus:border-primary/60"
       />
     </label>
   );
@@ -176,13 +178,13 @@ function FilterSelect<T extends string>({
 }) {
   return (
     <label className="block">
-      <span className="block text-11 uppercase tracking-[0.06em] text-neutral-500 mb-1">
+      <span className="block text-12 font-medium text-neutral-500 mb-1">
         {label}
       </span>
       <select
         value={value}
         onChange={(e) => onChange(e.target.value as T)}
-        className="h-8 px-2 text-13 bg-white border border-neutral-300 rounded"
+        className="h-9 px-2 text-13 bg-white border border-neutral-200 rounded-lg focus:outline-none focus:border-primary/60"
       >
         {options.map((o) => (
           <option key={o.value} value={o.value}>
@@ -197,7 +199,7 @@ function FilterSelect<T extends string>({
 function Empty() {
   return (
     <div className="p-6">
-      <div className="text-11 uppercase tracking-[0.06em] text-neutral-500">No records</div>
+      <div className="text-15 font-semibold text-neutral-900">No records</div>
       <p className="text-13 text-neutral-500 mt-1">Adjust the filters to see attendance rows.</p>
     </div>
   );
@@ -220,7 +222,7 @@ function Table({ rows, showEmployee }: { rows: AttendanceWithEmployee[]; showEmp
 
   return (
     <div className="overflow-x-auto">
-      <table className="w-full border-collapse tabular-nums">
+      <table className="hr-float w-full border-collapse tabular-nums">
         <thead className="sticky top-0 bg-white">
           <tr>
             {cols.map((c) => (
@@ -259,15 +261,15 @@ function Row({ row, showEmployee }: { row: AttendanceWithEmployee; showEmployee:
     <tr className="h-10 hover:bg-neutral-50 border-b border-neutral-200" data-testid={`att-row-${row.date}`}>
       {showEmployee ? (
         <td className="px-3 border-l-2 border-transparent">
-          <div className="text-13 text-neutral-900">{row.employee?.full_name ?? '—'}</div>
+          <div className="text-13 font-semibold text-neutral-900">{row.employee?.full_name ?? '—'}</div>
           <div className="text-11 text-neutral-500">{row.employee?.employee_code ?? ''}</div>
         </td>
       ) : null}
       <td className={`px-3 border-l-2 ${border}`}>
-        <span className="text-13 text-neutral-900">{fmtDate(row.date + 'T00:00:00Z')}</span>
+        <span className="text-13 font-semibold text-neutral-900">{fmtDate(row.date + 'T00:00:00Z')}</span>
         {pendingCorrection ? (
-          <span className="ml-2 text-11 text-amber" title="Correction pending review">
-            · correction pending
+          <span className="ml-2 inline-flex items-center h-5 px-2 rounded-full text-11 font-medium bg-[#fffbeb] text-[#b45309]" title="Correction pending review">
+            Correction pending
           </span>
         ) : null}
       </td>
@@ -286,8 +288,8 @@ function Row({ row, showEmployee }: { row: AttendanceWithEmployee; showEmployee:
       <td className="px-3 text-13 text-neutral-500">
         {row.location_type ? row.location_type.replace('_', ' ') : '—'}
       </td>
-      <td className={`px-3 text-13 ${s.variant === 'ok' ? 'text-neutral-500 font-normal' : 'text-neutral-900 font-medium'}`}>
-        {s.label}
+      <td className="px-3">
+        <StatusLabel variant={s.variant} label={s.label} />
       </td>
     </tr>
   );

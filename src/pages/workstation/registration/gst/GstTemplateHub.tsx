@@ -37,7 +37,7 @@ export function GstTemplateHub() {
             className={
               'px-3 h-8 text-13 rounded border ' +
               (kind === c.kind
-                ? 'bg-neutral-900 text-white border-neutral-900'
+                ? 'bg-primary text-white border-primary'
                 : 'bg-white text-neutral-700 border-neutral-300 hover:border-neutral-400')
             }
           >

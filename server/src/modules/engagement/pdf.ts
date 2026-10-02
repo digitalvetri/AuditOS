@@ -2,6 +2,8 @@ import PDFDocument from 'pdfkit'
 import type { Response } from 'express'
 import type { Row } from './service.js'
 import { resolveLogoBuffer } from '../pdf/logo.js'
+import { skinOf } from './skins.js'
+import { streamWordPdf } from './wordPdf.js'
 
 /**
  * ENGAGEMENT LETTER PDF.
@@ -185,6 +187,10 @@ const DEFAULT_BLOCKS: Block[] = [
 ]
 
 export function streamEngagementPdf(res: Response, l: Row) {
+  // A letter made from one of the firm's Word templates prints in that
+  // template's own layout (wordPdf.ts); everything else in the classic one.
+  const skin = skinOf(l.templateId)
+  if (skin && Array.isArray(l.blockConfig) && l.blockConfig.length) return streamWordPdf(res, l, skin)
   const L: Layout = { ...DEFAULT_LAYOUT, ...((l.layoutConfig ?? {}) as Partial<Layout>) }
   const F = L.font === 'serif' ? SERIF : SANS
   const B = Math.min(14, Math.max(8, Number(L.fontSize) || 10.5))

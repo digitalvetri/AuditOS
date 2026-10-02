@@ -133,7 +133,7 @@ export function GstClients() {
                 reviewer_employee_id: form.reviewer_employee_id || null,
                 active: form.active === 'yes',
               })}
-              className="h-9 px-3 text-13 bg-neutral-900 text-white rounded disabled:opacity-50"
+              className="h-9 px-3 text-13 bg-primary text-white rounded-lg hover:bg-primaryHover disabled:opacity-50"
             >
               {save.isPending ? 'Saving…' : 'Save'}
             </button>

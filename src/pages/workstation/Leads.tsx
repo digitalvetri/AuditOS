@@ -2,10 +2,14 @@ import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { workstationApi } from '@/modules/workstation/api';
+import { Plus } from 'lucide-react';
 import {
-  Cell, Card, Field, FilterBar, Modal, PageHeader, QueryState, Row,
-  SearchInput, Select, Status, Table, fieldErrors, inputClass, textareaClass,
+  Field, Modal, QueryState, fieldErrors, inputClass, textareaClass,
 } from '@/modules/workstation/components';
+import {
+  FilterSelect, ListAction, ListCard, ListEmpty, ListHeader, ListRow, ListTable, ListToolbar, Money, SearchBox,
+  StatusChip, StatusPills, TD, TwoLine, fmtDay,
+} from '@/modules/workstation/listUi';
 import type { ListResponse, Lead } from '@/modules/workstation/types';
 import { Button } from '@/components/Button';
 import { useToast } from '@/components/Toast';
@@ -42,67 +46,61 @@ export function LeadsPage() {
   const canManage = can(session?.role.code, 'workstation.lead.manage', 'self');
 
   return (
-    <div className="">
-      <PageHeader
+    <div className="max-w-[1400px]">
+      <ListHeader
         title="Leads"
-        subtitle="Potential customers, before they become clients."
+        meta={leads.data
+          ? <>{leads.data.count} lead{leads.data.count === 1 ? '' : 's'} · {leads.data.scope === 'organisation' ? 'all firm leads' : 'leads assigned to you'}</>
+          : 'Potential customers, before they become clients.'}
         action={canManage ? (
-          <Button variant="primary" onClick={() => setAddOpen(true)}>Add Lead</Button>
+          <ListAction onClick={() => setAddOpen(true)} icon={<Plus size={15} />}>Add Lead</ListAction>
         ) : undefined}
       />
 
-      <FilterBar>
-        <SearchInput value={q} onChange={(v) => setParam('q', v)} placeholder="Name, lead ID or number" />
-        <Select
-          label="Status" value={status} onChange={(v) => setParam('status', v)}
-          options={[
-            { value: 'new', label: 'New' },
-            { value: 'contacted', label: 'Contacted' },
-            { value: 'requirement_identified', label: 'Requirement Identified' },
-            { value: 'quote_sent', label: 'Quote Sent' },
-            { value: 'negotiation', label: 'Negotiation' },
-            { value: 'won', label: 'Won' },
-            { value: 'lost', label: 'Lost' },
-          ]}
-        />
-        <Select
+      <ListToolbar>
+        <SearchBox value={q} onChange={(v) => setParam('q', v)} placeholder="Name, lead ID or number" />
+        <FilterSelect
           label="Service" value={serviceId} onChange={(v) => setParam('service_id', v)}
           options={(catalog.data?.items ?? []).map((s) => ({ value: s.id, label: s.name }))}
         />
-        <Select
+        <FilterSelect
           label="Assigned to" value={employeeId} onChange={(v) => setParam('employee_id', v)}
           options={(employees.data?.items ?? []).map((e) => ({ value: e.id, label: e.full_name }))}
         />
-      </FilterBar>
+      </ListToolbar>
+      <div className="mb-4">
+        <StatusPills value={status} onChange={(v) => setParam('status', v)} options={[
+          { value: '', label: 'All' },
+          { value: 'new', label: 'New' },
+          { value: 'contacted', label: 'Contacted' },
+          { value: 'requirement_identified', label: 'Requirement Identified' },
+          { value: 'quote_sent', label: 'Quote Sent' },
+          { value: 'negotiation', label: 'Negotiation' },
+          { value: 'won', label: 'Won' },
+          { value: 'lost', label: 'Lost' },
+        ]} />
+      </div>
 
-      <Card>
-        <QueryState query={leads} empty="No leads match these filters.">
-          {(data: ListResponse<Lead>) => (
-            <Table head={['Lead ID', 'Name', 'Contact', 'Service', 'Price Quoted', 'Date / Time', 'Status', 'Assigned To']}>
+      <ListCard>
+        <QueryState query={leads} empty={<ListEmpty>No leads match these filters.</ListEmpty>}>
+          {(data: ListResponse<Lead>) => data.items.length === 0 ? <ListEmpty>No leads match these filters.</ListEmpty> : (
+            <ListTable cols={['Lead', 'Contact', 'Service', { label: 'Price quoted', align: 'right' }, 'Created', 'Status', 'Assigned to']}>
               {data.items.map((l) => (
-                <Row key={l.id} status={l.status} onClick={() => navigate(`/workstation/leads/${l.id}`)}>
-                  <Cell muted>{l.lead_id}</Cell>
-                  <Cell className="font-medium">{l.name}</Cell>
-                  <Cell muted>{l.contact_number}</Cell>
-                  <Cell muted>{l.service_name ?? '—'}</Cell>
+                <ListRow key={l.id} onOpen={() => navigate(`/workstation/leads/${l.id}`)}>
+                  <TD first><TwoLine top={l.name} sub={l.lead_id} /></TD>
+                  <TD muted nowrap>{l.contact_number}</TD>
+                  <TD muted>{l.service_name ?? '—'}</TD>
                   {/* Quoted, not received — Finance owns payment (§55). */}
-                  <Cell>{inr(l.price_quoted_paise)}</Cell>
-                  <Cell muted>{fmtDate(l.created_at)} {fmtTime(l.created_at)}</Cell>
-                  <Cell><Status value={l.status} /></Cell>
-                  <Cell muted>{l.assigned_employee?.full_name ?? '—'}</Cell>
-                </Row>
+                  <TD right strong nowrap className="tabular-nums"><Money value={inr(l.price_quoted_paise)} /></TD>
+                  <TD muted nowrap>{fmtDay(l.created_at)} <span className="text-neutral-400">{fmtTime(l.created_at)}</span></TD>
+                  <TD><StatusChip value={l.status} /></TD>
+                  <TD last muted>{l.assigned_employee?.full_name ?? '—'}</TD>
+                </ListRow>
               ))}
-            </Table>
+            </ListTable>
           )}
         </QueryState>
-      </Card>
-
-      {leads.data ? (
-        <p className="text-12 text-neutral-500 mt-3">
-          {leads.data.count} lead{leads.data.count === 1 ? '' : 's'} ·{' '}
-          {leads.data.scope === 'organisation' ? 'all firm leads' : 'leads assigned to you'}
-        </p>
-      ) : null}
+      </ListCard>
 
       <AddLeadModal open={addOpen} onClose={() => setAddOpen(false)} />
     </div>

@@ -1,21 +1,34 @@
 import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
+import { Plus } from 'lucide-react';
 import { invoicesApi, type Invoice } from '@/modules/workstation/invoices/api';
 import { inrAmount } from '@/modules/workstation/invoices/document';
+import { QueryState } from '@/modules/workstation/components';
 import {
-  Card, Cell, FilterBar, PageHeader, QueryState, Row, SearchInput, Select, Table,
-} from '@/modules/workstation/components';
-import { Button } from '@/components/Button';
-import { fmtDate } from '@/lib/format';
+  ListAction, ListCard, ListEmpty, ListHeader, ListRow, ListTable, ListToolbar, Money, SearchBox, Spacer,
+  StatusChip, StatusPills, TD, fmtDay,
+} from '@/modules/workstation/listUi';
 import { can } from '@/platform/rbac/can';
 import { useAuth } from '@/platform/auth/AuthContext';
-import { StatusPill } from './InvoiceBuilder';
 
 /**
  * Workstation → Invoice. The list, its filters and the money that matters at
  * a glance: what is outstanding and how much of it is late.
  */
+
+const STATUSES = [
+  { value: '', label: 'All' },
+  { value: 'draft', label: 'Draft' },
+  { value: 'sent', label: 'Sent' },
+  { value: 'partially_paid', label: 'Partially paid' },
+  { value: 'paid', label: 'Paid' },
+  { value: 'overdue', label: 'Overdue' },
+  { value: 'cancelled', label: 'Cancelled' },
+];
+
+const link = 'text-13 text-primary hover:underline whitespace-nowrap';
+
 export function InvoiceListPage() {
   const navigate = useNavigate();
   const { session } = useAuth();
@@ -29,59 +42,51 @@ export function InvoiceListPage() {
     queryFn: () => invoicesApi.list({ status: status || undefined, q: q || undefined, limit: 100 }),
   });
   const summary = useQuery({ queryKey: ['invoices.summary'], queryFn: () => invoicesApi.summary() });
+  const s = summary.data;
 
   return (
-    <>
-      <PageHeader
+    <div className="max-w-[1400px]">
+      <ListHeader
         title="Invoices"
-        subtitle="Tax invoices raised against clients. A number is allocated on first save and never reused."
+        meta={s ? <>
+          {s.total} invoice{s.total === 1 ? '' : 's'} · newest first
+          {' · '}<span className="text-neutral-700 tabular-nums">₹ {inrAmount(s.outstanding_paise)}</span> outstanding
+          {s.overdue_paise > 0 ? <> · <span className="text-red tabular-nums">₹ {inrAmount(s.overdue_paise)}</span> overdue</> : null}
+        </> : 'Loading…'}
         action={mayWrite ? (
-          <Button variant="primary" onClick={() => navigate('/workstation/invoices/new')}>
-            Create invoice
-          </Button>
+          <ListAction onClick={() => navigate('/workstation/invoices/new')} icon={<Plus size={15} />}>Create invoice</ListAction>
         ) : undefined}
       />
 
-      {summary.data ? (
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
-          <Stat label="Invoices" value={String(summary.data.total)} />
-          <Stat label="Outstanding" value={`₹ ${inrAmount(summary.data.outstanding_paise)}`} />
-          <Stat label="Overdue" value={`₹ ${inrAmount(summary.data.overdue_paise)}`} tone="red" />
-          <Stat label="Paid" value={String(summary.data.counts.paid ?? 0)} />
-        </div>
-      ) : null}
+      <ListToolbar>
+        <SearchBox value={q} onChange={setQ} placeholder="Invoice number or client…" />
+        <Spacer />
+        <StatusPills options={STATUSES} value={status} onChange={setStatus} counts={s?.counts} />
+      </ListToolbar>
 
-      <Card title="All invoices">
-        <FilterBar>
-          <Select label="Status" allLabel="Every status" value={status} onChange={setStatus} options={[
-            { value: 'draft', label: 'Draft' },
-            { value: 'sent', label: 'Sent' },
-            { value: 'partially_paid', label: 'Partially paid' },
-            { value: 'paid', label: 'Paid' },
-            { value: 'overdue', label: 'Overdue' },
-            { value: 'cancelled', label: 'Cancelled' },
-          ]} />
-          <SearchInput value={q} onChange={setQ} placeholder="Invoice number or client…" />
-        </FilterBar>
-
-        <QueryState query={list} empty="No invoices yet.">
-          {(data: { items: Invoice[] }) => (
-            <Table head={['Invoice', 'Client', 'Date', 'Due', 'Status', 'Total', 'Balance', '', '']}>
+      <ListCard>
+        <QueryState query={list} empty={<ListEmpty>No invoices yet.</ListEmpty>}>
+          {(data: { items: Invoice[] }) => data.items.length === 0 ? <ListEmpty>Nothing matches these filters.</ListEmpty> : (
+            <ListTable cols={[
+              'Invoice', 'Client', 'Date', 'Due', 'Status',
+              { label: 'Total', align: 'right' }, { label: 'Balance', align: 'right' },
+              { label: '', key: 'open' }, { label: '', key: 'preview' },
+            ]}>
               {data.items.map((inv) => {
                 const draft = inv.stored_status === 'draft';
                 return (
-                  <Row key={inv.id} status={inv.status} onClick={() => navigate(`/workstation/invoices/${inv.id}`)}>
-                    <Cell>{inv.invoice_number}</Cell>
-                    <Cell>{inv.billing_name || inv.client_name || '—'}</Cell>
-                    <Cell>{fmtDate(inv.invoice_date)}</Cell>
-                    <Cell>{fmtDate(inv.due_date)}</Cell>
-                    <Cell><StatusPill status={inv.status} /></Cell>
-                    <Cell>{inrAmount(inv.total_paise)}</Cell>
-                    <Cell>{inrAmount(inv.balance_due_paise)}</Cell>
-                    <Cell>
+                  <ListRow key={inv.id} onOpen={() => navigate(`/workstation/invoices/${inv.id}`)}>
+                    <TD first strong nowrap className="tracking-[0.02em]">{inv.invoice_number}</TD>
+                    <TD strong>{inv.billing_name || inv.client_name || '—'}</TD>
+                    <TD muted nowrap>{fmtDay(inv.invoice_date)}</TD>
+                    <TD muted nowrap>{fmtDay(inv.due_date)}</TD>
+                    <TD><StatusChip value={inv.status} /></TD>
+                    <TD right strong nowrap className="tabular-nums"><Money value={`₹${inrAmount(inv.total_paise)}`} /></TD>
+                    <TD right nowrap className="tabular-nums"><Money value={`₹${inrAmount(inv.balance_due_paise)}`} /></TD>
+                    <TD>
                       <button
                         type="button"
-                        className="text-13 text-primary hover:underline"
+                        className={link}
                         onClick={(e) => {
                           e.stopPropagation();
                           navigate(draft && mayWrite
@@ -91,11 +96,11 @@ export function InvoiceListPage() {
                       >
                         {draft && mayWrite ? 'Continue building' : 'View'}
                       </button>
-                    </Cell>
-                    <Cell>
+                    </TD>
+                    <TD last>
                       <button
                         type="button"
-                        className="text-13 text-primary hover:underline"
+                        className={link}
                         onClick={(e) => {
                           e.stopPropagation();
                           navigate(`/workstation/invoices/${inv.id}/preview`);
@@ -103,23 +108,14 @@ export function InvoiceListPage() {
                       >
                         Preview
                       </button>
-                    </Cell>
-                  </Row>
+                    </TD>
+                  </ListRow>
                 );
               })}
-            </Table>
+            </ListTable>
           )}
         </QueryState>
-      </Card>
-    </>
-  );
-}
-
-function Stat({ label, value, tone }: { label: string; value: string; tone?: 'red' }) {
-  return (
-    <div className="border border-neutral-200 rounded bg-white px-3 py-2">
-      <div className="text-11 uppercase tracking-[0.06em] text-neutral-500">{label}</div>
-      <div className={`text-16 font-semibold ${tone === 'red' ? 'text-red' : 'text-neutral-900'}`}>{value}</div>
+      </ListCard>
     </div>
   );
 }

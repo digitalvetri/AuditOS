@@ -14,6 +14,41 @@ import { can } from '@/platform/rbac/can';
 import { reportsApi, type ReportType, type AttendanceReport, type LeaveReport, type PayrollReport, type ExpenseReport } from '@/modules/reports/api';
 import { addDays, istToday } from '@/lib/dates';
 import { inr } from '@/lib/format';
+import {
+  CalendarCheck, CalendarDays, Download, Receipt, ShieldAlert, Wallet, type LucideIcon,
+} from 'lucide-react';
+
+/** Each report's icon and tint — the dashboard's tinted icon squares. */
+const REPORT_META: Record<ReportType, { icon: LucideIcon; bg: string; fg: string; blurb: string }> = {
+  attendance: { icon: CalendarCheck, bg: '#e9f9f1', fg: '#047857', blurb: 'Days present, late, on leave and hours, per employee.' },
+  leave: { icon: CalendarDays, bg: '#eaf2ff', fg: '#1d4ed8', blurb: 'Entitlement, availed and balance, by leave type.' },
+  payroll: { icon: Wallet, bg: '#eef0ff', fg: '#4338ca', blurb: 'Earnings, deductions and net pay for a run.' },
+  expenses: { icon: Receipt, bg: '#fff7e6', fg: '#b45309', blurb: 'Claims and reimbursements, per employee and category.' },
+};
+
+function IconSquare({ type, size = 36 }: { type: ReportType; size?: number }) {
+  const m = REPORT_META[type];
+  const Icon = m.icon;
+  return (
+    <span className="shrink-0 rounded-lg inline-flex items-center justify-center" style={{ width: size, height: size, background: m.bg, color: m.fg }} aria-hidden>
+      <Icon size={size >= 36 ? 17 : 14} strokeWidth={1.9} />
+    </span>
+  );
+}
+
+/** A summary figure, as on the dashboard tiles. */
+function Stat({ label, value, strong }: { label: string; value: string | number; strong?: boolean }) {
+  return (
+    <div className="dash-card px-5 py-4">
+      <div className="text-12 font-medium text-neutral-500">{label}</div>
+      <div className={`num-display text-[22px] leading-tight mt-1 ${strong ? 'text-primary' : 'text-neutral-900'}`}>{value}</div>
+    </div>
+  );
+}
+
+function SectionTitle({ children }: { children: React.ReactNode }) {
+  return <h3 className="text-15 font-semibold text-neutral-900 mb-3">{children}</h3>;
+}
 
 interface FilterState {
   from: string;
@@ -75,8 +110,7 @@ export function ReportsPage() {
   return (
     <div className="m-page">
       <header>
-        <div className="text-11 uppercase tracking-[0.06em] text-neutral-500">HRMS</div>
-        <h1 className="text-20 font-semibold text-neutral-900 mt-1">Reports</h1>
+        <h1 className="text-[26px] leading-tight font-semibold tracking-[-0.01em] text-neutral-900">Reports</h1>
         <p className="text-13 text-neutral-500 mt-1">
           Every report is scoped at query time to what you're allowed to see.
         </p>
@@ -101,10 +135,10 @@ export function ReportsPage() {
       </div>
 
       <div className="mt-0 md:mt-6 grid grid-cols-1 md:grid-cols-[220px_1fr] gap-6">
-        <aside data-testid="reports-nav" className="hidden md:block">
+        <aside data-testid="reports-nav" className="hidden md:block dash-card p-3 self-start">
           {groups.map((g) => (
-            <div key={g} className="mb-4">
-              <div className="text-11 uppercase tracking-[0.06em] text-neutral-500 px-3 mb-1">{g}</div>
+            <div key={g} className="mb-3 last:mb-0">
+              <div className="text-12 font-semibold text-neutral-500 px-3 mb-1 mt-1">{g}</div>
               {visibleTypes.filter((t) => t.group === g).map((t) => (
                 <button
                   key={t.id}
@@ -112,25 +146,37 @@ export function ReportsPage() {
                   onClick={() => setActive(t.id)}
                   data-testid={`reports-nav-${t.id}`}
                   className={
-                    'flex items-center h-8 pl-3 pr-2 text-13 w-full text-left border-l-2 ' +
+                    'flex items-center gap-3 h-10 px-2 text-13 w-full text-left rounded-lg transition-colors ' +
                     (t.id === type
-                      ? 'border-gold text-neutral-900 font-medium'
-                      : 'border-transparent text-neutral-700 hover:text-neutral-900')
+                      ? 'bg-[#e8f0fb] text-primary font-medium'
+                      : 'text-neutral-700 hover:bg-neutral-50 hover:text-neutral-900')
                   }
                 >
+                  <IconSquare type={t.id} size={28} />
                   {t.label}
                 </button>
               ))}
             </div>
           ))}
         </aside>
-        <main data-testid={type ? `reports-panel-${type}` : 'reports-panel-none'}>
+        {/* min-w-0: a wide report table scrolls inside its own box instead of
+            stretching the grid column past the page edge. */}
+        <main className="min-w-0" data-testid={type ? `reports-panel-${type}` : 'reports-panel-none'}>
           {type === null ? (
-            <div className="bg-white border border-neutral-200 rounded p-6 text-13 text-neutral-500">
+            <div className="dash-card p-6 text-13 text-neutral-500">
               No reports are available to your role.
             </div>
           ) : (
             <>
+              <div className="flex items-center gap-3 mb-4">
+                <IconSquare type={type} />
+                <div className="min-w-0">
+                  <h2 className="text-18 font-semibold text-neutral-900 leading-tight">
+                    {availableTypes.find((t) => t.id === type)?.label}
+                  </h2>
+                  <p className="text-12 text-neutral-500">{REPORT_META[type].blurb}</p>
+                </div>
+              </div>
               <FiltersBar type={type} filters={filters} onChange={setFilters} />
               {type === 'attendance' ? <AttendanceReportView filters={filters} /> : null}
               {type === 'leave' ? <LeaveReportView filters={filters} /> : null}
@@ -148,7 +194,7 @@ function FiltersBar({ type, filters, onChange }: { type: ReportType; filters: Fi
   const showDateRange = type === 'attendance' || type === 'expenses';
   const showRunId = type === 'payroll';
   return (
-    <div className="m-form mb-4 grid grid-cols-1 md:flex md:items-end gap-3 md:flex-wrap">
+    <div className="m-form dash-card px-5 py-4 mb-5 grid grid-cols-1 md:flex md:items-end gap-3 md:flex-wrap">
       {showDateRange ? (
         <>
           <Input label="From" type="date" value={filters.from} onChange={(e) => onChange({ ...filters, from: e.target.value })} data-testid="report-from" />
@@ -211,10 +257,20 @@ function LeaveReportView({ filters }: { filters: FilterState }) {
       {(data: LeaveReport) => (
         <div className="space-y-6">
           {data.items.map((r) => (
-            <div key={r.employee_id} className="bg-white border border-neutral-200 rounded p-4">
-              <div className="text-13 text-neutral-900 font-medium">{r.full_name}</div>
-              <div className="text-11 text-neutral-500 mb-3">{r.employee_code} · {r.department_id}</div>
-              <table className="m-cards w-full border-collapse tabular-nums">
+            <div key={r.employee_id} className="dash-card p-5">
+              <div className="flex items-center gap-3 mb-3">
+                <span className="h-9 w-9 shrink-0 rounded-full inline-flex items-center justify-center text-12 font-semibold text-white"
+                  style={{ background: 'linear-gradient(180deg, #2a4f8f, #1b3a6f)' }} aria-hidden>
+                  {r.full_name.split(/\s+/).filter(Boolean).slice(0, 2).map((w) => w[0]).join('').toUpperCase()}
+                </span>
+                <div className="min-w-0">
+                  <div className="text-14 text-neutral-900 font-semibold">{r.full_name}</div>
+                  <div className="text-12 text-neutral-500">{r.employee_code} · {r.department_id}</div>
+                </div>
+              </div>
+              {/* Wrapped, so the floating table does not strip this card's frame. */}
+              <div>
+              <table className="hr-float m-cards w-full border-collapse tabular-nums">
                 <thead>
                   <tr>
                     {['Type', 'Entitled', 'Availed', 'Pending', 'Available'].map((c) => (
@@ -229,11 +285,12 @@ function LeaveReportView({ filters }: { filters: FilterState }) {
                       <td data-label="Entitled" className="py-1 text-13 text-neutral-900">{bt.entitled}</td>
                       <td data-label="Availed" className="py-1 text-13 text-neutral-900">{bt.availed}</td>
                       <td data-label="Pending" className={'py-1 text-13 ' + (bt.pending > 0 ? 'text-amber font-medium' : 'text-neutral-500')}>{bt.pending}</td>
-                      <td data-label="Available" className="py-1 text-13 text-neutral-900 font-medium">{bt.available}</td>
+                      <td data-label="Available" className="py-1 num-display text-14 text-primary">{bt.available}</td>
                     </tr>
                   ))}
                 </tbody>
               </table>
+              </div>
             </div>
           ))}
         </div>
@@ -265,24 +322,15 @@ function PayrollReportView({ filters }: { filters: FilterState }) {
     })), ['employee_code', 'full_name', 'payable_days', 'lop_days', 'basic', 'hra', 'gross', 'pf', 'esi', 'pt', 'tds', 'lop', 'total_deductions', 'net'])}>
       {(data: PayrollReport) => (
         <div className="space-y-4">
-          <div className="bg-white border border-neutral-200 rounded p-4 grid grid-cols-2 gap-4 md:flex md:items-baseline md:gap-6 md:flex-wrap tabular-nums">
-            <div className="col-span-2 md:col-auto">
-              <div className="text-11 uppercase tracking-[0.06em] text-neutral-500">Run</div>
-              <div className="text-13 text-neutral-900 mt-1">{data.run.id}</div>
-              <div className="text-11 text-neutral-500">{data.run.period_start} → {data.run.period_end}</div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
+            <div className="dash-card px-5 py-4 min-w-0">
+              <div className="text-12 font-medium text-neutral-500">Run</div>
+              <div className="text-13 font-semibold text-neutral-900 mt-1 truncate" title={data.run.id}>{data.run.id}</div>
+              <div className="text-12 text-neutral-500">{data.run.period_start} → {data.run.period_end}</div>
             </div>
-            <div>
-              <div className="text-11 uppercase tracking-[0.06em] text-neutral-500">Gross</div>
-              <div className="text-16 text-neutral-900 mt-1">{inr(data.totals.gross_paise)}</div>
-            </div>
-            <div>
-              <div className="text-11 uppercase tracking-[0.06em] text-neutral-500">Deductions</div>
-              <div className="text-16 text-neutral-900 mt-1">{inr(data.totals.deductions_paise)}</div>
-            </div>
-            <div>
-              <div className="text-11 uppercase tracking-[0.06em] text-neutral-500">Net</div>
-              <div className="text-16 text-neutral-900 mt-1 font-semibold">{inr(data.totals.net_paise)}</div>
-            </div>
+            <Stat label="Gross" value={inr(data.totals.gross_paise)} />
+            <Stat label="Deductions" value={inr(data.totals.deductions_paise)} />
+            <Stat label="Net" value={inr(data.totals.net_paise)} strong />
           </div>
           <Table
             columns={['Code', 'Name', 'Days', 'LOP', 'Basic', 'HRA', 'Gross', 'PF', 'ESI', 'PT', 'TDS', 'LOP ₹', 'Ded', 'Net']}
@@ -318,23 +366,14 @@ function ExpensesReportView({ filters }: { filters: FilterState }) {
     })), ['employee_code', 'full_name', 'count', 'drafts', 'claimed', 'reimbursed'])}>
       {(data: ExpenseReport) => (
         <div className="space-y-4">
-          <div className="bg-white border border-neutral-200 rounded p-4 grid grid-cols-2 gap-4 md:flex md:items-baseline md:gap-6 md:flex-wrap tabular-nums">
-            <div>
-              <div className="text-11 uppercase tracking-[0.06em] text-neutral-500">Count</div>
-              <div className="text-16 text-neutral-900 mt-1">{data.totals.expense_count}</div>
-            </div>
-            <div>
-              <div className="text-11 uppercase tracking-[0.06em] text-neutral-500">Claimed</div>
-              <div className="text-16 text-neutral-900 mt-1">{inr(data.totals.claimed_paise)}</div>
-            </div>
-            <div>
-              <div className="text-11 uppercase tracking-[0.06em] text-neutral-500">Reimbursed</div>
-              <div className="text-16 text-neutral-900 mt-1 font-semibold">{inr(data.totals.reimbursed_paise)}</div>
-            </div>
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+            <Stat label="Count" value={data.totals.expense_count} />
+            <Stat label="Claimed" value={inr(data.totals.claimed_paise)} />
+            <Stat label="Reimbursed" value={inr(data.totals.reimbursed_paise)} strong />
           </div>
 
           <div>
-            <div className="text-11 uppercase tracking-[0.06em] text-neutral-500 mb-2">Per employee</div>
+            <SectionTitle>Per employee</SectionTitle>
             <Table
               columns={['Code', 'Name', 'Count', 'Drafts', 'Claimed', 'Reimbursed']}
               rows={data.items.map((r) => [
@@ -346,7 +385,7 @@ function ExpensesReportView({ filters }: { filters: FilterState }) {
           </div>
 
           <div>
-            <div className="text-11 uppercase tracking-[0.06em] text-neutral-500 mb-2">By category</div>
+            <SectionTitle>By category</SectionTitle>
             <Table
               columns={['Category', 'Count', 'Reimbursed']}
               rows={data.by_category.map((r) => [r.category_name, r.count, inr(r.reimbursed_paise)])}
@@ -365,17 +404,20 @@ function Wrapper<T>({ q, children, onExport }: {
   children: (data: T) => React.ReactNode;
   onExport: (data: T) => void;
 }) {
-  if (q.isLoading) return <div className="h-40 bg-neutral-100" />;
+  if (q.isLoading) return <div className="h-40 rounded-lg bg-neutral-100" aria-label="Loading" />;
   if (q.isError) {
     const status = (q.error as { status?: number }).status;
     if (status === 403) {
       return (
-        <div className="bg-white border border-neutral-200 rounded p-6 text-13 text-neutral-500 border-l-2 border-l-neutral-400">
+        <div className="dash-card p-6 flex items-center gap-3 text-13 text-neutral-600">
+          <span className="h-9 w-9 shrink-0 rounded-lg inline-flex items-center justify-center bg-[#f1f5f9] text-neutral-500" aria-hidden>
+            <ShieldAlert size={16} strokeWidth={1.9} />
+          </span>
           You don't have access to this report.
         </div>
       );
     }
-    return <div className="text-13 text-red">Could not load report.</div>;
+    return <div className="dash-card p-6 text-13 text-red">Could not load report.</div>;
   }
   if (!q.data) return null;
   return (
@@ -387,7 +429,7 @@ function Wrapper<T>({ q, children, onExport }: {
           data-testid="report-export"
           className="w-full min-h-[44px] md:w-auto md:min-h-0"
         >
-          Export CSV
+          <Download size={15} strokeWidth={1.9} className="mr-2" />Export CSV
         </Button>
       </div>
       {children(q.data)}
@@ -397,17 +439,17 @@ function Wrapper<T>({ q, children, onExport }: {
 
 function Table({ columns, rows, testId }: { columns: string[]; rows: (string | number)[][]; testId?: string }) {
   if (rows.length === 0) {
-    return <div className="bg-white border border-neutral-200 rounded p-6 text-13 text-neutral-500">No rows.</div>;
+    return <div className="dash-card p-6 text-13 text-neutral-500">No rows.</div>;
   }
   return (
     // `m-cards` (≤767px) flips this same table to a stack of labelled rows —
     // a 14-column payroll table cannot be made to fit 320px by scrolling
     // alone. Above 768px the class is inert and the table renders as before.
     <div
-      className="m-cards bg-white md:border md:border-neutral-200 md:rounded md:overflow-x-auto border-0"
+      className="m-cards md:overflow-x-auto"
       data-testid={testId}
     >
-      <table className="w-full border-collapse tabular-nums">
+      <table className="hr-float w-full border-collapse tabular-nums">
         <thead>
           <tr>
             {columns.map((c) => (

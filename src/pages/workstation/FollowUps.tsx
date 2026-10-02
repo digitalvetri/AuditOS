@@ -2,10 +2,14 @@ import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { workstationApi } from '@/modules/workstation/api';
+import { Plus } from 'lucide-react';
 import {
-  Card, Cell, Field, FilterBar, Modal, PageHeader, QueryState, Row, Select,
-  SimulatedNotice, Status, Table, fieldErrors, inputClass, textareaClass,
+  Field, Modal, QueryState, SimulatedNotice, fieldErrors, inputClass, textareaClass,
 } from '@/modules/workstation/components';
+import {
+  FilterSelect, ListAction, ListCard, ListEmpty, ListHeader, ListRow, ListTable, ListToolbar, Spacer, StatusChip,
+  StatusChipSelect, StatusPills, TD, TwoLine, fmtDay,
+} from '@/modules/workstation/listUi';
 import type { FollowUp, FollowUpStatus, ListResponse } from '@/modules/workstation/types';
 
 const FOLLOW_UP_STATUSES: FollowUpStatus[] = ['pending', 'completed', 'rescheduled', 'cancelled', 'missed'];
@@ -14,7 +18,7 @@ const FOLLOW_UP_STATUS_LABEL: Record<FollowUpStatus, string> = {
 };
 import { Button } from '@/components/Button';
 import { useToast } from '@/components/Toast';
-import { fmtDate, fmtTime } from '@/lib/format';
+import { fmtTime } from '@/lib/format';
 import { can } from '@/platform/rbac/can';
 import { useAuth } from '@/platform/auth/AuthContext';
 
@@ -62,94 +66,79 @@ export function FollowUpsPage() {
   });
 
   const canManage = can(session?.role.code, 'workstation.followup.manage', 'self');
-  const now = Date.now();
 
   return (
-    <div className="">
-      <PageHeader
+    <div className="max-w-[1400px]">
+      <ListHeader
         title="Follow-ups"
-        subtitle="One list for leads and clients alike."
-        action={canManage ? <Button variant="primary" onClick={() => setAddOpen(true)}>New Follow-up</Button> : undefined}
+        meta={followUps.data
+          ? <>{followUps.data.count} follow-up{followUps.data.count === 1 ? '' : 's'} · one list for leads and clients alike</>
+          : 'One list for leads and clients alike.'}
+        action={canManage ? <ListAction onClick={() => setAddOpen(true)} icon={<Plus size={15} />}>New Follow-up</ListAction> : undefined}
       />
 
-      <FilterBar>
-        <Select
-          label="When" value={range} onChange={(v) => setParam('range', v)}
-          options={[
-            { value: 'today', label: 'Today' },
-            { value: 'upcoming', label: 'Upcoming' },
-            { value: 'overdue', label: 'Overdue' },
-          ]}
-          allLabel="Any time"
-        />
-        <Select
+      <ListToolbar>
+        <FilterSelect
           label="Status" value={status} onChange={(v) => setParam('status', v)}
-          options={['pending', 'completed', 'rescheduled', 'cancelled', 'missed']
-            .map((v) => ({ value: v, label: v.replace(/\b\w/g, (c) => c.toUpperCase()) }))}
+          options={FOLLOW_UP_STATUSES.map((v) => ({ value: v, label: FOLLOW_UP_STATUS_LABEL[v] }))}
         />
-        <Select
+        <FilterSelect
           label="Employee" value={employeeId} onChange={(v) => setParam('employee_id', v)}
           options={(employees.data?.items ?? []).map((e) => ({ value: e.id, label: e.full_name }))}
         />
-      </FilterBar>
+        <Spacer />
+        <StatusPills value={range} onChange={(v) => setParam('range', v)} options={[
+          { value: '', label: 'Any time' },
+          { value: 'today', label: 'Today' },
+          { value: 'upcoming', label: 'Upcoming' },
+          { value: 'overdue', label: 'Overdue' },
+        ]} />
+      </ListToolbar>
 
-      <Card>
-        <QueryState query={followUps} empty="No follow-ups match these filters.">
-          {(data: ListResponse<FollowUp>) => (
-            <Table head={['Follow-up', 'Lead / Client', 'Contact', 'Service', 'Date', 'Time', 'Assigned To', 'Status']}>
+      <ListCard>
+        <QueryState query={followUps} empty={<ListEmpty>No follow-ups match these filters.</ListEmpty>}>
+          {(data: ListResponse<FollowUp>) => data.items.length === 0 ? <ListEmpty>No follow-ups match these filters.</ListEmpty> : (
+            <ListTable cols={['Follow-up', 'Lead / Client', 'Contact', 'Service', 'When', 'Assigned to', 'Status']}>
               {data.items.map((f) => {
-                const overdue = f.status === 'pending' && Date.parse(f.scheduled_at) < now;
                 return (
-                  <Row
+                  <ListRow
                     key={f.id}
-                    status={overdue ? 'missed' : f.status}
-                    onClick={() =>
+                    onOpen={() =>
                       navigate(f.subject_type === 'lead'
                         ? `/workstation/leads/${f.lead_id}`
                         : `/workstation/clients/${f.client_id}/follow-ups`)
                     }
                   >
-                    <Cell className="font-medium">{f.title}</Cell>
-                    <Cell>
-                      {f.subject_name}
-                      <span className="block text-12 text-neutral-500">
-                        {f.subject_type === 'lead' ? 'Lead' : 'Client'} · {f.subject_code}
-                      </span>
-                    </Cell>
-                    <Cell muted>{f.contact_number ?? '—'}</Cell>
-                    <Cell muted>{f.service_name ?? '—'}</Cell>
-                    <Cell muted>{fmtDate(f.scheduled_at)}</Cell>
-                    <Cell muted>{fmtTime(f.scheduled_at)}</Cell>
-                    <Cell muted>{f.assigned_employee?.full_name ?? '—'}</Cell>
-                    <Cell>
-                      {canManage ? (
-                        <select
-                          value={f.status}
-                          aria-label={`Status of ${f.title}`}
-                          // The row opens the lead / client; changing status must not.
-                          onClick={(e) => e.stopPropagation()}
-                          onChange={(e) => {
-                            const next = e.target.value as FollowUpStatus;
-                            if (next !== f.status) setStatus.mutate({ id: f.id, status: next });
-                          }}
-                          className="h-7 pl-2 pr-7 text-12 border border-neutral-200 bg-white text-neutral-900 hover:border-neutral-400 focus:outline-none focus:border-gold"
-                        >
-                          {FOLLOW_UP_STATUSES.map((s) => (
-                            <option key={s} value={s}>{FOLLOW_UP_STATUS_LABEL[s]}</option>
-                          ))}
-                        </select>
-                      ) : (
-                        <Status value={f.status} />
-                      )}
-                      {overdue ? <span className="block text-12 text-neutral-500 mt-0.5">Overdue</span> : null}
-                    </Cell>
-                  </Row>
+                    <TD first strong className="min-w-[200px]">{f.title}</TD>
+                    <TD><TwoLine top={f.subject_name} sub={<>{f.subject_type === 'lead' ? 'Lead' : 'Client'} · {f.subject_code}</>} /></TD>
+                    <TD muted nowrap>{f.contact_number ?? '—'}</TD>
+                    <TD muted>{f.service_name ?? '—'}</TD>
+                    <TD muted nowrap>
+                      {fmtDay(f.scheduled_at)} <span className="text-neutral-400">{fmtTime(f.scheduled_at)}</span>
+                    </TD>
+                    <TD muted>{f.assigned_employee?.full_name ?? '—'}</TD>
+                    <TD last nowrap>
+                      <div className="flex items-center gap-2">
+                        {canManage ? (
+                          // A chip you can change; clicks never open the row.
+                          <StatusChipSelect
+                            value={f.status}
+                            label={`Status of ${f.title}`}
+                            options={FOLLOW_UP_STATUSES.map((v) => ({ value: v, label: FOLLOW_UP_STATUS_LABEL[v] }))}
+                            onChange={(v) => setStatus.mutate({ id: f.id, status: v as FollowUpStatus })}
+                          />
+                        ) : (
+                          <StatusChip value={f.status} />
+                        )}
+                      </div>
+                    </TD>
+                  </ListRow>
                 );
               })}
-            </Table>
+            </ListTable>
           )}
         </QueryState>
-      </Card>
+      </ListCard>
 
       <NewFollowUpModal open={addOpen} onClose={() => setAddOpen(false)} />
     </div>

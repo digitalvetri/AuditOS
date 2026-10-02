@@ -232,7 +232,7 @@ export function PortalAccessSection({ gstProfileId }: { gstProfileId: string }) 
         {dirty ? <span className="text-12 text-amber">Unsaved changes</span> : null}
         <button
           type="button"
-          className="h-8 px-3 text-13 bg-neutral-900 text-white rounded disabled:opacity-50"
+          className="h-8 px-3 text-13 bg-primary text-white rounded-lg hover:bg-primaryHover disabled:opacity-50"
           disabled={!dirty || save.isPending}
           onClick={() => save.mutate()}
         >

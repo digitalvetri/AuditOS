@@ -29,6 +29,11 @@ function cellValue(grants: Grant[] | undefined, permission: string): CellValue {
   return grants?.find((g) => g.permission === permission)?.scope ?? '';
 }
 
+/** The brand's navy header gradient (as on the register header strips). */
+const NAVY = {
+  background: 'linear-gradient(180deg, rgb(255 255 255 / 0.08), transparent 55%), linear-gradient(180deg, #2a4f8f 0%, #1b3a6f 100%)',
+};
+
 export function RolesSection() {
   const qc = useQueryClient();
   const q = useQuery({ queryKey: ['settings', 'roles'], queryFn: settingsApi.roles.get });
@@ -42,7 +47,7 @@ export function RolesSection() {
     onSuccess: () => qc.invalidateQueries({ queryKey: ['settings', 'roles'] }),
   });
 
-  if (q.isLoading) return <SectionShell title="Roles & permissions"><div className="h-40 bg-neutral-100" /></SectionShell>;
+  if (q.isLoading) return <SectionShell title="Roles & permissions"><div className="dash-card h-40" /></SectionShell>;
   if (!q.data) return <SectionShell title="Roles & permissions"><div className="text-13 text-neutral-500">Unavailable.</div></SectionShell>;
 
   const { roles, matrix } = q.data;
@@ -70,17 +75,20 @@ export function RolesSection() {
       title="Roles & permissions"
       description="Edit a cell to change a role's scope for that permission. Dash means the role does not hold it."
     >
-      <div className="bg-white border border-neutral-200 rounded overflow-x-auto">
+      {/* A matrix, not a register: kept as one grid in a floating card (no
+          floating rows), with the brand's navy header row. */}
+      <div className="dash-card overflow-x-auto">
         <table className="border-collapse tabular-nums">
           <thead>
             <tr>
-              <th className="text-left text-11 uppercase tracking-[0.06em] text-neutral-500 px-3 py-2 border-b border-neutral-300 font-medium sticky left-0 bg-white">
+              <th className="text-left text-11 uppercase tracking-[0.08em] text-white/90 px-4 h-10 font-medium sticky left-0 whitespace-nowrap" style={NAVY}>
                 Permission
               </th>
               {roles.map((r) => (
                 <th
                   key={r.id}
-                  className="text-left text-11 uppercase tracking-[0.06em] text-neutral-500 px-3 py-2 border-b border-neutral-300 font-medium"
+                  className="text-left text-11 uppercase tracking-[0.08em] text-white/90 px-3 h-10 font-medium whitespace-nowrap"
+                  style={NAVY}
                 >
                   {r.name}
                 </th>
@@ -89,8 +97,8 @@ export function RolesSection() {
           </thead>
           <tbody>
             {permCodes.map((p) => (
-              <tr key={p} className="border-b border-neutral-200">
-                <td className="px-3 py-2 text-13 text-neutral-900 sticky left-0 bg-white">{p}</td>
+              <tr key={p} className="border-b border-neutral-100 last:border-b-0 hover:bg-[#f7f9fc]">
+                <td className="px-4 py-2 text-13 font-medium text-neutral-900 sticky left-0 bg-white">{p}</td>
                 {roles.map((r) => {
                   const key = `${r.id}:${p}`;
                   const value = cellValue(matrix[r.code as RoleCode], p);
@@ -103,8 +111,8 @@ export function RolesSection() {
                         value={value}
                         disabled={saving || mutation.isPending}
                         onChange={(e) => onChange(r.id, p, e.currentTarget.value as CellValue)}
-                        className={`bg-white border rounded px-2 py-1 text-13 ${
-                          failed ? 'border-red-400 text-red-700' : 'border-neutral-300 text-neutral-800'
+                        className={`bg-white border rounded-lg h-8 px-2 text-13 focus:outline-none focus:border-primary/60 ${
+                          failed ? 'border-red-400 text-red-700' : 'border-neutral-200 text-neutral-800'
                         } ${saving ? 'opacity-60' : ''}`}
                       >
                         <option value="">—</option>

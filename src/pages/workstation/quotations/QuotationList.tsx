@@ -1,10 +1,12 @@
 import { useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { Plus } from 'lucide-react';
+import { QueryState } from '@/modules/workstation/components';
 import {
-  PageHeader, Card, Table, Row, Cell, FilterBar, Select, SearchInput, Status, QueryState,
-} from '@/modules/workstation/components';
+  DateRange, ListAction, ListCard, ListEmpty, ListHeader, ListRow, ListTable, ListToolbar, Money, SearchBox,
+  Spacer, StatusChip, StatusPills, TD, TwoLine, fmtDay,
+} from '@/modules/workstation/listUi';
 import { quotationsApi, inr, type QuotationFilters } from '@/modules/workstation/quotations/api';
 import { useAuth } from '@/platform/auth/AuthContext';
 import { can } from '@/platform/rbac/can';
@@ -12,11 +14,23 @@ import { can } from '@/platform/rbac/can';
 /**
  * /workstation/quotations — the quotation register.
  *
- * The tiles count the caller's OWN scope, because the server resolves scope
- * before counting; an executive's "5 sent" and a manager's "5 sent" are
+ * The counts come from the server's summary, which resolves the caller's OWN
+ * scope before counting; an executive's "5 sent" and a manager's "5 sent" are
  * different sets and both are correct. Nothing is filtered here in the
- * browser.
+ * browser — every filter is a query parameter.
  */
+
+const STATUSES = [
+  { value: 'all', label: 'All' },
+  { value: 'draft', label: 'Draft' },
+  { value: 'sent', label: 'Sent' },
+  { value: 'accepted', label: 'Accepted' },
+  { value: 'rejected', label: 'Rejected' },
+  // Expired is a SENT quotation past its date — not a stored status. It is
+  // counted separately because it is the one that needs chasing.
+  { value: 'expired', label: 'Expired' },
+];
+
 export function QuotationListPage() {
   const { session } = useAuth();
   const canManage = can(session?.role.code, 'workstation.quotation.manage', 'self');
@@ -33,122 +47,50 @@ export function QuotationListPage() {
   const set = <K extends keyof QuotationFilters>(k: K, v: QuotationFilters[K]) =>
     setFilters((f) => ({ ...f, [k]: v }));
 
+  const s = summaryQ.data;
+  const total = listQ.data?.total ?? listQ.data?.items.length;
+
   return (
-    <div>
-      <PageHeader
-        title="Quotation"
-        subtitle="Priced proposals to prospects and clients. An accepted quotation is what authorises the work."
-        action={canManage ? (
-          <Link
-            to="/workstation/quotations/new"
-            className="h-8 px-3 inline-flex items-center gap-1.5 text-13 rounded bg-neutral-900 text-white hover:bg-neutral-800"
-          >
-            <Plus size={14} /> New quotation
-          </Link>
-        ) : null}
+    <div className="max-w-[1400px]">
+      <ListHeader
+        title="Quotations"
+        meta={<>
+          {total === undefined ? 'Loading…' : `${total} quotation${total === 1 ? '' : 's'} · newest first`}
+          {s && s.accepted_value_paise > 0
+            ? <> · <span className="text-neutral-700 tabular-nums">{inr(s.accepted_value_paise)}</span> accepted</>
+            : null}
+        </>}
+        action={canManage ? <ListAction to="/workstation/quotations/new" icon={<Plus size={15} />}>New quotation</ListAction> : null}
       />
 
-      <QueryState query={summaryQ}>
-        {(s) => (
-          <div className="grid grid-cols-2 md:grid-cols-5 gap-2 mb-4">
-            <Tile label="Draft" value={String(s.draft)} onClick={() => set('status', 'draft')} />
-            <Tile label="Sent" value={String(s.sent)} onClick={() => set('status', 'sent')} />
-            {/* Expired is a SENT quotation past its date — not a stored status.
-                It is counted separately because it is the one that needs chasing. */}
-            <Tile label="Expired" value={String(s.expired)} onClick={() => set('status', 'expired')} />
-            <Tile label="Accepted" value={String(s.accepted)} onClick={() => set('status', 'accepted')} />
-            <Tile label="Accepted value" value={inr(s.accepted_value_paise)} />
-          </div>
-        )}
-      </QueryState>
+      <ListToolbar>
+        <SearchBox value={filters.q ?? ''} onChange={(v) => set('q', v)} placeholder="Search number, subject or party" />
+        <DateRange from={filters.date_from ?? ''} to={filters.date_to ?? ''}
+          onFrom={(v) => set('date_from', v)} onTo={(v) => set('date_to', v)} />
+        <Spacer />
+        <StatusPills options={STATUSES} value={filters.status ?? 'all'} onChange={(v) => set('status', v)}
+          counts={s ? { draft: s.draft, sent: s.sent, accepted: s.accepted, rejected: s.rejected, expired: s.expired } : undefined} />
+      </ListToolbar>
 
-      <FilterBar>
-        <Select
-          label="Status"
-          value={filters.status ?? 'all'}
-          onChange={(v) => set('status', v)}
-          options={[
-            { value: 'all', label: 'All' },
-            { value: 'draft', label: 'Draft' },
-            { value: 'sent', label: 'Sent' },
-            { value: 'expired', label: 'Expired' },
-            { value: 'accepted', label: 'Accepted' },
-            { value: 'rejected', label: 'Rejected' },
-          ]}
-        />
-        <label className="block">
-          <span className="block text-11 uppercase tracking-[0.06em] text-neutral-500 mb-1">From</span>
-          <input
-            type="date"
-            value={filters.date_from ?? ''}
-            onChange={(e) => set('date_from', e.target.value)}
-            className="h-8 px-2 text-13 bg-white text-neutral-900 border border-neutral-300 rounded focus:outline-none focus:border-gold"
-          />
-        </label>
-        <label className="block">
-          <span className="block text-11 uppercase tracking-[0.06em] text-neutral-500 mb-1">To</span>
-          <input
-            type="date"
-            value={filters.date_to ?? ''}
-            onChange={(e) => set('date_to', e.target.value)}
-            className="h-8 px-2 text-13 bg-white text-neutral-900 border border-neutral-300 rounded focus:outline-none focus:border-gold"
-          />
-        </label>
-        <SearchInput
-          value={filters.q ?? ''}
-          onChange={(v) => set('q', v)}
-          placeholder="Code, subject or party"
-        />
-      </FilterBar>
-
-      <Card>
-        <QueryState
-          query={listQ}
-          empty={<div className="px-4 py-6 text-13 text-neutral-500">No quotations yet.</div>}
-        >
-          {(data) => data.items.length === 0 ? (
-            <div className="px-4 py-6 text-13 text-neutral-500">Nothing matches these filters.</div>
-          ) : (
-            <Table head={['Code', 'Party', 'Subject', 'Date', 'Valid until', 'Total', 'Status']}>
+      <ListCard>
+        <QueryState query={listQ} empty={<ListEmpty>No quotations yet.</ListEmpty>}>
+          {(data) => data.items.length === 0 ? <ListEmpty>Nothing matches these filters.</ListEmpty> : (
+            <ListTable cols={['Number', 'Client', 'Subject', 'Date', 'Valid until', 'Status', { label: 'Total', align: 'right' }]}>
               {data.items.map((q) => (
-                <Row key={q.id} status={q.status} onClick={() => navigate(`/workstation/quotations/${q.id}`)}>
-                  <Cell className="font-medium whitespace-nowrap">{q.quotation_code}</Cell>
-                  <Cell>
-                    {q.party_name ?? '—'}
-                    <span className="text-neutral-500"> · {q.party_kind === 'lead' ? 'Lead' : 'Client'}</span>
-                  </Cell>
-                  <Cell muted>{q.subject}</Cell>
-                  <Cell muted className="whitespace-nowrap">{q.quote_date}</Cell>
-                  <Cell muted className="whitespace-nowrap">{q.valid_until}</Cell>
-                  <Cell className="whitespace-nowrap tabular-nums">{inr(q.total_paise)}</Cell>
-                  <Cell><Status value={q.status} /></Cell>
-                </Row>
+                <ListRow key={q.id} onOpen={() => navigate(`/workstation/quotations/${q.id}`)}>
+                  <TD first strong nowrap className="tracking-[0.02em]">{q.quotation_code}</TD>
+                  <TD><TwoLine top={q.party_name ?? 'Unknown client'} sub={q.party_kind === 'lead' ? 'Lead' : 'Client'} /></TD>
+                  <TD muted className="max-w-[280px] truncate" title={q.subject}>{q.subject}</TD>
+                  <TD muted nowrap>{fmtDay(q.quote_date)}</TD>
+                  <TD muted nowrap>{fmtDay(q.valid_until)}</TD>
+                  <TD><StatusChip value={q.status} /></TD>
+                  <TD last right strong nowrap className="tabular-nums"><Money value={inr(q.total_paise)} /></TD>
+                </ListRow>
               ))}
-            </Table>
+            </ListTable>
           )}
         </QueryState>
-      </Card>
+      </ListCard>
     </div>
-  );
-}
-
-function Tile({ label, value, onClick }: { label: string; value: string; onClick?: () => void }) {
-  const inner = (
-    <>
-      <div className="text-11 uppercase tracking-[0.06em] text-neutral-500">{label}</div>
-      <div className="text-20 font-semibold text-neutral-900 mt-1 tabular-nums">{value}</div>
-    </>
-  );
-  if (!onClick) {
-    return <div className="bg-white border border-neutral-200 rounded p-3">{inner}</div>;
-  }
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className="text-left bg-white border border-neutral-200 rounded p-3 hover:border-gold transition-colors"
-    >
-      {inner}
-    </button>
   );
 }

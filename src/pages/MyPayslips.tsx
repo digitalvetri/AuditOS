@@ -29,7 +29,7 @@ export function MyPayslipsPage() {
         ) : items.length === 0 ? (
           <div className="p-6 text-13 text-neutral-500">No payslips published yet.</div>
         ) : (
-          <table className="w-full border-collapse tabular-nums">
+          <table className="hr-float w-full border-collapse tabular-nums">
             <thead>
               <tr>
                 {['Period', 'Gross', 'Net', 'Published', ''].map((c) => (

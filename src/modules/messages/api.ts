@@ -73,9 +73,11 @@ export const messagesApi = {
     api.post<{ chat: Chat; created: boolean }>('/api/chats', { type: 'dm', other_employee_id }),
   createGroup: (name: string, member_ids: string[], description?: string) =>
     api.post<{ chat: Chat; created: boolean }>('/api/chats', { type: 'group', name, member_ids, description }),
+  /** Set or remove your own profile photo (a small image data: URL). */
+  setMyPhoto: (photo_url: string | null) => api.put<{ photo_url: string | null }>('/api/chats/profile-photo', { photo_url }),
   people: () => api.get<{ items: ChatPerson[] }>('/api/chats/people'),
   info: (chatId: string) => api.get<ChatInfo>(`/api/chats/${chatId}/info`),
-  updateGroup: (chatId: string, input: { name?: string; description?: string | null }) => api.patch<{ chat: Chat }>(`/api/chats/${chatId}`, input),
+  updateGroup: (chatId: string, input: { name?: string; description?: string | null; photo_url?: string | null }) => api.patch<{ chat: Chat }>(`/api/chats/${chatId}`, input),
   addMembers: (chatId: string, employee_ids: string[]) => api.post<ChatInfo>(`/api/chats/${chatId}/members`, { employee_ids }),
   removeMember: (chatId: string, employeeId: string) => api.delete<ChatInfo>(`/api/chats/${chatId}/members/${employeeId}`),
   setRole: (chatId: string, employeeId: string, role: 'admin' | 'member') => api.patch<ChatInfo>(`/api/chats/${chatId}/members/${employeeId}`, { role }),

@@ -104,14 +104,14 @@ export function StatutoryRatesSection() {
           const isSuperseding = supersedingCode === code;
           const isCorrecting = editingId === current.id;
           return (
-            <div key={code} className="bg-white border border-neutral-200 rounded p-4" data-testid={`rate-${code}`}>
+            <div key={code} className="dash-card p-5" data-testid={`rate-${code}`}>
               <div className="flex items-baseline justify-between gap-4">
                 <div>
-                  <div className="text-11 uppercase tracking-[0.06em] text-neutral-500">{code}</div>
-                  <div className="text-16 text-neutral-900 mt-1 tabular-nums font-mono">
+                  <span className="inline-flex items-center h-6 px-3 rounded-full text-11 font-semibold tracking-[0.04em] bg-[#eef0ff] text-[#4338ca]">{code}</span>
+                  <div className="num-display text-20 text-neutral-900 mt-2 break-all">
                     {current.value.length > 60 ? current.value.slice(0, 60) + '…' : current.value}
                   </div>
-                  <div className="text-11 text-neutral-500 mt-1">
+                  <div className="text-12 text-neutral-500 mt-1">
                     Effective from {fmtDate(current.effective_from + 'T00:00:00Z')}
                     {current.effective_to ? ` to ${fmtDate(current.effective_to + 'T00:00:00Z')}` : ' · current'}
                   </div>
@@ -187,7 +187,7 @@ export function StatutoryRatesSection() {
 
               {rows.length > 1 ? (
                 <details className="mt-3">
-                  <summary className="text-11 uppercase tracking-[0.06em] text-neutral-500 cursor-pointer">
+                  <summary className="text-12 font-medium text-primary cursor-pointer">
                     History ({rows.length - 1} superseded)
                   </summary>
                   <ul className="mt-2 space-y-1">

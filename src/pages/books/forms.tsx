@@ -55,12 +55,12 @@ export function SearchPicker({ entity, params = {}, value, label, onChange, idFi
       <input className={inputCls} disabled={disabled} placeholder={value ? label : placeholder} value={open ? text : label}
         onFocus={() => { setOpen(true); setText(''); }} onChange={(e) => setText(e.target.value)} />
       {open ? (
-        <div className="absolute z-50 mt-1 w-full max-h-64 overflow-y-auto bg-surface border border-border rounded shadow-card">
+        <div className="absolute z-50 mt-1 w-full max-h-64 overflow-y-auto bg-surface border border-neutral-200 rounded-lg shadow-card">
           {res.isLoading ? <div className="px-3 py-2 text-12 text-inkMuted">Searching…</div> : null}
           {res.isError ? <div className="px-3 py-2 text-12 text-danger">{errorText(res.error)}</div> : null}
-          {value ? <button type="button" className="block w-full text-left px-3 py-1.5 text-12 text-inkMuted hover:bg-canvas" onClick={() => { onChange('', null); setOpen(false); }}>Clear</button> : null}
+          {value ? <button type="button" className="block w-full text-left px-3 py-2 text-12 text-inkMuted hover:bg-canvas" onClick={() => { onChange('', null); setOpen(false); }}>Clear</button> : null}
           {(res.data?.items ?? []).map((r) => (
-            <button type="button" key={r[idField]} className="block w-full text-left px-3 py-1.5 text-13 text-ink hover:bg-canvas"
+            <button type="button" key={r[idField]} className="block w-full text-left px-3 py-2 text-13 text-ink hover:bg-canvas"
               onClick={() => { onChange(String(r[idField]), r); setOpen(false); }}>
               {r[nameField]}{r.company_name && r.company_name !== r[nameField] ? <span className="text-inkMuted"> · {r.company_name}</span> : null}
             </button>
@@ -499,7 +499,7 @@ export function TxnEditor({ spec, record, prefill, onClose, onSaved }: { spec: T
       </div>
       {spec.recurring ? <p className="text-12 text-inkMuted">Zoho Books creates {spec.party === 'customer' ? 'an invoice' : 'a bill'} on the start date and then on this schedule, until the end date (if any).</p> : null}
 
-      <div className="overflow-x-auto border border-border rounded">
+      <div className="overflow-x-auto border border-neutral-200 rounded-lg">
         <table className="w-full min-w-[900px] border-collapse">
           <thead><tr className="border-b border-border text-11 uppercase tracking-[0.06em] text-inkMuted">
             {spec.simpleLines ? null : <th className="text-left px-2 h-8 font-medium w-[22%]">Item</th>}
@@ -526,7 +526,7 @@ export function TxnEditor({ spec, record, prefill, onClose, onSaved }: { spec: T
                   </td>
                 ) : null}
                 {spec.simpleLines ? null : <td className="p-1"><Select value={l.tax_id} onChange={(v) => setL(i, { tax_id: v })} options={taxes} placeholder="None" /></td>}
-                <td className="p-1 pt-2.5 text-right text-13 tabular-nums">{money(lineAmount(l))}</td>
+                <td className="p-1 pt-3 text-right text-13 tabular-nums">{money(lineAmount(l))}</td>
                 <td className="p-1 pt-2"><button type="button" aria-label="Remove line" className="text-inkMuted hover:text-danger disabled:opacity-30" disabled={lines.length === 1} onClick={() => setLines(lines.filter((_, j) => j !== i))}><Trash2 size={15} /></button></td>
               </tr>
             ))}
@@ -597,7 +597,7 @@ export function ExpenseForm({ record, onClose, onSaved }: { record?: ZRecord; on
         <Field label="Date *"><TextInput type="date" value={v.date} onChange={(x) => setV({ ...v, date: x })} /></Field>
         <Field label="Amount *"><NumberInput value={v.amount} onChange={(x) => setV({ ...v, amount: x })} /></Field>
         <Field label="Paid through *"><Select value={v.paid_through_account_id} onChange={(x) => setV({ ...v, paid_through_account_id: x })} options={paid} placeholder="—" /></Field>
-        <Field label="Tax" hint={v.tax_id ? <label className="inline-flex items-center gap-1.5"><input type="checkbox" checked={v.is_inclusive_tax} onChange={(e) => setV({ ...v, is_inclusive_tax: e.target.checked })} />Amount includes tax</label> : undefined}>
+        <Field label="Tax" hint={v.tax_id ? <label className="inline-flex items-center gap-2"><input type="checkbox" checked={v.is_inclusive_tax} onChange={(e) => setV({ ...v, is_inclusive_tax: e.target.checked })} />Amount includes tax</label> : undefined}>
           <Select value={v.tax_id} onChange={(x) => setV({ ...v, tax_id: x })} options={taxes} placeholder="None" />
         </Field>
         <Field label="Reference #"><TextInput value={v.reference_number} onChange={(x) => setV({ ...v, reference_number: x })} /></Field>
@@ -705,7 +705,7 @@ export function PaymentForm({ side, record, against, onClose, onSaved }: { side:
         <Field label="Reference #"><TextInput value={v.reference_number} onChange={(x) => setV({ ...v, reference_number: x })} /></Field>
       </div>
       {v.party ? (
-        <div className="border border-border rounded overflow-x-auto">
+        <div className="border border-neutral-200 rounded-lg overflow-x-auto">
           <table className="w-full min-w-[560px]">
             <thead><tr className="border-b border-border text-11 uppercase tracking-[0.06em] text-inkMuted"><th className="text-left px-3 h-8 font-medium">{cust ? 'Invoice' : 'Bill'}</th><th className="text-left px-3 font-medium">Date</th><th className="text-right px-3 font-medium">Balance</th><th className="text-right px-3 font-medium w-40">Apply</th>{cust ? <th className="text-right px-3 font-medium w-32">TDS deducted</th> : null}</tr></thead>
             <tbody>
@@ -814,7 +814,7 @@ export function JournalForm({ onClose, onSaved }: { record?: ZRecord; onClose: (
         <Field label="Reference #"><TextInput value={head.reference} onChange={(x) => setHead({ ...head, reference: x })} /></Field>
         <Field label="Save as"><Select value={head.publish ? 'published' : 'draft'} onChange={(x) => setHead({ ...head, publish: x === 'published' })} options={st(['published', 'Published (posts to the ledger)'], ['draft', 'Draft'])} /></Field>
       </div>
-      <div className="overflow-x-auto border border-border rounded">
+      <div className="overflow-x-auto border border-neutral-200 rounded-lg">
         <table className="w-full min-w-[720px] border-collapse">
           <thead><tr className="border-b border-border text-11 uppercase tracking-[0.06em] text-inkMuted">
             <th className="text-left px-2 h-8 font-medium w-[32%]">Account</th><th className="text-left px-2 font-medium">Description</th>
@@ -874,7 +874,7 @@ export function RecurringExpenseForm({ onClose, onSaved }: { record?: ZRecord; o
         <RepeatEvery value={recur} onChange={setRecur} />
         <Field label="Starts on *"><TextInput type="date" value={v.start} onChange={(x) => setV({ ...v, start: x })} /></Field>
         <Field label="Ends on"><TextInput type="date" value={v.end} onChange={(x) => setV({ ...v, end: x })} /></Field>
-        <Field label="Tax" hint={v.tax_id ? <label className="inline-flex items-center gap-1.5"><input type="checkbox" checked={v.inclusive} onChange={(e) => setV({ ...v, inclusive: e.target.checked })} />Amount includes tax</label> : undefined}>
+        <Field label="Tax" hint={v.tax_id ? <label className="inline-flex items-center gap-2"><input type="checkbox" checked={v.inclusive} onChange={(e) => setV({ ...v, inclusive: e.target.checked })} />Amount includes tax</label> : undefined}>
           <Select value={v.tax_id} onChange={(x) => setV({ ...v, tax_id: x })} options={taxes} placeholder="None" />
         </Field>
         <Field label="Customer (to bill)"><ContactPicker kind="customer" value={v.customer_id} label={v.customer_label} onChange={(id, r) => setV({ ...v, customer_id: id, customer_label: r?.contact_name ?? '' })} /></Field>
@@ -997,7 +997,7 @@ export function PriceListForm({ onClose, onSaved }: { record?: ZRecord; onClose:
           <Field label="Rounding"><Select value={v.rounding} onChange={(x) => setV({ ...v, rounding: x })} options={st(['no_rounding', 'No rounding'], ['round_to_dollor', 'To the nearest whole number'])} /></Field>
         </div>
       ) : (
-        <div className="border border-border rounded max-h-80 overflow-y-auto">
+        <div className="border border-neutral-200 rounded-lg max-h-80 overflow-y-auto">
           <table className="w-full">
             <thead><tr className="border-b border-border text-11 uppercase tracking-[0.06em] text-inkMuted"><th className="text-left px-3 h-8 font-medium">Item</th><th className="text-right px-3 font-medium">{v.side === 'sales' ? 'Selling price' : 'Cost price'}</th><th className="text-right px-3 font-medium w-40">Custom rate</th></tr></thead>
             <tbody>
@@ -1069,14 +1069,14 @@ export function CurrencyAdjustmentForm({ onClose, onSaved }: { record?: ZRecord;
       <Btn onClick={lookUp} loading={find.isPending}>Find accounts to adjust</Btn>
       {find.data ? (
         accounts.length === 0 ? <Notice>No account has a {cur?.currency_code ?? 'foreign-currency'} balance to revalue on this date.</Notice> : (
-          <div className="border border-border rounded overflow-x-auto">
+          <div className="border border-neutral-200 rounded-lg overflow-x-auto">
             <table className="w-full min-w-[560px]">
               <thead><tr className="border-b border-border text-11 uppercase tracking-[0.06em] text-inkMuted"><th className="w-8" /><th className="text-left px-3 h-8 font-medium">Account</th><th className="text-right px-3 font-medium">Balance ({cur?.currency_code})</th><th className="text-right px-3 font-medium">Revalued</th><th className="text-right px-3 font-medium">Gain / loss</th></tr></thead>
               <tbody>
                 {accounts.map((a) => (
                   <tr key={a.account_id} className="border-b border-border last:border-b-0 text-13">
                     <td className="px-2"><input type="checkbox" aria-label={`Adjust ${a.account_name}`} checked={Boolean(picked[String(a.account_id)])} onChange={(e) => setPicked({ ...picked, [String(a.account_id)]: e.target.checked })} /></td>
-                    <td className="px-3 py-1.5">{a.account_name}</td>
+                    <td className="px-3 py-2">{a.account_name}</td>
                     <td className="px-3 text-right tabular-nums">{money(a.fcy_balance, cur?.currency_code)}</td>
                     <td className="px-3 text-right tabular-nums">{money(a.adjusted_balance, org.currency_code)}</td>
                     <td className={`px-3 text-right tabular-nums ${Number(a.gain_or_loss) < 0 ? 'text-danger' : ''}`}>{money(a.gain_or_loss, org.currency_code)}</td>

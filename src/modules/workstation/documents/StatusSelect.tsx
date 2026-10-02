@@ -1,6 +1,7 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { workstationApi } from '@/modules/workstation/api';
 import { useToast } from '@/components/Toast';
+import { StatusChipSelect } from '@/modules/workstation/listUi';
 
 /**
  * Inline status control for a client document, shared by the client's
@@ -21,16 +22,12 @@ export function StatusSelect({
   // but always shown when the document already carries them.
   const options = DOC_STATUSES.filter((s) => canVerify || (s !== 'verified' && s !== 'rejected') || s === value);
   return (
-    <select
+    <StatusChipSelect
       value={value}
-      // Rows elsewhere navigate on click; changing status must not.
-      onClick={(e) => e.stopPropagation()}
-      onChange={(e) => { if (e.target.value !== value) onChange(e.target.value); }}
-      className="h-7 pl-2 pr-7 text-12 border border-neutral-200 bg-white text-neutral-900 hover:border-neutral-400 focus:outline-none focus:border-gold"
-      aria-label="Document status"
-    >
-      {options.map((s) => <option key={s} value={s}>{statusLabel(s)}</option>)}
-    </select>
+      label="Document status"
+      options={options.map((s) => ({ value: s, label: statusLabel(s) }))}
+      onChange={onChange}
+    />
   );
 }
 

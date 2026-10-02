@@ -18,8 +18,7 @@ export function DocumentsPage() {
     <div className="space-y-6">
       <header className="flex items-baseline justify-between gap-4 flex-wrap">
         <div>
-          <div className="text-11 uppercase tracking-[0.06em] text-neutral-500">HRMS</div>
-          <h1 className="text-20 font-semibold text-neutral-900 mt-1">Documents</h1>
+          <h1 className="text-[26px] leading-tight font-semibold tracking-[-0.01em] text-neutral-900">Documents</h1>
           {withinDays ? (
             <p className="text-13 text-neutral-500 mt-1">
               Showing documents expiring within {withinDays} days

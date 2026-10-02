@@ -1,6 +1,6 @@
 import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { RefreshCw } from 'lucide-react';
+import { Building2, RefreshCw } from 'lucide-react';
 import { useToast } from '@/components/Toast';
 import { booksApi, errorText } from '@/modules/books/api';
 import { BooksProvider, statusKey, useBooks } from '@/modules/books/context';
@@ -67,9 +67,9 @@ export function BooksShell() {
     <BooksProvider>
       {({ loading, error, ctx }) => (
         <div className="max-w-[1480px] mx-auto">
-          <div className="mb-4">
-            <div className="text-11 uppercase tracking-[0.06em] text-inkMuted">Tools</div>
-            <h1 className="text-20 font-semibold text-ink mt-0.5">Books</h1>
+          <div className="mb-5">
+            <h1 className="text-[26px] leading-tight font-semibold tracking-[-0.01em] text-ink">Books</h1>
+            <p className="text-13 text-inkMuted mt-1">Zoho Books for your clients — sales, purchases, banking and accounts in one place.</p>
           </div>
           {loading ? <Skeleton rows={6} /> : error || !ctx ? <ErrorState error={errorText(error)} /> : <Frame />}
         </div>
@@ -88,17 +88,17 @@ function Frame() {
   return (
     <div className="flex flex-col lg:flex-row gap-4">
       {/* Section nav: a sidebar on desktop, a select on small screens. */}
-      <nav aria-label="Books sections" className="hidden lg:block w-52 shrink-0">
-        <div className="bg-surface border border-border rounded py-2 sticky top-4">
+      <nav aria-label="Books sections" className="hidden lg:block w-56 shrink-0">
+        <div className="dash-card books-nav p-2 sticky top-4">
           {NAV.map((g, gi) => {
             const list = g.items.filter((i) => !i.perm || can[i.perm]);
             if (!list.length) return null;
             return (
-              <div key={gi} className={gi ? 'mt-2 pt-2 border-t border-border' : ''}>
-                {g.group ? <div className="px-4 pt-1 pb-1 text-11 uppercase tracking-[0.06em] text-inkFaint">{g.group}</div> : null}
+              <div key={gi} className={gi ? 'mt-1 pt-1 border-t border-neutral-100' : ''}>
+                {g.group ? <div className="px-3 pt-2 pb-1 text-12 font-semibold text-ink">{g.group}</div> : null}
                 {list.map((i) => (
                   <NavLink key={i.to} to={i.to} end={i.to === '/books'}
-                    className={({ isActive }) => `block px-4 py-1.5 text-13 ${g.group ? 'pl-6' : ''} ${isActive ? 'text-ink font-medium bg-canvas border-l-2 border-primary' : 'text-inkMuted hover:text-ink border-l-2 border-transparent'}`}>
+                    className={({ isActive }) => `books-nav-item block rounded-lg px-3 py-2 text-13 ${g.group ? 'pl-5' : ''} ${isActive ? 'is-active font-semibold' : 'text-inkMuted font-medium'}`}>
                     {i.label}
                   </NavLink>
                 ))}
@@ -136,8 +136,11 @@ function OrgBar() {
   if (!org) return null;
   const state = sync.isPending || org.sync_status === 'syncing' ? 'Syncing' : org.sync_status === 'failed' ? 'Sync failed' : org.last_sync_at ? 'Synced' : 'Connected';
   return (
-    <div className="bg-surface border border-border rounded px-4 py-2 mb-4 flex flex-wrap items-center gap-x-4 gap-y-2">
-      <div className="min-w-0 flex items-center gap-2">
+    <div className="dash-card px-4 py-3 mb-4 flex flex-wrap items-center gap-x-4 gap-y-2">
+      <div className="min-w-0 flex items-center gap-3">
+        <span className="h-9 w-9 rounded-lg inline-flex items-center justify-center shrink-0" style={{ background: '#eaf2ff', color: '#1d4ed8', boxShadow: 'inset 0 0 0 1px #d4e3fb' }}>
+          <Building2 size={17} strokeWidth={1.9} />
+        </span>
         {activeOrgs.length > 1 ? (
           <Select value={org.id} onChange={setOrg} options={activeOrgs.map((o) => ({ value: o.id, label: o.client_name ? `${o.name} · ${o.client_name}` : o.name }))} className="max-w-[320px]" />
         ) : (
@@ -145,9 +148,13 @@ function OrgBar() {
         )}
       </div>
       <div className="flex-1" />
-      <div className="text-12 text-inkMuted">
-        <span className={state === 'Sync failed' ? 'text-danger' : state === 'Syncing' ? 'text-warning' : 'text-success'}>{state}</span>
-        {org.last_sync_at ? <> · last synced {dateTime(org.last_sync_at)}</> : null}
+      <div className="flex items-center gap-2 text-12 text-inkMuted">
+        <span className="inline-flex items-center gap-2 h-6 px-3 rounded-full font-medium"
+          style={state === 'Sync failed' ? { background: '#fef2f2', color: '#b91c1c' } : state === 'Syncing' ? { background: '#fffbeb', color: '#b45309' } : { background: '#ecfdf5', color: '#047857' }}>
+          <span className={'rounded-full ' + (state === 'Syncing' ? 'animate-pulse' : '')} style={{ width: 6, height: 6, background: state === 'Sync failed' ? '#ef4444' : state === 'Syncing' ? '#f59e0b' : '#10b981' }} />
+          {state}
+        </span>
+        {org.last_sync_at ? <span>Last synced {dateTime(org.last_sync_at)}</span> : null}
       </div>
       {can.manage ? (
         <Btn onClick={() => sync.mutate()} loading={sync.isPending} disabled={org.sync_status === 'syncing'}>
@@ -164,7 +171,7 @@ function NotReady() {
   const connected = status.connections.some((c) => c.status === 'connected');
   const expired = status.connections.some((c) => ['expired', 'revoked'].includes(c.status));
   return (
-    <div className="bg-surface border border-border rounded">
+    <div className="dash-card">
       {!status.configured ? (
         <Empty title="Zoho Books is not configured">
           The server has no Zoho Books API credentials yet. An administrator must set ZBOOKS_CLIENT_ID and ZBOOKS_CLIENT_SECRET (see docs/books-zoho/README.md).

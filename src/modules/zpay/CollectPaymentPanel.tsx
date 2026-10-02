@@ -13,16 +13,16 @@ import { zpayCollect, type InvoicePaymentState } from './api';
 const inr = (paise: number) => `₹${(paise / 100).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
 const STATE_TONE: Record<InvoicePaymentState['state'], string> = {
-  unpaid: 'bg-amber-50 text-amber-800 border-amber-200',
-  part_paid: 'bg-sky-50 text-sky-800 border-sky-200',
-  paid: 'bg-green-50 text-green-800 border-green-200',
+  unpaid: 'bg-amber/10 text-amber border-amber/40',
+  part_paid: 'bg-primary/10 text-primary border-primary/30',
+  paid: 'bg-success/10 text-success border-success/40',
 };
 const STATE_LABEL: Record<InvoicePaymentState['state'], string> = { unpaid: 'Unpaid', part_paid: 'Part-paid', paid: 'Paid' };
 
 export function CollectPaymentPanel({ invoiceIds, onClose }: { invoiceIds: string[]; onClose: () => void }) {
   if (invoiceIds.length === 0) return null;
   return (
-    <div className="mt-3 border border-navy-200 bg-white rounded p-3 space-y-3">
+    <div className="mt-3 border border-primary/30 bg-white rounded p-3 space-y-3">
       <div className="flex items-baseline justify-between gap-2">
         <div>
           <div className="text-13 font-medium text-neutral-900">Next step — collect payment</div>
@@ -96,7 +96,7 @@ function InvoiceCollect({ invoiceId }: { invoiceId: string }) {
       </div>
 
       {!s.connected && s.state !== 'paid' && !link ? (
-        <p className="text-12 text-amber-800 mt-2">Connect this Zoho Payments account (above) before raising a payment link.</p>
+        <p className="text-12 text-amber mt-2">Connect this Zoho Payments account (above) before raising a payment link.</p>
       ) : null}
 
       {form && !link && s.state !== 'paid' ? (
@@ -142,7 +142,7 @@ function InvoiceCollect({ invoiceId }: { invoiceId: string }) {
       ) : null}
 
       {s.payments.length ? (
-        <ul className="mt-2 text-12 text-green-800 space-y-0.5">
+        <ul className="mt-2 text-12 text-success space-y-0.5">
           {s.payments.map((p) => (
             <li key={p.id}>✓ {inr(p.amount_paise)} received {new Date(p.paid_at).toLocaleDateString('en-IN', { dateStyle: 'medium' })}{p.mode ? ` by ${p.mode.replace('_', ' ')}` : ''} · Zoho {p.zoho_payment_id}</li>
           ))}
