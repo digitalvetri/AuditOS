@@ -84,7 +84,7 @@ export const GlobalSearch = forwardRef<GlobalSearchHandle>(function GlobalSearch
       { label: 'Expenses', to: '/hrms/accounts/expenses', visible: can(role, 'expense.submit', 'self') || can(role, 'expense.approve', 'department'), hint: 'HRMS · Accounts' },
       { label: 'Accounts', to: '/hrms/accounts', visible: can(role, 'accounts.read', 'organisation') || can(role, 'accounts.manage', 'organisation'), hint: 'HRMS' },
       { label: 'Messages', to: '/hrms/messages', visible: can(role, 'chat.participate', 'organisation'), hint: 'HRMS' },
-      { label: 'Documents', to: '/hrms/documents', visible: can(role, 'document.read', 'self'), hint: 'HRMS' },
+      { label: 'Employee Data', to: '/hrms/documents', visible: can(role, 'document.read', 'self'), hint: 'HRMS' },
       { label: 'Reports', to: '/hrms/reports', visible: can(role, 'reports.hr', 'department') || can(role, 'reports.finance', 'organisation') || can(role, 'reports.all', 'organisation'), hint: 'HRMS' },
       { label: 'Settings', to: '/hrms/settings', visible: can(role, 'settings.manage', 'organisation'), hint: 'HRMS' },
       { label: 'Workstation overview', to: '/workstation', visible: canWorkstation, hint: 'Workstation' },

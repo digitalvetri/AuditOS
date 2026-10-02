@@ -104,7 +104,7 @@ export function Sidebar({ mobileOpen, onMobileClose }: Props) {
       { to: '/hrms/leave',      label: 'Leave',      icon: CalendarDays,         visible: can(role, 'leave.read', 'self') },
       { to: '/hrms/accounts',   label: 'Accounts',   icon: BookOpen,             visible: canAccountsRead },
       { to: '/hrms/messages',   label: 'Messages',   icon: MessageSquare,        visible: can(role, 'chat.participate', 'organisation') },
-      { to: '/hrms/documents',  label: 'Documents',  icon: FileText,             visible: can(role, 'document.read', 'self') },
+      { to: '/hrms/documents',  label: 'Employee Data', icon: FileText,             visible: can(role, 'document.read', 'self') },
       { to: '/hrms/reports',    label: 'Reports',    icon: BarChart3,            visible: can(role, 'reports.hr', 'department') || can(role, 'reports.finance', 'organisation') || can(role, 'reports.all', 'organisation') },
       { to: '/hrms/settings',   label: 'Settings',   icon: Settings,             visible: can(role, 'settings.manage', 'organisation') },
     ];
@@ -119,7 +119,7 @@ export function Sidebar({ mobileOpen, onMobileClose }: Props) {
       { to: '/workstation/quotations',  label: 'Quotation',  icon: FileSignature, end: true, visible: can(role, 'workstation.quotation.read', 'self') },
       { to: '/workstation/invoices',    label: 'Invoice',    icon: ReceiptText,   end: true, visible: can(role, 'workstation.invoice.read', 'self') },
       { to: '/workstation/engagement',  label: 'Engagement', icon: ScrollText,    visible: can(role, 'workstation.engagement.read', 'self') },
-      { to: '/workstation/doc',         label: 'Doc',        icon: FileText,      visible: can(role, 'workstation.doc.read', 'self') },
+      { to: '/workstation/doc',         label: 'Format',     icon: FileText,      visible: can(role, 'workstation.doc.read', 'self') },
       { to: '/workstation/leads',       label: 'Leads',      icon: PhoneCall,     visible: can(role, 'workstation.lead.read', 'self') },
       { to: '/workstation/clients',     label: 'Clients',    icon: Handshake,     visible: can(role, 'workstation.client.read', 'self') },
       { to: '/workstation/follow-ups',  label: 'Follow-ups', icon: Clock,         visible: can(role, 'workstation.followup.read', 'self') },
@@ -159,7 +159,7 @@ export function Sidebar({ mobileOpen, onMobileClose }: Props) {
     // not an HR concern.
     const integrationsItems: NavItem[] = [
       { to: '/integrations/zoho-payments', label: 'Zoho Payments', icon: Plug,
-        visible: can(role, 'accounts.manage', 'organisation') },
+        visible: can(role, 'integrations.access', 'organisation') },
     ];
     return [
       { label: null, items: [{ to: '/', label: 'Dashboard', icon: Home, end: true, visible: true }] },

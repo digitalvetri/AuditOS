@@ -5,6 +5,8 @@ import { prisma } from '../lib/prisma.js'
 import { istToday } from '../lib/dates.js'
 import { can, requireSession, type Session } from '../platform/auth.js'
 import { writeAudit } from '../platform/audit.js'
+import { VISIBLE_ROLE_CODES } from '../platform/rbac/modules.js'
+import type { RoleCode } from '../platform/rbac/matrix.js'
 import {
   articledTrainingToApi, employeeDeptProjection, employeeFinanceProjection,
   employeeRef, employeeToApi,
@@ -237,11 +239,12 @@ employeesRouter.get('/:id', handler(async (req, res) => {
     (scope === 'self' && session.employeeId === target.id)
   if (!allowed) throw ApiError.forbidden()
 
-  const [dept, designation, manager, location] = await Promise.all([
+  const [dept, designation, manager, location, login] = await Promise.all([
     target.departmentId ? prisma.department.findUnique({ where: { id: target.departmentId } }) : null,
     target.designationId ? prisma.designation.findUnique({ where: { id: target.designationId } }) : null,
     target.managerId ? prisma.employee.findUnique({ where: { id: target.managerId } }) : null,
     target.workLocationId ? prisma.workLocation.findUnique({ where: { id: target.workLocationId } }) : null,
+    prisma.user.findFirst({ where: { employeeId: target.id, deletedAt: null }, include: { role: true } }),
   ])
   const today = scope === 'finance' ? new Map() : await todayAttendanceFor([target.id])
 
@@ -253,8 +256,38 @@ employeesRouter.get('/:id', handler(async (req, res) => {
       designation: designation ? { id: designation.id, name: designation.name } : null,
       manager: employeeRef(manager),
       location: location ? { id: location.id, name: location.name } : null,
+      role: login ? { id: login.role.id, code: login.role.code, name: login.role.name } : null,
     },
   })
+}))
+
+// PUT /api/employees/:id/role  { role_id }
+// Moves the employee's login to another role (Super Admin … Intern). Settings
+// managers only; nobody changes their own role, so a click can't lock them out.
+employeesRouter.put('/:id/role', handler(async (req, res) => {
+  const session = requireSession(req)
+  if (!can(session, 'settings.manage', 'organisation')) throw ApiError.forbidden()
+  const body = z.object({ role_id: z.string().min(1) }).safeParse(req.body ?? {})
+  if (!body.success) throw ApiError.badRequest('role_id is required.')
+
+  const login = await prisma.user.findFirst({
+    where: { employeeId: req.params.id, deletedAt: null }, include: { role: true },
+  })
+  if (!login) throw ApiError.unprocessable('no_login', 'This employee has no login account.')
+  if (login.id === session.userId) {
+    throw ApiError.conflict('self_role', 'You cannot change your own role.')
+  }
+  const role = await prisma.role.findUnique({ where: { id: body.data.role_id } })
+  if (!role || role.deletedAt || !VISIBLE_ROLE_CODES.includes(role.code as RoleCode)) {
+    throw ApiError.notFound('Role not found.')
+  }
+
+  await prisma.user.update({ where: { id: login.id }, data: { roleId: role.id, updatedBy: session.userId } })
+  await writeAudit({
+    actorUserId: session.userId, action: 'user.role_changed', entityType: 'User', entityId: login.id,
+    before: { role: login.role.code }, after: { role: role.code }, req,
+  })
+  ok(res, { role: { id: role.id, code: role.code, name: role.name } })
 }))
 
 // PATCH /api/employees/:id

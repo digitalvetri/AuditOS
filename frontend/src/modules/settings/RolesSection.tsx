@@ -1,33 +1,21 @@
 /**
- * Roles + Permissions matrix.
+ * Roles + Permissions — one row per module (HRMS, Workstation, Tools,
+ * Integrations), one column per role (Super Admin … Intern).
  *
- * The matrix rendered here is derived from the RolePermission rows the server
- * enforces, so what you see is what `can()` will check on the next request.
- * Each cell is a dropdown (—/S/D/O); a change PUTs the new scope and mutates
- * the DB row directly.
+ * Each cell is a dropdown: Full access grants every permission in the module
+ * at organisation scope; No access removes them all. A role whose grants were
+ * edited code by code reads back as "Custom" until a choice is made here.
  *
  * Two lockout guards are enforced server-side and surfaced as inline errors:
- *   - The caller cannot remove `settings.manage` from their own role.
- *   - The last role holding `settings.manage` cannot lose it.
+ *   - The caller cannot remove HRMS (it holds settings.manage) from their own role.
+ *   - The last role holding settings.manage cannot lose it.
+ *
+ * Which role a person has is set on the employee (Edit → Role).
  */
 import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { SectionShell } from './SectionShell';
-import { settingsApi } from './api';
-import type { RoleCode } from '@/data/models';
-import type { Grant, Scope } from '@/platform/rbac/matrix';
-
-const SCOPE_SHORT: Record<Scope, string> = {
-  self: 'S',
-  department: 'D',
-  organisation: 'O',
-};
-
-type CellValue = Scope | '';
-
-function cellValue(grants: Grant[] | undefined, permission: string): CellValue {
-  return grants?.find((g) => g.permission === permission)?.scope ?? '';
-}
+import { settingsApi, type ModuleAccess, type ModuleCode } from './api';
 
 /** The brand's navy header gradient (as on the register header strips). */
 const NAVY = {
@@ -36,32 +24,29 @@ const NAVY = {
 
 export function RolesSection() {
   const qc = useQueryClient();
-  const q = useQuery({ queryKey: ['settings', 'roles'], queryFn: settingsApi.roles.get });
+  const q = useQuery({ queryKey: ['settings', 'role-modules'], queryFn: settingsApi.roles.modules });
   const [savingKey, setSavingKey] = useState<string | null>(null);
   const [errorKey, setErrorKey] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   const mutation = useMutation({
-    mutationFn: ({ roleId, permission, scope }: { roleId: string; permission: string; scope: Scope | null }) =>
-      settingsApi.roles.setGrant(roleId, permission, scope),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['settings', 'roles'] }),
+    mutationFn: ({ roleId, module, access }: { roleId: string; module: ModuleCode; access: 'full' | 'none' }) =>
+      settingsApi.roles.setModule(roleId, module, access),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['settings', 'role-modules'] }),
   });
 
   if (q.isLoading) return <SectionShell title="Roles & permissions"><div className="dash-card h-40" /></SectionShell>;
   if (!q.data) return <SectionShell title="Roles & permissions"><div className="text-13 text-neutral-500">Unavailable.</div></SectionShell>;
 
-  const { roles, matrix } = q.data;
-  const permCodes = Array.from(
-    new Set(Object.values(matrix).flatMap((grants) => grants.map((g) => g.permission))),
-  ).sort();
+  const { roles, modules } = q.data;
 
-  async function onChange(roleId: string, permission: string, next: CellValue) {
-    const key = `${roleId}:${permission}`;
+  async function onChange(roleId: string, module: ModuleCode, access: 'full' | 'none') {
+    const key = `${roleId}:${module}`;
     setSavingKey(key);
     setErrorKey(null);
     setErrorMessage(null);
     try {
-      await mutation.mutateAsync({ roleId, permission, scope: next === '' ? null : next });
+      await mutation.mutateAsync({ roleId, module, access });
     } catch (err) {
       setErrorKey(key);
       setErrorMessage(err instanceof Error ? err.message : 'Could not save the change.');
@@ -73,12 +58,10 @@ export function RolesSection() {
   return (
     <SectionShell
       title="Roles & permissions"
-      description="Edit a cell to change a role's scope for that permission. Dash means the role does not hold it."
+      description="Choose which modules each role can open. Change a person's role from their employee record (Edit → Role)."
     >
-      {/* A matrix, not a register: kept as one grid in a floating card (no
-          floating rows), with the brand's navy header row. */}
       <div className="dash-card overflow-x-auto">
-        <table className="border-collapse tabular-nums">
+        <table className="w-full border-collapse">
           <thead>
             <tr>
               <th className="text-left text-11 uppercase tracking-[0.08em] text-white/90 px-4 h-10 font-medium sticky left-0 whitespace-nowrap" style={NAVY}>
@@ -96,29 +79,32 @@ export function RolesSection() {
             </tr>
           </thead>
           <tbody>
-            {permCodes.map((p) => (
-              <tr key={p} className="border-b border-neutral-100 last:border-b-0 hover:bg-[#f7f9fc]">
-                <td className="px-4 py-2 text-13 font-medium text-neutral-900 sticky left-0 bg-white">{p}</td>
+            {modules.map((m) => (
+              <tr key={m.code} className="border-b border-neutral-100 last:border-b-0 hover:bg-[#f7f9fc]">
+                <td className="px-4 py-3 text-13 font-medium text-neutral-900 sticky left-0 bg-white whitespace-nowrap">{m.name}</td>
                 {roles.map((r) => {
-                  const key = `${r.id}:${p}`;
-                  const value = cellValue(matrix[r.code as RoleCode], p);
+                  const key = `${r.id}:${m.code}`;
+                  const value: ModuleAccess = r.modules[m.code];
                   const saving = savingKey === key;
                   const failed = errorKey === key;
                   return (
-                    <td key={r.id} className="px-3 py-2 text-13">
+                    <td key={r.id} className="px-3 py-3 text-13">
                       <select
-                        aria-label={`${r.name} — ${p}`}
+                        aria-label={`${r.name} — ${m.name}`}
                         value={value}
                         disabled={saving || mutation.isPending}
-                        onChange={(e) => onChange(r.id, p, e.currentTarget.value as CellValue)}
+                        onChange={(e) => onChange(r.id, m.code, e.currentTarget.value as 'full' | 'none')}
                         className={`bg-white border rounded-lg h-8 px-2 text-13 focus:outline-none focus:border-primary/60 ${
-                          failed ? 'border-red-400 text-red-700' : 'border-neutral-200 text-neutral-800'
+                          failed
+                            ? 'border-red-400 text-red-700'
+                            : value === 'full'
+                              ? 'border-emerald-200 text-emerald-800'
+                              : 'border-neutral-200 text-neutral-600'
                         } ${saving ? 'opacity-60' : ''}`}
                       >
-                        <option value="">—</option>
-                        <option value="self">S — self</option>
-                        <option value="department">D — department</option>
-                        <option value="organisation">O — organisation</option>
+                        {value === 'partial' ? <option value="partial" disabled>Custom</option> : null}
+                        <option value="full">Full access</option>
+                        <option value="none">No access</option>
                       </select>
                     </td>
                   );
@@ -132,12 +118,7 @@ export function RolesSection() {
         <div className="text-12 text-red-700" role="status">{errorMessage}</div>
       ) : null}
       <div className="text-11 text-neutral-500">
-        Scope key: <span className="text-neutral-700">S</span> = self · <span className="text-neutral-700">D</span> = department · <span className="text-neutral-700">O</span> = organisation
-      </div>
-      <div className="text-11 text-neutral-400 flex gap-4">
-        {(['self', 'department', 'organisation'] as Scope[]).map((s) => (
-          <span key={s}>{SCOPE_SHORT[s]} = {s}</span>
-        ))}
+        Access changes take effect immediately; a person's menus update when they reload the page.
       </div>
     </SectionShell>
   );

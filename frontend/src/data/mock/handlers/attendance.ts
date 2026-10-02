@@ -1,6 +1,6 @@
 /**
  * Attendance handlers per §9. All server-side authorization: never trust the
- * client's `verified`, geofence, or scope.
+ * client's `verified` or scope.
  *
  * Endpoints:
  *   POST /api/attendance/check-in
@@ -18,12 +18,10 @@ import type {
   Attendance,
   AttendanceCorrection,
   AttendanceStatus,
-  LocationType,
   RoleCode,
 } from '@/data/models';
 import { db } from '../db';
 import { audit, err, ok, withAuth } from '../middleware';
-import { haversineMeters } from '@/lib/geo';
 import { rateLimit } from '@/lib/rateLimit';
 import { istDateOf, istToday, daysBetween } from '@/lib/dates';
 import {
@@ -63,22 +61,6 @@ function stripCoords(row: Attendance): Attendance {
   };
 }
 
-function verifyGeofence(
-  lat: number,
-  lon: number,
-  accuracyM: number,
-): { ok: true; locationId: string; name: string } | { ok: false; reason: string } {
-  if (accuracyM > 100) {
-    return { ok: false, reason: 'GPS accuracy is poor. Move to an open area and retry.' };
-  }
-  const active = db.read().workLocations.filter((l) => l.is_active);
-  for (const l of active) {
-    const d = haversineMeters(lat, lon, l.latitude, l.longitude);
-    if (d <= l.radius_m) return { ok: true, locationId: l.id, name: l.name };
-  }
-  return { ok: false, reason: 'You are not within any office geofence.' };
-}
-
 function notify(
   userId: string,
   n: {
@@ -109,11 +91,6 @@ function notify(
 }
 
 interface CheckInBody {
-  latitude?: number;
-  longitude?: number;
-  accuracy_m?: number;
-  location_type?: LocationType;
-  off_site_reason?: string;
   /** Client MUST NOT set — if present, ignored and audited (§8.2 last line). */
   verified?: boolean;
 }
@@ -150,19 +127,6 @@ export const attendanceHandlers = [
         });
       }
 
-      const { latitude, longitude, accuracy_m, location_type, off_site_reason } = body;
-      if (
-        typeof latitude !== 'number' ||
-        typeof longitude !== 'number' ||
-        typeof accuracy_m !== 'number'
-      ) {
-        return err(400, 'validation', 'latitude, longitude and accuracy_m are required numbers.');
-      }
-      const locType: LocationType = location_type ?? 'office';
-      if ((locType === 'client_site' || locType === 'field') && !off_site_reason?.trim()) {
-        return err(422, 'reason_required', 'Off-site check-in requires a reason.');
-      }
-
       const today = istToday();
       const existing = db.read().attendance.find(
         (a) => a.employee_id === employee.id && a.date === today && a.check_in_at !== null,
@@ -173,23 +137,6 @@ export const attendanceHandlers = [
         });
       }
 
-      // Geofence. Off-site types bypass but still capture coords.
-      let locationId: string | null = null;
-      let locationName: string | null = null;
-      if (locType === 'office') {
-        const geo = verifyGeofence(latitude, longitude, accuracy_m);
-        if (!geo.ok) return err(422, 'geofence', geo.reason);
-        locationId = geo.locationId;
-        locationName = geo.name;
-      } else {
-        // Off-site — still run Haversine so we know if the person happens to be at HQ.
-        const geo = verifyGeofence(latitude, longitude, accuracy_m);
-        if (geo.ok) {
-          locationId = geo.locationId;
-          locationName = geo.name;
-        }
-      }
-
       const nowISO = new Date().toISOString();
       const row: Attendance = {
         id: `att-${employee.id}-${today}`,
@@ -197,20 +144,20 @@ export const attendanceHandlers = [
         date: today,
         check_in_at: nowISO,
         check_out_at: null,
-        check_in_lat: latitude,
-        check_in_long: longitude,
-        check_in_accuracy_m: accuracy_m,
+        check_in_lat: null,
+        check_in_long: null,
+        check_in_accuracy_m: null,
         check_out_lat: null,
         check_out_long: null,
         check_out_accuracy_m: null,
-        check_in_location_id: locationId,
+        check_in_location_id: null,
         check_out_location_id: null,
-        location_type: locType,
-        off_site_reason: off_site_reason?.trim() ?? null,
+        location_type: null,
+        off_site_reason: null,
         worked_minutes: null,
         break_minutes: null,
         status: computeCheckInStatus(nowISO),
-        source: 'web_geo',
+        source: 'web',
         correction_status: 'none',
         device: null,
         ip: null,
@@ -234,15 +181,10 @@ export const attendanceHandlers = [
 
       audit({
         actor_user_id: user.id,
-        action: locType === 'office' ? 'attendance.check_in' : 'attendance.check_in.off_site',
+        action: 'attendance.check_in',
         entity_type: 'Attendance',
         entity_id: row.id,
-        after_json: {
-          date: row.date,
-          check_in_at: row.check_in_at,
-          location_type: row.location_type,
-          location_id: row.check_in_location_id,
-        },
+        after_json: { date: row.date, check_in_at: row.check_in_at },
         request,
       });
 
@@ -250,19 +192,13 @@ export const attendanceHandlers = [
         type: 'attendance.checked_in',
         module: 'attendance',
         title: 'Checked in',
-        body:
-          locType === 'office'
-            ? `${locationName ?? 'Office'} — location verified`
-            : `Off-site (${locType}) — flagged for review`,
+        body: `Checked in at ${new Date(nowISO).toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit' })}`,
         entity_type: 'Attendance',
         entity_id: row.id,
         action_url: '/hrms/attendance',
       });
 
-      return ok({
-        attendance: row,
-        location: { id: locationId, name: locationName },
-      });
+      return ok({ attendance: row });
     }),
   ),
 
@@ -274,16 +210,6 @@ export const attendanceHandlers = [
       if (!rateLimit(`checkout:${user.id}`, 10, 60_000)) {
         return err(429, 'rate_limited', 'Too many attempts. Try again shortly.');
       }
-      const body = (await request.json().catch(() => ({}))) as CheckInBody;
-      const { latitude, longitude, accuracy_m } = body;
-      if (
-        typeof latitude !== 'number' ||
-        typeof longitude !== 'number' ||
-        typeof accuracy_m !== 'number'
-      ) {
-        return err(400, 'validation', 'latitude, longitude and accuracy_m are required numbers.');
-      }
-
       const today = istToday();
       const row = db.read().attendance.find(
         (a) => a.employee_id === employee.id && a.date === today && a.check_in_at !== null,
@@ -303,19 +229,10 @@ export const attendanceHandlers = [
         nowISO,
       );
 
-      // Attempt to identify the check-out location; not required for check-out to succeed.
-      let checkOutLocationId: string | null = null;
-      const geo = verifyGeofence(latitude, longitude, accuracy_m);
-      if (geo.ok) checkOutLocationId = geo.locationId;
-
       db.write((d) => {
         const target = d.attendance.find((a) => a.id === row.id);
         if (!target) return;
         target.check_out_at = nowISO;
-        target.check_out_lat = latitude;
-        target.check_out_long = longitude;
-        target.check_out_accuracy_m = accuracy_m;
-        target.check_out_location_id = checkOutLocationId;
         target.worked_minutes = workedMinutes;
         target.break_minutes = breakMinutes;
         // WFH status stays WFH; otherwise use computed status.

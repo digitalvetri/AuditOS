@@ -6,6 +6,7 @@ import { addDays } from '../lib/dates.js'
 import { can, requireSession, type Session } from '../platform/auth.js'
 import { writeAudit } from '../platform/audit.js'
 import type { Scope } from '../platform/rbac/matrix.js'
+import { MODULES, moduleCodes, VISIBLE_ROLE_CODES } from '../platform/rbac/modules.js'
 import {
   departmentToApi, designationToApi, expenseCategoryToApi, holidayToApi,
   leaveTypeToApi, permissionToApi, roleToApi, statutoryRateToApi,
@@ -685,4 +686,87 @@ settingsRouter.put('/roles/:roleId/permissions/:permissionCode', handler(async (
     role: roleToApi(role),
     grant: after,
   })
+}))
+
+// ── Role modules (Settings → Roles & permissions) ────────────────────────
+// The screen edits access per module (HRMS / Workstation / Tools /
+// Integrations), not per code. "Full" = every code in the module at
+// organisation scope; "none" = no code in it. A role whose rows were edited
+// one by one reads back as "partial".
+
+type ModuleAccess = 'full' | 'none' | 'partial'
+
+settingsRouter.get('/role-modules', handler(async (req, res) => {
+  const session = requireSession(req)
+  requireManage(session)
+  const roles = await prisma.role.findMany({
+    where: { code: { in: VISIBLE_ROLE_CODES }, deletedAt: null },
+    include: { permissions: { include: { permission: true } } },
+  })
+  const byCode = new Map(roles.map((r) => [r.code, r]))
+  const out = VISIBLE_ROLE_CODES.flatMap((code) => {
+    const r = byCode.get(code)
+    if (!r) return []
+    const held = new Map(r.permissions.map((rp) => [rp.permission.code, rp.scope]))
+    const modules = Object.fromEntries(MODULES.map((m) => {
+      const codes = moduleCodes(m.code)
+      const full = codes.every((c) => held.get(c) === 'organisation')
+      const none = codes.every((c) => !held.has(c))
+      return [m.code, (full ? 'full' : none ? 'none' : 'partial') as ModuleAccess]
+    }))
+    return [{ ...roleToApi(r), modules }]
+  })
+  ok(res, { modules: MODULES, roles: out })
+}))
+
+/**
+ * Give a role a module in full, or take it away. Same lockout guards as the
+ * per-code route: HRMS carries `settings.manage`, so the caller cannot drop
+ * HRMS from their own role, and the last role holding it keeps it.
+ */
+settingsRouter.put('/roles/:roleId/modules/:module', handler(async (req, res) => {
+  const session = requireSession(req)
+  requireManage(session)
+
+  const module = MODULES.find((m) => m.code === req.params.module)?.code
+  if (!module) throw ApiError.notFound('Module not found.')
+  const body = z.object({ access: z.enum(['full', 'none']) }).safeParse(req.body ?? {})
+  if (!body.success) throw ApiError.badRequest('access must be full or none.')
+
+  const role = await prisma.role.findUnique({ where: { id: req.params.roleId } })
+  if (!role || role.deletedAt) throw ApiError.notFound('Role not found.')
+
+  const codes: string[] = moduleCodes(module)
+  if (body.data.access === 'none' && codes.includes('settings.manage')) {
+    if (role.id === session.roleId) {
+      throw ApiError.conflict('self_lockout', 'You cannot remove HRMS from your own role — it holds Settings.')
+    }
+    const otherHolders = await prisma.rolePermission.count({
+      where: { permission: { code: 'settings.manage' }, roleId: { not: role.id }, role: { deletedAt: null } },
+    })
+    if (otherHolders === 0) {
+      throw ApiError.conflict('last_admin', 'At least one role must keep HRMS — it holds Settings.')
+    }
+  }
+
+  const permissions = await prisma.permission.findMany({ where: { code: { in: codes }, deletedAt: null } })
+  const ids = permissions.map((p) => p.id)
+  await prisma.$transaction([
+    prisma.rolePermission.deleteMany({ where: { roleId: role.id, permissionId: { in: ids } } }),
+    ...(body.data.access === 'full'
+      ? [prisma.rolePermission.createMany({
+          data: ids.map((permissionId) => ({ roleId: role.id, permissionId, scope: 'organisation' })),
+        })]
+      : []),
+  ])
+
+  await writeAudit({
+    actorUserId: session.userId,
+    action: body.data.access === 'full' ? 'role_module.granted' : 'role_module.revoked',
+    entityType: 'Role',
+    entityId: role.id,
+    after: { module, access: body.data.access },
+    req,
+  })
+  ok(res, { role: roleToApi(role), module, access: body.data.access })
 }))

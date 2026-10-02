@@ -26,6 +26,7 @@ import { seedWorkstation } from './seed-workstation.js'
 // path an existing database uses.
 import { backfillPeriods } from '../src/modules/gst/service.js'
 import { seedTools } from './seed-tools.js'
+import { setupRoles } from './setup-roles.js'
 import { seedAuditAutomation } from './seed-audit-automation.js'
 import { seedRegistration } from './seed-registration.js'
 import { seedPartnership } from './seed-partnership.js'
@@ -141,14 +142,16 @@ async function main() {
     })
   }
 
-  const ROLES: { id: string; code: RoleCode; name: string; description: string }[] = [
-    { id: 'role-employee', code: 'employee', name: 'Employee', description: 'Own records only' },
-    { id: 'role-dept-manager', code: 'dept_manager', name: 'Department Manager', description: 'Owns one department' },
-    { id: 'role-hr-admin', code: 'hr_admin', name: 'HR Admin', description: 'Full HR visibility and configuration' },
+  // The five live roles (Super Admin … Intern) and their module access. On an
+  // existing database the defaults are applied once; later runs keep the
+  // access set in Settings → Roles & permissions.
+  await setupRoles(prisma)
+  // Finance Admin is a legacy role, kept so existing logins on it still work.
+  // It is not offered in Settings or on an employee.
+  const LEGACY_ROLES: { id: string; code: RoleCode; name: string; description: string }[] = [
     { id: 'role-finance-admin', code: 'finance_admin', name: 'Finance Admin', description: 'Payroll approval, ledger and payments' },
-    { id: 'role-md', code: 'md', name: 'MD / Super Admin', description: 'Full visibility across the firm' },
   ]
-  for (const r of ROLES) {
+  for (const r of LEGACY_ROLES) {
     await prisma.role.upsert({
       where: { code: r.code },
       update: { name: r.name, description: r.description },

@@ -164,7 +164,9 @@ export type PermissionCode =
   | 'books.manage'
   | 'books.settings'
   | 'books.reports'
-  | 'books.accountant';
+  | 'books.accountant'
+  // ── Integrations (Zoho Payments today) ──
+  | 'integrations.access';
 
 export interface Grant {
   permission: PermissionCode;
@@ -182,6 +184,9 @@ export interface Grant {
  *     default. Seed HR Admin WITHOUT it; toggle later in Settings.
  */
 export const MATRIX: Record<RoleCode, Grant[]> = {
+  // Intern: no fine-grained template — live grants come from role modules
+  // (rbac/modules.ts), written by the seed / setup-roles script.
+  intern: [],
   employee: [
     { permission: 'profile.read', scope: 'self' },
     { permission: 'profile.write.contact', scope: 'self' },
@@ -401,6 +406,7 @@ export const MATRIX: Record<RoleCode, Grant[]> = {
     { permission: 'expense.approve', scope: 'organisation' },
     { permission: 'expense.pay', scope: 'organisation' },
     { permission: 'accounts.manage', scope: 'organisation' },
+    { permission: 'integrations.access', scope: 'organisation' },
     { permission: 'payments.manage', scope: 'organisation' },
     { permission: 'chat.participate', scope: 'organisation' },
     { permission: 'reports.finance', scope: 'organisation' },
@@ -440,6 +446,7 @@ export const MATRIX: Record<RoleCode, Grant[]> = {
     { permission: 'expense.pay', scope: 'organisation' },
     { permission: 'accounts.read', scope: 'organisation' },
     { permission: 'accounts.manage', scope: 'organisation' },
+    { permission: 'integrations.access', scope: 'organisation' },
     { permission: 'payments.manage', scope: 'organisation' },
     { permission: 'document.read', scope: 'organisation' },
     { permission: 'document.manage', scope: 'organisation' },
@@ -547,12 +554,23 @@ export function scopeSatisfies(granted: Scope, required: Scope): boolean {
  * Pure check — no request context. Use for menu rendering (still not a
  * security control per §4.3; the API decides).
  */
+let liveGrants: { role: RoleCode; grants: Grant[] } | null = null;
+
+/**
+ * The signed-in role's grants as the server holds them (Settings → Roles can
+ * change them at any time). Set by AuthContext; the static MATRIX is only the
+ * fallback before a session loads.
+ */
+export function setLiveGrants(role: RoleCode | null, grants: Grant[] | null | undefined): void {
+  liveGrants = role && grants ? { role, grants } : null;
+}
+
 export function hasPermission(
   role: RoleCode,
   permission: PermissionCode,
   requiredScope: Scope = 'self',
 ): boolean {
-  const grants = MATRIX[role];
+  const grants = liveGrants?.role === role ? liveGrants.grants : (MATRIX[role] ?? []);
   return grants.some(
     (g) => g.permission === permission && scopeSatisfies(g.scope, requiredScope),
   );

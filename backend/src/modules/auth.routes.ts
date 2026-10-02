@@ -26,11 +26,15 @@ const loginSchema = z.object({
 async function sessionPayload(userId: string) {
   const user = await prisma.user.findUniqueOrThrow({
     where: { id: userId },
-    include: { role: true, employee: true },
+    include: { role: { include: { permissions: { include: { permission: true } } } }, employee: true },
   })
   return {
     user: { id: user.id, email: user.email },
     role: { id: user.role.id, code: user.role.code, name: user.role.name },
+    // The live grants, so the client's menus follow Settings → Roles.
+    grants: user.role.permissions
+      .filter((rp) => !rp.permission.deletedAt)
+      .map((rp) => ({ permission: rp.permission.code, scope: rp.scope })),
     employee: user.employee
       ? {
           id: user.employee.id,

@@ -13,6 +13,7 @@ import { useQuery } from '@tanstack/react-query';
 import { employeeApi, isFullEmployee } from '@/modules/employees/api';
 import { EMPLOYEE_TYPE_LABEL, type EmployeeType } from '@/data/models';
 import { EmployeeEditModal } from '@/modules/employees/EmployeeEditModal';
+import { RoleField } from '@/modules/employees/RoleField';
 import { DeactivateButton } from '@/modules/employees/DeactivateButton';
 import { ArticledTrainingTab } from '@/modules/employees/ArticledTrainingTab';
 import { ActivityTab } from '@/modules/employees/ActivityTab';
@@ -207,7 +208,7 @@ function OverviewTab({
   isFull,
 }: {
   emp: ReturnType<typeof employeeApi.get> extends Promise<infer T> ? (T extends { employee: infer E } ? E : never) : never;
-  refs: { department: { id: string; name: string } | null; designation: { id: string; name: string } | null; manager: { id: string; full_name: string; employee_code: string } | null; location: { id: string; name: string } | null };
+  refs: { department: { id: string; name: string } | null; designation: { id: string; name: string } | null; manager: { id: string; full_name: string; employee_code: string } | null; location: { id: string; name: string } | null; role: { id: string; code: string; name: string } | null };
   isFull: boolean;
 }) {
   const s = statusToVariant(emp.status);
@@ -225,6 +226,7 @@ function OverviewTab({
         {isFull ? (
           <>
             <Field label="Type" value={EMPLOYEE_TYPE_LABEL[(emp as { type: EmployeeType }).type]} />
+            <RoleField employeeId={emp.id} role={refs.role} />
             <Field label="Manager" value={refs.manager?.full_name ?? '—'} />
             <Field label="Joining date" value={fmtDate((emp as { joining_date: string }).joining_date + 'T00:00:00Z')} />
           </>

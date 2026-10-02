@@ -2,7 +2,7 @@
  * Client-record billing slice (docs/zoho-payments/README.md §6.3).
  *
  * Renders on the client workspace overview tab, but ONLY for users
- * holding `accounts.manage@organisation`. The spec is emphatic that
+ * holding `integrations.access@organisation`. The spec is emphatic that
  * this block is hidden entirely — not greyed — from other users, so
  * the parent gate is at the render-caller in ClientWorkspace.tsx.
  *

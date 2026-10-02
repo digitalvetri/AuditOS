@@ -124,7 +124,7 @@ export function ClientWorkspacePage() {
 // ── Overview (§7.3) ───────────────────────────────────────────────────────
 function OverviewTab({ client }: { client: ClientDetail }) {
   const { session } = useAuth();
-  const canSeeBilling = can(session?.role.code, 'accounts.manage', 'organisation');
+  const canSeeBilling = can(session?.role.code, 'integrations.access', 'organisation');
   const services = useQuery({
     queryKey: ['workstation', 'client', client.id, 'services'],
     queryFn: () => workstationApi.clientServices(client.id),

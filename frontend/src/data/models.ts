@@ -38,7 +38,8 @@ export type RoleCode =
   | 'dept_manager'
   | 'hr_admin'
   | 'finance_admin'
-  | 'md';
+  | 'md'
+  | 'intern';
 
 export interface Role extends Auditable {
   id: ID;
@@ -231,7 +232,7 @@ export interface Attendance extends Auditable {
   worked_minutes: number | null;
   break_minutes: number | null;
   status: AttendanceStatus;
-  source: 'web_geo' | 'biometric' | 'manual';
+  source: 'web' | 'web_geo' | 'biometric' | 'manual';
   correction_status: 'none' | 'requested' | 'approved' | 'rejected';
   device: string | null;
   ip: string | null;

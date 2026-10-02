@@ -53,6 +53,8 @@ export interface EmployeeDetailResponse {
     designation: { id: string; name: string } | null;
     manager: { id: string; full_name: string; employee_code: string } | null;
     location: { id: string; name: string } | null;
+    /** The employee's login role; null when they have no login. */
+    role: { id: string; code: string; name: string } | null;
   };
 }
 
@@ -73,6 +75,10 @@ export const employeeApi = {
 
   patch: (id: string, body: Partial<Employee>) =>
     api.patch<{ employee: Employee }>(`/api/employees/${id}`, body),
+
+  /** Move the employee's login to another role (Super Admin … Intern). */
+  setRole: (id: string, roleId: string) =>
+    api.put<{ role: { id: string; code: string; name: string } }>(`/api/employees/${id}/role`, { role_id: roleId }),
 
   deactivate: (id: string) =>
     api.post<{ employee: Employee }>(`/api/employees/${id}/deactivate`),
