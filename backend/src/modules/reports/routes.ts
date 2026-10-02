@@ -281,7 +281,7 @@ reportsRouter.get('/:type', handler(async (req, res) => {
           employee_id: e.employeeId,
           employee_code: e.employee.employeeCode,
           full_name: e.employee.fullName,
-          department_id: e.employee.departmentId,
+          department_id: e.employee.departmentId ?? '',
           count: 0, drafts: 0, claimed_paise: 0, reimbursed_paise: 0,
         }
         byEmployee.set(e.employeeId, row)

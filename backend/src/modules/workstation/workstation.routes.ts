@@ -230,7 +230,7 @@ workstationRouter.get('/assignable-employees', handler(async (req, res) => {
       id: e.id,
       full_name: e.fullName,
       employee_code: e.employeeCode,
-      designation: e.designation.name,
+      designation: e.designation?.name ?? '',
     })),
     count: rows.length,
   })

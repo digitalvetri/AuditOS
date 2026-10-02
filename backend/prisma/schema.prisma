@@ -339,8 +339,10 @@ model Employee {
   // active | on_leave | probation | notice_period | inactive
   status         String @default("active")
 
-  designationId  String
-  departmentId   String
+  // Department + Designation were removed as concepts; FKs kept nullable so
+  // historical rows aren't lost but new employees never set them.
+  designationId  String?
+  departmentId   String?
   managerId      String? // self-referential, nullable
   workLocationId String
   workScheduleId String
@@ -382,8 +384,8 @@ model Employee {
   tdsExemptReason    String?
 
   organisation Organisation @relation(fields: [organisationId], references: [id])
-  department   Department   @relation(fields: [departmentId], references: [id])
-  designation  Designation  @relation(fields: [designationId], references: [id])
+  department   Department?  @relation(fields: [departmentId], references: [id])
+  designation  Designation? @relation(fields: [designationId], references: [id])
   workLocation WorkLocation @relation(fields: [workLocationId], references: [id])
   workSchedule WorkSchedule @relation(fields: [workScheduleId], references: [id])
   manager      Employee?    @relation("EmployeeManager", fields: [managerId], references: [id])

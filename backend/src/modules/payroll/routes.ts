@@ -680,8 +680,8 @@ payrollRouter.get('/payslips/:id', handler(async (req, res) => {
       employee_code: p.employee.employeeCode,
       email: p.employee.email,
     },
-    department: { id: p.employee.department.id, name: p.employee.department.name },
-    designation: { id: p.employee.designation.id, name: p.employee.designation.name },
+    department: p.employee.department ? { id: p.employee.department.id, name: p.employee.department.name } : null,
+    designation: p.employee.designation ? { id: p.employee.designation.id, name: p.employee.designation.name } : null,
   })
 }))
 

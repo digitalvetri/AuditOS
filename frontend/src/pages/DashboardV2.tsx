@@ -22,7 +22,7 @@ import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { Link } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import {
-  Activity, ArrowUpRight, BellRing, Building2, CalendarCheck, ChevronRight, ClockAlert, FileWarning, Inbox,
+  Activity, ArrowUpRight, BellRing, CalendarCheck, ChevronRight, ClockAlert, FileWarning, Inbox,
   Landmark, Plane, Receipt, Users, UserX,
 } from 'lucide-react';
 import { useAuth } from '@/platform/auth/AuthContext';
@@ -39,7 +39,6 @@ import { accountsApi } from '@/modules/accounts/api';
 /** Roles that run the firm rather than clock in to it. */
 const NO_CHECK_IN_ROLES = ['md'];
 
-interface DepartmentRow { id: string; name: string; headcount: number; present: number; absent: number; on_leave: number }
 interface PendingAction {
   kind: 'leave' | 'correction' | 'document_expiring' | 'expense';
   id: string; title: string; subtitle: string; action_url: string; created_at: string;
@@ -47,7 +46,6 @@ interface PendingAction {
 interface ActivityRow { id: string; action: string; entity_type: string; created_at: string; actor_label: string }
 
 const dashboardApi = {
-  departments: () => api.get<{ items: DepartmentRow[] }>('/api/dashboard/departments'),
   pending: () => api.get<{ items: PendingAction[]; count: number }>('/api/dashboard/pending-actions'),
   activity: () => api.get<{ items: ActivityRow[] }>('/api/dashboard/activity'),
 };
@@ -66,7 +64,6 @@ export function DashboardV2Page() {
   const seesActivity = can(role, 'audit.read.all', 'organisation') || can(role, 'audit.read.hr', 'organisation');
 
   const today = useQuery({ queryKey: ['attendance', 'today'], queryFn: attendanceApi.today, enabled: seesTeam });
-  const departments = useQuery({ queryKey: ['dashboard', 'departments'], queryFn: dashboardApi.departments, enabled: seesTeam });
   const pending = useQuery({ queryKey: ['dashboard', 'pending'], queryFn: dashboardApi.pending, enabled: approves });
   const ledger = useQuery({ queryKey: ['accounts', 'summary'], queryFn: accountsApi.summary, enabled: seesLedger });
   const activity = useQuery({ queryKey: ['dashboard', 'activity'], queryFn: dashboardApi.activity, enabled: seesActivity });
@@ -115,15 +112,6 @@ export function DashboardV2Page() {
             </Card>
           ) : null}
 
-          {seesTeam ? (
-            <Card title="Departments today" subtitle="Who is in, by department"
-              icon={<Building2 size={16} strokeWidth={1.9} />}
-              action={{ label: 'Attendance', href: '/hrms/attendance' }}
-              loading={departments.isLoading} error={err(departments)}
-              empty={!!departments.data && departments.data.items.length === 0}>
-              {departments.data ? <DepartmentsTable rows={departments.data.items} /> : null}
-            </Card>
-          ) : null}
         </div>
 
         {/* ── Side column ─────────────────────────────────────────────── */}
@@ -328,36 +316,6 @@ function PendingList({ items }: { items: PendingAction[] }) {
       {items.length > shown.length ? (
         <div className="text-12 text-inkMuted mt-2">+{items.length - shown.length} more</div>
       ) : null}
-    </div>
-  );
-}
-
-// ── Departments ───────────────────────────────────────────────────────
-function DepartmentsTable({ rows }: { rows: DepartmentRow[] }) {
-  return (
-    <div>
-    <table className="hr-float w-full border-collapse tabular-nums" data-testid="departments-table">
-      <thead>
-        <tr>
-          {['Department', 'Staff', 'Present', 'Absent', 'Leave'].map((c, i) => (
-            <th key={c} className={`${i ? 'text-right' : 'text-left'} text-11 font-semibold uppercase tracking-[0.06em] text-inkFaint py-2 border-b border-border`}>
-              {c}
-            </th>
-          ))}
-        </tr>
-      </thead>
-      <tbody>
-        {rows.map((r) => (
-          <tr key={r.id} className="h-9 border-b border-border last:border-b-0">
-            <td className="text-14 text-ink">{r.name}</td>
-            <td className="text-14 text-inkMuted text-right">{r.headcount}</td>
-            <td className="text-14 text-ink text-right">{r.present}</td>
-            <td className={`text-14 text-right ${r.absent > 0 ? 'text-danger font-medium' : 'text-inkMuted'}`}>{r.absent}</td>
-            <td className="text-14 text-inkMuted text-right">{r.on_leave}</td>
-          </tr>
-        ))}
-      </tbody>
-    </table>
     </div>
   );
 }

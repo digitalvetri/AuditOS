@@ -12,7 +12,9 @@ import type { PayrollDeductions, PayrollEarnings } from '../../domain/payroll/ca
  * without asking Finance.
  */
 interface PayslipRow extends Payslip {
-  employee: Employee & { department: Department; designation: Designation }
+  // Department + Designation are legacy nullable FKs since they were removed
+  // as concepts; the payslip prints '—' when either is missing.
+  employee: Employee & { department: Department | null; designation: Designation | null }
   payrollItem: PayrollItem
   payrollRun: PayrollRun
 }
@@ -94,8 +96,8 @@ export function streamPayslipPdf(res: Response, p: PayslipRow) {
   label(doc, 'Employee ID', left); value(doc, p.employee.employeeCode, left)
   const afterLeft = doc.y
   doc.y = top
-  label(doc, 'Department', colTwo); value(doc, p.employee.department.name, colTwo)
-  label(doc, 'Designation', colTwo); value(doc, p.employee.designation.name, colTwo)
+  label(doc, 'Department', colTwo); value(doc, p.employee.department?.name ?? '—', colTwo)
+  label(doc, 'Designation', colTwo); value(doc, p.employee.designation?.name ?? '—', colTwo)
   doc.y = Math.max(afterLeft, doc.y)
 
   doc.moveDown(0.4)

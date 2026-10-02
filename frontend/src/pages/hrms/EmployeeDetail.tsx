@@ -110,7 +110,7 @@ export function EmployeeDetailPage({ fixedId }: Props) {
             {emp.full_name}
           </h1>
           <p className="text-13 text-neutral-500 mt-1">
-            {refs.designation?.name ?? '—'} · {refs.department?.name ?? '—'}
+            {emp.employee_code}
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -222,8 +222,6 @@ function OverviewTab({
 
       <SectionGrid title="Employment">
         <Field label="Code" value={emp.employee_code} />
-        <Field label="Department" value={refs.department?.name ?? '—'} />
-        <Field label="Designation" value={refs.designation?.name ?? '—'} />
         {isFull ? (
           <>
             <Field label="Type" value={EMPLOYEE_TYPE_LABEL[(emp as { type: EmployeeType }).type]} />

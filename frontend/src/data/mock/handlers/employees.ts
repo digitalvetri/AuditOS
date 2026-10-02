@@ -87,8 +87,8 @@ export interface FinanceProjection {
   id: string;
   employee_code: string;
   full_name: string;
-  department_id: string;
-  designation_id: string;
+  department_id: string | null;
+  designation_id: string | null;
   bank_account_masked: string | null;
   status: Employee['status'];
 }
