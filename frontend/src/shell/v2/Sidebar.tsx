@@ -1,0 +1,540 @@
+/**
+ * UI-BUILD-PROMPT §3 Sidebar.
+ *
+ * Sage green, filled active pill (NOT the 2px left bar in §7). 246px expanded,
+ * 64px collapsed rail. Brand top, nav, brand panel, collapse row bottom.
+ *
+ * Order (top → bottom):
+ *   Dashboard (no section label)
+ *   HRMS        — 10 items
+ *   WORKSTATION — 6 items
+ *   TOOLS       — 3 items: Tools (converters), Repotic (bank/GST/TDS),
+ *                 Books (Zoho Books). One section, sibling rows.
+ */
+import { NavLink, useLocation } from 'react-router-dom';
+import { CHART_ZONE, SidebarBackdrop } from './SidebarBackdrop';
+import { useEffect, useMemo, useState } from 'react';
+import {
+  BarChart3,
+  BookOpen,
+  Briefcase,
+  CalendarDays,
+  ChevronDown,
+  ChevronsLeft,
+  ChevronsRight,
+  Clock,
+  FileSignature,
+  ReceiptText,
+  FileText,
+  FolderKanban,
+  Handshake,
+  Home,
+  Landmark,
+  LayoutGrid,
+  ListChecks,
+  MessageSquare,
+  PhoneCall,
+  Plug,
+  Settings,
+  Users,
+  ScrollText,
+  Wallet,
+  Wrench,
+  type LucideIcon,
+} from 'lucide-react';
+import { useAuth } from '@/platform/auth/AuthContext';
+import { can } from '@/platform/rbac/can';
+// The rail lists the registrations from the same catalogue the pages
+// render, so a service can never exist in one place and not the other.
+import { REGISTRATION_SERVICES } from '@/pages/workstation/registration/services';
+
+const COLLAPSED_KEY = 'audit-os:sidebar-collapsed';
+const SECTIONS_COLLAPSED_KEY = 'audit-os:sidebar-sections-collapsed';
+
+/**
+ * A row below the icon level. A child may carry its own children — Services →
+ * Registration → the ten registrations — so the rail nests three deep.
+ */
+interface NavChild {
+  to: string;
+  label: string;
+  children?: { to: string; label: string }[];
+}
+interface NavItem {
+  to: string;
+  label: string;
+  icon: LucideIcon;
+  end?: boolean;
+  visible: boolean;
+  /** Service categories nested under Workstation → Services. Names only —
+      each row deep-links to the Services page scoped by its slug. */
+  children?: NavChild[];
+}
+interface NavGroup {
+  label: string | null; // null = no section header (Dashboard row)
+  items: NavItem[];
+}
+
+interface Props {
+  mobileOpen: boolean;
+  onMobileClose: () => void;
+}
+
+export function Sidebar({ mobileOpen, onMobileClose }: Props) {
+  const { session } = useAuth();
+  const role = session?.role.code;
+
+  // Role-scoped nav (§6.1). `can()` here is menu-rendering only — the API
+  // is what actually enforces access. Employee: no Employees / Accounts /
+  // Reports / Settings; no Tools if `tools.access` is not granted.
+  const nav = useMemo<NavGroup[]>(() => {
+    // Payroll and Expenses used to be top-level sidebar entries; they
+    // are now tabs INSIDE Accounts (§6.1). One "Accounts" row here,
+    // visible to any role with access to any sub-tab.
+    const canAccountsRead =
+      can(role, 'accounts.read', 'organisation')
+      || can(role, 'accounts.manage', 'organisation')
+      || can(role, 'payroll.view.own', 'self')
+      || can(role, 'payroll.view', 'organisation')
+      || can(role, 'expense.submit', 'self')
+      || can(role, 'expense.approve', 'department')
+    const auditItems: NavItem[] = [
+      { to: '/hrms/employees',  label: 'Employees',  icon: Users,                visible: can(role, 'employee.read', 'department') },
+      { to: '/hrms/attendance', label: 'Attendance', icon: Clock,                visible: can(role, 'attendance.read', 'self') },
+      { to: '/hrms/leave',      label: 'Leave',      icon: CalendarDays,         visible: can(role, 'leave.read', 'self') },
+      { to: '/hrms/accounts',   label: 'Accounts',   icon: BookOpen,             visible: canAccountsRead },
+      { to: '/hrms/messages',   label: 'Messages',   icon: MessageSquare,        visible: can(role, 'chat.participate', 'organisation') },
+      { to: '/hrms/documents',  label: 'Documents',  icon: FileText,             visible: can(role, 'document.read', 'self') },
+      { to: '/hrms/reports',    label: 'Reports',    icon: BarChart3,            visible: can(role, 'reports.hr', 'department') || can(role, 'reports.finance', 'organisation') || can(role, 'reports.all', 'organisation') },
+      { to: '/hrms/settings',   label: 'Settings',   icon: Settings,             visible: can(role, 'settings.manage', 'organisation') },
+    ];
+    // Workstation (teammate's module, per AUDIT_OS_WORKSTATION.md §4).
+    // Sub-items follow the same can(role, ...) pattern; roles without a
+    // workstation.access grant see nothing here.
+    const workstationItems: NavItem[] = [
+      { to: '/workstation',             label: 'Overview',   icon: LayoutGrid,    end: true, visible: can(role, 'workstation.access', 'self') },
+      /* Quotation is its own module. Billing — invoices, receipts, what is
+         actually charged — is a separate thing and gets its own row when it
+         exists; a quotation is a proposal and is not billing. */
+      { to: '/workstation/quotations',  label: 'Quotation',  icon: FileSignature, end: true, visible: can(role, 'workstation.quotation.read', 'self') },
+      { to: '/workstation/invoices',    label: 'Invoice',    icon: ReceiptText,   end: true, visible: can(role, 'workstation.invoice.read', 'self') },
+      { to: '/workstation/engagement',  label: 'Engagement', icon: ScrollText,    visible: can(role, 'workstation.engagement.read', 'self') },
+      { to: '/workstation/doc',         label: 'Doc',        icon: FileText,      visible: can(role, 'workstation.doc.read', 'self') },
+      { to: '/workstation/leads',       label: 'Leads',      icon: PhoneCall,     visible: can(role, 'workstation.lead.read', 'self') },
+      { to: '/workstation/clients',     label: 'Clients',    icon: Handshake,     visible: can(role, 'workstation.client.read', 'self') },
+      { to: '/workstation/follow-ups',  label: 'Follow-ups', icon: Clock,         visible: can(role, 'workstation.followup.read', 'self') },
+      { to: '/workstation/services',    label: 'Services',   icon: Briefcase,     end: true, visible: can(role, 'workstation.service.read', 'self'),
+        children: [
+          { to: '/workstation/services/tds',           label: 'TDS' },
+          /* BOOKKEEPING-REBUILD §7 renames "Bookkeeping" (the
+             accounting engine) to "Books". */
+          { to: '/workstation/services/bookkeeping',   label: 'Books' },
+          { to: '/workstation/services/tally-export',  label: 'Tally Export' },
+          { to: '/workstation/services/registration',  label: 'Registration',
+            children: REGISTRATION_SERVICES.map((r) => ({
+              to: `/workstation/services/registration/${r.slug}`,
+              label: r.name,
+            })) },
+        ] },
+      { to: '/workstation/tasks',       label: 'Task',       icon: ListChecks,    visible: can(role, 'workstation.task.read', 'self') },
+      { to: '/workstation/documents',   label: 'Documents',  icon: FolderKanban,  visible: can(role, 'workstation.document.read', 'self') },
+    ];
+    // TOOLS is one labelled section — a sibling of Workstation — holding
+    // three tool modules as siblings inside it: Tools (converters), Repotic
+    // (bank / GST / TDS pipelines) and Books (Zoho Books integration). The
+    // native double-entry accounting engine (formerly "Tally") moved to
+    // Services → Bookkeeping and is not a Tools row any more.
+    const toolsItems: NavItem[] = [
+      { to: '/tools', label: 'Tools', icon: Wrench,
+        visible: can(role, 'tools.access', 'self') },
+      { to: '/audit-automation', label: 'Repotic', icon: Landmark,
+        visible: can(role, 'tools.audit_automation.access', 'self') },
+      { to: '/books', label: 'Books', icon: Wallet,
+        visible: can(role, 'books.access', 'organisation') },
+    ];
+    // INTEGRATIONS — third-party services the firm connects to (Zoho
+    // Payments today; Books/Tally/banking as they land). Sibling of
+    // Tools, not nested inside HRMS: this is firm-level infrastructure,
+    // not an HR concern.
+    const integrationsItems: NavItem[] = [
+      { to: '/integrations/zoho-payments', label: 'Zoho Payments', icon: Plug,
+        visible: can(role, 'accounts.manage', 'organisation') },
+    ];
+    return [
+      { label: null, items: [{ to: '/', label: 'Dashboard', icon: Home, end: true, visible: true }] },
+      { label: 'HRMS', items: auditItems.filter((i) => i.visible) },
+      { label: 'WORKSTATION', items: workstationItems.filter((i) => i.visible) },
+      { label: 'TOOLS', items: toolsItems.filter((i) => i.visible) },
+      { label: 'INTEGRATIONS', items: integrationsItems.filter((i) => i.visible) },
+    ].filter((g) => g.items.length > 0);
+  }, [role]);
+
+  const [collapsed, setCollapsed] = useState<boolean>(() => {
+    if (typeof localStorage === 'undefined') return false;
+    return localStorage.getItem(COLLAPSED_KEY) === '1';
+  });
+  useEffect(() => {
+    if (typeof localStorage === 'undefined') return;
+    localStorage.setItem(COLLAPSED_KEY, collapsed ? '1' : '0');
+  }, [collapsed]);
+
+  // Per-section collapse — keyed by section label (AUDIT, WORKSTATION, TOOLS).
+  // Dashboard has no label so it's never collapsible. Persisted in
+  // localStorage so a user's fold state survives reload.
+  const [sectionsCollapsed, setSectionsCollapsed] = useState<Set<string>>(() => {
+    if (typeof localStorage === 'undefined') return new Set();
+    try {
+      const raw = localStorage.getItem(SECTIONS_COLLAPSED_KEY);
+      return new Set(raw ? (JSON.parse(raw) as string[]) : []);
+    } catch { return new Set(); }
+  });
+  useEffect(() => {
+    if (typeof localStorage === 'undefined') return;
+    localStorage.setItem(SECTIONS_COLLAPSED_KEY, JSON.stringify([...sectionsCollapsed]));
+  }, [sectionsCollapsed]);
+  const toggleSection = (label: string) => {
+    setSectionsCollapsed((prev) => {
+      const next = new Set(prev);
+      if (next.has(label)) next.delete(label); else next.add(label);
+      return next;
+    });
+  };
+
+  const location = useLocation();
+  // Close the mobile drawer on route change — same pattern the shipped app uses.
+  useEffect(() => {
+    onMobileClose();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [location.pathname]);
+  useEffect(() => {
+    if (!mobileOpen) return;
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onMobileClose(); };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [mobileOpen, onMobileClose]);
+
+  // Track desktop breakpoint so we can drive width via inline style. This
+  // avoids the Tailwind class-order trap where a base `w-[246px]` for the
+  // mobile drawer competes with `lg:w-16` at equal specificity — the fight
+  // depends on source order in the emitted CSS and can flip silently.
+  const [isDesktop, setIsDesktop] = useState(() =>
+    typeof window !== 'undefined' ? window.matchMedia('(min-width: 1024px)').matches : true,
+  );
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const mq = window.matchMedia('(min-width: 1024px)');
+    const onChange = (e: MediaQueryListEvent) => setIsDesktop(e.matches);
+    mq.addEventListener('change', onChange);
+    return () => mq.removeEventListener('change', onChange);
+  }, []);
+  const asideWidth = isDesktop ? (collapsed ? 72 : 264) : 264;
+  const drawer = mobileOpen ? 'translate-x-0' : '-translate-x-full invisible lg:visible';
+
+  return (
+    <>
+      {/* Scrim */}
+      <div
+        className={
+          'fixed inset-0 z-40 bg-black/[0.32] transition-opacity lg:hidden ' +
+          (mobileOpen ? 'opacity-100' : 'pointer-events-none opacity-0')
+        }
+        onClick={onMobileClose}
+        aria-hidden
+      />
+
+      <aside
+        className={
+          'sb-creative flex flex-col bg-sidebar text-sidebarText lg:border-r lg:border-white/5 ' +
+          'fixed inset-y-0 left-0 z-50 max-w-[82vw] ' +
+          `${drawer} ` +
+          'lg:relative lg:z-auto lg:h-full lg:translate-x-0 lg:visible ' +
+          'transition-[transform,width,visibility] shrink-0'
+        }
+        style={{ width: asideWidth }}
+        aria-label="Primary navigation"
+      >
+        <SidebarBackdrop collapsed={collapsed && isDesktop} />
+        <Brand collapsed={collapsed} />
+
+        <nav className="sidebar-scroll sb-nav-limit flex-1 min-h-0 overflow-y-auto pt-1 pb-2">
+          {nav.map((group, i) => (
+            <Section
+              key={i}
+              group={group}
+              collapsed={collapsed}
+              first={i === 0}
+              folded={group.label ? sectionsCollapsed.has(group.label) : false}
+              onToggle={group.label ? () => toggleSection(group.label!) : undefined}
+            />
+          ))}
+        </nav>
+        {/* The chart's own strip: the menu scrolls above this line and never
+            runs over the growth chart drawn behind it. */}
+        {collapsed && isDesktop ? null : <div className="sb-chart-zone shrink-0" style={{ height: CHART_ZONE }} aria-hidden />}
+        <Collapse collapsed={collapsed} onToggle={() => setCollapsed((c) => !c)} />
+      </aside>
+    </>
+  );
+}
+
+// ── Alignment grid ────────────────────────────────────────────────────────
+//
+// One left rail. Every icon (brand chip, nav row, section header text,
+// COLLAPSE glyph) starts its content at x=20 from the aside edge.
+//
+//   aside padding (via ul px-2 + a px-3)  = 20
+//   nav icon 20 → icon-right              = 40
+//   gap-3                                 = 12  → label starts at x=52
+//   brand chip 36 → chip-right            = 56
+//   brand gap-3                           = 12  → text starts at x=68
+//
+// Brand text ends up 16px to the right of nav labels — accepted; a brand
+// cluster reads as a header, not another nav row.
+
+function Brand({ collapsed }: { collapsed: boolean }) {
+  // Same height as TopBar (h-20) so the brand plate and search bar sit on one
+  // line. Divider on the bottom lines up with the TopBar's border so the
+  // header reads as one continuous strip across the shell. The brand mark is
+  // the full lockup on a white plate — the logo already carries the wordmark,
+  // so no separate text is rendered beside it.
+  return (
+    <div className={'h-20 flex items-center gap-3 shrink-0 border-b border-white/[0.07] ' + (collapsed ? 'justify-center px-0' : 'pl-4 pr-3')}>
+      <span
+        className="inline-flex items-center justify-center shrink-0"
+        /* No white plate. The mark sits directly on the navy rail and is
+           rendered white, so the brand reads as one piece with the sidebar
+           instead of a card floating on it. The rail is navy in BOTH themes
+           (--c-sidebar), so white is correct in each. */
+        style={{ height: 44, width: collapsed ? 52 : 84 }}
+        aria-label="JNS Accounting Solutions"
+      >
+        <img
+          src="/jns-mark.png"
+          alt=""
+          aria-hidden="true"
+          /* The artwork is solid navy on transparent; brightness(0) flattens
+             it to black and invert(1) lifts it to pure white, which keeps one
+             asset serving both the white-background and dark-background
+             lockups. The swoosh climbs above the cap height on the right, so
+             a 1px lift optically centres the letterform mass. */
+          style={{ filter: 'brightness(0) invert(1)' }}
+          className="block max-h-full max-w-full object-contain -translate-y-px"
+        />
+      </span>
+      {!collapsed ? (
+        <div className="flex flex-col justify-center min-w-0">
+          <span className="text-15 font-semibold text-sidebarText tracking-tight leading-tight truncate">JNS Accounting</span>
+          <span className="text-12 font-medium text-sidebarText/75 leading-tight mt-0.5 truncate">Solutions</span>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+interface SectionProps {
+  group: NavGroup;
+  collapsed: boolean;   // rail collapsed (icon-only mode)
+  first: boolean;
+  folded: boolean;      // this section's items hidden
+  onToggle?: () => void;
+}
+function Section({ group, collapsed, first, folded, onToggle }: SectionProps) {
+  // A group without a label (Dashboard) is never foldable — always renders
+  // its lone row. Labeled groups (AUDIT, WORKSTATION) get a chevron button.
+  const showHeader = group.label && !collapsed;
+  return (
+    <div>
+      {showHeader ? (
+        <button
+          type="button"
+          onClick={onToggle}
+          aria-expanded={!folded}
+          className={
+            'flex items-center gap-2 w-full pl-6 pr-4 pb-2 text-11 font-semibold uppercase ' +
+            'tracking-[0.16em] text-white hover:text-white/80 transition-colors ' +
+            (first ? 'pt-4' : 'pt-5')
+          }
+        >
+          <span>{group.label}</span>
+          <ChevronDown
+            size={14}
+            strokeWidth={2.5}
+            className={'transition-transform ' + (folded ? '-rotate-90' : '')}
+          />
+        </button>
+      ) : null}
+      {!folded || !group.label ? (
+        <ul className={collapsed ? 'px-2 space-y-1' : 'px-2 space-y-px'}>
+          {group.items.map((it) => (
+            <li key={it.to}>
+              <NavItemRow item={it} collapsed={collapsed} />
+            </li>
+          ))}
+        </ul>
+      ) : null}
+    </div>
+  );
+}
+
+function NavItemRow({ item, collapsed }: { item: NavItem; collapsed: boolean }) {
+  const Icon = item.icon;
+  const location = useLocation();
+  const hasChildren = !collapsed && !!item.children?.length;
+  // Open whenever the user is anywhere under the parent (e.g. a service
+  // category), so a deep link lands with its row already revealed.
+  const onBranch = location.pathname.startsWith(item.to);
+  const [open, setOpen] = useState(onBranch);
+  useEffect(() => { if (onBranch) setOpen(true); }, [onBranch]);
+
+  const row = (
+    <NavLink
+      to={item.to}
+      end={item.end}
+      className={({ isActive }) => {
+        const base = 'group/nav flex items-center gap-3 h-10 rounded-lg text-14 transition-colors';
+        const spacing = collapsed ? 'justify-center px-0' : 'px-3';
+        const grow = hasChildren ? ' flex-1 min-w-0' : '';
+        const state = isActive
+          ? 'sb-active relative text-white font-semibold before:absolute before:left-0 before:top-2 before:bottom-2 before:w-[3px] before:rounded-full before:bg-[#5eead4]'
+          : 'text-white/70 font-medium sb-hover hover:text-white';
+        return `${base} ${spacing} ${state}${grow}`;
+      }}
+      title={collapsed ? item.label : undefined}
+    >
+      {({ isActive }) => (
+        <>
+          {/* The accent bar's orange when active, soft white otherwise. */}
+          <Icon size={18} strokeWidth={1.9}
+            className={'shrink-0 ' + (isActive ? 'text-[#99f6e4]' : 'text-white/60 group-hover/nav:text-white')} />
+          {!collapsed ? <span className="truncate">{item.label}</span> : null}
+        </>
+      )}
+    </NavLink>
+  );
+
+  if (!hasChildren) return row;
+
+  return (
+    <>
+      <div className="flex items-center">
+        {row}
+        <button
+          type="button"
+          onClick={() => setOpen((o) => !o)}
+          aria-expanded={open}
+          aria-label={(open ? 'Collapse' : 'Expand') + ' ' + item.label}
+          className="shrink-0 h-10 w-7 flex items-center justify-center rounded-lg text-white/60 hover:bg-white/[0.05] hover:text-white transition-colors"
+        >
+          <ChevronDown
+            size={14}
+            strokeWidth={2.5}
+            className={'transition-transform ' + (open ? '' : '-rotate-90')}
+          />
+        </button>
+      </div>
+      {open ? (
+        <ul className="mt-px space-y-px">
+          {item.children!.map((child) => (
+            <li key={child.to}>
+              <NavChildRow child={child} />
+            </li>
+          ))}
+        </ul>
+      ) : null}
+    </>
+  );
+}
+
+/**
+ * A second-level row. With grandchildren it is only a group header — the
+ * whole row opens and closes the third level indented under it, and has no
+ * page of its own; without, it is the plain link it always was.
+ */
+function NavChildRow({ child }: { child: NavChild }) {
+  const location = useLocation();
+  const hasKids = !!child.children?.length;
+  const onBranch = location.pathname.startsWith(child.to);
+  const [open, setOpen] = useState(onBranch);
+  useEffect(() => { if (onBranch) setOpen(true); }, [onBranch]);
+
+  if (!hasKids) {
+    return (
+      <NavLink
+        to={child.to}
+        className={({ isActive }) =>
+          'flex items-center h-9 pl-11 pr-3 rounded-lg text-13 transition-colors ' +
+          (isActive
+            ? 'sb-active relative text-white font-semibold before:absolute before:left-0 before:top-2 before:bottom-2 before:w-[3px] before:rounded-full before:bg-[#5eead4]'
+            : 'text-white/70 font-medium sb-hover hover:text-white')
+        }
+      >
+        <span className="truncate">{child.label}</span>
+      </NavLink>
+    );
+  }
+
+  return (
+    <>
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        aria-expanded={open}
+        className={
+          'w-full flex items-center h-9 pl-11 pr-0 rounded-lg text-13 hover:bg-white/[0.05] hover:text-white transition-colors ' +
+          (onBranch ? 'text-white font-semibold' : 'text-white/70 font-medium')
+        }
+      >
+        <span className="flex-1 min-w-0 truncate text-left">{child.label}</span>
+        <span className="shrink-0 w-7 flex items-center justify-center" aria-hidden>
+          <ChevronDown
+            size={12}
+            strokeWidth={2.5}
+            className={'transition-transform ' + (open ? '' : '-rotate-90')}
+          />
+        </span>
+      </button>
+      {open ? (
+        <ul className="mt-px space-y-px">
+          {child.children!.map((leaf) => (
+            <li key={leaf.to}>
+              <NavLink
+                to={leaf.to}
+                /* Third level: indented past the child text, and titled —
+                   "Private Limited Company Registration" cannot fit a 264px
+                   rail, so the full name lives in the tooltip. */
+                title={leaf.label}
+                className={({ isActive }) =>
+                  'flex items-center h-8 pl-[68px] pr-3 rounded-lg text-12 transition-colors ' +
+                  (isActive
+                    ? 'sb-active relative text-white font-semibold before:absolute before:left-0 before:top-2 before:bottom-2 before:w-[3px] before:rounded-full before:bg-[#5eead4]'
+                    : 'text-white/55 font-medium sb-hover hover:text-white')
+                }
+              >
+                <span className="truncate">{leaf.label}</span>
+              </NavLink>
+            </li>
+          ))}
+        </ul>
+      ) : null}
+    </>
+  );
+}
+
+function Collapse({ collapsed, onToggle }: { collapsed: boolean; onToggle: () => void }) {
+  const Icon = collapsed ? ChevronsRight : ChevronsLeft;
+  return (
+    <button
+      type="button"
+      onClick={onToggle}
+      className={
+        'h-9 mx-3 mb-3 mt-1 flex items-center gap-2 rounded-lg border border-white/10 bg-white/[0.04] ' +
+        'text-white/60 hover:text-white hover:bg-white/[0.08] text-11 font-semibold uppercase tracking-[0.1em] transition-colors ' +
+        (collapsed ? 'justify-center px-0' : 'pl-3 pr-3')
+      }
+      aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+    >
+      <Icon size={16} strokeWidth={1.75} />
+      {!collapsed ? <span>COLLAPSE</span> : null}
+    </button>
+  );
+}

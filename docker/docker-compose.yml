@@ -1,0 +1,126 @@
+# AUDIT OS — the whole stack.
+#
+#   cd docker
+#   cp .env.docker.example .env.docker      # then edit WEB_ORIGIN + the secrets
+#   docker compose up -d --build            # or, from the repo root: npm run docker:up
+#   open http://localhost:8080
+#
+# Order of events on a cold start: postgres comes up and passes its
+# healthcheck → `migrate` pushes the Prisma schema and runs the seed, then
+# exits → `api` starts → `web` starts. `api` never races an empty database,
+# because compose waits for `migrate` to complete successfully.
+#
+# Data lives in the named volumes `auditos-pg-data` (database) and
+# `auditos-uploads` (client documents, tool outputs, chat attachments) and
+# survives `docker compose down`. To wipe everything: `docker compose down -v`.
+#
+# Postgres and Adminer keep their host ports so the NATIVE dev workflow
+# (npm run dev:full against localhost:55432) still works unchanged alongside
+# this stack — the two share the database on purpose.
+
+# Fixed project name, so the stack keeps the same identity it had when this
+# file lived at the repo root (containers and volumes are also named below).
+name: auditos-new
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: auditos-postgres
+    restart: unless-stopped
+    env_file: .env.docker
+    # Host port is deliberately 55432, not 5432 — a native Postgres install
+    # on the host commonly holds 5432 and would silently steal connections.
+    # Override with `POSTGRES_HOST_PORT=... docker compose up -d` if needed.
+    ports:
+      - "${POSTGRES_HOST_PORT:-55432}:5432"
+    volumes:
+      - auditos-pg-data:/var/lib/postgresql/data
+      - ./postgres/init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  # One-shot. Applies the schema and seeds, then exits 0. Both steps are
+  # idempotent, so it is safe on every `up` — PROVIDED the image is current.
+  #
+  # It builds from ../backend, the same source as `api`, but is a SEPARATE image:
+  # `docker compose build api` does not rebuild it. Run an image built before a
+  # schema change and `prisma db push` sees the new tables as ones to DROP —
+  # it refuses (exit 1, "Use the --accept-data-loss flag"), which is the
+  # failure working as intended, not a bug to flag past. The fix is to rebuild,
+  # never to add --accept-data-loss: that flag would carry out the deletion.
+  # Always bring the stack up with `--build`, as the header says.
+  migrate:
+    build:
+      context: ../backend
+      target: toolchain
+    container_name: auditos-migrate
+    env_file: .env.docker
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-auditos}:${POSTGRES_PASSWORD:-auditos_dev_pw}@postgres:5432/${POSTGRES_DB:-auditos}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: "no"
+
+  api:
+    build:
+      context: ../backend
+      target: runtime
+    container_name: auditos-api
+    restart: unless-stopped
+    env_file: .env.docker
+    environment:
+      # Inside the network Postgres is `postgres:5432`, never the host's 55432.
+      DATABASE_URL: postgresql://${POSTGRES_USER:-auditos}:${POSTGRES_PASSWORD:-auditos_dev_pw}@postgres:5432/${POSTGRES_DB:-auditos}
+      NODE_ENV: production
+      PORT: "4000"
+    volumes:
+      - auditos-uploads:/app/uploads
+    depends_on:
+      postgres:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    # Not published on the host: the browser reaches the API through `web`,
+    # which keeps everything on one origin. Add a ports entry only if you
+    # need to curl the API directly.
+    expose:
+      - "4000"
+
+  web:
+    build:
+      context: ../frontend
+      target: runtime
+      # Baked into the bundle at build time. Compose reads it from the shell or
+      # a ./.env next to this file (frontend/.env is the Vite dev file, which
+      # compose does not read); unset, it stays off.
+      args:
+        VITE_SHOW_DEMO_LOGINS: ${VITE_SHOW_DEMO_LOGINS:-false}
+    container_name: auditos-web
+    restart: unless-stopped
+    ports:
+      - "${WEB_HOST_PORT:-8080}:80"
+    depends_on:
+      api:
+        condition: service_healthy
+
+  adminer:
+    image: adminer:4
+    container_name: auditos-adminer
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    ports:
+      - "${ADMINER_HOST_PORT:-58080}:8080"
+    environment:
+      ADMINER_DEFAULT_SERVER: postgres
+
+volumes:
+  auditos-pg-data:
+    name: auditos-pg-data
+  auditos-uploads:
+    name: auditos-uploads

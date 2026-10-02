@@ -199,7 +199,7 @@ to `zpay_account`. One line, and it drives everything downstream.
 
 Money is **integer paise**. Never float. `raw` is immutable.
 
-> **Naming note (Prisma).** In `server/prisma/schema.prisma` the models are the
+> **Naming note (Prisma).** In `backend/prisma/schema.prisma` the models are the
 > PascalCase equivalents — `ZpayConnection`, `ZpayAccount`, `ZpayPayment`,
 > `ZpayRefund`, `ZpaySyncRun` — because the rest of the repo carries no `@@map`
 > directives. The `zpay_` prose in this doc names the intent (namespace + easy

@@ -10,23 +10,32 @@ expenses, accounts, payments, messages and reports). Part 1 remains the
 primary application; Part 2's backend is now the authoritative server behind
 it, and its Messages and Reports modules live inside the Part 1 shell.
 
-See `AUDIT_OS_HRMS.md` for the working project document and module statuses.
+See `docs/AUDIT_OS_HRMS.md` for the working project document and module statuses.
 
 ---
+
+## Repository layout
+
+```text
+frontend/   React 18 + Vite web app — its own package.json, Dockerfile, nginx config
+backend/    Express + Prisma API — its own package.json, Dockerfile, prisma schema
+docker/     docker-compose.yml, .env.docker.example, Postgres init scripts
+docs/       Specs (AUDIT_OS_HRMS / WORKSTATION / TOOLS) and module docs
+```
 
 ## Architecture
 
 ```text
-React 18 + Vite  (src/ — the primary application)
+React 18 + Vite  (frontend/src/ — the primary application)
         │
         │  every call goes through one adapter:
-        │  src/services/api.ts  →  fetch('/api/…', { credentials: 'include' })
+        │  frontend/src/services/api.ts  →  fetch('/api/…', { credentials: 'include' })
         │
         ├───────────────► MSW mock backend        VITE_MOCK_MODE=true
-        │                 src/data/mock/          (no server needed)
+        │                 frontend/src/data/mock/ (no server needed)
         │
         └───────────────► Express API             VITE_MOCK_MODE=false
-                          server/src/
+                          backend/src/
                                 │
                           Prisma ORM
                                 │
@@ -48,7 +57,7 @@ switching modes changes one environment variable and nothing else:
 
 Prisma columns are camelCase; the HTTP API is snake_case with `_paise` money
 and `YYYY-MM-DD` dates. Every conversion lives in exactly one file —
-`server/src/api/serialize.ts`. No route handler builds a response by hand and
+`backend/src/api/serialize.ts`. No route handler builds a response by hand and
 no React component knows a database column name:
 
 ```text
@@ -69,7 +78,7 @@ authenticate → authorize (explicit permission + scope) → validate (zod) → 
 
 Authorization is always an explicit permission code, never a role-name check.
 The permission matrix is server-side canonical in
-`server/src/platform/rbac/matrix.ts`; the identical client copy in
+`backend/src/platform/rbac/matrix.ts`; the identical client copy in
 `src/platform/rbac/matrix.ts` exists only to decide what to render.
 
 ---
@@ -84,8 +93,8 @@ The whole stack — database, API and the built frontend behind nginx. Nothing
 to install but Docker.
 
 ```bash
-cp .env.docker.example .env.docker    # then set the two secrets and WEB_ORIGIN
-npm run docker:up                     # or: docker compose up -d --build
+cp docker/.env.docker.example docker/.env.docker   # then set the two secrets and WEB_ORIGIN
+cd docker && docker compose up -d --build
 ```
 
 Open **http://localhost:8080**. First build takes a few minutes; after that
@@ -96,45 +105,45 @@ it is seconds. See [Docker](#docker) for what each service does.
 The development workflow: hot reload on both sides.
 
 ```bash
-cp .env.docker.example .env.docker    # dev credentials for the DB container
-docker compose up -d postgres adminer # Postgres 16 on :55432, Adminer on :58080
-npm run setup                         # installs both projects, pushes schema, seeds
+cp docker/.env.docker.example docker/.env.docker   # dev credentials for the DB container
+(cd docker && docker compose up -d postgres adminer)  # Postgres 16 on :55432, Adminer on :58080
+(cd backend && npm install && npm run prisma:generate && npm run prisma:push:safe && npm run seed)
+(cd frontend && npm install)
 ```
 
 Then either mode:
 
 ```bash
+cd frontend
+
 # Mock mode — no backend, MSW serves seeded data in the browser
 npm run dev            # http://localhost:5173
 
-# Real backend mode — set VITE_MOCK_MODE=false in .env first
-npm run dev:full       # Vite on :5173 and the API on :4000 together
+# Real backend mode — set VITE_MOCK_MODE=false in frontend/.env first
+npm run dev:full       # Vite on :5173 and the API together
 ```
 
-`npm run dev:full` runs both processes; `npm run dev` and `npm run dev:api`
-run them separately if you prefer two terminals.
+`npm run dev:full` (in `frontend/`) runs both processes; `npm run dev` and
+`npm run dev:api` run them separately if you prefer two terminals.
 
 ### Scripts
 
-| Command | What it does |
-|---|---|
-| `npm run setup` | Install frontend + backend, generate Prisma client, create and seed the dev database |
-| `npm run dev` | Vite dev server (mock or real depending on `VITE_MOCK_MODE`) |
-| `npm run dev:api` | Express API with hot reload |
-| `npm run dev:full` | Both together |
-| `npm run build` | `tsc -b && vite build` |
-| `npm run build:api` | Compile the backend to `server/dist` |
-| `npm run type-check` / `type-check:api` | TypeScript, no emit |
-| `npm run db:setup` | Generate client, push schema, seed |
-| `npm run db:reset` | Drop the dev database and rebuild it from the seed |
-| `npm run docker:up` | Build and start the full stack (db + api + web + adminer) |
-| `npm run docker:down` | Stop the stack, keeping the data volumes |
-| `npm run docker:logs` | Follow the API and web logs |
-| `npm run docker:seed` | Re-run schema push + seed against the container database |
-| `npm run docker:reset` | **Destructive** — drop the volumes and rebuild from scratch |
+Each folder has its own `package.json`; run these inside it.
 
-Backend-only equivalents live in `server/package.json`
-(`npm --prefix server run …`).
+| Where | Command | What it does |
+|---|---|---|
+| `frontend/` | `npm run dev` | Vite dev server (mock or real depending on `VITE_MOCK_MODE`) |
+| `frontend/` | `npm run dev:api` | The backend's API with hot reload |
+| `frontend/` | `npm run dev:full` | Both together |
+| `frontend/` | `npm run build` / `type-check` | Production bundle / TypeScript check |
+| `backend/` | `npm run dev` / `build` / `typecheck` / `test` | API dev server, compile to `backend/dist`, type-check, tests |
+| `backend/` | `npm run prisma:generate` / `prisma:push:safe` / `seed` | Prisma client, non-destructive schema sync, seed |
+| `backend/` | `npm run db:reset` | Drop the dev database and rebuild it from the seed |
+| `docker/` | `docker compose up -d --build` | Build and start the full stack (db + api + web + adminer) |
+| `docker/` | `docker compose down` | Stop the stack, keeping the data volumes |
+| `docker/` | `docker compose logs -f api web` | Follow the API and web logs |
+| `docker/` | `docker compose run --rm migrate` | Re-run schema sync + seed against the container database |
+| `docker/` | `docker compose down -v && docker compose up -d --build` | **Destructive** — drop the volumes and rebuild from scratch |
 
 > `db:reset` drops and rebuilds the Postgres schema (`prisma db push
 > --force-reset`) then re-runs the seed. The running API auto-reconnects.
@@ -148,7 +157,7 @@ Two files, both git-ignored, both with a committed `.example`:
 | File | Purpose |
 |---|---|
 | `.env` | Frontend. Copy from `.env.example`. |
-| `server/.env` | Backend. Copy from `server/.env.example`. |
+| `backend/.env` | Backend. Copy from `backend/.env.example`. |
 
 ### Mock mode
 
@@ -196,7 +205,7 @@ default secret anywhere in the codebase.
 
 ## Demo credentials
 
-Development seed data only. They exist in `server/prisma/seed.ts` and in the
+Development seed data only. They exist in `backend/prisma/seed.ts` and in the
 mock seed; never deploy with them.
 
 | Role | Email | Password |
@@ -244,8 +253,8 @@ the browser. Where Zoho's API offers no data (P&L, balance sheet, statement
 reconciliation), Books says so rather than approximating.
 
 ```bash
-# server/.env: ZBOOKS_CLIENT_ID, ZBOOKS_CLIENT_SECRET, ZBOOKS_REDIRECT_URI, ZBOOKS_ENCRYPTION_KEY
-npm --prefix server test -- src/modules/books   # OAuth, tokens, RBAC, resources, sync, reports
+# backend/.env: ZBOOKS_CLIENT_ID, ZBOOKS_CLIENT_SECRET, ZBOOKS_REDIRECT_URI, ZBOOKS_ENCRYPTION_KEY
+npm --prefix backend test -- src/modules/books   # OAuth, tokens, RBAC, resources, sync, reports
 ```
 
 Full documentation: `docs/books-zoho/README.md`.
@@ -255,14 +264,14 @@ Full documentation: `docs/books-zoho/README.md`.
 The Tools page, its search, the `/tools/:toolId` workspace routes and the
 permission checks all render from one registry
 (`src/modules/tools/registry.ts`, mirrored for enforcement in
-`server/src/modules/tools/registry.ts`). Adding a tool is `status: 'active'`
+`backend/src/modules/tools/registry.ts`). Adding a tool is `status: 'active'`
 in both files plus its implementation in
-`server/src/modules/tools/runner.ts`.
+`backend/src/modules/tools/runner.ts`.
 
 All 18 are live. The six **compliance converters** — GST JSON ⇄ Excel, Bank
 Statement to Excel, Form 26AS to Excel, Excel to Tally XML, TDS Text/FVU
 Generator, Invoice to e-Invoice JSON — are in
-`server/src/modules/tools/services/tools/ComplianceService.ts`. They never
+`backend/src/modules/tools/services/tools/ComplianceService.ts`. They never
 default a missing column to zero, and every row they cannot read is listed
 with its source row number and the reason, on a `Skipped` sheet or in the
 job's warning. Two things they are deliberately not: the FVU tool writes the
@@ -275,13 +284,13 @@ system binaries that must be on `PATH`: **LibreOffice** (`soffice` —
 Excel/Word ⇄ PDF), **Ghostscript** (`gs` — compress, decrypt) and **poppler**
 (`pdftoppm` — thumbnails, OCR rasters). The six compliance converters need
 none of them — they are pure JS and run wherever Node does. OCR uses tesseract.js; English language data is downloaded once
-and cached under `server/uploads/ocr-cache/`. Files live under
-`server/uploads/tools/` through `StorageAdapter` (swap in S3/Supabase there).
+and cached under `backend/uploads/ocr-cache/`. Files live under
+`backend/uploads/tools/` through `StorageAdapter` (swap in S3/Supabase there).
 
 ```bash
-npm --prefix server run seed:tools   # sync the tool catalogue tables from the registry
+npm --prefix backend run seed:tools   # sync the tool catalogue tables from the registry
 node scripts/verify-tools.mjs        # headless end-to-end run of the document + PDF tools
-npx tsx server/src/modules/tools/__tests__/smoke.ts   # service-level checks on the fixtures
+npx tsx backend/src/modules/tools/__tests__/smoke.ts   # service-level checks on the fixtures
 ```
 
 Notes for the firm: **e-Sign PDF** applies a visible approval mark and is
@@ -369,7 +378,7 @@ Employee creates ──► Manager approval ──► Finance approval ──►
 
 ## Database
 
-One unified Prisma schema — `server/prisma/schema.prisma`. There is exactly
+One unified Prisma schema — `backend/prisma/schema.prisma`. There is exactly
 one `User`, one `Employee`, one `Role`, one `ExpenseCategory` and one payroll
 model. Where Part 1 and Part 2 both described an entity, the Part 1 domain
 shape won (it is what the shipped frontend consumes) and Part 2's useful
@@ -389,8 +398,8 @@ Conventions the schema enforces:
   employee, and an exited employee keeps their records without a login.
 
 The active provider is **PostgreSQL 16** in both development and production;
-locally it runs in Docker (see `docker-compose.yml` and the Docker section
-below). The Books invariants layer (`server/src/modules/books/db/invariants.ts`)
+locally it runs in Docker (see `docker/docker-compose.yml` and the Docker section
+below). The Books invariants layer (`backend/src/modules/books/db/invariants.ts`)
 dispatches to the matching SQL file, so schema-level rules stay in one place.
 
 ### Docker
@@ -413,7 +422,7 @@ empty database.
 Uploaded files (client documents, tool outputs, chat attachments) live in the
 `auditos-uploads` volume, so they survive `down` alongside the database.
 
-**What the API image does and does not carry.** `server/Dockerfile` installs
+**What the API image does and does not carry.** `backend/Dockerfile` installs
 `openssl` and `ca-certificates` only. Everything in Tools that is pure JS
 works in the container — including all six compliance converters, which was
 the point of building them without a native dependency. The tools that shell
@@ -422,7 +431,7 @@ page thumbnails need `soffice`, `gs` and `pdftoppm`, none of which are in the
 image, and they fail with `engine_unavailable` in the Docker stack. They work
 in the native workflow (`npm run dev:full`) on a machine that has them. Adding
 LibreOffice to the image costs roughly 500 MB, so whether to do that or run
-those conversions in a sidecar is an open decision — `AUDIT_OS_TOOLS.md` §16.9.
+those conversions in a sidecar is an open decision — `docs/AUDIT_OS_TOOLS.md` §16.9.
 
 Ports are 55432 / 58080 rather than 5432 / 8080 to avoid clashing with a
 native Postgres install or an existing Adminer. Every host port is
@@ -456,9 +465,10 @@ Two databases are created on first start: `auditos` (dev) and `auditos_test`
 #### Rebuilding after a change
 
 ```bash
-npm run docker:up        # rebuilds changed layers and restarts
-npm run docker:seed      # re-apply the schema and seed only
-npm run docker:reset     # DESTRUCTIVE: drops the volumes, rebuilds from scratch
+cd docker
+docker compose up -d --build                             # rebuilds changed layers and restarts
+docker compose run --rm migrate                          # re-apply the schema and seed only
+docker compose down -v && docker compose up -d --build   # DESTRUCTIVE: drops the volumes, rebuilds
 ```
 
 ---

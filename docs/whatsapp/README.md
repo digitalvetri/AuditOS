@@ -35,7 +35,7 @@ opens the chat, and tells you to drag the file in.
    - Submit it and wait until its status is **Approved**.
 6. **Payment method.** Add one in WhatsApp Manager. Meta charges per conversation; utility rates for India are listed on Meta's pricing page.
 
-## Audit OS settings (`server/.env`, then restart the API)
+## Audit OS settings (`backend/.env`, then restart the API)
 
 ```
 WHATSAPP_TOKEN=<permanent system-user token>

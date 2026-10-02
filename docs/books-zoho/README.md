@@ -25,7 +25,7 @@ The browser never sees a Zoho client secret, access token or refresh token.
    - **Server-based Application**. Set its redirect URI to exactly `https://<api-host>/api/books/callback`
      (locally `http://localhost:<api-port>/api/books/callback`). Any difference, including a trailing
      slash, `https` vs `http` or another port, makes Zoho answer "Invalid Redirect Uri".
-2. Set these variables on the API server (see `server/.env.example`):
+2. Set these variables on the API server (see `backend/.env.example`):
 
    | Variable | Purpose |
    |---|---|
@@ -108,7 +108,7 @@ send those fields only when it is true. INR currency alone is not enough.
 
 ## What is supported
 
-The resources are defined in `server/src/modules/books/entities.ts`, and the routes are generic over that table.
+The resources are defined in `backend/src/modules/books/entities.ts`, and the routes are generic over that table.
 
 | Section | Zoho resource | Operations |
 |---|---|---|
@@ -200,7 +200,7 @@ The following are written to the platform `AuditLog`:
 
 ## Tests
 
-`server/src/modules/books/__tests__/books.test.ts` runs the real app against a fake Zoho. It covers:
+`backend/src/modules/books/__tests__/books.test.ts` runs the real app against a fake Zoho. It covers:
 - OAuth start, callback, invalid state, refused code and untrusted data centre
 - token refresh, revoked grants, retry after a 401, and disconnect
 - RBAC and duplicate client mapping

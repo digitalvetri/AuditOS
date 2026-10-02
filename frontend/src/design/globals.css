@@ -1,0 +1,1460 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/*
+ * Base layer — locked to §7. Every figure inherits tabular numerals,
+ * so acceptance criterion "every number, date and duration uses tabular
+ * numerals" passes without per-component wiring.
+ */
+@layer base {
+  :root {
+    color-scheme: light;
+  }
+
+  /*
+   * Palette triplets consumed by tailwind.config.ts as rgb(var(--c-x) / a).
+   * Light is the design-system default; dark swaps every token in one place.
+   * The theme is an attribute on <html>, set before first paint by index.html
+   * and toggled by src/platform/theme/theme.ts.
+   */
+  :root {
+    --c-white: 255 255 255;
+    --c-black: 0 0 0;
+    /* Navy rail per practice-overview mockup. Active row uses a lighter
+       navy pill; text stays white throughout so the existing Sidebar.tsx
+       markup (which uses text-sidebarText for both active and idle rows)
+       still reads correctly on both states. */
+    --c-sidebar: 15 34 73;
+    --c-sidebarHover: 26 48 96;
+    --c-sidebarActive: 42 71 137;
+    --c-sidebarText: 255 255 255;
+    --c-sidebarMuted: 148 163 196;
+    --c-canvas: 247 246 242;
+    --c-surface: 255 255 255;
+    --c-border: 232 230 223;
+    --c-ink: 26 26 24;
+    --c-inkMuted: 107 107 99;
+    --c-inkFaint: 154 154 144;
+    --c-danger: 179 58 43;
+    --c-warning: 200 149 46;
+    --c-success: 79 107 82;
+    --c-red: 179 58 43;
+    --c-amber: 200 149 46;
+    --c-neutral-50: 250 249 247;
+    --c-neutral-100: 243 241 237;
+    --c-neutral-200: 230 226 219;
+    --c-neutral-300: 208 202 191;
+    --c-neutral-400: 168 161 150;
+    --c-neutral-500: 122 115 106;
+    --c-neutral-600: 88 82 73;
+    --c-neutral-700: 63 58 51;
+    --c-neutral-800: 40 37 31;
+    --c-neutral-900: 23 21 18;
+    --c-gold: 38 100 231;
+    --c-gold-hover: 29 84 199;
+    /* Primary ACTION surface — the sidebar navy, so a button and the
+       rail read as the same brand. Hover lifts to --c-sidebarActive
+       rather than darkening, because the base is already near-black. */
+    --c-primary: 15 34 73;
+    --c-primary-hover: 42 71 137;
+  }
+  :root[data-theme="dark"] {
+    --c-white: 31 30 27;
+    --c-black: 0 0 0;
+    --c-neutral-50: 27 26 23;
+    --c-neutral-100: 36 35 32;
+    --c-neutral-200: 52 50 45;
+    --c-neutral-300: 74 71 63;
+    --c-neutral-400: 122 117 106;
+    --c-neutral-500: 162 156 144;
+    --c-neutral-600: 196 191 180;
+    --c-neutral-700: 218 214 205;
+    --c-neutral-800: 234 231 224;
+    --c-neutral-900: 243 241 236;
+    /* Dark theme keeps the navy rail identity; nudged a shade darker so it
+       still reads as the surface just above the canvas. */
+    --c-sidebar: 12 26 55;
+    --c-sidebarHover: 22 40 78;
+    --c-sidebarActive: 36 62 121;
+    --c-sidebarText: 237 235 229;
+    --c-sidebarMuted: 148 163 196;
+    --c-canvas: 21 20 18;
+    --c-surface: 31 30 27;
+    --c-border: 53 51 46;
+    --c-ink: 237 235 229;
+    --c-inkMuted: 168 163 153;
+    --c-inkFaint: 124 119 110;
+    --c-danger: 224 104 90;
+    --c-warning: 217 166 74;
+    --c-success: 127 163 131;
+    --c-gold: 66 133 244;
+    --c-gold-hover: 96 156 255;
+    /* On a near-black canvas the light theme's #0F2249 would read as
+       a hole, so dark starts at the active shade and lifts. */
+    --c-primary: 42 71 137;
+    --c-primary-hover: 58 94 176;
+    --c-red: 224 104 90;
+    --c-amber: 217 166 74;
+    color-scheme: dark;
+  }
+
+  html {
+    font-family:
+      'Inter Variable', 'Inter', ui-sans-serif, system-ui, -apple-system,
+      'Segoe UI', sans-serif;
+    font-feature-settings: 'ss01', 'cv11';
+    /* Anchor 1rem = 16px regardless of the user's browser default text
+       size. Without this, someone who bumped Chrome to 18px default sees
+       a bigger app than someone on Firefox at 16px. */
+    font-size: 16px;
+    /* Reserve the scrollbar gutter permanently so Chrome (overlay
+       scrollbars) and Firefox (classic scrollbars) don't disagree by
+       ~15px on the content width. */
+    scrollbar-gutter: stable;
+    /* Stop iOS Safari from inflating text in landscape. */
+    -webkit-text-size-adjust: 100%;
+    text-size-adjust: 100%;
+  }
+
+  body {
+    background-color: rgb(var(--c-neutral-50));
+    color: rgb(var(--c-neutral-900));
+    font-size: 13px;
+    line-height: 20px;
+    font-weight: 400;
+    font-variant-numeric: tabular-nums;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    /* Match native form controls (checkbox, radio, range) to the brand
+       so Firefox's blue and Safari's dark don't diverge. */
+    accent-color: rgb(var(--c-primary));
+    min-height: 100vh;
+  }
+
+  /* Never let a browser default push text below neutral-400. */
+  ::placeholder {
+    color: rgb(var(--c-neutral-400));
+  }
+
+  /* Focus ring — one gold, single style. */
+  :focus-visible {
+    outline: 2px solid rgb(var(--c-gold));
+    outline-offset: 1px;
+  }
+
+  /* Remove default h-tag inflation; type scale is applied explicitly. */
+  h1, h2, h3, h4, h5, h6 {
+    font-size: inherit;
+    font-weight: inherit;
+    margin: 0;
+  }
+}
+
+/* ════════════════════════════════════════════════════════════════════════
+   THE QUOTATION DOCUMENT
+   One stylesheet for the live preview, the on-screen document and the
+   printed page. There is no second "print layout": the pages you see are
+   real paper-sized pages, and printing hands the browser exactly those.
+   ════════════════════════════════════════════════════════════════════════ */
+
+/* Holds the scaled paper. A transform does not shrink the layout box, so this
+   wrapper carries the document's measured height times the scale on screen —
+   that is what makes the preview's scroll end on the last page instead of in
+   a field of white. Screen only; print resets it. */
+.qdoc-scaler { position: relative; width: 100%; }
+
+.qdoc-stack {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 16px;
+  color: #111827;
+  font-size: var(--qd-font-size, 10.5pt);
+  line-height: var(--qd-line-height, 1.55);
+}
+
+/* Off-screen twin used only to measure block heights for pagination. */
+.qdoc-measure {
+  position: absolute;
+  visibility: hidden;
+  pointer-events: none;
+  left: -10000px;
+  top: 0;
+  z-index: -1;
+}
+
+.qdoc-page {
+  position: relative;
+  background: #fff;
+  box-shadow: 0 1px 3px rgb(0 0 0 / 0.12), 0 6px 20px rgb(0 0 0 / 0.08);
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+}
+
+.qdoc-body { flex: 1 1 auto; }
+
+/* Doc: optional company header — centred, in flow, ruled off from the letter. */
+.qdoc-company-header { text-align: center; line-height: 1.45; font-size: 0.95em; padding-bottom: 8px; margin-bottom: 14px; border-bottom: 1px solid #9ca3af; }
+.qdoc-company-header-name { font-weight: 700; font-size: 1.35em; letter-spacing: 0.02em; margin-bottom: 2px; }
+
+.qdoc-block + .qdoc-block { margin-top: 10px; }
+.qdoc-section + .qdoc-section { margin-top: 12px; }
+
+.qdoc-logo { height: 42px; width: auto; margin-bottom: 6px; }
+
+.qdoc-company-name {
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  font-size: calc(var(--qd-font-size) * 1.15);
+}
+
+.qdoc-muted { color: #6b7280; }
+.qdoc-label { color: #6b7280; font-weight: 600; }
+.qdoc-detail { font-size: 0.9em; }
+.qdoc-empty { font-style: italic; }
+
+.qdoc-rule { border-bottom: 1.5px solid #111827; margin-top: 8px; width: 100%; }
+.qdoc-header-bar { border-bottom: 3px solid #111827; padding-bottom: 8px; }
+
+.qdoc-title {
+  text-align: center;
+  font-weight: 700;
+  letter-spacing: 0.18em;
+  font-size: calc(var(--qd-font-size) * var(--qd-heading-scale));
+  margin-top: 12px;
+}
+.qdoc-title .qdoc-code {
+  display: block;
+  letter-spacing: 0.06em;
+  font-weight: 500;
+  color: #6b7280;
+  font-size: calc(var(--qd-font-size) * 0.85);
+}
+
+.qdoc-meta { display: flex; flex-wrap: wrap; gap: 4px 24px; }
+.qdoc-subject { margin-top: 2px; font-weight: 600; }
+
+.qdoc-heading {
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  font-size: calc(var(--qd-font-size) * 1.05);
+  margin-bottom: 4px;
+}
+
+.qdoc-p { white-space: pre-line; margin: 0; }
+
+.qdoc-list {
+  margin: 4px 0 0;
+  padding-left: 18px;
+  /* Tailwind's preflight strips list markers; a Nature of Work section
+     without bullets is not the document the reference shows. */
+  list-style: disc outside;
+}
+.qdoc-list li { margin-bottom: 2px; }
+
+.qdoc-kv { border-collapse: collapse; }
+.qdoc-kv td { padding: 2px 0; vertical-align: top; }
+.qdoc-kv td:first-child { width: 130px; padding-right: 12px; }
+
+.qdoc-table { width: 100%; border-collapse: collapse; }
+.qdoc-table th,
+.qdoc-table td { padding: 5px 8px; vertical-align: top; text-align: left; }
+.qdoc-table th {
+  font-weight: 700;
+  font-size: 0.92em;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.qdoc-table .qdoc-right { text-align: right; }
+.qdoc-w-sl { width: 48px; }
+.qdoc-w-freq { width: 150px; }
+.qdoc-w-fee { width: 120px; }
+/* Compliance fees table: every heading fits in at most two lines ("SL. NO"
+   in one). Narrower columns stacked the headings three lines deep, which
+   made the header row tall and the table look long. */
+.qdoc-fee-table .qdoc-w-sl { width: 70px; white-space: nowrap; }
+.qdoc-fee-table .qdoc-w-freq { width: 200px; }
+/* Two-line headings at the body's relaxed line spacing made the header row
+   as tall as three rows; headings are set tight. */
+.qdoc-fee-table thead th { line-height: 1.2; padding-top: 4px; padding-bottom: 4px; vertical-align: middle; }
+
+.qdoc-table-lined th,
+.qdoc-table-lined td { border: 1px solid #111827; }
+.qdoc-table-striped thead th { border-bottom: 1.5px solid #111827; }
+.qdoc-table-striped tbody tr:nth-child(even) { background: #f3f4f6; }
+.qdoc-table-plain thead th { border-bottom: 1px solid #9ca3af; }
+.qdoc-table-plain tbody td { border-bottom: 1px solid #e5e7eb; }
+
+/* Client table above the fees: same style, a gap, never split from the fees. */
+.qdoc-client-table { margin-bottom: 10px; table-layout: fixed; break-after: avoid; page-break-after: avoid; }
+.qdoc-client-table td { overflow-wrap: anywhere; }
+.qdoc-keep-together { break-inside: avoid; page-break-inside: avoid; }
+
+.qdoc-total-line {
+  display: flex;
+  justify-content: space-between;
+  font-weight: 700;
+  border-top: 1.5px solid #111827;
+  margin-top: -1px;
+  padding: 6px 8px;
+}
+
+.qdoc-totals { margin-left: auto; width: 260px; margin-top: 8px; }
+.qdoc-total-row { display: flex; justify-content: space-between; padding: 2px 0; }
+.qdoc-total-strong {
+  font-weight: 700;
+  border-top: 1px solid #111827;
+  margin-top: 4px;
+  padding-top: 6px;
+}
+
+.qdoc-closing { margin-top: 18px; }
+.qdoc-signer { font-weight: 600; margin-top: 12px; }
+
+.qdoc-footer {
+  margin-top: 12px;
+  padding-top: 6px;
+  border-top: 1px solid #e5e7eb;
+  font-size: 0.85em;
+  color: #6b7280;
+  text-align: center;
+}
+
+@media print {
+  /* The page divs ARE the paper, so the printer must not add its own
+     margin on top of theirs — that is what makes print match preview. */
+  @page { margin: 0; }
+
+  html, body { background: #fff !important; min-height: 0; }
+  body { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+
+  .qdoc-stack {
+    gap: 0;
+    transform: none !important;
+  }
+  /* The scale wrapper is a screen device. Its height was computed for the
+     scaled preview; left standing it would reserve that space on paper and
+     can cost a blank sheet. */
+  .qdoc-scaler { height: auto !important; }
+  /* The measuring twin is layout, not paper. `visibility: hidden` keeps its
+     box — and an absolutely positioned box taller than one sheet is still
+     paginated, so a one-page invoice whose unbroken measure column runs past
+     the bottom ejected a blank second sheet. Only `display: none` removes it.
+     Unscoped on purpose: it must go whether or not the print was started
+     through `qdoc-printing`, and /preview's own Print button is not. */
+  .qdoc-measure { display: none !important; }
+
+  .qdoc-page {
+    box-shadow: none;
+    break-after: page;
+    page-break-after: always;
+    /* The sheets are separated by the stack's gap, which is zeroed above. A
+       margin here has nowhere to go but onto the next sheet: it pushes the
+       page past the bottom and the printer ejects a blank one behind it.
+       !important because an inline style would otherwise outrank this. */
+    margin: 0 !important;
+  }
+  .qdoc-page:last-child {
+    break-after: auto;
+    page-break-after: auto;
+  }
+  /* Anything that is not the document is not paper. */
+  .qdoc-print-hide { display: none !important; }
+}
+
+/* The print-only copy of the document; never on screen. */
+.qdoc-print-root { display: none; }
+@media print { html.qdoc-printing .qdoc-print-root { display: block; } }
+
+/* ── The builder's preview pane ─────────────────────────────────────────── */
+.qb-preview {
+  background: rgb(var(--c-neutral-100, 243 244 246));
+  border: 1px solid rgb(var(--c-neutral-200, 229 231 235));
+  border-radius: 6px;
+  padding: 12px 4px;
+  overflow: auto;
+  max-height: calc(100dvh - 190px);
+}
+
+@media print {
+  /* Print ONLY the document, from wherever it is rendered — including the
+     builder, where the CRM shell and the editor surround it. Visibility
+     rather than display, so the page keeps its layout box and the document
+     lands at the top-left of the sheet. */
+  html.qdoc-printing body * { visibility: hidden !important; }
+  html.qdoc-printing .qdoc-stack,
+  html.qdoc-printing .qdoc-stack * { visibility: visible !important; }
+  html.qdoc-printing .qdoc-stack {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 100%;
+  }
+  /* printDocumentOnly() (modules/workstation/print.ts) prints a copy of the
+     document placed directly under <body>. The app itself is taken out of the
+     print layout, not just hidden: printed in place, the builders' preview
+     column sheet came out blank, and the invisible shell still cost a sheet. */
+  html.qdoc-printing:has(.qdoc-print-root) body > *:not(.qdoc-print-root) { display: none !important; }
+  html.qdoc-printing .qb-preview {
+    overflow: visible !important;
+    max-height: none !important;
+    border: 0 !important;
+    padding: 0 !important;
+    background: #fff !important;
+  }
+  /* Editor chrome never reaches paper. */
+  .qdoc-screen-only { display: none !important; }
+}
+
+/* ── Engagement letter: direct editing on the page ───────────────────────
+   The page must read as a finished letter until it is touched: no boxes, no
+   inputs. A faint outline on hover says "this is editable"; a slightly
+   stronger one while typing. Every editing affordance is screen-only. */
+.el-edit { outline: none; border-radius: 2px; transition: box-shadow 120ms, background-color 120ms; cursor: text; }
+/* The page is shown scaled down (~0.6), which thins any outline to almost
+   nothing — so the cues are drawn heavier than they will look, and the
+   field being edited gets a tint that reads even at small sizes. */
+.el-editing .el-edit:hover { box-shadow: 0 0 0 2px rgb(59 130 246 / 0.55); background: rgb(59 130 246 / 0.06); }
+.el-edit:focus { box-shadow: 0 0 0 2.5px rgb(37 99 235 / 0.9); background: rgb(59 130 246 / 0.12); }
+.el-edit:empty::before, .el-empty[data-placeholder]:empty::before {
+  content: attr(data-placeholder); color: #9ca3af; font-style: italic; pointer-events: none;
+}
+/* Keep an empty inline field clickable. */
+span.el-edit:empty { display: inline-block; min-width: 2.5em; }
+.el-line { min-height: 1.55em; }
+.el-editing .el-ph { background: rgb(234 179 8 / 0.16); border-radius: 2px; padding: 0 1px; cursor: default; }
+.el-editing .el-ph-missing { color: #b45309; }
+.el-date { font: inherit; color: inherit; background: none; border: 0; padding: 0; }
+
+/* Block controls sit in the page's left margin, shown on hover. */
+.el-gutter {
+  position: absolute; left: -36px; top: 0; display: flex; flex-direction: column; gap: 2px;
+  opacity: 0; transition: opacity 120ms; z-index: 5;
+}
+.el-unit:hover > .el-gutter, .el-feerow:hover > .el-gutter, .el-gutter:focus-within { opacity: 1; }
+.el-feerow > .el-gutter { flex-direction: row; left: auto; right: 100%; margin-right: 6px; }
+
+.el-space { box-sizing: border-box; }
+.el-space::after { content: ''; position: absolute; inset: -6px 0; }
+.el-space:hover { outline: 1px dashed rgb(59 130 246 / 0.5); outline-offset: -1px; }
+.el-space-bar {
+  position: absolute; right: 0; top: 50%; transform: translateY(-50%); z-index: 6;
+  display: none; align-items: center; gap: 2px; padding: 2px 4px;
+  background: #fff; border: 1px solid #e5e7eb; border-radius: 4px; font-size: 11px; color: #6b7280;
+}
+.el-space:hover .el-space-bar, .el-space-bar:focus-within { display: flex; }
+.el-addfee { font-size: 0.9em; color: #2563eb; background: none; border: 0; padding: 0; cursor: pointer; }
+.el-addfee:hover { text-decoration: underline; }
+
+@media print {
+  .el-edit, .el-edit:hover, .el-edit:focus { box-shadow: none !important; background: none !important; }
+  .el-edit:empty::before, .el-empty::before { content: none !important; }
+  .el-empty { display: none !important; }
+  .el-ph { background: none !important; padding: 0 !important; color: inherit !important; }
+}
+
+/* ── Engagement letter: the firm's Word templates ────────────────────────
+   Letters made from the Word templates (engagement/templates.ts) are set in
+   points exactly as Word set the originals. Tinos and Carlito are metric
+   twins of Times New Roman and Calibri, bundled so a machine without the
+   Office fonts still breaks every line at the same word. Kerning and
+   ligatures are off because Word applies neither by default — left on, the
+   browser fits a few more letters per line and the wrapping drifts. */
+@font-face { font-family: 'EL Tinos'; src: url('/fonts/Tinos-Regular.ttf') format('truetype'); font-weight: 400; font-style: normal; font-display: swap; }
+@font-face { font-family: 'EL Tinos'; src: url('/fonts/Tinos-Bold.ttf') format('truetype'); font-weight: 700; font-style: normal; font-display: swap; }
+@font-face { font-family: 'EL Tinos'; src: url('/fonts/Tinos-Italic.ttf') format('truetype'); font-weight: 400; font-style: italic; font-display: swap; }
+@font-face { font-family: 'EL Tinos'; src: url('/fonts/Tinos-BoldItalic.ttf') format('truetype'); font-weight: 700; font-style: italic; font-display: swap; }
+@font-face { font-family: 'EL Carlito'; src: url('/fonts/Carlito-Regular.ttf') format('truetype'); font-weight: 400; font-style: normal; font-display: swap; }
+@font-face { font-family: 'EL Carlito'; src: url('/fonts/Carlito-Bold.ttf') format('truetype'); font-weight: 700; font-style: normal; font-display: swap; }
+
+.el-word { font-kerning: none; font-variant-ligatures: none; }
+.el-word .qdoc-page { box-sizing: border-box; }
+/* Lines keep their typed spaces, as Word does; an empty line is one row tall
+   from its placeholder alone, never the classic look's taller minimum. */
+.el-word .el-line { min-height: 0; white-space: pre-wrap; }
+/* Editing highlights must not change a single width, or a line re-wraps. */
+.el-word.el-editing .el-ph { padding: 0; }
+.el-word .el-date { line-height: inherit; }
+.el-word sup { font-size: 0.636em; vertical-align: baseline; position: relative; top: -0.42em; line-height: 0; }
+.el-word-h { text-decoration-thickness: 1.1pt; text-underline-offset: 1.4pt; }
+/* A paragraph's lead-in bullet (Word's Symbol bullet at 15.8pt), on the
+   text's baseline. */
+.el-lead { position: absolute; top: -1.3pt; font-size: 1.328em; line-height: inherit; }
+.el-table td { padding-bottom: 0; }
+
+/* Page break marker: editor only, takes no room on the page. */
+.el-pagebreak {
+  position: absolute; left: 0; right: 0; top: 2px; z-index: 5;
+  display: flex; align-items: center; gap: 6px;
+  border-top: 1px dashed rgb(59 130 246 / 0.55);
+  font: 11px/1.2 system-ui, sans-serif; color: rgb(59 130 246);
+  opacity: 0.55; transition: opacity 120ms;
+}
+.el-pagebreak span { background: #fff; padding: 0 4px; margin-top: -1px; }
+.el-pagebreak:hover { opacity: 1; }
+/* The client company where a template sets it apart (EPR: pasted at 10.5pt). */
+.el-word [data-ph="company_name"], .el-word [data-ph="company_name_caps"] {
+  font-size: var(--el-company-size, inherit); color: var(--el-company-color, inherit);
+}
+
+/* Sidebar menu: scrolls with the wheel or touch, but shows no scrollbar. */
+.sidebar-scroll { scrollbar-width: none; -ms-overflow-style: none; }
+.sidebar-scroll::-webkit-scrollbar { display: none; }
+
+/* ── Workstation registers: floating rows ─────────────────────────────────
+   Every row of a register table is its own white card on the page, under a
+   tinted header strip (ListTable in modules/workstation/listUi.tsx). The
+   card that holds such a table drops its own frame, so the rows float
+   directly on the page; its title, if any, becomes a plain heading. */
+.ws-card:has(> .ws-float) { background: transparent; border-color: transparent; overflow: visible; }
+.ws-card:has(> .ws-float) > .ws-card-title { border-bottom: 0; padding: 4px 4px 2px; }
+/* Room for the row shadows and the hover lift inside the scroll box. */
+.ws-float { padding: 0 3px 6px; margin: 0 -3px; }
+.ws-float table { border-collapse: separate; border-spacing: 0 8px; margin-top: -8px; }
+.ws-float thead tr { border: 0; }
+.ws-float thead th {
+  /* The sidebar's navy as a soft top-to-bottom gradient (lighter than the
+     rail itself), with a faint sheen along the top; labels in white. The
+     gradient runs vertically, so every cell carries the same slice and the
+     strip reads as one piece. */
+  background:
+    linear-gradient(180deg, rgb(255 255 255 / 0.08), transparent 55%),
+    linear-gradient(180deg, #2a4f8f 0%, #1b3a6f 100%);
+  color: rgb(255 255 255 / 0.9);
+  font-size: 11px; font-weight: 500; text-transform: uppercase; letter-spacing: 0.08em;
+}
+.ws-float thead th:first-child { border-radius: 10px 0 0 10px; }
+.ws-float thead th:last-child { border-radius: 0 10px 10px 0; }
+.ws-float tbody tr {
+  border: 0;
+  /* One shadow for the whole row, as a plain box-shadow. Not a `filter`
+     or `transform` on the <tr>: those make Chrome's GPU compositor paint
+     stray fragments of the next row's text into the gap. Not per cell
+     either: each cell's shadow bleeds under its neighbour as a seam. The
+     negative spread keeps it inside the rounded ends. */
+  box-shadow: 0 5px 10px -6px rgb(15 23 42 / 0.14);
+  transition: box-shadow 120ms ease;
+}
+.ws-float tbody td {
+  background: #fff;
+  border-top: 1px solid rgb(229 231 235 / 0.8);
+  border-bottom: 1px solid rgb(229 231 235 / 0.8);
+  padding-top: 14px; padding-bottom: 14px;
+  transition: border-color 120ms ease;
+}
+.ws-float tbody td:first-child { border-left: 1px solid rgb(229 231 235 / 0.8); border-radius: 10px 0 0 10px; }
+.ws-float tbody td:last-child { border-right: 1px solid rgb(229 231 235 / 0.8); border-radius: 0 10px 10px 0; }
+.ws-float tbody tr[tabindex]:hover td,
+.ws-float tbody tr[tabindex]:focus-visible td { border-color: rgb(var(--c-primary) / 0.28); background: #fff; }
+.ws-float tbody tr[tabindex]:hover,
+.ws-float tbody tr[tabindex]:focus-visible { box-shadow: 0 8px 16px -8px rgb(15 23 42 / 0.22); }
+
+/* HRMS tables (`table.hr-float`) float the same way as the Workstation
+   registers above. From tablet width up only: on a phone these tables
+   already become stacked cards (mobile.css `.m-cards`). The box that
+   directly holds the table drops its frame so the rows sit on the page. */
+@media (min-width: 768px) {
+  :has(> table.hr-float) {
+    background: transparent !important; border-color: transparent !important; box-shadow: none !important;
+    overflow-x: auto !important; padding: 0 3px 6px; margin-left: -3px; margin-right: -3px;
+  }
+  table.hr-float { border-collapse: separate !important; border-spacing: 0 8px; margin-top: -8px; }
+  table.hr-float thead tr, table.hr-float tbody tr { border: 0 !important; }
+  table.hr-float thead th {
+    background:
+      linear-gradient(180deg, rgb(255 255 255 / 0.08), transparent 55%),
+    linear-gradient(180deg, #2a4f8f 0%, #1b3a6f 100%) !important;
+    color: rgb(255 255 255 / 0.9) !important; border: 0 !important;
+    font-size: 11px; font-weight: 500; text-transform: uppercase; letter-spacing: 0.08em;
+    padding-top: 12px; padding-bottom: 12px;
+  }
+  table.hr-float thead th:first-child { border-radius: 10px 0 0 10px; padding-left: 20px; }
+  table.hr-float thead th:last-child { border-radius: 0 10px 10px 0; padding-right: 20px; }
+  table.hr-float tbody td {
+    background: #fff !important;
+    border-top: 1px solid rgb(229 231 235 / 0.8) !important;
+    border-bottom: 1px solid rgb(229 231 235 / 0.8) !important;
+    border-left-width: 0; border-right-width: 0;
+    padding-top: 12px; padding-bottom: 12px;
+    transition: border-color 120ms ease;
+  }
+  /* Row shadow — see `.ws-float tbody tr` for why it is a plain box-shadow. */
+  table.hr-float tbody tr { box-shadow: 0 5px 10px -6px rgb(15 23 42 / 0.14); transition: box-shadow 120ms ease; }
+  table.hr-float tbody tr.cursor-pointer:hover { box-shadow: 0 8px 16px -8px rgb(15 23 42 / 0.22); }
+  table.hr-float tbody td:first-child, table.hr-float thead th:first-child { white-space: nowrap; }
+  table.hr-float tbody td:first-child { border-left: 1px solid rgb(229 231 235 / 0.8) !important; border-radius: 10px 0 0 10px; padding-left: 20px; }
+  table.hr-float tbody td:last-child { border-right: 1px solid rgb(229 231 235 / 0.8) !important; border-radius: 0 10px 10px 0; padding-right: 20px; }
+  table.hr-float tbody tr.cursor-pointer:hover td { border-color: rgb(var(--c-primary) / 0.28) !important; }
+}
+
+/* Sidebar rail: deep navy running lighter towards the foot, with a faint
+   glow behind the brand — the brand navy, given depth. */
+.sb-creative {
+  background:
+    radial-gradient(120% 40% at 0% 0%, rgb(255 255 255 / 0.06), transparent 60%),
+    linear-gradient(180deg, #0b1a3a 0%, #102552 45%, #173466 100%);
+}
+
+/* A shared Workstation Card whose body is a floating Table (components.tsx)
+   drops its frame the same way, from tablet width up. */
+@media (min-width: 768px) {
+  .ws-card:has(> .m-cards > table.hr-float) { background: transparent; border-color: transparent; overflow: visible; }
+  .ws-card:has(> .m-cards > table.hr-float) > .ws-card-title { border-bottom: 0; padding-left: 4px; padding-right: 4px; height: auto; padding-bottom: 6px; }
+}
+
+/* Primary buttons: the same soft navy gradient as the table header strips
+   (.ws-float / .hr-float thead), so every dark-blue action — Button
+   variant="primary", ListAction, and hand-written `bg-primary` buttons and
+   links — matches them. Only buttons and links: a `bg-primary` badge or
+   panel keeps its flat colour. The gradient is an image over the flat
+   colour, so the colour still shows while it loads and for print. */
+:is(button, a, [role='button']).bg-primary {
+  background-image:
+    linear-gradient(180deg, rgb(255 255 255 / 0.10), transparent 55%),
+    linear-gradient(180deg, #2a4f8f 0%, #1b3a6f 100%);
+  border-color: #1b3a6f;
+}
+:is(button, a, [role='button']).bg-primary:hover:not(:disabled) {
+  background-image:
+    linear-gradient(180deg, rgb(255 255 255 / 0.14), transparent 55%),
+    linear-gradient(180deg, #33599b 0%, #22437b 100%);
+}
+
+/* ── Grouped lists: floating rows ───────────────────────────────────────
+   A category of items (checklist templates, case checklists) set like the
+   Quotations register: the group loses its frame, its title becomes the
+   navy header strip, and every item floats as its own row card.
+     .fr-group — the container (a Card, or any section)
+     .fr-head  — its title bar (a Card's title is picked up automatically)
+     .fr-row   — each item */
+.fr-group { background: transparent !important; border-color: transparent !important; overflow: visible !important; }
+.fr-group > .ws-card-title, .fr-group > .fr-head {
+  background:
+    linear-gradient(180deg, rgb(255 255 255 / 0.08), transparent 55%),
+    linear-gradient(180deg, #2a4f8f 0%, #1b3a6f 100%);
+  border: 0 !important; border-radius: 10px;
+}
+.fr-group > .ws-card-title *, .fr-group > .fr-head * { color: rgb(255 255 255 / 0.92) !important; border-color: rgb(255 255 255 / 0.35) !important; }
+.fr-group > .ws-card-title .text-red, .fr-group > .fr-head .text-red { color: #fecaca !important; }
+.fr-row {
+  background: #fff;
+  border: 1px solid rgb(229 231 235 / 0.8) !important;
+  border-radius: 10px;
+  margin-top: 8px;
+  box-shadow: 0 5px 10px -6px rgb(15 23 42 / 0.14);
+  transition: border-color 120ms ease, box-shadow 120ms ease;
+}
+.fr-row:hover { border-color: rgb(var(--c-primary) / 0.28) !important; box-shadow: 0 8px 16px -8px rgb(15 23 42 / 0.22); }
+
+/* One header-strip size everywhere: 40px tall, 11px uppercase labels on a
+   single line. Some tables brought their own padding or wrapped a long
+   label ("Joining date") onto two lines, which made their strip taller. */
+.ws-float thead th,
+table.hr-float thead th {
+  height: 40px !important;
+  padding-top: 0 !important; padding-bottom: 0 !important;
+  font-size: 11px !important; line-height: 1 !important; font-weight: 500 !important;
+  letter-spacing: 0.08em !important; text-transform: uppercase !important;
+  white-space: nowrap !important; vertical-align: middle !important;
+}
+.fr-group > .ws-card-title, .fr-group > .fr-head {
+  height: 40px !important; min-height: 40px !important;
+  padding-top: 0 !important; padding-bottom: 0 !important;
+}
+
+/* ── Glass cards (Doc, Tools) ───────────────────────────────────────────
+   Card grids set as frosted glass over the plain page: translucent white, the background blurred and saturated
+   through them, a bright hairline edge with a top highlight, and a layered
+   shadow that deepens as a card lifts on hover. */
+.doc-glass {
+  position: relative;
+  overflow: hidden;
+  /* Pure white — translucent glass let the warm page colour through as a
+     sandal tint. The rim, reflection and layered shadow keep the float. */
+  background: #fff;
+  border: 1px solid rgb(229 231 235 / 0.9);
+  box-shadow:
+    inset 0 1.5px 0 rgb(255 255 255 / 0.95),          /* top rim catching light */
+    inset 0 -1px 0 rgb(255 255 255 / 0.35),           /* soft bottom rim        */
+    inset 0 0 18px rgb(255 255 255 / 0.45),           /* inner glow             */
+    0 1px 2px rgb(15 23 42 / 0.06),
+    0 12px 28px -10px rgb(15 23 42 / 0.22),
+    0 28px 56px -26px rgb(30 58 138 / 0.30);
+  transition: transform 220ms cubic-bezier(.2,.8,.2,1), box-shadow 220ms ease, border-color 220ms ease;
+}
+/* A diagonal reflection across the glass, as on a real pane. */
+.doc-glass::before {
+  content: ''; position: absolute; inset: 0; pointer-events: none; border-radius: inherit;
+  background:
+    linear-gradient(115deg, rgb(255 255 255 / 0.55) 0%, rgb(255 255 255 / 0.12) 28%, transparent 46%),
+    radial-gradient(120% 60% at 0% 0%, rgb(255 255 255 / 0.35), transparent 60%);
+  opacity: 0.85; transition: opacity 220ms ease;
+}
+.doc-glass > * { position: relative; }
+/* Hover — or a link inside focused from the keyboard — outlines the card
+   in the brand's dark blue as it lifts. */
+.doc-glass:hover, .doc-glass:focus-within {
+  transform: translateY(-6px) scale(1.01);
+  border-color: rgb(var(--c-primary));
+  box-shadow:
+    0 0 0 1px rgb(var(--c-primary)),                  /* dark-blue outline (2px with the border) */
+    inset 0 1.5px 0 rgb(255 255 255 / 1),
+    inset 0 -1px 0 rgb(255 255 255 / 0.45),
+    inset 0 0 22px rgb(255 255 255 / 0.55),
+    0 2px 4px rgb(15 23 42 / 0.06),
+    0 22px 40px -14px rgb(15 23 42 / 0.28),
+    0 40px 70px -30px rgb(30 58 138 / 0.38);
+}
+.doc-glass:hover::before, .doc-glass:focus-within::before { opacity: 1; }
+
+/* ── Home dashboard ─────────────────────────────────────────────────────
+   Floating cards and rows, in the same family as the registers and the
+   glass cards: white, small curve, layered soft shadow. A card that is a
+   link lifts and takes the dark-blue outline on hover. */
+.dash-card {
+  background: #fff;
+  border: 1px solid rgb(229 231 235 / 0.8);
+  border-radius: 10px;
+  box-shadow: 0 1px 2px rgb(15 23 42 / 0.04), 0 10px 24px -12px rgb(15 23 42 / 0.16);
+}
+.dash-card-link { transition: transform 200ms cubic-bezier(.2,.8,.2,1), box-shadow 200ms ease, border-color 200ms ease; }
+.dash-card-link:hover, .dash-card-link:focus-visible {
+  transform: translateY(-4px);
+  border-color: rgb(var(--c-primary));
+  box-shadow: 0 0 0 1px rgb(var(--c-primary)), 0 2px 4px rgb(15 23 42 / 0.05), 0 18px 32px -14px rgb(15 23 42 / 0.26);
+}
+.dash-row {
+  background: #fff;
+  border: 1px solid rgb(229 231 235 / 0.8);
+  border-radius: 10px;
+  box-shadow: 0 4px 10px -6px rgb(15 23 42 / 0.14);
+  transition: transform 180ms cubic-bezier(.2,.8,.2,1), border-color 180ms ease, box-shadow 180ms ease;
+}
+/* Hovered (or keyboard-focused) message: a touch bigger, outlined in the
+   brand's dark blue, lifted a little further. */
+.dash-row:hover, a.dash-row:focus-visible {
+  position: relative; z-index: 1;
+  transform: scale(1.02);
+  border-color: rgb(var(--c-primary));
+  box-shadow: 0 0 0 1px rgb(var(--c-primary)), 0 12px 22px -10px rgb(15 23 42 / 0.28);
+}
+
+/* Dashboard hero: deep navy with a teal glow, like the reference banner. */
+.dash-hero {
+  background:
+    radial-gradient(60% 90% at 88% 50%, rgb(45 212 191 / 0.22), transparent 60%),
+    radial-gradient(40% 60% at 70% 110%, rgb(59 130 246 / 0.25), transparent 70%),
+    linear-gradient(135deg, #0b1a3a 0%, #102552 55%, #0f2f4f 100%);
+  box-shadow: 0 1px 2px rgb(15 23 42 / 0.10), 0 18px 36px -18px rgb(11 26 58 / 0.55);
+}
+.dash-orb {
+  position: absolute; right: 12%; top: 50%; width: 220px; height: 220px; transform: translateY(-50%);
+  border-radius: 9999px;
+  background: radial-gradient(circle at 35% 30%, rgb(255 255 255 / 0.20), rgb(255 255 255 / 0.03) 60%, transparent 70%);
+  box-shadow: inset 0 0 0 1px rgb(255 255 255 / 0.10), 0 0 60px rgb(45 212 191 / 0.25);
+}
+.dash-float {
+  position: absolute; display: inline-flex; align-items: center; justify-content: center;
+  width: 52px; height: 52px; border-radius: 14px; color: #fff;
+  background: linear-gradient(135deg, rgb(255 255 255 / 0.22), rgb(255 255 255 / 0.06));
+  -webkit-backdrop-filter: blur(10px); backdrop-filter: blur(10px);
+  border: 1px solid rgb(255 255 255 / 0.25);
+  box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.35), 0 12px 24px -10px rgb(0 0 0 / 0.45);
+}
+.dash-float-lg { display: block; width: 150px; height: auto; padding: 12px 14px; }
+
+/* Dashboard hero: audit instruments orbiting a shield. The satellites are
+   positioned every frame by AuditOrbit (modules/dashboardV2), which also
+   sets --heat (0–1: how close the cursor is) for the glow. */
+.audit-orbit { position: relative; width: 204px; height: 204px; }
+.audit-ring {
+  position: absolute; left: 50%; top: 50%; border-radius: 9999px; transform: translate(-50%, -50%);
+  border: 1px dashed rgb(255 255 255 / 0.18); pointer-events: none;
+}
+.audit-ring-outer { width: 168px; height: 168px; box-shadow: 0 0 40px rgb(45 212 191 / 0.12) inset; animation: audit-ring-turn 40s linear infinite; }
+.audit-ring-inner { width: 94px; height: 94px; border-style: dashed; border-color: rgb(255 255 255 / 0.14); animation: audit-ring-turn 26s linear infinite reverse; }
+/* A light streak sweeping round the outer ring. */
+.audit-ring-outer::after {
+  content: ''; position: absolute; inset: -2px; border-radius: 9999px;
+  background: conic-gradient(from 0deg, transparent 0 72%, rgb(94 234 212 / 0.0) 76%, rgb(94 234 212 / 0.95) 97%, transparent 100%);
+  -webkit-mask: radial-gradient(circle, transparent calc(50% - 2.5px), #000 calc(50% - 2px), #000 calc(50% - 0.5px), transparent 50%);
+          mask: radial-gradient(circle, transparent calc(50% - 2.5px), #000 calc(50% - 2px), #000 calc(50% - 0.5px), transparent 50%);
+  filter: drop-shadow(0 0 4px rgb(94 234 212 / 0.9));
+  animation: audit-ring-turn 3.6s linear infinite;
+}
+@keyframes audit-ring-turn { from { transform: translate(-50%, -50%) rotate(0deg); } to { transform: translate(-50%, -50%) rotate(360deg); } }
+.audit-ring-outer::after { animation-name: audit-streak; }
+@keyframes audit-streak { to { transform: rotate(360deg); } }
+.audit-core {
+  position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%);
+  width: 56px; height: 56px; border-radius: 18px; display: flex; align-items: center; justify-content: center; color: #fff;
+  background: linear-gradient(135deg, rgb(45 212 191 / 0.55), rgb(59 130 246 / 0.45));
+  border: 1px solid rgb(255 255 255 / 0.35);
+  box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.45), 0 0 0 6px rgb(255 255 255 / 0.04), 0 0 36px rgb(45 212 191 / 0.45);
+  animation: audit-pulse 3.2s ease-in-out infinite;
+  will-change: transform;
+}
+.audit-sat {
+  position: absolute; left: 50%; top: 50%; width: 36px; height: 36px; margin: -18px 0 0 -18px;
+  will-change: transform; --heat: 0;
+}
+.audit-sat-sm { width: 28px; height: 28px; margin: -14px 0 0 -14px; }
+.audit-sat-face {
+  width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; color: #fff;
+  border-radius: 12px;
+  background: linear-gradient(135deg, rgb(255 255 255 / calc(0.24 + var(--heat) * 0.2)), rgb(255 255 255 / 0.07));
+  -webkit-backdrop-filter: blur(8px); backdrop-filter: blur(8px);
+  border: 1px solid rgb(255 255 255 / calc(0.28 + var(--heat) * 0.5));
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 0.35),
+    0 8px 18px -8px rgb(0 0 0 / 0.5),
+    0 0 calc(var(--heat) * 26px) rgb(45 212 191 / calc(var(--heat) * 0.8));
+}
+.audit-sat-sm .audit-sat-face { border-radius: 9px; }
+@keyframes audit-pulse {
+  0%, 100% { box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.45), 0 0 0 6px rgb(255 255 255 / 0.04), 0 0 30px rgb(45 212 191 / 0.35); }
+  50%      { box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.45), 0 0 0 10px rgb(255 255 255 / 0.06), 0 0 48px rgb(45 212 191 / 0.6); }
+}
+@media (prefers-reduced-motion: reduce) { .audit-core, .audit-ring-outer::after { animation: none !important; } }
+/* The cursor's bumper in the audit orbit — a faint glowing ring that follows
+   the pointer, so the player can see what they are pushing with. */
+.audit-bumper {
+  position: absolute; left: 50%; top: 50%; border-radius: 9999px; pointer-events: none; opacity: 0;
+  border: 1.5px solid rgb(94 234 212 / 0.7);
+  background: radial-gradient(circle, rgb(94 234 212 / 0.18), rgb(94 234 212 / 0.02) 70%);
+  box-shadow: 0 0 18px rgb(94 234 212 / 0.45);
+  transition: opacity 180ms ease;
+  will-change: transform, opacity;
+}
+
+/* Display figures — the dashboard's numbers — in Poppins bold: a rounded,
+   geometric face that reads as a number at a glance. Figures are tabular
+   so columns of amounts line up. */
+.num-display {
+  font-family: 'Poppins', 'Inter Variable', 'Inter', ui-sans-serif, system-ui, sans-serif;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Hovered row, in every floating register (Workstation lists, HRMS tables,
+   checklist rows): a touch bigger and outlined in the brand's dark blue.
+   The zoom is a plain transform on the row — no `filter` (that is what made
+   Chrome's GPU compositor ghost text into the gaps; see `.ws-float tbody tr`).
+   The outline is drawn with inset shadows on the cells, so it follows the
+   rounded ends, doubling the 1px border to 2px without moving any text. */
+.ws-float tbody tr, table.hr-float tbody tr { transition: transform 180ms cubic-bezier(.2,.8,.2,1), box-shadow 180ms ease; }
+/* Scale the hovered row as ONE piece (its own layer), not cell by cell —
+   cell-by-cell scaling lands the cells on fractional pixels and leaves
+   hairline seams between them. */
+.ws-float tbody tr:hover, table.hr-float tbody tr:hover { will-change: transform; backface-visibility: hidden; }
+.ws-float tbody tr:hover, table.hr-float tbody tr:hover {
+  transform: scale(1.012);
+  position: relative; z-index: 1;
+  box-shadow: 0 12px 22px -12px rgb(15 23 42 / 0.30);
+}
+/* The outline: one continuous line round the whole row, following its
+   rounded ends — drawn per cell it broke into pieces at the cell edges. */
+.ws-float tbody tr:hover, table.hr-float tbody tr:hover {
+  outline: 2px solid rgb(var(--c-primary)); outline-offset: -1px; border-radius: 10px;
+}
+.ws-float tbody tr:hover td, table.hr-float tbody tr:hover td { border-color: transparent !important; }
+.fr-row { transition: transform 180ms cubic-bezier(.2,.8,.2,1), border-color 180ms ease, box-shadow 180ms ease; }
+.fr-row:hover {
+  transform: scale(1.012); position: relative; z-index: 1;
+  border-color: rgb(var(--c-primary)) !important;
+  box-shadow: 0 0 0 1px rgb(var(--c-primary)), 0 12px 22px -12px rgb(15 23 42 / 0.30);
+}
+
+/* No visible horizontal scrollbar under any register table, CRM-wide. The
+   hover zoom alone made a row a hair wider than its box and summoned one.
+   Wide tables still scroll sideways — trackpad, Shift + wheel, keyboard —
+   the bar is just not drawn. */
+.ws-float, .m-cards, :has(> table.hr-float), .overflow-x-auto:has(> table) {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+.ws-float::-webkit-scrollbar, .m-cards::-webkit-scrollbar,
+:has(> table.hr-float)::-webkit-scrollbar, .overflow-x-auto:has(> table)::-webkit-scrollbar {
+  display: none;
+}
+
+/* ── Headings and labels, CRM-wide ──────────────────────────────────────
+   The older screens set every heading and form label in tiny grey capitals
+   (`text-11 uppercase tracking-…`). They now read in the builders' style:
+   a form label above an input → 12px, medium, grey, normal case; any other
+   such heading → 13px, semibold, dark, normal case. Left as capitals on
+   purpose: table header strips (th), the sidebar's section headings, the
+   dashboard banner's date pill, and anything inside a document template or
+   preview (.qdoc-stack / .qb-preview), which must print exactly as designed. */
+.uppercase.text-11:not(th):not(th *):not(.qdoc-stack *):not(.qb-preview *):not([aria-label='Primary navigation'] *):not(.dash-hero *) {
+  text-transform: none;
+  letter-spacing: normal;
+  font-size: 13px;
+  line-height: 18px;
+  font-weight: 600;
+  color: rgb(var(--c-ink, 17 24 39));
+}
+label > .uppercase.text-11:not(.qdoc-stack *):not(.qb-preview *),
+label .block.uppercase.text-11:not(.qdoc-stack *):not(.qb-preview *) {
+  font-size: 12px;
+  line-height: 16px;
+  font-weight: 500;
+  color: rgb(var(--c-inkMuted, 107 114 128));
+}
+
+/* A card that zooms a little and takes the dark-blue outline on hover or
+   keyboard focus (e.g. the Bookkeeping company cards). Pair with .dash-card. */
+.card-zoom { position: relative; transition: transform 180ms cubic-bezier(.2,.8,.2,1), border-color 180ms ease, box-shadow 180ms ease; }
+.card-zoom:hover, .card-zoom:focus-visible {
+  z-index: 1;
+  transform: scale(1.02);
+  border-color: rgb(var(--c-primary));
+  box-shadow: 0 0 0 1px rgb(var(--c-primary)), 0 14px 26px -12px rgb(15 23 42 / 0.28);
+  outline: none;
+}
+
+/* ── Dropdowns ───────────────────────────────────────────────────────────
+   Native <select> lists highlight the option under the pointer in the OS's
+   own blue, which page CSS cannot touch — except through Chrome's styleable
+   select (appearance: base-select, Chrome 135+). There, the open list is a
+   floating card and the option being chosen (and the chosen one) takes the
+   navy header gradient. Chip-style selects (.appearance-none) keep their own
+   look; browsers without support keep the native list. */
+@supports (appearance: base-select) {
+  select:not([multiple]):not([size]):not(.appearance-none),
+  select:not([multiple]):not([size]):not(.appearance-none)::picker(select) {
+    appearance: base-select;
+  }
+  /* Status chips: same open list, but the chip keeps its own pill + caret. */
+  select.chip-select, select.chip-select::picker(select) { appearance: base-select; }
+  select.chip-select::picker-icon { display: none; }
+  select.chip-select::picker(select) { min-width: 160px; }
+  select:not([multiple]):not([size]):not(.appearance-none) {
+    display: inline-flex; align-items: center; justify-content: space-between; gap: 8px;
+  }
+  select:not([multiple]):not([size]):not(.appearance-none)::picker-icon {
+    color: rgb(var(--c-inkMuted, 107 114 128));
+    transition: rotate 150ms ease;
+  }
+  select:not([multiple]):not([size]):not(.appearance-none):open::picker-icon { rotate: 180deg; }
+  select:is(:not(.appearance-none), .chip-select)::picker(select) {
+    border: 1px solid rgb(229 231 235);
+    border-radius: 10px;
+    padding: 4px;
+    margin-top: 4px;
+    background: #fff;
+    box-shadow: 0 12px 28px -10px rgb(15 23 42 / 0.25), 0 2px 6px rgb(15 23 42 / 0.06);
+    max-height: 320px;
+  }
+  select:is(:not(.appearance-none), .chip-select) option {
+    padding: 7px 10px;
+    border-radius: 7px;
+    font-size: 13px;
+    color: rgb(var(--c-ink, 17 24 39));
+    background: transparent;
+  }
+  select:is(:not(.appearance-none), .chip-select) option::checkmark { display: none; }
+  /* The option already chosen: a quiet pale-blue tint, so it never competes
+     with the pointer. */
+  select:is(:not(.appearance-none), .chip-select) option:checked {
+    background: #e8f0fb;
+    color: rgb(var(--c-primary));
+    font-weight: 500;
+  }
+  /* ONE navy row that follows the pointer — the header strip's navy. With
+     the mouse off the list, it follows keyboard focus instead. */
+  select:is(:not(.appearance-none), .chip-select) option:hover,
+  select:is(:not(.appearance-none), .chip-select):not(:has(option:hover)) option:focus-visible {
+    background:
+      linear-gradient(180deg, rgb(255 255 255 / 0.08), transparent 55%),
+      linear-gradient(180deg, #2a4f8f 0%, #1b3a6f 100%);
+    color: #fff;
+    outline: none;
+  }
+  select:is(:not(.appearance-none), .chip-select) option:focus-visible { outline: none; }
+  :root[data-theme='dark'] select:is(:not(.appearance-none), .chip-select) option:checked { background: rgb(66 133 244 / 0.18); color: rgb(var(--c-ink)); }
+  select:is(:not(.appearance-none), .chip-select) option:disabled { color: rgb(var(--c-inkFaint, 156 163 175)); }
+  :root[data-theme='dark'] select:is(:not(.appearance-none), .chip-select)::picker(select) {
+    background: rgb(var(--c-surface)); border-color: rgb(var(--c-border));
+  }
+}
+
+/* The same one-navy-row rule for every other list you choose from:
+   - list boxes (<select size>) — hover is navy, the chosen one pale blue;
+   - action menus (role=menu) — the item under the pointer is navy;
+   - global search results — the active result (it follows the pointer and
+     the arrow keys) is navy. */
+select[size] option { padding: 6px 10px; border-radius: 6px; }
+select[size] option:checked { background: #e8f0fb; color: rgb(var(--c-primary)); }
+select[size] option:hover,
+[role='menu'] [role='menuitem']:is(button:not(:disabled), a):hover,
+[role='menu'] [role='menuitem']:is(button:not(:disabled), a):focus-visible,
+[role='listbox'] [role='option'][aria-selected='true'] {
+  background:
+    linear-gradient(180deg, rgb(255 255 255 / 0.08), transparent 55%),
+    linear-gradient(180deg, #2a4f8f 0%, #1b3a6f 100%);
+  color: #fff;
+  outline: none;
+}
+[role='menu'] [role='menuitem']:is(button:not(:disabled), a):is(:hover, :focus-visible) *,
+[role='listbox'] [role='option'][aria-selected='true'] * { color: #fff; }
+[role='menu'] { padding-left: 4px; padding-right: 4px; }
+[role='menu'] [role='menuitem'] { border-radius: 7px; }
+[role='listbox'] [role='option'] { border-radius: 7px; }
+[role='listbox'] > div > div > [role='option'] { margin: 0 4px; width: calc(100% - 8px); }
+
+/* Sidebar: the chosen item takes the dashboard orbit's teal-to-blue glass —
+   the same gradient, rim and glow as the shield at its centre. Hovering an
+   item gives a fainter wash of the same shade. */
+.sb-active {
+  background: linear-gradient(135deg, rgb(45 212 191 / 0.38), rgb(59 130 246 / 0.30));
+  box-shadow:
+    inset 0 0 0 1px rgb(255 255 255 / 0.22),
+    inset 0 1px 0 rgb(255 255 255 / 0.30),
+    0 0 18px -2px rgb(45 212 191 / 0.40);
+}
+.sb-hover { position: relative; transition: background 150ms ease, box-shadow 150ms ease, color 150ms ease; }
+/* Hover looks exactly like the chosen item: same glass, glow and teal bar. */
+.sb-hover:hover {
+  background: linear-gradient(135deg, rgb(45 212 191 / 0.38), rgb(59 130 246 / 0.30));
+  box-shadow:
+    inset 0 0 0 1px rgb(255 255 255 / 0.22),
+    inset 0 1px 0 rgb(255 255 255 / 0.30),
+    0 0 18px -2px rgb(45 212 191 / 0.40);
+  color: #fff;
+}
+.sb-hover:hover::before {
+  content: ''; position: absolute; left: 0; top: 8px; bottom: 8px; width: 3px;
+  border-radius: 9999px; background: #5eead4;
+}
+.sb-hover:hover svg { color: #99f6e4; }
+
+/* ── Sidebar audit backdrop (SidebarBackdrop.tsx) ─────────────────────────
+   Drawn under the menu; every other child of the sidebar sits above it.
+   It keeps moving under prefers-reduced-motion on purpose (the user asked
+   for it, and GNOME with animations off reports reduced motion), but slowly
+   and faintly, so it never competes with the menu. */
+/* Position comes from the aside's own classes (fixed drawer on phones, relative on desktop) — never set it here, or the phone drawer would take up layout space. */
+.sb-creative { overflow: hidden; }
+.sb-creative > :not(.sb-backdrop) { position: relative; z-index: 1; }
+.sb-backdrop { position: absolute; inset: 0; z-index: 0; pointer-events: none; overflow: hidden; }
+.sb-ledger {
+  position: absolute; inset: 0;
+  background:
+    repeating-linear-gradient(180deg, transparent 0 27px, rgb(255 255 255 / 0.028) 27px 28px),
+    linear-gradient(90deg, transparent 0 34px, rgb(94 234 212 / 0.05) 34px 35px, transparent 35px);
+  mask-image: linear-gradient(180deg, transparent, #000 12%, #000 88%, transparent);
+}
+.sb-drift {
+  position: absolute; bottom: -40px; color: rgb(186 230 253);
+  opacity: 0; animation: sb-rise 28s linear infinite;
+}
+.sb-drift-sway { display: inline-flex; animation: sb-sway 6s ease-in-out infinite alternate; }
+@keyframes sb-rise {
+  0%   { transform: translateY(0); opacity: 0; }
+  10%  { opacity: 0.18; }
+  85%  { opacity: 0.18; }
+  100% { transform: translateY(calc(-100vh - 80px)); opacity: 0; }
+}
+@keyframes sb-sway {
+  from { transform: translateX(-10px) rotate(-14deg); }
+  to   { transform: translateX(10px) rotate(14deg); }
+}
+.sb-tick {
+  position: absolute; color: rgb(94 234 212); opacity: 0;
+  animation: sb-tick 9s ease-out infinite;
+}
+@keyframes sb-tick {
+  0%, 100% { opacity: 0; transform: scale(0.6); }
+  6%       { opacity: 0.45; transform: scale(1.15); filter: drop-shadow(0 0 6px rgb(94 234 212 / 0.8)); }
+  22%      { opacity: 0.18; transform: scale(1); }
+  40%      { opacity: 0; }
+}
+
+/* Growth chart at the foot of the sidebar: the bars step up left to right and
+   grow in turn, then the trend arrow draws itself across their tops; it all
+   holds a moment, settles back and runs again (6s loop). */
+.sb-chart {
+  position: absolute; left: 22px; bottom: 0;
+  mask-image: linear-gradient(0deg, transparent 0, #000 18%, #000 100%);
+}
+.sb-bar {
+  position: absolute; bottom: 0; border-radius: 3px 3px 0 0; transform-origin: bottom;
+  background: linear-gradient(180deg, rgb(226 240 255 / 0.30), rgb(186 230 253 / 0.10) 45%, rgb(186 230 253 / 0.02));
+  box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.35);
+  animation: sb-grow 6s cubic-bezier(.2,.8,.2,1) infinite;
+}
+@keyframes sb-grow {
+  0%        { transform: scaleY(0.15); }
+  28%, 86%  { transform: scaleY(1); }
+  100%      { transform: scaleY(0.15); }
+}
+.sb-trend { position: absolute; inset: 0; overflow: visible; }
+.sb-trend path {
+  stroke: rgb(153 246 228 / 0.75); stroke-width: 2.5; stroke-linecap: round; stroke-linejoin: round;
+  filter: drop-shadow(0 0 4px rgb(94 234 212 / 0.6));
+}
+.sb-trend-line { stroke-dasharray: 1; stroke-dashoffset: 1; animation: sb-trend 6s ease-in-out infinite; }
+.sb-trend-head { opacity: 0; animation: sb-trend-head 6s ease-in-out infinite; }
+@keyframes sb-trend {
+  0%, 30%  { stroke-dashoffset: 1; opacity: 1; }
+  58%, 86% { stroke-dashoffset: 0; opacity: 1; }
+  100%     { stroke-dashoffset: 0; opacity: 0; }
+}
+@keyframes sb-trend-head {
+  0%, 56%  { opacity: 0; }
+  62%, 86% { opacity: 1; }
+  100%     { opacity: 0; }
+}
+
+/* ── Workstation overview (pages/workstation/Dashboard.tsx) ─────────────── */
+.ws-hero-stat {
+  background: linear-gradient(135deg, rgb(255 255 255 / 0.12), rgb(255 255 255 / 0.04));
+  box-shadow: inset 0 0 0 1px rgb(255 255 255 / 0.16), inset 0 1px 0 rgb(255 255 255 / 0.22);
+  backdrop-filter: blur(6px);
+}
+/* Level meters in the banner: a glass tube of ten blocks; lit ones switch on
+   bottom to top. */
+.ws-meter { width: 52px; background: rgb(255 255 255 / 0.06); box-shadow: inset 0 0 0 1px rgb(255 255 255 / 0.12); }
+.ws-cell { height: 10px; background: rgb(255 255 255 / 0.07); }
+.ws-cell-on { animation: ws-cell 380ms ease-out both; }
+@keyframes ws-cell { from { opacity: 0; transform: scaleX(0.4); } to { opacity: 1; transform: scaleX(1); } }
+@keyframes ws-grow { from { transform: scaleX(0); } to { transform: scaleX(1); } }
+
+/* Attention tile: a warm rim, and its dot breathes. */
+.ws-attention { background: linear-gradient(180deg, #fffdf8, #fff8ec); border-color: #fcd9a8; }
+.ws-pulse { animation: ws-pulse 1.8s ease-in-out infinite; }
+@keyframes ws-pulse { 0%, 100% { box-shadow: 0 0 0 0 rgb(245 158 11 / 0.55); } 50% { box-shadow: 0 0 0 5px rgb(245 158 11 / 0); } }
+
+/* Pipeline steps: numbered dots on a vertical rail. */
+.ws-steps { position: relative; }
+.ws-steps::before {
+  content: ''; position: absolute; left: 33px; top: 20px; bottom: 36px; width: 2px;
+  background: linear-gradient(180deg, #c7d6ef, #e5ebf5); border-radius: 2px;
+}
+.ws-step { position: relative; transition: background 150ms ease; }
+.ws-step:hover { background: #f4f7fc; }
+.ws-step-dot {
+  position: relative; z-index: 1; width: 22px; height: 22px; border-radius: 9999px; flex-shrink: 0;
+  display: inline-flex; align-items: center; justify-content: center; font-size: 11px; font-weight: 600; color: #fff;
+  box-shadow: 0 0 0 3px #fff;
+}
+.ws-step-open { background: linear-gradient(180deg, #2a4f8f 0%, #1b3a6f 100%); }
+.ws-step-won  { background: linear-gradient(180deg, #14b8a6 0%, #0f766e 100%); }
+.ws-step-lost { background: #9ca3af; }
+.ws-step-bar { transform-origin: left; animation: ws-grow 900ms cubic-bezier(.2,.8,.2,1) both; }
+.ws-bar-open { background: linear-gradient(90deg, #2a4f8f, #3b6bc4); }
+.ws-bar-won  { background: linear-gradient(90deg, #0f766e, #2dd4bf); }
+.ws-bar-lost { background: #cbd5e1; }
+:root[data-theme='dark'] .ws-attention { background: rgb(var(--c-surface)); }
+:root[data-theme='dark'] .ws-step-dot { box-shadow: 0 0 0 3px rgb(var(--c-surface)); }
+:root[data-theme='dark'] .ws-step:hover { background: rgb(255 255 255 / 0.04); }
+
+/* A softer table header — a pale blue bar with navy labels instead of the
+   deep navy strip — for pages that stack one small table per group
+   (Workstation → Documents, one per client), where a deep navy bar over
+   every group was too heavy. */
+.ws-float.ws-plain-head thead th {
+  background: linear-gradient(180deg, #edf3fc 0%, #e1eaf8 100%);
+  color: #1b3a6f;
+  font-weight: 600 !important;
+  box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.8), inset 0 -1px 0 #d3dff2;
+}
+:root[data-theme='dark'] .ws-float.ws-plain-head thead th {
+  background: rgb(59 130 246 / 0.14); color: rgb(var(--c-ink)); box-shadow: none;
+}
+
+/* ── Books section menu (pages/books/BooksShell.tsx) ───────────────────────
+   Rounded items; hover is a pale blue wash, the open page is pale blue with
+   navy text and a navy bar on its left — the Workstation list look. */
+.books-nav-item { position: relative; transition: background 150ms ease, color 150ms ease; }
+.books-nav-item:hover { background: #f1f5fb; color: rgb(var(--c-primary)); }
+.books-nav-item.is-active { background: #e8f0fb; color: rgb(var(--c-primary)); }
+.books-nav-item.is-active::before {
+  content: ''; position: absolute; left: 0; top: 7px; bottom: 7px; width: 3px; border-radius: 9999px;
+  background: linear-gradient(180deg, #2a4f8f, #1b3a6f);
+}
+:root[data-theme='dark'] .books-nav-item:hover,
+:root[data-theme='dark'] .books-nav-item.is-active { background: rgb(59 130 246 / 0.14); color: rgb(var(--c-ink)); }
+
+/* ── Registration pages (workstation/registration/*) ───────────────────── */
+.reg-hero { background: linear-gradient(135deg, #ffffff 0%, #f6f9fe 100%); }
+/* Steps on a vertical rail. */
+.reg-rail { position: absolute; left: 13px; top: 32px; bottom: 4px; width: 2px; border-radius: 2px; background: linear-gradient(180deg, #c7d6ef, #e5ebf5); }
+.reg-dot {
+  position: relative; z-index: 1; width: 28px; height: 28px; border-radius: 9999px; flex-shrink: 0;
+  display: inline-flex; align-items: center; justify-content: center; font-size: 12px; font-weight: 600;
+  background: #f1f4f9; color: #64748b; box-shadow: 0 0 0 4px #fff, inset 0 0 0 1px #e2e8f0;
+}
+.reg-dot.is-active { background: linear-gradient(180deg, #2a4f8f 0%, #1b3a6f 100%); color: #fff; box-shadow: 0 0 0 4px #fff, 0 4px 10px -4px rgb(27 58 111 / 0.6); }
+.reg-dot.is-done { background: linear-gradient(180deg, #14b8a6 0%, #0f766e 100%); color: #fff; box-shadow: 0 0 0 4px #fff, 0 4px 10px -4px rgb(15 118 110 / 0.6); }
+/* Client cards in step 1. */
+.reg-client { background: #fff; box-shadow: inset 0 0 0 1px #e5e9f0; transition: box-shadow 150ms ease, background 150ms ease, transform 150ms ease; }
+.reg-client:hover { box-shadow: inset 0 0 0 1px rgb(var(--c-primary) / 0.45); background: #f8faff; }
+.reg-client-tick { color: transparent; box-shadow: inset 0 0 0 1.5px #cbd5e1; }
+.reg-client.is-picked { background: #e8f0fb; box-shadow: inset 0 0 0 2px rgb(var(--c-primary)); }
+.reg-client.is-picked .reg-client-tick { color: #fff; background: linear-gradient(180deg, #2a4f8f, #1b3a6f); box-shadow: none; }
+/* Saved login details: a tinted panel tucked under step 1. */
+.reg-creds { background: #f8faff; box-shadow: inset 0 0 0 1px #e1e9f5; }
+:root[data-theme='dark'] .reg-hero { background: rgb(var(--c-surface)); }
+:root[data-theme='dark'] .reg-dot { box-shadow: 0 0 0 4px rgb(var(--c-surface)); }
+:root[data-theme='dark'] .reg-client { background: rgb(var(--c-surface)); box-shadow: inset 0 0 0 1px rgb(var(--c-border)); }
+:root[data-theme='dark'] .reg-client.is-picked,
+:root[data-theme='dark'] .reg-creds { background: rgb(59 130 246 / 0.12); }
+/* Client picker options: one navy row under the pointer. */
+.reg-option { color: rgb(var(--c-ink, 17 24 39)); }
+.reg-option:hover, .reg-option:focus-visible {
+  outline: none; color: #fff;
+  background: linear-gradient(180deg, rgb(255 255 255 / 0.08), transparent 55%), linear-gradient(180deg, #2a4f8f 0%, #1b3a6f 100%);
+}
+
+/* The menu's lower limit: a faint rule where the chart strip begins, and the
+   menu fades out just above it as it scrolls, instead of cutting off hard. */
+.sb-chart-zone { border-top: 1px solid rgb(255 255 255 / 0.10); }
+.sb-nav-limit { mask-image: linear-gradient(180deg, #000 calc(100% - 28px), transparent); }
+
+/* ── Phones (< 768px): register tables as stacked cards ───────────────────
+   mobile.css turns `.m-cards` rows into blocks; these make them match the
+   CRM look — white rounded cards with a soft shadow, the first cell as a
+   bold title, label/value lines beneath. The desktop hover zoom is off. */
+@media (max-width: 767px) {
+  .m-cards table { border-spacing: 0 !important; margin-top: 0 !important; }
+  .m-cards tbody tr {
+    background: #fff !important;
+    border: 1px solid #e8ecf3 !important;
+    border-radius: 12px !important;
+    box-shadow: 0 1px 2px rgb(15 23 42 / 0.05), 0 6px 14px -8px rgb(15 23 42 / 0.15) !important;
+    padding: 6px 14px !important;
+    margin-bottom: 10px !important;
+    transform: none !important; outline: none !important;
+  }
+  .m-cards tbody td {
+    background: transparent !important; border-radius: 0 !important;
+    padding-left: 0 !important; padding-right: 0 !important;
+    border-color: #f1f4f8 !important;
+    white-space: normal !important;
+  }
+  .m-cards tbody td[data-label='']:first-child {
+    display: block; text-align: left; font-size: 14px; font-weight: 600;
+    padding-top: 8px !important; padding-bottom: 8px !important;
+  }
+  .m-cards tbody td::before { color: #94a3b8; }
+  .m-cards tbody td > * { max-width: 60%; }
+  .m-cards tbody td[data-label='']:first-child > *,
+  .m-cards tbody td[data-label=''] > * { max-width: none; }
+  :root[data-theme='dark'] .m-cards tbody tr { background: rgb(var(--c-surface)) !important; border-color: rgb(var(--c-border)) !important; }
+}
+/* Books tables keep their minimum width only from tablet up; phones stack them. */
+@media (min-width: 1024px) { .books-table { min-width: var(--books-min, 720px); } }
+
+/* ── Portrait tablets (768–1023px): register tables as a 2-up card grid ────
+   A desktop table does not fit beside nothing at this width either (the
+   sidebar is a drawer until 1024px), so the phone card layout carries on —
+   two cards per row to use the width. Landscape tablets and desktops keep
+   the full table. */
+@media (min-width: 768px) and (max-width: 1023px) {
+  .m-cards { overflow: visible !important; }
+  .m-cards table, .m-cards thead, .m-cards tbody, .m-cards tr, .m-cards td, .m-cards th { display: block; min-width: 0 !important; width: auto; }
+  .m-cards table { border-spacing: 0 !important; margin-top: 0 !important; }
+  .m-cards thead { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+  .m-cards tbody { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+  .m-cards tbody tr {
+    height: auto !important; min-height: 0;
+    background: #fff !important; border: 1px solid #e8ecf3 !important; border-radius: 12px !important;
+    box-shadow: 0 1px 2px rgb(15 23 42 / 0.05), 0 6px 14px -8px rgb(15 23 42 / 0.15) !important;
+    padding: 6px 14px !important; transform: none !important; outline: none !important;
+  }
+  .m-cards tbody td {
+    display: flex; height: auto; align-items: baseline; justify-content: space-between; gap: 12px;
+    padding: 6px 0 !important; border-bottom: 1px solid #f1f4f8; text-align: right;
+    background: transparent !important; border-radius: 0 !important; white-space: normal !important;
+  }
+  .m-cards tbody td:last-child { border-bottom: 0; }
+  .m-cards tbody td::before {
+    content: attr(data-label); flex: 0 0 40%; text-align: left;
+    font-size: 11px; line-height: 16px; font-weight: 500; text-transform: uppercase; letter-spacing: 0.06em; color: #94a3b8;
+  }
+  .m-cards tbody td[data-label='']::before { display: none; }
+  .m-cards tbody td[data-label='']:first-child { display: block; text-align: left; font-size: 14px; font-weight: 600; padding-top: 8px !important; padding-bottom: 8px !important; }
+  /* A full-width row (empty state, colspan) spans both columns. */
+  .m-cards tbody tr:has(> td[colspan]) { grid-column: 1 / -1; }
+  :root[data-theme='dark'] .m-cards tbody tr { background: rgb(var(--c-surface)) !important; border-color: rgb(var(--c-border)) !important; }
+}
+
+/* Landscape tablets / small laptops: the same 2-up cards, only on tables the
+   helper (lib/phoneTables.ts) found too wide for the content area. */
+@media (min-width: 1024px) and (max-width: 1279px) {
+  .m-cards-tab { overflow: visible !important; }
+  .m-cards-tab table, .m-cards-tab thead, .m-cards-tab tbody, .m-cards-tab tr, .m-cards-tab td, .m-cards-tab th { display: block; min-width: 0 !important; width: auto; }
+  .m-cards-tab table { border-spacing: 0 !important; margin-top: 0 !important; }
+  .m-cards-tab thead { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+  .m-cards-tab tbody { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+  .m-cards-tab tbody tr {
+    height: auto !important; min-height: 0;
+    background: #fff !important; border: 1px solid #e8ecf3 !important; border-radius: 12px !important;
+    box-shadow: 0 1px 2px rgb(15 23 42 / 0.05), 0 6px 14px -8px rgb(15 23 42 / 0.15) !important;
+    padding: 6px 14px !important; transform: none !important; outline: none !important;
+  }
+  .m-cards-tab tbody td {
+    display: flex; height: auto; align-items: baseline; justify-content: space-between; gap: 12px;
+    padding: 6px 0 !important; border-bottom: 1px solid #f1f4f8; text-align: right;
+    background: transparent !important; border-radius: 0 !important; white-space: normal !important;
+  }
+  .m-cards-tab tbody td:last-child { border-bottom: 0; }
+  .m-cards-tab tbody td::before {
+    content: attr(data-label); flex: 0 0 40%; text-align: left;
+    font-size: 11px; line-height: 16px; font-weight: 500; text-transform: uppercase; letter-spacing: 0.06em; color: #94a3b8;
+  }
+  .m-cards-tab tbody td[data-label='']::before { display: none; }
+  .m-cards-tab tbody td[data-label='']:first-child { display: block; text-align: left; font-size: 14px; font-weight: 600; padding-top: 8px !important; padding-bottom: 8px !important; }
+  /* A full-width row (empty state, colspan) spans both columns. */
+  .m-cards-tab tbody tr:has(> td[colspan]) { grid-column: 1 / -1; }
+  :root[data-theme='dark'] .m-cards-tab tbody tr { background: rgb(var(--c-surface)) !important; border-color: rgb(var(--c-border)) !important; }
+}
+
+/* ── Phones only: Registration (LLP · Private Limited · GST · Partnership)
+   and Books. Scoped by the shells' `reg-m` / `books-m` classes. ────────── */
+@media (max-width: 767px) {
+  /* Stat tiles: a compact 3 × 2 strip instead of six big boxes. */
+  .reg-m .reg-tiles { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+  .reg-m .reg-tile {
+    padding: 10px 10px 9px !important; border-radius: 12px !important; border-color: #e8ecf3 !important;
+    box-shadow: 0 1px 2px rgb(15 23 42 / 0.05);
+    display: flex; flex-direction: column-reverse; justify-content: flex-end; gap: 2px;
+  }
+  .reg-m .reg-tile > div:first-child { font-size: 11px; line-height: 14px; }
+  .reg-m .reg-tile > div:last-child { font-size: 20px; margin-top: 0; font-family: 'Poppins', 'Inter', sans-serif; font-weight: 700; }
+
+  /* No box-in-a-box: a card holding a stacked list drops its own frame, so
+     the client cards sit straight on the page under a plain heading. */
+  .reg-m :is(.ws-card, .dash-card):has(.m-cards),
+  .books-m :is(.ws-card, .dash-card):has(.m-cards) {
+    background: transparent !important; border: 0 !important; box-shadow: none !important; overflow: visible !important;
+  }
+  .reg-m :is(.ws-card, .dash-card):has(.m-cards) > .ws-card-title,
+  .books-m .dash-card:has(.m-cards) > div:first-child {
+    border-bottom: 0 !important; padding-left: 2px !important; padding-right: 2px !important; height: auto; min-height: 0; padding-bottom: 8px;
+  }
+
+  /* Client cards: the first cell is the card's title (name + case ID), the
+     rest are tidy label/value lines; links at the bottom read as actions. */
+  .reg-m .m-cards tbody td:first-child { display: block !important; text-align: left; font-size: 14px; font-weight: 600; padding: 10px 0 8px !important; }
+  .reg-m .m-cards tbody td:first-child::before { display: none; }
+  .reg-m .m-cards tbody td:first-child > * { max-width: none; }
+  .reg-m .m-cards tbody td { font-size: 13px; padding-top: 7px !important; padding-bottom: 7px !important; }
+  .reg-m .m-cards tbody td::before { font-size: 10.5px; }
+  .reg-m .m-cards tbody td:last-child a,
+  .reg-m .m-cards tbody td:last-child button {
+    display: inline-flex; align-items: center; height: 32px; padding: 0 14px; border-radius: 8px;
+    background: #eef3fb; color: rgb(var(--c-primary)); font-weight: 600; text-decoration: none;
+  }
+
+  /* Checklist template: category headings wrap as whole words, with their
+     actions on their own line instead of breaking letter by letter. */
+  .reg-m .fr-group > .ws-card-title {
+    height: auto !important; min-height: 44px !important; flex-wrap: wrap; row-gap: 6px;
+    padding-top: 10px !important; padding-bottom: 10px !important;
+  }
+  .reg-m .fr-group > .ws-card-title > span:first-child { white-space: normal !important; line-height: 18px; flex: 1 1 100%; }
+  .reg-m .fr-group > .ws-card-title > .flex-1 { display: none; }
+  .reg-m .fr-group > .ws-card-title button { white-space: nowrap; }
+
+  /* Books: a cell with several actions wraps them instead of running off
+     the right edge (e.g. Settings → Refresh · Reconnect · Disconnect). */
+  .books-m .m-cards tbody td { flex-wrap: wrap; }
+  .books-m .m-cards tbody td[data-label=''],
+  .books-m .m-cards tbody td:not(:first-child):has(button, a) {
+    display: flex !important; flex-wrap: wrap; justify-content: flex-start; gap: 8px; text-align: left;
+  }
+  .books-m .m-cards tbody td > * { max-width: 100%; }
+  .books-m .m-cards tbody td:first-child { display: block !important; text-align: left; font-weight: 600; }
+  .books-m .m-cards tbody td:first-child::before { display: none; }
+  /* Section headers with buttons wrap too. */
+  .books-m section > div:first-child { flex-wrap: wrap; }
+}
+@media (max-width: 767px) {
+  /* Books: action groups inside a cell wrap from the left. */
+  .books-m .m-cards tbody td :is(div, span):has(> button, > a) { display: flex; flex-wrap: wrap; justify-content: flex-start; gap: 8px; max-width: 100%; }
+}
+
+/* ── Phones only: app-like list pages (listUi.tsx) ────────────────────────
+   1 · floating + button   2 · filters in a bottom sheet
+   3 · shorter cards       4 · sticky search bar                          */
+.lt-filter-btn { display: none; }
+@media (max-width: 767px) {
+  /* 1 · The page's single primary action floats bottom-right, above the
+     bottom bar, as a round + (its label stays for screen readers). */
+  .lh-action:has(> :only-child) { position: fixed; z-index: 35; right: 16px; bottom: calc(var(--m-nav-total, 56px) + 16px); }
+  .lh-action:has(> :only-child) > :is(a, button) {
+    width: 56px; height: 56px; padding: 0 !important; border-radius: 9999px !important; justify-content: center;
+    font-size: 0 !important; gap: 0 !important;
+    box-shadow: 0 10px 24px -6px rgb(27 58 111 / 0.55), 0 2px 6px rgb(15 23 42 / 0.15) !important;
+  }
+  .lh-action:has(> :only-child) > :is(a, button) svg { width: 24px; height: 24px; }
+  .lh-action:has(> :only-child) > :is(a, button):not(:has(svg))::before { content: '+'; font-size: 28px; line-height: 1; }
+  .lh-action:has(> :only-child) > :is(a, button):active { transform: scale(0.94); }
+
+  /* 4 · Search + Filters stick to the top while the list scrolls. */
+  .lt-bar {
+    position: sticky; top: -12px; z-index: 20; flex-wrap: nowrap !important;
+    margin: 0 -12px 12px !important; padding: 10px 12px;
+    background: rgb(var(--c-canvas, 247 246 243) / 0.94); backdrop-filter: blur(8px);
+    border-bottom: 1px solid rgb(15 23 42 / 0.06);
+  }
+  /* 2 · Only search + the Filters button show in the bar … */
+  .lt-bar > :not(.lt-search):not(.lt-filter-btn) { display: none !important; }
+  .lt-bar > .lt-search { flex: 1 1 auto; width: auto; }
+  .lt-bar > .lt-search input { height: 40px; border-radius: 12px; }
+  .lt-filter-btn {
+    display: inline-flex; align-items: center; gap: 6px; flex-shrink: 0; height: 40px; padding: 0 14px;
+    border-radius: 12px; background: #fff; border: 1px solid #e2e8f0; color: rgb(var(--c-primary));
+    font-size: 13px; font-weight: 600;
+  }
+  .lt-filter-count {
+    min-width: 18px; height: 18px; padding: 0 5px; border-radius: 9999px; font-size: 11px; line-height: 18px; text-align: center;
+    color: #fff; background: linear-gradient(180deg, #2a4f8f, #1b3a6f);
+  }
+  /* … and the selects live in a sheet that slides up from the bottom. */
+  .lt-sheet-wrap { position: fixed; inset: 0; z-index: 60; background: rgb(15 23 42 / 0.42); display: flex; align-items: flex-end; animation: lt-fade 160ms ease-out; }
+  .lt-sheet {
+    width: 100%; max-height: 82dvh; overflow-y: auto; background: #fff; border-radius: 20px 20px 0 0;
+    padding: 8px 16px calc(16px + var(--safe-b, 0px)); box-shadow: 0 -12px 32px -8px rgb(15 23 42 / 0.25);
+    animation: lt-up 220ms cubic-bezier(.2,.8,.2,1);
+  }
+  .lt-sheet-grip { width: 40px; height: 4px; border-radius: 9999px; background: #e2e8f0; margin: 2px auto 12px; }
+  .lt-sheet-body { display: flex; flex-direction: column; gap: 10px; }
+  .lt-sheet-body > .lt-search, .lt-sheet-body > .flex-1 { display: none; }
+  .lt-sheet-body select, .lt-sheet-body input { width: 100% !important; max-width: none !important; height: 44px !important; border-radius: 12px !important; font-size: 14px !important; }
+  .lt-sheet-body > div { width: 100%; }
+  .lt-sheet-done {
+    width: 100%; height: 48px; margin-top: 16px; border-radius: 12px; color: #fff; font-size: 15px; font-weight: 600;
+    background: linear-gradient(180deg, rgb(255 255 255 / 0.08), transparent 55%), linear-gradient(180deg, #2a4f8f 0%, #1b3a6f 100%);
+  }
+  @keyframes lt-up { from { transform: translateY(100%); } to { transform: none; } }
+  @keyframes lt-fade { from { opacity: 0; } to { opacity: 1; } }
+
+  /* Status pills: one swipeable row instead of three wrapped lines. */
+  .sp-row { flex-wrap: nowrap !important; overflow-x: auto; margin: 0 -12px; padding: 0 12px 2px; scrollbar-width: none; }
+  .sp-row::-webkit-scrollbar { display: none; }
+
+  /* 3 · Shorter cards: a card you can tap open shows its title and first
+     few lines, plus any status chip and the last cell (its action); the
+     rest is on the record's own page. */
+  .m-cards tbody tr:is([tabindex], .cursor-pointer) > td:nth-child(n+5):not(:last-child):not(:has(.rounded-full)) { display: none !important; }
+  .m-cards tbody tr:is([tabindex], .cursor-pointer):active { transform: scale(0.99) !important; }
+
+  :root[data-theme='dark'] .lt-sheet { background: rgb(var(--c-surface)); }
+  :root[data-theme='dark'] .lt-filter-btn { background: rgb(var(--c-surface)); border-color: rgb(var(--c-border)); }
+}
+@media (max-width: 767px) {
+  /* Tighter card lines: 36px rows instead of ~50px. */
+  .m-cards tbody td { height: auto !important; min-height: 0 !important; padding-top: 7px !important; padding-bottom: 7px !important; line-height: 20px; }
+  .m-cards tbody td:first-child { padding-top: 10px !important; padding-bottom: 10px !important; }
+  /* Room at the end of a list so the last card is never under the + button. */
+  .m-main:has(.lh-action > :only-child) { padding-bottom: calc(var(--m-nav-total, 56px) + 88px) !important; }
+}
