@@ -11,10 +11,9 @@ import {
 import { workstationApi } from '@/modules/workstation/api';
 import { quotationsApi, inr, type Quotation } from '@/modules/workstation/quotations/api';
 import { fmtDate } from '@/lib/format';
-import { shareDocumentPdf, waNumber, whatsappHint, type ShareChannel } from '@/modules/workstation/share';
+import { shareDocumentPdf, waNumber, type ShareChannel } from '@/modules/workstation/share';
 import { SendEmailDialog } from '@/modules/workstation/SendEmailDialog';
 import { SendWhatsAppDialog } from '@/modules/workstation/SendWhatsAppDialog';
-import { useToast } from '@/components/Toast';
 import { QuotationDocument, documentFromApi } from './QuotationDocument';
 import { useAuth } from '@/platform/auth/AuthContext';
 import { can } from '@/platform/rbac/can';
@@ -349,7 +348,6 @@ function ActionsMenu({
   const [busy, setBusy] = useState(false);
   const [emailing, setEmailing] = useState(false);
   const [whatsapping, setWhatsapping] = useState(false);
-  const toast = useToast();
   const ref = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -370,18 +368,16 @@ function ActionsMenu({
 
   const fileName = `${doc.quotation_code}.pdf`;
   const note =
-    `Dear ${doc.party_name ?? 'Sir/Madam'},\n\nPlease find attached our quotation ${doc.quotation_code} — ${doc.subject}.\n`
+    `Dear ${doc.party_name ?? 'Sir/Madam'},\n\nPlease download our quotation ${doc.quotation_code} — ${doc.subject} from the link below.\n`
     + `Total: ${inr(doc.total_paise)}\n`
     + (doc.valid_until ? `Valid until: ${fmtDate(doc.valid_until)}\n` : '')
     + `\nRegards`;
 
-  /** Download, or send on WhatsApp as a FILE (share sheet, else download + WhatsApp Web). */
+  /** Download locally. "Send on WhatsApp" / "Send by email" open their own dialogs. */
   const sharePdf = async (channel: ShareChannel) => {
     setBusy(true);
     try {
-      const r = await shareDocumentPdf({ issueUrl: () => quotationsApi.pdfUrl(doc.id), fileName, note, channel, phone });
-      const hint = whatsappHint(r, fileName);
-      if (hint) toast.push('info', hint);
+      await shareDocumentPdf({ issueUrl: () => quotationsApi.pdfUrl(doc.id), fileName, note, channel, phone });
     } catch (e) {
       onShareError((e as { message?: string })?.message ?? 'The PDF could not be sent.');
     } finally {
@@ -394,12 +390,12 @@ function ActionsMenu({
   return (
     <div className="relative" ref={ref}>
       <SendEmailDialog
-        open={emailing} onClose={() => setEmailing(false)} kind="quotation" id={doc.id} fileName={fileName}
+        open={emailing} onClose={() => setEmailing(false)} kind="quotation" id={doc.id}
         to={doc.party_email} subject={`Quotation ${doc.quotation_code} — ${doc.subject}`} message={note}
       />
       <SendWhatsAppDialog
         open={whatsapping} onClose={() => setWhatsapping(false)} kind="quotation" id={doc.id} phone={doc.party_contact_number}
-        fileName={fileName} note={note} issueUrl={() => quotationsApi.pdfUrl(doc.id)}
+        note={note}
       />
       <button
         type="button"

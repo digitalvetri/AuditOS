@@ -7,10 +7,9 @@ import {
 import { Modal } from '@/modules/workstation/components';
 import { engagementApi, type EngagementLetter } from '@/modules/workstation/engagement/api';
 import { fmtDate } from '@/lib/format';
-import { shareDocumentPdf, waNumber, whatsappHint, type ShareChannel } from '@/modules/workstation/share';
+import { shareDocumentPdf, waNumber, type ShareChannel } from '@/modules/workstation/share';
 import { SendEmailDialog } from '@/modules/workstation/SendEmailDialog';
 import { SendWhatsAppDialog } from '@/modules/workstation/SendWhatsAppDialog';
-import { useToast } from '@/components/Toast';
 
 /**
  * The engagement letter's Actions menu — the quotation's menu, for a letter.
@@ -32,7 +31,6 @@ export function EngagementActions({ letter, canManage, onError, onChanged }: {
   const [busy, setBusy] = useState(false);
   const [emailing, setEmailing] = useState(false);
   const [whatsapping, setWhatsapping] = useState(false);
-  const toast = useToast();
   const [deleting, setDeleting] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
 
@@ -70,16 +68,14 @@ export function EngagementActions({ letter, canManage, onError, onChanged }: {
   const phone = waNumber(letter.party_contact_number);
   const fileName = `${letter.letter_code}.pdf`;
   const note =
-    `Dear ${letter.party_name ?? 'Sir/Madam'},\n\nPlease find attached our engagement letter ${letter.letter_code} — ${letter.subject}, `
-    + `dated ${fmtDate(letter.letter_date)}${letter.financial_year ? ` (FY ${letter.financial_year})` : ''}.\n\nRegards`;
+    `Dear ${letter.party_name ?? 'Sir/Madam'},\n\nPlease download our engagement letter ${letter.letter_code} — ${letter.subject}, `
+    + `dated ${fmtDate(letter.letter_date)}${letter.financial_year ? ` (FY ${letter.financial_year})` : ''}, from the link below.\n\nRegards`;
 
   const share = async (channel: ShareChannel) => {
     setOpen(false);
     setBusy(true);
     try {
-      const r = await shareDocumentPdf({ issueUrl: () => engagementApi.pdfUrl(letter.id), fileName, note, channel, phone });
-      const hint = whatsappHint(r, fileName);
-      if (hint) toast.push('info', hint);
+      await shareDocumentPdf({ issueUrl: () => engagementApi.pdfUrl(letter.id), fileName, note, channel, phone });
     } catch (e) { fail(e); } finally { setBusy(false); }
   };
   const run = (fn: () => void) => () => { setOpen(false); fn(); };
@@ -87,12 +83,12 @@ export function EngagementActions({ letter, canManage, onError, onChanged }: {
   return (
     <div className="relative" ref={ref}>
       <SendEmailDialog
-        open={emailing} onClose={() => setEmailing(false)} kind="engagement" id={letter.id} fileName={fileName}
+        open={emailing} onClose={() => setEmailing(false)} kind="engagement" id={letter.id}
         to={letter.party_email} subject={`Engagement letter ${letter.letter_code} — ${letter.subject}`} message={note}
       />
       <SendWhatsAppDialog
         open={whatsapping} onClose={() => setWhatsapping(false)} kind="engagement" id={letter.id} phone={letter.party_contact_number}
-        fileName={fileName} note={note} issueUrl={() => engagementApi.pdfUrl(letter.id)}
+        note={note}
       />
       <button
         type="button" onClick={() => setOpen((v) => !v)} aria-haspopup="menu" aria-expanded={open}

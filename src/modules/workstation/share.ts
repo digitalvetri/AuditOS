@@ -1,8 +1,17 @@
 /**
- * Sending a Workstation document (quotation, invoice, engagement letter) as a
- * PDF FILE — never as a link. WhatsApp goes through the device's share sheet
- * (or download + WhatsApp Web); email is sent by the server with the PDF
- * attached (SendEmailDialog).
+ * Sending a Workstation document (quotation, invoice, engagement letter)
+ * as a MESSAGE containing a download LINK. The link points at the public
+ * signed PDF route; tapping it on any device downloads the PDF with no login.
+ *
+ * - WhatsApp (no Business API): open wa.me with the covering note + link.
+ * - WhatsApp (Business API): the server sends a text / template message that
+ *   embeds the link — see `/api/share/whatsapp`.
+ * - Email: the server sends a plain-text email with the link in the body —
+ *   see `/api/share/email`.
+ *
+ * The "Download PDF" action in the Actions menu still fetches the PDF locally
+ * (through the in-app, short-lived signed URL) because the person doing the
+ * download is already logged in.
  */
 
 /**
@@ -41,89 +50,44 @@ export function waNumberProblem(normalized: string): string | null {
 export type ShareChannel = 'download' | 'whatsapp';
 
 /**
- * Download the PDF, or hand it to WhatsApp as a FILE.
+ * Save the PDF locally, or open a WhatsApp chat prefilled with the note + link.
  *
- * WhatsApp: the native share sheet gets the real PDF where the device offers
- * one (phones, Chrome/Edge on Windows and macOS) — pick WhatsApp there and the
- * document is attached. Elsewhere the PDF is downloaded and the client's chat
- * opens in WhatsApp with the covering note, ready for the file to be dropped
- * in. The note never carries a link: the client receives the document.
- *
- * Email does not come through here — the server sends it with the PDF
- * attached (SendEmailDialog → POST /api/share/email).
- *
- * Resolves to how it was delivered, so the caller can tell the user what to
- * do next.
+ * The in-app download still uses the short-lived signed URL (the signer is
+ * logged in); the WhatsApp handoff needs the long-lived public URL instead,
+ * so the caller passes it in.
  */
 export async function shareDocumentPdf(o: {
-  /** Returns a signed PDF path, relative to this origin. */
-  issueUrl: () => Promise<{ url: string }>;
+  /** Short-lived signed PDF URL, used only for the local download path. */
+  issueUrl?: () => Promise<{ url: string }>;
+  /** Long-lived public URL used in the WhatsApp message. Required for channel === 'whatsapp'. */
+  publicUrl?: string;
   fileName: string;
-  /** Covering note sent with the file. */
+  /** Covering note sent with the link. */
   note: string;
   channel: ShareChannel;
   phone?: string;
-}): Promise<'downloaded' | 'shared' | 'cancelled' | 'whatsapp-web'> {
-  // A window.open() after the fetch below is no longer a user gesture, and
-  // the popup blocker silently eats the WhatsApp tab. Where there is no file
-  // share sheet, reserve the tab now while the click still counts. (Not with
-  // the 'noopener' feature — that makes window.open return null.) Where the
-  // share sheet exists, don't: opening a window would spend the gesture that
-  // navigator.share needs.
-  const canShareFiles = !!navigator.canShare?.({
-    files: [new File([], 'x.pdf', { type: 'application/pdf' })],
-  });
-  const reserved = o.channel === 'whatsapp' && !canShareFiles ? window.open('', '_blank') : null;
-  if (reserved) reserved.opener = null;
-
-  let blob: Blob;
-  try {
+}): Promise<'downloaded' | 'opened'> {
+  if (o.channel === 'download') {
+    if (!o.issueUrl) throw new Error('A signed URL is required to download.');
     const { url } = await o.issueUrl();
     const res = await fetch(new URL(url, window.location.origin).href);
     if (!res.ok) throw new Error('The PDF could not be generated.');
-    blob = await res.blob();
-  } catch (err) {
-    reserved?.close();
-    throw err;
-  }
-  const file = new File([blob], o.fileName, { type: 'application/pdf' });
-
-  const save = () => {
+    const blob = await res.blob();
     const href = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = href;
     a.download = o.fileName;
     a.rel = 'noopener';
-    // In the DOM before .click() (Firefox/Safari ignore a detached anchor),
-    // and the URL revoked later, not on the same tick (main eba42b9).
     document.body.appendChild(a);
     a.click();
     a.remove();
     setTimeout(() => URL.revokeObjectURL(href), 10_000);
-  };
-
-  if (o.channel === 'download') { save(); return 'downloaded'; }
-
-  if (navigator.canShare?.({ files: [file] })) {
-    try {
-      await navigator.share({ files: [file], title: o.fileName, text: o.note });
-      return 'shared';
-    } catch (err) {
-      // Dismissing the share sheet is a choice, not a failure.
-      if ((err as { name?: string })?.name === 'AbortError') return 'cancelled';
-    }
+    return 'downloaded';
   }
 
-  save();
-  const target = `https://wa.me/${o.phone ?? ''}?text=${encodeURIComponent(o.note)}`;
-  if (reserved) reserved.location.href = target;
-  else window.open(target, '_blank', 'noopener');
-  return 'whatsapp-web';
-}
-
-/** What to tell the user after a WhatsApp share, or null when nothing needs saying. */
-export function whatsappHint(result: Awaited<ReturnType<typeof shareDocumentPdf>>, fileName: string): string | null {
-  return result === 'whatsapp-web'
-    ? `${fileName} was downloaded. Attach it in the WhatsApp chat that just opened (drag it in, or use the paperclip).`
-    : null;
+  if (!o.publicUrl) throw new Error('A download link is required to send on WhatsApp.');
+  const body = `${o.note.trimEnd()}\n\n${o.publicUrl}`;
+  const target = `https://wa.me/${o.phone ?? ''}?text=${encodeURIComponent(body)}`;
+  window.open(target, '_blank', 'noopener');
+  return 'opened';
 }
