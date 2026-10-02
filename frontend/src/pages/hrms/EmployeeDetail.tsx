@@ -11,6 +11,7 @@ import { useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { employeeApi, isFullEmployee } from '@/modules/employees/api';
+import { EMPLOYEE_TYPE_LABEL, type EmployeeType } from '@/data/models';
 import { EmployeeEditModal } from '@/modules/employees/EmployeeEditModal';
 import { DeactivateButton } from '@/modules/employees/DeactivateButton';
 import { ArticledTrainingTab } from '@/modules/employees/ArticledTrainingTab';
@@ -225,7 +226,7 @@ function OverviewTab({
         <Field label="Designation" value={refs.designation?.name ?? '—'} />
         {isFull ? (
           <>
-            <Field label="Type" value={(emp as { type: string }).type} />
+            <Field label="Type" value={EMPLOYEE_TYPE_LABEL[(emp as { type: EmployeeType }).type]} />
             <Field label="Manager" value={refs.manager?.full_name ?? '—'} />
             <Field label="Work location" value={refs.location?.name ?? '—'} />
             <Field label="Joining date" value={fmtDate((emp as { joining_date: string }).joining_date + 'T00:00:00Z')} />
