@@ -1,75 +1,78 @@
 /**
- * Send a Workstation document to a client by email, WITH the PDF attached.
+ * Send a Workstation document (quotation, invoice or engagement letter) to a
+ * client by email or WhatsApp as a MESSAGE containing a public download link.
  *
- * A browser's mailto: can only carry text, so the file never reached the
- * client — only a link did. Here the server renders the same PDF the signed
- * link serves and sends it through the firm's SMTP account (lib/mailer.ts).
+ *   GET  /api/share/email/status      { configured, from }
+ *   POST /api/share/email             { kind, id, to[], cc[], subject, message } → { sent, link, to }
+ *   GET  /api/share/whatsapp/status   { configured, mode: 'template' | 'text' | null }
+ *   POST /api/share/whatsapp          { kind, id, to, message } → { sent, link, to, message_id, mode }
+ *   POST /api/share/public-link       { kind, id } → { url, file }
  *
- *   GET  /api/share/email/status   { configured, from }
- *   POST /api/share/email          { kind, id, to[], cc[], subject, message }
+ * The link is a 100-year signed URL to the document's PDF route under
+ * `/api/<kind>/<id>/pdf?t=…` — see `backend/src/modules/signed.routes.ts`. Those
+ * routes do not require a login (signed-URL authorization), so the recipient
+ * can download the PDF from any device.
  *
- * Access is the document's own read check (the same one its pdf-url route
- * uses), so nobody can mail a document they could not open.
+ * Access to ISSUE a link is still the document's read check, so nobody can
+ * share a document they cannot open.
  */
 import { Router } from 'express'
-import os from 'node:os'
-import { Writable } from 'node:stream'
-import QRCode from 'qrcode'
 import { z } from 'zod'
 import { ApiError, handler, ok } from '../../lib/http.js'
-import { prisma } from '../../lib/prisma.js'
+import { env } from '../../lib/env.js'
 import { mailConfigured, mailFrom, MailError, sendMail } from '../../lib/mailer.js'
-import { sendWhatsAppDocument, whatsappConfigured, whatsappMode, WhatsAppError } from '../../lib/whatsapp.js'
+import { sendWhatsAppLink, whatsappConfigured, whatsappMode, WhatsAppError } from '../../lib/whatsapp.js'
 import { requireSession } from '../../platform/auth.js'
 import { writeAudit } from '../../platform/audit.js'
 import { requireWorkstation } from '../../platform/workstation/scope.js'
-import { signedLink } from '../../platform/signedUrl.js'
+import { permanentLink } from '../../platform/signedUrl.js'
 import { QuotationService } from '../quotation/service.js'
 import { InvoiceService } from '../invoice/service.js'
-import { EngagementService, INCLUDE as ENGAGEMENT_INCLUDE } from '../engagement/service.js'
-import { streamQuotationPdf, QUOTATION_PDF_INCLUDE } from '../quotation/pdf.js'
-import { streamInvoicePdf, INVOICE_PDF_INCLUDE } from '../invoice/pdf.js'
-import { streamEngagementPdf } from '../engagement/pdf.js'
+import { EngagementService } from '../engagement/service.js'
 
 export const shareRouter = Router()
 
-/**
- * Run a PDF writer that expects an Express Response and collect its bytes.
- * The writers only pipe into the response and set headers.
- */
-export async function renderPdf(write: (res: never) => unknown): Promise<Buffer> {
-  const chunks: Buffer[] = []
-  const sink = new Writable({ write(chunk, _enc, cb) { chunks.push(Buffer.from(chunk)); cb() } }) as Writable & { setHeader: () => void }
-  sink.setHeader = () => undefined
-  const done = new Promise<void>((resolve, reject) => { sink.on('finish', resolve); sink.on('error', reject) })
-  await write(sink as never)
-  await done
-  return Buffer.concat(chunks)
-}
-
 type Kind = 'quotation' | 'invoice' | 'engagement'
 
-/** Access check + the PDF + its file name, per document kind. */
-async function documentPdf(req: Parameters<typeof requireSession>[0], kind: Kind, id: string): Promise<{ file: string; pdf: Buffer; label: string; party: string }> {
+/** Access check + public URL + friendly file label + recipient party, per kind. */
+async function publicPdfLink(req: Parameters<typeof requireSession>[0], kind: Kind, id: string): Promise<{ url: string; file: string; party: string }> {
   const session = requireSession(req)
+  if (!env.publicAppUrl) {
+    throw new ApiError(503, 'config_missing', 'The server does not know its public URL. Ask an administrator to set PUBLIC_APP_URL in backend/.env to the address clients will use (e.g. https://audit.example.com).')
+  }
   if (kind === 'quotation') {
-    await QuotationService.get(session, requireWorkstation(session, 'workstation.quotation.read'), id)
-    const q = await prisma.quotation.findFirst({ where: { id, deletedAt: null }, include: QUOTATION_PDF_INCLUDE })
-    if (!q) throw ApiError.notFound('Quotation not found.')
-    return { file: `${q.quotationCode}.pdf`, pdf: await renderPdf((res) => streamQuotationPdf(res, q)), label: `Quotation ${q.quotationCode}`, party: q.client?.companyName ?? q.lead?.name ?? '' }
+    const q = await QuotationService.get(session, requireWorkstation(session, 'workstation.quotation.read'), id)
+    const file = `${q.quotation_code}.pdf`
+    const { url } = permanentLink(`${env.publicAppUrl}/api/quotations/${id}/pdf`, `quotation:${id}`, session.userId)
+    return { url, file, party: q.party_name ?? '' }
   }
   if (kind === 'invoice') {
-    await InvoiceService.get(session, requireWorkstation(session, 'workstation.invoice.read'), id)
-    const inv = await prisma.invoice.findFirst({ where: { id, deletedAt: null }, include: INVOICE_PDF_INCLUDE })
-    if (!inv) throw ApiError.notFound('Invoice not found.')
-    const no = inv.invoiceNumber ?? 'invoice'
-    return { file: `${no}.pdf`, pdf: await renderPdf((res) => streamInvoicePdf(res, inv)), label: `Invoice ${no}`, party: inv.billingName ?? inv.client.companyName }
+    const inv = await InvoiceService.get(session, requireWorkstation(session, 'workstation.invoice.read'), id)
+    const file = `${inv.invoice_number ?? 'invoice'}.pdf`
+    const { url } = permanentLink(`${env.publicAppUrl}/api/invoices/${id}/pdf`, `invoice:${id}`, session.userId)
+    return { url, file, party: inv.billing_name ?? '' }
   }
-  await EngagementService.get(session, requireWorkstation(session, 'workstation.engagement.read'), id)
-  const l = await prisma.engagementLetter.findFirst({ where: { id, deletedAt: null }, include: ENGAGEMENT_INCLUDE })
-  if (!l) throw ApiError.notFound('Engagement letter not found.')
-  return { file: `${l.letterCode}.pdf`, pdf: await renderPdf((res) => streamEngagementPdf(res, l)), label: `Engagement letter ${l.letterCode}`, party: l.client?.companyName ?? l.lead?.name ?? '' }
+  const l = await EngagementService.get(session, requireWorkstation(session, 'workstation.engagement.read'), id)
+  const file = `${l.letter_code}.pdf`
+  const { url } = permanentLink(`${env.publicAppUrl}/api/engagement-letters/${id}/pdf`, `engagement:${id}`, session.userId)
+  return { url, file, party: l.party_name ?? '' }
 }
+
+const PublicLinkBody = z.object({
+  kind: z.enum(['quotation', 'invoice', 'engagement']),
+  id: z.string().min(1).max(100),
+})
+
+shareRouter.post('/public-link', handler(async (req, res) => {
+  requireSession(req)
+  const parsed = PublicLinkBody.safeParse(req.body)
+  if (!parsed.success) throw ApiError.badRequest(parsed.error.issues[0]?.message ?? 'Invalid request.')
+  const { kind, id } = parsed.data
+  // No audit here: the dialog opens this on every mount. The actual send
+  // (/share/email, /share/whatsapp) logs the link under `after.link`.
+  const link = await publicPdfLink(req, kind, id)
+  ok(res, { url: link.url, file: link.file })
+}))
 
 shareRouter.get('/email/status', handler(async (req, res) => {
   requireSession(req)
@@ -77,7 +80,7 @@ shareRouter.get('/email/status', handler(async (req, res) => {
 }))
 
 const emails = z.array(z.string().trim().email('Enter valid email addresses.')).max(20)
-const Body = z.object({
+const EmailBody = z.object({
   kind: z.enum(['quotation', 'invoice', 'engagement']),
   id: z.string().min(1).max(100),
   to: emails.min(1, 'Add at least one recipient.'),
@@ -88,28 +91,22 @@ const Body = z.object({
 
 shareRouter.post('/email', handler(async (req, res) => {
   const session = requireSession(req)
-  const parsed = Body.safeParse(req.body)
+  const parsed = EmailBody.safeParse(req.body)
   if (!parsed.success) throw ApiError.badRequest(parsed.error.issues[0]?.message ?? 'Invalid request.')
   const b = parsed.data
   if (!mailConfigured()) throw new ApiError(503, 'mail_not_configured', 'Email is not configured on the server. Add SMTP_HOST, SMTP_USER and SMTP_PASS to backend/.env.')
 
-  const doc = await documentPdf(req, b.kind, b.id)
+  const link = await publicPdfLink(req, b.kind, b.id)
+  const body = `${b.message.trimEnd()}\n\nDownload ${link.file}:\n${link.url}\n`
   try {
-    await sendMail({
-      to: b.to, cc: b.cc.length ? b.cc : undefined, replyTo: session.email, subject: b.subject, text: b.message,
-      attachments: [{ filename: doc.file, content: doc.pdf, contentType: 'application/pdf' }],
-    })
+    await sendMail({ to: b.to, cc: b.cc.length ? b.cc : undefined, replyTo: session.email, subject: b.subject, text: body })
   } catch (e) {
     if (e instanceof MailError) throw new ApiError(502, 'mail_failed', e.message)
     throw e
   }
-  await writeAudit({ actorUserId: session.userId, action: `${b.kind}.emailed`, entityType: b.kind, entityId: b.id, after: { to: b.to, cc: b.cc, attachment: doc.file }, req })
-  ok(res, { sent: true, attachment: doc.file, to: b.to })
+  await writeAudit({ actorUserId: session.userId, action: `${b.kind}.emailed`, entityType: b.kind, entityId: b.id, after: { to: b.to, cc: b.cc, link: link.url, file: link.file }, req })
+  ok(res, { sent: true, link: link.url, file: link.file, to: b.to })
 }))
-
-// ── WhatsApp (Business Cloud API) ────────────────────────────────────────
-//   GET  /api/share/whatsapp/status  { configured, mode: 'template' | 'document' | null }
-//   POST /api/share/whatsapp         { kind, id, to, message }
 
 /** The number WhatsApp needs: digits with country code. 10-digit Indian numbers get 91. */
 function waDigits(raw: string): string | null {
@@ -144,81 +141,15 @@ shareRouter.post('/whatsapp', handler(async (req, res) => {
   const to = waDigits(b.to)
   if (!to) throw ApiError.badRequest('That is not a valid mobile number. Use a 10-digit Indian mobile, or + and the country code.')
 
-  const doc = await documentPdf(req, b.kind, b.id)
+  const link = await publicPdfLink(req, b.kind, b.id)
+  const body = `${b.message.trimEnd()}\n\n${link.url}`
   let result
   try {
-    result = await sendWhatsAppDocument({
-      to, pdf: doc.pdf, filename: doc.file,
-      recipientName: doc.party || 'Sir/Madam', documentLabel: doc.label, caption: b.message,
-    })
+    result = await sendWhatsAppLink({ to, link: link.url, body, recipientName: link.party || 'Sir/Madam' })
   } catch (e) {
     if (e instanceof WhatsAppError) throw new ApiError(502, 'whatsapp_failed', e.message)
     throw e
   }
-  await writeAudit({ actorUserId: session.userId, action: `${b.kind}.whatsapped`, entityType: b.kind, entityId: b.id, after: { to, attachment: doc.file, message_id: result.messageId, mode: result.mode }, req })
-  ok(res, { sent: true, attachment: doc.file, to, message_id: result.messageId, mode: result.mode })
-}))
-
-// ── Phone handoff: WhatsApp WITHOUT the Business API ──────────────────────
-//   POST /api/share/phone-link { kind, id, note } → { url, qr, expires_at }
-//
-// A desktop browser (Linux especially) cannot attach a file to WhatsApp. A
-// phone can: its share sheet hands WhatsApp the real PDF. So the desktop
-// shows a QR code; the phone opens /send (public page, signed link), and
-// the PDF goes to WhatsApp from there, attached.
-
-const PHONE_LINK_TTL = 30 * 60
-
-/**
- * The address a phone on the same network can open. PUBLIC_APP_URL wins
- * (a deployment with a real domain). Otherwise the browser's own origin,
- * with localhost swapped for this machine's LAN address.
- */
-function phoneOrigin(req: Parameters<typeof requireSession>[0]): string {
-  if (process.env.PUBLIC_APP_URL) return process.env.PUBLIC_APP_URL.replace(/\/$/, '')
-  const origin = (req.headers.origin as string | undefined) ?? (req.headers.referer ? new URL(req.headers.referer as string).origin : `http://${req.headers.host}`)
-  const u = new URL(origin)
-  if (['localhost', '127.0.0.1', '::1', '[::1]'].includes(u.hostname)) {
-    // Skip Docker / VM bridges; they are not reachable from a phone.
-    const lan = Object.entries(os.networkInterfaces())
-      .filter(([name]) => !/^(docker|br-|virbr|veth|vboxnet|vmnet|lo)/.test(name))
-      .flatMap(([, addrs]) => addrs ?? [])
-      .find((a) => a.family === 'IPv4' && !a.internal)
-    if (lan) u.hostname = lan.address
-  }
-  return u.origin
-}
-
-const PhoneBody = z.object({
-  kind: z.enum(['quotation', 'invoice', 'engagement']),
-  id: z.string().min(1).max(100),
-  note: z.string().max(1000).default(''),
-})
-
-shareRouter.post('/phone-link', handler(async (req, res) => {
-  const session = requireSession(req)
-  const parsed = PhoneBody.safeParse(req.body)
-  if (!parsed.success) throw ApiError.badRequest(parsed.error.issues[0]?.message ?? 'Invalid request.')
-  const { kind, id, note } = parsed.data
-
-  let file: string
-  let pdf: string
-  if (kind === 'quotation') {
-    const q = await QuotationService.get(session, requireWorkstation(session, 'workstation.quotation.read'), id)
-    file = `${q.quotation_code}.pdf`
-    pdf = signedLink(`/api/quotations/${id}/pdf`, `quotation:${id}`, session.userId, PHONE_LINK_TTL).url
-  } else if (kind === 'invoice') {
-    const inv = await InvoiceService.get(session, requireWorkstation(session, 'workstation.invoice.read'), id)
-    file = `${inv.invoice_number ?? 'invoice'}.pdf`
-    pdf = signedLink(`/api/invoices/${id}/pdf`, `invoice:${id}`, session.userId, PHONE_LINK_TTL).url
-  } else {
-    const l = await EngagementService.get(session, requireWorkstation(session, 'workstation.engagement.read'), id)
-    file = `${l.letter_code}.pdf`
-    pdf = signedLink(`/api/engagement-letters/${id}/pdf`, `engagement:${id}`, session.userId, PHONE_LINK_TTL).url
-  }
-
-  const url = `${phoneOrigin(req)}/send?${new URLSearchParams({ pdf, name: file, note })}`
-  const qr = await QRCode.toDataURL(url, { margin: 1, width: 280, errorCorrectionLevel: 'L' })
-  await writeAudit({ actorUserId: session.userId, action: `${kind}.phone_share_link`, entityType: kind, entityId: id, after: { file }, req })
-  ok(res, { url, qr, file, expires_at: new Date(Date.now() + PHONE_LINK_TTL * 1000).toISOString() })
+  await writeAudit({ actorUserId: session.userId, action: `${b.kind}.whatsapped`, entityType: b.kind, entityId: b.id, after: { to, link: link.url, file: link.file, message_id: result.messageId, mode: result.mode }, req })
+  ok(res, { sent: true, link: link.url, file: link.file, to, message_id: result.messageId, mode: result.mode })
 }))

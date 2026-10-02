@@ -131,12 +131,11 @@ function Body({ inv }: { inv: Invoice }) {
   });
 
 
-  // Share as a PDF FILE: WhatsApp via the share sheet (or download + WhatsApp
-  // Web), email sent by the server with the PDF attached.
+  // Share as a public download LINK: email and WhatsApp both carry the link
+  // in the message body; the recipient opens the PDF from any device.
   const [emailing, setEmailing] = useState(false);
-  const fileName = `${inv.invoice_number ?? 'invoice'}.pdf`;
   const note =
-    `Dear ${inv.billing_name || inv.client_name || 'Sir/Madam'},\n\nPlease find attached invoice ${inv.invoice_number} dated ${fmtDate(inv.invoice_date)}.\n`
+    `Dear ${inv.billing_name || inv.client_name || 'Sir/Madam'},\n\nPlease download invoice ${inv.invoice_number} dated ${fmtDate(inv.invoice_date)} from the link below.\n`
     + `Amount: ₹${inrAmount(inv.total_paise)}`
     + (inv.balance_due_paise > 0 && inv.due_date ? `\nBalance due: ₹${inrAmount(inv.balance_due_paise)} by ${fmtDate(inv.due_date)}` : '')
     + `\n\nRegards`;
@@ -153,12 +152,12 @@ function Body({ inv }: { inv: Invoice }) {
         <p className="p-4 text-13 text-neutral-700">This draft has no invoice number yet and is removed permanently.</p>
       </Modal>
       <SendEmailDialog
-        open={emailing} onClose={() => setEmailing(false)} kind="invoice" id={inv.id} fileName={fileName}
+        open={emailing} onClose={() => setEmailing(false)} kind="invoice" id={inv.id}
         to={inv.party_email} subject={`Invoice ${inv.invoice_number} from ${docFromInvoice(inv).company.name}`} message={note}
       />
       <SendWhatsAppDialog
         open={whatsapping} onClose={() => setWhatsapping(false)} kind="invoice" id={inv.id} phone={inv.party_contact_number}
-        fileName={fileName} note={note} issueUrl={() => invoicesApi.pdfUrl(inv.id)}
+        note={note}
       />
       <div className="qdoc-screen-only">
         <PageHeader
@@ -172,13 +171,6 @@ function Body({ inv }: { inv: Invoice }) {
               {mayWrite && inv.balance_due_paise > 0 && inv.stored_status !== 'draft' && inv.stored_status !== 'cancelled' ? (
                 <Button variant="primary" onClick={() => setPayOpen(true)}>Record payment</Button>
               ) : null}
-              <Button
-                disabled={!inv.party_contact_number}
-                title={inv.party_contact_number ? undefined : 'No contact number on the client record'}
-                onClick={() => setWhatsapping(true)}
-              >
-                <MessageCircle size={14} /> WhatsApp
-              </Button>
               <InvoiceActionsMenu
                 inv={inv} mayWrite={mayWrite} pdfBusy={pdf.isPending}
                 onDownload={() => pdf.mutate()} onWhatsApp={() => setWhatsapping(true)} onEmail={() => setEmailing(true)}

@@ -52,6 +52,12 @@ export const env = {
   jwtSecret: secret('JWT_SECRET'),
   signedUrlSecret: secret('SIGNED_URL_SECRET'),
   signedUrlTtlSeconds: Number(process.env.SIGNED_URL_TTL_SECONDS ?? 300),
+  // A link that is pasted into an email or WhatsApp message and opened by the
+  // client weeks later. Signed with a separate secret from SIGNED_URL_SECRET
+  // so that rotating one does not invalidate the other.
+  permanentLinkSecret: secret('PERMANENT_LINK_SECRET'),
+  /** The absolute origin a client clicks on, e.g. https://audit.example.com. */
+  publicAppUrl: process.env.PUBLIC_APP_URL?.replace(/\/$/, '') ?? null,
   sessionTtlSeconds: Number(process.env.SESSION_TTL_SECONDS ?? 8 * 60 * 60),
   /** Comma-separated list; credentialed CORS never uses '*'. */
   webOrigins: (process.env.WEB_ORIGIN ?? 'http://localhost:5173')

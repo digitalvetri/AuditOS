@@ -53,7 +53,6 @@ import { GstReconDetailPage } from '@/pages/tools/GstReconDetail';
 import { TdsJobsListPage } from '@/pages/tools/TdsJobsList';
 import { TdsNewReconPage } from '@/pages/tools/TdsNewRecon';
 import { TdsReconDetailPage } from '@/pages/tools/TdsReconDetail';
-import { SendToWhatsAppPage } from '@/pages/SendToWhatsApp';
 // Bookkeeping — native double-entry accounting (formerly Tally engine).
 import { BookkeepingHome } from '@/pages/workstation/services/bookkeeping/BookkeepingHome';
 import { BookkeepingCompanies } from '@/pages/workstation/services/bookkeeping/BookkeepingCompanies';
@@ -175,8 +174,6 @@ export default function App() {
           <BrowserRouter>
             <Routes>
             <Route path="/login" element={<LoginPage />} />
-            {/* Opened on a phone from the WhatsApp QR code; the signed PDF link is the permission. */}
-            <Route path="/send" element={<SendToWhatsAppPage />} />
 
             {/* The quotation preview is a document, not a screen: it is
                 declared OUTSIDE the AppShell route below so the sidebar,

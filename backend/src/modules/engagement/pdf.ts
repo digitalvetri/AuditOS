@@ -205,7 +205,10 @@ export function streamEngagementPdf(res: Response, l: Row) {
     bufferPages: true,
   })
   res.setHeader('Content-Type', 'application/pdf')
-  res.setHeader('Content-Disposition', `attachment; filename="${l.letterCode}.pdf"`)
+  // `inline` so clicking the share link previews in the browser's PDF viewer
+  // (with its own Download button) instead of forcing a save. The in-app
+  // "Download PDF" button overrides this with an <a download> on the client.
+  res.setHeader('Content-Disposition', `inline; filename="${l.letterCode}.pdf"`)
   doc.pipe(res)
 
   const layout = (l.layoutConfig ?? {}) as { company?: Record<string, string> }
