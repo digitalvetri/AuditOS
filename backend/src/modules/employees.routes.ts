@@ -167,8 +167,10 @@ employeesRouter.post('/', handler(async (req, res) => {
     first_name: z.string().min(1),
     last_name: z.string().min(1),
     email: z.string().email(),
-    department_id: z.string().min(1),
-    designation_id: z.string().min(1),
+    // Department + Designation were removed as concepts; FKs are nullable
+    // in the Prisma schema and these are no longer required on create.
+    department_id: z.string().optional(),
+    designation_id: z.string().optional(),
     employee_code: z.string().optional(),
     type: z.string().optional(),
     status: z.string().optional(),
@@ -182,7 +184,7 @@ employeesRouter.post('/', handler(async (req, res) => {
   }).safeParse(req.body ?? {})
   if (!body.success) {
     throw ApiError.badRequest(
-      'first_name, last_name, email, department_id and designation_id are required.',
+      'first_name, last_name and email are required.',
       body.error.flatten().fieldErrors,
     )
   }
@@ -204,8 +206,8 @@ employeesRouter.post('/', handler(async (req, res) => {
       fullName: `${b.first_name} ${b.last_name}`,
       type: b.type ?? 'executive',
       status: b.status ?? 'probation',
-      designationId: b.designation_id,
-      departmentId: b.department_id,
+      designationId: b.designation_id ?? null,
+      departmentId: b.department_id ?? null,
       managerId: b.manager_id ?? null,
       workLocationId: b.work_location_id ?? defaultLocation?.id ?? '',
       workScheduleId: b.work_schedule_id ?? defaultSchedule?.id ?? '',
@@ -239,8 +241,8 @@ employeesRouter.get('/:id', handler(async (req, res) => {
   if (!allowed) throw ApiError.forbidden()
 
   const [dept, designation, manager, location] = await Promise.all([
-    prisma.department.findUnique({ where: { id: target.departmentId } }),
-    prisma.designation.findUnique({ where: { id: target.designationId } }),
+    target.departmentId ? prisma.department.findUnique({ where: { id: target.departmentId } }) : null,
+    target.designationId ? prisma.designation.findUnique({ where: { id: target.designationId } }) : null,
     target.managerId ? prisma.employee.findUnique({ where: { id: target.managerId } }) : null,
     prisma.workLocation.findUnique({ where: { id: target.workLocationId } }),
   ])

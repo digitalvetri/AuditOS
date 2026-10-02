@@ -163,34 +163,10 @@ async function main() {
     }
   }
 
-  // ── Departments, designations, locations, schedule ──────────────────────
-  const departments = [
-    { id: 'dep-hr', name: 'HR', code: 'HR' },
-    { id: 'dep-ops', name: 'Operations', code: 'OPS' },
-    { id: 'dep-fin', name: 'Finance', code: 'FIN' },
-    { id: 'dep-mgmt', name: 'Management', code: 'MGMT' },
-  ]
-  for (const d of departments) {
-    await prisma.department.upsert({
-      where: { code: d.code },
-      update: { name: d.name },
-      create: { ...d, organisationId: org.id },
-    })
-  }
-
-  const designations = [
-    { id: 'des-md', name: 'Managing Partner' },
-    { id: 'des-hr', name: 'HR Manager' },
-    { id: 'des-fin', name: 'Finance Manager' },
-    { id: 'des-mgr', name: 'Audit Manager' },
-    { id: 'des-exec', name: 'Audit Executive' },
-  ]
-  for (const d of designations) {
-    await prisma.designation.upsert({
-      where: { id: d.id }, update: { name: d.name },
-      create: { ...d, organisationId: org.id },
-    })
-  }
+  // ── Locations, schedule ─────────────────────────────────────────────────
+  // Department + Designation are removed concepts. The Prisma models still
+  // exist (as nullable FKs on Employee) for historical rows, but seed
+  // creates no new rows and never attaches employees to one.
 
   const locations = [
     { id: 'wl-hq', name: 'Head Office · Chennai', address: 'Chennai, Tamil Nadu', latitude: 13.0827, longitude: 80.2707 },
@@ -224,50 +200,50 @@ async function main() {
   const employees = [
     {
       id: 'emp-md', code: 'AO-0001', first: 'Ravi', last: 'Krishnan', type: 'partner', status: 'active',
-      designationId: 'des-md', departmentId: 'dep-mgmt', managerId: null,
+      managerId: null,
       email: 'ravi@auditos.local', phone: '+91 98400 00001', joining: '2018-04-01',
       notice: 90, bank: '••••4321',
     },
     {
       id: 'emp-hr', code: 'AO-0002', first: 'Priya', last: 'Nair', type: 'manager', status: 'active',
-      designationId: 'des-hr', departmentId: 'dep-hr', managerId: 'emp-md',
+      managerId: 'emp-md',
       email: 'priya@auditos.local', phone: '+91 98400 00002', joining: '2020-06-15',
       notice: 60, bank: '••••8765',
     },
     {
       id: 'emp-fin', code: 'AO-0003', first: 'Anitha', last: 'Rao', type: 'manager', status: 'active',
-      designationId: 'des-fin', departmentId: 'dep-fin', managerId: 'emp-md',
+      managerId: 'emp-md',
       email: 'anitha@auditos.local', phone: '+91 98400 00003', joining: '2021-01-10',
       notice: 60, bank: '••••1122',
     },
     {
       id: 'emp-mgr', code: 'AO-0004', first: 'Vikram', last: 'Shetty', type: 'manager', status: 'active',
-      designationId: 'des-mgr', departmentId: 'dep-ops', managerId: 'emp-md',
+      managerId: 'emp-md',
       email: 'vikram@auditos.local', phone: '+91 98400 00004', joining: '2019-08-01',
       notice: 60, bank: '••••3344',
     },
     {
       id: 'emp-exec', code: 'AO-0005', first: 'Meera', last: 'Iyer', type: 'executive', status: 'active',
-      designationId: 'des-exec', departmentId: 'dep-ops', managerId: 'emp-mgr',
+      managerId: 'emp-mgr',
       email: 'meera@auditos.local', phone: '+91 98400 00005', joining: '2023-04-01',
       notice: 30, bank: '••••5566',
     },
     {
       id: 'emp-articled', code: 'AO-0006', first: 'Karthik', last: 'Subramanian', type: 'articled', status: 'active',
-      designationId: 'des-exec', departmentId: 'dep-ops', managerId: 'emp-mgr',
+      managerId: 'emp-mgr',
       email: 'karthik@auditos.local', phone: '+91 98400 00006', joining: '2025-07-01',
       notice: 30, bank: '••••7788',
     },
     {
       id: 'emp-probation', code: 'AO-0007', first: 'Divya', last: 'Menon', type: 'executive', status: 'probation',
-      designationId: 'des-exec', departmentId: 'dep-ops', managerId: 'emp-mgr',
+      managerId: 'emp-mgr',
       email: 'divya@auditos.local', phone: '+91 98400 00007', joining: addDays(TODAY, -60),
       notice: 30, bank: '••••9911',
     },
     // An exited employee with no login — the "employee without a user" case (§4.2).
     {
       id: 'emp-inactive', code: 'AO-0008', first: 'Prakash', last: 'Iyer', type: 'executive', status: 'inactive',
-      designationId: 'des-exec', departmentId: 'dep-ops', managerId: 'emp-mgr',
+      managerId: 'emp-mgr',
       email: 'prakash@auditos.local', phone: '+91 98400 00008', joining: '2023-01-15',
       notice: 30, bank: '••••4455', exit: addDays(TODAY, -68), exitReason: 'Personal',
       deleted: true,
@@ -287,8 +263,6 @@ async function main() {
         fullName: `${e.first} ${e.last}`,
         type: e.type,
         status: e.status,
-        designationId: e.designationId,
-        departmentId: e.departmentId,
         managerId: null, // linked in a second pass so self-references resolve
         workLocationId: 'wl-hq',
         workScheduleId: 'ws-standard',
@@ -858,24 +832,25 @@ async function main() {
     }
   }
 
-  // ── Messages: group chats derived from department + role, plus two DMs ──
+  // ── Messages: group chats derived from role + hand-picked teams, plus two DMs ──
   //
   // Membership is derived AT SEED TIME, not on every request. Re-deriving
-  // would silently add someone to a chat when their department changes, and
-  // the history there predates them.
+  // would silently add someone to a chat when their role changes, and the
+  // history there predates them. Chats used to be derived from the
+  // department FK, which has been removed; the HR/Finance/Ops chats are
+  // now hard-wired by employee id.
   if ((await prisma.chat.count()) === 0) {
     const active = activeEmployees.map((e) => e.id)
-    const byDept = (dept: string) => activeEmployees.filter((e) => e.departmentId === dept).map((e) => e.id)
+    const only = (...ids: string[]) => ids.filter((id) => active.includes(id))
     const byType = (...types: string[]) => activeEmployees.filter((e) => types.includes(e.type)).map((e) => e.id)
 
     const groups: { id: string; name: string; description: string; members: string[]; admin: string }[] = [
       { id: 'chat-general', name: 'Audit OS General', description: 'Firm-wide announcements and general chatter.', members: active, admin: 'emp-md' },
       { id: 'chat-mgmt', name: 'Management', description: 'Partners + managers.', members: byType('partner', 'manager'), admin: 'emp-md' },
-      { id: 'chat-hr', name: 'HR Team', description: 'HR department + MD.', members: [...new Set([...byDept('dep-hr'), 'emp-md'])], admin: 'emp-hr' },
-      { id: 'chat-finance', name: 'Finance Team', description: 'Finance department + MD.', members: [...new Set([...byDept('dep-fin'), 'emp-md'])], admin: 'emp-fin' },
-      // No GST department exists in the seed yet; Operations + MD stands in.
-      { id: 'chat-gst', name: 'GST Team', description: 'GST filings work.', members: [...new Set([...byDept('dep-ops'), 'emp-md'])], admin: 'emp-md' },
-      { id: 'chat-ops', name: 'Operations', description: 'Audit + field operations.', members: byDept('dep-ops'), admin: 'emp-mgr' },
+      { id: 'chat-hr', name: 'HR Team', description: 'HR + MD.', members: only('emp-hr', 'emp-md'), admin: 'emp-hr' },
+      { id: 'chat-finance', name: 'Finance Team', description: 'Finance + MD.', members: only('emp-fin', 'emp-md'), admin: 'emp-fin' },
+      { id: 'chat-gst', name: 'GST Team', description: 'GST filings work.', members: only('emp-md', 'emp-mgr', 'emp-exec', 'emp-articled'), admin: 'emp-md' },
+      { id: 'chat-ops', name: 'Operations', description: 'Audit + field operations.', members: only('emp-mgr', 'emp-exec', 'emp-articled'), admin: 'emp-mgr' },
     ]
     for (const g of groups) {
       await prisma.chat.create({

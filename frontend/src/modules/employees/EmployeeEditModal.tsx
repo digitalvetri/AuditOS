@@ -43,8 +43,6 @@ export function EmployeeEditModal({ open, onClose, employee, mode }: Props) {
             phone: employee.phone,
             type: employee.type,
             status: employee.status,
-            designation_id: employee.designation_id,
-            department_id: employee.department_id,
             manager_id: employee.manager_id ?? null,
             joining_date: employee.joining_date,
           },

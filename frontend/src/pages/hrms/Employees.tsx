@@ -4,7 +4,7 @@
  * Columns visible to Finance are constrained to the 6-field projection the
  * server returns. The UI mirrors what the server sent — never adds fields.
  *
- * Filters: q, department, designation, type, status, manager, joining date range.
+ * Filters: q, type, status, manager, joining date range.
  * Row click → /hrms/employees/:id.
  */
 import { useMemo, useState } from 'react';
@@ -37,14 +37,12 @@ export function EmployeesPage() {
   const columns = useMemo(() => {
     // Finance sees a strict subset. Server enforces; UI mirrors.
     if (isFinanceView) {
-      return ['Code', 'Name', 'Department', 'Designation', 'Bank', 'Status'];
+      return ['Code', 'Name', 'Bank', 'Status'];
     }
     return [
       'Code',
       'Name',
       'Type',
-      'Department',
-      'Designation',
       'Email',
       'Joining date',
       'Manager',
@@ -180,16 +178,12 @@ function Row({
   );
 
   if (isFinanceView) {
-    cells.push(<span className="text-13 text-neutral-500">{row.department_id}</span>);
-    cells.push(<span className="text-13 text-neutral-500">{row.designation_id}</span>);
     cells.push(
       <span className="text-13 text-neutral-900">{row.bank_account_masked ?? '—'}</span>,
     );
     cells.push(<StatusLabel variant={s.variant} label={s.label} />);
   } else if (isFullEmployee(row)) {
     cells.push(<span className="text-13 text-neutral-700">{EMPLOYEE_TYPE_LABEL[row.type]}</span>);
-    cells.push(<span className="text-13 text-neutral-500">{row.department_id}</span>);
-    cells.push(<span className="text-13 text-neutral-500">{row.designation_id}</span>);
     cells.push(<span className="text-13 text-neutral-900">{row.email}</span>);
     cells.push(<span className="text-13 text-neutral-900">{fmtDate(row.joining_date + 'T00:00:00Z')}</span>);
     cells.push(<span className="text-13 text-neutral-500">{row.manager_id ?? '—'}</span>);
@@ -325,8 +319,6 @@ function exportCsv(rows: EmployeeRow[], columns: string[]) {
             Code: r.employee_code,
             Name: r.full_name,
             Type: isFullEmployee(r) ? r.type : '',
-            Department: r.department_id,
-            Designation: r.designation_id,
             Email: isFullEmployee(r) ? r.email : '',
             'Joining date': isFullEmployee(r) ? r.joining_date : '',
             Manager: isFullEmployee(r) ? r.manager_id ?? '' : '',

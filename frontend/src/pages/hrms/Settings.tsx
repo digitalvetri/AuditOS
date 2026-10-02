@@ -7,12 +7,10 @@
  */
 import { useSearchParams } from 'react-router-dom';
 import {
-  BadgePercent, Briefcase, Building2, CalendarDays, CalendarRange, KeyRound, MapPin, Receipt,
+  BadgePercent, Building2, CalendarDays, CalendarRange, KeyRound, MapPin, Receipt,
 } from 'lucide-react';
 import { useAuth } from '@/platform/auth/AuthContext';
 import { can } from '@/platform/rbac/can';
-import { DepartmentsSection } from '@/modules/settings/DepartmentsSection';
-import { DesignationsSection } from '@/modules/settings/DesignationsSection';
 import { WorkLocationsSection } from '@/modules/settings/WorkLocationsSection';
 import { HolidaysSection } from '@/modules/settings/HolidaysSection';
 import { LeaveTypesSection } from '@/modules/settings/LeaveTypesSection';
@@ -21,8 +19,6 @@ import { StatutoryRatesSection } from '@/modules/settings/StatutoryRatesSection'
 import { RolesSection } from '@/modules/settings/RolesSection';
 
 type Section =
-  | 'departments'
-  | 'designations'
   | 'work-locations'
   | 'holidays'
   | 'leave-types'
@@ -39,8 +35,6 @@ const GROUP_TINT: Record<string, { bg: string; fg: string }> = {
 };
 
 const SECTIONS: { id: Section; label: string; group: string; icon: typeof Building2 }[] = [
-  { id: 'departments', label: 'Departments', group: 'Organisation', icon: Building2 },
-  { id: 'designations', label: 'Designations', group: 'Organisation', icon: Briefcase },
   { id: 'work-locations', label: 'Work locations', group: 'Organisation', icon: MapPin },
   { id: 'holidays', label: 'Holiday calendar', group: 'Time & Leave', icon: CalendarDays },
   { id: 'leave-types', label: 'Leave types', group: 'Time & Leave', icon: CalendarRange },
@@ -53,7 +47,7 @@ export function SettingsPage() {
   const { session } = useAuth();
   const canManage = can(session?.role.code, 'settings.manage', 'organisation');
   const [params, setParams] = useSearchParams();
-  const section = (params.get('section') as Section | null) ?? 'departments';
+  const section = (params.get('section') as Section | null) ?? 'work-locations';
 
   if (!canManage) {
     return (
@@ -134,8 +128,6 @@ export function SettingsPage() {
           ))}
         </aside>
         <main data-testid={`settings-section-${section}`} className="m-form min-w-0">
-          {section === 'departments' ? <DepartmentsSection /> : null}
-          {section === 'designations' ? <DesignationsSection /> : null}
           {section === 'work-locations' ? <WorkLocationsSection /> : null}
           {section === 'holidays' ? <HolidaysSection /> : null}
           {section === 'leave-types' ? <LeaveTypesSection /> : null}

@@ -39,8 +39,6 @@ export interface EmployeeCreateInput {
   first_name: string;
   last_name: string;
   email: string;
-  department_id: string;
-  designation_id: string;
   type?: Employee['type'];
   status?: Employee['status'];
   manager_id?: string | null;

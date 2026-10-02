@@ -10,7 +10,6 @@ import { Button } from '@/components/Button';
 import { Input } from '@/components/Input';
 import { useToast } from '@/components/Toast';
 import { employeeApi, isFullEmployee, type EmployeeCreateInput } from './api';
-import { settingsApi } from '@/modules/settings/api';
 import { EMPLOYEE_TYPE_LABEL, SELECTABLE_EMPLOYEE_TYPES, type Employee } from '@/data/models';
 
 interface Props {
@@ -21,7 +20,7 @@ interface Props {
 
 const EMPTY: EmployeeCreateInput = {
   first_name: '', last_name: '', email: '', phone: '',
-  department_id: '', designation_id: '', manager_id: null,
+  manager_id: null,
   type: 'executive', status: 'probation', joining_date: '',
 };
 
@@ -37,8 +36,6 @@ export function EmployeeCreateModal({ open, onClose, onCreated }: Props) {
     setError(null);
   }, [open]);
 
-  const departments = useQuery({ queryKey: ['settings', 'departments'], queryFn: settingsApi.departments.list, enabled: open });
-  const designations = useQuery({ queryKey: ['settings', 'designations'], queryFn: settingsApi.designations.list, enabled: open });
   const managers = useQuery({ queryKey: ['employees', 'list', {}], queryFn: () => employeeApi.list({}), enabled: open });
 
   const create = useMutation({
@@ -61,8 +58,6 @@ export function EmployeeCreateModal({ open, onClose, onCreated }: Props) {
     setError(null);
     if (!form.first_name.trim() || !form.last_name.trim()) return setError('First and last name are required.');
     if (!form.email.trim()) return setError('Email is required.');
-    if (!form.department_id) return setError('Choose a department.');
-    if (!form.designation_id) return setError('Choose a designation.');
     create.mutate({
       ...form,
       first_name: form.first_name.trim(),
@@ -98,22 +93,6 @@ export function EmployeeCreateModal({ open, onClose, onCreated }: Props) {
           </div>
           <Input label="Email" type="email" value={form.email} onChange={(e) => set('email', e.target.value)} required data-testid="employee-create-email" />
           <Input label="Phone" value={form.phone ?? ''} onChange={(e) => set('phone', e.target.value)} />
-          <div className="grid grid-cols-2 gap-3">
-            <label className="block">
-              <span className="block text-11 uppercase tracking-[0.06em] text-neutral-500 mb-1">Department</span>
-              <select value={form.department_id} onChange={(e) => set('department_id', e.target.value)} className={selectCls} required data-testid="employee-create-department">
-                <option value="">Select…</option>
-                {(departments.data?.items ?? []).map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}
-              </select>
-            </label>
-            <label className="block">
-              <span className="block text-11 uppercase tracking-[0.06em] text-neutral-500 mb-1">Designation</span>
-              <select value={form.designation_id} onChange={(e) => set('designation_id', e.target.value)} className={selectCls} required data-testid="employee-create-designation">
-                <option value="">Select…</option>
-                {(designations.data?.items ?? []).map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}
-              </select>
-            </label>
-          </div>
           <div className="grid grid-cols-2 gap-3">
             <label className="block">
               <span className="block text-11 uppercase tracking-[0.06em] text-neutral-500 mb-1">Type</span>

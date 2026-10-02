@@ -165,8 +165,9 @@ export interface Employee extends Auditable {
   full_name: string; // computed at write; still stored for search
   type: EmployeeType;
   status: EmployeeStatus;
-  designation_id: ID;
-  department_id: ID;
+  // Department + Designation were removed as concepts; both are now nullable.
+  designation_id: ID | null;
+  department_id: ID | null;
   manager_id: ID | null; // self-referential
   work_location_id: ID;
   work_schedule_id: ID;
