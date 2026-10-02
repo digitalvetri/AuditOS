@@ -19,6 +19,8 @@ import {
 import { Button } from '@/components/Button';
 import { useToast } from '@/components/Toast';
 import { fmtDate } from '@/lib/format';
+import { istToday } from '@/lib/dates';
+import { PAYMENT_MODE_LABEL, type PaymentMode } from '@/modules/paymentSummary/api';
 import { can } from '@/platform/rbac/can';
 import { useAuth } from '@/platform/auth/AuthContext';
 import { SendEmailDialog } from '@/modules/workstation/SendEmailDialog';
@@ -247,28 +249,81 @@ function PaymentModal({ inv, open, onClose, onDone }: {
   inv: Invoice; open: boolean; onClose: () => void; onDone: (i: Invoice) => void;
 }) {
   const toast = useToast();
-  const [amount, setAmount] = useState(String(inv.balance_due_paise / 100));
+  const qc = useQueryClient();
+  const [amount, setAmount] = useState('');
+  const [paidOn, setPaidOn] = useState(istToday());
+  const [mode, setMode] = useState<PaymentMode>('bank_transfer');
+  const [reference, setReference] = useState('');
+  const [note, setNote] = useState('');
+  // Fresh form each time it opens, defaulting to the full balance.
+  useEffect(() => {
+    if (!open) return;
+    setAmount(String(inv.balance_due_paise / 100));
+    setPaidOn(istToday());
+    setMode('bank_transfer');
+    setReference('');
+    setNote('');
+  }, [open, inv.balance_due_paise]);
+
+  const amountPaise = Math.round((Number(amount) || 0) * 100);
+  const after = inv.balance_due_paise - amountPaise;
   const pay = useMutation({
-    mutationFn: () => invoicesApi.recordPayment(inv.id, Math.round((Number(amount) || 0) * 100)),
-    onSuccess: (i) => { onDone(i); onClose(); },
+    mutationFn: () => invoicesApi.recordPayment(inv.id, amountPaise, {
+      paid_on: paidOn, mode, reference: reference.trim() || undefined, note: note.trim() || undefined,
+    }),
+    onSuccess: (i) => {
+      void qc.invalidateQueries({ queryKey: ['payment-summary'] });
+      onDone(i);
+      onClose();
+    },
     onError: (e: Error) => toast.push('error', e.message),
   });
+  const quick = (fraction: number) => setAmount(String(Math.round(inv.balance_due_paise * fraction) / 100));
   return (
     <Modal
       open={open} title="Record a payment" onClose={onClose}
       footer={
         <>
           <Button onClick={onClose}>Cancel</Button>
-          <Button variant="primary" disabled={pay.isPending} onClick={() => pay.mutate()}>Record</Button>
+          <Button variant="primary" disabled={pay.isPending || amountPaise <= 0 || after < 0} onClick={() => pay.mutate()}>Record</Button>
         </>
       }
     >
-      <Field label="Amount (₹)" error={fieldErrors(pay.error).amount_paise} hint={`At most ₹ ${inrAmount(inv.balance_due_paise)}.`}>
+      <Field
+        label="Amount received (₹)"
+        error={fieldErrors(pay.error).amount_paise}
+        hint={after > 0
+          ? `₹ ${inrAmount(after)} will still be pending — record the rest as another instalment later.`
+          : after === 0 ? 'This clears the invoice.' : `At most ₹ ${inrAmount(inv.balance_due_paise)}.`}
+      >
         <input className={inputClass} type="number" step="0.01" min="0" value={amount} onChange={(e) => setAmount(e.target.value)} />
       </Field>
+      <div className="flex gap-2 -mt-1 mb-3">
+        {([['Full', 1], ['Half', 0.5], ['A third', 1 / 3], ['A quarter', 0.25]] as const).map(([label, f]) => (
+          <button key={label} type="button" onClick={() => quick(f)}
+            className="h-7 px-3 text-12 rounded-full border border-neutral-200 bg-white text-neutral-700 hover:bg-neutral-50">
+            {label}
+          </button>
+        ))}
+      </div>
+      <div className="grid grid-cols-2 gap-3">
+        <Field label="Received on">
+          <input className={inputClass} type="date" max={istToday()} value={paidOn} onChange={(e) => setPaidOn(e.target.value)} />
+        </Field>
+        <Field label="Mode">
+          <select className={inputClass} value={mode} onChange={(e) => setMode(e.target.value as PaymentMode)}>
+            {(Object.keys(PAYMENT_MODE_LABEL) as PaymentMode[]).map((m) => <option key={m} value={m}>{PAYMENT_MODE_LABEL[m]}</option>)}
+          </select>
+        </Field>
+      </div>
+      <Field label="Reference (UTR, cheque no., UPI ID…)">
+        <input className={inputClass} value={reference} onChange={(e) => setReference(e.target.value)} maxLength={120} />
+      </Field>
+      <Field label="Note">
+        <input className={inputClass} value={note} onChange={(e) => setNote(e.target.value)} maxLength={500} placeholder="e.g. 1st of 3 agreed instalments" />
+      </Field>
       <p className="text-12 text-neutral-500">
-        The status follows the money: paying the balance in full marks the invoice paid, anything less
-        marks it partially paid. Overpayment is refused, because credit is not modelled.
+        Each payment is kept as an instalment — see them all under HRMS → Payment summary. Overpayment is refused.
       </p>
     </Modal>
   );

@@ -226,8 +226,11 @@ export const invoicesApi = {
   create: (input: InvoiceInput) => api.post<Invoice>('/api/invoices', input),
   update: (id: string, input: InvoiceInput) => api.put<Invoice>(`/api/invoices/${id}`, input),
   send: (id: string) => api.post<Invoice>(`/api/invoices/${id}/send`),
-  recordPayment: (id: string, amount_paise: number) =>
-    api.post<Invoice>(`/api/invoices/${id}/payments`, { amount_paise }),
+  /** One payment or one instalment of a split; it lands in the invoice's payment history. */
+  recordPayment: (id: string, amount_paise: number, details: {
+    paid_on?: string; mode?: string; reference?: string; note?: string;
+  } = {}) =>
+    api.post<Invoice>(`/api/invoices/${id}/payments`, { amount_paise, ...details }),
   cancel: (id: string, reason?: string) =>
     api.post<Invoice>(`/api/invoices/${id}/cancel`, { reason }),
   remove: (id: string) => api.delete<void>(`/api/invoices/${id}`),
