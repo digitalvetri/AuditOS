@@ -123,6 +123,7 @@ export function Sidebar({ mobileOpen, onMobileClose }: Props) {
       { to: '/workstation/leads',       label: 'Leads',      icon: PhoneCall,     visible: can(role, 'workstation.lead.read', 'self') },
       { to: '/workstation/clients',     label: 'Clients',    icon: Handshake,     visible: can(role, 'workstation.client.read', 'self') },
       { to: '/workstation/follow-ups',  label: 'Follow-ups', icon: Clock,         visible: can(role, 'workstation.followup.read', 'self') },
+      { to: '/workstation/calendar',    label: 'Calendar',   icon: CalendarDays,  visible: can(role, 'workstation.followup.read', 'self') },
       { to: '/workstation/services',    label: 'Services',   icon: Briefcase,     end: true, visible: can(role, 'workstation.service.read', 'self'),
         children: [
           { to: '/workstation/services/tds',           label: 'TDS' },

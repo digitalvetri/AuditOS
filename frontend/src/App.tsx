@@ -16,6 +16,7 @@ import { ClientsPage } from '@/pages/workstation/Clients';
 import { ClientWorkspacePage } from '@/pages/workstation/ClientWorkspace';
 import { ServicesPage } from '@/pages/workstation/Services';
 import { FollowUpsPage } from '@/pages/workstation/FollowUps';
+import { WorkstationCalendarPage } from '@/pages/workstation/Calendar';
 import { DocumentsPage as WorkstationDocumentsPage } from '@/pages/workstation/Documents';
 import { TaskListPage } from '@/pages/workstation/tasks/TaskList';
 import { TaskDetailPage } from '@/pages/workstation/tasks/TaskDetail';
@@ -386,6 +387,7 @@ export default function App() {
               <Route path="workstation/services/registration/:slug" element={<RegistrationServiceDetail />} />
               <Route path="workstation/services/:category" element={<ServicesPage />} />
               <Route path="workstation/follow-ups" element={<FollowUpsPage />} />
+              <Route path="workstation/calendar" element={<WorkstationCalendarPage />} />
               <Route path="workstation/documents" element={<WorkstationDocumentsPage />} />
 
               {/* Workstation → Task: assignment plus server-tracked work time. */}
