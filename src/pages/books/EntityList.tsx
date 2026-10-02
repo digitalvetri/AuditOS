@@ -35,7 +35,7 @@ export function useZohoWebUrl(): (path: string) => string {
   return (path) => `${host}/app/${org.zoho_org_id}#/${path}`;
 }
 
-const zohoLinkCls = 'h-9 px-3 text-13 font-medium rounded inline-flex items-center gap-1.5 bg-surface text-ink border border-border hover:bg-canvas';
+const zohoLinkCls = 'h-9 px-3 text-13 font-medium rounded inline-flex items-center gap-2 bg-surface text-ink border border-border hover:bg-canvas';
 
 const m = (v: unknown, r: ZRecord, cur: string | null) => money(v, r.currency_code ?? cur);
 const num = (field: string): Col => ({ label: 'Number', sortKey: field, render: (r) => <span className="font-medium">{r[field] ?? '—'}</span> });
@@ -329,7 +329,7 @@ export function RecordBody({ resource, record: r }: { resource: Resource; record
     <div className="space-y-5">
       <KV items={resource.detail(r, cur)} />
       {lines.length ? (
-        <div className="border border-border rounded">
+        <div className="border border-neutral-200 rounded-lg">
           <Table cols={[{ label: 'Item' }, { label: 'Qty', right: true }, { label: 'Rate', right: true }, { label: 'Discount', right: true }, { label: 'Tax' }, { label: 'Amount', right: true }]} minWidth={560}>
             {lines.map((l, i) => (
               <Row key={l.line_item_id ?? i}>
@@ -433,7 +433,7 @@ export function RecordActions({ resource, record: r, onClose }: { resource: Reso
   return (
     <>
       {resource.zohoPath ? <a className={zohoLinkCls} href={zohoUrl(`${resource.zohoPath}/${id}`)} target="_blank" rel="noopener noreferrer">Open in Zoho Books ↗</a> : null}
-      {resource.pdf ? <a className="h-9 px-3 text-13 font-medium rounded inline-flex items-center gap-1.5 bg-surface text-ink border border-border hover:bg-canvas" href={booksApi.org(org.id).pdfUrl(e, id)} target="_blank" rel="noreferrer"><FileText size={14} />PDF</a> : null}
+      {resource.pdf ? <a className="h-9 px-3 text-13 font-medium rounded inline-flex items-center gap-2 bg-surface text-ink border border-border hover:bg-canvas" href={booksApi.org(org.id).pdfUrl(e, id)} target="_blank" rel="noreferrer"><FileText size={14} />PDF</a> : null}
       {visible.map((a) => <Btn key={a.key} variant={a.danger ? 'danger' : 'secondary'} loading={(act.isPending && act.variables === a.key) || (a.key === 'delete' && del.isPending)} onClick={() => (a.confirm ? setConfirm(a) : a.run())}>{a.label}</Btn>)}
       {e === 'expenses' && can.manage ? <ReceiptUpload expenseId={id} /> : null}
       {modal}
@@ -456,7 +456,7 @@ function ReceiptUpload({ expenseId }: { expenseId: string }) {
     onError: (e) => toast.push('error', errorText(e)),
   });
   return (
-    <label className="h-9 px-3 text-13 font-medium rounded inline-flex items-center gap-1.5 bg-surface text-ink border border-border hover:bg-canvas cursor-pointer">
+    <label className="h-9 px-3 text-13 font-medium rounded inline-flex items-center gap-2 bg-surface text-ink border border-border hover:bg-canvas cursor-pointer">
       {up.isPending ? 'Uploading…' : 'Attach receipt'}
       <input type="file" className="hidden" accept="application/pdf,image/png,image/jpeg,image/gif" onChange={(ev) => { const f = ev.target.files?.[0]; if (f) up.mutate(f); ev.target.value = ''; }} />
     </label>

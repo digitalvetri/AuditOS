@@ -27,7 +27,7 @@ import {
 import { fmtTime } from '@/lib/format';
 import { useAuth } from '@/platform/auth/AuthContext';
 import {
-  Ban, Check, CheckCheck, ChevronLeft, Image as ImageIcon, Paperclip,
+  Ban, Camera, Check, CheckCheck, ChevronLeft, Image as ImageIcon, Paperclip,
   Search as SearchIcon, SendHorizontal, Users, X,
 } from 'lucide-react';
 import { DocumentChip, MessageMenu, NewChatButton, ThreadMenu, VoicePlayer, VoiceRecorder } from './MessagesExtras';
@@ -60,20 +60,156 @@ function toneFor(seed: string): string {
 }
 
 function Avatar({
-  name, size = 40, group = false,
-}: { name: string; size?: number; group?: boolean }) {
+  name, size = 40, group = false, src = null,
+}: { name: string; size?: number; group?: boolean; src?: string | null }) {
+  if (src) {
+    return (
+      <img
+        src={src}
+        alt=""
+        className="rounded-full object-cover shrink-0"
+        style={{ width: size, height: size, boxShadow: '0 0 0 1px rgb(15 23 42 / 0.08), 0 2px 6px -2px rgb(27 58 111 / 0.45)' }}
+        aria-hidden
+      />
+    );
+  }
   return (
     <span
       className="inline-flex items-center justify-center rounded-full text-white font-semibold shrink-0"
       style={{
         width: size, height: size,
         fontSize: Math.round(size * 0.36),
-        backgroundColor: toneFor(name),
+        // The brand navy gradient, as on the dashboard's activity avatars.
+        background: 'linear-gradient(180deg, #2a4f8f 0%, #1b3a6f 100%)',
+        boxShadow: 'inset 0 1px 0 rgb(255 255 255 / 0.18), 0 2px 6px -2px rgb(27 58 111 / 0.45)',
       }}
       aria-hidden
     >
       {group ? <Users size={Math.round(size * 0.46)} strokeWidth={2} /> : initials(name)}
     </span>
+  );
+}
+
+// ── Profile / group photo ─────────────────────────────────────────────────
+
+/**
+ * Turn a picked image into a small square JPEG data: URL — centre-cropped and
+ * scaled to 256px — so a phone photo of several MB is stored as ~20–40 KB.
+ */
+function resizePhoto(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const url = URL.createObjectURL(file);
+    const img = new Image();
+    img.onload = () => {
+      const side = Math.min(img.naturalWidth, img.naturalHeight);
+      const canvas = document.createElement('canvas');
+      canvas.width = canvas.height = 256;
+      const ctx = canvas.getContext('2d');
+      if (!ctx) { URL.revokeObjectURL(url); reject(new Error('no canvas')); return; }
+      ctx.drawImage(img, (img.naturalWidth - side) / 2, (img.naturalHeight - side) / 2, side, side, 0, 0, 256, 256);
+      URL.revokeObjectURL(url);
+      resolve(canvas.toDataURL('image/jpeg', 0.85));
+    };
+    img.onerror = () => { URL.revokeObjectURL(url); reject(new Error('not an image')); };
+    img.src = url;
+  });
+}
+
+/**
+ * An avatar you can click to change: a camera badge sits on it, a click opens
+ * a small menu (change / remove), and the picked file is resized before it is
+ * saved. Used for your own photo and for a group's (admins only).
+ */
+function PhotoEditor({
+  name, src, size, group = false, label, onSave,
+}: {
+  name: string; src: string | null; size: number; group?: boolean; label: string;
+  onSave: (photo: string | null) => Promise<unknown>;
+}) {
+  const toast = useToast();
+  const fileRef = useRef<HTMLInputElement>(null);
+  const [menu, setMenu] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const save = async (photo: string | null) => {
+    setBusy(true);
+    try { await onSave(photo); } catch { toast.push('error', 'Could not save the photo.'); } finally { setBusy(false); }
+  };
+  const onPick = async (e: ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file) return;
+    if (!file.type.startsWith('image/')) { toast.push('error', 'Pick an image file.'); return; }
+    try { await save(await resizePhoto(file)); } catch { toast.push('error', 'That picture could not be read.'); }
+  };
+  useEffect(() => {
+    if (!menu) return;
+    const off = () => setMenu(false);
+    window.addEventListener('click', off);
+    return () => window.removeEventListener('click', off);
+  }, [menu]);
+  return (
+    <span className="relative inline-flex shrink-0">
+      <button
+        type="button"
+        title={label}
+        aria-label={label}
+        disabled={busy}
+        onClick={(e) => { e.stopPropagation(); if (src) setMenu((m) => !m); else fileRef.current?.click(); }}
+        className={'group/photo relative inline-flex rounded-full focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 ' + (busy ? 'opacity-60' : '')}
+      >
+        <Avatar name={name} size={size} group={group} src={src} />
+        <span className="absolute inset-0 rounded-full bg-black/35 opacity-0 group-hover/photo:opacity-100 transition-opacity grid place-items-center text-white" aria-hidden>
+          <Camera size={Math.round(size * 0.4)} strokeWidth={2} />
+        </span>
+        <span
+          className="absolute -right-0.5 -bottom-0.5 grid place-items-center rounded-full text-white"
+          style={{ width: 18, height: 18, background: 'linear-gradient(180deg, #2a4f8f 0%, #1b3a6f 100%)', boxShadow: '0 0 0 2px #fff' }}
+          aria-hidden
+        >
+          <Camera size={10} strokeWidth={2.25} />
+        </span>
+      </button>
+      <input ref={fileRef} type="file" accept="image/png,image/jpeg,image/webp" className="hidden" onChange={onPick} />
+      {menu ? (
+        <div role="menu" className="absolute left-0 top-full mt-2 z-30 w-44 py-1 bg-white border border-neutral-200 rounded-lg shadow-raised text-13">
+          <button type="button" role="menuitem" className="w-full text-left px-3 py-2 text-ink" onClick={() => { setMenu(false); fileRef.current?.click(); }}>
+            Change photo
+          </button>
+          <button type="button" role="menuitem" className="w-full text-left px-3 py-2 text-red" onClick={() => { setMenu(false); void save(null); }}>
+            Remove photo
+          </button>
+        </div>
+      ) : null}
+    </span>
+  );
+}
+
+/** Your own profile photo, editable from the chat list header. */
+function MyPhoto() {
+  const { session } = useAuth();
+  const qc = useQueryClient();
+  const me = session?.employee;
+  // Seeded from the session; replaced in place when you change it.
+  const photoQ = useQuery({
+    queryKey: ['me', 'photo'],
+    queryFn: () => me?.photo_url ?? null,
+    initialData: me?.photo_url ?? null,
+    staleTime: Infinity,
+  });
+  if (!me) return null;
+  return (
+    <PhotoEditor
+      name={me.full_name}
+      src={photoQ.data}
+      size={36}
+      label="Your profile photo"
+      onSave={async (photo) => {
+        const r = await messagesApi.setMyPhoto(photo);
+        qc.setQueryData(['me', 'photo'], r.photo_url);
+        // Colleagues' lists show it as your DM picture.
+        void qc.invalidateQueries({ queryKey: ['chats'] });
+      }}
+    />
   );
 }
 
@@ -114,8 +250,7 @@ export function MessagesPage() {
     ) : (
       <div className="m-page">
         <header>
-          <div className="text-11 uppercase tracking-[0.06em] text-neutral-500">HRMS</div>
-          <h1 className="text-20 font-semibold text-neutral-900 mt-1">Messages</h1>
+          <h1 className="text-[26px] leading-tight font-semibold tracking-[-0.01em] text-neutral-900">Messages</h1>
         </header>
         <div className="m-card flex flex-col" data-testid="chat-sidebar" style={{ minHeight: 320 }}>
           <ChatList chats={chats} activeId={null} onPick={open} loading={chatsQ.isLoading} mobile onNew={open} />
@@ -125,33 +260,30 @@ export function MessagesPage() {
   }
 
   return (
-    <div className="space-y-4">
-      <header>
-        <div className="text-11 uppercase tracking-[0.06em] text-neutral-500">HRMS</div>
-        <h1 className="text-20 font-semibold text-neutral-900 mt-1">Messages</h1>
-      </header>
+    <div>
 
       {/* One bordered frame holding both panes, so the divider between them is
           the frame's own rule rather than a gap between two cards. */}
       <div
-        className="grid bg-surface border border-border rounded overflow-hidden"
+        className="dash-card grid overflow-hidden rounded-[14px]"
         style={{
-          gridTemplateColumns: 'minmax(260px, 340px) 1fr',
+          gridTemplateColumns: 'minmax(300px, 380px) 1fr',
           // One row pinned to the frame's height: a long chat list scrolls
           // inside the sidebar instead of stretching the frame and pushing the
           // composer out of view.
           gridTemplateRows: 'minmax(0, 1fr)',
-          height: 'calc(100dvh - 220px)',
-          minHeight: 520,
+          // No page heading above it: the messenger takes the whole page.
+          height: 'calc(100dvh - 128px)',
+          minHeight: 560,
         }}
       >
-        <aside className="flex flex-col border-r border-border min-w-0 min-h-0" data-testid="chat-sidebar">
+        <aside className="flex flex-col border-r border-border min-w-0 min-h-0 bg-[#fbfcfe]" data-testid="chat-sidebar">
           <ChatList chats={chats} activeId={activeChat?.id ?? null} onPick={open} loading={chatsQ.isLoading} onNew={open} />
         </aside>
         {activeChat ? (
           <ThreadView chat={activeChat} onGone={() => setParams({}, { replace: true })} />
         ) : (
-          <section className="chat-wallpaper grid place-items-center p-6 text-13 text-inkMuted">
+          <section className="chat-wallpaper grid place-items-center p-6 text-14 text-inkMuted">
             Pick a conversation to start.
           </section>
         )}
@@ -178,7 +310,8 @@ function ChatList({
 
   return (
     <>
-      <div className="shrink-0 border-b border-border p-3 flex items-center gap-2">
+      <div className="shrink-0 border-b border-border px-3 pt-3 pb-3 flex items-center gap-2">
+        <MyPhoto />
         <div className="relative flex-1">
           <SearchIcon
             size={16}
@@ -193,8 +326,8 @@ function ChatList({
             placeholder="Search conversations"
             aria-label="Search conversations"
             className={
-              'w-full pl-9 pr-3 bg-canvas text-ink border border-border rounded-full ' +
-              'focus:outline-none focus:border-primary ' +
+              'w-full pl-9 pr-3 bg-white text-ink border border-border rounded-full shadow-card ' +
+              'focus:outline-none focus:border-primary focus:ring-2 focus:ring-primary/10 ' +
               (mobile ? 'h-11 text-14' : 'h-9 text-13')
             }
           />
@@ -210,7 +343,7 @@ function ChatList({
             {needle ? 'No conversations match that search.' : 'No chats yet.'}
           </div>
         ) : (
-          <ul>
+          <ul className="px-2 py-2 space-y-1">
             {shown.map((c) => (
               <li key={c.id}>
                 <ChatRow
@@ -242,15 +375,17 @@ function ChatRow({
       onClick={onClick}
       data-testid={`chat-item-${chat.id}`}
       className={
-        'w-full text-left flex items-center gap-3 px-3 border-b border-border transition-colors ' +
-        (mobile ? 'py-3 min-h-[44px] ' : 'py-2.5 ') +
-        (active ? 'bg-canvas ' : 'hover:bg-canvas ')
+        'w-full text-left flex items-center gap-3 px-3 rounded-lg transition-colors ' +
+        (mobile ? 'py-3 min-h-[44px] ' : 'py-2 ') +
+        // Selected: pale blue with a navy accent bar on the left.
+        (active ? 'bg-[#e8f0fb] ' : 'hover:bg-[#f1f4f9] ')
       }
+      style={active ? { boxShadow: 'inset 3px 0 0 rgb(var(--c-primary))' } : undefined}
     >
-      <Avatar name={chat.display_name} size={mobile ? 44 : 40} group={chat.type === 'group'} />
+      <Avatar name={chat.display_name} size={mobile ? 44 : 46} group={chat.type === 'group'} src={chat.photo_url} />
       <span className="min-w-0 flex-1">
         <span className="flex items-baseline gap-2">
-          <span className={'truncate flex-1 text-14 text-ink ' + (unread ? 'font-semibold' : 'font-medium')}>
+          <span className={'truncate flex-1 text-14 ' + (active ? 'text-primary ' : 'text-ink ') + (unread ? 'font-semibold' : 'font-medium')}>
             {chat.display_name}
           </span>
           {chat.last_message ? (
@@ -264,12 +399,13 @@ function ChatRow({
             </span>
           ) : null}
         </span>
-        <span className="flex items-center gap-2 mt-0.5">
+        <span className="flex items-center gap-2 mt-px">
           <span className={'truncate flex-1 text-12 ' + (unread ? 'text-ink' : 'text-inkMuted')}>
             {preview}
           </span>
           {unread ? (
-            <span className="shrink-0 text-11 tabular-nums text-white bg-primary rounded-full px-1.5 min-w-[20px] text-center">
+            <span className="shrink-0 inline-flex items-center justify-center h-5 min-w-[20px] px-2 rounded-full text-11 font-semibold tabular-nums text-white"
+              style={{ background: 'linear-gradient(180deg, #2a4f8f 0%, #1b3a6f 100%)' }}>
               {chat.unread > 9 ? '9+' : chat.unread}
             </span>
           ) : null}
@@ -381,8 +517,8 @@ function ThreadView({
     <section className="flex flex-col min-w-0 min-h-0 h-full" data-testid="conversation">
       <div
         className={
-          'flex items-center gap-3 shrink-0 border-b border-border bg-surface ' +
-          (mobile ? 'pb-2' : 'px-4 py-2.5')
+          'flex items-center gap-3 shrink-0 border-b border-border bg-white ' +
+          (mobile ? 'pb-2' : 'px-5 py-3')
         }
       >
         {onBack ? (
@@ -395,17 +531,32 @@ function ThreadView({
             <ChevronLeft size={22} strokeWidth={1.75} />
           </button>
         ) : null}
-        <Avatar name={chat.display_name} size={mobile ? 36 : 38} group={chat.type === 'group'} />
+        {chat.type === 'group' && chat.my_role === 'admin' ? (
+          <PhotoEditor
+            name={chat.display_name}
+            src={chat.photo_url}
+            size={mobile ? 36 : 42}
+            group
+            label="Group photo"
+            onSave={async (photo) => {
+              await messagesApi.updateGroup(chat.id, { photo_url: photo });
+              void qc.invalidateQueries({ queryKey: ['chats'] });
+            }}
+          />
+        ) : (
+          <Avatar name={chat.display_name} size={mobile ? 36 : 42} group={chat.type === 'group'} src={chat.photo_url} />
+        )}
         <div className="min-w-0 flex-1">
-          <div className="text-14 font-semibold text-ink truncate">{chat.display_name}</div>
-          <div className="text-11 text-inkMuted truncate">
+          <div className="text-16 font-semibold text-ink truncate">{chat.display_name}</div>
+          <div className="text-12 text-inkMuted truncate flex items-center gap-2">
+            <span className="rounded-full" style={{ background: '#10b981', width: 6, height: 6 }} aria-hidden />
             {chat.type === 'group' ? `${chat.member_count} members` : 'Direct message'}
           </div>
         </div>
         <ThreadMenu chat={chat} onGone={onGone} />
       </div>
 
-      <div className="chat-scroll chat-wallpaper px-3 py-3" ref={scrollRef}>
+      <div className="chat-scroll chat-wallpaper px-4 py-4" ref={scrollRef}>
         {q.isLoading ? (
           <div className="h-24 bg-canvas rounded" />
         ) : messages.length === 0 ? (
@@ -481,7 +632,7 @@ function Bubble({
     >
       <div
         className={
-          'chat-bubble group/bubble px-2.5 py-1.5 ' +
+          'chat-bubble group/bubble px-3 py-2 ' +
           (own ? 'chat-bubble--own ' : 'chat-bubble--them ') +
           (head ? 'chat-bubble--tail ' : '')
         }
@@ -494,16 +645,16 @@ function Bubble({
         ) : null}
 
         {message.parent_preview ? (
-          <div className="mb-1 rounded border-l-2 border-primary bg-canvas px-2 py-1">
-            <div className="text-11 font-medium text-ink truncate">
+          <div className={'mb-1 rounded-md border-l-2 px-2 py-1 ' + (own ? 'border-white/70 bg-white/15' : 'border-primary bg-[#f1f4f9]')}>
+            <div className={'text-11 font-medium truncate ' + (own ? 'text-white' : 'text-ink')}>
               {message.parent_preview.author_full_name ?? '—'}
             </div>
-            <div className="text-11 text-inkMuted truncate">{message.parent_preview.body}</div>
+            <div className={'text-11 truncate ' + (own ? 'text-white/75' : 'text-inkMuted')}>{message.parent_preview.body}</div>
           </div>
         ) : null}
 
         {message.deleted ? (
-          <div className="flex items-center gap-1.5 text-13 italic text-inkMuted py-0.5">
+          <div className={'flex items-center gap-2 text-13 italic py-0.5 ' + (own ? 'text-white/75' : 'text-inkMuted')}>
             <Ban size={14} aria-hidden /> {own ? 'You deleted this message' : 'This message was deleted'}
           </div>
         ) : null}
@@ -514,7 +665,7 @@ function Bubble({
 
         {/* An attachment-only message has no caption — don't leave an empty line. */}
         {message.body ? (
-          <div className={'text-13 text-ink whitespace-pre-wrap break-words ' + (hasImages ? 'mt-1.5' : '')}>
+          <div className={'text-13 whitespace-pre-wrap break-words ' + (own ? 'text-white ' : 'text-ink ') + (hasImages ? 'mt-2' : '')}>
             {message.body}
           </div>
         ) : null}
@@ -529,19 +680,19 @@ function Bubble({
                 type="button"
                 onClick={onReply}
                 data-testid={`msg-reply-${message.id}`}
-                className="text-11 text-inkFaint hover:text-primary md:opacity-0 md:group-hover/bubble:opacity-100 md:transition-opacity"
+                className={'text-11 md:opacity-0 md:group-hover/bubble:opacity-100 md:transition-opacity ' + (own ? 'text-white/70 hover:text-white' : 'text-inkFaint hover:text-primary')}
               >
                 Reply
               </button>
             ) : null}
             <MessageMenu chat={chat} message={message} own={own} onReply={onReply} />
           </span>
-          <span className="text-11 tabular-nums text-inkFaint">{fmtTime(message.created_at)}</span>
+          <span className={'text-11 tabular-nums ' + (own ? 'text-white/70' : 'text-inkFaint')}>{fmtTime(message.created_at)}</span>
           {own ? (
             message.read_by_me ? (
-              <CheckCheck size={13} strokeWidth={2.25} className="text-primary" aria-label="Read" />
+              <CheckCheck size={13} strokeWidth={2.25} className="text-[#7dd3fc]" aria-label="Read" />
             ) : (
-              <Check size={13} strokeWidth={2.25} className="text-inkFaint" aria-label="Sent" />
+              <Check size={13} strokeWidth={2.25} className="text-white/60" aria-label="Sent" />
             )
           ) : null}
         </div>
@@ -690,12 +841,12 @@ function Composer({
   return (
     <form
       onSubmit={submit}
-      className={'shrink-0 border-t border-border bg-surface ' + (mobile ? 'pt-2 pb-1' : 'px-3 py-1.5')}
+      className={'shrink-0 border-t border-border bg-white ' + (mobile ? 'pt-2 pb-1' : 'px-4 py-3')}
     >
       {replyTo ? (
-        <div className="flex items-start justify-between gap-2 mb-2 rounded border-l-2 border-primary bg-canvas px-2 py-1.5">
+        <div className="flex items-start justify-between gap-2 mb-2 rounded-lg border-l-2 border-primary bg-[#e8f0fb] px-3 py-2">
           <div className="min-w-0">
-            <div className="text-11 font-medium text-ink">
+            <div className="text-11 font-medium text-primary">
               Replying to {replyTo.author?.full_name ?? '—'}
             </div>
             <div className="text-11 text-inkMuted truncate">{replyTo.body.slice(0, 120)}</div>
@@ -745,7 +896,7 @@ function Composer({
         </ul>
       ) : null}
 
-      <div className="flex items-center gap-1.5">
+      <div className="flex items-center gap-1 p-1 rounded-full bg-[#f4f6fa] border border-border focus-within:border-primary/50 focus-within:bg-white focus-within:shadow-card transition-colors">
         <input ref={docRef} type="file" accept={ACCEPTED_DOCUMENTS} multiple onChange={pickDocs} className="hidden" data-testid="composer-doc-file" />
         <button
           type="button"
@@ -785,8 +936,8 @@ function Composer({
           onPaste={onPaste}
           placeholder={images.length > 0 ? 'Add a caption…' : 'Type a message'}
           className={
-            'flex-1 min-w-0 px-4 bg-canvas text-ink border border-border rounded-full ' +
-            'focus:outline-none focus:border-primary ' +
+            'flex-1 min-w-0 px-3 bg-transparent text-ink border-0 ' +
+            'focus:outline-none ' +
             (mobile ? 'h-11 text-14' : 'h-9 text-13')
           }
           data-testid="composer-input"

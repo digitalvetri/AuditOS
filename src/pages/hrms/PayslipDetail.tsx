@@ -33,7 +33,7 @@ export function PayslipDetailPage() {
     return (
       <div className="max-w-[720px] mx-auto bg-white border border-neutral-200 rounded p-6">
         <div className="text-11 uppercase tracking-[0.06em] text-neutral-500">Access denied</div>
-        <h1 className="text-20 font-semibold text-neutral-900 mt-1">Payslip unavailable.</h1>
+        <h1 className="text-[26px] leading-tight font-semibold tracking-[-0.01em] text-neutral-900">Payslip unavailable.</h1>
       </div>
     );
   }

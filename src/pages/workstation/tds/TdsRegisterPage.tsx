@@ -209,7 +209,7 @@ function DeductionsTab({ clientId, tan, reg, canManage, onNeedDeductee }: { clie
           <div className="text-13 text-neutral-500">{reg.deductees.length ? 'No payments recorded here yet.' : 'Add the client’s payees under Deductees, then record each payment here.'}</div>
         ) : (
           <div className="overflow-x-auto">
-            <table className="w-full min-w-[860px] text-13">
+            <table className="hr-float w-full min-w-[860px] text-13">
               <thead>
                 <tr className="text-11 uppercase tracking-[0.06em] text-neutral-500 border-b border-neutral-100">
                   <th className="text-left font-medium py-2 pr-3">Date</th><th className="text-left font-medium py-2 pr-3">Deductee</th>
@@ -338,7 +338,7 @@ function DeducteesTab({ clientId, reg, canManage }: { clientId: string; reg: Tds
       {editing === 'new' ? <div className="mb-3"><DeducteeForm clientId={clientId} row={null} onClose={() => setEditing(null)} /></div> : null}
       {reg.deductees.length === 0 ? <div className="text-13 text-neutral-500">No deductees yet — add the contractors, professionals, landlords and others the client pays.</div> : (
         <div className="overflow-x-auto">
-          <table className="w-full min-w-[640px] text-13">
+          <table className="hr-float w-full min-w-[640px] text-13">
             <thead><tr className="text-11 uppercase tracking-[0.06em] text-neutral-500 border-b border-neutral-100">
               <th className="text-left font-medium py-2 pr-3">Name</th><th className="text-left font-medium py-2 pr-3">PAN</th><th className="text-left font-medium py-2 pr-3">Type</th>
               <th className="text-left font-medium py-2 pr-3">Residency</th><th className="text-right font-medium py-2 pr-3">TDS this FY</th><th />
@@ -401,7 +401,7 @@ function CertificatesTab({ clientId, reg, canManage }: { clientId: string; reg: 
       <p className="text-12 text-neutral-500 mb-3">A deductee’s certificate from the Assessing Officer (Form 13, s. 197). Within its dates and limit, payments under its section use its rate automatically.</p>
       {editing === 'new' ? <div className="mb-3"><CertificateForm clientId={clientId} reg={reg} row={null} onClose={() => setEditing(null)} /></div> : null}
       {reg.lower_certificates.length === 0 ? <div className="text-13 text-neutral-500">No certificates on file.</div> : (
-        <table className="w-full text-13">
+        <table className="hr-float w-full text-13">
           <thead><tr className="text-11 uppercase tracking-[0.06em] text-neutral-500 border-b border-neutral-100">
             <th className="text-left font-medium py-2 pr-3">Deductee</th><th className="text-left font-medium py-2 pr-3">Certificate</th><th className="text-left font-medium py-2 pr-3">Section · rate</th>
             <th className="text-left font-medium py-2 pr-3">Valid</th><th className="text-right font-medium py-2 pr-3">Limit</th><th />
@@ -463,7 +463,7 @@ function DeclarationsTab({ clientId, reg, canManage, fy }: { clientId: string; r
       </p>
       {editing === 'new' ? <div className="mb-3"><DeclarationForm clientId={clientId} reg={reg} row={null} fy={fy} onClose={() => setEditing(null)} /></div> : null}
       {list.length === 0 ? <div className="text-13 text-neutral-500">No declarations for this FY.</div> : (
-        <table className="w-full text-13">
+        <table className="hr-float w-full text-13">
           <thead><tr className="text-11 uppercase tracking-[0.06em] text-neutral-500 border-b border-neutral-100">
             <th className="text-left font-medium py-2 pr-3">Deductee</th><th className="text-left font-medium py-2 pr-3">Form</th><th className="text-left font-medium py-2 pr-3">Received</th>
             <th className="text-right font-medium py-2 pr-3">Estimated income</th><th className="text-left font-medium py-2 pr-3">UIN</th><th />

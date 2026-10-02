@@ -6,6 +6,9 @@ import { installDocumentPrint } from '@/modules/workstation/print';
 // tracking-protection browsers can't strip the CDN and fall back to
 // Segoe UI, which has different metrics and shifts the whole layout.
 import '@fontsource-variable/inter/index.css';
+// Poppins for display figures (dashboard numbers) — Latin, 600/700 only.
+import '@fontsource/poppins/latin-600.css';
+import '@fontsource/poppins/latin-700.css';
 import '@/design/globals.css';
 // Mobile-only layer (≤767px). Imported after globals so its media-scoped
 // rules win at phone widths; contributes nothing at 768px and up.

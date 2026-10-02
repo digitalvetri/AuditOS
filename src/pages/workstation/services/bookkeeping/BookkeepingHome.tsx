@@ -85,7 +85,7 @@ function CompanyGrid({ companies }: { companies: { id: string; name: string; sta
         <Link
           key={c.id}
           to={`/workstation/services/bookkeeping/companies/${c.id}/masters/ledgers`}
-          className="bg-white border border-neutral-200 rounded p-4 hover:border-gold transition-colors"
+          className="dash-card card-zoom block p-4"
           data-testid={`tally-company-card-${c.id}`}
         >
           <div className="text-14 font-semibold text-neutral-900 truncate">{c.name}</div>

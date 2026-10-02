@@ -492,6 +492,8 @@ export interface Chat extends Auditable {
   /** Groups have a name; DMs derive display name from the other member. */
   name: string | null;
   description: string | null;
+  /** Group picture (data: URL). On a DM list item: the other member's photo. */
+  photo_url: string | null;
   /** Reserved for Workstation — nullable from day one. */
   subject_type: string | null;
   subject_id: ID | null;

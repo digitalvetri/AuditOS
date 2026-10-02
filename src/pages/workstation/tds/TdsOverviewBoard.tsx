@@ -76,7 +76,7 @@ export function TdsOverviewBoard({ fy, onOpen }: { fy: string; onOpen: (clientId
           <div className="px-4 py-8 text-center text-13 text-neutral-500">Nothing matches this filter.</div>
         ) : (
           <div className="overflow-x-auto">
-            <table className="w-full min-w-[560px] text-13">
+            <table className="hr-float w-full min-w-[560px] text-13">
               <thead>
                 <tr className="text-11 uppercase tracking-[0.06em] text-neutral-500 border-b border-neutral-100">
                   <th className="text-left font-medium px-4 py-2">Client</th>

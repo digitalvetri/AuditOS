@@ -1,6 +1,7 @@
 import { useState, type FormEvent } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { SectionShell } from './SectionShell';
+import { StatusLabel } from '@/components/StatusRow';
 import { settingsApi } from './api';
 import { Button } from '@/components/Button';
 import { Input } from '@/components/Input';
@@ -57,7 +58,7 @@ export function WorkLocationsSection() {
             e.preventDefault();
             create.mutate();
           }}
-          className="bg-white border border-neutral-200 rounded p-4 grid grid-cols-1 md:grid-cols-2 gap-3"
+          className="dash-card p-4 grid grid-cols-1 md:grid-cols-2 gap-3"
         >
           <Input label="Name" value={name} onChange={(e) => setName(e.target.value)} required />
           <Input label="Address" value={address} onChange={(e) => setAddress(e.target.value)} />
@@ -71,7 +72,7 @@ export function WorkLocationsSection() {
         </form>
       ) : null}
       <div className="bg-white border border-neutral-200 rounded overflow-hidden">
-        <table className="w-full border-collapse tabular-nums">
+        <table className="hr-float w-full border-collapse tabular-nums">
           <thead>
             <tr>
               {['Name', 'Coordinates', 'Radius', 'Active', 'Actions'].map((c) => (
@@ -85,14 +86,14 @@ export function WorkLocationsSection() {
             {(q.data?.items ?? []).map((wl) => (
               <tr key={wl.id} className={'border-b border-neutral-200 border-l-2 ' + (wl.is_active ? 'border-transparent' : 'border-neutral-400')}>
                 <td className="px-3 py-2">
-                  <div className="text-13 text-neutral-900">{wl.name}</div>
+                  <div className="text-13 font-semibold text-neutral-900">{wl.name}</div>
                   <div className="text-11 text-neutral-500">{wl.address}</div>
                 </td>
                 <td className="px-3 py-2 text-13 text-neutral-700">
                   {wl.latitude.toFixed(4)}, {wl.longitude.toFixed(4)}
                 </td>
                 <td className="px-3 py-2 text-13 text-neutral-900">{wl.radius_m} m</td>
-                <td className="px-3 py-2 text-13 text-neutral-700">{wl.is_active ? 'Active' : 'Inactive'}</td>
+                <td className="px-3 py-2"><StatusLabel variant={wl.is_active ? 'ok' : 'awaiting'} label={wl.is_active ? 'Active' : 'Inactive'} /></td>
                 <td className="px-3 py-2">
                   <Button
                     variant="ghost"

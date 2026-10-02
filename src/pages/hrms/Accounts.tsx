@@ -12,6 +12,10 @@
 import { useState } from 'react';
 import { NavLink, Outlet, useLocation } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import {
+  ArrowDownLeft, ArrowUpRight, Banknote, BellRing, BookOpen, CalendarClock, CalendarDays, ChevronLeft, ChevronRight,
+  ClipboardCheck, Landmark, Receipt, Wallet,
+} from 'lucide-react';
 import { Button } from '@/components/Button';
 import { useToast } from '@/components/Toast';
 import { useAuth } from '@/platform/auth/AuthContext';
@@ -49,14 +53,13 @@ export function AccountsLayout() {
   return (
     <div className="space-y-6">
       <header>
-        <div className="text-11 uppercase tracking-[0.06em] text-neutral-500">HRMS</div>
-        <h1 className="text-20 font-semibold text-neutral-900 mt-1">Accounts</h1>
+        <h1 className="text-[26px] leading-tight font-semibold tracking-[-0.01em] text-neutral-900">Accounts</h1>
         <p className="text-13 text-neutral-500 mt-1">
           Internal JNS Accounting Solutions finance. Append-only ledger — corrections are contra entries.
         </p>
       </header>
 
-      <div className="border-b border-neutral-200 flex items-center gap-4 flex-wrap">
+      <div className="flex items-center gap-2 flex-wrap">
         {tabs.overview    ? <AccountsTabLink to="overview">Overview</AccountsTabLink> : null}
         {tabs.payroll     ? <AccountsTabLink to="payroll">Payroll</AccountsTabLink> : null}
         {tabs.expenses    ? <AccountsTabLink to="expenses">Expenses</AccountsTabLink> : null}
@@ -76,8 +79,8 @@ function AccountsTabLink({ to, children }: { to: string; children: React.ReactNo
       to={to}
       end={to === 'overview'}
       className={({ isActive }) =>
-        'h-10 px-1 text-13 -mb-px border-b-2 ' +
-        (isActive ? 'border-gold text-neutral-900 font-medium' : 'border-transparent text-neutral-500 hover:text-neutral-900')
+        'h-8 px-3 inline-flex items-center text-13 rounded-full border transition-colors whitespace-nowrap ' +
+        (isActive ? 'bg-[#e8f0fb] border-[#b9cde9] text-primary font-medium' : 'bg-white border-neutral-200 text-neutral-700 hover:border-neutral-300 hover:bg-neutral-50')
       }
       data-testid={`accounts-tab-${to}`}
     >
@@ -111,26 +114,26 @@ export function AccountsOverviewPage() {
       <MonthStepper month={month} setMonth={setMonth} label={o.month_label} />
 
       <Section title="This month">
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-4 tabular-nums">
+        <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
           <Tile
-            label="Salary cost"
+            label="Salary cost" icon={Wallet} tint="green"
             value={o.this_month.salary_cost_paise > 0 ? inr(o.this_month.salary_cost_paise) : '—'}
             hint={o.this_month.salary_employee_count > 0
               ? `${o.this_month.salary_employee_count} employees`
               : 'No run yet'}
           />
           <Tile
-            label="Expense claims"
+            label="Expense claims" icon={Receipt} tint="amber"
             value={inr(o.this_month.expense_claims_paise)}
             hint={`${o.this_month.expense_claim_count} claims`}
           />
           <Tile
-            label="Paid out"
+            label="Paid out" icon={ArrowUpRight} tint="blue"
             value={inr(o.this_month.paid_out_paise)}
             hint={`${o.this_month.payment_count} payments`}
           />
           <Tile
-            label="Collected"
+            label="Collected" icon={ArrowDownLeft} tint="indigo"
             value={o.this_month.zpay_connected ? inr(o.this_month.collected_paise) : '—'}
             hint={o.this_month.zpay_connected ? 'from Zoho Payments' : 'not synced'}
           />
@@ -138,7 +141,7 @@ export function AccountsOverviewPage() {
       </Section>
 
       {o.needs_you.length > 0 ? (
-        <Section title="Needs you">
+        <Section title="Needs you" count={o.needs_you.length}>
           <div className="space-y-2">
             {o.needs_you.map((n) => <NeedsYouRow key={n.id} item={n} />)}
           </div>
@@ -146,17 +149,20 @@ export function AccountsOverviewPage() {
       ) : null}
 
       <Section title="Held, not yet remitted">
-        <div className="bg-white border border-neutral-200 rounded overflow-hidden">
+        <div className="space-y-2">
           {o.held_liabilities.map((h) => (
             <div
               key={h.category}
-              className="flex items-center justify-between px-4 py-2 border-b border-neutral-200 last:border-b-0 tabular-nums"
+              className="dash-row flex items-center gap-3 px-4 py-3"
               data-testid={`held-${h.category.replace(/\s+/g, '-')}`}
             >
-              <span className={'text-13 ' + (h.balance_paise > 0 ? 'text-neutral-900' : 'text-neutral-500')}>
+              <span className="h-8 w-8 shrink-0 rounded-lg inline-flex items-center justify-center bg-[#eef0ff] text-[#4338ca]" aria-hidden>
+                <Landmark size={15} strokeWidth={1.9} />
+              </span>
+              <span className={'flex-1 text-14 ' + (h.balance_paise > 0 ? 'text-neutral-900' : 'text-neutral-500')}>
                 {h.category}
               </span>
-              <span className={'text-13 font-medium ' + (h.balance_paise > 0 ? 'text-neutral-900' : 'text-neutral-500')}>
+              <span className={'num-display text-15 ' + (h.balance_paise > 0 ? 'text-neutral-900' : 'text-neutral-400')}>
                 {inr(h.balance_paise)}
               </span>
             </div>
@@ -165,19 +171,29 @@ export function AccountsOverviewPage() {
       </Section>
 
       <Section title="Ledger">
-        <div
-          className="bg-white border border-neutral-200 rounded px-4 py-3 flex items-center gap-6 tabular-nums flex-wrap"
-          data-testid="overview-ledger-strip"
-        >
-          <span className="text-13 text-neutral-500">Debits</span>
-          <span className="text-13 text-neutral-900 font-medium">{inr(o.ledger.debit_paise)}</span>
-          <span className="text-13 text-neutral-500">Credits</span>
-          <span className="text-13 text-neutral-900 font-medium">{inr(o.ledger.credit_paise)}</span>
-          <span className="text-13 text-neutral-500">Balance</span>
-          <span className="text-13 text-neutral-900 font-medium">{inr(o.ledger.balance_paise)}</span>
-          <span className={'text-13 ml-auto ' + (o.ledger.balanced ? 'text-neutral-900' : 'text-red font-medium')}>
-            {o.ledger.balanced ? '✓ balanced' : 'unbalanced — investigate'}
-          </span>
+        <div className="dash-card p-5" data-testid="overview-ledger-strip">
+          <div className="flex items-center gap-3 flex-wrap mb-4">
+            <span className="h-9 w-9 rounded-lg inline-flex items-center justify-center bg-[#e9f9f1] text-[#047857]" aria-hidden>
+              <BookOpen size={16} strokeWidth={1.9} />
+            </span>
+            <span className="text-15 font-semibold text-neutral-900">Ledger totals</span>
+            <span className="ml-auto">
+              {o.ledger.balanced ? (
+                <span className="inline-flex items-center gap-2 h-7 px-3 rounded-full text-12 font-medium bg-[#ecfdf5] text-[#047857]">
+                  <span className="rounded-full" style={{ background: '#10b981', width: 6, height: 6 }} />Balanced
+                </span>
+              ) : (
+                <span className="inline-flex items-center gap-2 h-7 px-3 rounded-full text-12 font-medium bg-[#fef2f2] text-[#b91c1c]">
+                  <span className="rounded-full" style={{ background: '#ef4444', width: 6, height: 6 }} />Unbalanced — investigate
+                </span>
+              )}
+            </span>
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            <LedgerStat label="Debits" value={inr(o.ledger.debit_paise)} />
+            <LedgerStat label="Credits" value={inr(o.ledger.credit_paise)} />
+            <LedgerStat label="Balance" value={inr(o.ledger.balance_paise)} strong />
+          </div>
         </div>
       </Section>
     </div>
@@ -194,63 +210,89 @@ function MonthStepper({
   };
   const today = new Date();
   const currentYm = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}`;
+  const arrow = 'h-8 w-8 inline-flex items-center justify-center rounded-full text-neutral-600 hover:bg-[#e8f0fb] hover:text-primary disabled:opacity-40 disabled:cursor-not-allowed transition-colors';
   return (
-    <div className="flex items-center gap-2" data-testid="overview-month-stepper">
-      <button
-        type="button"
-        onClick={() => shift(-1)}
-        className="h-8 w-8 border border-neutral-300 rounded text-13 text-neutral-700 hover:text-neutral-900"
-        aria-label="Previous month"
-        data-testid="month-prev"
-      >‹</button>
-      <div className="text-15 text-neutral-900 min-w-[9rem] text-center">{label}</div>
-      <button
-        type="button"
-        onClick={() => shift(1)}
-        disabled={month >= currentYm}
-        className="h-8 w-8 border border-neutral-300 rounded text-13 text-neutral-700 hover:text-neutral-900 disabled:opacity-40 disabled:cursor-not-allowed"
-        aria-label="Next month"
-        data-testid="month-next"
-      >›</button>
+    <div className="inline-flex items-center gap-1 p-1 rounded-full bg-white border border-neutral-200 shadow-card" data-testid="overview-month-stepper">
+      <button type="button" onClick={() => shift(-1)} className={arrow} aria-label="Previous month" data-testid="month-prev">
+        <ChevronLeft size={16} strokeWidth={2} />
+      </button>
+      <div className="inline-flex items-center gap-2 px-2 text-14 font-semibold text-neutral-900 min-w-[9rem] justify-center">
+        <CalendarDays size={15} strokeWidth={1.9} className="text-primary" />{label}
+      </div>
+      <button type="button" onClick={() => shift(1)} disabled={month >= currentYm} className={arrow} aria-label="Next month" data-testid="month-next">
+        <ChevronRight size={16} strokeWidth={2} />
+      </button>
     </div>
   );
 }
 
-function Section({ title, children }: { title: string; children: React.ReactNode }) {
+function Section({ title, count, children }: { title: string; count?: number; children: React.ReactNode }) {
   return (
     <section>
-      <div className="text-11 uppercase tracking-[0.06em] text-neutral-500 mb-2 pb-1 border-b border-neutral-200">
-        {title}
+      <div className="flex items-center gap-2 mb-3">
+        <h2 className="text-15 font-semibold text-neutral-900">{title}</h2>
+        {count ? <span className="inline-flex items-center h-5 px-2 rounded-full text-11 font-semibold bg-[#e8f0fb] text-primary">{count}</span> : null}
       </div>
       {children}
     </section>
   );
 }
 
-function Tile({ label, value, hint }: { label: string; value: string; hint: string }) {
+const TILE_TINT = {
+  green: { bg: '#e9f9f1', fg: '#047857' },
+  amber: { bg: '#fff7e6', fg: '#b45309' },
+  blue: { bg: '#eaf2ff', fg: '#1d4ed8' },
+  indigo: { bg: '#eef0ff', fg: '#4338ca' },
+};
+
+function Tile({ label, value, hint, icon: Icon, tint }: {
+  label: string; value: string; hint: string; icon: typeof Wallet; tint: keyof typeof TILE_TINT;
+}) {
+  const t = TILE_TINT[tint];
   return (
-    <div className="bg-white border border-neutral-200 rounded px-4 py-3">
-      <div className="text-11 uppercase tracking-[0.06em] text-neutral-500">{label}</div>
-      <div className="text-20 mt-1 text-neutral-900">{value}</div>
-      <div className="text-11 text-neutral-500 mt-1">{hint}</div>
+    <div className="dash-card p-5">
+      <div className="flex items-center gap-3">
+        <span className="h-10 w-10 rounded-lg inline-flex items-center justify-center" style={{ background: t.bg, color: t.fg }} aria-hidden>
+          <Icon size={18} strokeWidth={1.9} />
+        </span>
+        <span className="text-13 font-medium text-neutral-500">{label}</span>
+      </div>
+      <div className="num-display text-[26px] leading-tight text-neutral-900 mt-3">{value}</div>
+      <div className="text-12 text-neutral-500 mt-1">{hint}</div>
     </div>
   );
 }
 
+function LedgerStat({ label, value, strong }: { label: string; value: string; strong?: boolean }) {
+  return (
+    <div className="rounded-md px-4 py-3" style={{ background: strong ? '#e8f0fb' : '#f4f6fa', border: `1px solid ${strong ? '#cfdcf2' : '#e8ecf3'}` }}>
+      <div className="text-12 text-neutral-500">{label}</div>
+      <div className={`num-display text-20 mt-1 ${strong ? 'text-primary' : 'text-neutral-900'}`}>{value}</div>
+    </div>
+  );
+}
+
+/** An icon per kind of action, read from its label. */
+const NEEDS_ICON: Record<string, typeof Wallet> = { Open: CalendarClock, Review: ClipboardCheck, Pay: Banknote };
+
 function NeedsYouRow({ item }: { item: OverviewNeedsYouItem }) {
+  const Icon = NEEDS_ICON[item.action_label] ?? BellRing;
   return (
     <a
       href={item.action_url}
-      className="flex items-center gap-4 bg-white border border-neutral-200 rounded px-4 py-3 border-l-2 border-l-gold hover:border-l-gold-hover"
+      className="dash-row flex items-center gap-4 px-4 py-3"
       data-testid={`needs-${item.id}`}
     >
-      <div className="text-13 text-neutral-900 flex-1">{item.message}</div>
+      <span className="h-9 w-9 shrink-0 rounded-lg inline-flex items-center justify-center bg-[#fff7e6] text-[#b45309]" aria-hidden>
+        <Icon size={16} strokeWidth={1.9} />
+      </span>
+      <div className="text-14 text-neutral-900 flex-1">{item.message}</div>
       {item.amount_paise !== null ? (
-        <div className="text-13 text-neutral-900 tabular-nums font-medium">{inr(item.amount_paise)}</div>
+        <div className="num-display text-15 text-neutral-900">{inr(item.amount_paise)}</div>
       ) : null}
-      <div className="text-13 text-gold hover:text-gold-hover">
-        {item.action_label} →
-      </div>
+      <span className="inline-flex items-center gap-1 h-7 px-3 rounded-full text-12 font-medium text-primary bg-[#e8f0fb]">
+        {item.action_label} <ChevronRight size={13} strokeWidth={2} />
+      </span>
     </a>
   );
 }
@@ -296,14 +338,14 @@ export function AccountsCollectionsPage() {
   const onMatching = location.pathname.endsWith('/matching');
   return (
     <div className="space-y-4" data-testid="accounts-collections">
-      <div className="flex items-center gap-4 text-13 border-b border-neutral-200">
+      <div className="flex items-center gap-2 flex-wrap text-13">
         <NavLink
           to="."
           end
           className={({ isActive }) =>
-            'h-9 px-1 -mb-px border-b-2 ' + (isActive
-              ? 'border-gold text-neutral-900 font-medium'
-              : 'border-transparent text-neutral-500 hover:text-neutral-900')
+            'h-8 px-3 inline-flex items-center rounded-full border transition-colors whitespace-nowrap ' + (isActive
+              ? 'bg-[#e8f0fb] border-[#b9cde9] text-primary font-medium'
+              : 'bg-white border-neutral-200 text-neutral-700 hover:border-neutral-300 hover:bg-neutral-50')
           }
         >
           Collections
@@ -311,9 +353,9 @@ export function AccountsCollectionsPage() {
         <NavLink
           to="matching"
           className={({ isActive }) =>
-            'h-9 px-1 -mb-px border-b-2 ' + (isActive
-              ? 'border-gold text-neutral-900 font-medium'
-              : 'border-transparent text-neutral-500 hover:text-neutral-900')
+            'h-8 px-3 inline-flex items-center rounded-full border transition-colors whitespace-nowrap ' + (isActive
+              ? 'bg-[#e8f0fb] border-[#b9cde9] text-primary font-medium'
+              : 'bg-white border-neutral-200 text-neutral-700 hover:border-neutral-300 hover:bg-neutral-50')
           }
         >
           Matching
@@ -328,7 +370,7 @@ function AccessDenied({ what }: { what: string }) {
   return (
     <div className="max-w-[720px] mx-auto bg-white border border-neutral-200 rounded p-6">
       <div className="text-11 uppercase tracking-[0.06em] text-neutral-500">Access denied</div>
-      <h1 className="text-20 font-semibold text-neutral-900 mt-1">
+      <h1 className="text-[26px] leading-tight font-semibold tracking-[-0.01em] text-neutral-900">
         {what} is Finance / MD only.
       </h1>
       <p className="text-13 text-neutral-500 mt-2">
@@ -389,7 +431,7 @@ function LedgerSection({ canManage }: { canManage: boolean }) {
         ) : (q.data?.items.length ?? 0) === 0 ? (
           <div className="p-6 text-13 text-neutral-500">No ledger rows.</div>
         ) : (
-          <table className="w-full border-collapse tabular-nums">
+          <table className="hr-float w-full border-collapse tabular-nums">
             <thead>
               <tr>
                 {(['Date', 'Type', 'Description', 'Employee', 'Debit', 'Credit', showBalance ? 'Running' : null, 'Reference', 'Status', canManage ? '' : null] as (string | null)[])
@@ -557,7 +599,7 @@ function PaymentsSection() {
         ) : (q.data?.items.length ?? 0) === 0 ? (
           <div className="p-6 text-13 text-neutral-500">No payments recorded.</div>
         ) : (
-          <table className="w-full border-collapse tabular-nums">
+          <table className="hr-float w-full border-collapse tabular-nums">
             <thead>
               <tr>
                 {['Date', 'Employee', 'Amount', 'Method', 'Reference', 'Status'].map((c) => (

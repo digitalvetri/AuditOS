@@ -37,13 +37,13 @@ export function RequestsList({ mode }: Props) {
 
   return (
     <section data-testid={`leave-list-${mode}`}>
-      <div className="bg-white border border-neutral-200 rounded overflow-hidden">
+      <div className="dash-card overflow-hidden">
         {q.isLoading ? (
-          <div className="h-40 bg-neutral-100" aria-label="Loading requests" />
+          <div className="h-40" aria-label="Loading requests" />
         ) : (q.data?.items.length ?? 0) === 0 ? (
           <Empty mode={mode} />
         ) : (
-          <table className="w-full border-collapse tabular-nums">
+          <table className="hr-float w-full border-collapse tabular-nums">
             <thead>
               <tr>
                 {[
@@ -81,7 +81,7 @@ export function RequestsList({ mode }: Props) {
 function Empty({ mode }: { mode: 'mine' | 'queue' }) {
   return (
     <div className="p-6">
-      <div className="text-11 uppercase tracking-[0.06em] text-neutral-500">
+      <div className="text-15 font-semibold text-neutral-900">
         {mode === 'mine' ? 'No requests' : 'Empty queue'}
       </div>
       <p className="text-13 text-neutral-500 mt-1">

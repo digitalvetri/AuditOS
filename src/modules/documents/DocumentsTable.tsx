@@ -68,7 +68,7 @@ export function DocumentsTable({ employeeId, showEmployeeColumn = true, filters:
         ) : (q.data?.items.length ?? 0) === 0 ? (
           <div className="p-6 text-13 text-neutral-500">No documents.</div>
         ) : (
-          <table className="w-full border-collapse tabular-nums">
+          <table className="hr-float w-full border-collapse tabular-nums">
             <thead>
               <tr>
                 {[

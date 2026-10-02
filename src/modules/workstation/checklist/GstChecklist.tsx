@@ -156,7 +156,7 @@ export function GstChecklist({ clientId, clientName }: { clientId: string; clien
 
             <Card>
               <div className="overflow-x-auto">
-                <table className="w-full min-w-[820px] border-collapse">
+                <table className="hr-float w-full min-w-[820px] border-collapse">
                   <thead>
                     <tr className="border-b border-neutral-200">
                       {['', 'Service', 'Category', 'Frequency', 'Assigned to', 'Due date', 'Status', ''].map((h, i) => (

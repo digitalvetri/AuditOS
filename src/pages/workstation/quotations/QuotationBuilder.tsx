@@ -476,8 +476,7 @@ export function QuotationBuilderPage() {
     <div className="qb-root" ref={rootRef}>
       <header className="flex items-start gap-3 flex-wrap mb-4 qdoc-screen-only">
         <div className="min-w-0">
-          <div className="text-11 uppercase tracking-[0.06em] text-neutral-500">Workstation · Quotation</div>
-          <h1 className="text-20 font-semibold text-neutral-900 mt-0.5">Quotation Builder</h1>
+          <h1 className="text-[26px] leading-tight font-semibold tracking-[-0.01em] text-neutral-900">Quotation Builder</h1>
           <p className="text-13 text-neutral-500 mt-1">
             {isEdit ? existingQ.data?.quotation_code ?? '' : 'The number is allocated when you save.'}
             {isEdit ? <> · <span className="capitalize">{status}</span></> : null}
@@ -517,7 +516,7 @@ export function QuotationBuilderPage() {
             key={v}
             type="button"
             onClick={() => setMobileView(v)}
-            className={`h-8 px-4 text-13 rounded border ${mobileView === v ? 'bg-neutral-900 text-white border-neutral-900' : 'bg-white border-neutral-300'}`}
+            className={`h-8 px-4 text-13 rounded border ${mobileView === v ? 'bg-primary text-white border-primary' : 'bg-white border-neutral-200'}`}
           >
             {v === 'edit' ? 'Edit' : 'Preview'}
           </button>
@@ -535,15 +534,15 @@ export function QuotationBuilderPage() {
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4 items-start">
         {/* ── LEFT: the editor ─────────────────────────────────────────── */}
         <div className={`qdoc-screen-only ${mobileView === 'preview' ? 'hidden md:block' : ''}`}>
-          <nav className="flex gap-x-4 border-b border-neutral-200 mb-3">
+          <nav className="flex gap-2 flex-wrap mb-4">
             {(['details', 'layout', 'blocks'] as const).map((t) => (
               <button
                 key={t}
                 type="button"
                 onClick={() => setTab(t)}
                 className={
-                  'h-8 flex items-center text-13 uppercase tracking-[0.06em] border-b-2 -mb-px ' +
-                  (tab === t ? 'border-gold text-neutral-900 font-medium' : 'border-transparent text-neutral-500 hover:text-neutral-900')
+                  'h-8 px-4 inline-flex items-center text-13 rounded-full border transition-colors capitalize ' +
+                  (tab === t ? 'bg-[#e8f0fb] border-[#b9cde9] text-primary font-medium' : 'bg-white border-neutral-200 text-neutral-700 hover:border-neutral-300 hover:bg-neutral-50')
                 }
               >
                 {t}
@@ -574,7 +573,7 @@ export function QuotationBuilderPage() {
 
         {/* ── RIGHT: the document ──────────────────────────────────────── */}
         <div className={mobileView === 'edit' ? 'hidden md:block' : ''}>
-          <div className="text-11 uppercase tracking-[0.06em] text-neutral-500 mb-2 qdoc-screen-only">{liveEdit ? "Document — click any text to edit it" : "Document (read-only)"}</div>
+          <div className="text-13 font-semibold text-neutral-800 mb-2 qdoc-screen-only">{liveEdit ? "Document — click any text to edit it" : "Document (read-only)"}</div>
           <PreviewPane doc={doc} edit={liveEdit} />
         </div>
       </div>
@@ -582,8 +581,8 @@ export function QuotationBuilderPage() {
   );
 }
 
-const btn = 'h-8 px-3 inline-flex items-center gap-1.5 text-13 rounded border border-neutral-300 bg-white hover:bg-neutral-50';
-const btnPrimary = 'h-8 px-3 inline-flex items-center gap-1.5 text-13 rounded bg-neutral-900 text-white hover:bg-neutral-800 disabled:opacity-50';
+const btn = 'h-9 px-3 inline-flex items-center gap-2 text-13 rounded-lg border border-neutral-200 bg-white hover:bg-neutral-50 hover:border-neutral-300 transition-colors';
+const btnPrimary = 'h-9 px-4 inline-flex items-center gap-2 text-13 font-medium rounded-lg bg-primary text-white hover:bg-primaryHover shadow-card transition-colors disabled:opacity-50';
 const smallBtn = 'h-7 w-7 inline-flex items-center justify-center rounded border border-neutral-300 bg-white hover:bg-neutral-50 text-neutral-500';
 
 /** The paper, scaled to whatever width the pane has. */
@@ -1175,12 +1174,12 @@ function Group({ title, hint, error, children }: {
   title: string; hint?: string; error?: boolean; children: React.ReactNode;
 }) {
   return (
-    <section className={`bg-white border rounded ${error ? 'border-red' : 'border-neutral-200'}`}>
-      <div className="h-9 px-3 flex items-center border-b border-neutral-200">
-        <span className="text-11 uppercase tracking-[0.06em] text-neutral-500">{title}</span>
+    <section className={`dash-card ${error ? '!border-red' : ''}`}>
+      <div className="h-11 px-4 flex items-center border-b border-neutral-100">
+        <span className="text-13 font-semibold text-neutral-800">{title}</span>
       </div>
-      <div className="p-3">
-        {hint ? <p className={`text-11 mb-2 ${error ? 'text-red' : 'text-neutral-500'}`}>{hint}</p> : null}
+      <div className="p-4">
+        {hint ? <p className={`text-12 mb-2 ${error ? 'text-red' : 'text-neutral-500'}`}>{hint}</p> : null}
         {children}
       </div>
     </section>
@@ -1194,7 +1193,7 @@ const Row = ({ children }: { children: React.ReactNode }) => (
 function Field({ label, error, children }: { label: string; error?: string; children: React.ReactNode }) {
   return (
     <label className="block mb-2 last:mb-0">
-      <span className="block text-11 uppercase tracking-[0.06em] text-neutral-500 mb-1">{label}</span>
+      <span className="block text-12 font-medium text-neutral-500 mb-1">{label}</span>
       {children}
       {error ? <span className="block text-11 text-red mt-1">{error}</span> : null}
     </label>

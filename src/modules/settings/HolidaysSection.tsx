@@ -1,6 +1,7 @@
 import { useState, type FormEvent } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { SectionShell } from './SectionShell';
+import { StatusLabel } from '@/components/StatusRow';
 import { settingsApi } from './api';
 import { Button } from '@/components/Button';
 import { Input } from '@/components/Input';
@@ -52,7 +53,7 @@ export function HolidaysSection() {
             e.preventDefault();
             create.mutate();
           }}
-          className="bg-white border border-neutral-200 rounded p-4 flex items-end gap-3 flex-wrap"
+          className="dash-card p-4 flex items-end gap-3 flex-wrap"
         >
           <Input label="Date" type="date" value={date} onChange={(e) => setDate(e.target.value)} required data-testid="holiday-date" />
           <Input label="Name" value={name} onChange={(e) => setName(e.target.value)} required data-testid="holiday-name" />
@@ -65,7 +66,7 @@ export function HolidaysSection() {
         </form>
       ) : null}
       <div className="bg-white border border-neutral-200 rounded overflow-hidden" data-testid="holidays-table">
-        <table className="w-full border-collapse tabular-nums">
+        <table className="hr-float w-full border-collapse tabular-nums">
           <thead>
             <tr>
               {['Date', 'Name', 'Optional', 'Actions'].map((c) => (
@@ -79,8 +80,8 @@ export function HolidaysSection() {
             {(q.data?.items ?? []).map((h) => (
               <tr key={h.id} className={'border-b border-neutral-200 border-l-2 ' + (h.is_optional ? 'border-amber' : 'border-transparent')}>
                 <td className="px-3 py-2 text-13 text-neutral-900">{fmtDate(h.date + 'T00:00:00Z')}</td>
-                <td className="px-3 py-2 text-13 text-neutral-900">{h.name}</td>
-                <td className="px-3 py-2 text-13 text-neutral-700">{h.is_optional ? 'Yes' : 'No'}</td>
+                <td className="px-3 py-2 text-13 font-semibold text-neutral-900">{h.name}</td>
+                <td className="px-3 py-2">{h.is_optional ? <StatusLabel variant="pending" label="Optional" /> : <span className="text-13 text-neutral-500">No</span>}</td>
                 <td className="px-3 py-2">
                   <Button variant="ghost" onClick={() => { if (confirm(`Remove ${h.name}?`)) del.mutate(h.id); }}>
                     Delete

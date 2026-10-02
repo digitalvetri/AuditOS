@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import {
-  Archive, Check, ChevronDown, Copy, Download, Mail, MessageCircle, Pencil, Printer, Receipt, Send, Trash2,
+  Archive, ArchiveRestore, Check, ChevronDown, Copy, Download, Mail, MessageCircle, Pencil, Printer, Receipt, Send, Trash2,
 } from 'lucide-react';
 import { Modal } from '@/modules/workstation/components';
 import { engagementApi, type EngagementLetter } from '@/modules/workstation/engagement/api';
@@ -50,7 +50,7 @@ export function EngagementActions({ letter, canManage, onError, onChanged }: {
   };
 
   const status = useMutation({
-    mutationFn: (op: 'send' | 'accept' | 'archive' | 'reopen') => engagementApi[op](letter.id),
+    mutationFn: (op: 'send' | 'accept' | 'archive' | 'unarchive' | 'reopen') => engagementApi[op](letter.id),
     onSuccess: (l) => refresh(l),
     onError: fail,
   });
@@ -144,13 +144,19 @@ export function EngagementActions({ letter, canManage, onError, onChanged }: {
           >
             <Pencil size={14} /> Reopen for editing
           </Item>
-          <Item
-            disabled={letter.status === 'archived' || !canManage}
-            title={letter.status === 'archived' ? 'Already archived' : undefined}
-            onClick={run(() => status.mutate('archive'))}
-          >
-            <Archive size={14} /> Archive
-          </Item>
+          {letter.status === 'archived' ? (
+            <Item
+              disabled={!canManage}
+              title="Back to where it stood before archiving — accepted, sent or draft"
+              onClick={run(() => status.mutate('unarchive'))}
+            >
+              <ArchiveRestore size={14} /> Restore from archive
+            </Item>
+          ) : (
+            <Item disabled={!canManage} onClick={run(() => status.mutate('archive'))}>
+              <Archive size={14} /> Archive
+            </Item>
+          )}
 
           <div className="my-1 border-t border-neutral-200" />
 

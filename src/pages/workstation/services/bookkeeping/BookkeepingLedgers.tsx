@@ -79,7 +79,7 @@ export function BookkeepingLedgers() {
 function LedgersTable({ ledgers, groupsById }: { ledgers: BookkeepingLedger[]; groupsById: Map<string, BookkeepingGroup> }) {
   return (
     <div className="bg-white border border-neutral-200 rounded overflow-x-auto">
-      <table className="w-full text-13 min-w-[820px]">
+      <table className="hr-float w-full text-13 min-w-[820px]">
         <thead>
           <tr className="text-left text-11 text-neutral-500 tracking-[0.06em]">
             <th className="px-3 py-2 font-normal">NAME</th>

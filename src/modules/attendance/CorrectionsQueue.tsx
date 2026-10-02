@@ -9,6 +9,7 @@ import { fmtDate, fmtTime } from '@/lib/format';
 import { Button } from '@/components/Button';
 import { useToast } from '@/components/Toast';
 import { StatusLabel } from '@/components/StatusRow';
+import { StatusPills } from '@/modules/workstation/listUi';
 import { useAuth } from '@/platform/auth/AuthContext';
 import { can } from '@/platform/rbac/can';
 
@@ -29,30 +30,23 @@ export function CorrectionsQueue() {
 
   return (
     <section className="space-y-4" data-testid="corrections-queue">
-      <div className="flex items-end gap-3">
-        <label className="block">
-          <span className="block text-11 uppercase tracking-[0.06em] text-neutral-500 mb-1">
-            Status
-          </span>
-          <select
-            value={statusFilter}
-            onChange={(e) => setStatusFilter(e.target.value as typeof statusFilter)}
-            className="h-8 px-2 text-13 bg-white border border-neutral-300 rounded"
-          >
-            <option value="">All</option>
-            <option value="pending">Pending</option>
-            <option value="approved">Approved</option>
-            <option value="rejected">Rejected</option>
-          </select>
-        </label>
-      </div>
+      <StatusPills
+        value={statusFilter}
+        onChange={(v) => setStatusFilter(v as typeof statusFilter)}
+        options={[
+          { value: '', label: 'All' },
+          { value: 'pending', label: 'Pending' },
+          { value: 'approved', label: 'Approved' },
+          { value: 'rejected', label: 'Rejected' },
+        ]}
+      />
 
-      <div className="bg-white border border-neutral-200 rounded overflow-hidden">
+      <div className="dash-card overflow-hidden">
         {query.isLoading ? (
-          <div className="h-40 bg-neutral-100" aria-label="Loading corrections" />
+          <div className="h-40" aria-label="Loading corrections" />
         ) : (query.data?.items.length ?? 0) === 0 ? (
           <div className="p-6">
-            <div className="text-11 uppercase tracking-[0.06em] text-neutral-500">
+            <div className="text-15 font-semibold text-neutral-900">
               No corrections
             </div>
             <p className="text-13 text-neutral-500 mt-1">
@@ -62,7 +56,7 @@ export function CorrectionsQueue() {
             </p>
           </div>
         ) : (
-          <table className="w-full border-collapse tabular-nums">
+          <table className="hr-float w-full border-collapse tabular-nums">
             <thead>
               <tr>
                 {['Requester', 'Date', 'Requested check-in', 'Requested check-out', 'Reason', 'Status', canReview ? 'Actions' : null]

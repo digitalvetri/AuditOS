@@ -108,7 +108,7 @@ export function BookkeepingClientDashboardPage() {
           {runsQ.isLoading ? <div className="text-12 text-neutral-500">Loading…</div>
             : runs.length === 0 ? <div className="text-12 text-neutral-500">Nothing generated yet.</div> : (
               <div className="overflow-x-auto">
-                <table className="w-full text-13 min-w-[560px]">
+                <table className="hr-float w-full text-13 min-w-[560px]">
                   <thead>
                     <tr className="text-11 uppercase text-neutral-500 tracking-[0.06em] border-b border-neutral-100">
                       <th className="text-left py-1.5 pr-3">Generated</th><th className="text-left py-1.5 pr-3">Covers</th>

@@ -32,7 +32,7 @@ export function LeaveTypesSection() {
       description="Edit entitlements, carry-forward, notice and probation rules per §3. Types are never deleted — history references them."
     >
       <div className="bg-white border border-neutral-200 rounded overflow-hidden">
-        <table className="w-full border-collapse tabular-nums">
+        <table className="hr-float w-full border-collapse tabular-nums">
           <thead>
             <tr>
               {['Name', 'Code', 'Annual entitlement', 'Carry-fwd max', 'Half-day', 'Min notice', 'Probation accrual', 'Actions'].map((c) => (
@@ -47,7 +47,7 @@ export function LeaveTypesSection() {
               const isEdit = editingId === t.id;
               return (
                 <tr key={t.id} className="border-b border-neutral-200 align-top">
-                  <td className="px-3 py-2 text-13 text-neutral-900">{t.name}</td>
+                  <td className="px-3 py-2 text-13 font-semibold text-neutral-900">{t.name}</td>
                   <td className="px-3 py-2 text-13 text-neutral-500">{t.code}</td>
                   <td className="px-3 py-2">
                     {isEdit ? (

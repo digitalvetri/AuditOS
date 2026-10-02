@@ -221,9 +221,9 @@ function UnmatchedSummary({ account }: { account: string }) {
   const outflow = q.data.items.filter((t) => t.debit_or_credit === 'debit').reduce((s, t) => s + Number(t.amount || 0), 0);
   return (
     <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-      <div className="bg-surface border border-border rounded p-3"><div className="text-11 uppercase tracking-[0.06em] text-inkMuted">Unmatched lines</div><div className="text-18 font-semibold tabular-nums">{q.data.items.length}{q.data.has_more ? '+' : ''}</div></div>
-      <div className="bg-surface border border-border rounded p-3"><div className="text-11 uppercase tracking-[0.06em] text-inkMuted">Unmatched deposits</div><div className="text-18 font-semibold tabular-nums">{money(inflow, org.currency_code)}</div></div>
-      <div className="bg-surface border border-border rounded p-3"><div className="text-11 uppercase tracking-[0.06em] text-inkMuted">Variance (net unmatched)</div><div className={`text-18 font-semibold tabular-nums ${inflow - outflow ? 'text-danger' : ''}`}>{money(inflow - outflow, org.currency_code)}</div></div>
+      <div className="dash-card card-zoom p-4"><div className="text-13 font-medium text-inkMuted">Unmatched lines</div><div className="num-display text-[22px] leading-tight mt-2">{q.data.items.length}{q.data.has_more ? '+' : ''}</div></div>
+      <div className="dash-card card-zoom p-4"><div className="text-13 font-medium text-inkMuted">Unmatched deposits</div><div className="num-display text-[22px] leading-tight mt-2">{money(inflow, org.currency_code)}</div></div>
+      <div className="dash-card card-zoom p-4"><div className="text-13 font-medium text-inkMuted">Variance (net unmatched)</div><div className={`num-display text-[22px] leading-tight mt-2 ${inflow - outflow ? 'text-danger' : ''}`}>{money(inflow - outflow, org.currency_code)}</div></div>
     </div>
   );
 }
@@ -325,7 +325,7 @@ export function ReportsPage() {
           {groups.map((g) => (
             <Section key={g} title={g}>
               <div className="py-1">{defs.data!.items.filter((d) => d.group === g).map((d) => (
-                <button key={d.id} type="button" onClick={() => setSel(d.id)} className={`block w-full text-left px-4 py-1.5 text-13 ${sel === d.id ? 'text-ink font-medium bg-canvas' : d.available ? 'text-ink hover:bg-canvas' : 'text-inkFaint hover:bg-canvas'}`}>
+                <button key={d.id} type="button" onClick={() => setSel(d.id)} className={`block w-full text-left px-4 py-2 text-13 ${sel === d.id ? 'text-ink font-medium bg-canvas' : d.available ? 'text-ink hover:bg-canvas' : 'text-inkFaint hover:bg-canvas'}`}>
                   {d.title}{d.available ? null : <span className="text-11"> · unavailable</span>}
                 </button>
               ))}</div>
@@ -336,8 +336,8 @@ export function ReportsPage() {
       {def ? (
         <Section title={def.title} right={def.available && def.dated ? (
           <div className="flex flex-wrap items-center gap-2">
-            <input type="date" value={range.from} onChange={(e) => setRange({ ...range, from: e.target.value })} className="h-8 px-2 text-12 bg-surface border border-border rounded" aria-label="From" />
-            <input type="date" value={range.to} onChange={(e) => setRange({ ...range, to: e.target.value })} className="h-8 px-2 text-12 bg-surface border border-border rounded" aria-label="To" />
+            <input type="date" value={range.from} onChange={(e) => setRange({ ...range, from: e.target.value })} className="h-8 px-2 text-12 bg-surface border border-neutral-200 rounded-lg" aria-label="From" />
+            <input type="date" value={range.to} onChange={(e) => setRange({ ...range, to: e.target.value })} className="h-8 px-2 text-12 bg-surface border border-neutral-200 rounded-lg" aria-label="To" />
             <Btn onClick={() => setRun(range)} loading={rep.isFetching}>Run</Btn>
           </div>
         ) : null}>
@@ -368,7 +368,7 @@ export function ReportsPage() {
 export function ZohoOnlyPage({ title, zohoPath, why }: { title: string; zohoPath: string; why: string }) {
   const zohoUrl = useZohoWebUrl();
   const open = (
-    <a className="h-9 px-3 text-13 font-medium rounded inline-flex items-center gap-1.5 bg-primary text-white hover:bg-primaryHover"
+    <a className="h-9 px-3 text-13 font-medium rounded inline-flex items-center gap-2 bg-primary text-white hover:bg-primaryHover"
       href={zohoUrl(zohoPath)} target="_blank" rel="noopener noreferrer">Open {title} in Zoho Books ↗</a>
   );
   return (

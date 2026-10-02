@@ -263,12 +263,11 @@ function Card({ status, children }: { status?: boolean; children: React.ReactNod
 
 export function CredentialStatus({ configured }: { configured: boolean }) {
   return (
-    <span className="inline-flex items-center gap-1.5 text-12 text-neutral-700">
-      <span
-        className="inline-block w-2 h-2 rounded-full border"
-        style={configured ? { backgroundColor: '#166534', borderColor: '#166534' } : { borderColor: '#94A3B8' }}
-        aria-hidden
-      />
+    <span
+      className="inline-flex items-center gap-2 h-6 px-3 rounded-full text-12 font-medium whitespace-nowrap"
+      style={configured ? { background: '#ecfdf5', color: '#047857' } : { background: '#f1f5f9', color: '#475569' }}
+    >
+      <span className="inline-block rounded-full" style={{ width: 6, height: 6, background: configured ? '#10b981' : '#94a3b8' }} aria-hidden />
       {configured ? 'Configured' : 'Not Configured'}
     </span>
   );

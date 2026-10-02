@@ -220,7 +220,7 @@ function RulesPanel({ companyId }: { companyId: string }) {
 
       <Panel title={`Rules (${rules.length})`}>
         {rulesQ.isLoading ? <Loading /> : rulesQ.isError ? <ErrorNote message={(rulesQ.error as Error).message} /> : (
-          <table className="w-full text-13">
+          <table className="hr-float w-full text-13">
             <thead>
               <tr className="text-11 uppercase tracking-[0.06em] text-neutral-500">
                 <th className="text-left px-3 py-2">Scope</th>
@@ -465,7 +465,7 @@ function PreflightBody({ report }: { report: PreflightReport }) {
           ))}
         </div>
         <div className="overflow-x-auto">
-          <table className="w-full text-13">
+          <table className="hr-float w-full text-13">
             <thead>
               <tr className="text-11 uppercase tracking-[0.06em] text-neutral-500">
                 <th className="text-left px-3 py-2">Date</th>
@@ -537,7 +537,7 @@ function HistoryPanel({ companyId }: { companyId: string }) {
       {items.length === 0 ? (
         <div className="px-3 py-6 text-13 text-neutral-500">No exports yet.</div>
       ) : (
-        <table className="w-full text-13">
+        <table className="hr-float w-full text-13">
           <thead>
             <tr className="text-11 uppercase tracking-[0.06em] text-neutral-500">
               <th className="text-left px-3 py-2">Generated</th>

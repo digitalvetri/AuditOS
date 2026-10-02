@@ -41,10 +41,10 @@ const STATUS_LABEL: Record<ZpayStatus, string> = {
 
 const STATUS_TONE: Record<ZpayStatus, string> = {
   not_connected: 'bg-neutral-100 text-neutral-700 border-neutral-200',
-  consent_pending: 'bg-amber-50 text-amber-800 border-amber-200',
+  consent_pending: 'bg-amber/10 text-amber border-amber/40',
   connected: 'bg-emerald-50 text-emerald-800 border-emerald-200',
   revoked: 'bg-red-50 text-red-800 border-red-200',
-  expired: 'bg-amber-50 text-amber-800 border-amber-200',
+  expired: 'bg-amber/10 text-amber border-amber/40',
   error: 'bg-red-50 text-red-800 border-red-200',
 };
 
@@ -239,7 +239,7 @@ function AccountsBlock({ conn }: { conn: ZpayConnectionSummary }) {
           <button
             type="button"
             onClick={() => setAdding(true)}
-            className="text-12 text-navy-700 hover:underline"
+            className="text-12 text-primary hover:underline"
           >
             + Add account
           </button>
@@ -472,7 +472,7 @@ function AccountRow({
           <button
             type="button"
             onClick={() => setImporting((v) => !v)}
-            className="text-12 text-navy-700 hover:underline"
+            className="text-12 text-primary hover:underline"
           >
             {importing ? 'Cancel import' : 'Import invoices'}
           </button>
@@ -512,7 +512,7 @@ function AccountRow({
           ) : null}
           <CollectPaymentPanel invoiceIds={collectIds} onClose={() => setCollectIds([])} />
           {pdfNotes.length ? (
-            <div className="text-12 text-amber-800 bg-amber-50 border border-amber-200 rounded p-2">
+            <div className="text-12 text-amber bg-amber/10 border border-amber/40 rounded p-2">
               <div className="font-medium mb-1">Left out of the PDF import — add these by CSV/Excel, or fix the PDF:</div>
               <ul className="list-disc pl-4 space-y-0.5">{pdfNotes.map((n, i) => <li key={i}>{n}</li>)}</ul>
             </div>

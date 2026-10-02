@@ -125,7 +125,7 @@ function Body({
         </div>
       ) : (
         <div className="border border-neutral-200 rounded overflow-hidden">
-          <table className="w-full text-13">
+          <table className="hr-float w-full text-13">
             <thead className="bg-neutral-50 text-11 uppercase tracking-[0.06em] text-neutral-500">
               <tr>
                 <th className="text-left px-4 py-2">Account</th>

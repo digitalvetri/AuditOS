@@ -17,9 +17,8 @@
 import { useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { ExternalLink, FileUp, Search } from 'lucide-react';
+import { Check, ExternalLink, FileText, FileUp, Search } from 'lucide-react';
 import { workstationApi } from '@/modules/workstation/api';
-import { Card } from '@/modules/workstation/components';
 import { useToast } from '@/components/Toast';
 import { fmtDate } from '@/lib/format';
 import { MINIMAL_REGISTRATION_PAGES, type RegistrationService } from './services';
@@ -37,6 +36,7 @@ export function RegistrationRunPanel({ service }: { service: RegistrationService
   const [query, setQuery] = useState('');
   const [clientId, setClientId] = useState('');
   const [notes, setNotes] = useState('');
+  const [pickerOpen, setPickerOpen] = useState(false);
 
   const clientsQ = useQuery({
     queryKey: ['workstation', 'clients', { for: 'registration' }],
@@ -113,46 +113,79 @@ export function RegistrationRunPanel({ service }: { service: RegistrationService
   const portalDisabled = !service.portalUrl;
 
   return (
-    <Card title={`Run ${service.shortName} for a client`}>
-      <div className="p-4 space-y-5 m-form">
+    <section className="dash-card overflow-hidden">
+      <div className="flex items-center gap-3 px-5 py-4 border-b border-neutral-100">
+        <h2 className="text-14 font-semibold text-neutral-900 flex-1">Run {service.shortName} for a client</h2>
+        <span className="text-12 text-neutral-500">{client ? <>For <span className="font-semibold text-neutral-900">{client.company_name}</span></> : 'Pick a client to begin'}</span>
+      </div>
+      <div className="reg-steps p-5 m-form">
         {/* ── 1 · client ─────────────────────────────────────────────── */}
-        <Step n={1} title="Choose the client" done={!!client}>
-          <div className="relative">
-            <Search
-              size={16}
-              strokeWidth={1.75}
-              className="absolute left-3 top-1/2 -translate-y-1/2 text-neutral-400 pointer-events-none"
-              aria-hidden
-            />
-            <input
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-              placeholder="Client ID or company name"
-              aria-label="Find a client by ID or name"
-              className="w-full h-10 pl-9 pr-3 text-13 bg-white text-neutral-900 border border-neutral-300 rounded focus:outline-none focus:border-primary"
-            />
-          </div>
-          <div className="mt-2 border border-neutral-200 rounded max-h-[220px] overflow-y-auto">
-            {clientsQ.isLoading ? (
-              <div className="px-3 py-4 text-13 text-neutral-500">Loading clients…</div>
-            ) : matches.length === 0 ? (
-              <div className="px-3 py-4 text-13 text-neutral-500">No client matches that.</div>
-            ) : matches.map((c) => (
+        <Step n={1} title="Choose the client" done={!!client} active>
+          {client ? (
+            /* Chosen: one compact card, with Change to pick another. */
+            <div className="reg-client is-picked flex items-center gap-3 px-4 py-3 rounded-lg">
+              <span className="reg-client-tick h-6 w-6 rounded-full inline-flex items-center justify-center shrink-0" aria-hidden>
+                <Check size={13} strokeWidth={3} />
+              </span>
+              <span className="min-w-0 flex-1">
+                <span className="block text-14 font-semibold text-neutral-900 truncate">{client.company_name}</span>
+                <span className="block text-12 text-neutral-500 mt-0.5">{client.client_id}</span>
+              </span>
               <button
-                key={c.id}
                 type="button"
-                onClick={() => setClientId(c.id)}
-                className={
-                  'w-full text-left px-3 py-2 min-h-[44px] border-b border-neutral-200 last:border-b-0 ' +
-                  'hover:bg-neutral-50 border-l-2 ' +
-                  (clientId === c.id ? 'bg-neutral-50 border-l-primary' : 'border-l-transparent')
-                }
+                onClick={() => { setClientId(''); setQuery(''); setPickerOpen(true); }}
+                className="h-8 px-3 text-12 font-medium text-primary bg-white border border-neutral-200 rounded-lg hover:border-primary/40 hover:bg-[#f4f7fc]"
               >
-                <div className="text-13 text-neutral-900">{c.company_name}</div>
-                <div className="text-12 text-neutral-500 font-mono">{c.client_id}</div>
+                Change
               </button>
-            ))}
-          </div>
+            </div>
+          ) : (
+            /* Searchable picker: type an ID or name; matches drop down below.
+               Scales to any number of clients — only the best matches show. */
+            <div className="relative" onBlur={(e) => { if (!e.currentTarget.contains(e.relatedTarget as Node)) setPickerOpen(false); }}>
+              <Search
+                size={16}
+                strokeWidth={1.75}
+                className="absolute left-3 top-[20px] -translate-y-1/2 text-neutral-400 pointer-events-none"
+                aria-hidden
+              />
+              <input
+                value={query}
+                onChange={(e) => { setQuery(e.target.value); setPickerOpen(true); }}
+                onFocus={() => setPickerOpen(true)}
+                placeholder={`Search ${clients.length || ''} clients by ID or company name`.replace('  ', ' ')}
+                aria-label="Find a client by ID or name"
+                role="combobox"
+                aria-expanded={pickerOpen}
+                className="w-full h-10 pl-9 pr-3 text-13 bg-white text-neutral-900 border border-neutral-200 rounded-lg focus:outline-none focus:border-primary/60 focus:ring-2 focus:ring-primary/10"
+              />
+              {pickerOpen ? (
+                <div role="listbox" className="absolute left-0 right-0 top-full mt-1 z-20 bg-white border border-neutral-200 rounded-lg shadow-raised p-1 max-h-[280px] overflow-y-auto">
+                  {clientsQ.isLoading ? (
+                    <div className="px-3 py-3 text-13 text-neutral-500">Loading clients…</div>
+                  ) : matches.length === 0 ? (
+                    <div className="px-3 py-3 text-13 text-neutral-500">No client matches that.</div>
+                  ) : matches.map((c) => (
+                    <button
+                      key={c.id}
+                      type="button"
+                      role="option"
+                      aria-selected={false}
+                      onMouseDown={(e) => e.preventDefault()}
+                      onClick={() => { setClientId(c.id); setPickerOpen(false); }}
+                      className="reg-option w-full text-left flex items-center gap-3 px-3 py-2 rounded-md"
+                    >
+                      <span className="min-w-0 flex-1 text-13 font-medium truncate">{c.company_name}</span>
+                      <span className="text-11 shrink-0 opacity-70">{c.client_id}</span>
+                    </button>
+                  ))}
+                  {!clientsQ.isLoading && clients.length > matches.length ? (
+                    <div className="px-3 pt-2 pb-1 text-11 text-neutral-400">Showing {matches.length} of {clients.length} — type to narrow down.</div>
+                  ) : null}
+                </div>
+              ) : null}
+            </div>
+          )}
         </Step>
 
         {/* Saved login / reference details for this client — entered once,
@@ -166,7 +199,7 @@ export function RegistrationRunPanel({ service }: { service: RegistrationService
         ) : null}
 
         {/* ── 2 · portal ─────────────────────────────────────────────── */}
-        <Step n={2} title="Open the official portal" done={false}>
+        <Step n={2} title="Open the official portal" done={false} active={!!client}>
           {portalDisabled ? (
             /* No registration currently sets portalUrl to null. The branch
                stays as the guard for any registration that genuinely has
@@ -194,23 +227,23 @@ export function RegistrationRunPanel({ service }: { service: RegistrationService
                 target="_blank"
                 rel="noopener noreferrer"
                 className={
-                  'inline-flex items-center gap-2 h-10 px-4 text-14 font-medium rounded-md ' +
+                  'inline-flex items-center gap-2 h-10 px-5 text-14 font-medium rounded-lg shadow-card ' +
                   'text-white bg-primary hover:bg-primaryHover'
                 }
               >
                 <ExternalLink size={16} strokeWidth={2} />
                 {client ? `Visit portal for ${client.client_id}` : 'Visit portal'}
               </a>
-              <div className="text-12 text-neutral-500 mt-2 break-words">
-                {service.portalLabel} ·{' '}
-                <span className="font-mono">{service.portalUrl!.replace(/^https?:\/\//, '')}</span>
+              <div className="mt-3 flex flex-wrap items-center gap-2 text-12 text-neutral-500">
+                <span>{service.portalLabel}</span>
+                <span className="inline-flex items-center h-6 px-3 rounded-full bg-[#f1f4f9] text-neutral-700 break-all">{service.portalUrl!.replace(/^https?:\/\//, '')}</span>
               </div>
             </>
           )}
         </Step>
 
         {/* ── 3 · record ─────────────────────────────────────────────── */}
-        <Step n={3} title="Record what the portal returned" done={false} last>
+        <Step n={3} title="Record what the portal returned" done={!!existing} active={!!client} last>
           <p className="text-13 text-neutral-600 mb-2">
             Files it against{' '}
             <span className="font-medium text-neutral-900">{client?.company_name ?? 'the client'}</span>{' '}
@@ -224,14 +257,14 @@ export function RegistrationRunPanel({ service }: { service: RegistrationService
             ) : null}
           </p>
           <label className="block">
-            <span className="block text-11 uppercase tracking-[0.06em] text-neutral-500 mb-1">
+            <span className="block text-12 font-medium text-neutral-500 mb-1">
               Reference or note (optional)
             </span>
             <input
               value={notes}
               onChange={(e) => setNotes(e.target.value)}
               placeholder="e.g. GSTIN 33AAAAA0000A1Z5 · issued 11 Sep 2026"
-              className="w-full h-10 px-3 text-13 bg-white text-neutral-900 border border-neutral-300 rounded focus:outline-none focus:border-primary"
+              className="w-full h-10 px-3 text-13 bg-white text-neutral-900 border border-neutral-200 rounded-lg focus:outline-none focus:border-primary/60 focus:ring-2 focus:ring-primary/10"
             />
           </label>
           <button
@@ -239,7 +272,7 @@ export function RegistrationRunPanel({ service }: { service: RegistrationService
             onClick={() => record.mutate()}
             disabled={!client || record.isPending}
             className={
-              'mt-3 inline-flex items-center gap-2 h-10 px-4 text-14 font-medium rounded-md ' +
+              'mt-3 inline-flex items-center gap-2 h-10 px-5 text-14 font-medium rounded-lg shadow-card ' +
               'text-white bg-primary hover:bg-primaryHover disabled:opacity-50 disabled:cursor-not-allowed'
             }
           >
@@ -257,8 +290,8 @@ export function RegistrationRunPanel({ service }: { service: RegistrationService
           )}
 
           {client ? (
-            <div className="mt-4">
-              <div className="text-11 uppercase tracking-[0.06em] text-neutral-500 mb-2">
+            <div className="mt-5">
+              <div className="text-13 font-semibold text-neutral-900 mb-2">
                 On file for {client.client_id}
               </div>
               {docsQ.isLoading ? (
@@ -266,9 +299,12 @@ export function RegistrationRunPanel({ service }: { service: RegistrationService
               ) : related.length === 0 ? (
                 <div className="text-13 text-neutral-500">Nothing recorded for this registration yet.</div>
               ) : (
-                <ul className="border border-neutral-200 rounded divide-y divide-neutral-200">
+                <ul className="space-y-2">
                   {related.slice(0, 6).map((d) => (
-                    <li key={d.id} className="px-3 py-2 flex items-center gap-3">
+                    <li key={d.id} className="dash-row px-3 py-2 flex items-center gap-3 rounded-lg">
+                      <span className="h-8 w-8 rounded-lg inline-flex items-center justify-center shrink-0" style={{ background: '#e6f8f6', color: '#0f766e' }}>
+                        <FileText size={15} strokeWidth={1.9} />
+                      </span>
                       <span className="min-w-0 flex-1">
                         <span className="block text-13 text-neutral-900 truncate">{d.name}</span>
                         <span className="block text-12 text-neutral-500">
@@ -290,30 +326,30 @@ export function RegistrationRunPanel({ service }: { service: RegistrationService
           ) : null}
         </Step>
       </div>
-    </Card>
+    </section>
   );
 }
 
+/**
+ * One step on the vertical rail: a numbered dot (a tick once done), its
+ * title, and the step's content indented beside the rail.
+ */
 function Step({
-  n, title, done, last = false, children,
+  n, title, done, active = true, last = false, children,
 }: {
-  n: number; title: string; done: boolean; last?: boolean; children: React.ReactNode;
+  n: number; title: string; done: boolean; active?: boolean; last?: boolean; children: React.ReactNode;
 }) {
   return (
-    <section className={last ? '' : 'pb-5 border-b border-neutral-200'}>
-      <div className="flex items-center gap-2 mb-2">
-        <span
-          className={
-            'inline-flex items-center justify-center w-6 h-6 rounded-full text-12 font-semibold shrink-0 ' +
-            (done ? 'bg-primary text-white' : 'bg-neutral-100 text-neutral-600')
-          }
-          aria-hidden
-        >
-          {n}
+    <section className={'reg-step relative ' + (last ? '' : 'pb-6')}>
+      {last ? null : <span className="reg-rail" aria-hidden />}
+      <div className="flex items-center gap-3 mb-3">
+        <span className={'reg-dot ' + (done ? 'is-done' : active ? 'is-active' : '')} aria-hidden>
+          {done ? <Check size={13} strokeWidth={3} /> : n}
         </span>
         <h3 className="text-14 font-semibold text-neutral-900">{title}</h3>
+        {done ? <span className="inline-flex items-center h-6 px-3 rounded-full text-11 font-semibold bg-[#ecfdf5] text-[#047857]">Done</span> : null}
       </div>
-      <div className="pl-8">{children}</div>
+      <div className="pl-10">{children}</div>
     </section>
   );
 }

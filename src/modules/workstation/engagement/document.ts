@@ -23,7 +23,11 @@ export type EBlockKey =
   | 'closing'
   | 'signature'
   | 'confirmation'
-  | 'spacer';
+  | 'spacer'
+  /** Starts a new page. */
+  | 'pagebreak'
+  /** A grid of editable cells — the EPR template's schedules. */
+  | 'table';
 
 export type ListStyle = 'none' | 'bullet' | 'number';
 
@@ -43,6 +47,30 @@ export interface Line {
   /** 0–4 levels. */
   indent: number;
   html: string;
+  /**
+   * Word-faithful templates only (see templates.ts) — ignored by the classic
+   * look. Size in points; space after in points (default: one blank line);
+   * a custom list marker, or for a plain paragraph an inline lead-in glyph;
+   * extra left offset of a list marker in points.
+   */
+  size?: number;
+  after?: number;
+  marker?: string;
+  pad?: number;
+}
+
+/** One table cell: inline HTML, as a line holds. */
+export interface TableCell { html: string; valign?: 'top' | 'middle'; /** Space above a top-aligned cell's text, in points. */ padTop?: number }
+export interface TableSpec {
+  /** Column widths in points. */
+  cols: number[];
+  /** Header labels, centred; empty for none. */
+  head: string[];
+  rows: TableCell[][];
+  /** Row heights in points: header first, then one per row. */
+  heights: number[];
+  /** Left padding per column in points (default 4.7, Word's cell margin here). */
+  pad?: number[];
 }
 
 export interface EBlock {
@@ -59,6 +87,22 @@ export interface EBlock {
   lines?: Line[];
   /** Spacer only. */
   heightPx?: number;
+  /** Table only. */
+  table?: TableSpec;
+  /**
+   * Word-faithful templates only. Space after the block in points; the gap
+   * between "Yours truly," and the signatory; the ruled line under the
+   * signature and the space above it; the date's format, its place line
+   * and weight; whether the confirmation repeats the client company.
+   */
+  afterPt?: number;
+  gapPt?: number;
+  rule?: boolean;
+  ruleGapPt?: number;
+  dateFormat?: DateFormat;
+  place?: string;
+  bold?: boolean;
+  showCompany?: boolean;
   /**
    * Shown in the EDITOR only, never printed — used where the firm's own
    * wording is required and must not be invented on its behalf.
@@ -79,7 +123,12 @@ export const BLOCK_LABEL: Record<EBlockKey, string> = {
   signature: 'Signature',
   confirmation: 'Client confirmation',
   spacer: 'Space',
+  pagebreak: 'Page break',
+  table: 'Table',
 };
+
+/** How a Word-faithful template writes the letter date. */
+export type DateFormat = 'd MMMM, yyyy' | 'do MMMM yyyy' | 'ddo MMMM yyyy';
 
 export interface Recipient {
   name: string;
@@ -149,6 +198,7 @@ export const ENGAGEMENT_COMPANY: CompanyInfo = {
 
 export const PLACEHOLDERS: { token: string; label: string }[] = [
   { token: '{{company_name}}', label: 'Client company' },
+  { token: '{{company_name_caps}}', label: 'Client company (CAPITALS)' },
   { token: '{{client_name}}', label: 'Contact person' },
   { token: '{{designation}}', label: 'Designation' },
   { token: '{{financial_year}}', label: 'Financial year' },
@@ -240,6 +290,28 @@ export const DEFAULT_FEES = (): FeeLine[] => [
 ];
 
 export const FEE_FREQUENCIES = ['per month', 'per quarter', 'per half-year', 'per year', 'per return', 'one-time'];
+
+const ordinal = (n: number) => {
+  const t = n % 100;
+  if (t >= 11 && t <= 13) return 'th';
+  return ['th', 'st', 'nd', 'rd'][n % 10] ?? 'th';
+};
+
+/** A letter date in one of the Word templates' own formats. */
+export function fmtDate(iso: string | null | undefined, f: DateFormat | undefined): string {
+  if (!iso) return '';
+  const d = new Date(`${iso}T00:00:00`);
+  if (Number.isNaN(d.getTime()) || !f) return fmtLong(iso);
+  const day = d.getDate();
+  const month = d.toLocaleDateString('en-IN', { month: 'long' });
+  const dd = String(day).padStart(2, '0');
+  if (f === 'd MMMM, yyyy') return `${dd} ${month}, ${d.getFullYear()}`;
+  if (f === 'ddo MMMM yyyy') return `${dd}${ordinal(day)} ${month} ${d.getFullYear()}`;
+  return `${day}${ordinal(day)} ${month} ${d.getFullYear()}`;
+}
+
+/** The client company in capitals, as the Word letters print it in prose. */
+export const capsName = (name: string) => name.trim().replace(/[,\s]+$/, '').toUpperCase();
 
 export const fmtLong = (iso: string | null | undefined): string => {
   if (!iso) return '';
