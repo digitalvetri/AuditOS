@@ -9,10 +9,13 @@ import {
 } from 'react';
 import { api, type ApiError } from '@/services/api';
 import type { RoleCode } from '@/data/models';
+import { setLiveGrants, type Grant } from '@/platform/rbac/matrix';
 
 interface Session {
   user: { id: string; email: string };
   role: { id: string; code: RoleCode; name: string };
+  /** Live grants from the server; drives can() for menus. */
+  grants?: Grant[];
   employee: {
     id: string;
     full_name: string;
@@ -34,7 +37,15 @@ interface AuthState {
 const Ctx = createContext<AuthState | null>(null);
 
 export function AuthProvider({ children }: { children: ReactNode }) {
-  const [session, setSession] = useState<Session | null>(null);
+  const [session, setSessionState] = useState<Session | null>(null);
+  // Keep can()'s live grants in step with the session, before React renders it.
+  const setSession = useCallback((next: Session | null | ((s: Session | null) => Session | null)) => {
+    setSessionState((prev) => {
+      const s = typeof next === 'function' ? next(prev) : next;
+      setLiveGrants(s?.role.code ?? null, s?.grants);
+      return s;
+    });
+  }, []);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 

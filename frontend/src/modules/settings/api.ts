@@ -68,5 +68,20 @@ export const settingsApi = {
         `/api/settings/roles/${roleId}/permissions/${encodeURIComponent(permissionCode)}`,
         { scope },
       ),
+    /** Module-level view: HRMS / Workstation / Tools / Integrations per role. */
+    modules: () => api.get<RoleModulesResponse>('/api/settings/role-modules'),
+    setModule: (roleId: string, module: ModuleCode, access: 'full' | 'none') =>
+      api.put<{ role: Role; module: ModuleCode; access: 'full' | 'none' }>(
+        `/api/settings/roles/${roleId}/modules/${module}`,
+        { access },
+      ),
   },
 };
+
+export type ModuleCode = 'hrms' | 'workstation' | 'tools' | 'integrations';
+export type ModuleAccess = 'full' | 'none' | 'partial';
+
+export interface RoleModulesResponse {
+  modules: { code: ModuleCode; name: string }[];
+  roles: (Role & { modules: Record<ModuleCode, ModuleAccess> })[];
+}

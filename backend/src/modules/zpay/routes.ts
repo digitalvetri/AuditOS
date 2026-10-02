@@ -3,7 +3,7 @@
  *
  * Two routers:
  *
- *   zpayRouter        authenticated; requires `accounts.manage` at
+ *   zpayRouter        authenticated; requires `integrations.access` at
  *                     organisation scope (spec §1: connect action lives in
  *                     Settings under a finance permission).
  *
@@ -35,7 +35,7 @@ import { collectedWhere } from './statuses.js'
 
 export const zpayRouter = Router()
 
-zpayRouter.use(requirePermission('accounts.manage', 'organisation'))
+zpayRouter.use(requirePermission('integrations.access', 'organisation'))
 
 const MAX_CSV_MB = 5
 const csvUpload = multer({
@@ -313,7 +313,7 @@ zpayRouter.get('/accounts/:aid/invoices', handler(async (req, res) => {
 // The card on the client record: billed-from account, paid-this-FY,
 // last-payment, plus placeholders for outstanding & oldest-open-invoice
 // (these come alive when an invoice source lands). Behind
-// accounts.manage@organisation — spec §6.3: hidden entirely, not greyed.
+// integrations.access@organisation — spec §6.3: hidden entirely, not greyed.
 zpayRouter.get('/clients/:id/billing-slice', handler(async (req, res) => {
   const session = requireSession(req)
   const orgId = await orgIdFor(session.userId)
@@ -323,7 +323,7 @@ zpayRouter.get('/clients/:id/billing-slice', handler(async (req, res) => {
 
 // PATCH /api/zpay/clients/:id/billing-account  { accountId | null }
 // One client is billed from ONE account (spec §3). Setting null clears
-// the mapping. Behind accounts.manage@organisation.
+// the mapping. Behind integrations.access@organisation.
 zpayRouter.patch('/clients/:id/billing-account', handler(async (req, res) => {
   const session = requireSession(req)
   const orgId = await orgIdFor(session.userId)

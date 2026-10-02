@@ -1,9 +1,9 @@
 /**
  * Attendance records table per §8.2.
  *
- * Columns: Employee | Date | Check-in | Check-out | Hours | Location | Type | Status
+ * Columns: Employee | Date | Check-in | Check-out | Hours | Status
  *
- * Filters: date range, employee, department, status, location type.
+ * Filters: date range, employee, department, status.
  * All filtering happens server-side — this component only shapes the query.
  *
  * §7 design: row height 40px, no zebra, sticky header, hover neutral-50 only.
@@ -16,7 +16,7 @@ import { fmtDate, fmtTime, fmtDuration } from '@/lib/format';
 import { addDays, istToday } from '@/lib/dates';
 import { StatusLabel } from '@/components/StatusRow';
 import { styleForStatus } from './statusStyle';
-import type { AttendanceStatus, LocationType } from '@/data/models';
+import type { AttendanceStatus } from '@/data/models';
 
 const STATUS_OPTIONS: { value: AttendanceStatus | ''; label: string }[] = [
   { value: '', label: 'Any status' },
@@ -30,19 +30,10 @@ const STATUS_OPTIONS: { value: AttendanceStatus | ''; label: string }[] = [
   { value: 'missing_check_out', label: 'Missing Check-out' },
 ];
 
-const LOCATION_OPTIONS: { value: LocationType | ''; label: string }[] = [
-  { value: '', label: 'Any location' },
-  { value: 'office', label: 'Office' },
-  { value: 'client_site', label: 'Client site' },
-  { value: 'remote', label: 'Remote' },
-  { value: 'field', label: 'Field' },
-];
-
 interface Filters {
   from: string;
   to: string;
   status: AttendanceStatus | '';
-  locationType: LocationType | '';
   employeeId?: string;
 }
 
@@ -58,7 +49,6 @@ export function RecordsTable({ scopeHint, defaultEmployeeId }: RecordsTableProps
     from: addDays(today, -30),
     to: today,
     status: '',
-    locationType: '',
     employeeId: defaultEmployeeId,
   });
 
@@ -80,8 +70,7 @@ export function RecordsTable({ scopeHint, defaultEmployeeId }: RecordsTableProps
             from: addDays(today, -30),
             to: today,
             status: '',
-            locationType: '',
-          })
+                  })
         }
       />
       {/* No frame round the table: its rows float on the page. */}
@@ -128,12 +117,6 @@ function FiltersBar({
         value={filters.status}
         onChange={(v) => onChange({ ...filters, status: v as AttendanceStatus | '' })}
         options={STATUS_OPTIONS}
-      />
-      <FilterSelect
-        label="Location"
-        value={filters.locationType}
-        onChange={(v) => onChange({ ...filters, locationType: v as LocationType | '' })}
-        options={LOCATION_OPTIONS}
       />
       <button
         type="button"
@@ -213,8 +196,6 @@ function Table({ rows, showEmployee }: { rows: AttendanceWithEmployee[]; showEmp
       'Check-in',
       'Check-out',
       'Hours',
-      'Location',
-      'Type',
       'Status',
     ].filter(Boolean) as string[];
     return base;
@@ -281,12 +262,6 @@ function Row({ row, showEmployee }: { row: AttendanceWithEmployee; showEmployee:
       </td>
       <td className="px-3 text-13 text-neutral-900">
         {row.worked_minutes != null ? fmtDuration(row.worked_minutes) : <span className="text-neutral-400">—</span>}
-      </td>
-      <td className="px-3 text-13 text-neutral-500">
-        {row.check_in_location_id ?? (row.location_type === 'remote' ? 'Remote' : row.location_type === 'field' ? 'Field' : row.location_type === 'client_site' ? 'Client site' : '—')}
-      </td>
-      <td className="px-3 text-13 text-neutral-500">
-        {row.location_type ? row.location_type.replace('_', ' ') : '—'}
       </td>
       <td className="px-3">
         <StatusLabel variant={s.variant} label={s.label} />

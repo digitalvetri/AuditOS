@@ -6,9 +6,8 @@
  * /integrations; today Zoho Payments is the only one, but the shape is
  * ready for Books, Tally, banking, etc. as they land.
  *
- * Gated on `accounts.manage@organisation` — the same finance permission
- * that owns the Accounts module. An executive without that grant sees a
- * hard 403-shaped block rather than a hidden route (spec §6.3 hides only
+ * Gated on `integrations.access@organisation` (Settings → Roles →
+ * Integrations). A role without it sees a hard 403-shaped block rather than a hidden route (spec §6.3 hides only
  * client-scoped billing data, not the integrations home itself).
  */
 import { useAuth } from '@/platform/auth/AuthContext';
@@ -17,7 +16,7 @@ import { ZpayIntegrationsSection } from '@/modules/zpay/IntegrationsSection';
 
 export function ZohoPaymentsIntegrationPage() {
   const { session } = useAuth();
-  const allowed = can(session?.role.code, 'accounts.manage', 'organisation');
+  const allowed = can(session?.role.code, 'integrations.access', 'organisation');
 
   if (!allowed) {
     return (

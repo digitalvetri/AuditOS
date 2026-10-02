@@ -79,7 +79,8 @@ model Organisation {
 
 model Role {
   id          String  @id @default(uuid())
-  // employee | dept_manager | hr_admin | finance_admin | md
+  // md (Super Admin) | hr_admin (Admin) | dept_manager (Senior Associate)
+  // | employee (Associate) | intern | finance_admin (legacy)
   code        String  @unique
   name        String
   description String?
@@ -500,7 +501,7 @@ model Attendance {
   breakMinutes     Int?
   // present | late | absent | half_day | wfh | on_leave | missing_check_in | missing_check_out
   status           String
-  // web_geo | biometric | manual
+  // web | web_geo (legacy) | biometric | manual
   source           String  @default("web_geo")
   // none | requested | approved | rejected
   correctionStatus String  @default("none")

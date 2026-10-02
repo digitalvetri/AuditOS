@@ -11,6 +11,8 @@
 import '../src/lib/env.js'
 import { PrismaClient } from '@prisma/client'
 import { ALL_PERMISSION_CODES, MATRIX, PERMISSION_DESCRIPTIONS, type RoleCode } from '../src/platform/rbac/matrix.js'
+import { VISIBLE_ROLE_CODES } from '../src/platform/rbac/modules.js'
+import { setupRoles } from './setup-roles.js'
 
 const prisma = new PrismaClient()
 
@@ -28,6 +30,9 @@ async function main() {
   let grants = 0
   const roles = await prisma.role.findMany({ select: { id: true, code: true } })
   for (const role of roles) {
+    // The five live roles are module-based — handled by setupRoles below,
+    // which keeps what Settings → Roles & permissions set.
+    if (VISIBLE_ROLE_CODES.includes(role.code as RoleCode)) continue
     const matrix = MATRIX[role.code as RoleCode]
     if (!matrix) continue
     for (const grant of matrix) {
@@ -39,7 +44,8 @@ async function main() {
       grants++
     }
   }
-  console.log(`synced ${permissions} permissions and ${grants} role grants across ${roles.length} roles`)
+  await setupRoles(prisma)
+  console.log(`synced ${permissions} permissions and ${grants} legacy role grants; module roles topped up`)
 }
 
 main().catch((e) => { console.error(e); process.exit(1) }).finally(() => prisma.$disconnect())

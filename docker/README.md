@@ -52,6 +52,15 @@ docker compose run --rm migrate                          # re-run schema sync + 
 docker compose down -v && docker compose up -d --build   # DESTRUCTIVE — drop volumes and rebuild
 ```
 
+**Roles.** `migrate` sets up the five roles (Super Admin, Admin, Senior
+Associate, Associate, Intern) with their default module access the first time
+it runs on a database; after that it keeps whatever Settings → Roles &
+permissions holds. To put the defaults back:
+
+```bash
+docker compose run --rm migrate npx tsx prisma/setup-roles.ts
+```
+
 **Database only, for native development** (`npm run dev:full` against it):
 
 ```bash
