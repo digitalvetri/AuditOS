@@ -1,28 +1,25 @@
 /**
  * Today's attendance card — the hero widget (§6.2).
  *
+ * Simple check-in / check-out — the GPS geofence and off-site reason flow
+ * were removed with the Work Locations concept. The server records the
+ * timestamp when the user clicks; nothing more.
+ *
  * State machine:
- *   not_checked_in  → CHECK IN button (primary, gold)
+ *   not_checked_in  → CHECK IN button (primary)
  *   in_progress     → CHECK OUT + live worked-time counter
  *   done            → "Attendance completed · 08h 49m"
- *   on_leave        → "On leave today — Casual Leave"
- *   non_working_day → "Weekly off"    (holiday integration lands with Leave module)
+ *   on_leave        → "On leave today"
  *   missing         → correction hint
- *
- * Off-site (client_site/field) requires a reason before submit.
  */
 import { useEffect, useState, useMemo } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { attendanceApi } from './api';
-import { useGeolocation } from './useGeolocation';
 import { CircleAlert, CircleCheck, Clock, Plane, Timer } from 'lucide-react';
 import { Button } from '@/components/Button';
 import { useToast } from '@/components/Toast';
 import { fmtTime, fmtDuration } from '@/lib/format';
 import { istTimeOf } from '@/lib/dates';
-import type { LocationType } from '@/data/models';
-
-type OffSiteType = Exclude<LocationType, 'office'>;
 
 export function TodayCard() {
   const qc = useQueryClient();
@@ -31,12 +28,6 @@ export function TodayCard() {
     queryKey: ['attendance', 'today'],
     queryFn: attendanceApi.today,
   });
-
-  const [showOffSite, setShowOffSite] = useState(false);
-  const [offSiteType, setOffSiteType] = useState<OffSiteType>('client_site');
-  const [reason, setReason] = useState('');
-  const [poorGPS, setPoorGPS] = useState<null | string>(null);
-  const geo = useGeolocation();
 
   const today = data?.today ?? null;
   const stage: 'not_checked_in' | 'in_progress' | 'done' | 'on_leave' | 'missing' =
@@ -54,12 +45,8 @@ export function TodayCard() {
 
   const checkIn = useMutation({
     mutationFn: attendanceApi.checkIn,
-    onSuccess: (res) => {
-      const location = res.location.name ?? 'off-site';
-      toast.push('success', `Checked in · ${location}`);
-      setShowOffSite(false);
-      setReason('');
-      setPoorGPS(null);
+    onSuccess: () => {
+      toast.push('success', 'Checked in');
       qc.invalidateQueries({ queryKey: ['attendance'] });
       qc.invalidateQueries({ queryKey: ['notifications'] });
     },
@@ -76,47 +63,6 @@ export function TodayCard() {
     },
     onError: (e: Error) => toast.push('error', e.message),
   });
-
-  async function submitCheckIn(locationType: LocationType = 'office') {
-    setPoorGPS(null);
-    if (locationType !== 'office' && !reason.trim()) {
-      toast.push('error', 'Please provide a reason for off-site check-in.');
-      return;
-    }
-    const g = await geo.request();
-    if (g.status !== 'granted') {
-      if (g.status === 'denied') toast.push('error', 'Location access is required to check in.');
-      else if (g.status === 'unavailable')
-        toast.push('error', 'This browser does not support geolocation.');
-      else if (g.status === 'error') toast.push('error', g.message);
-      return;
-    }
-    if (g.accuracy > 100) {
-      setPoorGPS(`Poor GPS signal (±${Math.round(g.accuracy)}m). Move to an open area and retry.`);
-      return;
-    }
-    checkIn.mutate({
-      latitude: g.latitude,
-      longitude: g.longitude,
-      accuracy_m: g.accuracy,
-      location_type: locationType,
-      off_site_reason: locationType !== 'office' ? reason.trim() : undefined,
-    });
-  }
-
-  async function submitCheckOut() {
-    const g = await geo.request();
-    if (g.status !== 'granted') {
-      if (g.status === 'denied') toast.push('error', 'Location access is required to check out.');
-      else toast.push('error', 'Could not get your location.');
-      return;
-    }
-    checkOut.mutate({
-      latitude: g.latitude,
-      longitude: g.longitude,
-      accuracy_m: g.accuracy,
-    });
-  }
 
   if (isLoading) return <CardShell><LoadingBlock /></CardShell>;
   if (isError)
@@ -139,55 +85,24 @@ export function TodayCard() {
           </div>
         </div>
         <div className="flex items-center gap-2" data-testid="today-card-actions">
-          {stage === 'not_checked_in' && !showOffSite && (
-            <>
-              <Button
-                variant="primary"
-                data-testid="check-in"
-                onClick={() => submitCheckIn('office')}
-                disabled={checkIn.isPending || geo.state.status === 'requesting'}
-              >
-                {geo.state.status === 'requesting'
-                  ? 'Checking your location…'
-                  : checkIn.isPending
-                    ? 'Checking in…'
-                    : 'Check in'}
-              </Button>
-              <Button
-                variant="ghost"
-                data-testid="check-in-off-site-toggle"
-                onClick={() => setShowOffSite(true)}
-              >
-                Off-site
-              </Button>
-            </>
-          )}
-          {stage === 'not_checked_in' && showOffSite && (
-            <OffSiteForm
-              type={offSiteType}
-              onType={setOffSiteType}
-              reason={reason}
-              onReason={setReason}
-              onCancel={() => {
-                setShowOffSite(false);
-                setReason('');
-              }}
-              onSubmit={() => submitCheckIn(offSiteType)}
-              busy={checkIn.isPending || geo.state.status === 'requesting'}
-            />
+          {stage === 'not_checked_in' && (
+            <Button
+              variant="primary"
+              data-testid="check-in"
+              onClick={() => checkIn.mutate()}
+              disabled={checkIn.isPending}
+            >
+              {checkIn.isPending ? 'Checking in…' : 'Check in'}
+            </Button>
           )}
           {stage === 'in_progress' && (
             <Button
               variant="primary"
               data-testid="check-out"
-              onClick={submitCheckOut}
-              disabled={checkOut.isPending || geo.state.status === 'requesting'}
+              onClick={() => checkOut.mutate()}
+              disabled={checkOut.isPending}
             >
-              {geo.state.status === 'requesting'
-                ? 'Checking your location…'
-                : checkOut.isPending
-                  ? 'Checking out…'
-                  : 'Check out'}
+              {checkOut.isPending ? 'Checking out…' : 'Check out'}
             </Button>
           )}
           {stage === 'done' && (
@@ -199,19 +114,6 @@ export function TodayCard() {
       </div>
       {stage === 'in_progress' || stage === 'done' ? (
         <DayStats row={today} live={workedNow} done={stage === 'done'} />
-      ) : null}
-      {poorGPS ? (
-        <div className="mt-3 text-12 text-red border-l-2 border-red pl-2">{poorGPS}</div>
-      ) : null}
-      {geo.state.status === 'denied' ? (
-        <div className="mt-3 text-12 text-red border-l-2 border-red pl-2">
-          Location access is required. Enable location for this site in your browser settings.
-        </div>
-      ) : null}
-      {stage === 'in_progress' && today?.location_type && today.location_type !== 'office' ? (
-        <div className="mt-3 text-12 text-neutral-500 border-l-2 border-amber pl-2">
-          Off-site check-in ({today.location_type}) — flagged for manager review.
-        </div>
       ) : null}
     </CardShell>
   );
@@ -332,52 +234,6 @@ function DayStats({
         </div>
         <span className="text-12 text-neutral-500 tabular-nums whitespace-nowrap">{pct}% of the 9h day</span>
       </div>
-    </div>
-  );
-}
-
-function OffSiteForm({
-  type,
-  onType,
-  reason,
-  onReason,
-  onCancel,
-  onSubmit,
-  busy,
-}: {
-  type: OffSiteType;
-  onType: (t: OffSiteType) => void;
-  reason: string;
-  onReason: (r: string) => void;
-  onCancel: () => void;
-  onSubmit: () => void;
-  busy: boolean;
-}) {
-  return (
-    <div className="flex items-center gap-2 flex-wrap" data-testid="off-site-form">
-      <select
-        value={type}
-        onChange={(e) => onType(e.target.value as OffSiteType)}
-        className="h-8 px-2 text-13 bg-white border border-neutral-300 rounded"
-      >
-        <option value="client_site">Client site</option>
-        <option value="remote">Remote / WFH</option>
-        <option value="field">Field visit</option>
-      </select>
-      <input
-        type="text"
-        placeholder="Reason (required)"
-        value={reason}
-        onChange={(e) => onReason(e.target.value)}
-        className="h-8 px-3 text-13 bg-white border border-neutral-300 rounded w-[220px]"
-        data-testid="off-site-reason"
-      />
-      <Button variant="primary" data-testid="check-in-off-site" onClick={onSubmit} disabled={busy}>
-        Check in
-      </Button>
-      <Button variant="ghost" onClick={onCancel} disabled={busy}>
-        Cancel
-      </Button>
     </div>
   );
 }

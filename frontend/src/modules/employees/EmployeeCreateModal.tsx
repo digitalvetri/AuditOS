@@ -5,11 +5,11 @@
  * new profile.
  */
 import { useEffect, useState, type FormEvent } from 'react';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { Button } from '@/components/Button';
 import { Input } from '@/components/Input';
 import { useToast } from '@/components/Toast';
-import { employeeApi, isFullEmployee, type EmployeeCreateInput } from './api';
+import { employeeApi, type EmployeeCreateInput } from './api';
 import { EMPLOYEE_TYPE_LABEL, SELECTABLE_EMPLOYEE_TYPES, type Employee } from '@/data/models';
 
 interface Props {
@@ -20,7 +20,6 @@ interface Props {
 
 const EMPTY: EmployeeCreateInput = {
   first_name: '', last_name: '', email: '', phone: '',
-  manager_id: null,
   type: 'executive', status: 'probation', joining_date: '',
 };
 
@@ -35,8 +34,6 @@ export function EmployeeCreateModal({ open, onClose, onCreated }: Props) {
     setForm({ ...EMPTY, joining_date: new Date().toISOString().slice(0, 10) });
     setError(null);
   }, [open]);
-
-  const managers = useQuery({ queryKey: ['employees', 'list', {}], queryFn: () => employeeApi.list({}), enabled: open });
 
   const create = useMutation({
     mutationFn: (body: EmployeeCreateInput) => employeeApi.create(body),
@@ -64,7 +61,6 @@ export function EmployeeCreateModal({ open, onClose, onCreated }: Props) {
       last_name: form.last_name.trim(),
       email: form.email.trim().toLowerCase(),
       phone: form.phone?.trim() || undefined,
-      manager_id: form.manager_id || null,
       joining_date: form.joining_date || undefined,
     });
   };
@@ -107,18 +103,7 @@ export function EmployeeCreateModal({ open, onClose, onCreated }: Props) {
               </select>
             </label>
           </div>
-          <div className="grid grid-cols-2 gap-3">
-            <label className="block">
-              <span className="block text-11 uppercase tracking-[0.06em] text-neutral-500 mb-1">Manager</span>
-              <select value={form.manager_id ?? ''} onChange={(e) => set('manager_id', e.target.value || null)} className={selectCls}>
-                <option value="">None</option>
-                {(managers.data?.items ?? []).filter(isFullEmployee).map((m) => (
-                  <option key={m.id} value={m.id}>{m.employee_code} — {m.full_name}</option>
-                ))}
-              </select>
-            </label>
-            <Input label="Joining date" type="date" value={form.joining_date ?? ''} onChange={(e) => set('joining_date', e.target.value)} />
-          </div>
+          <Input label="Joining date" type="date" value={form.joining_date ?? ''} onChange={(e) => set('joining_date', e.target.value)} />
           {error ? <div className="text-12 text-red border-l-2 border-red pl-2">{error}</div> : null}
           <div className="flex justify-end gap-2 pt-2">
             <Button variant="ghost" type="button" onClick={onClose}>Cancel</Button>

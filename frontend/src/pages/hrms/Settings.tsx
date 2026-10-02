@@ -7,11 +7,10 @@
  */
 import { useSearchParams } from 'react-router-dom';
 import {
-  BadgePercent, Building2, CalendarDays, CalendarRange, KeyRound, MapPin, Receipt,
+  BadgePercent, Building2, CalendarDays, CalendarRange, KeyRound, Receipt,
 } from 'lucide-react';
 import { useAuth } from '@/platform/auth/AuthContext';
 import { can } from '@/platform/rbac/can';
-import { WorkLocationsSection } from '@/modules/settings/WorkLocationsSection';
 import { HolidaysSection } from '@/modules/settings/HolidaysSection';
 import { LeaveTypesSection } from '@/modules/settings/LeaveTypesSection';
 import { ExpenseCategoriesSection } from '@/modules/settings/ExpenseCategoriesSection';
@@ -19,7 +18,6 @@ import { StatutoryRatesSection } from '@/modules/settings/StatutoryRatesSection'
 import { RolesSection } from '@/modules/settings/RolesSection';
 
 type Section =
-  | 'work-locations'
   | 'holidays'
   | 'leave-types'
   | 'expense-categories'
@@ -35,7 +33,6 @@ const GROUP_TINT: Record<string, { bg: string; fg: string }> = {
 };
 
 const SECTIONS: { id: Section; label: string; group: string; icon: typeof Building2 }[] = [
-  { id: 'work-locations', label: 'Work locations', group: 'Organisation', icon: MapPin },
   { id: 'holidays', label: 'Holiday calendar', group: 'Time & Leave', icon: CalendarDays },
   { id: 'leave-types', label: 'Leave types', group: 'Time & Leave', icon: CalendarRange },
   { id: 'expense-categories', label: 'Expense categories', group: 'Finance', icon: Receipt },
@@ -47,7 +44,7 @@ export function SettingsPage() {
   const { session } = useAuth();
   const canManage = can(session?.role.code, 'settings.manage', 'organisation');
   const [params, setParams] = useSearchParams();
-  const section = (params.get('section') as Section | null) ?? 'work-locations';
+  const section = (params.get('section') as Section | null) ?? 'holidays';
 
   if (!canManage) {
     return (
@@ -128,7 +125,6 @@ export function SettingsPage() {
           ))}
         </aside>
         <main data-testid={`settings-section-${section}`} className="m-form min-w-0">
-          {section === 'work-locations' ? <WorkLocationsSection /> : null}
           {section === 'holidays' ? <HolidaysSection /> : null}
           {section === 'leave-types' ? <LeaveTypesSection /> : null}
           {section === 'expense-categories' ? <ExpenseCategoriesSection /> : null}

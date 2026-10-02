@@ -3,15 +3,7 @@
  * All server logic lives in the handlers — this file only shapes requests.
  */
 import { api } from '@/services/api';
-import type { Attendance, AttendanceCorrection, AttendanceStatus, LocationType } from '@/data/models';
-
-export interface CheckInPayload {
-  latitude: number;
-  longitude: number;
-  accuracy_m: number;
-  location_type?: LocationType;
-  off_site_reason?: string;
-}
+import type { Attendance, AttendanceCorrection, AttendanceStatus } from '@/data/models';
 
 export interface AttendanceWithEmployee extends Attendance {
   employee: {
@@ -55,14 +47,14 @@ export interface CorrectionsListResponse {
 export const attendanceApi = {
   today: () => api.get<TodayResponse>('/api/attendance/today'),
 
-  checkIn: (p: CheckInPayload) =>
-    api.post<{ attendance: Attendance; location: { id: string | null; name: string | null } }>(
+  checkIn: () =>
+    api.post<{ attendance: Attendance; location: { id: string | null; name: string | null } | null }>(
       '/api/attendance/check-in',
-      p,
+      {},
     ),
 
-  checkOut: (p: CheckInPayload) =>
-    api.post<{ attendance: Attendance }>('/api/attendance/check-out', p),
+  checkOut: () =>
+    api.post<{ attendance: Attendance }>('/api/attendance/check-out', {}),
 
   list: (q: {
     from?: string;
@@ -70,7 +62,6 @@ export const attendanceApi = {
     employeeId?: string;
     departmentId?: string;
     status?: AttendanceStatus | '';
-    locationType?: LocationType | '';
   }) => {
     const params = new URLSearchParams();
     if (q.from) params.set('from', q.from);
@@ -78,7 +69,6 @@ export const attendanceApi = {
     if (q.employeeId) params.set('employeeId', q.employeeId);
     if (q.departmentId) params.set('departmentId', q.departmentId);
     if (q.status) params.set('status', q.status);
-    if (q.locationType) params.set('locationType', q.locationType);
     const qs = params.toString();
     return api.get<ListResponse>(`/api/attendance${qs ? `?${qs}` : ''}`);
   },
