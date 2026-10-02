@@ -171,13 +171,6 @@ function Body({ inv }: { inv: Invoice }) {
               {mayWrite && inv.balance_due_paise > 0 && inv.stored_status !== 'draft' && inv.stored_status !== 'cancelled' ? (
                 <Button variant="primary" onClick={() => setPayOpen(true)}>Record payment</Button>
               ) : null}
-              <Button
-                disabled={!inv.party_contact_number}
-                title={inv.party_contact_number ? undefined : 'No contact number on the client record'}
-                onClick={() => setWhatsapping(true)}
-              >
-                <MessageCircle size={14} /> WhatsApp
-              </Button>
               <InvoiceActionsMenu
                 inv={inv} mayWrite={mayWrite} pdfBusy={pdf.isPending}
                 onDownload={() => pdf.mutate()} onWhatsApp={() => setWhatsapping(true)} onEmail={() => setEmailing(true)}
