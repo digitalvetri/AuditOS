@@ -3,8 +3,8 @@
  *
  * Deliberately NOT a copy of the Workstation dashboard: clients, leads and
  * services live there. This page is what the people running the firm need
- * first — who is in today, what is waiting on them, and where payroll and
- * the ledger stand.
+ * first — who is in today, what is waiting on them, and where the ledger
+ * stands.
  *
  *   Everyone except the MD ... their own Check in / Check out (the real,
  *                              GPS-verified TodayCard from Attendance);
@@ -13,7 +13,7 @@
  *   The MD .................. no check-in — the page opens on the team.
  *   Team-scoped viewers ..... present / absent today, by department.
  *   Approvers ............... what is waiting on them.
- *   HR / Finance / MD ....... payroll, ledger, recent activity.
+ *   HR / Finance / MD ....... ledger, recent activity.
  *
  * Every figure comes from the API. Each section is shown only to roles that
  * hold its permission, so nobody sees an empty card they cannot use.
@@ -23,7 +23,7 @@ import { Link } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import {
   Activity, ArrowUpRight, BellRing, Building2, CalendarCheck, ChevronRight, ClockAlert, FileWarning, Inbox,
-  Landmark, Plane, Receipt, Users, UserX, Wallet,
+  Landmark, Plane, Receipt, Users, UserX,
 } from 'lucide-react';
 import { useAuth } from '@/platform/auth/AuthContext';
 import { can } from '@/platform/rbac/can';
@@ -34,9 +34,7 @@ import { formatDate, formatINR, formatTime } from '@/modules/dashboardV2/format'
 import { TodayCard } from '@/modules/attendance/TodayCard';
 import { BalancesCard } from '@/modules/leave/BalancesCard';
 import { attendanceApi, type TodayResponse } from '@/modules/attendance/api';
-import { payrollApi } from '@/modules/payroll/api';
 import { accountsApi } from '@/modules/accounts/api';
-import type { PayrollRun } from '@/data/models';
 
 /** Roles that run the firm rather than clock in to it. */
 const NO_CHECK_IN_ROLES = ['md'];
@@ -64,14 +62,12 @@ export function DashboardV2Page() {
   const seesTeam = can(role, 'attendance.read', 'department');
   const approves = can(role, 'leave.approve', 'department') || can(role, 'expense.approve', 'department')
     || can(role, 'attendance.correct.approve', 'department');
-  const seesPayroll = can(role, 'payroll.view', 'organisation');
   const seesLedger = can(role, 'accounts.read', 'organisation') || can(role, 'accounts.manage', 'organisation');
   const seesActivity = can(role, 'audit.read.all', 'organisation') || can(role, 'audit.read.hr', 'organisation');
 
   const today = useQuery({ queryKey: ['attendance', 'today'], queryFn: attendanceApi.today, enabled: seesTeam });
   const departments = useQuery({ queryKey: ['dashboard', 'departments'], queryFn: dashboardApi.departments, enabled: seesTeam });
   const pending = useQuery({ queryKey: ['dashboard', 'pending'], queryFn: dashboardApi.pending, enabled: approves });
-  const runs = useQuery({ queryKey: ['payroll', 'runs'], queryFn: payrollApi.runs.list, enabled: seesPayroll });
   const ledger = useQuery({ queryKey: ['accounts', 'summary'], queryFn: accountsApi.summary, enabled: seesLedger });
   const activity = useQuery({ queryKey: ['dashboard', 'activity'], queryFn: dashboardApi.activity, enabled: seesActivity });
 
@@ -90,7 +86,7 @@ export function DashboardV2Page() {
           {/* Staff without a team view get their own leave position instead. */}
           {checksIn && !seesTeam ? <BalancesCard /> : null}
 
-          {(seesPayroll || seesLedger || approves || (seesTeam && counts)) ? (
+          {(seesLedger || approves) ? (
             <section className="grid gap-4 grid-cols-1 sm:grid-cols-2 2xl:grid-cols-4" data-testid="overview-tiles">
               {approves ? (
                 <Tile label="Waiting on you" href="/hrms/leave?tab=queue" icon={Inbox} tint="amber"
@@ -98,10 +94,6 @@ export function DashboardV2Page() {
                   note={pending.data ? pendingNote(pending.data.items) : 'Leave, expenses, corrections'}
                   emphasis={!!pending.data?.count} />
               ) : null}
-              {seesTeam && counts ? (
-                <Tile label="Headcount" href="/hrms/employees" icon={Users} tint="blue" value={String(counts.total)} note="Active employees" />
-              ) : null}
-              {seesPayroll ? <PayrollTile runs={runs.data?.items} loading={runs.isLoading} /> : null}
               {seesLedger ? (
                 <Tile label="Ledger balance" href="/hrms/accounts" icon={Landmark} tint="indigo"
                   value={ledger.data ? paise(ledger.data.totals.balance_paise) : '—'}
@@ -281,24 +273,6 @@ function Tile({ label, value, note, href, emphasis, icon: Icon, tint }: {
       <div className={`num-display text-28 leading-tight mt-1 ${emphasis ? 'text-danger' : 'text-ink'}`}>{value}</div>
       <div className="text-12 text-inkMuted mt-1 truncate" title={note}>{note}</div>
     </Link>
-  );
-}
-
-const STAGE_LABEL: Record<string, string> = {
-  draft: 'Draft', hr_review: 'HR review', finance_review: 'Finance review',
-  approved: 'Approved', processed: 'Processed', paid: 'Paid',
-};
-
-function PayrollTile({ runs, loading }: { runs: PayrollRun[] | undefined; loading: boolean }) {
-  // The run for the most recent period is the one anyone asks about.
-  const latest = runs?.slice().sort((a, b) => (a.period_start < b.period_start ? 1 : -1))[0];
-  const period = latest
-    ? new Date(`${latest.period_start}T00:00:00`).toLocaleDateString('en-IN', { month: 'long', year: 'numeric' })
-    : null;
-  return (
-    <Tile label="Payroll" href="/hrms/accounts/payroll" icon={Wallet} tint="green"
-      value={loading ? '—' : latest ? paise(latest.net_total_paise) : 'No run yet'}
-      note={latest ? `${period} · ${STAGE_LABEL[latest.stage] ?? latest.stage} · ${latest.headcount} employees` : 'Start this month’s run'} />
   );
 }
 
