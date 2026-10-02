@@ -11,7 +11,7 @@ import { Input } from '@/components/Input';
 import { useToast } from '@/components/Toast';
 import { employeeApi, isFullEmployee, type EmployeeCreateInput } from './api';
 import { settingsApi } from '@/modules/settings/api';
-import type { Employee } from '@/data/models';
+import { EMPLOYEE_TYPE_LABEL, SELECTABLE_EMPLOYEE_TYPES, type Employee } from '@/data/models';
 
 interface Props {
   open: boolean;
@@ -118,7 +118,7 @@ export function EmployeeCreateModal({ open, onClose, onCreated }: Props) {
             <label className="block">
               <span className="block text-11 uppercase tracking-[0.06em] text-neutral-500 mb-1">Type</span>
               <select value={form.type} onChange={(e) => set('type', e.target.value as Employee['type'])} className={selectCls}>
-                {['partner', 'manager', 'executive', 'articled', 'support'].map((t) => <option key={t} value={t}>{t}</option>)}
+                {SELECTABLE_EMPLOYEE_TYPES.map((t) => <option key={t} value={t}>{EMPLOYEE_TYPE_LABEL[t]}</option>)}
               </select>
             </label>
             <label className="block">

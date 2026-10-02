@@ -11,6 +11,7 @@ import { useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { employeeApi, isFullEmployee, type EmployeeFilters, type EmployeeRow } from '@/modules/employees/api';
+import { EMPLOYEE_TYPE_LABEL } from '@/data/models';
 import { EmployeeCreateModal } from '@/modules/employees/EmployeeCreateModal';
 import { fmtDate } from '@/lib/format';
 import { StatusLabel, type StatusVariant } from '@/components/StatusRow';
@@ -186,7 +187,7 @@ function Row({
     );
     cells.push(<StatusLabel variant={s.variant} label={s.label} />);
   } else if (isFullEmployee(row)) {
-    cells.push(<span className="text-13 text-neutral-700 capitalize">{row.type.replace('_', ' ')}</span>);
+    cells.push(<span className="text-13 text-neutral-700">{EMPLOYEE_TYPE_LABEL[row.type]}</span>);
     cells.push(<span className="text-13 text-neutral-500">{row.department_id}</span>);
     cells.push(<span className="text-13 text-neutral-500">{row.designation_id}</span>);
     cells.push(<span className="text-13 text-neutral-900">{row.email}</span>);
@@ -248,10 +249,10 @@ function FiltersBar({
         onChange={(v) => onChange({ ...filters, type: v || undefined })}
         options={[
           ['', 'Any type'],
-          ['partner', 'Partner'],
-          ['manager', 'Manager'],
-          ['executive', 'Executive'],
-          ['articled', 'Articled Assistant'],
+          ['partner', 'Super Admin'],
+          ['manager', 'Senior Associate'],
+          ['executive', 'Associate'],
+          ['articled', 'Intern'],
           ['support', 'Support'],
         ]}
       />

@@ -84,6 +84,24 @@ export type EmployeeType =
   | 'articled'
   | 'support';
 
+/**
+ * Display labels for `EmployeeType`. The stored codes are kept (migrating the
+ * Prisma enum would be destructive), but the firm presents them as a corporate
+ * hierarchy — super admin, senior associate, associate, intern. `support`
+ * stays visible on existing records so historical data isn't hidden; it is
+ * NOT offered in the create/edit dropdown.
+ */
+export const EMPLOYEE_TYPE_LABEL: Record<EmployeeType, string> = {
+  partner: 'Super Admin',
+  manager: 'Senior Associate',
+  executive: 'Associate',
+  articled: 'Intern',
+  support: 'Support',
+};
+
+/** Types offered when creating or editing — four, in display order. */
+export const SELECTABLE_EMPLOYEE_TYPES: EmployeeType[] = ['partner', 'manager', 'executive', 'articled'];
+
 export type EmployeeStatus =
   | 'active'
   | 'on_leave'

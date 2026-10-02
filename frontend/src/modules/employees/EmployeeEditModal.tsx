@@ -11,7 +11,7 @@ import { Button } from '@/components/Button';
 import { Input } from '@/components/Input';
 import { useToast } from '@/components/Toast';
 import { employeeApi } from './api';
-import type { Employee } from '@/data/models';
+import { EMPLOYEE_TYPE_LABEL, SELECTABLE_EMPLOYEE_TYPES, type Employee } from '@/data/models';
 
 interface Props {
   open: boolean;
@@ -137,9 +137,15 @@ export function EmployeeEditModal({ open, onClose, employee, mode }: Props) {
                     onChange={(e) => setForm({ ...form, type: e.target.value as Employee['type'] })}
                     className="h-8 px-2 text-13 bg-white border border-neutral-300 rounded w-full"
                   >
-                    {['partner', 'manager', 'executive', 'articled', 'support'].map((t) => (
-                      <option key={t} value={t}>{t}</option>
+                    {/* Four selectable types. If the record is a legacy
+                        'support', keep that visible as a disabled option so
+                        the dropdown isn't inconsistent with the saved value. */}
+                    {SELECTABLE_EMPLOYEE_TYPES.map((t) => (
+                      <option key={t} value={t}>{EMPLOYEE_TYPE_LABEL[t]}</option>
                     ))}
+                    {form.type === 'support' ? (
+                      <option value="support" disabled>{EMPLOYEE_TYPE_LABEL.support}</option>
+                    ) : null}
                   </select>
                 </label>
                 <label className="block">
