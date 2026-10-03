@@ -3,7 +3,7 @@ import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { Building2, RefreshCw } from 'lucide-react';
 import { useToast } from '@/components/Toast';
 import { booksApi, errorText } from '@/modules/books/api';
-import { BooksProvider, statusKey, useBooks } from '@/modules/books/context';
+import { BooksProvider, orgLabel, statusKey, useBooks } from '@/modules/books/context';
 import { Btn, Empty, ErrorState, Select, Skeleton, dateTime } from '@/modules/books/ui';
 import { NoZohoOrganisations } from './BooksSettings';
 
@@ -142,9 +142,9 @@ function OrgBar() {
           <Building2 size={17} strokeWidth={1.9} />
         </span>
         {activeOrgs.length > 1 ? (
-          <Select value={org.id} onChange={setOrg} options={activeOrgs.map((o) => ({ value: o.id, label: o.client_name ? `${o.name} · ${o.client_name}` : o.name }))} className="max-w-[320px]" />
+          <Select value={org.id} onChange={setOrg} options={activeOrgs.map((o) => ({ value: o.id, label: o.client_name ? `${orgLabel(o)} · ${o.client_name}` : orgLabel(o) }))} className="max-w-[360px]" />
         ) : (
-          <span className="text-14 font-medium text-ink truncate">{org.name}{org.client_name ? <span className="text-inkMuted font-normal"> · {org.client_name}</span> : null}</span>
+          <span className="text-14 font-medium text-ink truncate">{orgLabel(org)}{org.client_name ? <span className="text-inkMuted font-normal"> · {org.client_name}</span> : null}</span>
         )}
       </div>
       <div className="flex-1" />

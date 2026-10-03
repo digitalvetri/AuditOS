@@ -4585,6 +4585,17 @@ model TallyExport {
 model BooksZohoConnection {
   id             String @id @default(uuid())
   organisationId String
+  /// Display name in the Books switcher, e.g. "Main Account". Set by the
+  /// developer who configures the connection (prisma/books-connection.ts).
+  name                  String?
+  /// SERVER_OAUTH | SELF_CLIENT — how the grant was obtained.
+  authMethod            String?
+  /// This connection's own Zoho API client. Null = the server-wide
+  /// ZBOOKS_CLIENT_ID / ZBOOKS_CLIENT_SECRET (connections made before
+  /// per-connection credentials). The secret is AES-256-GCM encrypted.
+  clientId              String?
+  clientSecretEncrypted String?
+
 
   /// not_connected | consent_pending | connected | expired | revoked | error | disconnected
   status String @default("not_connected")
@@ -4650,6 +4661,16 @@ model BooksZohoOrganization {
   @@unique([organisationId, zohoOrgId])
   @@unique([organisationId, clientId])
   @@index([connectionId])
+}
+
+/// The Zoho Books organisation (and so connection) a user last chose in the
+/// switcher — restored on any device. The organisation row carries its
+/// connection, so connection + organisation are both identified.
+model BooksUserSelection {
+  userId         String   @id
+  organisationId String
+  orgRef         String
+  updatedAt      DateTime @updatedAt
 }
 
 /// One sync attempt against one Zoho organisation.

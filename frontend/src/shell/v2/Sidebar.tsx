@@ -53,7 +53,6 @@ import { gstApi } from '@/modules/workstation/gst/api';
 import { filingStats, istToday, periodName, previousPeriod, returnCells } from '@/modules/dashboardV2/brief';
 import { employeeApi } from '@/modules/employees/api';
 import { TOOLS } from '@/modules/tools/registry';
-import { History } from 'lucide-react';
 // The rail lists the registrations from the same catalogue the pages
 // render, so a service can never exist in one place and not the other.
 import { REGISTRATION_SERVICES } from '@/pages/workstation/registration/services';
@@ -99,7 +98,6 @@ const MODULE_META: Record<ModuleKey, { title: string; icon: LucideIcon }> = {
   INTEGRATIONS: { title: 'Integrations', icon: Plug },
 };
 const MODULE_KEY = 'audit-os:sidebar-module';
-const RECENT_KEY = 'audit-os:sidebar-recent';
 
 /** Every navigable row (item, child, leaf) with the module it belongs to. */
 function flatten(nav: NavGroup[]): { to: string; label: string; module: string | null }[] {
@@ -307,20 +305,6 @@ export function Sidebar({ mobileOpen, onMobileClose }: Props) {
     return pages;
   };
 
-  // ── Recent pages (this browser only) ──────────────────────────────────
-  const [recent, setRecent] = useState<{ to: string; label: string }[]>(() => {
-    try { return JSON.parse(localStorage.getItem(RECENT_KEY) ?? '[]'); } catch { return []; }
-  });
-  useEffect(() => {
-    if (!here || here.to === '/') return;
-    setRecent((prev) => {
-      const next = [{ to: here.to, label: here.label }, ...prev.filter((r) => r.to !== here.to)].slice(0, 6);
-      try { localStorage.setItem(RECENT_KEY, JSON.stringify(next)); } catch { /* ignore */ }
-      return next;
-    });
-  }, [here?.to]);
-  // Only pages this role can still see, and not the one already open.
-  const recentShown = recent.filter((r) => r.to !== here?.to && rows.some((x) => x.to === r.to)).slice(0, 4);
   const drawer = mobileOpen ? 'translate-x-0' : '-translate-x-full invisible lg:visible';
 
   return (
@@ -401,22 +385,6 @@ export function Sidebar({ mobileOpen, onMobileClose }: Props) {
 
           {!collapsed ? <Pinned /> : null}
 
-          {!collapsed && recentShown.length ? (
-            <div>
-              <div className="pl-5 pr-4 pt-5 pb-2 text-[10.5px] font-semibold uppercase tracking-[0.1em] text-sidebarMuted">Recent</div>
-              <ul className="px-2 space-y-px">
-                {recentShown.map((r) => (
-                  <li key={r.to}>
-                    <Link to={r.to} title={r.label}
-                      className="flex items-center gap-3 h-8 px-3 rounded-[9px] text-13 text-white/65 sb-hover hover:text-white">
-                      <History size={15} strokeWidth={1.8} className="shrink-0 text-white/40" />
-                      <span className="truncate">{r.label}</span>
-                    </Link>
-                  </li>
-                ))}
-              </ul>
-            </div>
-          ) : null}
         </nav>
         {!collapsed ? <FilingSeason /> : null}
         <Profile collapsed={collapsed} onToggle={() => setCollapsed((c) => !c)} />

@@ -17,6 +17,7 @@ process.env.ZBOOKS_CLIENT_SECRET = 'test-secret'
 process.env.ZBOOKS_ACCOUNTS_BASE = 'https://accounts.zoho.in'
 process.env.ZBOOKS_ENCRYPTION_KEY = Buffer.alloc(32, 7).toString('base64')
 process.env.ZBOOKS_RATE_PER_MINUTE = '10000'
+process.env.BOOKS_SELF_SERVICE_CONNECT = 'true' // this suite drives the developer-enabled in-app connect flow
 resetBooksConfigForTests()
 
 type FakeResponse = { status?: number; json?: unknown; body?: Buffer }
@@ -333,8 +334,9 @@ describe('Books — resources', () => {
 
   it('exposes the rest of Zoho Books\' navigation as resources', async () => {
     const ref = await connectAndActivate()
-    const creatable = ['recurringinvoices', 'retainerinvoices', 'deliverychallans', 'salesreceipts', 'recurringexpenses', 'recurringbills', 'projects', 'timeentries', 'journals', 'pricebooks', 'accounts']
-    const readOnly = ['currencyadjustments', 'budgets', 'documents', 'inventoryadjustments', 'users']
+    const creatable = ['recurringinvoices', 'retainerinvoices', 'deliverychallans', 'salesreceipts', 'recurringexpenses', 'recurringbills', 'projects', 'timeentries', 'journals', 'pricebooks', 'accounts', 'inventoryadjustments']
+    // Documents are created by upload (/documents/upload), not a JSON body.
+    const readOnly = ['currencyadjustments', 'budgets', 'documents', 'users']
     for (const e of [...creatable, ...readOnly]) {
       // Known resource: the list call is forwarded to Zoho (an unknown one is rejected before).
       const before = calls.length
@@ -354,6 +356,30 @@ describe('Books — resources', () => {
       expect((await api(`/api/books/o/${ref}/e/${e}`, { method: 'POST', cookie: admin.cookie, body: { x: 1 } })).status).not.toBe(200)
       expect(calls.length, `${e} create`).toBe(before)
     }
+  })
+
+  it('uploads a document to Zoho Books Documents as a file', async () => {
+    const ref = await connectAndActivate()
+    let sent: FormData | null = null
+    overrides.push((url, init) => {
+      if (url.pathname.endsWith('/documents') && init.method === 'POST') {
+        sent = init.body as FormData
+        return { status: 201, json: { code: 0, message: 'Document has been added.', documents: { document_id: '777', file_name: 'note.txt' } } }
+      }
+      return undefined
+    })
+    const form = new FormData()
+    form.append('file', new Blob(['hello'], { type: 'text/plain' }), 'note.txt')
+    const res = await fetch(`${base}/api/books/o/${ref}/documents/upload`, { method: 'POST', headers: { Cookie: admin.cookie }, body: form })
+    const body = (await res.json()) as { data: Record<string, unknown> }
+    expect(res.status).toBe(201)
+    expect(body.data).toMatchObject({ document_id: '777', file_name: 'note.txt' })
+    expect((sent as FormData | null)?.get('document')).toBeTruthy()
+    // An executable is refused before Zoho is called.
+    const bad = new FormData()
+    bad.append('file', new Blob(['MZ'], { type: 'application/x-msdownload' }), 'x.exe')
+    expect((await fetch(`${base}/api/books/o/${ref}/documents/upload`, { method: 'POST', headers: { Cookie: admin.cookie }, body: bad })).status).toBe(400)
+    overrides.pop()
   })
 
   it('locks and unlocks transactions, and needs a reason', async () => {

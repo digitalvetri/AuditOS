@@ -1198,3 +1198,96 @@ export function ApplyCreditForm({ entity, record, onClose, onDone }: { entity: '
     </FormModal>
   );
 }
+
+// ── Inventory adjustment ─────────────────────────────────────────────────
+// The body Zoho documents for inventory adjustments (Zoho Inventory API),
+// which Zoho Books accepts at the same endpoint for organisations that
+// track inventory. Zoho's own message comes back if tracking is off.
+export function InventoryAdjustmentForm({ onClose, onSaved }: { record?: ZRecord; onClose: () => void; onSaved: (r: ZRecord) => void }) {
+  const org = useOrg();
+  const qc = useQueryClient();
+  const toast = useToast();
+  const items = useQuery({ queryKey: ['books', org.id, 'adj-items'], queryFn: () => booksApi.org(org.id).list('items', { per_page: 200 }), staleTime: 60_000 });
+  const accounts = useQuery({ queryKey: ['books', org.id, 'adj-accounts'], queryFn: () => booksApi.org(org.id).list('accounts', { per_page: 200 }), staleTime: 5 * 60_000 });
+  const accountOptions = (accounts.data?.items ?? []).map((a) => ({ value: String(a.account_id), label: String(a.account_name) }));
+  const cogs = accountOptions.find((a) => /cost of goods sold/i.test(a.label))?.value ?? '';
+  const [v, setV] = useState({ date: today(), adjustment_type: 'quantity', reason: '', reference_number: '', description: '' });
+  type Line = { item_id: string; adjust: string; account_id: string };
+  const [lines, setLines] = useState<Line[]>([{ item_id: '', adjust: '', account_id: '' }]);
+  const [err, setErr] = useState<string | null>(null);
+  const save = useMutation({
+    mutationFn: () => booksApi.org(org.id).create('inventoryadjustments', {
+      date: v.date, adjustment_type: v.adjustment_type, reason: v.reason.trim(),
+      ...(v.reference_number.trim() ? { reference_number: v.reference_number.trim() } : {}),
+      ...(v.description.trim() ? { description: v.description.trim() } : {}),
+      line_items: lines.map((l) => ({
+        item_id: l.item_id, adjustment_account_id: l.account_id || cogs,
+        ...(v.adjustment_type === 'quantity' ? { quantity_adjusted: Number(l.adjust) } : { value_adjusted: Number(l.adjust) }),
+      })),
+    }),
+    onSuccess: (rec) => { void qc.invalidateQueries({ queryKey: ['books', org.id] }); toast.push('success', 'Inventory adjustment saved in Zoho Books.'); onSaved(rec); },
+  });
+  const submit = () => {
+    const e = !v.date ? 'Choose the date.'
+      : !v.reason.trim() ? 'Give a reason.'
+      : lines.some((l) => !l.item_id) ? 'Choose an item on every line.'
+      : lines.some((l) => !Number(l.adjust)) ? `Enter the ${v.adjustment_type === 'quantity' ? 'quantity' : 'value'} adjusted on every line (negative to reduce).`
+      : !cogs && lines.some((l) => !l.account_id) ? 'Choose the adjustment account on every line.'
+      : null;
+    setErr(e);
+    if (!e) save.mutate();
+  };
+  const setLine = (i: number, patch: Partial<Line>) => setLines(lines.map((l, k) => (k === i ? { ...l, ...patch } : l)));
+  const itemOptions = (items.data?.items ?? []).map((it) => ({ value: String(it.item_id), label: `${it.name}${it.stock_on_hand !== undefined ? ` · stock ${it.stock_on_hand}` : ''}` }));
+  return (
+    <FormModal title="New inventory adjustment" onClose={onClose} onSubmit={submit} saving={save.isPending} error={err ?? save.error} wide>
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+        <Field label="Date *"><TextInput type="date" value={v.date} onChange={(x) => setV({ ...v, date: x })} /></Field>
+        <Field label="Adjust by *"><Select value={v.adjustment_type} onChange={(x) => setV({ ...v, adjustment_type: x })} options={[{ value: 'quantity', label: 'Quantity' }, { value: 'value', label: 'Value' }]} /></Field>
+        <Field label="Reference"><TextInput value={v.reference_number} onChange={(x) => setV({ ...v, reference_number: x })} maxLength={50} /></Field>
+      </div>
+      <Field label="Reason *"><TextInput value={v.reason} onChange={(x) => setV({ ...v, reason: x })} maxLength={200} placeholder="e.g. Stock count difference, damaged goods" /></Field>
+      <Field label="Description"><TextArea value={v.description} onChange={(x) => setV({ ...v, description: x })} rows={2} /></Field>
+      <div className="space-y-2">
+        <div className="text-12 font-medium text-neutral-500">Items</div>
+        {items.data && !itemOptions.length ? <Notice tone="warn">No items in this organisation. Add an inventory-tracked item first.</Notice> : null}
+        {lines.map((l, i) => (
+          <div key={i} className="grid grid-cols-1 md:grid-cols-[2fr_1fr_2fr_auto] gap-2 items-end">
+            <Field label="Item *"><Select value={l.item_id} onChange={(x) => setLine(i, { item_id: x })} options={itemOptions} placeholder={items.isLoading ? 'Loading…' : '—'} /></Field>
+            <Field label={v.adjustment_type === 'quantity' ? 'Quantity adjusted *' : 'Value adjusted *'}><NumberInput value={l.adjust} onChange={(x) => setLine(i, { adjust: x })} /></Field>
+            <Field label="Adjustment account"><Select value={l.account_id || cogs} onChange={(x) => setLine(i, { account_id: x })} options={accountOptions} placeholder={accounts.isLoading ? 'Loading…' : '—'} /></Field>
+            <Btn variant="ghost" disabled={lines.length === 1} onClick={() => setLines(lines.filter((_, k) => k !== i))} title="Remove line"><Trash2 size={14} /></Btn>
+          </div>
+        ))}
+        <Btn variant="ghost" onClick={() => setLines([...lines, { item_id: '', adjust: '', account_id: '' }])}><Plus size={14} />Add item</Btn>
+      </div>
+      <p className="text-12 text-inkMuted">Use a negative number to reduce stock. The organisation must have inventory tracking switched on in Zoho Books.</p>
+    </FormModal>
+  );
+}
+
+// ── Document upload ──────────────────────────────────────────────────────
+export function DocumentUploadForm({ onClose, onSaved }: { record?: ZRecord; onClose: () => void; onSaved: (r: ZRecord) => void }) {
+  const org = useOrg();
+  const qc = useQueryClient();
+  const toast = useToast();
+  const [file, setFile] = useState<File | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+  const save = useMutation({
+    mutationFn: () => booksApi.org(org.id).uploadDocument(file!),
+    onSuccess: (rec) => { void qc.invalidateQueries({ queryKey: ['books', org.id] }); toast.push('success', `${file?.name ?? 'Document'} uploaded to Zoho Books.`); onSaved(rec); },
+  });
+  const submit = () => {
+    const e = !file ? 'Choose a file.' : file.size > 10 * 1024 * 1024 ? 'Documents can be up to 10 MB.' : null;
+    setErr(e);
+    if (!e) save.mutate();
+  };
+  return (
+    <FormModal title="Upload document" onClose={onClose} onSubmit={submit} saving={save.isPending} error={err ?? save.error}>
+      <Field label="File *" hint="PDF, image, Word, Excel, CSV, text, XML or ZIP — up to 10 MB.">
+        <input type="file" className={inputCls} accept=".pdf,.png,.jpg,.jpeg,.gif,.webp,.txt,.csv,.doc,.docx,.xls,.xlsx,.xml,.zip"
+          onChange={(e) => setFile(e.target.files?.[0] ?? null)} />
+      </Field>
+    </FormModal>
+  );
+}

@@ -24,7 +24,7 @@ import { writeAudit } from '../../platform/audit.js'
 import type { PermissionCode } from '../../platform/rbac/matrix.js'
 import { BooksNotConfigured, booksConfig, booksConfigured } from './config.js'
 import { toApiError, zohoRequest, ZohoBooksError, type ZohoContext } from './client.js'
-import { beginConnect, completeConnect, connectWithCode, disconnect, refreshOrganizations } from './connection.js'
+import { addConfiguredConnection, beginConnect, completeConnect, connectWithCode, disconnect, refreshOrganizations } from './connection.js'
 import { ENTITIES, isZohoId, type EntityDef } from './entities.js'
 import { computeDashboard, REPORTS, runReport, istDate } from './insights.js'
 
@@ -120,13 +120,26 @@ booksRouter.get('/status', h(async (req, res) => {
   const clientName = new Map(clients.map((c) => [c.id, c.companyName]))
   const connStatus = new Map(connections.map((c) => [c.id, c.status]))
   const visible = connections.filter((c) => c.status !== 'disconnected' || orgs.some((o) => o.connectionId === c.id))
+  const connName = new Map(connections.map((c) => [c.id, c.name]))
+  const connMethod = new Map(connections.map((c) => [c.id, c.authMethod]))
+  const selection = await prisma.booksUserSelection.findUnique({ where: { userId: session.userId } })
   ok(res, {
-    configured: booksConfigured(),
+    // Configured = the server-wide client is set, or some connection carries its own.
+    configured: booksConfigured() || connections.some((c) => c.clientId && c.status === 'connected'),
+    // Adding / reconnecting connections is a developer task unless explicitly enabled.
+    self_service_connect: selfServiceConnect(),
+    // Only a Super Admin may add a Zoho account (Books → Settings → Add organisation).
+    can_add_connection: isSuperAdmin(req),
+    selected_org_ref: selection?.orgRef ?? null,
+    // Name, method and status only — client ids, secrets and tokens never leave the server.
     connections: visible.map((c) => ({
-      id: c.id, status: c.status, connected_at: c.connectedAt, last_error_code: c.lastErrorCode,
+      id: c.id, name: c.name, auth_method: c.authMethod, status: c.status, connected_at: c.connectedAt, last_error_code: c.lastErrorCode,
       last_error_at: c.lastErrorAt, scopes: c.scopesGranted, data_center: c.accountsServer,
     })),
-    organizations: orgs.map((o) => serializeOrg(o, { client_name: o.clientId ? clientName.get(o.clientId) ?? null : null, connection_status: connStatus.get(o.connectionId) ?? 'disconnected' })),
+    organizations: orgs.map((o) => serializeOrg(o, {
+      client_name: o.clientId ? clientName.get(o.clientId) ?? null : null, connection_status: connStatus.get(o.connectionId) ?? 'disconnected',
+      connection_name: connName.get(o.connectionId) ?? null, connection_auth_method: connMethod.get(o.connectionId) ?? null,
+    })),
     permissions: {
       manage: can(session, 'books.manage', 'organisation'), accountant: can(session, 'books.accountant', 'organisation'),
       settings: can(session, 'books.settings', 'organisation'), reports: can(session, 'books.reports', 'organisation'),
@@ -134,8 +147,78 @@ booksRouter.get('/status', h(async (req, res) => {
   })
 }))
 
+/**
+ * Connections are configured by the developer (prisma/books-connection.ts).
+ * The in-app connect / reconnect / disconnect routes stay for development
+ * and are refused unless BOOKS_SELF_SERVICE_CONNECT=true.
+ */
+function selfServiceConnect(): boolean {
+  return process.env.BOOKS_SELF_SERVICE_CONNECT === 'true'
+}
+function requireSelfService() {
+  if (!selfServiceConnect()) throw new ApiError(403, 'books_connections_managed', 'Zoho Books connections are set up by your developer. Pick one of the configured connections instead.')
+}
+
+/** Super Admin = the `md` role. Admin and Senior Associate share its modules, so the role is checked itself. */
+function isSuperAdmin(req: Request): boolean {
+  return requireSession(req).roleCode === 'md'
+}
+
+const DATA_CENTRES: Record<string, string> = {
+  in: 'https://accounts.zoho.in', com: 'https://accounts.zoho.com', eu: 'https://accounts.zoho.eu', 'com.au': 'https://accounts.zoho.com.au',
+  jp: 'https://accounts.zoho.jp', ca: 'https://accounts.zohocloud.ca', sa: 'https://accounts.zoho.sa', uk: 'https://accounts.zoho.uk',
+}
+
+/**
+ * Add a Zoho account with its own client (Books → Settings → Add organisation).
+ * Super Admin only. The Client Secret and the tokens obtained from the grant
+ * code are encrypted in the database and never returned; the audit row
+ * records the name and client id only.
+ */
+booksRouter.post('/connections', h(async (req, res) => {
+  if (!isSuperAdmin(req)) throw ApiError.forbidden('Only a Super Admin can add a Zoho Books account.')
+  const { userId, organisationId } = await firmOf(req)
+  const b = (req.body ?? {}) as Record<string, unknown>
+  const str = (k: string) => (typeof b[k] === 'string' ? (b[k] as string).trim() : '')
+  const errors: Record<string, string> = {}
+  const name = str('name')
+  if (!name || name.length > 80) errors.name = 'Give the account a name (up to 80 characters).'
+  const method = str('auth_method') || 'SELF_CLIENT'
+  if (method !== 'SELF_CLIENT' && method !== 'SERVER_OAUTH') errors.auth_method = 'Self Client or Server OAuth.'
+  const clientId = str('client_id')
+  if (!/^1000\.[A-Z0-9]{10,60}$/i.test(clientId)) errors.client_id = 'The Client ID from the Zoho API console starts with "1000.".'
+  const clientSecret = str('client_secret')
+  if (!/^[A-Za-z0-9]{20,100}$/.test(clientSecret)) errors.client_secret = 'Paste the Client Secret from the Zoho API console.'
+  const code = str('code')
+  if (!/^1000\.[A-Za-z0-9.]{20,200}$/.test(code)) errors.code = 'Paste the generated code — it starts with "1000." and is used once, within a few minutes.'
+  const accountsServer = DATA_CENTRES[str('data_center') || 'in']
+  if (!accountsServer) errors.data_center = 'Choose the data centre of the Zoho account.'
+  if (Object.keys(errors).length) throw ApiError.badRequest('Check the highlighted fields.', errors)
+  let r
+  try {
+    r = await addConfiguredConnection({ organisationId, name, authMethod: method as 'SELF_CLIENT' | 'SERVER_OAUTH', clientId, clientSecret, code, accountsServer })
+  } catch (e) {
+    if (e instanceof ApiError || e instanceof ZohoBooksError) throw e
+    throw ApiError.badRequest(e instanceof Error ? e.message : 'The Zoho account could not be added.')
+  }
+  await writeAudit({ actorUserId: userId, action: 'books.zoho.connection_added', entityType: 'books.connection', entityId: r.connectionId, after: { name, auth_method: method, client_id: clientId, organizations: r.organizations.map((o) => o.name) }, req })
+  ok(res, { connection_id: r.connectionId, organizations: r.organizations.map((o) => ({ zoho_org_id: o.zohoOrgId, name: o.name, is_active: o.isActive })) }, 201)
+}))
+
+// The user's active connection + organisation, kept on the server so it is restored on any device.
+booksRouter.put('/selection', h(async (req, res) => {
+  const { userId, organisationId } = await firmOf(req)
+  const ref = typeof (req.body as { org_ref?: unknown } | undefined)?.org_ref === 'string' ? (req.body as { org_ref: string }).org_ref : ''
+  const org = await prisma.booksZohoOrganization.findFirst({ where: { id: ref, organisationId, isActive: true }, include: { connection: { select: { status: true, name: true } } } })
+  if (!org) throw ApiError.notFound('That Zoho Books organisation is not available.')
+  await prisma.booksUserSelection.upsert({ where: { userId }, update: { orgRef: org.id, organisationId }, create: { userId, organisationId, orgRef: org.id } })
+  await writeAudit({ actorUserId: userId, action: 'books.selection.changed', entityType: 'books.organization', entityId: org.id, after: { connection: org.connection.name, organization: org.name }, req })
+  ok(res, { selected_org_ref: org.id })
+}))
+
 booksRouter.post('/connect', h(async (req, res) => {
   need(req, 'books.settings')
+  requireSelfService()
   const { userId, organisationId } = await firmOf(req)
   ok(res, await beginConnect({ organisationId, userId }))
 }))
@@ -144,6 +227,7 @@ booksRouter.post('/connect', h(async (req, res) => {
 // No browser redirect — works whatever redirect URI the Zoho client has.
 booksRouter.post('/connect/code', h(async (req, res) => {
   need(req, 'books.settings')
+  requireSelfService()
   const { userId, organisationId } = await firmOf(req)
   const b = (req.body ?? {}) as { code?: unknown; data_center?: unknown }
   const code = typeof b.code === 'string' ? b.code.trim() : ''
@@ -157,12 +241,14 @@ booksRouter.post('/connect/code', h(async (req, res) => {
 
 booksRouter.post('/connections/:id/reconnect', h(async (req, res) => {
   need(req, 'books.settings')
+  requireSelfService()
   const { userId, organisationId } = await firmOf(req)
   ok(res, await beginConnect({ organisationId, userId, connectionId: req.params.id }))
 }))
 
 booksRouter.post('/connections/:id/disconnect', h(async (req, res) => {
   need(req, 'books.settings')
+  requireSelfService()
   const { userId, organisationId } = await firmOf(req)
   await disconnect({ organisationId, userId, connectionId: req.params.id })
   await writeAudit({ actorUserId: userId, action: 'books.zoho.disconnected', entityType: 'books.connection', entityId: req.params.id, req })
@@ -240,7 +326,19 @@ booksRouter.use('/o/:ref', h(async (req, res) => {
 const SYNC_CLAIM_MS = 5 * 60_000
 
 async function runSync(res: Response, trigger: 'manual' | 'auto', req: Request) {
-  const { org, userId, ctx } = loc(res)
+  const { org, userId } = loc(res)
+  return syncOrganization(org.id, trigger, userId, req)
+}
+
+/**
+ * Sync one organisation through ITS OWN connection — loaded here from the
+ * organisation row, never from what any user has selected. Used by the
+ * dashboard (manual / auto) and by the background scheduler.
+ */
+export async function syncOrganization(orgId: string, trigger: 'manual' | 'auto' | 'scheduled', userId: string | null, req?: Request) {
+  const org = await prisma.booksZohoOrganization.findUniqueOrThrow({ where: { id: orgId }, include: { connection: true } })
+  if (org.connection.status !== 'connected') throw ApiError.conflict('books_reconnect_required', 'The Zoho Books connection has expired or was revoked.')
+  const ctx: ZohoContext = { conn: org.connection, zohoOrgId: org.zohoOrgId }
   const claim = await prisma.booksZohoOrganization.updateMany({
     where: { id: org.id, OR: [{ syncStatus: { not: 'syncing' } }, { lastSyncAttemptAt: { lt: new Date(Date.now() - SYNC_CLAIM_MS) } }] },
     data: { syncStatus: 'syncing', lastSyncAttemptAt: new Date() },
@@ -260,7 +358,7 @@ async function runSync(res: Response, trigger: 'manual' | 'auto', req: Request) 
     const message = t instanceof ApiError ? t.message : 'Sync failed.'
     await prisma.booksZohoOrganization.update({ where: { id: org.id }, data: { syncStatus: 'failed', lastSyncError: message } })
     await prisma.booksSyncLog.update({ where: { id: log.id }, data: { status: 'failed', finishedAt: new Date(), error: message, apiCalls: counter.calls } })
-    await writeAudit({ actorUserId: userId, action: 'books.sync.failed', entityType: 'books.organization', entityId: org.id, after: { error: message }, req })
+    await writeAudit({ actorUserId: userId, action: 'books.sync.failed', entityType: 'books.organization', entityId: org.id, after: { error: message, trigger }, req })
     throw e
   }
 }
@@ -526,6 +624,33 @@ const receiptIn: RequestHandler = (req, res, next) => {
     next(err)
   })
 }
+// Documents: upload a file to the organisation's Zoho Books Documents. Verified
+// against Zoho (POST /documents, multipart field "document"); not in the published docs.
+const documentUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024, files: 1 } })
+const DOC_TYPES = /^(application\/pdf|image\/(png|jpe?g|gif|webp)|text\/(plain|csv)|application\/(msword|vnd\.openxmlformats-officedocument\.(wordprocessingml\.document|spreadsheetml\.sheet)|vnd\.ms-excel|zip|xml))$/
+const documentIn: RequestHandler = (req, res, next) => {
+  try { need(req, 'books.manage') } catch (e) { return next(e) }
+  documentUpload.single('file')(req, res, (err: unknown) => {
+    if (err instanceof multer.MulterError) {
+      return next(err.code === 'LIMIT_FILE_SIZE' ? new ApiError(413, 'file_too_large', 'Documents can be up to 10 MB.') : ApiError.badRequest('Attach one file.'))
+    }
+    next(err)
+  })
+}
+orgRouter.post('/documents/upload', documentIn, h(async (req, res) => {
+  if (!req.file) throw ApiError.badRequest('Choose a file to upload.')
+  if (!DOC_TYPES.test(req.file.mimetype)) throw ApiError.badRequest('Upload a PDF, image, Word, Excel, CSV, text, XML or ZIP file.')
+  const form = new FormData()
+  form.append('document', new Blob([req.file.buffer], { type: req.file.mimetype }), req.file.originalname.replace(/[^\w.-]/g, '_'))
+  const r = await zohoRequest<Record<string, unknown>>(loc(res).ctx, { method: 'POST', path: 'documents', form })
+  // Zoho answers with `document` (an object) or `documents` (an object or a list).
+  const raw = (r.document ?? r.documents) as Record<string, unknown> | Record<string, unknown>[] | undefined
+  const rec = Array.isArray(raw) ? raw[0] : raw
+  if (!rec?.document_id) throw new ZohoBooksError('bad_response', 'upload returned no document')
+  await writeAudit({ actorUserId: loc(res).userId, action: 'books.documents.uploaded', entityType: 'books.documents', entityId: String(rec.document_id), after: { file_name: rec.file_name, size: req.file.size }, req })
+  ok(res, rec, 201)
+}))
+
 orgRouter.post('/e/expenses/:id/receipt', receiptIn, h(async (req, res) => {
   if (!req.file) throw ApiError.badRequest('Attach a receipt file.')
   if (!/^(image\/(png|jpe?g|gif)|application\/pdf)$/.test(req.file.mimetype)) throw ApiError.badRequest('Receipts must be a PDF or an image.')
