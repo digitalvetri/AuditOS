@@ -3,7 +3,7 @@ import { Link, useSearchParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useToast } from '@/components/Toast';
 import { booksApi, errorText, type BooksConnection, type BooksOrg } from '@/modules/books/api';
-import { statusKey, useBooks } from '@/modules/books/context';
+import { orgLabel, statusKey, useBooks } from '@/modules/books/context';
 import { Badge, Btn, Cell, Empty, Field, Modal, Notice, PageHeader, Row, Section, Select, Table, TextInput, dateTime } from '@/modules/books/ui';
 
 const REASONS: Record<string, string> = {
@@ -15,11 +15,14 @@ const REASONS: Record<string, string> = {
 
 export function BooksSettingsPage() {
   const { status, can, org } = useBooks();
+  // Connections are configured by the developer; the app only switches between them.
+  const selfService = status.self_service_connect && can.settings;
   const qc = useQueryClient();
   const toast = useToast();
   const [params, setParams] = useSearchParams();
   const [confirm, setConfirm] = useState<BooksConnection | null>(null);
   const [codeOpen, setCodeOpen] = useState(false);
+  const [addOpen, setAddOpen] = useState(false);
 
   // Result of the OAuth round-trip, reported once.
   useEffect(() => {
@@ -47,10 +50,14 @@ export function BooksSettingsPage() {
       <PageHeader title="Settings" subtitle="Zoho Books connection, organisations and sync." right={can.settings && status.configured ? (
         <div className="flex flex-wrap gap-2 justify-end">
         <Link to="/books/taxes" className="h-9 px-3 text-13 font-medium rounded inline-flex items-center bg-surface text-ink border border-border hover:bg-canvas">Taxes</Link>
-        <Btn variant="primary" onClick={() => setCodeOpen(true)}>{conns.some((c) => c.status === 'connected') ? 'Connect another Zoho account' : 'Connect Zoho Books'}</Btn>
+        {status.can_add_connection ? <Btn variant="primary" onClick={() => setAddOpen(true)}>Add organisation</Btn> : null}
+        {selfService ? <Btn variant="primary" onClick={() => setCodeOpen(true)}>{conns.some((c) => c.status === 'connected') ? 'Connect another Zoho account' : 'Connect Zoho Books'}</Btn> : null}
         </div>
       ) : null} />
-      {codeOpen ? (
+
+      <ActiveBooksSelector />
+      {addOpen ? <AddOrganisationModal onClose={() => setAddOpen(false)} onDone={() => { setAddOpen(false); void refresh(); }} /> : null}
+      {codeOpen && selfService ? (
         <ConnectWithCodeModal
           onClose={() => setCodeOpen(false)}
           onDone={() => { setCodeOpen(false); void refresh(); }}
@@ -58,14 +65,16 @@ export function BooksSettingsPage() {
         />
       ) : null}
 
-      {!status.configured ? <Notice tone="warn">Zoho Books API credentials are not configured on the server (ZBOOKS_CLIENT_ID, ZBOOKS_CLIENT_SECRET, ZBOOKS_REDIRECT_URI). See docs/books-zoho/README.md.</Notice> : null}
+      {!status.configured ? <Notice tone="warn">No Zoho Books connection is configured yet. Connections are added by your developer on the server.</Notice> : null}
       {!can.settings ? <Notice>You can view Books settings. Changing them needs the Books settings permission.</Notice> : null}
 
       <Section title="Zoho connections">
-        {conns.length === 0 ? <Empty title="Zoho Books is not connected">Connect your Zoho Books organisation to start managing your accounting data from Audit OS.</Empty> : (
-          <Table cols={[{ label: 'Status' }, { label: 'Data centre' }, { label: 'Connected' }, { label: 'Last error' }, { label: '' }]} minWidth={680}>
+        {conns.length === 0 ? <Empty title="Zoho Books is not connected">Zoho Books connections are configured by your developer. Once one is added it appears here.</Empty> : (
+          <Table cols={[{ label: 'Connection' }, { label: 'Method' }, { label: 'Status' }, { label: 'Data centre' }, { label: 'Connected' }, { label: 'Last error' }, { label: '' }]} minWidth={780}>
             {conns.map((c) => (
               <Row key={c.id}>
+                <Cell>{c.name ?? '—'}</Cell>
+                <Cell muted>{METHOD[c.auth_method ?? ''] ?? '—'}</Cell>
                 <Cell><Badge status={c.status} /></Cell>
                 <Cell muted>{c.data_center?.replace('https://', '') ?? '—'}</Cell>
                 <Cell muted>{dateTime(c.connected_at)}</Cell>
@@ -74,8 +83,8 @@ export function BooksSettingsPage() {
                   {can.settings ? (
                     <div className="flex justify-end gap-2">
                       {c.status === 'connected' ? <Btn variant="ghost" loading={reload.isPending} onClick={() => reload.mutate(c.id)}>Refresh organisations</Btn> : null}
-                      <Btn variant="ghost" onClick={() => setCodeOpen(true)}>Reconnect</Btn>
-                      {c.status !== 'disconnected' ? <Btn variant="danger" onClick={() => setConfirm(c)}>Disconnect</Btn> : null}
+                      {selfService ? <Btn variant="ghost" onClick={() => setCodeOpen(true)}>Reconnect</Btn> : null}
+                      {selfService && c.status !== 'disconnected' ? <Btn variant="danger" onClick={() => setConfirm(c)}>Disconnect</Btn> : null}
                     </div>
                   ) : null}
                 </Cell>
@@ -94,6 +103,126 @@ export function BooksSettingsPage() {
         </Modal>
       ) : null}
     </div>
+  );
+}
+
+const METHOD: Record<string, string> = { SERVER_OAUTH: 'Server OAuth', SELF_CLIENT: 'Self Client' };
+
+const DC_OPTIONS = [
+  { value: 'in', label: 'India — zoho.in', console: 'https://api-console.zoho.in' },
+  { value: 'com', label: 'US — zoho.com', console: 'https://api-console.zoho.com' },
+  { value: 'eu', label: 'Europe — zoho.eu', console: 'https://api-console.zoho.eu' },
+  { value: 'com.au', label: 'Australia — zoho.com.au', console: 'https://api-console.zoho.com.au' },
+  { value: 'jp', label: 'Japan — zoho.jp', console: 'https://api-console.zoho.jp' },
+  { value: 'ca', label: 'Canada — zohocloud.ca', console: 'https://api-console.zohocloud.ca' },
+  { value: 'sa', label: 'Saudi Arabia — zoho.sa', console: 'https://api-console.zoho.sa' },
+  { value: 'uk', label: 'UK — zoho.uk', console: 'https://api-console.zoho.uk' },
+];
+
+/**
+ * Add organisation (Super Admin only): a Zoho account's own Client ID and
+ * Secret plus a code generated in its API console. The server exchanges the
+ * code for a refresh token and stores the secret and tokens encrypted; the
+ * form forgets everything as soon as it closes.
+ */
+function AddOrganisationModal({ onClose, onDone }: { onClose: () => void; onDone: () => void }) {
+  const toast = useToast();
+  const [f, setF] = useState({ name: '', auth_method: 'SELF_CLIENT' as 'SELF_CLIENT' | 'SERVER_OAUTH', data_center: 'in', client_id: '', client_secret: '', code: '' });
+  const [error, setError] = useState<string | null>(null);
+  const set = (k: keyof typeof f) => (v: string) => setF((x) => ({ ...x, [k]: v }));
+  const consoleUrl = DC_OPTIONS.find((d) => d.value === f.data_center)?.console ?? 'https://api-console.zoho.in';
+  const save = useMutation({
+    mutationFn: () => booksApi.addConnection({ ...f, name: f.name.trim(), client_id: f.client_id.trim(), client_secret: f.client_secret.trim(), code: f.code.trim() }),
+    onSuccess: (r) => {
+      toast.push('success', `"${f.name.trim()}" added — ${r.organizations.map((o) => o.name).join(', ') || 'no organisations found'}. Pick it in Active Zoho Books.`);
+      onDone();
+    },
+    onError: (e) => {
+      const details = (e as { details?: Record<string, string> }).details;
+      setError(details && typeof details === 'object' ? Object.values(details).join(' ') : errorText(e));
+    },
+  });
+  const ready = f.name.trim() && f.client_id.trim() && f.client_secret.trim() && f.code.trim();
+  return (
+    <Modal title="Add organisation" onClose={onClose} wide footer={<>
+      <Btn onClick={onClose}>Cancel</Btn>
+      <Btn variant="primary" loading={save.isPending} disabled={!ready} onClick={() => { setError(null); save.mutate(); }}>Save and connect</Btn>
+    </>}>
+      <div className="space-y-3 text-13">
+        <p className="text-inkMuted">Connect another Zoho Books account with its own Zoho API client. Its organisations appear in Active Zoho Books for everyone to switch to.</p>
+        <div className="grid gap-3 sm:grid-cols-3">
+          <Field label="Account name"><TextInput value={f.name} onChange={set('name')} placeholder="e.g. Kaarthi-DV" maxLength={80} /></Field>
+          <Field label="Method"><Select value={f.auth_method} onChange={(v) => set('auth_method')(v)} options={[{ value: 'SELF_CLIENT', label: 'Self Client' }, { value: 'SERVER_OAUTH', label: 'Server OAuth' }]} /></Field>
+          <Field label="Data centre"><Select value={f.data_center} onChange={set('data_center')} options={DC_OPTIONS.map(({ value, label }) => ({ value, label }))} /></Field>
+        </div>
+        <div className="grid gap-3 sm:grid-cols-2">
+          <Field label="Client ID"><TextInput value={f.client_id} onChange={set('client_id')} placeholder="1000.XXXXXXXXXXXXXXXXXXXX" autoComplete="off" spellCheck={false} /></Field>
+          <Field label="Client Secret"><TextInput type="password" value={f.client_secret} onChange={set('client_secret')} placeholder="Client Secret" autoComplete="new-password" spellCheck={false} /></Field>
+        </div>
+        <div className="rounded-md border border-border bg-canvas p-3 space-y-2">
+          <div className="font-medium text-ink">Generate code</div>
+          <ol className="list-decimal pl-5 space-y-0.5 text-inkMuted">
+            <li>Open the Zoho API console signed in as this Zoho account, and pick the client whose Client ID you entered above.</li>
+            <li>Self Client → <strong>Generate Code</strong> — scope <code className="font-mono text-ink">ZohoBooks.fullaccess.all</code>, time 10 minutes.</li>
+            <li>Paste the code below and save straight away — it works once, for a few minutes.</li>
+          </ol>
+          <a href={consoleUrl} target="_blank" rel="noopener noreferrer"
+            className="inline-flex items-center h-8 px-3 text-12 font-medium rounded border border-border bg-surface text-primary hover:bg-canvas">Open Zoho API console ↗</a>
+          <Field label="Generated code"><TextInput type="password" value={f.code} onChange={set('code')} placeholder="1000.…" autoComplete="off" spellCheck={false} /></Field>
+        </div>
+        {error ? <Notice tone="warn">{error}</Notice> : null}
+        <p className="text-12 text-inkMuted">The Client Secret and tokens are encrypted on the server and never shown again. Only Super Admins can add accounts.</p>
+      </div>
+    </Modal>
+  );
+}
+
+/**
+ * ACTIVE ZOHO BOOKS — pick one of the configured connection + organisation
+ * pairs. Switching uses the saved connection: no sign-in, no Client ID or
+ * Secret, no codes. Secrets are never sent to the browser.
+ */
+function ActiveBooksSelector() {
+  const { activeOrgs, org, setOrg } = useBooks();
+  const [open, setOpen] = useState(false);
+  if (!activeOrgs.length || !org) return null;
+  const pick = (id: string) => { setOrg(id); setOpen(false); }; // queries are keyed by organisation: they reload
+  const state = (o: typeof org) => (o.connection_status === 'connected' ? 'Connected' : o.connection_status === 'expired' || o.connection_status === 'revoked' ? 'Needs the developer to reconnect' : o.connection_status ?? '—');
+  return (
+    <section className="border border-border rounded-lg bg-surface p-4">
+      <div className="text-[10.5px] font-semibold uppercase tracking-[0.08em] text-inkFaint mb-2">Active Zoho Books</div>
+      <div className="relative max-w-[480px]">
+        <button type="button" onClick={() => setOpen((v) => !v)} aria-haspopup="listbox" aria-expanded={open}
+          className="w-full text-left border border-border rounded-md px-3 py-2 hover:bg-canvas flex items-center gap-3">
+          <span className="min-w-0 flex-1">
+            <span className="block text-14 font-medium text-ink truncate">{orgLabel(org)}</span>
+            <span className="flex items-center gap-1.5 text-12 text-inkMuted mt-0.5">
+              <span className={`h-2 w-2 rounded-full ${org.connection_status === 'connected' ? 'bg-green-600' : 'bg-amber-500'}`} aria-hidden />
+              {state(org)}
+            </span>
+          </span>
+          <span className="text-inkMuted" aria-hidden>▾</span>
+        </button>
+        {open ? (
+          <ul role="listbox" className="absolute z-20 mt-1 w-full bg-surface border border-border rounded-md shadow-drawer py-1 max-h-80 overflow-auto">
+            <li className="px-3 py-1.5 text-[10.5px] font-semibold uppercase tracking-[0.08em] text-inkFaint">Switch Zoho Books</li>
+            {activeOrgs.map((o) => (
+              <li key={o.id}>
+                <button type="button" role="option" aria-selected={o.id === org.id} onClick={() => pick(o.id)}
+                  className="w-full text-left px-3 py-2 hover:bg-canvas flex gap-2">
+                  <span className="w-4 text-primary">{o.id === org.id ? '✓' : ''}</span>
+                  <span className="min-w-0">
+                    <span className="block text-13 font-medium text-ink">{o.connection_name ?? 'Zoho account'}</span>
+                    <span className="block text-13 text-ink">{o.name}{o.client_name ? <span className="text-inkMuted"> · {o.client_name}</span> : null}</span>
+                    <span className="block text-12 text-inkMuted">{[METHOD[o.connection_auth_method ?? ''], state(o)].filter(Boolean).join(' · ')}</span>
+                  </span>
+                </button>
+              </li>
+            ))}
+          </ul>
+        ) : null}
+      </div>
+    </section>
   );
 }
 

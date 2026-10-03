@@ -6,7 +6,7 @@ import { useToast } from '@/components/Toast';
 import { booksApi, errorText, type ZRecord } from '@/modules/books/api';
 import { useBooks, useOrg } from '@/modules/books/context';
 import { Badge, Btn, Cell, Drawer, Empty, ErrorState, KV, Modal, PageHeader, Pager, Row, Section, Select, Skeleton, Table, TextInput, date, money, today } from '@/modules/books/ui';
-import { AccountForm, ActionForm, CurrencyAdjustmentForm, ApplyCreditForm, BankAccountForm, ContactForm, ExpenseForm, ItemForm, JournalForm, PaymentForm, PriceListForm, ProjectForm, RecurringExpenseForm, TaxForm, TimeEntryForm, TXN, TxnEditor } from './forms';
+import { AccountForm, ActionForm, DocumentUploadForm, InventoryAdjustmentForm, CurrencyAdjustmentForm, ApplyCreditForm, BankAccountForm, ContactForm, ExpenseForm, ItemForm, JournalForm, PaymentForm, PriceListForm, ProjectForm, RecurringExpenseForm, TaxForm, TimeEntryForm, TXN, TxnEditor } from './forms';
 
 /**
  * One list screen for every Zoho Books resource, driven by RESOURCES below:
@@ -224,7 +224,8 @@ export const RESOURCES: Record<string, Resource> = {
   documents: {
     entity: 'documents', title: 'Documents', singular: 'document', idField: 'document_id', nameField: 'file_name', empty: 'No documents in Zoho Books.', zohoPath: 'documents',
     columns: [any('File', 'file_name'), any('Type', 'file_type'), any('Size', 'file_size_formatted', 'file_size'), any('Uploaded by', 'uploaded_by'), anyD('Uploaded', 'uploaded_on_date', 'created_time')],
-    deletePerm: 'accountant', detail: kv(['File', 'file_name'], ['Type', 'file_type'], ['Size', ['file_size_formatted', 'file_size']], ['Uploaded by', 'uploaded_by'], ['Uploaded', ['uploaded_on_date', 'created_time'], 'd']),
+    // Uploaded here (POST /documents, verified against Zoho).
+    Form: DocumentUploadForm, createPerm: 'manage', deletePerm: 'accountant', detail: kv(['File', 'file_name'], ['Type', 'file_type'], ['Size', ['file_size_formatted', 'file_size']], ['Uploaded by', 'uploaded_by'], ['Uploaded', ['uploaded_on_date', 'created_time'], 'd']),
   },
   pricebooks: {
     entity: 'pricebooks', title: 'Price Lists', singular: 'price list', idField: 'pricebook_id', nameField: 'name', empty: 'No price lists found.',
@@ -234,7 +235,7 @@ export const RESOURCES: Record<string, Resource> = {
   inventoryadjustments: {
     entity: 'inventoryadjustments', title: 'Inventory Adjustments', singular: 'inventory adjustment', idField: 'inventory_adjustment_id', nameField: 'reference_number', empty: 'No inventory adjustments found.', dated: true, zohoPath: 'inventoryadjustments',
     columns: [dcol('Date', 'date', 'date'), col('Reference', 'reference_number'), any('Reason', 'reason'), any('Type', 'adjustment_type'), status],
-    deletePerm: 'accountant', detail: kv(['Date', 'date', 'd'], ['Reference', 'reference_number'], ['Reason', 'reason'], ['Type', 'adjustment_type'], ['Status', 'status', 's'], ['Description', 'description']),
+    Form: InventoryAdjustmentForm, createPerm: 'accountant', deletePerm: 'accountant', detail: kv(['Date', 'date', 'd'], ['Reference', 'reference_number'], ['Reason', 'reason'], ['Type', 'adjustment_type'], ['Status', 'status', 's'], ['Description', 'description']),
   },
   bankaccounts: {
     entity: 'bankaccounts', title: 'Bank accounts', singular: 'bank account', idField: 'account_id', nameField: 'account_name', empty: 'No bank accounts in Zoho Books.',

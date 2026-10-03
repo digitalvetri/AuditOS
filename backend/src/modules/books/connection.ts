@@ -20,7 +20,7 @@ import { prisma } from '../../lib/prisma.js'
 import { encryptToken, decryptToken } from '../zpay/crypto.js'
 import { buildAuthorizeUrl, exchangeCodeForTokens, ZohoOAuthError, type FetchLike } from '../zpay/oauth.js'
 import { booksConfig, isTrustedZohoHost } from './config.js'
-import { seams, zohoRequest, type ConnectionRow } from './client.js'
+import { accessTokenFor, clientFor, seams, zohoRequest, type ConnectionRow } from './client.js'
 
 const STATE_TTL_SECONDS = 10 * 60
 const PURPOSE = 'zoho-books'
@@ -119,7 +119,7 @@ export async function connectWithCode(input: { organisationId: string; userId: s
 
 /** Exchange a grant code, store the encrypted tokens, mark connected, list organisations. */
 async function exchangeAndStore(
-  conn: { id: string },
+  conn: { id: string; clientId?: string | null; clientSecretEncrypted?: string | null },
   input: { code: string; accountsBase: string; redirectUri: string; userId: string; organisationId: string; fetchImpl?: FetchLike; keepLive?: boolean },
 ): Promise<number> {
   // A failed re-consent records the error but leaves the old, working grant in place.
@@ -128,7 +128,7 @@ async function exchangeAndStore(
   const accountsBase = input.accountsBase
   let tokens
   try {
-    tokens = await exchangeCodeForTokens({ ...cfg, accountsBase, redirectUri: input.redirectUri }, input.code, input.fetchImpl ?? seams.oauth())
+    tokens = await exchangeCodeForTokens({ ...cfg, ...clientFor(conn), accountsBase, redirectUri: input.redirectUri }, input.code, input.fetchImpl ?? seams.oauth())
   } catch (err) {
     const code = err instanceof ZohoOAuthError ? err.code : 'exchange_failed'
     await prisma.booksZohoConnection.update({ where: { id: conn.id }, data: { status: failedStatus, lastErrorCode: code, lastErrorAt: new Date() } })
@@ -200,4 +200,79 @@ export async function disconnect(input: { organisationId: string; connectionId: 
     }),
     prisma.booksZohoOrganization.updateMany({ where: { connectionId: conn.id }, data: { isActive: false, syncStatus: 'idle' } }),
   ])
+}
+
+// ── developer-configured connections (prisma/books-connection.ts) ──────────
+
+export type AuthMethod = 'SERVER_OAUTH' | 'SELF_CLIENT'
+
+/**
+ * Add a connection with its OWN Zoho client, from a refresh token or a fresh
+ * grant code. Only the developer script calls this — there is no API route
+ * for it, so nobody using the app can add a connection.
+ *
+ * The refresh token is proven by refreshing it once, then the organisations
+ * it can see are listed; `activate` turns on those (all when omitted).
+ */
+export async function addConfiguredConnection(input: {
+  organisationId: string; name: string; authMethod: AuthMethod
+  clientId: string; clientSecret: string; accountsServer: string
+  refreshToken?: string; code?: string; activate?: string[] | 'all'
+}): Promise<{ connectionId: string; organizations: { zohoOrgId: string; name: string; isActive: boolean }[] }> {
+  const cfg = booksConfig()
+  if (!isTrustedZohoHost(input.accountsServer, cfg)) throw new Error(`Not a Zoho accounts host: ${input.accountsServer}`)
+  const taken = await prisma.booksZohoConnection.findFirst({ where: { organisationId: input.organisationId, name: input.name, deletedAt: null, status: 'connected' } })
+  if (taken) throw new Error(`A connected Zoho Books connection named "${input.name}" already exists.`)
+  const conn = await prisma.booksZohoConnection.create({
+    data: {
+      organisationId: input.organisationId, name: input.name, authMethod: input.authMethod,
+      clientId: input.clientId, clientSecretEncrypted: encryptToken(input.clientSecret, cfg.encryptionKey),
+      accountsServer: input.accountsServer.replace(/\/$/, ''), status: 'consent_pending', scopesGranted: [],
+    },
+  })
+  try {
+    if (input.code) {
+      await exchangeAndStore(conn, { code: input.code, accountsBase: conn.accountsServer!, redirectUri: '', userId: 'developer', organisationId: input.organisationId })
+    } else if (input.refreshToken) {
+      const row = await prisma.booksZohoConnection.update({
+        where: { id: conn.id },
+        data: { status: 'connected', refreshTokenEncrypted: encryptToken(input.refreshToken, cfg.encryptionKey), connectedAt: new Date(), connectedBy: 'developer' },
+      })
+      await accessTokenFor(row, true) // proves the refresh token works for this client
+      await refreshOrganizations(await prisma.booksZohoConnection.findUniqueOrThrow({ where: { id: conn.id } }), input.organisationId)
+    } else {
+      throw new Error('Give a refresh token or a grant code.')
+    }
+  } catch (e) {
+    // A connection that never worked is not left behind as a half-row.
+    await prisma.booksZohoOrganization.deleteMany({ where: { connectionId: conn.id, isActive: false } }).catch(() => undefined)
+    await prisma.booksZohoConnection.update({ where: { id: conn.id }, data: { status: 'error', deletedAt: new Date(), refreshTokenEncrypted: null, accessTokenEncrypted: null } }).catch(() => undefined)
+    throw e
+  }
+  const orgs = await prisma.booksZohoOrganization.findMany({ where: { connectionId: conn.id } })
+  const want = input.activate ?? 'all'
+  for (const o of orgs) {
+    if (want === 'all' || want.includes(o.zohoOrgId)) {
+      await prisma.booksZohoOrganization.update({ where: { id: o.id }, data: { isActive: true, activatedAt: new Date(), activatedBy: 'developer' } })
+    }
+  }
+  const after = await prisma.booksZohoOrganization.findMany({ where: { connectionId: conn.id }, orderBy: { name: 'asc' } })
+  return { connectionId: conn.id, organizations: after.map((o) => ({ zohoOrgId: o.zohoOrgId, name: o.name, isActive: o.isActive })) }
+}
+
+/**
+ * Give connections made before names existed a name, so the switcher has
+ * something to show: the oldest working one is "Main Account". Idempotent;
+ * tokens and organisations are not touched.
+ */
+export async function nameUnnamedConnections(): Promise<number> {
+  const unnamed = await prisma.booksZohoConnection.findMany({ where: { name: null, deletedAt: null, status: { in: ['connected', 'expired', 'revoked'] } }, orderBy: { createdAt: 'asc' } })
+  let n = 0
+  for (const c of unnamed) {
+    const hasMain = await prisma.booksZohoConnection.findFirst({ where: { organisationId: c.organisationId, name: 'Main Account', deletedAt: null } })
+    const others = await prisma.booksZohoConnection.count({ where: { organisationId: c.organisationId, name: { not: null }, deletedAt: null } })
+    await prisma.booksZohoConnection.update({ where: { id: c.id }, data: { name: hasMain ? `Zoho account ${others + 1}` : 'Main Account' } })
+    n++
+  }
+  return n
 }
