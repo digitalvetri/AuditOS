@@ -176,21 +176,39 @@ export const form26asToExcelUI: ToolUI = {
   Options: () => (
     <Notice tone="info">
       <div className="text-13">
-        Takes the PDF or the caret-delimited text export from TRACES and lifts Part A — TDS by deductor —
-        into a transaction sheet plus per-deductor totals.
+        Takes the caret-delimited text export or the PDF from TRACES (Form 26AS, or the Tax Passbook) and lifts Part A —
+        TDS by deductor — into a Transactions sheet (amount paid, tax deducted, TDS deposited, booking date, remarks) and
+        Deductor Totals built with SUMIFS, checked against the totals in the file.
         <div className="text-12 text-neutral-500 mt-1">
-          The text export parses more reliably than the PDF; prefer it when TRACES offers both.
+          Add several files at once — one that can't be read is reported and the rest still convert. The text export
+          parses more reliably than the PDF; prefer it when TRACES offers both.
         </div>
       </div>
     </Notice>
   ),
   ResultNote: ({ output }) => {
+    const files = (output.meta.files as { file: string; ok: boolean; reason: string | null; transactions: number }[] | undefined) ?? [];
+    const checks = (output.meta.checks as { label: string; ok: boolean; detail: string }[] | undefined) ?? [];
     const skipped = skippedLine(output.meta.skipped);
     return (
-      <div className="text-13 text-neutral-500">
-        {n(output.meta.rows)} entries from {n(output.meta.deductors)} deductors ·
-        credited ₹{money(output.meta.total_credited)} · TDS ₹{money(output.meta.total_tds)}.
-        {skipped ? ` ${skipped}` : ''}
+      <div className="space-y-1 text-13">
+        <div className="text-neutral-500">
+          {n(output.meta.rows)} transactions from {n(output.meta.deductors)} deductors · amount paid ₹{money(output.meta.total_paid)} ·
+          tax deducted ₹{money(output.meta.total_tax)} · TDS deposited ₹{money(output.meta.total_deposited)}.
+          {skipped ? ` ${skipped}` : ''}
+        </div>
+        {output.meta.check_ok
+          ? <div className="text-green-700">Check: transactions equal the totals in the file.</div>
+          : <div className="text-amber-700">Check: {checks.filter((c) => !c.ok).map((c) => `${c.label} — ${c.detail}`).join('; ')}</div>}
+        {files.length > 1 || files.some((f) => !f.ok) ? (
+          <ul className="text-12">
+            {files.map((f) => (
+              <li key={f.file} className={f.ok ? 'text-neutral-600' : 'text-red'}>
+                {f.file}: {f.ok ? `${f.transactions} transactions` : f.reason}
+              </li>
+            ))}
+          </ul>
+        ) : null}
       </div>
     );
   },

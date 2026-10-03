@@ -1,0 +1,24 @@
+File Creation Date^Permanent Account Number(PAN)^Current Status of PAN^Financial Year^Assessment Year^Name of Assessee^Address Line1^Address Line2^Address Line3^Address Line4^Address Line5^Statecode^PinCode^
+^03-Oct-2026^AAKCK4521M^Active^2026-27^2027-28^KAVERI CONSTRUCTIONS PRIVATE LIMITED^12 SAMPLE STREET^^TIRUPPUR^^^Tamil Nadu^641604^
+
+PART-I - Details of Tax Deducted at Source
+Sr. No.^Name of Deductor^TAN of Deductor^Total Amount Paid/Credited^Total Tax Deducted^Total TDS Deposited^
+1^ABC KNITWEAR PRIVATE LIMITED^CHEA12345B^710000.00^14200.00^14200.00^
+^Sr. No.^Section^Transaction Date^Status of Booking^Date of Booking^Remarks^Amount Paid / Credited^Tax Deducted^TDS Deposited^
+^1^194C^08-Apr-2026^F^30-Jul-2026^-^220000.00^4400.00^4400.00^
+^2^194C^21-May-2026^F^30-Jul-2026^-^310000.00^6200.00^6200.00^
+^3^194C^17-Jun-2026^F^30-Jul-2026^-^180000.00^3600.00^3600.00^
+2^NILGIRI INFRA PROJECTS LIMITED^CHEN55501B^1250000.00^25000.00^25000.00^
+^Sr. No.^Section^Transaction Date^Status of Booking^Date of Booking^Remarks^Amount Paid / Credited^Tax Deducted^TDS Deposited^
+^1^194C^12-May-2026^F^08-Aug-2026^-^500000.00^10000.00^10000.00^
+^2^194C^26-Jun-2026^F^08-Aug-2026^-^750000.00^15000.00^15000.00^
+3^SALEM TECH SERVICES PRIVATE LIMITED^CHES45678E^120000.00^12000.00^12000.00^
+^Sr. No.^Section^Transaction Date^Status of Booking^Date of Booking^Remarks^Amount Paid / Credited^Tax Deducted^TDS Deposited^
+^1^194J^03-Jun-2026^F^02-Aug-2026^-^120000.00^12000.00^12000.00^
+4^KONGU RETAIL PRIVATE LIMITED^CHEK88800D^100000.00^1000.00^1000.00^
+^Sr. No.^Section^Transaction Date^Status of Booking^Date of Booking^Remarks^Amount Paid / Credited^Tax Deducted^TDS Deposited^
+^1^194C^10-May-2026^F^05-Aug-2026^-^100000.00^1000.00^1000.00^
+5^ANNAI FINANCE LIMITED^CHEA98765F^20000.00^2000.00^2000.00^
+^Sr. No.^Section^Transaction Date^Status of Booking^Date of Booking^Remarks^Amount Paid / Credited^Tax Deducted^TDS Deposited^
+^1^194A^28-Jun-2026^F^11-Aug-2026^-^20000.00^2000.00^2000.00^
+Total^^^2200000.00^54200.00^54200.00^

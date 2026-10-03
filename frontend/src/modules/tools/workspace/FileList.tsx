@@ -32,9 +32,12 @@ export function FileList({ files, onRemove, onMove, reorderable = false, disable
                 {formatBytes(f.file.size)}
                 {f.status === 'uploading' ? ` · Uploading… ${f.progress}%` : null}
                 {f.status === 'validating' ? ' · Checking…' : null}
-                {f.status === 'invalid' ? <span className="text-red"> · {f.error}</span> : null}
                 {note ? ` · ${note}` : null}
               </div>
+              {/* The reason on its own line, wrapping — a truncated row hid it. */}
+              {f.status === 'invalid' ? (
+                <div className="text-12 text-red break-words" role="alert">{f.error || 'This file could not be read.'}</div>
+              ) : null}
               {f.status === 'uploading' ? (
                 <div className="h-1 mt-1 bg-neutral-100 rounded overflow-hidden">
                   <div className="h-full bg-gold transition-[width]" style={{ width: `${f.progress}%` }} />

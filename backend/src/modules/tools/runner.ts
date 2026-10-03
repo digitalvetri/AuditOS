@@ -13,6 +13,7 @@ import { ImageService } from './services/tools/ImageService.js'
 import { OCRService } from './services/tools/OCRService.js'
 import { signatureProvider } from './services/tools/SignatureProvider.js'
 import { gstr2bExcelToJson, gstr2bJsonToExcel } from './services/tools/gstr2b.js'
+import { form26asToExcel } from './services/tools/form26as.js'
 import { ComplianceService } from './services/tools/ComplianceService.js'
 import { fmtDateIST } from './lib/dates.js'
 
@@ -293,14 +294,26 @@ const IMPLEMENTATIONS: Record<string, Implementation> = {
     }
   },
 
+  // Several files at once; one that can't be read is reported, the others convert.
   'form-26as-to-excel': async ({ inputs, progress }) => {
-    const { doc, bytes } = inputs[0]
-    const isText = doc.mimeType === OUTPUT_MIME.txt || /\.txt$/i.test(doc.originalFilename)
-    const r = await ComplianceService.form26asToExcel(bytes, isText, progress)
+    progress(10)
+    const r = await form26asToExcel(inputs.map((i) => ({ name: i.doc.originalFilename, bytes: i.bytes })))
+    progress(90)
+    const failed = r.files.filter((f) => !f.ok)
+    const mismatches = r.checks.filter((c) => !c.ok)
+    const parts = [
+      ...failed.map((f) => `${f.file} was not converted: ${f.reason}.`),
+      ...(mismatches.length ? [`Check: transactions do not equal the totals in the file — ${mismatches.slice(0, 3).map((c) => `${c.label}: ${c.detail}`).join('; ')}${mismatches.length > 3 ? '; …' : ''}.`] : []),
+      ...(r.skipped.length ? [`${r.skipped.length} Part A ${r.skipped.length === 1 ? 'line' : 'lines'} could not be read and ${r.skipped.length === 1 ? 'is' : 'are'} on the Skipped sheet — ${r.skipped.slice(0, 3).map((s) => `${s.reason}`).join('; ')}.`] : []),
+    ]
+    const first = inputs[0].doc.originalFilename
     return {
-      filename: withExtension(doc.originalFilename, 'xlsx'), mime: OUTPUT_MIME.xlsx, bytes: r.bytes,
-      meta: { rows: r.rows, deductors: r.deductors, total_credited: r.totalCredited, total_tds: r.totalTds, skipped: r.skipped, source: isText ? 'text' : 'pdf' },
-      warning: r.skipped ? `${r.skipped} dated ${r.skipped === 1 ? 'line' : 'lines'} could not be read and ${r.skipped === 1 ? 'is' : 'are'} listed on the Skipped sheet.` : undefined,
+      filename: inputs.length > 1 ? `Form26AS-${inputs.length}-files.xlsx` : withExtension(first, 'xlsx'), mime: OUTPUT_MIME.xlsx, bytes: r.bytes,
+      meta: {
+        rows: r.transactions, deductors: r.deductors, total_paid: r.totals.paid, total_tax: r.totals.tax, total_deposited: r.totals.dep,
+        skipped: r.skipped.length, files: r.files, check_ok: mismatches.length === 0, checks: r.checks,
+      },
+      warning: parts.length ? parts.join(' ') : undefined,
     }
   },
 

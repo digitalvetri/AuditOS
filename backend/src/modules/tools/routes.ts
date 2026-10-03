@@ -102,7 +102,7 @@ toolsRouter.post('/uploads', (req, res, next) => {
     const accepted = sniffed !== null && tool.accepts.includes(sniffed) && (tool.extensions.length === 0 || tool.extensions.includes(ext) || sniffed !== 'text/plain')
     if (!accepted) {
       const label = tool.extensions.map((e) => e.toUpperCase()).join(', ')
-      throw ApiError.unprocessable('unsupported_type', `This file type isn't supported. Upload a ${label} file.`)
+      throw ApiError.unprocessable('unsupported_type', tool.rejectMessage ?? `This file type isn't supported. Upload a ${label} file.`)
     }
     const meta = await inspect(f.buffer, sniffed, name)
     const doc = await DocumentService.createDocument({ session, originalFilename: name, mimeType: sniffed, bytes: f.buffer, sourceTool: tool.id, meta })

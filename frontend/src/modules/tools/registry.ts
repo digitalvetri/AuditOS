@@ -46,6 +46,8 @@ export interface ToolDefinition {
   extensions: string[];
   maxFileSizeMB: number;
   multiple: boolean;
+  /** Shown when a file is not one this tool reads (instead of the generic type message). */
+  rejectMessage?: string;
   outputType: OutputType;
   keywords: string[];
   permission: PermissionCode;
@@ -148,7 +150,7 @@ export const TOOLS: ToolDefinition[] = [
     keywords: ['bank', 'statement', 'excel', 'ledger', 'pdf'], permission: 'tools.bank_statement_to_excel', status: 'active' },
   { id: 'form-26as-to-excel', name: 'Form 26AS to Excel', description: 'TDS reconciliation sheet',
     badge: { text: '26AS', tint: 'indigo' }, groupId: 'compliance-converters', route: '/tools/form-26as-to-excel',
-    accepts: [MIME.pdf, MIME.txt], extensions: ['pdf', 'txt'], maxFileSizeMB: 25, multiple: false, outputType: 'xlsx',
+    accepts: [MIME.pdf, MIME.txt], extensions: ['pdf', 'txt'], maxFileSizeMB: 25, multiple: true, rejectMessage: 'Not a TRACES text export or PDF', outputType: 'xlsx',
     keywords: ['26as', 'tds', 'excel', 'reconciliation', 'traces'], permission: 'tools.form_26as_to_excel', status: 'active' },
   { id: 'excel-to-tally-xml', name: 'Excel to Tally XML', description: 'Import-ready vouchers for Tally',
     badge: { text: 'TALLY', tint: 'amber' }, groupId: 'compliance-converters', route: '/tools/excel-to-tally-xml',

@@ -101,7 +101,8 @@ function ActiveWorkspace({ toolId }: { toolId: string }) {
                 {ui.actionLabel}
               </Button>
               {ws.phase === 'validating' ? <span className="text-13 text-neutral-500">Uploading…</span> : null}
-              {ws.phase === 'invalid' ? <span className="text-13 text-neutral-500">Remove the file marked in red, then try again.</span> : null}
+              {ws.phase === 'invalid' ? <span className="text-13 text-neutral-500">Remove the file marked in red, then try again — the reason is shown under it.</span> : null}
+              {ws.phase === 'ready' && ws.files.some((f) => f.status === 'invalid') ? <span className="text-13 text-neutral-500">Files marked in red are skipped; the others will convert.</span> : null}
               {ws.phase === 'ready' && readyFiles.length < minFiles ? <span className="text-13 text-neutral-500">Add at least {minFiles} files.</span> : null}
             </div>
           ) : null}

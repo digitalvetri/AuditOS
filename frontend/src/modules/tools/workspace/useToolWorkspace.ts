@@ -41,7 +41,7 @@ export function validateFile(tool: ToolDefinition, file: File): string | null {
   const typeOk = tool.extensions.includes(ext === 'jpeg' ? 'jpg' : ext) || tool.extensions.includes(ext) || (file.type && tool.accepts.includes(file.type) && file.type !== 'text/plain');
   if (!typeOk) {
     const label = [...new Set(tool.extensions.map((e) => (e === 'jpeg' ? 'jpg' : e)))].map((e) => e.toUpperCase()).join(', ');
-    return `This file type isn't supported. Upload a ${label} file.`;
+    return tool.rejectMessage ?? `This file type isn't supported. Upload a ${label} file.`;
   }
   if (file.size === 0) return 'This file is empty.';
   if (file.size > tool.maxFileSizeMB * 1024 * 1024) return `File is larger than the ${tool.maxFileSizeMB} MB limit.`;
@@ -164,9 +164,10 @@ export function useToolWorkspace(tool: ToolDefinition) {
     if (running) return 'processing';
     if (files.length === 0) return 'idle';
     if (files.some((f) => f.status === 'validating' || f.status === 'uploading')) return 'validating';
-    if (files.some((f) => f.status === 'invalid')) return 'invalid';
+    // A multi-file tool converts the files it can read; the red ones are skipped, not blocking.
+    if (files.some((f) => f.status === 'invalid')) return tool.multiple && files.some((f) => f.status === 'ready') ? 'ready' : 'invalid';
     return 'ready';
-  }, [files, run, running]);
+  }, [files, run, running, tool.multiple]);
 
   const progress = run.job?.progress ?? 0;
 

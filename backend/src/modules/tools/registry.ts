@@ -42,6 +42,8 @@ export interface ToolDef {
   extensions: string[]
   maxFileSizeMB: number
   multiple: boolean
+  /** Shown when an upload is not a file this tool reads (instead of the generic type message). */
+  rejectMessage?: string
   outputType: OutputType
   permission: PermissionCode
   status: ToolStatus
@@ -130,7 +132,8 @@ export const TOOLS: ToolDef[] = [
     permission: 'tools.bank_statement_to_excel', status: 'active' },
   { id: 'form-26as-to-excel', name: 'Form 26AS to Excel', description: 'TDS reconciliation sheet',
     groupId: 'compliance-converters', accepts: [MIME.pdf, MIME.txt], extensions: ['pdf', 'txt'],
-    maxFileSizeMB: 25, multiple: false, outputType: 'xlsx', permission: 'tools.form_26as_to_excel', status: 'active' },
+    rejectMessage: 'Not a TRACES text export or PDF',
+    maxFileSizeMB: 25, multiple: true, outputType: 'xlsx', permission: 'tools.form_26as_to_excel', status: 'active' },
   { id: 'excel-to-tally-xml', name: 'Excel to Tally XML', description: 'Import-ready vouchers for Tally',
     groupId: 'compliance-converters', accepts: [MIME.xlsx], extensions: ['xlsx'],
     maxFileSizeMB: 25, multiple: false, outputType: 'xml', permission: 'tools.excel_to_tally_xml', status: 'active' },
