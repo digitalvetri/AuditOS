@@ -269,7 +269,11 @@ auditAutomationRouter.get('/jobs/:id/export/tally.xml', handler(async (req, res)
 auditAutomationRouter.get('/jobs/:id/export.xlsx', handler(async (req, res) => {
   const session = requireSession(req)
   requireAaView(session)
-  const { bytes, filename } = await AaTxnService.workbook(session, req.params.id, req)
+  // ?draft=1 is the Firm-Manager escape hatch for exporting unapproved
+  // rows for internal review. Default behaviour (no ?draft=1) gates the
+  // export on approval, matching the Tally XML endpoint — REPOTIC §1.
+  const includeUnreviewed = String(req.query.draft ?? '') === '1'
+  const { bytes, filename } = await AaTxnService.workbook(session, req.params.id, req, { includeUnreviewed })
   res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
   res.setHeader('Content-Disposition', `attachment; filename="${filename.replace(/[^\w.-]/g, '_')}"`)
   res.send(bytes)
@@ -287,6 +291,52 @@ auditAutomationRouter.delete('/jobs/:id', handler(async (req, res) => {
   requireAaUpload(session)
   await AaJobService.remove(session, req.params.id, req)
   ok(res, { deleted: true })
+}))
+
+/**
+ * GET /api/audit-automation/clients/:clientId/ledger-master
+ *
+ * Returns the client's known ledgers (REPOTIC-MODULE.md §1 fix 2): every
+ * distinct `ledger_name` from the client's rules AND from rows in
+ * previously-approved jobs. The UI uses this to drive an autocomplete,
+ * and to decide when the typed value is NEW (so operators get an
+ * explicit "Create new ledger" confirmation instead of saving typos).
+ *
+ * `ownBankCashLedgers` is the subset used by Contra detection (fix 4):
+ * `bankLedgerName` set on every approved job for the client.
+ */
+auditAutomationRouter.get('/clients/:clientId/ledger-master', handler(async (req, res) => {
+  const session = requireSession(req)
+  requireAaView(session)
+  const organisationId = await orgIdOf(session.userId)
+  const clientId = req.params.clientId
+  const [rules, approvedRows, approvedJobs] = await Promise.all([
+    prisma.aaLedgerRule.findMany({
+      where: { organisationId, deletedAt: null, OR: [{ clientId }, { clientId: null }] },
+      select: { ledgerName: true },
+    }),
+    prisma.aaBankTxn.findMany({
+      where: {
+        organisationId,
+        clientId,
+        job: { reviewStatus: 'approved' },
+        ledgerName: { not: null },
+      },
+      select: { ledgerName: true },
+      take: 1000,
+      distinct: ['ledgerName'],
+    }),
+    prisma.aaJob.findMany({
+      where: { organisationId, clientId, reviewStatus: 'approved', bankLedgerName: { not: null } },
+      select: { bankLedgerName: true },
+    }),
+  ])
+  const ledgers = [...new Set([
+    ...rules.map((r) => r.ledgerName.trim()).filter(Boolean),
+    ...approvedRows.map((r) => (r.ledgerName ?? '').trim()).filter(Boolean),
+  ])].sort((a, b) => a.localeCompare(b))
+  const ownBankCashLedgers = [...new Set(approvedJobs.map((j) => (j.bankLedgerName ?? '').trim()).filter(Boolean))].sort((a, b) => a.localeCompare(b))
+  ok(res, { ledgers, own_bank_cash_ledgers: ownBankCashLedgers })
 }))
 
 // ── Ledger rules (narration → Tally ledger) ─────────────────────────────
