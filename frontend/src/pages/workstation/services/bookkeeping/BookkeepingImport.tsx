@@ -388,13 +388,26 @@ function DerivedBatchPanel({
         <Stat label="Currencies" value={totals.currencies.join(', ') || '—'} />
       </div>
 
-      {/* Idempotency counts — the four numbers that matter (§3.4). */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-13 border-t border-neutral-100 pt-3">
-        <Stat label="New" value={String(counts.new)} tone="new" />
-        <Stat label="Unchanged (skip)" value={String(counts.unchanged)} tone="muted" />
-        <Stat label="Changed (skip)" value={String(counts.changed)} tone={counts.changed > 0 ? 'warn' : 'muted'} />
-        <Stat label="Unresolved party" value={String(counts.skipped)} tone={counts.skipped > 0 ? 'warn' : 'muted'} />
-      </div>
+      {/* Idempotency counts — the four numbers that matter (§3.4).
+          `skipped` rows whose only blocker is an unresolved party are
+          counted as "Will auto-create" instead of warn: the backend
+          creates the proposed ledgers and re-classifies them on commit. */}
+      {(() => {
+        const willAutoResolve = Math.min(counts.skipped, proposals.length);
+        const trulyBlocked = Math.max(0, counts.skipped - proposals.length);
+        return (
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-13 border-t border-neutral-100 pt-3">
+            <Stat label="New" value={String(counts.new)} tone="new" />
+            <Stat label="Unchanged (skip)" value={String(counts.unchanged)} tone="muted" />
+            <Stat label="Changed (skip)" value={String(counts.changed)} tone={counts.changed > 0 ? 'warn' : 'muted'} />
+            <Stat
+              label={trulyBlocked > 0 ? 'Unresolved party' : willAutoResolve > 0 ? 'Will auto-create' : 'Unresolved party'}
+              value={String(counts.skipped)}
+              tone={trulyBlocked > 0 ? 'warn' : willAutoResolve > 0 ? 'new' : 'muted'}
+            />
+          </div>
+        );
+      })()}
 
       <div className="text-12 text-neutral-500 flex gap-3">
         <span className={allBalanced ? 'text-green-700' : 'text-red-700'}>
@@ -406,27 +419,47 @@ function DerivedBatchPanel({
         <span className={flags.length ? 'text-amber-700' : 'text-neutral-500'}>{flags.length} row flags</span>
       </div>
 
-      {/* Commit button + result. Nothing else on the page can post. */}
+      {/* Commit button + result. Nothing else on the page can post.
+          `postable` includes `skipped` rows whose only blocker is an
+          unresolved party (= one of the proposals) — the backend creates
+          those ledgers and reclassifies them to `new` before posting. */}
+      {(() => {
+        const willAutoResolve = Math.min(counts.skipped, proposals.length);
+        const postable = counts.new + willAutoResolve;
+        const label =
+          commitPending ? 'Committing…' :
+          alreadyCommitted ? 'Committed' :
+          `Commit ${postable} voucher${postable === 1 ? '' : 's'}`;
+        const title =
+          postable === 0
+            ? 'No vouchers to commit.'
+            : willAutoResolve > 0
+              ? `Create ${proposals.length} party ledger${proposals.length === 1 ? '' : 's'} and post ${postable} voucher${postable === 1 ? '' : 's'}.`
+              : `Post ${postable} new voucher${postable === 1 ? '' : 's'} to the ledger.`;
+        return (
       <div className="flex items-center gap-3 flex-wrap pt-2 border-t border-neutral-100">
         <button
           type="button"
-          disabled={commitPending || counts.new === 0 || alreadyCommitted}
+          disabled={commitPending || postable === 0 || alreadyCommitted}
           onClick={onCommit}
           className="text-13 px-3 py-1 border border-neutral-900 bg-neutral-900 text-white rounded disabled:opacity-40"
-          title={
-            counts.new === 0
-              ? 'No new vouchers to commit.'
-              : `Post ${counts.new} new voucher${counts.new === 1 ? '' : 's'} to the ledger.`
-          }
+          title={title}
         >
-          {commitPending ? 'Committing…' : alreadyCommitted ? 'Committed' : `Commit ${counts.new} voucher${counts.new === 1 ? '' : 's'}`}
+          {label}
         </button>
+        {!alreadyCommitted && willAutoResolve > 0 && (
+          <span className="text-12 text-neutral-500">
+            also creates {proposals.length} party ledger{proposals.length === 1 ? '' : 's'} under Sundry Debtors / Creditors
+          </span>
+        )}
         {commitResult && (
           <span className="text-13 text-green-700">
             ✓ {commitResult.vouchersCreated} posted · {commitResult.ledgersCreated} party ledger{commitResult.ledgersCreated === 1 ? '' : 's'} created · {commitResult.vouchersSkipped} skipped
           </span>
         )}
       </div>
+        );
+      })()}
       {commitResult && commitResult.errors.length > 0 && (
         <details open className="border-l-2 border-red-500 bg-red-50 p-2">
           <summary className="cursor-pointer text-12 text-red-800 font-medium">
