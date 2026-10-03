@@ -51,12 +51,14 @@ import { usePinnedClients } from '@/modules/workstation/pins';
 import { workstationApi } from '@/modules/workstation/api';
 import { gstApi } from '@/modules/workstation/gst/api';
 import { filingStats, istToday, periodName, previousPeriod, returnCells } from '@/modules/dashboardV2/brief';
+import { employeeApi } from '@/modules/employees/api';
+import { TOOLS } from '@/modules/tools/registry';
+import { History } from 'lucide-react';
 // The rail lists the registrations from the same catalogue the pages
 // render, so a service can never exist in one place and not the other.
 import { REGISTRATION_SERVICES } from '@/pages/workstation/registration/services';
 
 const COLLAPSED_KEY = 'audit-os:sidebar-collapsed';
-const SECTIONS_COLLAPSED_KEY = 'audit-os:sidebar-sections-collapsed';
 
 /**
  * A row below the icon level. A child may carry its own children — Services →
@@ -85,6 +87,41 @@ interface NavGroup {
   items: NavItem[];
 }
 
+/**
+ * The four modules shown as cards at the top of the rail. Each maps to one
+ * nav group (by its label) and carries a live one-line stat.
+ */
+type ModuleKey = 'HRMS' | 'WORKSTATION' | 'TOOLS' | 'INTEGRATIONS';
+const MODULE_META: Record<ModuleKey, { title: string; icon: LucideIcon }> = {
+  HRMS: { title: 'HRMS', icon: Users },
+  WORKSTATION: { title: 'Workstation', icon: Briefcase },
+  TOOLS: { title: 'Tools', icon: Wrench },
+  INTEGRATIONS: { title: 'Integrations', icon: Plug },
+};
+const MODULE_KEY = 'audit-os:sidebar-module';
+const RECENT_KEY = 'audit-os:sidebar-recent';
+
+/** Every navigable row (item, child, leaf) with the module it belongs to. */
+function flatten(nav: NavGroup[]): { to: string; label: string; module: string | null }[] {
+  return nav.flatMap((g) => g.items.flatMap((it) => [
+    { to: it.to, label: it.label, module: g.label },
+    ...(it.children ?? []).flatMap((c) => [
+      { to: c.to, label: c.label, module: g.label },
+      ...(c.children ?? []).map((l) => ({ to: l.to, label: l.label, module: g.label })),
+    ]),
+  ]));
+}
+
+/** The nav row a path belongs to — the longest matching prefix wins ('/' only matches itself). */
+function matchRow(rows: ReturnType<typeof flatten>, path: string) {
+  let best: (typeof rows)[number] | null = null;
+  for (const r of rows) {
+    const hit = r.to === '/' ? path === '/' : path === r.to || path.startsWith(r.to + '/');
+    if (hit && (!best || r.to.length > best.to.length)) best = r;
+  }
+  return best;
+}
+
 interface Props {
   mobileOpen: boolean;
   onMobileClose: () => void;
@@ -111,6 +148,13 @@ export function Sidebar({ mobileOpen, onMobileClose }: Props) {
   });
   const pendingCount = pending.data?.count ?? 0;
   const clientCount = clients.data?.count;
+  // People stat for the HRMS card — shares the top bar's "who's in" cache.
+  const seesPeople = can(role, 'employee.read', 'department');
+  const people = useQuery({
+    queryKey: ['employees', 'who-is-in'],
+    queryFn: () => employeeApi.list({}),
+    enabled: seesPeople, staleTime: 120_000,
+  });
 
   // Role-scoped nav (§6.1). `can()` here is menu-rendering only — the API
   // is what actually enforces access. Employee: no Employees / Accounts /
@@ -208,28 +252,6 @@ export function Sidebar({ mobileOpen, onMobileClose }: Props) {
     localStorage.setItem(COLLAPSED_KEY, collapsed ? '1' : '0');
   }, [collapsed]);
 
-  // Per-section collapse — keyed by section label (AUDIT, WORKSTATION, TOOLS).
-  // Dashboard has no label so it's never collapsible. Persisted in
-  // localStorage so a user's fold state survives reload.
-  const [sectionsCollapsed, setSectionsCollapsed] = useState<Set<string>>(() => {
-    if (typeof localStorage === 'undefined') return new Set();
-    try {
-      const raw = localStorage.getItem(SECTIONS_COLLAPSED_KEY);
-      return new Set(raw ? (JSON.parse(raw) as string[]) : []);
-    } catch { return new Set(); }
-  });
-  useEffect(() => {
-    if (typeof localStorage === 'undefined') return;
-    localStorage.setItem(SECTIONS_COLLAPSED_KEY, JSON.stringify([...sectionsCollapsed]));
-  }, [sectionsCollapsed]);
-  const toggleSection = (label: string) => {
-    setSectionsCollapsed((prev) => {
-      const next = new Set(prev);
-      if (next.has(label)) next.delete(label); else next.add(label);
-      return next;
-    });
-  };
-
   const location = useLocation();
   // Close the mobile drawer on route change — same pattern the shipped app uses.
   useEffect(() => {
@@ -258,6 +280,47 @@ export function Sidebar({ mobileOpen, onMobileClose }: Props) {
     return () => mq.removeEventListener('change', onChange);
   }, []);
   const asideWidth = isDesktop ? (collapsed ? 72 : 264) : 264;
+
+  // ── Modules ───────────────────────────────────────────────────────────
+  const home = nav.find((g) => g.label === null);
+  const modules = nav.filter((g): g is NavGroup & { label: ModuleKey } => !!g.label && g.label in MODULE_META);
+  const rows = useMemo(() => flatten(nav), [nav]);
+  const here = matchRow(rows, location.pathname);
+  const [chosen, setChosen] = useState<string | null>(() => {
+    try { return localStorage.getItem(MODULE_KEY); } catch { return null; }
+  });
+  // Landing on a page selects its module, so the menu always shows where you are.
+  useEffect(() => { if (here?.module) setChosen(here.module); }, [here?.module]);
+  useEffect(() => { try { if (chosen) localStorage.setItem(MODULE_KEY, chosen); } catch { /* ignore */ } }, [chosen]);
+  const active = modules.find((m) => m.label === chosen) ?? modules[0];
+
+  const stat = (key: ModuleKey, g: NavGroup): string => {
+    const pages = `${g.items.length} page${g.items.length === 1 ? '' : 's'}`;
+    if (key === 'HRMS' && people.data) {
+      const list = people.data.items as { today_attendance?: { check_in_at: string | null } | null }[];
+      const inToday = list.filter((r) => r.today_attendance?.check_in_at).length;
+      return `${list.length} people · ${inToday} in`;
+    }
+    if (key === 'WORKSTATION' && clientCount !== undefined) return `${clientCount} client${clientCount === 1 ? '' : 's'}`;
+    if (key === 'TOOLS' && can(role, 'tools.access', 'self')) return `${TOOLS.length} tools`;
+    if (key === 'INTEGRATIONS') return g.items.map((i) => i.label).join(' · ');
+    return pages;
+  };
+
+  // ── Recent pages (this browser only) ──────────────────────────────────
+  const [recent, setRecent] = useState<{ to: string; label: string }[]>(() => {
+    try { return JSON.parse(localStorage.getItem(RECENT_KEY) ?? '[]'); } catch { return []; }
+  });
+  useEffect(() => {
+    if (!here || here.to === '/') return;
+    setRecent((prev) => {
+      const next = [{ to: here.to, label: here.label }, ...prev.filter((r) => r.to !== here.to)].slice(0, 6);
+      try { localStorage.setItem(RECENT_KEY, JSON.stringify(next)); } catch { /* ignore */ }
+      return next;
+    });
+  }, [here?.to]);
+  // Only pages this role can still see, and not the one already open.
+  const recentShown = recent.filter((r) => r.to !== here?.to && rows.some((x) => x.to === r.to)).slice(0, 4);
   const drawer = mobileOpen ? 'translate-x-0' : '-translate-x-full invisible lg:visible';
 
   return (
@@ -286,17 +349,74 @@ export function Sidebar({ mobileOpen, onMobileClose }: Props) {
         <Brand collapsed={collapsed} />
 
         <nav className="sidebar-scroll sb-nav-limit flex-1 min-h-0 overflow-y-auto pt-1 pb-2">
-          {nav.map((group, i) => (
-            <Section
-              key={i}
-              group={group}
-              collapsed={collapsed}
-              first={i === 0}
-              folded={group.label ? sectionsCollapsed.has(group.label) : false}
-              onToggle={group.label ? () => toggleSection(group.label!) : undefined}
-            />
-          ))}
+          {home ? <Section group={home} collapsed={collapsed} first folded={false} /> : null}
+
+          {/* Module switcher: cards when expanded, icon buttons on the rail. */}
+          {modules.length > 1 ? (
+            collapsed ? (
+              <ul className="px-2 pt-3 mt-2 space-y-1 border-t border-white/[0.07]" aria-label="Modules">
+                {modules.map((m) => {
+                  const M = MODULE_META[m.label];
+                  const on = m === active;
+                  return (
+                    <li key={m.label}>
+                      <button type="button" onClick={() => setChosen(m.label)} title={M.title} aria-pressed={on}
+                        className={'sb-modicon w-full h-10 grid place-items-center rounded-[10px] ' + (on ? 'is-on' : '')}>
+                        <M.icon size={18} strokeWidth={1.9} />
+                      </button>
+                    </li>
+                  );
+                })}
+              </ul>
+            ) : (
+              <div className="grid grid-cols-2 gap-2 px-3 pt-3" role="tablist" aria-label="Modules">
+                {modules.map((m) => {
+                  const M = MODULE_META[m.label];
+                  const on = m === active;
+                  return (
+                    <button key={m.label} type="button" role="tab" aria-selected={on} onClick={() => setChosen(m.label)}
+                      className={'sb-modcard text-left rounded-[12px] px-3 pt-[10px] pb-[9px] ' + (on ? 'is-on' : '')}>
+                      <span className="sb-modcard-ico h-7 w-7 rounded-[8px] grid place-items-center mb-2"><M.icon size={15} strokeWidth={2} /></span>
+                      <span className="block text-13 font-semibold text-white leading-tight truncate">{M.title}</span>
+                      <span className="block text-[11px] text-sidebarMuted leading-tight mt-0.5 truncate">{stat(m.label, m)}</span>
+                    </button>
+                  );
+                })}
+              </div>
+            )
+          ) : null}
+
+          {/* The chosen module's pages — all visible, nothing to unfold. */}
+          {active ? (
+            <div className={collapsed ? 'mt-2 pt-2 border-t border-white/[0.07]' : ''}>
+              {!collapsed ? (
+                <div className="flex items-center justify-between pl-5 pr-4 pt-5 pb-2 text-[10.5px] font-semibold uppercase tracking-[0.1em] text-sidebarMuted">
+                  <span>{MODULE_META[active.label].title}</span>
+                  <span className="tabular-nums normal-case tracking-normal">{active.items.length}</span>
+                </div>
+              ) : null}
+              <Section group={{ label: null, items: active.items }} collapsed={collapsed} first={false} folded={false} />
+            </div>
+          ) : null}
+
           {!collapsed ? <Pinned /> : null}
+
+          {!collapsed && recentShown.length ? (
+            <div>
+              <div className="pl-5 pr-4 pt-5 pb-2 text-[10.5px] font-semibold uppercase tracking-[0.1em] text-sidebarMuted">Recent</div>
+              <ul className="px-2 space-y-px">
+                {recentShown.map((r) => (
+                  <li key={r.to}>
+                    <Link to={r.to} title={r.label}
+                      className="flex items-center gap-3 h-8 px-3 rounded-[9px] text-13 text-white/65 sb-hover hover:text-white">
+                      <History size={15} strokeWidth={1.8} className="shrink-0 text-white/40" />
+                      <span className="truncate">{r.label}</span>
+                    </Link>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ) : null}
         </nav>
         {!collapsed ? <FilingSeason /> : null}
         <Profile collapsed={collapsed} onToggle={() => setCollapsed((c) => !c)} />
