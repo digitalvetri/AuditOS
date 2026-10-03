@@ -20,6 +20,7 @@ import {
   MAPPABLE_FIELD_LABEL,
   type ClassifiedBatch,
   type CommitImportResult,
+  type ImportMapping,
   type ImportTarget,
   type MappableField,
   type SheetPreview,
@@ -165,24 +166,16 @@ export function BookkeepingImportPage() {
         </p>
       </div>
 
-      {/* Existing mappings, so the operator sees what is already remembered */}
+      {/* Existing mappings, so the operator sees what is already remembered.
+          Each row expands to the column→field table so a mapping saved
+          against the wrong target (e.g. purchase columns under
+          sales_register) is spottable and deletable. */}
       {mappingsQ.data && mappingsQ.data.items.length > 0 && (
         <div className="border border-neutral-200 rounded p-3 bg-white">
           <div className="text-11 uppercase tracking-[0.08em] text-neutral-500 mb-2">Saved mappings</div>
           <ul className="space-y-1">
             {mappingsQ.data.items.map((m) => (
-              <li key={m.id} className="text-13 text-neutral-700 flex items-center gap-2">
-                <span className="font-medium">{TARGET_LABEL[m.target]}</span>
-                <span className="text-neutral-500">·</span>
-                <span className="text-neutral-500">
-                  Sheet <span className="font-mono">{m.sheetName}</span>
-                </span>
-                <span className="text-neutral-500">·</span>
-                <span className="text-neutral-500">
-                  {Object.keys(m.columnMapJson).length} columns mapped
-                </span>
-                <span className="text-neutral-400 ml-auto">v{m.version}</span>
-              </li>
+              <SavedMappingRow key={m.id} mapping={m} companyId={companyId} onDeleted={() => qc.invalidateQueries({ queryKey: ['bk.import.mappings', companyId] })} />
             ))}
           </ul>
         </div>
@@ -570,6 +563,114 @@ function DerivedBatchPanel({
         </div>
       </details>
     </div>
+  );
+}
+
+/**
+ * One row of the "Saved mappings" list, expandable into the full
+ * column → field table + a Delete button. Only here because the plain
+ * read-only line hid broken-against-target mistakes (purchase columns
+ * saved under sales_register show up as "11 columns mapped" and nothing
+ * else — you can't tell by looking, and you can't un-save).
+ */
+function SavedMappingRow({
+  mapping,
+  companyId,
+  onDeleted,
+}: {
+  mapping: ImportMapping;
+  companyId: string;
+  onDeleted: () => void;
+}) {
+  const [confirming, setConfirming] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  const deleteMut = useMutation({
+    mutationFn: () => bookkeepingAccountingApi.deleteImportMapping(companyId, mapping.id),
+    onSuccess: () => {
+      setErr(null);
+      setConfirming(false);
+      onDeleted();
+    },
+    onError: (e: Error) => setErr(e.message),
+  });
+
+  const entries = Object.entries(mapping.columnMapJson)
+    .sort(([a], [b]) => (a.length === b.length ? a.localeCompare(b) : a.length - b.length));
+
+  return (
+    <li className="text-13 text-neutral-700 border border-transparent hover:border-neutral-200 rounded">
+      <details>
+        <summary className="flex items-center gap-2 cursor-pointer px-2 py-1 list-none [&::-webkit-details-marker]:hidden">
+          <span className="text-neutral-400 text-11 w-3">▸</span>
+          <span className="font-medium">{TARGET_LABEL[mapping.target]}</span>
+          <span className="text-neutral-500">·</span>
+          <span className="text-neutral-500">Sheet <span className="font-mono">{mapping.sheetName}</span></span>
+          <span className="text-neutral-500">·</span>
+          <span className="text-neutral-500">header row {mapping.headerRow}</span>
+          <span className="text-neutral-500">·</span>
+          <span className="text-neutral-500">{entries.length} columns mapped</span>
+          <span className="text-neutral-400 ml-auto">v{mapping.version}</span>
+        </summary>
+        <div className="px-5 pb-2 pt-1 space-y-2">
+          <div className="text-12 text-neutral-500">
+            Date format: <span className="font-mono text-neutral-700">{mapping.dateFormat}</span>
+            {Object.keys(mapping.currencyAliasesJson ?? {}).length > 0 && (
+              <> · {Object.keys(mapping.currencyAliasesJson).length} currency aliases</>
+            )}
+          </div>
+          <table className="text-12 border-collapse">
+            <thead>
+              <tr className="text-neutral-500">
+                <th className="text-left font-medium pr-6 pb-1">Column</th>
+                <th className="text-left font-medium pb-1">Field</th>
+              </tr>
+            </thead>
+            <tbody>
+              {entries.map(([col, field]) => (
+                <tr key={col} className="border-t border-neutral-100">
+                  <td className="font-mono text-neutral-700 pr-6 py-0.5">{col}</td>
+                  <td className={`py-0.5 ${field === 'ignore' ? 'text-neutral-400' : 'text-neutral-900'}`}>
+                    {MAPPABLE_FIELD_LABEL[field]}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          <div className="flex items-center gap-2 pt-1">
+            {!confirming ? (
+              <button
+                type="button"
+                onClick={() => { setErr(null); setConfirming(true); }}
+                className="text-12 px-2 py-0.5 border border-neutral-300 text-neutral-700 rounded hover:bg-neutral-50"
+              >
+                Delete mapping
+              </button>
+            ) : (
+              <>
+                <span className="text-12 text-neutral-700">Delete this saved mapping?</span>
+                <button
+                  type="button"
+                  onClick={() => deleteMut.mutate()}
+                  disabled={deleteMut.isPending}
+                  className="text-12 px-2 py-0.5 border border-red-600 bg-red-600 text-white rounded disabled:opacity-50"
+                >
+                  {deleteMut.isPending ? 'Deleting…' : 'Yes, delete'}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setConfirming(false)}
+                  disabled={deleteMut.isPending}
+                  className="text-12 px-2 py-0.5 border border-neutral-300 text-neutral-700 rounded hover:bg-neutral-50"
+                >
+                  Cancel
+                </button>
+              </>
+            )}
+            {err && <span className="text-12 text-red-700">{err}</span>}
+          </div>
+        </div>
+      </details>
+    </li>
   );
 }
 

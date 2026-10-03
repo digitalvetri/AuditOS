@@ -637,6 +637,8 @@ export const bookkeepingAccountingApi = {
     api.get<ImportMapping>(`${base(c)}/imports/mappings/${target}`),
   saveImportMapping: (c: string, input: SaveImportMappingInput) =>
     api.post<ImportMapping>(`${base(c)}/imports/mappings`, input),
+  deleteImportMapping: (c: string, mappingId: string) =>
+    api.delete<{ id: string }>(`${base(c)}/imports/mappings/${mappingId}`),
 
   // Step 2 — derive vouchers from a mapped file. The saved mapping is
   // read from the DB (see route.imports.ts); we just POST the file and
