@@ -33,6 +33,9 @@ const FLAG_TEXT: Record<string, string> = {
   DATE_ORDER: 'Date is earlier than the row above',
   OUT_OF_PERIOD: 'Date is outside the chosen financial year',
   NO_BALANCE: 'No running balance on this row',
+  // Introduced per REPOTIC §1: a row without a Tally ledger is NOT OK.
+  // The row stays in "Needs review" until a ledger is picked.
+  NO_LEDGER: 'No Tally ledger yet — pick one or accept to postpone',
   ACCEPTED: 'Accepted as read',
 };
 const JOB_FLAG_TEXT: Record<string, string> = {
@@ -191,7 +194,13 @@ function JobActions({ detail }: { detail: AaJobDetail }) {
             href={approved ? auditAutomationApi.tallyXmlUrl(job.id) : undefined} download title={approved ? undefined : 'Approve first'}>
             <Download size={13} /> Tally XML
           </a>
-          <a className="inline-flex items-center gap-1 h-8 px-3 rounded text-13 border border-neutral-300 text-neutral-800 hover:bg-neutral-50" href={auditAutomationApi.workbookUrl(job.id)} download>
+          {/* Excel export is gated on the SAME condition as Tally XML — a
+              half-mapped statement is the same wrong data in a different
+              file (REPOTIC §1). The ?draft=1 variant stays for internal
+              review of unreviewed rows; it is intentionally not surfaced
+              on the toolbar. */}
+          <a className={'inline-flex items-center gap-1 h-8 px-3 rounded text-13 border ' + (approved ? 'border-neutral-300 text-neutral-800 hover:bg-neutral-50' : 'pointer-events-none opacity-40 border-neutral-300 text-neutral-500')}
+            href={approved ? auditAutomationApi.workbookUrl(job.id) : undefined} download title={approved ? undefined : 'Approve first'}>
             <Download size={13} /> Excel
           </a>
         </>
@@ -225,7 +234,20 @@ function Transactions({ detail }: { detail: AaJobDetail }) {
     queryFn: () => auditAutomationApi.rows(job.id, { status: tab, search: search || undefined, limit: PAGE, offset: page * PAGE }),
   });
   const rules = useQuery({ queryKey: ['aa.rules', job.client_id], queryFn: () => auditAutomationApi.rules(job.client_id) });
-  const ledgers = useMemo(() => [...new Set((rules.data?.items ?? []).map((r) => r.ledger_name))].sort(), [rules.data]);
+  // The client's real ledger master — rules + distinct ledgers from past
+  // approved jobs. Replaces the "unique ledger names from rules" shortcut
+  // that let operators save typos like "a" because the datalist is only
+  // a suggestion, not a constraint. See LedgerInput's docstring.
+  const ledgerMaster = useQuery({
+    queryKey: ['aa.ledger-master', job.client_id],
+    queryFn: () => auditAutomationApi.ledgerMaster(job.client_id),
+    enabled: Boolean(job.client_id),
+  });
+  const knownLedgers = useMemo(() => {
+    const fromRules = (rules.data?.items ?? []).map((r) => r.ledger_name);
+    const fromMaster = ledgerMaster.data?.ledgers ?? [];
+    return [...new Set([...fromRules, ...fromMaster].filter((s): s is string => Boolean(s)))].sort();
+  }, [rules.data, ledgerMaster.data]);
   const update = useMutation({
     mutationFn: ({ id, body }: { id: string; body: Record<string, unknown> }) => auditAutomationApi.updateRow(id, body),
     onSuccess: () => { void qc.invalidateQueries({ queryKey: ['aa.rows', job.id] }); void qc.invalidateQueries({ queryKey: ['aa.job', job.id] }); },
@@ -252,7 +274,9 @@ function Transactions({ detail }: { detail: AaJobDetail }) {
         {data?.missing_ledger ? <span className="text-12 text-amber">{data.missing_ledger} without a ledger</span> : null}
         <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search narration, ref, ledger…" className="h-8 w-56 px-2 text-13 border border-neutral-300 rounded" />
       </div>
-      <datalist id="aa-ledgers">{ledgers.map((l) => <option key={l} value={l} />)}</datalist>
+      {/* Datalist is still referenced by the Make Rule modal input below.
+          LedgerInput on each row has its own popover; it doesn't use this. */}
+      <datalist id="aa-ledgers">{knownLedgers.map((l) => <option key={l} value={l} />)}</datalist>
       <div className="overflow-x-auto">
         <table className="w-full min-w-[960px] table-fixed text-13">
           <thead>
@@ -289,7 +313,8 @@ function Transactions({ detail }: { detail: AaJobDetail }) {
                 <td className="px-2 py-1.5 text-right tabular-nums">{r.credit_paise ? inr(r.credit_paise) : ''}</td>
                 <td className="px-2 py-1.5 text-right tabular-nums">{inr(r.balance_paise)}</td>
                 <td className="px-2 py-1 space-y-1">
-                  <LedgerInput value={r.ledger_name ?? ''} disabled={locked} onSave={(v) => update.mutate({ id: r.id, body: { ledger_name: v } })} />
+                  <LedgerInput value={r.ledger_name ?? ''} disabled={locked} known={knownLedgers}
+                    onSave={(v) => update.mutate({ id: r.id, body: { ledger_name: v } })} />
                   <select value={r.voucher_type ?? ''} disabled={locked}
                     onChange={(e) => update.mutate({ id: r.id, body: { voucher_type: e.target.value || null } })}
                     className="h-7 w-full text-12 border border-neutral-300 rounded bg-white disabled:bg-transparent disabled:border-transparent">
@@ -335,15 +360,92 @@ function Transactions({ detail }: { detail: AaJobDetail }) {
   );
 }
 
-function LedgerInput({ value, disabled, onSave }: { value: string; disabled: boolean; onSave: (v: string) => void }) {
+/**
+ * Ledger entry — autocomplete against the client's known ledgers, with
+ * "Create new ledger" as an EXPLICIT action, not a side effect of typing
+ * (REPOTIC §1 fix 2). Typing "a" and tabbing away used to silently save
+ * "a" as the ledger name, producing a Tally import that fails on every
+ * row. Now:
+ *
+ *   - Suggestions filter as you type.
+ *   - Clicking a suggestion saves it immediately.
+ *   - Pressing Enter / blurring with text that does NOT match any known
+ *     ledger shows a pending prompt (" ↳ Create new ledger 'X' ") that
+ *     the operator must click to confirm. Blurring without confirming
+ *     reverts to the previous value, so there is no accidental save.
+ *
+ * `known` is the client's ledger master from
+ * GET /audit-automation/clients/:id/ledger-master.
+ */
+function LedgerInput({ value, disabled, known, onSave }: {
+  value: string; disabled: boolean; known: string[]; onSave: (v: string) => void;
+}) {
   const [v, setV] = useState(value);
+  const [focused, setFocused] = useState(false);
+  const [pendingCreate, setPendingCreate] = useState<string | null>(null);
   useEffect(() => setV(value), [value]);
+
+  const typed = v.trim();
+  const matchExact = typed && known.some((k) => k.toLowerCase() === typed.toLowerCase());
+  const suggestions = typed
+    ? known.filter((k) => k.toLowerCase().includes(typed.toLowerCase())).slice(0, 8)
+    : known.slice(0, 8);
+
+  const commit = (next: string) => {
+    const t = next.trim();
+    if (t === value) return;
+    setV(t); setPendingCreate(null); setFocused(false);
+    onSave(t);
+  };
+
+  const onBlur = () => {
+    // Give click handlers on the dropdown a chance to run.
+    setTimeout(() => {
+      if (pendingCreate !== null) return;  // let the user click Create
+      if (!typed) { setV(''); if (value) commit(''); setFocused(false); return; }
+      if (matchExact) { commit(typed); return; }
+      // New value — queue a confirmation. If they blur the pending UI too,
+      // we revert — the Create button is the only way to actually save.
+      setPendingCreate(typed);
+    }, 150);
+  };
+
   return (
-    <input list="aa-ledgers" value={v} disabled={disabled} onChange={(e) => setV(e.target.value)}
-      onBlur={() => { if (v.trim() !== value) onSave(v.trim()); }}
-      onKeyDown={(e) => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); }}
-      placeholder={disabled ? '' : 'Ledger…'}
-      className={'h-7 w-full px-1.5 text-12 border rounded disabled:bg-transparent disabled:border-transparent ' + (!value && !disabled ? 'border-amber/60' : 'border-neutral-300')} />
+    <div className="relative">
+      <input value={v} disabled={disabled}
+        onChange={(e) => { setV(e.target.value); setPendingCreate(null); }}
+        onFocus={() => setFocused(true)}
+        onBlur={onBlur}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter') { e.preventDefault(); (e.target as HTMLInputElement).blur(); }
+          if (e.key === 'Escape') { setV(value); setPendingCreate(null); setFocused(false); (e.target as HTMLInputElement).blur(); }
+        }}
+        placeholder={disabled ? '' : 'Ledger…'}
+        className={'h-7 w-full px-1.5 text-12 border rounded disabled:bg-transparent disabled:border-transparent ' + (!value && !disabled ? 'border-amber/60' : 'border-neutral-300')} />
+      {focused && !disabled && (suggestions.length > 0 || pendingCreate) ? (
+        <div className="absolute left-0 right-0 top-full mt-0.5 z-20 bg-white border border-neutral-300 rounded shadow-md text-12 max-h-56 overflow-auto">
+          {suggestions.map((s) => (
+            <button key={s} type="button"
+              onMouseDown={(e) => e.preventDefault()}
+              onClick={() => commit(s)}
+              className={'w-full text-left px-2 py-1 hover:bg-neutral-50 ' + (s === value ? 'text-primary' : 'text-neutral-800')}>
+              {s}
+            </button>
+          ))}
+          {pendingCreate && !matchExact ? (
+            <button type="button"
+              onMouseDown={(e) => e.preventDefault()}
+              onClick={() => commit(pendingCreate)}
+              className="w-full text-left px-2 py-1 border-t border-neutral-100 bg-amber/10 hover:bg-amber/20 text-amber-800">
+              <span className="font-semibold">↳ Create new ledger</span> "{pendingCreate}"
+            </button>
+          ) : null}
+          {pendingCreate === null && typed && !matchExact ? (
+            <div className="px-2 py-1 text-11 text-neutral-500 border-t border-neutral-100">Not in the client's ledger master. Press Enter to review.</div>
+          ) : null}
+        </div>
+      ) : null}
+    </div>
   );
 }
 

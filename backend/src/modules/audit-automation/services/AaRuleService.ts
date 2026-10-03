@@ -29,6 +29,41 @@ export function defaultVoucherType(direction: Direction): string {
   return direction === 'withdrawal' ? 'payment' : 'receipt'
 }
 
+/**
+ * Contra-aware voucher classifier (REPOTIC-MODULE.md §1 / TALLY-EXPORT.md §4.1).
+ *
+ * A transfer between two of the client's OWN bank or cash accounts is
+ * neither income nor expense; recording it as Payment/Receipt inflates
+ * both sides of the P&L. If the counter-ledger looks like another of the
+ * client's own bank/cash ledgers, pick Contra. Fall back to the
+ * direction-based default otherwise.
+ *
+ * The caller resolves `ownBankCashLedgers` from the client's other
+ * approved statements (their bank ledger names) and the operator's
+ * manually-maintained cash ledgers. `currentBankLedger` is the ledger
+ * attached to the statement being exported — we must NOT self-contra.
+ * Match is case-insensitive and trimmed.
+ */
+export function classifyVoucherType(input: {
+  direction: Direction
+  counterLedger: string | null
+  ownBankCashLedgers: Set<string>
+  currentBankLedger: string | null
+}): string {
+  const name = (input.counterLedger ?? '').trim().toLowerCase()
+  if (!name) return defaultVoucherType(input.direction)
+  const current = (input.currentBankLedger ?? '').trim().toLowerCase()
+  if (name === current) return defaultVoucherType(input.direction)  // self-contra, impossible
+  const own = new Set([...input.ownBankCashLedgers].map((l) => l.trim().toLowerCase()))
+  if (own.has(name)) return 'contra'
+  // Heuristic fallback — the client picked a ledger that *looks* like
+  // cash or a second bank account even though we haven't seen it on
+  // another approved statement yet. The operator can always override via
+  // the dropdown; the audit log records every explicit choice.
+  if (/^(cash|petty\s*cash|cash in hand)\b/.test(name)) return 'contra'
+  return defaultVoucherType(input.direction)
+}
+
 function compile(r: RuleRow): ((narration: string) => boolean) | null {
   const p = r.pattern.trim()
   if (!p) return null

@@ -220,6 +220,9 @@ export const auditAutomationApi = {
   tallyXmlUrl: (id: string) => `/api/audit-automation/jobs/${id}/export/tally.xml`,
   workbookUrl: (id: string) => `/api/audit-automation/jobs/${id}/export.xlsx`,
   rules: (clientId: string) => api.get<{ items: AaRule[] }>(`/api/audit-automation/rules${qs({ client_id: clientId })}`),
+  /** Client's known ledgers + own bank/cash ledger set (REPOTIC §1 fix 2/4). */
+  ledgerMaster: (clientId: string) =>
+    api.get<{ ledgers: string[]; own_bank_cash_ledgers: string[] }>(`/api/audit-automation/clients/${clientId}/ledger-master`),
   createRule: (body: { client_id?: string | null; match_type?: string; pattern: string; direction?: string; ledger_name: string; voucher_type?: string | null; priority?: number }) =>
     api.post<{ id: string }>('/api/audit-automation/rules', body),
   deleteRule: (id: string) => api.delete<{ deleted: boolean }>(`/api/audit-automation/rules/${id}`),

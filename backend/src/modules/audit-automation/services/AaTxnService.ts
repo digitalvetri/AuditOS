@@ -9,7 +9,7 @@ import { formatVouchersXml } from '../../tally-export/xml.js'
 import type { PreviewRow, VoucherType } from '../../tally-export/types.js'
 import { parseStatementDate, parseMoney } from '../lib/statementParser.js'
 import { AaJobService } from './AaJobService.js'
-import { AaRuleService, defaultVoucherType, VOUCHER_TYPES } from './AaRuleService.js'
+import { AaRuleService, classifyVoucherType, defaultVoucherType, VOUCHER_TYPES } from './AaRuleService.js'
 import { fingerprintOf } from './AaExtractService.js'
 
 /**
@@ -23,7 +23,13 @@ import { fingerprintOf } from './AaExtractService.js'
  * Tally export needs approval.
  */
 
-const REVIEW_FLAGS = ['BALANCE_BREAK', 'NO_AMOUNT', 'BOTH_AMOUNTS', 'AUTO_SWAPPED', 'DATE_ORDER', 'OUT_OF_PERIOD']
+/**
+ * Any flag in this set drives status → 'flagged'. NO_LEDGER was added
+ * per REPOTIC-MODULE.md §1 — the dashboard was reading rows with no
+ * ledger assigned as "OK" while the header counted them as "without a
+ * ledger", so staff learned to ignore both.
+ */
+const REVIEW_FLAGS = ['BALANCE_BREAK', 'NO_AMOUNT', 'BOTH_AMOUNTS', 'AUTO_SWAPPED', 'DATE_ORDER', 'OUT_OF_PERIOD', 'NO_LEDGER']
 type Txn = Awaited<ReturnType<typeof prisma.aaBankTxn.findMany>>[number]
 
 const csv = (s: string) => (s ? s.split(',').filter(Boolean) : [])
@@ -59,6 +65,7 @@ async function recheck(jobId: string): Promise<void> {
       if (r.debitPaise === 0n && r.creditPaise === 0n) flags.add('NO_AMOUNT')
       if (r.debitPaise > 0n && r.creditPaise > 0n) flags.add('BOTH_AMOUNTS')
       if (period && (r.txnDate < period[0] || r.txnDate > period[1])) flags.add('OUT_OF_PERIOD')
+      if (!r.ledgerName || !r.ledgerName.trim()) flags.add('NO_LEDGER')
       if (prev) {
         if (r.txnDate < prev.txnDate) flags.add('DATE_ORDER')
         if (prev.balancePaise !== null && r.balancePaise !== null) {
@@ -208,13 +215,35 @@ export const AaTxnService = {
     if (job.reviewStatus !== 'approved') throw ApiError.conflict('not_approved', 'Approve the reviewed statement before exporting to Tally.')
     const rows = await prisma.aaBankTxn.findMany({ where: { jobId: job.id, status: 'ok' }, orderBy: { seq: 'asc' } })
     const bankCode = (job.sourceDocument.bank.key.replace(/[^a-z]/gi, '').slice(0, 5) || 'BANK').toUpperCase()
+    // Contra awareness — resolve the client's OTHER bank-ledger names from
+    // every other approved statement on the same client, then pass that
+    // set to classifyVoucherType. Keeps the "transfer between own
+    // accounts → Contra" rule honest even when the rule system never
+    // tagged the counter-ledger explicitly.
+    const otherJobs = await prisma.aaJob.findMany({
+      where: {
+        clientId: job.clientId,
+        organisationId: job.organisationId,
+        reviewStatus: 'approved',
+        bankLedgerName: { not: null },
+        NOT: { id: job.id },
+      },
+      select: { bankLedgerName: true },
+    })
+    const ownBankCashLedgers = new Set<string>(
+      otherJobs.map((j) => j.bankLedgerName!).filter((s) => s && s.trim()),
+    )
     const preview: PreviewRow[] = rows.map((r) => {
       const direction = r.debitPaise > 0n ? 'withdrawal' as const : 'deposit' as const
+      const defaultType = classifyVoucherType({
+        direction, counterLedger: r.ledgerName, ownBankCashLedgers,
+        currentBankLedger: job.bankLedgerName,
+      })
       return {
         statement_line_id: r.id, date: r.txnDate, description: [r.narration, r.reference].filter(Boolean).join(' / '), ref_number: r.reference,
         debit_paise: Number(r.debitPaise), credit_paise: Number(r.creditPaise), direction,
         matched_rule_id: r.matchedRuleId, ledger_name: r.ledgerName,
-        voucher_type: (r.voucherType ?? defaultVoucherType(direction)) as VoucherType,
+        voucher_type: (r.voucherType ?? defaultType) as VoucherType,
         voucher_number: `${bankCode}/${r.txnDate.replace(/-/g, '')}/${String(r.seq).padStart(4, '0')}`,
         new_ledger: false,
       }
@@ -233,9 +262,20 @@ export const AaTxnService = {
     return { xml, filename: `${bankCode}-${acct}-${job.periodFrom ?? ''}_${job.periodTo ?? ''}-tally.xml` }
   },
 
-  /** Every row, as reviewed, for the working papers. */
-  async workbook(session: Session, jobId: string, req?: Request): Promise<{ bytes: Buffer; filename: string }> {
+  /**
+   * Every row, as reviewed, for the working papers. Approval-gated for the
+   * same reason the Tally XML is: a half-mapped statement in Excel is the
+   * same wrong data in a different file (REPOTIC-MODULE.md §1).
+   *
+   * `include_unreviewed = true` is the escape hatch for the Firm Manager
+   * who genuinely wants to see raw rows alongside flags — the audit log
+   * records which path was used.
+   */
+  async workbook(session: Session, jobId: string, req?: Request, opts?: { includeUnreviewed?: boolean }): Promise<{ bytes: Buffer; filename: string }> {
     const job = await jobFor(session, jobId)
+    if (!opts?.includeUnreviewed && job.reviewStatus !== 'approved') {
+      throw ApiError.conflict('not_approved', 'Approve the reviewed statement before exporting the workbook (same gate as the Tally XML export).')
+    }
     const rows = await prisma.aaBankTxn.findMany({ where: { jobId: job.id }, orderBy: { seq: 'asc' } })
     const wb = new ExcelJS.Workbook()
     const rupees = (p: bigint | null) => (p === null ? null : Number(p) / 100)
@@ -258,7 +298,16 @@ export const AaTxnService = {
       { header: 'Withdrawal', key: 'dr', width: 14 }, { header: 'Deposit', key: 'cr', width: 14 }, { header: 'Balance', key: 'b', width: 16 },
       { header: 'Ledger', key: 'l', width: 28 }, { header: 'Voucher', key: 'vt', width: 10 }, { header: 'Status', key: 's', width: 10 }, { header: 'Flags', key: 'f', width: 30 }, { header: 'Edited', key: 'e', width: 8 },
     ]
-    for (const r of rows) t.addRow({ seq: r.seq, d: r.txnDate, vd: r.valueDate, n: r.narration, r: r.reference, dr: rupees(r.debitPaise) || null, cr: rupees(r.creditPaise) || null, b: rupees(r.balancePaise), l: r.ledgerName, vt: r.voucherType ?? defaultVoucherType(r.debitPaise > 0n ? 'withdrawal' : 'deposit'), s: r.status, f: r.flags, e: r.editedAt ? 'yes' : '' })
+    const otherBanks = await prisma.aaJob.findMany({
+      where: { clientId: job.clientId, organisationId: job.organisationId, reviewStatus: 'approved', bankLedgerName: { not: null }, NOT: { id: job.id } },
+      select: { bankLedgerName: true },
+    })
+    const ownSet = new Set<string>(otherBanks.map((j) => j.bankLedgerName!).filter(Boolean))
+    for (const r of rows) {
+      const direction = r.debitPaise > 0n ? 'withdrawal' as const : 'deposit' as const
+      const defaultVt = classifyVoucherType({ direction, counterLedger: r.ledgerName, ownBankCashLedgers: ownSet, currentBankLedger: job.bankLedgerName })
+      t.addRow({ seq: r.seq, d: r.txnDate, vd: r.valueDate, n: r.narration, r: r.reference, dr: rupees(r.debitPaise) || null, cr: rupees(r.creditPaise) || null, b: rupees(r.balancePaise), l: r.ledgerName, vt: r.voucherType ?? defaultVt, s: r.status, f: r.flags, e: r.editedAt ? 'yes' : '' })
+    }
     for (const c of ['dr', 'cr', 'b']) t.getColumn(c).numFmt = '#,##0.00'
     t.getRow(1).font = { bold: true }
     await writeAudit({ actorUserId: session.userId, action: 'aa.bank.exported', entityType: 'AaJob', entityId: job.id, after: { kind: 'xlsx', rows: rows.length }, req })
