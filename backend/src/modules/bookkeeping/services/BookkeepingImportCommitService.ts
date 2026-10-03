@@ -285,6 +285,30 @@ export async function commitBatch(
     }
   }
 
+  // Flow the newly-created / resolved party ledgers back into the vouchers
+  // and re-run classification. A row originally classified `skip` because
+  // its party had no ledger at derive time can now post as `new` (or match
+  // an existing voucher as `unchanged` / `changed`). Purchase idempotency
+  // keys depend on partyLedgerId, so re-classification is required —
+  // without it, re-importing the same purchase file after an auto-create
+  // would double-post. Sales keys are party-independent but still benefit
+  // from the shared pass.
+  let anyNewlyResolved = false
+  for (const voucher of input.batch.vouchers) {
+    if (voucher.partyLedgerId) continue
+    const key = normalizeParty(voucher.partyName)
+    const resolved = partyLedgerByName.get(key)
+    if (resolved) {
+      voucher.partyLedgerId = resolved
+      anyNewlyResolved = true
+    }
+  }
+  if (anyNewlyResolved) {
+    const reclassified = await classifyExistence(prisma, companyId, input.batch)
+    input.batch.classification = reclassified.classification
+    input.batch.counts = reclassified.counts
+  }
+
   const changedByRow = new Map(input.changedRowDecisions.map((d) => [d.rowNumber, d]))
 
   for (const voucher of input.batch.vouchers) {
