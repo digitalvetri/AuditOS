@@ -56,6 +56,8 @@ export function ClientPanel({ client, money, gst, tds, health, onClose }: {
   });
 
   const contact = detail.data?.contacts.find((c) => c.is_primary) ?? detail.data?.contacts[0];
+  // The most overdue invoice — "Send reminder" opens it, where email / WhatsApp reminders live.
+  const oldestOverdue = (invoices.data?.invoices ?? []).filter((i) => i.state === 'overdue').sort((x, y) => y.days_overdue - x.days_overdue)[0];
   const openServices = (services.data?.items ?? []).filter((s) => s.status !== 'completed');
   const rows = gst?.byClient.get(client.id);
   const tabs: [string, string, boolean][] = [
@@ -110,6 +112,10 @@ export function ClientPanel({ client, money, gst, tds, health, onClose }: {
           ) : null}
           {can(role, 'workstation.invoice.manage', 'self') ? (
             <Link to={`/workstation/invoices/new?client_id=${client.id}`} className="inline-flex items-center gap-[6px] h-8 px-3 rounded-[9px] bg-surface shadow-card text-13 font-semibold text-ink hover:shadow-raised"><Plus size={14} />Invoice</Link>
+          ) : null}
+          {oldestOverdue ? (
+            <Link to={`/workstation/invoices/${oldestOverdue.id}`} title={`Remind about ${oldestOverdue.invoice_number}`}
+              className="inline-flex items-center gap-[6px] h-8 px-3 rounded-[9px] bg-danger text-white text-13 font-semibold">Send reminder</Link>
           ) : null}
           <Link to={base} className="inline-flex items-center gap-[6px] h-8 px-3 rounded-[9px] bg-surface shadow-card text-13 font-semibold text-ink hover:shadow-raised">Open workspace <ArrowUpRight size={14} /></Link>
         </div>

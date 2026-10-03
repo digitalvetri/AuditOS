@@ -155,7 +155,15 @@ export function QueryState<T>({
   children: (data: T) => ReactNode;
 }) {
   if (query.isLoading) {
-    return <div className="px-4 py-6 text-13 text-neutral-500">Loading…</div>;
+    return (
+      <div className="px-4 py-5 space-y-3" aria-busy="true">
+        <span className="sr-only">Loading…</span>
+        <div className="h-4 w-1/3 rounded" aria-label="Loading" />
+        <div className="h-10 rounded-lg" aria-label="Loading" />
+        <div className="h-10 rounded-lg" aria-label="Loading" />
+        <div className="h-10 w-5/6 rounded-lg" aria-label="Loading" />
+      </div>
+    );
   }
   if (query.isError) {
     const err = query.error as ApiError | undefined;
@@ -201,7 +209,15 @@ export function QueryState<T>({
   // unmounting the tree and blanking the entire page instead of showing the
   // one section that was not ready.
   if (query.data === undefined) {
-    return <div className="px-4 py-6 text-13 text-neutral-500">Loading…</div>;
+    return (
+      <div className="px-4 py-5 space-y-3" aria-busy="true">
+        <span className="sr-only">Loading…</span>
+        <div className="h-4 w-1/3 rounded" aria-label="Loading" />
+        <div className="h-10 rounded-lg" aria-label="Loading" />
+        <div className="h-10 rounded-lg" aria-label="Loading" />
+        <div className="h-10 w-5/6 rounded-lg" aria-label="Loading" />
+      </div>
+    );
   }
   const data = query.data as T;
   const isEmptyList =

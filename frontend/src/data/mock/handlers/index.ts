@@ -14,6 +14,7 @@ import { chatHandlers } from './chats';
 import { reportsHandlers } from './reports';
 import { toolsHandlers } from './tools';
 import { auditAutomationHandlers } from './auditAutomation';
+import { paymentSummaryHandlers } from './paymentSummary';
 
 /**
  * MSW handler registry. New modules append their handler arrays here.
@@ -38,5 +39,7 @@ export const handlers = [
   ...chatHandlers,
   ...reportsHandlers,
   ...auditAutomationHandlers,
+  // `/monthly` is declared before the bare summary path inside the module.
+  ...paymentSummaryHandlers,
   ...toolsHandlers,
 ];

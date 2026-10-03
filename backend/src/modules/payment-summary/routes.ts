@@ -19,7 +19,7 @@ import { prisma } from '../../lib/prisma.js'
 import { istToday, daysBetween } from '../../lib/dates.js'
 import { requirePermission, requireSession } from '../../platform/auth.js'
 import { writeAudit } from '../../platform/audit.js'
-import { bucketMonthly, monthWindow } from './monthly.js'
+import { avgDaysToCollect, bucketMonthly, monthWindow } from './monthly.js'
 import {
   addPayment, listPayments, paymentBodySchema, paymentToApi, removePayment, toPaymentInput,
 } from '../invoice/payments.js'
@@ -167,11 +167,14 @@ paymentSummaryRouter.get('/monthly', handler(async (req, res) => {
     }),
     prisma.invoicePayment.findMany({
       where: { paidOn: { gte: from, lte: to }, invoice: BILLED },
-      select: { paidOn: true, amountPaise: true },
+      select: { paidOn: true, amountPaise: true, invoice: { select: { invoiceDate: true } } },
     }),
   ])
 
-  ok(res, { months: bucketMonthly(months, invoices, payments) })
+  ok(res, {
+    months: bucketMonthly(months, invoices, payments),
+    avg_days_to_collect: avgDaysToCollect(payments.map((p) => ({ paidOn: p.paidOn, amountPaise: p.amountPaise, invoiceDate: p.invoice.invoiceDate }))),
+  })
 }))
 
 // ── GET /api/payment-summary/clients/:clientId ────────────────────────────

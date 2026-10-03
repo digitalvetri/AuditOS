@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { bucketMonthly, monthWindow } from '../monthly.js'
+import { avgDaysToCollect, bucketMonthly, monthWindow } from '../monthly.js'
 
 describe('monthWindow', () => {
   it('returns the months ending with the current one, oldest first', () => {
@@ -38,5 +38,19 @@ describe('bucketMonthly', () => {
   it('ignores anything outside the window', () => {
     const points = bucketMonthly(months, [{ invoiceDate: '2026-01-10', totalPaise: 99 }], [{ paidOn: '2027-01-01', amountPaise: 1 }])
     expect(points.every((p) => p.billed_paise === 0 && p.collected_paise === 0)).toBe(true)
+  })
+})
+
+describe('avgDaysToCollect', () => {
+  it('weights the delay by amount', () => {
+    // 10 days on ₹100 and 40 days on ₹300 → (10·100 + 40·300) / 400 = 32.5 → 33
+    expect(avgDaysToCollect([
+      { invoiceDate: '2026-09-01', paidOn: '2026-09-11', amountPaise: 100_00 },
+      { invoiceDate: '2026-08-01', paidOn: '2026-09-10', amountPaise: 300_00 },
+    ])).toBe(33)
+  })
+
+  it('is null with no payments', () => {
+    expect(avgDaysToCollect([])).toBeNull()
   })
 })

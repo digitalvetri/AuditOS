@@ -155,7 +155,7 @@ export function DashboardV2Page() {
 
       {seesBilling || hasDeadlines ? (
         <div className={`grid gap-5 grid-cols-1 ${seesBilling && hasDeadlines ? 'xl:grid-cols-[minmax(0,1.55fr)_minmax(340px,1fr)]' : ''}`}>
-          {seesBilling ? <CashFlowCard months={monthly.data?.months} money={money.data} loading={monthly.isLoading} error={!!monthly.error} /> : null}
+          {seesBilling ? <CashFlowCard months={monthly.data?.months} avgDays={monthly.data?.avg_days_to_collect ?? null} money={money.data} loading={monthly.isLoading} error={!!monthly.error} /> : null}
           {hasDeadlines ? <DeadlinesCard list={deadlineList} today={today} /> : null}
         </div>
       ) : null}
@@ -491,8 +491,9 @@ function WaitingTile({ items }: { items: PendingAction[] }) {
 
 // ── Cash flow ─────────────────────────────────────────────────────────────
 
-function CashFlowCard({ months, money, loading, error }: {
+function CashFlowCard({ months, avgDays, money, loading, error }: {
   months: { month: string; billed_paise: number; collected_paise: number }[] | undefined;
+  avgDays: number | null;
   money: import('@/modules/paymentSummary/api').SummaryResponse | undefined; loading: boolean; error: boolean;
 }) {
   const [range, setRange] = useState<3 | 6>(6);
@@ -520,10 +521,13 @@ function CashFlowCard({ months, money, loading, error }: {
             points={shown.map((m) => ({ label: new Date(`${m.month}-01T00:00:00`).toLocaleString('en-IN', { month: 'short' }), a: m.billed_paise, b: m.collected_paise }))}
             labels={{ a: 'Billed', b: 'Collected' }} format={inrCompact} />
         </div>
-        <div className="grid grid-cols-3 border-t border-border mx-5 py-3 text-12 text-inkMuted">
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-y-3 border-t border-border mx-5 py-3 text-12 text-inkMuted">
           <div><div className="num-display text-[17px] text-ink">{inrCompact(billed)}</div>Billed · {range} months</div>
           <div><div className="num-display text-[17px] text-ink">{inrCompact(collected)}</div>Collected{billed ? ` · ${Math.round((collected / billed) * 100)}%` : ''}</div>
           <div><div className={`num-display text-[17px] ${money && money.totals.overdue_paise ? 'text-danger' : 'text-ink'}`}>{money ? inrCompact(money.totals.pending_paise) : '—'}</div>Outstanding now</div>
+          <div title="Average days from invoice date to payment, weighted by amount, for payments in the last 6 months">
+            <div className="num-display text-[17px] text-ink">{avgDays === null ? '—' : `${avgDays} days`}</div>Avg. time to collect
+          </div>
         </div>
       </State>
     </Panel>

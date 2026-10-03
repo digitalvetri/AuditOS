@@ -54,3 +54,19 @@ export function bucketMonthly(
   }
   return months.map((m) => points.get(m)!)
 }
+
+/**
+ * Average days from invoice date to payment, weighted by amount, over the
+ * payments in the window — "how long money takes to come in". Null when no
+ * payment was received in the window.
+ */
+export function avgDaysToCollect(payments: { paidOn: string; amountPaise: number; invoiceDate: string }[]): number | null {
+  let weight = 0
+  let total = 0
+  for (const p of payments) {
+    const days = Math.max(0, Math.round((Date.parse(`${p.paidOn}T00:00:00Z`) - Date.parse(`${p.invoiceDate}T00:00:00Z`)) / 86_400_000))
+    total += days * p.amountPaise
+    weight += p.amountPaise
+  }
+  return weight > 0 ? Math.round(total / weight) : null
+}

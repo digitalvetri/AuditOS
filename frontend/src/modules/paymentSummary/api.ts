@@ -108,7 +108,7 @@ export const paymentSummaryApi = {
     const qs = p.toString();
     return api.get<SummaryResponse>(`/api/payment-summary${qs ? `?${qs}` : ''}`);
   },
-  monthly: (months = 6) => api.get<{ months: MonthPoint[] }>(`/api/payment-summary/monthly?months=${months}`),
+  monthly: (months = 6) => api.get<{ months: MonthPoint[]; avg_days_to_collect: number | null }>(`/api/payment-summary/monthly?months=${months}`),
   client: (clientId: string) => api.get<ClientDetailResponse>(`/api/payment-summary/clients/${clientId}`),
   record: (invoiceId: string, body: PaymentBody) =>
     api.post<{ payment: InvoicePayment }>(`/api/payment-summary/invoices/${invoiceId}/payments`, body),

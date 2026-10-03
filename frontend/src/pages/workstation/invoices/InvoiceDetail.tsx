@@ -150,6 +150,13 @@ function Body({ inv }: { inv: Invoice }) {
     + (inv.balance_due_paise > 0 && inv.due_date ? `\nBalance due: ₹${inrAmount(inv.balance_due_paise)} by ${fmtDate(inv.due_date)}` : '')
     + `\n\nRegards`;
   const [whatsapping, setWhatsapping] = useState(false);
+  // Payment reminder — same email / WhatsApp dialogs, with a reminder note.
+  const [reminding, setReminding] = useState<null | 'menu' | 'email' | 'whatsapp'>(null);
+  const reminder =
+    `Dear ${inv.billing_name || inv.client_name || 'Sir/Madam'},\n\nThis is a gentle reminder that invoice ${inv.invoice_number} dated ${fmtDate(inv.invoice_date)}`
+    + ` has a balance of ₹${inrAmount(inv.balance_due_paise)}${inv.due_date ? `, which was due on ${fmtDate(inv.due_date)}` : ''}.`
+    + `\nYou can download the invoice from the link below. Kindly arrange the payment at the earliest, or let us know if it has already been made.\n\nThank you,\nRegards`;
+  const canRemind = mayWrite && inv.balance_due_paise > 0 && inv.stored_status !== 'draft' && inv.stored_status !== 'cancelled';
 
   return (
     <>
@@ -168,6 +175,14 @@ function Body({ inv }: { inv: Invoice }) {
       <SendWhatsAppDialog
         open={whatsapping} onClose={() => setWhatsapping(false)} kind="invoice" id={inv.id} phone={inv.party_contact_number}
         note={note}
+      />
+      <SendEmailDialog
+        open={reminding === 'email'} onClose={() => setReminding(null)} kind="invoice" id={inv.id}
+        to={inv.party_email} subject={`Payment reminder — invoice ${inv.invoice_number}`} message={reminder}
+      />
+      <SendWhatsAppDialog
+        open={reminding === 'whatsapp'} onClose={() => setReminding(null)} kind="invoice" id={inv.id} phone={inv.party_contact_number}
+        note={reminder}
       />
       <div className="qdoc-screen-only">
         <EntityHeader
@@ -190,6 +205,21 @@ function Body({ inv }: { inv: Invoice }) {
           ]}
           actions={
             <span className="flex gap-2 flex-wrap">
+              {canRemind ? (
+                <span className="relative">
+                  <button type="button" onClick={() => setReminding(reminding === 'menu' ? null : 'menu')}
+                    className={'inline-flex items-center gap-[6px] h-9 px-3 rounded-[10px] text-13 font-semibold shadow-card ' + (inv.is_overdue ? 'bg-danger text-white' : 'bg-surface text-ink')}
+                    aria-haspopup="menu" aria-expanded={reminding === 'menu'}>
+                    <Send size={14} />Send reminder
+                  </button>
+                  {reminding === 'menu' ? (
+                    <span role="menu" className="gs-panel absolute right-0 top-11 z-30 w-[200px] p-1 bg-surface border border-border rounded-[12px] shadow-drawer flex flex-col">
+                      <button type="button" role="menuitem" onClick={() => setReminding('whatsapp')} className="flex items-center gap-2 h-9 px-3 rounded-md text-13 text-ink hover:bg-canvas"><MessageCircle size={15} />On WhatsApp</button>
+                      <button type="button" role="menuitem" onClick={() => setReminding('email')} className="flex items-center gap-2 h-9 px-3 rounded-md text-13 text-ink hover:bg-canvas"><Mail size={15} />By email</button>
+                    </span>
+                  ) : null}
+                </span>
+              ) : null}
               {mayWrite && inv.stored_status === 'draft' ? (
                 <Button variant="primary" disabled={send.isPending} onClick={() => send.mutate()}>Send</Button>
               ) : null}

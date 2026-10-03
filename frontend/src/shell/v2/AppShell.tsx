@@ -19,6 +19,7 @@ export function AppShellV2() {
 
   return (
     <div className="h-dvh flex overflow-hidden bg-canvas text-ink">
+      <a href="#main" className="skip-link h-10 px-4 inline-flex items-center rounded-[10px] bg-primary text-white text-13 font-semibold shadow-drawer">Skip to content</a>
       <Sidebar mobileOpen={mobileNavOpen} onMobileClose={() => setMobileNavOpen(false)} />
       <div className="flex-1 flex flex-col min-w-0 min-h-0">
         <TopBar onOpenMobileNav={() => setMobileNavOpen(true)} />
@@ -27,7 +28,7 @@ export function AppShellV2() {
             `relative` keeps absolutely positioned content (sr-only file
             inputs) inside this scroller; without it they stretch the
             document and the whole shell scrolls up, leaving a blank band. */}
-        <main className="m-main relative flex-1 min-h-0 overflow-y-auto p-3 md:p-5 lg:p-6">
+        <main id="main" tabIndex={-1} className="m-main relative flex-1 min-h-0 overflow-y-auto p-3 md:p-5 lg:p-6 focus:outline-none">
           <Outlet />
         </main>
       </div>
