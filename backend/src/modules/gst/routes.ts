@@ -1200,6 +1200,7 @@ gstRouter.patch('/clients/:id', handler(async (req, res) => {
     contactPhone: has('contact_phone') ? s('contact_phone') : current.contactPhone,
     address: has('address') ? s('address') : current.address,
     active: has('active') ? b.active !== false : current.active,
+    remindersEnabled: has('reminders_enabled') ? b.reminders_enabled !== false : current.remindersEnabled,
     updatedBy: session.userId,
   }
 
@@ -1218,6 +1219,44 @@ gstRouter.patch('/clients/:id', handler(async (req, res) => {
   })
 
   ok(res, { ok: true })
+}))
+
+/**
+ * PATCH /api/gst/clients/:id/reminders-enabled
+ *
+ * Dedicated single-field endpoint for the one-click toggle on the Clients
+ * tab. Separate from the full PATCH /clients/:id to keep the payload
+ * minimal and to allow a less-privileged "settings" permission later
+ * without opening the whole edit surface. For now it reuses the same
+ * manage gate.
+ */
+gstRouter.patch('/clients/:id/reminders-enabled', handler(async (req, res) => {
+  const session = requireSession(req)
+  const scope = requireWorkstation(session, 'workstation.gst.manage')
+  const ids = await assignedClientIds(session, scope)
+  const current = await prisma.gstProfile.findFirst({
+    where: { ...alive, id: req.params.id, ...(ids === 'ALL' ? {} : { clientId: { in: ids } }) },
+  })
+  if (!current) throw ApiError.notFound()
+  const b = (req.body ?? {}) as Record<string, unknown>
+  if (typeof b.reminders_enabled !== 'boolean') {
+    throw ApiError.badRequest('reminders_enabled must be true or false.')
+  }
+  if (b.reminders_enabled === current.remindersEnabled) {
+    return ok(res, { ok: true, reminders_enabled: current.remindersEnabled })
+  }
+  await prisma.gstProfile.update({
+    where: { id: current.id },
+    data: { remindersEnabled: b.reminders_enabled, updatedBy: session.userId },
+  })
+  await writeGstAudit({
+    gstProfileId: current.id,
+    action: b.reminders_enabled ? 'GST_REMINDERS_ENABLED' : 'GST_REMINDERS_DISABLED',
+    stage: 'client',
+    userId: session.userId,
+    meta: { before: current.remindersEnabled, after: b.reminders_enabled },
+  })
+  ok(res, { ok: true, reminders_enabled: b.reminders_enabled })
 }))
 
 /**

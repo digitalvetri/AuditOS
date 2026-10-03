@@ -93,6 +93,12 @@ export async function computeUpcoming(
     where: {
       deletedAt: null,
       active: true,
+      // Per-client opt-out: a profile with remindersEnabled=false drops
+      // out of the Upcoming panel AND the scheduled bell notifications.
+      // Status columns on the main grid are untouched (that still reads
+      // computePeriodState for display) — this flag only silences the
+      // reminder stream.
+      remindersEnabled: true,
       ...(opts.clientIdFilter ? { clientId: { in: opts.clientIdFilter } } : {}),
     },
     include: { client: { select: { id: true, companyName: true, email: true } } },

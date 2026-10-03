@@ -131,6 +131,20 @@ async function suite() {
   const afterCount2 = await prisma.notification.count({ where: { entityType: 'gst_reminder', entityId: { contains: `:${client.id}:` } } })
   check('Second tick creates no duplicates', afterCount2, afterCount)
 
+  // Per-client opt-out: flipping remindersEnabled to false drops the
+  // client from both the panel feed and any subsequent scheduler tick.
+  await prisma.gstProfile.update({
+    where: { clientId: client.id },
+    data: { remindersEnabled: false },
+  })
+  const itemsAfterOptOut = await computeUpcoming(prisma, { period, today: iso(today), clientIdFilter: [client.id] })
+  check('Opt-out drops the client from computeUpcoming', itemsAfterOptOut.length, 0)
+  // Re-enable so the rest of the suite is unaffected.
+  await prisma.gstProfile.update({
+    where: { clientId: client.id },
+    data: { remindersEnabled: true },
+  })
+
   // sendClientReminder refuses when SMTP is unconfigured in this test env.
   const hadSmtp = Boolean(process.env.SMTP_HOST && process.env.SMTP_USER && process.env.SMTP_PASS)
   if (!hadSmtp) {

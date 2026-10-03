@@ -46,6 +46,15 @@ export function GstClients() {
     onSuccess: () => { close(); void qc.invalidateQueries({ queryKey: ['gst'] }); },
     onError: (e) => setErrMsg(errorMessage(e)),
   });
+  // One-click toggle for the Reminders column. Invalidates GST queries on
+  // success so the dashboard panel + Upcoming list immediately re-fetch
+  // without the Upcoming view showing stale rows for a client that just
+  // opted out.
+  const toggleReminders = useMutation({
+    mutationFn: ({ id, enabled }: { id: string; enabled: boolean }) =>
+      gstApi.toggleReminders(id, enabled),
+    onSuccess: () => { void qc.invalidateQueries({ queryKey: ['gst'] }); },
+  });
 
   const open = (c: GstClient) => {
     setErrMsg(null);
@@ -79,7 +88,7 @@ export function GstClients() {
                 No client has a GST profile yet.
               </div>
             ) : (
-              <Table head={['Client', 'GSTIN', 'PAN', 'State', 'Type', 'Frequency', 'Assigned', 'Reviewer', 'Periods', 'Status', '']}>
+              <Table head={['Client', 'GSTIN', 'PAN', 'State', 'Type', 'Frequency', 'Reminders', 'Assigned', 'Reviewer', 'Periods', 'Status', '']}>
                 {d.items.map((c) => (
                   <Row key={c.id} status={c.registration_status}>
                     <Cell>{c.client_name ?? c.legal_name ?? '—'}</Cell>
@@ -88,6 +97,28 @@ export function GstClients() {
                     <Cell muted>{c.state ?? '—'}</Cell>
                     <Cell muted>{labelOf(REGISTRATION_TYPES, c.registration_type)}</Cell>
                     <Cell muted>{labelOf(FILING_FREQUENCIES, c.filing_frequency)}</Cell>
+                    <Cell>
+                      {/* One-click toggle — reminder stream + bell notifications
+                          flip off immediately for this client. */}
+                      <button
+                        type="button"
+                        onClick={() => toggleReminders.mutate({ id: c.id, enabled: !c.reminders_enabled })}
+                        disabled={toggleReminders.isPending}
+                        aria-pressed={c.reminders_enabled}
+                        title={c.reminders_enabled
+                          ? 'Reminders ON — click to pause for this client'
+                          : 'Reminders OFF — click to resume for this client'}
+                        className={
+                          'inline-flex items-center gap-1 h-6 px-2 text-11 font-medium rounded-full transition-colors disabled:opacity-60 ' +
+                          (c.reminders_enabled
+                            ? 'bg-success/10 text-success hover:bg-success/15'
+                            : 'bg-neutral-100 text-neutral-500 hover:bg-neutral-200')
+                        }
+                      >
+                        <span aria-hidden>{c.reminders_enabled ? '✓' : '○'}</span>
+                        {c.reminders_enabled ? 'On' : 'Off'}
+                      </button>
+                    </Cell>
                     <Cell muted>{c.assigned_employee_name ?? '—'}</Cell>
                     <Cell muted>{c.reviewer_employee_name ?? '—'}</Cell>
                     <Cell muted>{c.period_count}</Cell>

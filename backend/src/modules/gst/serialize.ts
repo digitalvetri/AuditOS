@@ -135,7 +135,7 @@ export function profileToApi(p: {
   registrationType: string; registrationStatus: string; filingFrequency: string
   registrationDate: string | null; assignedEmployeeId: string; reviewerEmployeeId: string | null
   contactPerson: string | null; contactEmail: string | null; contactPhone: string | null
-  address: string | null; active: boolean; nextDueDate: string | null
+  address: string | null; active: boolean; remindersEnabled?: boolean; nextDueDate: string | null
   client: { id: string; companyName: string } | null
   _count?: { periods: number }
 }, employees: EmployeeLookup) {
@@ -160,6 +160,7 @@ export function profileToApi(p: {
     contact_phone: p.contactPhone,
     address: p.address,
     active: p.active,
+    reminders_enabled: p.remindersEnabled ?? true,
     next_due_date: p.nextDueDate,
     period_count: p._count?.periods ?? 0,
   }

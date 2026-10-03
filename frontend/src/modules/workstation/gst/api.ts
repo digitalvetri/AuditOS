@@ -88,6 +88,7 @@ export interface GstClient {
   reviewer_employee_id: string | null;
   reviewer_employee_name: string | null;
   active: boolean;
+  reminders_enabled: boolean;
   period_count: number;
 }
 
@@ -222,6 +223,11 @@ export const gstApi = {
   /** Edit a client's GST registration details (§28). */
   updateClient: (id: string, body: Record<string, unknown>) =>
     api.patch<{ ok: true }>(`/api/gst/clients/${id}`, body),
+  /** One-click toggle for the Clients-tab Reminders column. */
+  toggleReminders: (id: string, enabled: boolean) =>
+    api.patch<{ ok: true; reminders_enabled: boolean }>(
+      `/api/gst/clients/${id}/reminders-enabled`, { reminders_enabled: enabled },
+    ),
   /** Add a client's work for one period to this section. */
   addEntry: (stage: StageKey, body: Record<string, unknown>) =>
     api.post<{ id: string; period: string; financial_year: string }>(

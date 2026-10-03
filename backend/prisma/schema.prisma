@@ -1598,6 +1598,12 @@ model GstProfile {
   contactPhone       String?
   address            String?
   active             Boolean @default(true)
+  /// Opt the client in or out of GST reminders (dashboard "Upcoming"
+  /// panel + the scheduled bell notifications to the assignee). Defaults
+  /// to on — the historical behaviour. When off, computeUpcoming skips
+  /// the client entirely and the counters match. Toggled per client from
+  /// the Clients tab.
+  remindersEnabled   Boolean @default(true)
 
   client       Client                @relation(fields: [clientId], references: [id])
   filings      GstFiling[]
