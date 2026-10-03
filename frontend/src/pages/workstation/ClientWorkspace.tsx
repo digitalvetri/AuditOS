@@ -1,4 +1,6 @@
 import { useState } from 'react';
+// Government-portal autofill (Phase 1) — remove with src/modules/portalAutofill.
+import { GovernmentPortalsCard } from '@/modules/portalAutofill/GovernmentPortals';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { NavLink, useNavigate, useParams } from 'react-router-dom';
 import { workstationApi } from '@/modules/workstation/api';
@@ -102,6 +104,7 @@ export function ClientWorkspacePage() {
               ))}
             </nav>
 
+            {tab === '' ? <GovernmentPortalsCard clientId={client.id} clientName={client.company_name} /> : null}
             {tab === '' ? <OverviewTab client={client} /> : null}
             {tab === 'details' ? <DetailsTab client={client} /> : null}
             {tab === 'services' ? <ServicesTab client={client} /> : null}

@@ -195,6 +195,22 @@ export const REGISTRATION_SPECS: RegistrationSpec[] = [
     ],
     password: { label: 'Password', required: ['existing'] },
   },
+  {
+    // Income Tax e-Filing: the User ID is the PAN for individuals and entities
+    // (or the Aadhaar / other User ID); new registrations collect what the
+    // portal's "Register" flow asks for.
+    code: 'income-tax-efiling',
+    title: 'Income Tax e-Filing Registration',
+    modes: TWO_MODES,
+    fields: [
+      { key: 'pan', label: 'PAN', required: ['new'], modes: ['new'], placeholder: 'AAAAA9999A', mono: true },
+      { key: 'taxpayer_category', label: 'Taxpayer Category', kind: 'select', modes: ['new'], options: ['Individual', 'HUF', 'Company', 'Firm / LLP', 'Trust', 'AOP / BOI', 'Others'] },
+      { key: 'registered_mobile', label: 'Primary Mobile Number', kind: 'phone', required: ['new'], modes: ['new'], prefill: 'contact_number' },
+      { key: 'registered_email', label: 'Primary Email', kind: 'email', required: ['new'], modes: ['new'], prefill: 'email' },
+      { key: 'username', label: 'User ID (PAN / Aadhaar / Other User ID)', required: ['existing'], mono: true, placeholder: 'Usually the PAN' },
+    ],
+    password: { label: 'Password', required: ['existing'] },
+  },
 ]
 
 const SPEC_BY_CODE = new Map(REGISTRATION_SPECS.map((s) => [s.code, s]))

@@ -1,0 +1,89 @@
+{
+  "manifest_version": 3,
+  "name": "AuditOS \u2014 Government Portal Autofill",
+  "short_name": "AuditOS Autofill",
+  "version": "0.4.0",
+  "description": "AuditOS internal tool: opens a client's government portal from the CRM and fills that client's login. You complete CAPTCHA / OTP / MFA / DSC.",
+  "minimum_chrome_version": "116",
+  "permissions": [
+    "storage",
+    "webNavigation"
+  ],
+  "host_permissions": [
+    "http://localhost:5173/*",
+    "http://127.0.0.1:5173/*",
+    "http://localhost:8080/*",
+    "https://*.gst.gov.in/*",
+    "https://*.mca.gov.in/*",
+    "https://tnreginet.gov.in/*",
+    "https://*.tnreginet.gov.in/*",
+    "https://*.udyamregistration.gov.in/*",
+    "https://udyamregistration.gov.in/*",
+    "https://labour.tn.gov.in/*",
+    "https://*.dgft.gov.in/*",
+    "https://*.epfo.gov.in/*",
+    "https://esic.gov.in/*",
+    "https://*.esic.gov.in/*",
+    "https://ewaybillgst.gov.in/*",
+    "https://*.ewaybillgst.gov.in/*",
+    "https://*.epfindia.gov.in/*",
+    "https://incometax.gov.in/*",
+    "https://*.incometax.gov.in/*"
+  ],
+  "background": {
+    "service_worker": "background.js",
+    "type": "module"
+  },
+  "action": {
+    "default_title": "AuditOS Autofill",
+    "default_popup": "popup.html",
+    "default_icon": {
+      "16": "icons/icon-16.png",
+      "32": "icons/icon-32.png",
+      "48": "icons/icon-48.png"
+    }
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "http://localhost:5173/*",
+        "http://127.0.0.1:5173/*",
+        "http://localhost:8080/*"
+      ],
+      "js": [
+        "crm-bridge.js"
+      ],
+      "run_at": "document_start"
+    },
+    {
+      "matches": [
+        "https://*.gst.gov.in/*",
+        "https://*.mca.gov.in/*",
+        "https://tnreginet.gov.in/*",
+        "https://*.tnreginet.gov.in/*",
+        "https://*.udyamregistration.gov.in/*",
+        "https://udyamregistration.gov.in/*",
+        "https://labour.tn.gov.in/*",
+        "https://*.dgft.gov.in/*",
+        "https://*.epfo.gov.in/*",
+        "https://esic.gov.in/*",
+        "https://*.esic.gov.in/*",
+        "https://ewaybillgst.gov.in/*",
+        "https://*.ewaybillgst.gov.in/*",
+        "https://*.epfindia.gov.in/*",
+        "https://incometax.gov.in/*",
+        "https://*.incometax.gov.in/*"
+      ],
+      "js": [
+        "portal.js"
+      ],
+      "run_at": "document_idle"
+    }
+  ],
+  "icons": {
+    "16": "icons/icon-16.png",
+    "32": "icons/icon-32.png",
+    "48": "icons/icon-48.png",
+    "128": "icons/icon-128.png"
+  }
+}

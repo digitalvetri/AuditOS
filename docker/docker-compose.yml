@@ -119,6 +119,19 @@ services:
     environment:
       ADMINER_DEFAULT_SERVER: postgres
 
+  # Builds the government-portal autofill Chrome extension into extension/dist
+  # (no Node needed on the host). Not part of the running stack — run it on
+  # demand, then load extension/dist via chrome://extensions → Load unpacked:
+  #   docker compose --profile tools run --rm extension-build
+  extension-build:
+    profiles: ["tools"]
+    image: node:20-bookworm-slim
+    working_dir: /ext
+    volumes:
+      - ../extension:/ext
+    command: sh -c "npm ci --no-audit --no-fund && npm run build && npm test"
+    restart: "no"
+
 volumes:
   auditos-pg-data:
     name: auditos-pg-data

@@ -34,6 +34,7 @@
 import {
   Building2,
   Factory,
+  FileCheck2,
   Handshake,
   HeartPulse,
   Landmark,
@@ -296,6 +297,23 @@ export const REGISTRATION_SERVICES: RegistrationService[] = [
     outputDocument: 'E-Way Bill portal credentials / API access confirmation',
 
   },
+  {
+    slug: 'income-tax-efiling',
+    name: 'Income Tax e-Filing Registration',
+    shortName: 'Income Tax e-Filing',
+    kind: 'tax',
+    icon: FileCheck2,
+    authority: 'Income Tax Department · Income-tax Act, 1961',
+    form: 'e-Filing registration → User ID',
+    summary:
+      'Registers the client on the Income Tax e-Filing portal (PAN as the User ID) so returns, notices and refunds can be handled online.',
+    description:
+      'Every taxpayer files through the Income Tax e-Filing portal, logging in with their PAN (or Aadhaar / another User ID) and password. New taxpayers register from the portal’s Register option with their PAN, category, primary mobile and email, and verify with OTPs that reach the client. Once registered, the same login is used for returns, e-verification, notices, refunds and profile updates. Audit OS does not file returns on the portal — the employee works there and records the outcome here.',
+    portalScope: 'india',
+    portalUrl: 'https://www.incometax.gov.in/iec/foportal/',
+    portalLabel: 'Income Tax e-Filing Portal · Income Tax Department',
+    outputDocument: 'Income Tax e-Filing portal credentials / registration confirmation',
+  },
 ];
 
 /** Lookup used by the detail route so an unknown slug can 404 cleanly. */
@@ -311,4 +329,5 @@ export function registrationBySlug(slug: string | undefined): RegistrationServic
  */
 export const MINIMAL_REGISTRATION_PAGES: ReadonlySet<string> = new Set([
   'msme-udyam', 'shops-establishment', 'import-export-code', 'pf', 'esi', 'e-invoice', 'e-way-bill',
+  'income-tax-efiling',
 ]);

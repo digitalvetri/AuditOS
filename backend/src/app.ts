@@ -57,6 +57,9 @@ import { gstRouter as gstComplianceRouter } from './modules/gst/routes.js'
 import { gstPortalRouter } from './modules/gst-portal/routes.js'
 import { tdsPortalRouter } from './modules/tds-portal/routes.js'
 import { registrationCredentialsRouter } from './modules/registration/credentials.routes.js'
+// Government-portal autofill extension (Phase 1) — remove these two lines and
+// the module folder to drop the feature.
+import { portalAutofillRouter, extensionCredentialsRouter } from './modules/portal-autofill/routes.js'
 import { tdsServiceRouter } from './modules/tds/routes.js'
 // Tally Export — bank statement → TallyPrime Excel file (docs/tally-export/README.md).
 import { tallyExportRouter } from './modules/tally-export/routes.js'
@@ -90,7 +93,7 @@ export function createApp() {
   // is NOT same-origin as far as this server is concerned. Outside
   // production any loopback/private-LAN origin is accepted as well, so a
   // changed machine IP does not silently break login (see lib/origin.ts).
-  app.use(cors({
+  const corsGuard = cors({
     origin(origin, callback) {
       if (!origin || isAllowedOrigin(origin, env.webOrigins, !env.isProduction)) {
         return callback(null, true)
@@ -101,7 +104,12 @@ export function createApp() {
         `Origin ${origin} is not allowed. Add it to WEB_ORIGIN.`))
     },
     credentials: true,
-  }))
+  })
+  // The portal-autofill extension's credential redemption is called from the
+  // extension (Origin chrome-extension://…) with no cookies — it is authorised
+  // by a signed single-use launch token, so the cookie-CSRF origin guard does
+  // not apply to it. Every other route keeps the allow-list.
+  app.use((req, res, next) => (req.path === '/api/extension/credentials/request' ? next() : corsGuard(req, res, next)))
   app.use(cookieParser())
   app.use(express.json({ limit: '1mb' }))
   app.use(express.urlencoded({ extended: true }))
@@ -143,6 +151,10 @@ export function createApp() {
   if (zpayShouldMountFake()) {
     app.use('/fake-zoho', createFakeZohoRouter(zpayConfig()))
   }
+
+  // Portal autofill extension: credential redemption is authorised by the
+  // signed single-use launch token, not the session cookie.
+  app.use('/api/extension', extensionCredentialsRouter)
 
   // Everything else requires a session.
   app.use('/api', authenticate)
@@ -251,6 +263,7 @@ export function createApp() {
   app.use('/api/gst-portal', gstPortalRouter)
   app.use('/api/tds-portal', tdsPortalRouter)
   app.use('/api/registration-credentials', registrationCredentialsRouter)
+  app.use('/api/portal-autofill', portalAutofillRouter)
   app.use('/api/tds', tdsServiceRouter)
 
   // ── Books ──────────────────────────────────────────────────────────────
