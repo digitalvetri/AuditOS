@@ -27,9 +27,9 @@ type Section =
 /** Each group's tint for the menu's icon squares (the dashboard palette). */
 const GROUP_TINT: Record<string, { bg: string; fg: string }> = {
   Organisation: { bg: '#e9f9f1', fg: '#047857' },
-  'Time & Leave': { bg: '#e8eef8', fg: '#1a4b8c' },
+  'Time & Leave': { bg: '#efeafd', fg: '#6941d9' },
   Finance: { bg: '#fff7e6', fg: '#b45309' },
-  Access: { bg: '#eff6ff', fg: '#1e40af' },
+  Access: { bg: '#f5f1ff', fg: '#5b33c4' },
 };
 
 const SECTIONS: { id: Section; label: string; group: string; icon: typeof Building2 }[] = [
@@ -108,7 +108,7 @@ export function SettingsPage() {
                     className={
                       'flex items-center gap-3 h-10 px-2 text-13 w-full text-left rounded-lg transition-colors ' +
                       (active
-                        ? 'bg-[#eaf0f8] text-primary font-medium'
+                        ? 'bg-[#f1edff] text-primary font-medium'
                         : 'text-neutral-700 hover:bg-neutral-50 hover:text-neutral-900')
                     }
                   >

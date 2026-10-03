@@ -9,6 +9,7 @@ import { backfillInvoicePayments } from './modules/invoice/payments.js'
 import { startEinvoiceEwbScheduler } from './modules/workstation/einvoice-ewb/scheduler.js'
 import { startTdsReminderScheduler } from './modules/tds/reminders.js'
 import { startGstReminderScheduler } from './modules/gst/reminders.js'
+import { startBooksSyncScheduler } from './modules/books/scheduler.js'
 import { AaExtractService } from './modules/audit-automation/services/AaExtractService.js'
 
 const app = createApp()
@@ -30,6 +31,7 @@ backfillInvoicePayments(prisma).then((n) => { if (n) console.log(`Invoice paymen
 startEinvoiceEwbScheduler(prisma)
 startTdsReminderScheduler(prisma)
 startGstReminderScheduler(prisma)
+startBooksSyncScheduler()
 
 http.listen(env.port, () => {
   // Bank statements a restart interrupted mid-read are read again, not left "queued".

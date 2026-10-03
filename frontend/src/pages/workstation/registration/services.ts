@@ -88,8 +88,8 @@ export interface RegistrationService {
 
 /** Chip tints, drawn from the platform palette — no new colours. */
 export const KIND_TINT: Record<RegistrationKind, { bg: string; fg: string; label: string }> = {
-  tax:     { bg: 'rgb(26 75 140 / 0.10)',  fg: 'rgb(8 98 98)',   label: 'Tax' },
-  entity:  { bg: 'rgb(37 99 235 / 0.14)',  fg: 'rgb(30 64 175)',    label: 'Entity' },
+  tax:     { bg: 'rgb(105 65 217 / 0.10)',  fg: 'rgb(8 98 98)',   label: 'Tax' },
+  entity:  { bg: 'rgb(122 90 248 / 0.14)',  fg: 'rgb(91 51 196)',    label: 'Entity' },
   licence: { bg: 'rgb(200 149 46 / 0.14)',  fg: 'rgb(146 106 24)',  label: 'Licence' },
   labour:  { bg: 'rgb(79 107 82 / 0.14)',   fg: 'rgb(58 82 61)',    label: 'Labour' },
 };

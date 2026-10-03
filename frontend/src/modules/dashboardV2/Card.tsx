@@ -65,7 +65,7 @@ export function Card({
         {action ? (
           <Link
             to={action.href}
-            className="inline-flex items-center gap-1 h-7 px-3 rounded-full text-12 font-medium text-primary bg-[#eaf0f8] hover:bg-[#d6e1f0] transition-colors"
+            className="inline-flex items-center gap-1 h-7 px-3 rounded-full text-12 font-medium text-primary bg-[#f1edff] hover:bg-[#e0d8f8] transition-colors"
           >
             {action.label}
             <ChevronRight size={14} strokeWidth={1.75} />

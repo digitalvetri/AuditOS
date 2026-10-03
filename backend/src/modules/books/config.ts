@@ -21,6 +21,7 @@ import crypto from 'node:crypto'
 import { env } from '../../lib/env.js'
 
 export interface BooksConfig {
+  /** Server-wide Zoho client — '' when unset (every connection then carries its own). */
   readonly clientId: string
   readonly clientSecret: string
   readonly redirectUri: string
@@ -38,9 +39,12 @@ export class BooksNotConfigured extends Error {
   }
 }
 
-export function booksConfigured(): boolean {
+/** The server-wide Zoho client (ZBOOKS_CLIENT_ID / _SECRET) is set. */
+export function envClientConfigured(): boolean {
   return Boolean(process.env.ZBOOKS_CLIENT_ID && process.env.ZBOOKS_CLIENT_SECRET)
 }
+/** @deprecated name kept for callers; true when the server-wide client is set. */
+export const booksConfigured = envClientConfigured
 
 function readKey(): Buffer {
   // `||`, not `??`: an empty `ZBOOKS_ENCRYPTION_KEY=` line must still fall back.
@@ -58,11 +62,12 @@ function readKey(): Buffer {
 let cached: BooksConfig | null = null
 
 export function booksConfig(): BooksConfig {
+  // No longer throws without ZBOOKS_CLIENT_ID: connections configured with
+  // their own client (prisma/books-connection.ts) need only the key and hosts.
   if (cached) return cached
-  if (!booksConfigured()) throw new BooksNotConfigured()
   cached = {
-    clientId: process.env.ZBOOKS_CLIENT_ID!,
-    clientSecret: process.env.ZBOOKS_CLIENT_SECRET!,
+    clientId: process.env.ZBOOKS_CLIENT_ID ?? '',
+    clientSecret: process.env.ZBOOKS_CLIENT_SECRET ?? '',
     redirectUri: process.env.ZBOOKS_REDIRECT_URI ?? `http://localhost:${env.port}/api/books/callback`,
     accountsBase: (process.env.ZBOOKS_ACCOUNTS_BASE ?? 'https://accounts.zoho.in').replace(/\/$/, ''),
     scopes: (process.env.ZBOOKS_SCOPES ?? 'ZohoBooks.fullaccess.all').split(/[\s,]+/).filter(Boolean),

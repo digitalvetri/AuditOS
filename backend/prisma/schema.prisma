@@ -385,13 +385,13 @@ model Employee {
   // exempt. Stored so peer review can trace who decided what.
   tdsExemptReason    String?
 
-  organisation Organisation @relation(fields: [organisationId], references: [id])
-  department   Department?  @relation(fields: [departmentId], references: [id])
-  designation  Designation? @relation(fields: [designationId], references: [id])
+  organisation Organisation  @relation(fields: [organisationId], references: [id])
+  department   Department?   @relation(fields: [departmentId], references: [id])
+  designation  Designation?  @relation(fields: [designationId], references: [id])
   workLocation WorkLocation? @relation(fields: [workLocationId], references: [id])
-  workSchedule WorkSchedule @relation(fields: [workScheduleId], references: [id])
-  manager      Employee?    @relation("EmployeeManager", fields: [managerId], references: [id])
-  reports      Employee[]   @relation("EmployeeManager")
+  workSchedule WorkSchedule  @relation(fields: [workScheduleId], references: [id])
+  manager      Employee?     @relation("EmployeeManager", fields: [managerId], references: [id])
+  reports      Employee[]    @relation("EmployeeManager")
 
   user               User?
   training           ArticledTraining?      @relation("TrainingSubject")
@@ -444,22 +444,22 @@ model ArticledTraining {
 }
 
 model EmployeeDocument {
-  id         String   @id @default(uuid())
-  employeeId String
-  name       String
+  id               String   @id @default(uuid())
+  employeeId       String
+  name             String
   // employment | joining | certificate | hr | tax | bank | company_issued | icai
-  type       String
-  fileKey    String
+  type             String
+  fileKey          String
   /// The uploaded file as sent (null on rows seeded before real storage).
   originalFilename String?
   mimeType         String?
   fileSize         Int?
-  uploadedBy String
-  uploadedAt DateTime @default(now())
-  expiryDate String?
+  uploadedBy       String
+  uploadedAt       DateTime @default(now())
+  expiryDate       String?
   // valid | expiring_soon | expired | pending_verification (derived on read
   // from expiryDate, except the sticky pending_verification state)
-  status     String   @default("valid")
+  status           String   @default("valid")
 
   employee Employee @relation(fields: [employeeId], references: [id])
 
@@ -856,8 +856,8 @@ model LedgerTransaction {
   // posted | reversed  (`reversed` means "a contra entry exists for me")
   status              String  @default("posted")
 
-  paymentId  String?
-  reversesId String?
+  paymentId      String?
+  reversesId     String?
   // Populated only on a contra entry (reversesId != null). Storing the
   // reason on the append means the reversal audit survives even if the
   // AuditLog row is compacted.
@@ -951,19 +951,19 @@ model ChatMessage {
   /// JSON array of employee ids. Reserved for @mentions; empty in this phase.
   mentionsJson     String  @default("[]")
 
-  chat        Chat             @relation(fields: [chatId], references: [id])
-  author      Employee         @relation(fields: [authorEmployeeId], references: [id])
-  parent      ChatMessage?     @relation("MessageReply", fields: [parentId], references: [id])
-  replies     ChatMessage[]    @relation("MessageReply")
+  chat        Chat                @relation(fields: [chatId], references: [id])
+  author      Employee            @relation(fields: [authorEmployeeId], references: [id])
+  parent      ChatMessage?        @relation("MessageReply", fields: [parentId], references: [id])
+  replies     ChatMessage[]       @relation("MessageReply")
   reads       MessageRead[]
   attachments ChatAttachment[]
   hiddenFor   ChatMessageHidden[]
 
-  createdAt DateTime  @default(now())
-  updatedAt DateTime  @updatedAt
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
   /// "Delete for everyone" — the row is kept for audit and shown as
   /// "This message was deleted"; its text and attachments are never served.
-  deletedAt DateTime?
+  deletedAt           DateTime?
   deletedByEmployeeId String?
 
   @@index([chatId, createdAt])
@@ -3537,6 +3537,7 @@ model BookkeepingCompany {
   stockItems      BookkeepingStockItem[]
   statementLines  BookkeepingBankStatementLine[]
   reconciliations BookkeepingBankReconciliation[]
+  categorizeRules BookkeepingBankCategorizeRule[]
   taxRates        BookkeepingTaxRate[]
   settings        BookkeepingSetting[]
   employees       BookkeepingEmployee[]
@@ -3775,6 +3776,7 @@ model BookkeepingLedger {
   allocations     BookkeepingBillAllocation[]
   statementLines  BookkeepingBankStatementLine[]
   reconciliations BookkeepingBankReconciliation[]
+  categorizeRules BookkeepingBankCategorizeRule[] @relation("CategorizeRuleCounterLedger")
   payHeads        BookkeepingPayHead[]
 
   createdAt DateTime  @default(now())
@@ -4264,6 +4266,46 @@ model BookkeepingBankReconciliation {
   @@index([tallyCompanyId, bankLedgerId, statementDate])
 }
 
+/// Rule that auto-categorizes bank statement lines on import.
+///
+/// Matching is "first match wins", ordered by priority (asc) then createdAt.
+/// `matchPattern` is a JavaScript regex (case-insensitive by convention —
+/// users pass `rent|salary`, not `/rent|salary/i`); it is tested against
+/// `BookkeepingBankStatementLine.description`. On match, the propose step
+/// returns a Receipt (bank credit) or Payment (bank debit) voucher proposal
+/// whose counter-ledger is `counterLedgerId`. Commit posts via postVoucher
+/// so the engine's balance / FY / uniqueness guarantees are preserved.
+///
+/// `source = 'seed'` rows are created by bootstrap and may be edited; users
+/// create `source = 'user'` rows via the Rules UI (follow-up PR).
+model BookkeepingBankCategorizeRule {
+  id              String  @id @default(uuid())
+  tallyCompanyId  String
+  /// JavaScript regex source, applied case-insensitive. e.g. "rent", "bank\\s*charg".
+  matchPattern    String
+  /// Ledger the counter-side of the voucher posts to.
+  counterLedgerId String
+  /// 'receipt' for bank credits (money in), 'payment' for bank debits.
+  /// 'auto' lets the engine pick based on debit vs credit line.
+  direction       String  @default("auto")
+  /// Lower = tried earlier. Ties broken by createdAt asc.
+  priority        Int     @default(100)
+  /// 'seed' | 'user'.
+  source          String  @default("user")
+  enabled         Boolean @default(true)
+  /// Optional human label shown in the Rules UI.
+  label           String?
+
+  company       BookkeepingCompany @relation(fields: [tallyCompanyId], references: [id])
+  counterLedger BookkeepingLedger  @relation("CategorizeRuleCounterLedger", fields: [counterLedgerId], references: [id])
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  @@index([tallyCompanyId, enabled, priority])
+}
+
 // ── Tax configuration ────────────────────────────────────────────────
 
 /// Data-driven statutory rates. Nothing in the engine hardcodes a rate;
@@ -4585,6 +4627,17 @@ model TallyExport {
 model BooksZohoConnection {
   id             String @id @default(uuid())
   organisationId String
+  /// Display name in the Books switcher, e.g. "Main Account". Set by the
+  /// developer who configures the connection (prisma/books-connection.ts).
+  name                  String?
+  /// SERVER_OAUTH | SELF_CLIENT — how the grant was obtained.
+  authMethod            String?
+  /// This connection's own Zoho API client. Null = the server-wide
+  /// ZBOOKS_CLIENT_ID / ZBOOKS_CLIENT_SECRET (connections made before
+  /// per-connection credentials). The secret is AES-256-GCM encrypted.
+  clientId              String?
+  clientSecretEncrypted String?
+
 
   /// not_connected | consent_pending | connected | expired | revoked | error | disconnected
   status String @default("not_connected")
@@ -4650,6 +4703,16 @@ model BooksZohoOrganization {
   @@unique([organisationId, zohoOrgId])
   @@unique([organisationId, clientId])
   @@index([connectionId])
+}
+
+/// The Zoho Books organisation (and so connection) a user last chose in the
+/// switcher — restored on any device. The organisation row carries its
+/// connection, so connection + organisation are both identified.
+model BooksUserSelection {
+  userId         String   @id
+  organisationId String
+  orgRef         String
+  updatedAt      DateTime @updatedAt
 }
 
 /// One sync attempt against one Zoho organisation.

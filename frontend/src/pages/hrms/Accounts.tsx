@@ -80,7 +80,7 @@ function AccountsTabLink({ to, children }: { to: string; children: React.ReactNo
       end={to === 'overview'}
       className={({ isActive }) =>
         'h-8 px-3 inline-flex items-center text-13 rounded-full border transition-colors whitespace-nowrap ' +
-        (isActive ? 'bg-[#eaf0f8] border-[#b5c6df] text-primary font-medium' : 'bg-white border-neutral-200 text-neutral-700 hover:border-neutral-300 hover:bg-neutral-50')
+        (isActive ? 'bg-[#f1edff] border-[#cbbdf2] text-primary font-medium' : 'bg-white border-neutral-200 text-neutral-700 hover:border-neutral-300 hover:bg-neutral-50')
       }
       data-testid={`accounts-tab-${to}`}
     >
@@ -156,7 +156,7 @@ export function AccountsOverviewPage() {
               className="dash-row flex items-center gap-3 px-4 py-3"
               data-testid={`held-${h.category.replace(/\s+/g, '-')}`}
             >
-              <span className="h-8 w-8 shrink-0 rounded-lg inline-flex items-center justify-center bg-[#eff6ff] text-[#1e40af]" aria-hidden>
+              <span className="h-8 w-8 shrink-0 rounded-lg inline-flex items-center justify-center bg-[#f5f1ff] text-[#5b33c4]" aria-hidden>
                 <Landmark size={15} strokeWidth={1.9} />
               </span>
               <span className={'flex-1 text-14 ' + (h.balance_paise > 0 ? 'text-neutral-900' : 'text-neutral-500')}>
@@ -210,7 +210,7 @@ function MonthStepper({
   };
   const today = new Date();
   const currentYm = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}`;
-  const arrow = 'h-8 w-8 inline-flex items-center justify-center rounded-full text-neutral-600 hover:bg-[#eaf0f8] hover:text-primary disabled:opacity-40 disabled:cursor-not-allowed transition-colors';
+  const arrow = 'h-8 w-8 inline-flex items-center justify-center rounded-full text-neutral-600 hover:bg-[#f1edff] hover:text-primary disabled:opacity-40 disabled:cursor-not-allowed transition-colors';
   return (
     <div className="inline-flex items-center gap-1 p-1 rounded-full bg-white border border-neutral-200 shadow-card" data-testid="overview-month-stepper">
       <button type="button" onClick={() => shift(-1)} className={arrow} aria-label="Previous month" data-testid="month-prev">
@@ -231,7 +231,7 @@ function Section({ title, count, children }: { title: string; count?: number; ch
     <section>
       <div className="flex items-center gap-2 mb-3">
         <h2 className="text-15 font-semibold text-neutral-900">{title}</h2>
-        {count ? <span className="inline-flex items-center h-5 px-2 rounded-full text-11 font-semibold bg-[#eaf0f8] text-primary">{count}</span> : null}
+        {count ? <span className="inline-flex items-center h-5 px-2 rounded-full text-11 font-semibold bg-[#f1edff] text-primary">{count}</span> : null}
       </div>
       {children}
     </section>
@@ -241,8 +241,8 @@ function Section({ title, count, children }: { title: string; count?: number; ch
 const TILE_TINT = {
   green: { bg: '#e9f9f1', fg: '#047857' },
   amber: { bg: '#fff7e6', fg: '#b45309' },
-  blue: { bg: '#e8eef8', fg: '#1a4b8c' },
-  indigo: { bg: '#eff6ff', fg: '#1e40af' },
+  blue: { bg: '#efeafd', fg: '#6941d9' },
+  indigo: { bg: '#f5f1ff', fg: '#5b33c4' },
 };
 
 function Tile({ label, value, hint, icon: Icon, tint }: {
@@ -265,7 +265,7 @@ function Tile({ label, value, hint, icon: Icon, tint }: {
 
 function LedgerStat({ label, value, strong }: { label: string; value: string; strong?: boolean }) {
   return (
-    <div className="rounded-md px-4 py-3" style={{ background: strong ? '#eaf0f8' : '#f4f6fa', border: `1px solid ${strong ? '#ccd9ea' : '#e8ecf3'}` }}>
+    <div className="rounded-md px-4 py-3" style={{ background: strong ? '#f1edff' : '#f4f6fa', border: `1px solid ${strong ? '#dbd2f6' : '#e8ecf3'}` }}>
       <div className="text-12 text-neutral-500">{label}</div>
       <div className={`num-display text-20 mt-1 ${strong ? 'text-primary' : 'text-neutral-900'}`}>{value}</div>
     </div>
@@ -290,7 +290,7 @@ function NeedsYouRow({ item }: { item: OverviewNeedsYouItem }) {
       {item.amount_paise !== null ? (
         <div className="num-display text-15 text-neutral-900">{inr(item.amount_paise)}</div>
       ) : null}
-      <span className="inline-flex items-center gap-1 h-7 px-3 rounded-full text-12 font-medium text-primary bg-[#eaf0f8]">
+      <span className="inline-flex items-center gap-1 h-7 px-3 rounded-full text-12 font-medium text-primary bg-[#f1edff]">
         {item.action_label} <ChevronRight size={13} strokeWidth={2} />
       </span>
     </a>
@@ -344,7 +344,7 @@ export function AccountsCollectionsPage() {
           end
           className={({ isActive }) =>
             'h-8 px-3 inline-flex items-center rounded-full border transition-colors whitespace-nowrap ' + (isActive
-              ? 'bg-[#eaf0f8] border-[#b5c6df] text-primary font-medium'
+              ? 'bg-[#f1edff] border-[#cbbdf2] text-primary font-medium'
               : 'bg-white border-neutral-200 text-neutral-700 hover:border-neutral-300 hover:bg-neutral-50')
           }
         >
@@ -354,7 +354,7 @@ export function AccountsCollectionsPage() {
           to="matching"
           className={({ isActive }) =>
             'h-8 px-3 inline-flex items-center rounded-full border transition-colors whitespace-nowrap ' + (isActive
-              ? 'bg-[#eaf0f8] border-[#b5c6df] text-primary font-medium'
+              ? 'bg-[#f1edff] border-[#cbbdf2] text-primary font-medium'
               : 'bg-white border-neutral-200 text-neutral-700 hover:border-neutral-300 hover:bg-neutral-50')
           }
         >

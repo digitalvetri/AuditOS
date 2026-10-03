@@ -21,85 +21,85 @@
   :root {
     --c-white: 255 255 255;
     --c-black: 0 0 0;
-    /* Light & Minimal. A white sidebar (its rows read ink-on-white through
-       the light-theme overrides at the end of this file), neutral greys,
-       near-black primary buttons and ONE blue accent for links, focus,
-       active states and charts. */
+    /* Pastel Bento. A white sidebar whose rows carry colourful pastel icon
+       chips (the selected row is a dark ink pill), a soft lavender canvas,
+       white rounded cards, pastel KPI tiles, dark-ink buttons and ONE violet
+       accent for links and focus. */
     --c-sidebar: 255 255 255;
-    --c-sidebarHover: 244 245 247;
-    --c-sidebarActive: 237 239 243;
-    --c-sidebarText: 17 24 39;
-    --c-sidebarMuted: 120 126 138;
-    --c-canvas: 248 248 249;
+    --c-sidebarHover: 247 244 255;
+    --c-sidebarActive: 31 29 43;
+    --c-sidebarText: 31 29 43;
+    --c-sidebarMuted: 138 134 166;
+    --c-canvas: 247 244 255;
     --c-surface: 255 255 255;
-    --c-border: 233 234 237;
-    --c-ink: 17 24 39;
-    --c-inkMuted: 100 106 118;
-    --c-inkFaint: 156 160 168;
-    --c-danger: 220 38 38;
-    --c-warning: 217 119 6;
-    --c-success: 22 163 74;
-    --c-red: 220 38 38;
-    --c-amber: 217 119 6;
-    --c-neutral-50: 249 250 251;
-    --c-neutral-100: 243 244 246;
-    --c-neutral-200: 229 231 235;
-    --c-neutral-300: 209 213 219;
-    --c-neutral-400: 156 163 175;
-    --c-neutral-500: 107 114 128;
-    --c-neutral-600: 75 85 99;
-    --c-neutral-700: 55 65 81;
-    --c-neutral-800: 31 41 55;
-    --c-neutral-900: 17 24 39;
-    /* The one accent — links, focus ring, active markers (#2563EB, 5.2:1). */
-    --c-gold: 37 99 235;
-    --c-gold-hover: 29 78 216;
-    /* Primary action — near-black, the minimal default. */
-    --c-primary: 17 24 39;
-    --c-primary-hover: 55 65 81;
-    /* Accent fill (charts' second series, highlights) — the same blue. */
-    --c-coral: 37 99 235;
+    --c-border: 238 232 251;
+    --c-ink: 31 29 43;
+    --c-inkMuted: 108 104 137;
+    --c-inkFaint: 154 150 180;
+    --c-danger: 224 69 104;
+    --c-warning: 214 128 32;
+    --c-success: 31 157 90;
+    --c-red: 224 69 104;
+    --c-amber: 214 128 32;
+    --c-neutral-50: 250 248 255;
+    --c-neutral-100: 244 241 252;
+    --c-neutral-200: 232 227 246;
+    --c-neutral-300: 212 206 232;
+    --c-neutral-400: 160 155 186;
+    --c-neutral-500: 120 116 146;
+    --c-neutral-600: 88 84 112;
+    --c-neutral-700: 62 59 82;
+    --c-neutral-800: 42 40 58;
+    --c-neutral-900: 31 29 43;
+    /* Violet accent — links, focus ring, active markers (#6941D9, 6:1 on white). */
+    --c-gold: 105 65 217;
+    --c-gold-hover: 86 50 190;
+    /* Primary action — dark ink, like the selected sidebar pill. */
+    --c-primary: 31 29 43;
+    --c-primary-hover: 58 55 78;
+    /* Accent fill — bright violet for charts and highlights. */
+    --c-coral: 122 90 248;
   }
   :root[data-theme="dark"] {
-    --c-white: 22 23 27;
+    --c-white: 26 24 38;
     --c-black: 0 0 0;
-    --c-neutral-50: 18 19 22;
-    --c-neutral-100: 26 27 31;
-    --c-neutral-200: 38 40 45;
-    --c-neutral-300: 55 58 64;
-    --c-neutral-400: 100 104 112;
-    --c-neutral-500: 140 144 152;
-    --c-neutral-600: 175 179 186;
-    --c-neutral-700: 205 208 214;
-    --c-neutral-800: 230 232 236;
-    --c-neutral-900: 243 244 246;
-    --c-sidebar: 16 17 20;
-    --c-sidebarHover: 26 27 31;
-    --c-sidebarActive: 34 36 41;
-    --c-sidebarText: 236 237 240;
-    --c-sidebarMuted: 128 132 140;
-    --c-canvas: 10 10 12;
-    --c-surface: 22 23 27;
-    --c-border: 38 40 45;
-    --c-ink: 240 241 243;
-    --c-inkMuted: 150 154 162;
-    --c-inkFaint: 100 104 112;
-    --c-danger: 248 113 113;
-    --c-warning: 251 191 36;
-    --c-success: 74 222 128;
-    --c-gold: 96 165 250;
-    --c-gold-hover: 147 197 253;
-    --c-primary: 59 130 246;
-    --c-primary-hover: 96 165 250;
-    --c-red: 248 113 113;
-    --c-amber: 251 191 36;
-    --c-coral: 96 165 250;
+    --c-neutral-50: 20 18 30;
+    --c-neutral-100: 30 28 44;
+    --c-neutral-200: 44 41 62;
+    --c-neutral-300: 62 58 84;
+    --c-neutral-400: 108 104 134;
+    --c-neutral-500: 148 144 174;
+    --c-neutral-600: 182 178 204;
+    --c-neutral-700: 210 206 228;
+    --c-neutral-800: 232 229 244;
+    --c-neutral-900: 244 242 252;
+    --c-sidebar: 22 20 33;
+    --c-sidebarHover: 32 30 46;
+    --c-sidebarActive: 167 139 250;
+    --c-sidebarText: 236 233 248;
+    --c-sidebarMuted: 138 134 166;
+    --c-canvas: 15 13 23;
+    --c-surface: 26 24 38;
+    --c-border: 44 41 62;
+    --c-ink: 244 242 252;
+    --c-inkMuted: 160 156 186;
+    --c-inkFaint: 108 104 134;
+    --c-danger: 255 133 160;
+    --c-warning: 255 193 92;
+    --c-success: 110 220 160;
+    --c-gold: 180 160 255;
+    --c-gold-hover: 205 190 255;
+    --c-primary: 122 90 248;
+    --c-primary-hover: 145 118 250;
+    --c-red: 255 133 160;
+    --c-amber: 255 193 92;
+    --c-coral: 167 139 250;
     color-scheme: dark;
   }
 
   html {
     font-family:
-      'Geist Variable', 'Inter Variable', 'Inter', ui-sans-serif, system-ui, -apple-system,
+      'Plus Jakarta Sans Variable', 'Geist Variable', 'Inter Variable', 'Inter', ui-sans-serif, system-ui, -apple-system,
       'Segoe UI', sans-serif;
     font-feature-settings: 'ss01', 'cv11';
     /* Anchor 1rem = 16px regardless of the user's browser default text
@@ -416,8 +416,8 @@
 /* The page is shown scaled down (~0.6), which thins any outline to almost
    nothing — so the cues are drawn heavier than they will look, and the
    field being edited gets a tint that reads even at small sizes. */
-.el-editing .el-edit:hover { box-shadow: 0 0 0 2px rgb(47 98 176 / 0.55); background: rgb(47 98 176 / 0.06); }
-.el-edit:focus { box-shadow: 0 0 0 2.5px rgb(26 75 140 / 0.9); background: rgb(47 98 176 / 0.12); }
+.el-editing .el-edit:hover { box-shadow: 0 0 0 2px rgb(122 90 248 / 0.55); background: rgb(122 90 248 / 0.06); }
+.el-edit:focus { box-shadow: 0 0 0 2.5px rgb(105 65 217 / 0.9); background: rgb(122 90 248 / 0.12); }
 .el-edit:empty::before, .el-empty[data-placeholder]:empty::before {
   content: attr(data-placeholder); color: #9ca3af; font-style: italic; pointer-events: none;
 }
@@ -438,14 +438,14 @@ span.el-edit:empty { display: inline-block; min-width: 2.5em; }
 
 .el-space { box-sizing: border-box; }
 .el-space::after { content: ''; position: absolute; inset: -6px 0; }
-.el-space:hover { outline: 1px dashed rgb(47 98 176 / 0.5); outline-offset: -1px; }
+.el-space:hover { outline: 1px dashed rgb(122 90 248 / 0.5); outline-offset: -1px; }
 .el-space-bar {
   position: absolute; right: 0; top: 50%; transform: translateY(-50%); z-index: 6;
   display: none; align-items: center; gap: 2px; padding: 2px 4px;
   background: #fff; border: 1px solid #e5e7eb; border-radius: 4px; font-size: 11px; color: #6b7280;
 }
 .el-space:hover .el-space-bar, .el-space-bar:focus-within { display: flex; }
-.el-addfee { font-size: 0.9em; color: #1a4b8c; background: none; border: 0; padding: 0; cursor: pointer; }
+.el-addfee { font-size: 0.9em; color: #6941d9; background: none; border: 0; padding: 0; cursor: pointer; }
 .el-addfee:hover { text-decoration: underline; }
 
 @media print {
@@ -488,8 +488,8 @@ span.el-edit:empty { display: inline-block; min-width: 2.5em; }
 .el-pagebreak {
   position: absolute; left: 0; right: 0; top: 2px; z-index: 5;
   display: flex; align-items: center; gap: 6px;
-  border-top: 1px dashed rgb(47 98 176 / 0.55);
-  font: 11px/1.2 system-ui, sans-serif; color: rgb(47 98 176);
+  border-top: 1px dashed rgb(122 90 248 / 0.55);
+  font: 11px/1.2 system-ui, sans-serif; color: rgb(122 90 248);
   opacity: 0.55; transition: opacity 120ms;
 }
 .el-pagebreak span { background: #fff; padding: 0 4px; margin-top: -1px; }
@@ -521,7 +521,7 @@ span.el-edit:empty { display: inline-block; min-width: 2.5em; }
      strip reads as one piece. */
   background:
     linear-gradient(180deg, rgb(255 255 255 / 0.08), transparent 55%),
-    linear-gradient(180deg, #1c3d6e 0%, #12305a 100%);
+    linear-gradient(180deg, #3a3358 0%, #2d2944 100%);
   color: rgb(255 255 255 / 0.9);
   font-size: 11px; font-weight: 500; text-transform: uppercase; letter-spacing: 0.08em;
 }
@@ -565,7 +565,7 @@ span.el-edit:empty { display: inline-block; min-width: 2.5em; }
   table.hr-float thead th {
     background:
       linear-gradient(180deg, rgb(255 255 255 / 0.08), transparent 55%),
-    linear-gradient(180deg, #1c3d6e 0%, #12305a 100%) !important;
+    linear-gradient(180deg, #3a3358 0%, #2d2944 100%) !important;
     color: rgb(255 255 255 / 0.9) !important; border: 0 !important;
     font-size: 11px; font-weight: 500; text-transform: uppercase; letter-spacing: 0.08em;
     padding-top: 12px; padding-bottom: 12px;
@@ -593,9 +593,9 @@ span.el-edit:empty { display: inline-block; min-width: 2.5em; }
    glow behind the brand — the brand navy, given depth. */
 .sb-creative {
   background:
-    radial-gradient(120% 38% at 0% 0%, rgb(37 99 235 / 0.16), transparent 60%),
-    radial-gradient(90% 30% at 100% 100%, rgb(37 99 235 / 0.14), transparent 65%),
-    linear-gradient(180deg, #0b1f3a 0%, #0d2442 50%, #132c50 100%);
+    radial-gradient(120% 38% at 0% 0%, rgb(122 90 248 / 0.16), transparent 60%),
+    radial-gradient(90% 30% at 100% 100%, rgb(122 90 248 / 0.14), transparent 65%),
+    linear-gradient(180deg, #1f1d2b 0%, #23202f 50%, #27243a 100%);
 }
 
 /* A shared Workstation Card whose body is a floating Table (components.tsx)
@@ -612,16 +612,16 @@ span.el-edit:empty { display: inline-block; min-width: 2.5em; }
    panel keeps its flat colour. The gradient is an image over the flat
    colour, so the colour still shows while it loads and for print. */
 :is(button, a, [role='button']).bg-primary {
-  box-shadow: 0 1px 2px rgb(10 15 28 / 0.12), 0 4px 12px -3px rgb(26 75 140 / 0.45), inset 0 1px 0 rgb(255 255 255 / 0.14);
+  box-shadow: 0 1px 2px rgb(10 15 28 / 0.12), 0 4px 12px -3px rgb(105 65 217 / 0.45), inset 0 1px 0 rgb(255 255 255 / 0.14);
   background-image:
     linear-gradient(180deg, rgb(255 255 255 / 0.10), transparent 55%),
-    linear-gradient(180deg, #1f4478 0%, #14335f 100%);
-  border-color: #14335f;
+    linear-gradient(180deg, #3f3866 0%, #302c48 100%);
+  border-color: #302c48;
 }
 :is(button, a, [role='button']).bg-primary:hover:not(:disabled) {
   background-image:
     linear-gradient(180deg, rgb(255 255 255 / 0.14), transparent 55%),
-    linear-gradient(180deg, #27528c 0%, #1a3c6c 100%);
+    linear-gradient(180deg, #51477a 0%, #3a3460 100%);
 }
 
 /* ── Grouped lists: floating rows ───────────────────────────────────────
@@ -635,7 +635,7 @@ span.el-edit:empty { display: inline-block; min-width: 2.5em; }
 .fr-group > .ws-card-title, .fr-group > .fr-head {
   background:
     linear-gradient(180deg, rgb(255 255 255 / 0.08), transparent 55%),
-    linear-gradient(180deg, #1c3d6e 0%, #12305a 100%);
+    linear-gradient(180deg, #3a3358 0%, #2d2944 100%);
   border: 0 !important; border-radius: 10px;
 }
 .fr-group > .ws-card-title *, .fr-group > .fr-head * { color: rgb(255 255 255 / 0.92) !important; border-color: rgb(255 255 255 / 0.35) !important; }
@@ -683,7 +683,7 @@ table.hr-float thead th {
     inset 0 0 18px rgb(255 255 255 / 0.45),           /* inner glow             */
     0 1px 2px rgb(15 23 42 / 0.06),
     0 12px 28px -10px rgb(15 23 42 / 0.22),
-    0 28px 56px -26px rgb(18 48 90 / 0.30);
+    0 28px 56px -26px rgb(45 41 68 / 0.30);
   transition: transform 220ms cubic-bezier(.2,.8,.2,1), box-shadow 220ms ease, border-color 220ms ease;
 }
 /* A diagonal reflection across the glass, as on a real pane. */
@@ -707,7 +707,7 @@ table.hr-float thead th {
     inset 0 0 22px rgb(255 255 255 / 0.55),
     0 2px 4px rgb(15 23 42 / 0.06),
     0 22px 40px -14px rgb(15 23 42 / 0.28),
-    0 40px 70px -30px rgb(18 48 90 / 0.38);
+    0 40px 70px -30px rgb(45 41 68 / 0.38);
 }
 .doc-glass:hover::before, .doc-glass:focus-within::before { opacity: 1; }
 
@@ -746,17 +746,17 @@ table.hr-float thead th {
 /* Dashboard hero: deep navy with a teal glow, like the reference banner. */
 .dash-hero {
   background:
-    radial-gradient(60% 90% at 88% 50%, rgb(37 99 235 / 0.24), transparent 60%),
-    radial-gradient(45% 70% at 62% 115%, rgb(37 99 235 / 0.28), transparent 70%),
-    radial-gradient(50% 80% at 0% 100%, rgb(47 98 176 / 0.30), transparent 70%),
-    linear-gradient(135deg, #0b1f3a 0%, #10294a 55%, #16335a 100%);
-  box-shadow: 0 1px 2px rgb(15 23 42 / 0.10), 0 18px 36px -18px rgb(11 31 58 / 0.55);
+    radial-gradient(60% 90% at 88% 50%, rgb(122 90 248 / 0.24), transparent 60%),
+    radial-gradient(45% 70% at 62% 115%, rgb(122 90 248 / 0.28), transparent 70%),
+    radial-gradient(50% 80% at 0% 100%, rgb(122 90 248 / 0.30), transparent 70%),
+    linear-gradient(135deg, #1f1d2b 0%, #2a2738 55%, #2f2b40 100%);
+  box-shadow: 0 1px 2px rgb(15 23 42 / 0.10), 0 18px 36px -18px rgb(31 29 43 / 0.55);
 }
 .dash-orb {
   position: absolute; right: 12%; top: 50%; width: 220px; height: 220px; transform: translateY(-50%);
   border-radius: 9999px;
   background: radial-gradient(circle at 35% 30%, rgb(255 255 255 / 0.20), rgb(255 255 255 / 0.03) 60%, transparent 70%);
-  box-shadow: inset 0 0 0 1px rgb(255 255 255 / 0.10), 0 0 60px rgb(37 99 235 / 0.25);
+  box-shadow: inset 0 0 0 1px rgb(255 255 255 / 0.10), 0 0 60px rgb(122 90 248 / 0.25);
 }
 .dash-float {
   position: absolute; display: inline-flex; align-items: center; justify-content: center;
@@ -776,15 +776,15 @@ table.hr-float thead th {
   position: absolute; left: 50%; top: 50%; border-radius: 9999px; transform: translate(-50%, -50%);
   border: 1px dashed rgb(255 255 255 / 0.18); pointer-events: none;
 }
-.audit-ring-outer { width: 168px; height: 168px; box-shadow: 0 0 40px rgb(37 99 235 / 0.12) inset; animation: audit-ring-turn 40s linear infinite; }
+.audit-ring-outer { width: 168px; height: 168px; box-shadow: 0 0 40px rgb(122 90 248 / 0.12) inset; animation: audit-ring-turn 40s linear infinite; }
 .audit-ring-inner { width: 94px; height: 94px; border-style: dashed; border-color: rgb(255 255 255 / 0.14); animation: audit-ring-turn 26s linear infinite reverse; }
 /* A light streak sweeping round the outer ring. */
 .audit-ring-outer::after {
   content: ''; position: absolute; inset: -2px; border-radius: 9999px;
-  background: conic-gradient(from 0deg, transparent 0 72%, rgb(96 165 250 / 0.0) 76%, rgb(96 165 250 / 0.95) 97%, transparent 100%);
+  background: conic-gradient(from 0deg, transparent 0 72%, rgb(167 139 250 / 0.0) 76%, rgb(167 139 250 / 0.95) 97%, transparent 100%);
   -webkit-mask: radial-gradient(circle, transparent calc(50% - 2.5px), #000 calc(50% - 2px), #000 calc(50% - 0.5px), transparent 50%);
           mask: radial-gradient(circle, transparent calc(50% - 2.5px), #000 calc(50% - 2px), #000 calc(50% - 0.5px), transparent 50%);
-  filter: drop-shadow(0 0 4px rgb(96 165 250 / 0.9));
+  filter: drop-shadow(0 0 4px rgb(167 139 250 / 0.9));
   animation: audit-ring-turn 3.6s linear infinite;
 }
 @keyframes audit-ring-turn { from { transform: translate(-50%, -50%) rotate(0deg); } to { transform: translate(-50%, -50%) rotate(360deg); } }
@@ -793,9 +793,9 @@ table.hr-float thead th {
 .audit-core {
   position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%);
   width: 56px; height: 56px; border-radius: 18px; display: flex; align-items: center; justify-content: center; color: #fff;
-  background: linear-gradient(135deg, rgb(37 99 235 / 0.55), rgb(37 99 235 / 0.40));
+  background: linear-gradient(135deg, rgb(122 90 248 / 0.55), rgb(122 90 248 / 0.40));
   border: 1px solid rgb(255 255 255 / 0.35);
-  box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.45), 0 0 0 6px rgb(255 255 255 / 0.04), 0 0 36px rgb(37 99 235 / 0.45);
+  box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.45), 0 0 0 6px rgb(255 255 255 / 0.04), 0 0 36px rgb(122 90 248 / 0.45);
   animation: audit-pulse 3.2s ease-in-out infinite;
   will-change: transform;
 }
@@ -813,21 +813,21 @@ table.hr-float thead th {
   box-shadow:
     inset 0 1px 0 rgb(255 255 255 / 0.35),
     0 8px 18px -8px rgb(0 0 0 / 0.5),
-    0 0 calc(var(--heat) * 26px) rgb(37 99 235 / calc(var(--heat) * 0.8));
+    0 0 calc(var(--heat) * 26px) rgb(122 90 248 / calc(var(--heat) * 0.8));
 }
 .audit-sat-sm .audit-sat-face { border-radius: 9px; }
 @keyframes audit-pulse {
-  0%, 100% { box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.45), 0 0 0 6px rgb(255 255 255 / 0.04), 0 0 30px rgb(37 99 235 / 0.35); }
-  50%      { box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.45), 0 0 0 10px rgb(255 255 255 / 0.06), 0 0 48px rgb(37 99 235 / 0.6); }
+  0%, 100% { box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.45), 0 0 0 6px rgb(255 255 255 / 0.04), 0 0 30px rgb(122 90 248 / 0.35); }
+  50%      { box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.45), 0 0 0 10px rgb(255 255 255 / 0.06), 0 0 48px rgb(122 90 248 / 0.6); }
 }
 @media (prefers-reduced-motion: reduce) { .audit-core, .audit-ring-outer::after { animation: none !important; } }
 /* The cursor's bumper in the audit orbit — a faint glowing ring that follows
    the pointer, so the player can see what they are pushing with. */
 .audit-bumper {
   position: absolute; left: 50%; top: 50%; border-radius: 9999px; pointer-events: none; opacity: 0;
-  border: 1.5px solid rgb(96 165 250 / 0.7);
-  background: radial-gradient(circle, rgb(96 165 250 / 0.18), rgb(96 165 250 / 0.02) 70%);
-  box-shadow: 0 0 18px rgb(96 165 250 / 0.45);
+  border: 1.5px solid rgb(167 139 250 / 0.7);
+  background: radial-gradient(circle, rgb(167 139 250 / 0.18), rgb(167 139 250 / 0.02) 70%);
+  box-shadow: 0 0 18px rgb(167 139 250 / 0.45);
   transition: opacity 180ms ease;
   will-change: transform, opacity;
 }
@@ -836,8 +836,8 @@ table.hr-float thead th {
    geometric face that reads as a number at a glance. Figures are tabular
    so columns of amounts line up. */
 .num-display {
-  font-family: 'Geist Variable', 'Inter Variable', 'Inter', ui-sans-serif, system-ui, sans-serif;
-  font-weight: 650;
+  font-family: 'Plus Jakarta Sans Variable', 'Geist Variable', 'Inter Variable', ui-sans-serif, system-ui, sans-serif;
+  font-weight: 800;
   letter-spacing: -0.035em;
   font-variant-numeric: tabular-nums;
 }
@@ -963,7 +963,7 @@ label .block.uppercase.text-11:not(.qdoc-stack *):not(.qb-preview *) {
   /* The option already chosen: a quiet pale-blue tint, so it never competes
      with the pointer. */
   select:is(:not(.appearance-none), .chip-select) option:checked {
-    background: #eaf0f8;
+    background: #f1edff;
     color: rgb(var(--c-primary));
     font-weight: 500;
   }
@@ -973,12 +973,12 @@ label .block.uppercase.text-11:not(.qdoc-stack *):not(.qb-preview *) {
   select:is(:not(.appearance-none), .chip-select):not(:has(option:hover)) option:focus-visible {
     background:
       linear-gradient(180deg, rgb(255 255 255 / 0.08), transparent 55%),
-      linear-gradient(180deg, #1c3d6e 0%, #12305a 100%);
+      linear-gradient(180deg, #3a3358 0%, #2d2944 100%);
     color: #fff;
     outline: none;
   }
   select:is(:not(.appearance-none), .chip-select) option:focus-visible { outline: none; }
-  :root[data-theme='dark'] select:is(:not(.appearance-none), .chip-select) option:checked { background: rgb(47 98 176 / 0.18); color: rgb(var(--c-ink)); }
+  :root[data-theme='dark'] select:is(:not(.appearance-none), .chip-select) option:checked { background: rgb(122 90 248 / 0.18); color: rgb(var(--c-ink)); }
   select:is(:not(.appearance-none), .chip-select) option:disabled { color: rgb(var(--c-inkFaint, 156 163 175)); }
   :root[data-theme='dark'] select:is(:not(.appearance-none), .chip-select)::picker(select) {
     background: rgb(var(--c-surface)); border-color: rgb(var(--c-border));
@@ -991,14 +991,14 @@ label .block.uppercase.text-11:not(.qdoc-stack *):not(.qb-preview *) {
    - global search results — the active result (it follows the pointer and
      the arrow keys) is navy. */
 select[size] option { padding: 6px 10px; border-radius: 6px; }
-select[size] option:checked { background: #eaf0f8; color: rgb(var(--c-primary)); }
+select[size] option:checked { background: #f1edff; color: rgb(var(--c-primary)); }
 select[size] option:hover,
 [role='menu'] [role='menuitem']:is(button:not(:disabled), a):hover,
 [role='menu'] [role='menuitem']:is(button:not(:disabled), a):focus-visible,
 [role='listbox'] [role='option'][aria-selected='true'] {
   background:
     linear-gradient(180deg, rgb(255 255 255 / 0.08), transparent 55%),
-    linear-gradient(180deg, #1c3d6e 0%, #12305a 100%);
+    linear-gradient(180deg, #3a3358 0%, #2d2944 100%);
   color: #fff;
   outline: none;
 }
@@ -1013,27 +1013,27 @@ select[size] option:hover,
    the same gradient, rim and glow as the shield at its centre. Hovering an
    item gives a fainter wash of the same shade. */
 .sb-active {
-  background: linear-gradient(100deg, rgb(37 99 235 / 0.30), rgb(37 99 235 / 0.10) 70%, rgb(37 99 235 / 0.10));
+  background: linear-gradient(100deg, rgb(122 90 248 / 0.30), rgb(122 90 248 / 0.10) 70%, rgb(122 90 248 / 0.10));
   box-shadow:
     inset 0 0 0 1px rgb(255 255 255 / 0.22),
     inset 0 1px 0 rgb(255 255 255 / 0.30),
-    0 0 18px -2px rgb(37 99 235 / 0.40);
+    0 0 18px -2px rgb(122 90 248 / 0.40);
 }
 .sb-hover { position: relative; transition: background 150ms ease, box-shadow 150ms ease, color 150ms ease; }
 /* Hover looks exactly like the chosen item: same glass, glow and teal bar. */
 .sb-hover:hover {
-  background: linear-gradient(100deg, rgb(37 99 235 / 0.30), rgb(37 99 235 / 0.10) 70%, rgb(37 99 235 / 0.10));
+  background: linear-gradient(100deg, rgb(122 90 248 / 0.30), rgb(122 90 248 / 0.10) 70%, rgb(122 90 248 / 0.10));
   box-shadow:
     inset 0 0 0 1px rgb(255 255 255 / 0.22),
     inset 0 1px 0 rgb(255 255 255 / 0.30),
-    0 0 18px -2px rgb(37 99 235 / 0.40);
+    0 0 18px -2px rgb(122 90 248 / 0.40);
   color: #fff;
 }
 .sb-hover:hover::before {
   content: ''; position: absolute; left: 0; top: 8px; bottom: 8px; width: 3px;
-  border-radius: 9999px; background: #60a5fa;
+  border-radius: 9999px; background: #a78bfa;
 }
-.sb-hover:hover svg { color: #bfdbfe; }
+.sb-hover:hover svg { color: #ddd3ff; }
 
 /* ── Sidebar audit backdrop (SidebarBackdrop.tsx) ─────────────────────────
    Drawn under the menu; every other child of the sidebar sits above it.
@@ -1048,11 +1048,11 @@ select[size] option:hover,
   position: absolute; inset: 0;
   background:
     repeating-linear-gradient(180deg, transparent 0 27px, rgb(255 255 255 / 0.028) 27px 28px),
-    linear-gradient(90deg, transparent 0 34px, rgb(96 165 250 / 0.05) 34px 35px, transparent 35px);
+    linear-gradient(90deg, transparent 0 34px, rgb(167 139 250 / 0.05) 34px 35px, transparent 35px);
   mask-image: linear-gradient(180deg, transparent, #000 12%, #000 88%, transparent);
 }
 .sb-drift {
-  position: absolute; bottom: -40px; color: rgb(191 219 254);
+  position: absolute; bottom: -40px; color: rgb(221 211 255);
   opacity: 0; animation: sb-rise 28s linear infinite;
 }
 .sb-drift-sway { display: inline-flex; animation: sb-sway 6s ease-in-out infinite alternate; }
@@ -1067,12 +1067,12 @@ select[size] option:hover,
   to   { transform: translateX(10px) rotate(14deg); }
 }
 .sb-tick {
-  position: absolute; color: rgb(96 165 250); opacity: 0;
+  position: absolute; color: rgb(167 139 250); opacity: 0;
   animation: sb-tick 9s ease-out infinite;
 }
 @keyframes sb-tick {
   0%, 100% { opacity: 0; transform: scale(0.6); }
-  6%       { opacity: 0.45; transform: scale(1.15); filter: drop-shadow(0 0 6px rgb(96 165 250 / 0.8)); }
+  6%       { opacity: 0.45; transform: scale(1.15); filter: drop-shadow(0 0 6px rgb(167 139 250 / 0.8)); }
   22%      { opacity: 0.18; transform: scale(1); }
   40%      { opacity: 0; }
 }
@@ -1086,7 +1086,7 @@ select[size] option:hover,
 }
 .sb-bar {
   position: absolute; bottom: 0; border-radius: 3px 3px 0 0; transform-origin: bottom;
-  background: linear-gradient(180deg, rgb(219 234 254 / 0.30), rgb(191 219 254 / 0.10) 45%, rgb(191 219 254 / 0.02));
+  background: linear-gradient(180deg, rgb(236 230 255 / 0.30), rgb(221 211 255 / 0.10) 45%, rgb(221 211 255 / 0.02));
   box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.35);
   animation: sb-grow 6s cubic-bezier(.2,.8,.2,1) infinite;
 }
@@ -1097,8 +1097,8 @@ select[size] option:hover,
 }
 .sb-trend { position: absolute; inset: 0; overflow: visible; }
 .sb-trend path {
-  stroke: rgb(191 219 254 / 0.75); stroke-width: 2.5; stroke-linecap: round; stroke-linejoin: round;
-  filter: drop-shadow(0 0 4px rgb(96 165 250 / 0.6));
+  stroke: rgb(221 211 255 / 0.75); stroke-width: 2.5; stroke-linecap: round; stroke-linejoin: round;
+  filter: drop-shadow(0 0 4px rgb(167 139 250 / 0.6));
 }
 .sb-trend-line { stroke-dasharray: 1; stroke-dashoffset: 1; animation: sb-trend 6s ease-in-out infinite; }
 .sb-trend-head { opacity: 0; animation: sb-trend-head 6s ease-in-out infinite; }
@@ -1136,21 +1136,21 @@ select[size] option:hover,
 .ws-steps { position: relative; }
 .ws-steps::before {
   content: ''; position: absolute; left: 33px; top: 20px; bottom: 36px; width: 2px;
-  background: linear-gradient(180deg, #c9d6e8, #e4ebf4); border-radius: 2px;
+  background: linear-gradient(180deg, #d9cff5, #ebe5fb); border-radius: 2px;
 }
 .ws-step { position: relative; transition: background 150ms ease; }
-.ws-step:hover { background: #f4f7fb; }
+.ws-step:hover { background: #f7f5ff; }
 .ws-step-dot {
   position: relative; z-index: 1; width: 22px; height: 22px; border-radius: 9999px; flex-shrink: 0;
   display: inline-flex; align-items: center; justify-content: center; font-size: 11px; font-weight: 600; color: #fff;
   box-shadow: 0 0 0 3px #fff;
 }
-.ws-step-open { background: linear-gradient(180deg, #1c3d6e 0%, #12305a 100%); }
-.ws-step-won  { background: linear-gradient(180deg, #2563eb 0%, #1a4b8c 100%); }
+.ws-step-open { background: linear-gradient(180deg, #3a3358 0%, #2d2944 100%); }
+.ws-step-won  { background: linear-gradient(180deg, #7a5af8 0%, #6941d9 100%); }
 .ws-step-lost { background: #9ca3af; }
 .ws-step-bar { transform-origin: left; animation: ws-grow 900ms cubic-bezier(.2,.8,.2,1) both; }
-.ws-bar-open { background: linear-gradient(90deg, #1c3d6e, #2563eb); }
-.ws-bar-won  { background: linear-gradient(90deg, #1a4b8c, #2563eb); }
+.ws-bar-open { background: linear-gradient(90deg, #3a3358, #7a5af8); }
+.ws-bar-won  { background: linear-gradient(90deg, #6941d9, #7a5af8); }
 .ws-bar-lost { background: #cbd5e1; }
 :root[data-theme='dark'] .ws-attention { background: rgb(var(--c-surface)); }
 :root[data-theme='dark'] .ws-step-dot { box-shadow: 0 0 0 3px rgb(var(--c-surface)); }
@@ -1161,57 +1161,57 @@ select[size] option:hover,
    (Workstation → Documents, one per client), where a deep navy bar over
    every group was too heavy. */
 .ws-float.ws-plain-head thead th {
-  background: linear-gradient(180deg, #eef3f9 0%, #e1e9f4 100%);
-  color: #12305a;
+  background: linear-gradient(180deg, #eef3f9 0%, #e8e2fa 100%);
+  color: #2d2944;
   font-weight: 600 !important;
-  box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.8), inset 0 -1px 0 #cdd9ea;
+  box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.8), inset 0 -1px 0 #dad0f5;
 }
 :root[data-theme='dark'] .ws-float.ws-plain-head thead th {
-  background: rgb(47 98 176 / 0.14); color: rgb(var(--c-ink)); box-shadow: none;
+  background: rgb(122 90 248 / 0.14); color: rgb(var(--c-ink)); box-shadow: none;
 }
 
 /* ── Books section menu (pages/books/BooksShell.tsx) ───────────────────────
    Rounded items; hover is a pale blue wash, the open page is pale blue with
    navy text and a navy bar on its left — the Workstation list look. */
 .books-nav-item { position: relative; transition: background 150ms ease, color 150ms ease; }
-.books-nav-item:hover { background: #f2f6fb; color: rgb(var(--c-primary)); }
-.books-nav-item.is-active { background: #eaf0f8; color: rgb(var(--c-primary)); }
+.books-nav-item:hover { background: #f6f3ff; color: rgb(var(--c-primary)); }
+.books-nav-item.is-active { background: #f1edff; color: rgb(var(--c-primary)); }
 .books-nav-item.is-active::before {
   content: ''; position: absolute; left: 0; top: 7px; bottom: 7px; width: 3px; border-radius: 9999px;
-  background: linear-gradient(180deg, #1c3d6e, #12305a);
+  background: linear-gradient(180deg, #3a3358, #2d2944);
 }
 :root[data-theme='dark'] .books-nav-item:hover,
-:root[data-theme='dark'] .books-nav-item.is-active { background: rgb(47 98 176 / 0.14); color: rgb(var(--c-ink)); }
+:root[data-theme='dark'] .books-nav-item.is-active { background: rgb(122 90 248 / 0.14); color: rgb(var(--c-ink)); }
 
 /* ── Registration pages (workstation/registration/*) ───────────────────── */
-.reg-hero { background: linear-gradient(135deg, #ffffff 0%, #f6f8fc 100%); }
+.reg-hero { background: linear-gradient(135deg, #ffffff 0%, #f8f6ff 100%); }
 /* Steps on a vertical rail. */
-.reg-rail { position: absolute; left: 13px; top: 32px; bottom: 4px; width: 2px; border-radius: 2px; background: linear-gradient(180deg, #c9d6e8, #e4ebf4); }
+.reg-rail { position: absolute; left: 13px; top: 32px; bottom: 4px; width: 2px; border-radius: 2px; background: linear-gradient(180deg, #d9cff5, #ebe5fb); }
 .reg-dot {
   position: relative; z-index: 1; width: 28px; height: 28px; border-radius: 9999px; flex-shrink: 0;
   display: inline-flex; align-items: center; justify-content: center; font-size: 12px; font-weight: 600;
   background: #f1f4f9; color: #64748b; box-shadow: 0 0 0 4px #fff, inset 0 0 0 1px #e2e8f0;
 }
-.reg-dot.is-active { background: linear-gradient(180deg, #1c3d6e 0%, #12305a 100%); color: #fff; box-shadow: 0 0 0 4px #fff, 0 4px 10px -4px rgb(18 48 90 / 0.6); }
-.reg-dot.is-done { background: linear-gradient(180deg, #2563eb 0%, #1a4b8c 100%); color: #fff; box-shadow: 0 0 0 4px #fff, 0 4px 10px -4px rgb(26 75 140 / 0.6); }
+.reg-dot.is-active { background: linear-gradient(180deg, #3a3358 0%, #2d2944 100%); color: #fff; box-shadow: 0 0 0 4px #fff, 0 4px 10px -4px rgb(45 41 68 / 0.6); }
+.reg-dot.is-done { background: linear-gradient(180deg, #7a5af8 0%, #6941d9 100%); color: #fff; box-shadow: 0 0 0 4px #fff, 0 4px 10px -4px rgb(105 65 217 / 0.6); }
 /* Client cards in step 1. */
 .reg-client { background: rgb(var(--c-surface)); box-shadow: inset 0 0 0 1px rgb(var(--c-border)); transition: box-shadow 150ms ease, background 150ms ease, transform 150ms ease; }
-.reg-client:hover { box-shadow: inset 0 0 0 1px rgb(var(--c-primary) / 0.45); background: #f7f9fc; }
+.reg-client:hover { box-shadow: inset 0 0 0 1px rgb(var(--c-primary) / 0.45); background: #f9f8ff; }
 .reg-client-tick { color: transparent; box-shadow: inset 0 0 0 1.5px #cbd5e1; }
-.reg-client.is-picked { background: #eaf0f8; box-shadow: inset 0 0 0 2px rgb(var(--c-primary)); }
-.reg-client.is-picked .reg-client-tick { color: #fff; background: linear-gradient(180deg, #1c3d6e, #12305a); box-shadow: none; }
+.reg-client.is-picked { background: #f1edff; box-shadow: inset 0 0 0 2px rgb(var(--c-primary)); }
+.reg-client.is-picked .reg-client-tick { color: #fff; background: linear-gradient(180deg, #3a3358, #2d2944); box-shadow: none; }
 /* Saved login details: a tinted panel tucked under step 1. */
-.reg-creds { background: #f7f9fc; box-shadow: inset 0 0 0 1px #dde6f2; }
+.reg-creds { background: #f9f8ff; box-shadow: inset 0 0 0 1px #e6dffa; }
 :root[data-theme='dark'] .reg-hero { background: rgb(var(--c-surface)); }
 :root[data-theme='dark'] .reg-dot { box-shadow: 0 0 0 4px rgb(var(--c-surface)); }
 :root[data-theme='dark'] .reg-client { background: rgb(var(--c-surface)); box-shadow: inset 0 0 0 1px rgb(var(--c-border)); }
 :root[data-theme='dark'] .reg-client.is-picked,
-:root[data-theme='dark'] .reg-creds { background: rgb(47 98 176 / 0.12); }
+:root[data-theme='dark'] .reg-creds { background: rgb(122 90 248 / 0.12); }
 /* Client picker options: one navy row under the pointer. */
 .reg-option { color: rgb(var(--c-ink, 17 24 39)); }
 .reg-option:hover, .reg-option:focus-visible {
   outline: none; color: #fff;
-  background: linear-gradient(180deg, rgb(255 255 255 / 0.08), transparent 55%), linear-gradient(180deg, #1c3d6e 0%, #12305a 100%);
+  background: linear-gradient(180deg, rgb(255 255 255 / 0.08), transparent 55%), linear-gradient(180deg, #3a3358 0%, #2d2944 100%);
 }
 
 /* The menu's lower limit: a faint rule where the chart strip begins, and the
@@ -1352,7 +1352,7 @@ select[size] option:hover,
   .reg-m .m-cards tbody td:last-child a,
   .reg-m .m-cards tbody td:last-child button {
     display: inline-flex; align-items: center; height: 32px; padding: 0 14px; border-radius: 8px;
-    background: #eef3fa; color: rgb(var(--c-primary)); font-weight: 600; text-decoration: none;
+    background: #f4f1ff; color: rgb(var(--c-primary)); font-weight: 600; text-decoration: none;
   }
 
   /* Checklist template: category headings wrap as whole words, with their
@@ -1394,7 +1394,7 @@ select[size] option:hover,
   .lh-action:has(> :only-child) > :is(a, button) {
     width: 56px; height: 56px; padding: 0 !important; border-radius: 9999px !important; justify-content: center;
     font-size: 0 !important; gap: 0 !important;
-    box-shadow: 0 10px 24px -6px rgb(18 48 90 / 0.55), 0 2px 6px rgb(15 23 42 / 0.15) !important;
+    box-shadow: 0 10px 24px -6px rgb(45 41 68 / 0.55), 0 2px 6px rgb(15 23 42 / 0.15) !important;
   }
   .lh-action:has(> :only-child) > :is(a, button) svg { width: 24px; height: 24px; }
   .lh-action:has(> :only-child) > :is(a, button):not(:has(svg))::before { content: '+'; font-size: 28px; line-height: 1; }
@@ -1418,7 +1418,7 @@ select[size] option:hover,
   }
   .lt-filter-count {
     min-width: 18px; height: 18px; padding: 0 5px; border-radius: 9999px; font-size: 11px; line-height: 18px; text-align: center;
-    color: #fff; background: linear-gradient(180deg, #1c3d6e, #12305a);
+    color: #fff; background: linear-gradient(180deg, #3a3358, #2d2944);
   }
   /* … and the selects live in a sheet that slides up from the bottom. */
   .lt-sheet-wrap { position: fixed; inset: 0; z-index: 60; background: rgb(15 23 42 / 0.42); display: flex; align-items: flex-end; animation: lt-fade 160ms ease-out; }
@@ -1434,7 +1434,7 @@ select[size] option:hover,
   .lt-sheet-body > div { width: 100%; }
   .lt-sheet-done {
     width: 100%; height: 48px; margin-top: 16px; border-radius: 12px; color: #fff; font-size: 15px; font-weight: 600;
-    background: linear-gradient(180deg, rgb(255 255 255 / 0.08), transparent 55%), linear-gradient(180deg, #1c3d6e 0%, #12305a 100%);
+    background: linear-gradient(180deg, rgb(255 255 255 / 0.08), transparent 55%), linear-gradient(180deg, #3a3358 0%, #2d2944 100%);
   }
   @keyframes lt-up { from { transform: translateY(100%); } to { transform: none; } }
   @keyframes lt-fade { from { opacity: 0; } to { opacity: 1; } }
@@ -1470,7 +1470,7 @@ select[size] option:hover,
     height: calc(100% - 20px) !important;
     border-radius: 18px;
     border: 0 !important;
-    box-shadow: 0 18px 40px -18px rgb(11 31 58 / 0.65), inset 0 1px 0 rgb(255 255 255 / 0.07);
+    box-shadow: 0 18px 40px -18px rgb(31 29 43 / 0.65), inset 0 1px 0 rgb(255 255 255 / 0.07);
   }
 }
 
@@ -1494,7 +1494,7 @@ select[size] option:hover,
   .bg-primary, .bg-sidebar, .bg-sidebarActive, .bg-gold, .bg-coral,
   .bg-danger, .bg-success, .bg-warning, .bg-red, .bg-amber,
   .fr-group > .ws-card-title, .fr-head,
-  [style*='rgb(28, 61, 110)'], [style*='rgb(11, 31, 58)']
+  [style*='rgb(58, 51, 88)'], [style*='rgb(31, 29, 43)']
 ) {
   --c-white: 255 255 255;
 }
@@ -1521,7 +1521,7 @@ select[size] option:hover,
 }
 .dash-hero-name {
   font-style: italic;
-  background: linear-gradient(90deg, #bfdbfe, #93c5fd);
+  background: linear-gradient(90deg, #ddd3ff, #c9b8ff);
   -webkit-background-clip: text; background-clip: text; color: transparent;
   padding-right: 0.06em;
 }
@@ -1572,7 +1572,7 @@ select[size] option:hover,
 
 /* ── Sidebar: brand chip, count pills, filing-season card ──────────────── */
 .sb-logo {
-  background: linear-gradient(140deg, rgb(37 99 235 / 0.30), rgb(26 75 140 / 0.55) 55%, rgb(37 99 235 / 0.35));
+  background: linear-gradient(140deg, rgb(122 90 248 / 0.30), rgb(105 65 217 / 0.55) 55%, rgb(122 90 248 / 0.35));
   box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.25), inset 0 0 0 1px rgb(255 255 255 / 0.10), 0 6px 16px -6px rgb(0 0 0 / 0.45);
 }
 .sb-count {
@@ -1581,14 +1581,14 @@ select[size] option:hover,
   font-size: 11px; font-weight: 600; font-variant-numeric: tabular-nums;
   background: rgb(255 255 255 / 0.08); color: rgb(255 255 255 / 0.75);
 }
-.sb-count.is-hot { background: #2563eb; color: #fff; box-shadow: 0 0 0 3px rgb(37 99 235 / 0.22); }
+.sb-count.is-hot { background: #7a5af8; color: #fff; box-shadow: 0 0 0 3px rgb(122 90 248 / 0.22); }
 .sb-season {
   background: rgb(255 255 255 / 0.05);
   box-shadow: inset 0 0 0 1px rgb(255 255 255 / 0.08);
   transition: background 0.15s ease;
 }
 .sb-season:hover { background: rgb(255 255 255 / 0.09); }
-.sb-season-bar { background: linear-gradient(90deg, #2563eb, #2563eb); box-shadow: 0 0 12px rgb(37 99 235 / 0.55); }
+.sb-season-bar { background: linear-gradient(90deg, #7a5af8, #7a5af8); box-shadow: 0 0 12px rgb(122 90 248 / 0.55); }
 
 /* ⌘K results panel */
 .gs-panel { animation: gs-in 0.16s cubic-bezier(.2,.7,.2,1); }
@@ -1738,9 +1738,9 @@ select[size] option:hover,
 /* Login brand panel — the dashboard hero's teal and coral glows, full height. */
 .login-hero {
   background:
-    radial-gradient(60% 50% at 85% 15%, rgb(37 99 235 / 0.22), transparent 60%),
-    radial-gradient(55% 45% at 15% 100%, rgb(37 99 235 / 0.24), transparent 65%),
-    linear-gradient(150deg, #0b1f3a 0%, #10294a 55%, #16335a 100%) !important;
+    radial-gradient(60% 50% at 85% 15%, rgb(122 90 248 / 0.22), transparent 60%),
+    radial-gradient(55% 45% at 15% 100%, rgb(122 90 248 / 0.24), transparent 65%),
+    linear-gradient(150deg, #1f1d2b 0%, #2a2738 55%, #2f2b40 100%) !important;
 }
 :root[data-theme='dark'] .login-hero { --c-white: 255 255 255; }
 .gs-scrim { position: fixed; inset: 0; z-index: -1; background: rgb(8 12 22 / 0.28); backdrop-filter: blur(3px); animation: gs-in 0.18s ease; pointer-events: none; }
@@ -1761,23 +1761,23 @@ select[size] option:hover,
 .sb-modcard:hover { background: rgb(255 255 255 / 0.08); }
 .sb-modcard:active { transform: scale(0.98); }
 .sb-modcard.is-on {
-  background: linear-gradient(135deg, rgb(37 99 235 / 0.24), rgb(37 99 235 / 0.06) 60%, rgb(37 99 235 / 0.12));
-  box-shadow: inset 0 0 0 1px rgb(96 165 250 / 0.35), 0 8px 18px -10px rgb(37 99 235 / 0.55);
+  background: linear-gradient(135deg, rgb(122 90 248 / 0.24), rgb(122 90 248 / 0.06) 60%, rgb(122 90 248 / 0.12));
+  box-shadow: inset 0 0 0 1px rgb(167 139 250 / 0.35), 0 8px 18px -10px rgb(122 90 248 / 0.55);
 }
 .sb-modcard-ico { background: rgb(255 255 255 / 0.08); color: rgb(255 255 255 / 0.75); }
-.sb-modcard.is-on .sb-modcard-ico { background: rgb(37 99 235 / 0.25); color: #bfdbfe; }
+.sb-modcard.is-on .sb-modcard-ico { background: rgb(122 90 248 / 0.25); color: #ddd3ff; }
 .sb-modicon { color: rgb(255 255 255 / 0.6); transition: background 0.15s ease, color 0.15s ease; }
 .sb-modicon:hover { background: rgb(255 255 255 / 0.06); color: #fff; }
-.sb-modicon.is-on { background: rgb(37 99 235 / 0.2); color: #bfdbfe; box-shadow: inset 0 0 0 1px rgb(96 165 250 / 0.3); }
+.sb-modicon.is-on { background: rgb(122 90 248 / 0.2); color: #ddd3ff; box-shadow: inset 0 0 0 1px rgb(167 139 250 / 0.3); }
 
 /* Dashboard greeting on the canvas, and the brief's insight tiles. */
 .dash-greet-name {
   font-style: italic;
-  background: linear-gradient(90deg, rgb(var(--c-primary)), #2563eb 85%);
+  background: linear-gradient(90deg, rgb(var(--c-primary)), #7a5af8 85%);
   -webkit-background-clip: text; background-clip: text; color: transparent;
   padding-right: 0.08em;
 }
-:root[data-theme='dark'] .dash-greet-name { background-image: linear-gradient(90deg, #60a5fa, #93c5fd 85%); }
+:root[data-theme='dark'] .dash-greet-name { background-image: linear-gradient(90deg, #a78bfa, #c9b8ff 85%); }
 .dash-tile {
   background: linear-gradient(160deg, rgb(255 255 255 / 0.08), rgb(255 255 255 / 0.03));
   box-shadow: inset 0 0 0 1px rgb(255 255 255 / 0.09), inset 0 1px 0 rgb(255 255 255 / 0.08);
@@ -1786,7 +1786,7 @@ select[size] option:hover,
 .dash-tile:hover, .dash-tile:focus-visible {
   transform: translateY(-3px);
   background: linear-gradient(160deg, rgb(255 255 255 / 0.12), rgb(255 255 255 / 0.05));
-  box-shadow: inset 0 0 0 1px rgb(96 165 250 / 0.35), 0 16px 32px -16px rgb(0 0 0 / 0.5);
+  box-shadow: inset 0 0 0 1px rgb(167 139 250 / 0.35), 0 16px 32px -16px rgb(0 0 0 / 0.5);
 }
 
 /* ── Record page header (EntityHeader) ─────────────────────────────────── */
@@ -1820,11 +1820,11 @@ select[size] option:hover,
 
 /* Brand logo tinted via mask (BrandLogo.tsx). */
 .brand-mask {
-  background: linear-gradient(135deg, #1f4a86, #12305a);
+  background: linear-gradient(135deg, #4a3f78, #2d2944);
   -webkit-mask: var(--logo) left center / contain no-repeat;
           mask: var(--logo) left center / contain no-repeat;
 }
-:root[data-theme='dark'] .brand-mask { background: #e8eef8; }
+:root[data-theme='dark'] .brand-mask { background: #efeafd; }
 
 /* Loading placeholders: every `[aria-label="Loading"]` block gets a soft
    shimmer (static under prefers-reduced-motion). */
@@ -1861,177 +1861,107 @@ select[size] option:hover,
 .skip-link { position: absolute; left: 12px; top: -48px; z-index: 100; transition: top 0.15s ease; }
 .skip-link:focus { top: 12px; }
 
-/* ══ Light & Minimal ════════════════════════════════════════════════════
-   The rail, the dashboard brief, the login panel and the brand chips were
-   built as dark surfaces with white text and white washes (`text-white`,
-   `bg-white/[.05]`, …). In the light theme they become WHITE surfaces: the
-   trick is to set `--c-white` to the ink colour inside them, so every
-   white-on-dark utility turns into ink-on-white automatically. The dark
-   theme keeps them dark (see the `--c-white` restore rule above). */
-.sb-logo-img { filter: none; }
-:root[data-theme='dark'] .sb-logo-img { filter: brightness(0) invert(1); }
+/* ══ Pastel Bento ═══════════════════════════════════════════════════════
+   White sidebar with pastel icon chips and a dark-ink selected pill; soft
+   lavender canvas; big rounded white cards; pastel KPI tiles; a dark-ink
+   "Today's brief" tile; dark-ink buttons; one violet accent.
 
-:root:not([data-theme='dark']) :is(.sb-creative, .dash-hero, .login-hero) { --c-white: 17 24 39; }
+   The rail and the login panel were built as dark surfaces (white text and
+   washes). On the light theme they turn white by pointing `--c-white` at the
+   ink colour inside them; the dark theme keeps them dark. */
+:root:not([data-theme='dark']) :is(.sb-creative, .login-hero) { --c-white: 31 29 43; }
 
 /* Sidebar */
+.sb-logo-img { filter: none; }
+:root[data-theme='dark'] .sb-logo-img { filter: brightness(0) invert(1); }
 :root:not([data-theme='dark']) .sb-creative {
-  background: rgb(var(--c-surface)) !important;
-  box-shadow: 0 0 0 1px rgb(var(--c-border)), 0 1px 3px rgb(17 24 39 / 0.04), 0 12px 32px -18px rgb(17 24 39 / 0.18) !important;
+  background: #fff !important;
+  box-shadow: 0 0 0 1px rgb(var(--c-border)), 0 18px 40px -24px rgb(64 40 140 / 0.28) !important;
 }
-:root:not([data-theme='dark']) .sb-logo { background: rgb(var(--c-neutral-100)) !important; box-shadow: inset 0 0 0 1px rgb(var(--c-border)) !important; }
-:root:not([data-theme='dark']) :is(.sb-active, .sb-hover:hover) {
+:root[data-theme='dark'] .sb-creative { background: rgb(var(--c-sidebar)) !important; box-shadow: 0 0 0 1px rgb(var(--c-border)) !important; }
+.sb-creative .sb-logo { background: #fff3cf !important; box-shadow: none !important; }
+:root[data-theme='dark'] .sb-creative .sb-logo { background: rgb(255 255 255 / 0.08) !important; }
+.sb-creative a.sb-hover { color: rgb(var(--c-inkMuted)) !important; font-weight: 600; }
+:root:not([data-theme='dark']) .sb-creative .sb-hover:hover {
   background: rgb(var(--c-neutral-100)) !important; box-shadow: none !important; color: rgb(var(--c-ink)) !important;
 }
-:root:not([data-theme='dark']) .sb-active::before, :root:not([data-theme='dark']) .sb-hover:hover::before { background: rgb(var(--c-gold)) !important; }
-:root:not([data-theme='dark']) .sb-active svg { color: rgb(var(--c-gold)) !important; }
-:root:not([data-theme='dark']) .sb-hover:hover svg { color: rgb(var(--c-ink)) !important; }
-:root:not([data-theme='dark']) .sb-count { background: rgb(var(--c-neutral-100)); color: rgb(var(--c-inkMuted)); }
-:root:not([data-theme='dark']) .sb-count.is-hot { background: rgb(var(--c-gold)); color: #fff; box-shadow: 0 0 0 3px rgb(37 99 235 / 0.15); }
-:root:not([data-theme='dark']) .sb-season { background: rgb(var(--c-neutral-50)); box-shadow: inset 0 0 0 1px rgb(var(--c-border)); }
-:root:not([data-theme='dark']) .sb-season-bar { background: rgb(var(--c-gold)); box-shadow: none; }
-:root:not([data-theme='dark']) .sb-season span[class*='text-[#'] { color: rgb(var(--c-gold)) !important; }
-:root:not([data-theme='dark']) .sb-modcard { background: rgb(var(--c-neutral-50)); box-shadow: inset 0 0 0 1px rgb(var(--c-border)); }
-:root:not([data-theme='dark']) .sb-modcard:hover { background: rgb(var(--c-neutral-100)); }
-:root:not([data-theme='dark']) .sb-modcard.is-on { background: rgb(239 246 255); box-shadow: inset 0 0 0 1.5px rgb(var(--c-gold)), 0 6px 14px -8px rgb(37 99 235 / 0.35); }
-:root:not([data-theme='dark']) .sb-modcard-ico { background: rgb(var(--c-surface)); color: rgb(var(--c-inkMuted)); box-shadow: inset 0 0 0 1px rgb(var(--c-border)); }
-:root:not([data-theme='dark']) .sb-modcard.is-on .sb-modcard-ico { background: rgb(var(--c-gold)); color: #fff; box-shadow: none; }
-:root:not([data-theme='dark']) .sb-modicon { color: rgb(var(--c-inkMuted)); }
-:root:not([data-theme='dark']) .sb-modicon.is-on { background: rgb(239 246 255); color: rgb(var(--c-gold)); box-shadow: inset 0 0 0 1px rgb(191 219 254); }
-:root:not([data-theme='dark']) .sb-nav-limit { mask-image: none; }
+.sb-creative .sb-hover:hover::before, .sb-creative .sb-active::before { display: none !important; }
+/* The selected row: a dark ink pill with white text (white restored inside). */
+.sb-creative .sb-active {
+  --c-white: 255 255 255;
+  background: #1f1d2b !important; color: #fff !important; font-weight: 700;
+  box-shadow: 0 10px 20px -12px rgb(31 29 43 / 0.7) !important;
+}
+:root[data-theme='dark'] .sb-creative .sb-active { background: #7a5af8 !important; }
+.sb-creative .sb-chip { transition: transform 0.15s ease; }
+.sb-creative a:hover .sb-chip { transform: scale(1.06); }
+.sb-creative .sb-count { background: rgb(var(--c-neutral-100)); color: rgb(var(--c-inkMuted)); box-shadow: none; font-weight: 700; }
+.sb-creative .sb-active .sb-count { background: rgb(255 255 255 / 0.16); color: #fff; }
+.sb-creative .sb-count.is-hot { background: #ff8fa3; color: #1f1d2b; box-shadow: none; }
+/* Module cards — each module its own pastel. */
+.sb-modcard { box-shadow: none !important; transition: transform 0.15s ease, box-shadow 0.15s ease; }
+.sb-modcard:hover { transform: translateY(-1px); }
+.sb-modcard[data-mod='HRMS'] { background: #e6f7ee !important; }
+.sb-modcard[data-mod='WORKSTATION'] { background: #e3f0ff !important; }
+.sb-modcard[data-mod='TOOLS'] { background: #fff4d6 !important; }
+.sb-modcard[data-mod='INTEGRATIONS'] { background: #ffe3ea !important; }
+.sb-modcard.is-on { box-shadow: inset 0 0 0 2px #1f1d2b !important; }
+.sb-modcard .sb-modcard-ico { background: #fff !important; color: #1f1d2b !important; box-shadow: none !important; }
+.sb-modcard.is-on .sb-modcard-ico { background: #1f1d2b !important; color: #ffcf5c !important; }
+:root[data-theme='dark'] .sb-modcard { background: rgb(255 255 255 / 0.05) !important; }
+:root[data-theme='dark'] .sb-modcard.is-on { box-shadow: inset 0 0 0 2px #a78bfa !important; }
+.sb-modicon[data-mod='HRMS'] { background: #e6f7ee; color: #1f9d5a; }
+.sb-modicon[data-mod='WORKSTATION'] { background: #e3f0ff; color: #2f6fed; }
+.sb-modicon[data-mod='TOOLS'] { background: #fff4d6; color: #b98900; }
+.sb-modicon[data-mod='INTEGRATIONS'] { background: #ffe3ea; color: #e0457b; }
+.sb-modicon.is-on { box-shadow: inset 0 0 0 2px #1f1d2b !important; }
+.sb-season { background: #efe9ff !important; box-shadow: none !important; border-radius: 16px !important; }
+.sb-season-bar { background: #7a5af8 !important; box-shadow: none !important; }
+:root[data-theme='dark'] .sb-season { background: rgb(122 90 248 / 0.16) !important; }
 
-/* Dashboard brief */
-:root:not([data-theme='dark']) .dash-hero {
-  background: rgb(var(--c-surface)) !important;
-  box-shadow: 0 0 0 1px rgb(var(--c-border)), 0 1px 3px rgb(17 24 39 / 0.04), 0 16px 40px -24px rgb(17 24 39 / 0.18) !important;
+/* Cards: bigger, softer corners and a lavender-tinted shadow. */
+.dash-card, .ws-card, .eh-panel, .cp-panel { border-radius: 22px !important; }
+@media (min-width: 768px) {
+  .ws-float, :has(> table.hr-float) { border-radius: 22px !important; }
 }
-:root:not([data-theme='dark']) :is(.dash-hero, .login-hero) .dash-hero-grid { display: none; }
-:root:not([data-theme='dark']) .dash-tile { background: rgb(var(--c-neutral-50)); box-shadow: inset 0 0 0 1px rgb(var(--c-border)); }
-:root:not([data-theme='dark']) .dash-tile:hover, :root:not([data-theme='dark']) .dash-tile:focus-visible {
-  background: rgb(var(--c-surface)); box-shadow: inset 0 0 0 1px rgb(191 219 254), 0 14px 28px -16px rgb(17 24 39 / 0.22);
-}
-:root:not([data-theme='dark']) .dash-glass { background: rgb(var(--c-neutral-50)); box-shadow: inset 0 0 0 1px rgb(var(--c-border)); }
-:root:not([data-theme='dark']) .dash-insight { background: rgb(var(--c-neutral-50)); box-shadow: inset 0 0 0 1px rgb(var(--c-border)); }
-.dash-greet-name { background-image: linear-gradient(90deg, rgb(var(--c-ink)), rgb(var(--c-gold)) 90%) !important; }
+.dash-card { border-color: rgb(var(--c-border)) !important; box-shadow: 0 1px 2px rgb(64 40 140 / 0.04), 0 10px 30px -18px rgb(64 40 140 / 0.22) !important; }
 
-/* Login brand panel */
-:root:not([data-theme='dark']) .login-hero {
-  background: rgb(var(--c-neutral-50)) !important;
-  box-shadow: inset -1px 0 0 rgb(var(--c-border));
+/* Today's brief: the dark-ink bento tile. */
+.dash-hero {
+  background: #1f1d2b !important;
+  box-shadow: 0 24px 48px -24px rgb(31 29 43 / 0.6) !important;
+  border-radius: 26px !important;
 }
-:root:not([data-theme='dark']) .login-hero .dash-hero-name { background-image: linear-gradient(90deg, rgb(var(--c-ink)), rgb(var(--c-gold)) 90%); }
+.dash-hero .dash-hero-grid { display: none; }
+.dash-hero .dash-tile { background: rgb(255 255 255 / 0.07); box-shadow: none; border-radius: 18px; }
+.dash-hero .dash-tile:hover, .dash-hero .dash-tile:focus-visible { background: rgb(255 255 255 / 0.12); box-shadow: none; transform: translateY(-2px); }
+.dash-hero .dash-glass { background: rgb(255 255 255 / 0.06); box-shadow: none; border-radius: 20px; }
+.dash-hero .text-gold { color: #c9b8ff; }
+.dash-hero .text-danger { color: #ff8fa3; }
+.dash-hero .text-warning { color: #ffcf5c; }
+.dash-hero .text-success { color: #a5e8c8; }
+.dash-greet-name { background-image: linear-gradient(90deg, #7a5af8, #e0457b) !important; }
 
-/* Primary buttons: flat near-black with a faint top sheen. */
-:root:not([data-theme='dark']) :is(button, a, [role='button']).bg-primary {
-  background-image: linear-gradient(180deg, rgb(255 255 255 / 0.08), transparent 60%) !important;
-  border-color: rgb(var(--c-primary)) !important;
-  box-shadow: 0 1px 2px rgb(17 24 39 / 0.18), inset 0 1px 0 rgb(255 255 255 / 0.10) !important;
-}
-:root:not([data-theme='dark']) :is(button, a, [role='button']).bg-primary:hover:not(:disabled) {
-  background-image: none !important; background-color: rgb(var(--c-primary-hover)) !important;
-}
-:root[data-theme='dark'] :is(button, a, [role='button']).bg-primary {
-  background-image: linear-gradient(180deg, rgb(255 255 255 / 0.10), transparent 60%) !important; border-color: rgb(var(--c-primary)) !important;
-}
+/* Pastel KPI tiles (DashboardV2 `Kpi`). */
+.pastel-tile { border: 0 !important; position: relative; overflow: hidden; box-shadow: none !important; border-radius: 24px !important; }
+.pastel-tile::after { content: ''; position: absolute; right: -34px; bottom: -34px; width: 120px; height: 120px; border-radius: 50%; background: var(--blob); opacity: 0.55; pointer-events: none; }
+.pastel-tile:hover { transform: translateY(-3px); box-shadow: 0 16px 30px -18px rgb(64 40 140 / 0.35) !important; }
+:root[data-theme='dark'] .pastel-tile { background: rgb(255 255 255 / 0.05) !important; }
+:root[data-theme='dark'] .pastel-tile::after { opacity: 0.18; }
 
-/* Grouped-list headers (checklists): light strip with ink text. */
-:root:not([data-theme='dark']) :is(.fr-group > .ws-card-title, .fr-head) { background: rgb(var(--c-neutral-100)) !important; }
-:root:not([data-theme='dark']) :is(.fr-group > .ws-card-title, .fr-head) * { color: rgb(var(--c-ink)) !important; border-color: rgb(var(--c-border)) !important; }
+/* Buttons: dark ink, rounder. */
+:is(button, a, [role='button']).bg-primary {
+  background-image: none !important; border-color: transparent !important;
+  box-shadow: 0 8px 18px -10px rgb(31 29 43 / 0.6) !important;
+}
+:is(button, a, [role='button']).bg-primary:hover:not(:disabled) { background-image: none !important; background-color: rgb(var(--c-primary-hover)) !important; }
 
-/* The brand mask: navy-black logo on light, white on dark. */
+/* Login: lavender brand panel with ink text. */
+:root:not([data-theme='dark']) .login-hero { background: #efe9ff !important; box-shadow: none; }
+.login-hero .dash-hero-grid { display: none; }
+.login-hero .dash-insight { background: rgb(255 255 255 / 0.7) !important; box-shadow: none !important; border-radius: 18px; }
+.login-hero .dash-hero-name { background-image: linear-gradient(90deg, #7a5af8, #e0457b); }
 .brand-mask { background: rgb(var(--c-ink)) !important; }
-
-/* Dark theme, minimal: graphite surfaces, no tinted gradients. */
-:root[data-theme='dark'] .sb-creative { background: rgb(var(--c-sidebar)) !important; box-shadow: 0 0 0 1px rgb(var(--c-border)), 0 18px 40px -18px rgb(0 0 0 / 0.7) !important; }
-:root[data-theme='dark'] .dash-hero { background: linear-gradient(160deg, rgb(30 32 38), rgb(20 21 25)) !important; box-shadow: 0 0 0 1px rgb(var(--c-border)), 0 20px 40px -20px rgb(0 0 0 / 0.7) !important; }
-:root[data-theme='dark'] .login-hero { background: linear-gradient(160deg, rgb(26 27 31), rgb(14 15 18)) !important; }
-:root[data-theme='dark'] :is(.sb-active, .sb-hover:hover) { background: rgb(255 255 255 / 0.07) !important; box-shadow: inset 0 0 0 1px rgb(255 255 255 / 0.08) !important; }
-:root[data-theme='dark'] .sb-modcard.is-on, :root[data-theme='dark'] .sb-modicon.is-on { background: rgb(59 130 246 / 0.16); box-shadow: inset 0 0 0 1px rgb(96 165 250 / 0.4); }
-:root[data-theme='dark'] .sb-logo { background: rgb(255 255 255 / 0.06) !important; box-shadow: inset 0 0 0 1px rgb(255 255 255 / 0.08) !important; }
-
-/* Sidebar, more visible (light theme): its own cool-grey surface with a
-   clear edge; white cards and a white selected pill stand out on it, and
-   the menu text is near-black instead of 70% grey. */
-:root:not([data-theme='dark']) .sb-creative {
-  background: linear-gradient(180deg, #eef1f6 0%, #e9edf3 100%) !important;
-  box-shadow: 0 0 0 1px #d8dee8, 0 2px 4px rgb(17 24 39 / 0.04), 0 18px 40px -20px rgb(17 24 39 / 0.25) !important;
-}
-:root:not([data-theme='dark']) .sb-creative a.sb-hover,
-:root:not([data-theme='dark']) .sb-creative a.sb-hover svg { color: rgb(31 41 55) !important; }
-:root:not([data-theme='dark']) .sb-creative .text-sidebarMuted { color: rgb(88 96 110) !important; }
-:root:not([data-theme='dark']) .sb-creative :is(.sb-active, .sb-hover:hover) {
-  background: #fff !important;
-  box-shadow: 0 1px 2px rgb(17 24 39 / 0.06), 0 0 0 1px #d8dee8 !important;
-  color: rgb(var(--c-ink)) !important; font-weight: 600;
-}
-:root:not([data-theme='dark']) .sb-creative .sb-modcard { background: rgb(255 255 255 / 0.7); box-shadow: inset 0 0 0 1px #d8dee8; }
-:root:not([data-theme='dark']) .sb-creative .sb-modcard:hover { background: #fff; }
-:root:not([data-theme='dark']) .sb-creative .sb-modcard.is-on { background: #fff; box-shadow: inset 0 0 0 1.5px rgb(var(--c-gold)), 0 6px 16px -8px rgb(37 99 235 / 0.35); }
-:root:not([data-theme='dark']) .sb-creative .sb-modcard-ico { background: #eef1f6; }
-:root:not([data-theme='dark']) .sb-creative .sb-season { background: #fff; box-shadow: inset 0 0 0 1px #d8dee8; }
-:root:not([data-theme='dark']) .sb-creative .sb-logo { background: #fff !important; box-shadow: inset 0 0 0 1px #d8dee8 !important; }
-:root:not([data-theme='dark']) .sb-creative .sb-count { background: #fff; color: rgb(55 65 81); box-shadow: inset 0 0 0 1px #d8dee8; }
-:root:not([data-theme='dark']) .sb-creative .sb-count.is-hot { background: rgb(var(--c-gold)); color: #fff; box-shadow: none; }
-
-/* ── Sidebar: charcoal panel on the light theme (final) ─────────────────
-   One strong dark surface against the light pages, so the rail is
-   unmistakable. Restores white-on-dark inside it (`--c-white` back to
-   white) and overrides the light-sidebar rules above. */
-:root:not([data-theme='dark']) .sb-creative {
-  --c-white: 255 255 255;
-  --c-sidebarText: 255 255 255;
-  --c-sidebarMuted: 148 156 172;
-  background: linear-gradient(180deg, #1a2030 0%, #111827 100%) !important;
-  box-shadow: 0 18px 40px -16px rgb(17 24 39 / 0.55), inset 0 1px 0 rgb(255 255 255 / 0.06) !important;
-}
-:root:not([data-theme='dark']) .sb-creative .sb-logo-img { filter: brightness(0) invert(1); }
-:root:not([data-theme='dark']) .sb-creative .sb-logo { background: rgb(255 255 255 / 0.08) !important; box-shadow: inset 0 0 0 1px rgb(255 255 255 / 0.10) !important; }
-:root:not([data-theme='dark']) .sb-creative a.sb-hover,
-:root:not([data-theme='dark']) .sb-creative a.sb-hover svg { color: rgb(255 255 255 / 0.78) !important; }
-:root:not([data-theme='dark']) .sb-creative .text-sidebarMuted { color: rgb(148 156 172) !important; }
-:root:not([data-theme='dark']) .sb-creative :is(.sb-active, .sb-hover:hover) {
-  background: rgb(255 255 255 / 0.10) !important;
-  box-shadow: inset 0 0 0 1px rgb(255 255 255 / 0.10) !important;
-  color: #fff !important; font-weight: 600;
-}
-:root:not([data-theme='dark']) .sb-creative .sb-active svg { color: #93c5fd !important; }
-:root:not([data-theme='dark']) .sb-creative .sb-hover:hover svg { color: #fff !important; }
-:root:not([data-theme='dark']) .sb-creative .sb-active::before, :root:not([data-theme='dark']) .sb-creative .sb-hover:hover::before { background: #60a5fa !important; }
-:root:not([data-theme='dark']) .sb-creative .sb-modcard { background: rgb(255 255 255 / 0.05); box-shadow: inset 0 0 0 1px rgb(255 255 255 / 0.09); }
-:root:not([data-theme='dark']) .sb-creative .sb-modcard:hover { background: rgb(255 255 255 / 0.09); }
-:root:not([data-theme='dark']) .sb-creative .sb-modcard.is-on { background: rgb(37 99 235 / 0.22); box-shadow: inset 0 0 0 1.5px #60a5fa, 0 8px 18px -10px rgb(37 99 235 / 0.6); }
-:root:not([data-theme='dark']) .sb-creative .sb-modcard-ico { background: rgb(255 255 255 / 0.08); color: rgb(255 255 255 / 0.75); box-shadow: none; }
-:root:not([data-theme='dark']) .sb-creative .sb-modcard.is-on .sb-modcard-ico { background: #2563eb; color: #fff; }
-:root:not([data-theme='dark']) .sb-creative .sb-modicon { color: rgb(255 255 255 / 0.65); }
-:root:not([data-theme='dark']) .sb-creative .sb-modicon.is-on { background: rgb(37 99 235 / 0.22); color: #93c5fd; box-shadow: inset 0 0 0 1px rgb(96 165 250 / 0.5); }
-:root:not([data-theme='dark']) .sb-creative .sb-season { background: rgb(255 255 255 / 0.05); box-shadow: inset 0 0 0 1px rgb(255 255 255 / 0.09); }
-:root:not([data-theme='dark']) .sb-creative .sb-season-bar { background: #60a5fa; }
-:root:not([data-theme='dark']) .sb-creative .sb-season span[class*='text-[#'] { color: #93c5fd !important; }
-:root:not([data-theme='dark']) .sb-creative .sb-count { background: rgb(255 255 255 / 0.10); color: rgb(255 255 255 / 0.8); box-shadow: none; }
-:root:not([data-theme='dark']) .sb-creative .sb-count.is-hot { background: #2563eb; color: #fff; }
-
-/* ── Today's brief: charcoal, matching the sidebar (light theme) ───────── */
-:root:not([data-theme='dark']) .dash-hero {
-  --c-white: 255 255 255;
-  background:
-    radial-gradient(60% 90% at 90% 0%, rgb(37 99 235 / 0.22), transparent 60%),
-    radial-gradient(50% 80% at 0% 100%, rgb(96 165 250 / 0.10), transparent 70%),
-    linear-gradient(150deg, #1a2030 0%, #111827 100%) !important;
-  box-shadow: 0 20px 44px -20px rgb(17 24 39 / 0.55), inset 0 1px 0 rgb(255 255 255 / 0.06) !important;
-  color: #fff;
-}
-:root:not([data-theme='dark']) .dash-hero .dash-hero-grid { display: block; }
-:root:not([data-theme='dark']) .dash-hero .dash-tile {
-  background: linear-gradient(160deg, rgb(255 255 255 / 0.08), rgb(255 255 255 / 0.03));
-  box-shadow: inset 0 0 0 1px rgb(255 255 255 / 0.09);
-}
-:root:not([data-theme='dark']) .dash-hero .dash-tile:hover, :root:not([data-theme='dark']) .dash-hero .dash-tile:focus-visible {
-  background: linear-gradient(160deg, rgb(255 255 255 / 0.12), rgb(255 255 255 / 0.05));
-  box-shadow: inset 0 0 0 1px rgb(96 165 250 / 0.45), 0 16px 32px -16px rgb(0 0 0 / 0.6);
-}
-:root:not([data-theme='dark']) .dash-hero .dash-glass { background: rgb(255 255 255 / 0.05); box-shadow: inset 0 0 0 1px rgb(255 255 255 / 0.09); }
-/* Readable accents on charcoal: lighter blue links, brighter status icons. */
-:root:not([data-theme='dark']) .dash-hero .text-gold { color: #93c5fd; }
-:root:not([data-theme='dark']) .dash-hero .text-danger { color: #fca5a5; }
-:root:not([data-theme='dark']) .dash-hero .text-warning { color: #fcd34d; }
-:root:not([data-theme='dark']) .dash-hero .text-success { color: #86efac; }
-:root:not([data-theme='dark']) .dash-hero :is(.bg-danger\/10, .bg-warning\/10, .bg-success\/10, .bg-gold\/10) { background-color: rgb(255 255 255 / 0.08); }
+:root:not([data-theme='dark']) .pastel-panel { background: #efe9ff !important; border-color: transparent !important; box-shadow: none !important; }
+:root:not([data-theme='dark']) .pastel-panel .border-border { border-color: rgb(122 90 248 / 0.18); }
+:root:not([data-theme='dark']) .pastel-panel a:hover { background: rgb(255 255 255 / 0.55); }

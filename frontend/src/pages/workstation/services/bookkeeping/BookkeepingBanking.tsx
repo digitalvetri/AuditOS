@@ -1,10 +1,10 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Upload, Link2, Unlink } from 'lucide-react';
+import { Upload, Link2, Unlink, Wand2, X } from 'lucide-react';
 import { Button } from '@/components/Button';
 import { useToast } from '@/components/Toast';
-import { bookkeepingAccountingApi, type StatementLine } from '@/modules/tools/audit-automation/bookkeeping';
+import { bookkeepingAccountingApi, bookkeepingApi, type StatementLine, type CategorizeProposal } from '@/modules/tools/audit-automation/bookkeeping';
 import { DataTable, Money, DrCr, Panel, Loading, ErrorNote, usePeriod, ReportHeader, parseCsv } from '@/modules/tools/bookkeeping/ui';
 import type { ApiError } from '@/services/api';
 
@@ -129,12 +129,14 @@ function StatementTab({ companyId, ledgerId }: { companyId: string; ledgerId: st
   const [csv, setCsv] = useState('');
   const [err, setErr] = useState<string | null>(null);
   const [statusFilter, setStatusFilter] = useState('all');
+  const [autoOpen, setAutoOpen] = useState(false);
 
   const linesQ = useQuery({
     queryKey: ['tally.statementLines', companyId, ledgerId, statusFilter],
     enabled: Boolean(ledgerId),
     queryFn: () => bookkeepingAccountingApi.statementLines(companyId, ledgerId, { status: statusFilter }),
   });
+  const unmatchedCount = (linesQ.data?.items ?? []).filter((l) => l.status === 'unmatched').length;
 
   const importM = useMutation({
     mutationFn: () => {
@@ -184,11 +186,16 @@ function StatementTab({ companyId, ledgerId }: { companyId: string; ledgerId: st
       <Panel
         title="Statement lines"
         actions={
-          <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} className="h-7 px-1 text-12 border border-neutral-300 rounded bg-white">
-            <option value="all">All</option>
-            <option value="unmatched">Unmatched</option>
-            <option value="matched">Matched</option>
-          </select>
+          <div className="flex items-center gap-2">
+            <Button size="sm" variant="secondary" onClick={() => setAutoOpen(true)} disabled={unmatchedCount === 0}>
+              <Wand2 size={13} className="mr-1" /> Auto-categorize{unmatchedCount ? ` (${unmatchedCount})` : ''}
+            </Button>
+            <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} className="h-7 px-1 text-12 border border-neutral-300 rounded bg-white">
+              <option value="all">All</option>
+              <option value="unmatched">Unmatched</option>
+              <option value="matched">Matched</option>
+            </select>
+          </div>
         }
       >
         {linesQ.isLoading ? <div className="p-3 text-13 text-neutral-500">Loading…</div> : (
@@ -207,6 +214,180 @@ function StatementTab({ companyId, ledgerId }: { companyId: string; ledgerId: st
           />
         )}
       </Panel>
+
+      {autoOpen ? <AutoCategorizeModal companyId={companyId} ledgerId={ledgerId} onClose={() => setAutoOpen(false)} /> : null}
+    </div>
+  );
+}
+
+/**
+ * Walks every unmatched statement line on this bank ledger, fetches the
+ * backend's proposals (rule / party / suspense) and shows a table where the
+ * operator can override counter-ledger / voucher-type per row before
+ * committing. One confirmed row = one Receipt or Payment voucher posted via
+ * the standard writer. Lines already matched are skipped by the backend.
+ */
+function AutoCategorizeModal({ companyId, ledgerId, onClose }: { companyId: string; ledgerId: string; onClose: () => void }) {
+  const qc = useQueryClient();
+  const toast = useToast();
+  const proposeQ = useQuery({
+    queryKey: ['tally.categorize.propose', companyId, ledgerId],
+    queryFn: () => bookkeepingAccountingApi.proposeCategorize(companyId, ledgerId),
+  });
+  const ledgersQ = useQuery({
+    queryKey: ['tally.ledgers.all', companyId],
+    queryFn: () => bookkeepingApi.listLedgers(companyId),
+  });
+
+  // Keyed by lineId so edits don't rebuild as the list reorders.
+  const [edits, setEdits] = useState<Record<string, { counterLedgerId: string; voucherType: 'receipt' | 'payment' }>>({});
+  const [skipped, setSkipped] = useState<Set<string>>(new Set());
+
+  const proposals = proposeQ.data?.proposals ?? [];
+  const effective = useMemo(() => proposals.map((p) => ({
+    ...p,
+    counterLedgerId: edits[p.lineId]?.counterLedgerId ?? p.counterLedgerId,
+    voucherType: edits[p.lineId]?.voucherType ?? p.voucherType,
+  })), [proposals, edits]);
+  const toPost = effective.filter((p) => !skipped.has(p.lineId));
+
+  const commitM = useMutation({
+    mutationFn: () => bookkeepingAccountingApi.commitCategorize(companyId, ledgerId, toPost.map((p) => ({
+      line_id: p.lineId, counter_ledger_id: p.counterLedgerId, voucher_type: p.voucherType,
+    }))),
+    onSuccess: async (r) => {
+      await qc.invalidateQueries({ queryKey: ['tally.statementLines', companyId, ledgerId] });
+      await qc.invalidateQueries({ queryKey: ['tally.bankAccounts', companyId] });
+      await qc.invalidateQueries({ queryKey: ['tally.bankBook', companyId, ledgerId] });
+      if (r.errorCount > 0) {
+        toast.push('error', `${r.posted} posted, ${r.errorCount} failed. First error: ${r.errors[0]?.message ?? ''}`);
+      } else {
+        toast.push('success', `${r.posted} voucher${r.posted === 1 ? '' : 's'} posted${r.skipped ? `, ${r.skipped} skipped` : ''}.`);
+        onClose();
+      }
+    },
+    onError: (e: Error) => toast.push('error', e.message),
+  });
+
+  const ledgerOptions = ledgersQ.data?.items ?? [];
+  const sourceBadge = (s: CategorizeProposal['source']) => {
+    const map: Record<CategorizeProposal['source'], { label: string; cls: string }> = {
+      db_rule:      { label: 'Rule',    cls: 'bg-emerald-50 text-emerald-700' },
+      default_rule: { label: 'Default', cls: 'bg-sky-50 text-sky-700' },
+      party_match:  { label: 'Party',   cls: 'bg-indigo-50 text-indigo-700' },
+      suspense:     { label: 'Suspense',cls: 'bg-amber-50 text-amber-700' },
+    };
+    const m = map[s];
+    return <span className={`text-10 px-1.5 py-0.5 rounded ${m.cls}`}>{m.label}</span>;
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+      <div className="bg-white rounded shadow-lg w-full max-w-[1100px] max-h-[90vh] flex flex-col">
+        <div className="px-5 py-3 border-b border-neutral-200 flex items-center justify-between">
+          <div>
+            <h2 className="text-14 font-semibold text-neutral-900">Auto-categorize unmatched lines</h2>
+            <p className="text-12 text-neutral-500 mt-0.5">
+              Each row below becomes a Receipt or Payment voucher on confirm. Override the counter-ledger per row if a proposal looks wrong.
+            </p>
+          </div>
+          <button type="button" onClick={onClose} aria-label="Close" className="text-neutral-400 hover:text-neutral-700"><X size={16} /></button>
+        </div>
+
+        <div className="flex-1 overflow-y-auto">
+          {proposeQ.isLoading || ledgersQ.isLoading ? (
+            <div className="p-6 text-13 text-neutral-500">Loading proposals…</div>
+          ) : proposeQ.isError ? (
+            <div className="p-6 text-13 text-danger">{(proposeQ.error as Error).message}</div>
+          ) : proposals.length === 0 ? (
+            <div className="p-6 text-13 text-neutral-500">Nothing to categorize — all lines on this account are matched.</div>
+          ) : (
+            <table className="w-full text-12">
+              <thead className="bg-neutral-50 sticky top-0">
+                <tr className="text-left text-neutral-500 border-b border-neutral-200">
+                  <th className="px-3 py-2 w-[90px]">Date</th>
+                  <th className="px-3 py-2">Description</th>
+                  <th className="px-3 py-2 w-[90px] text-right">Debit</th>
+                  <th className="px-3 py-2 w-[90px] text-right">Credit</th>
+                  <th className="px-3 py-2 w-[110px]">Type</th>
+                  <th className="px-3 py-2 w-[260px]">Counter-ledger</th>
+                  <th className="px-3 py-2 w-[90px]">Source</th>
+                  <th className="px-3 py-2 w-[60px] text-right">Skip</th>
+                </tr>
+              </thead>
+              <tbody>
+                {effective.map((p) => {
+                  const isSkipped = skipped.has(p.lineId);
+                  return (
+                    <tr key={p.lineId} className={`border-b border-neutral-100 ${isSkipped ? 'opacity-40' : ''}`}>
+                      <td className="px-3 py-2 text-neutral-700">{p.date}</td>
+                      <td className="px-3 py-2 text-neutral-900">
+                        <div className="truncate max-w-[380px]" title={p.description}>{p.description}</div>
+                        <div className="text-11 text-neutral-500 mt-0.5">{p.matchedBy}</div>
+                      </td>
+                      <td className="px-3 py-2 text-right tabular-nums text-neutral-700">{p.debitPaise ? (p.debitPaise / 100).toLocaleString('en-IN') : ''}</td>
+                      <td className="px-3 py-2 text-right tabular-nums text-neutral-700">{p.creditPaise ? (p.creditPaise / 100).toLocaleString('en-IN') : ''}</td>
+                      <td className="px-3 py-2">
+                        <select
+                          value={p.voucherType}
+                          disabled={isSkipped}
+                          onChange={(e) => setEdits((es) => ({ ...es, [p.lineId]: { counterLedgerId: p.counterLedgerId, voucherType: e.target.value as 'receipt' | 'payment' } }))}
+                          className="h-7 px-1 text-12 border border-neutral-300 rounded bg-white w-full"
+                        >
+                          <option value="receipt">Receipt</option>
+                          <option value="payment">Payment</option>
+                        </select>
+                      </td>
+                      <td className="px-3 py-2">
+                        <select
+                          value={p.counterLedgerId}
+                          disabled={isSkipped}
+                          onChange={(e) => setEdits((es) => ({ ...es, [p.lineId]: { counterLedgerId: e.target.value, voucherType: p.voucherType } }))}
+                          className="h-7 px-1 text-12 border border-neutral-300 rounded bg-white w-full"
+                        >
+                          {ledgerOptions.map((l) => (
+                            <option key={l.id} value={l.id}>{l.name}</option>
+                          ))}
+                        </select>
+                      </td>
+                      <td className="px-3 py-2">{sourceBadge(p.source)}</td>
+                      <td className="px-3 py-2 text-right">
+                        <input
+                          type="checkbox"
+                          checked={isSkipped}
+                          onChange={(e) => setSkipped((s) => {
+                            const next = new Set(s);
+                            if (e.target.checked) next.add(p.lineId); else next.delete(p.lineId);
+                            return next;
+                          })}
+                          aria-label="Skip this line"
+                        />
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          )}
+        </div>
+
+        <div className="px-5 py-3 border-t border-neutral-200 flex items-center justify-between">
+          <div className="text-12 text-neutral-500">
+            {proposals.length > 0 ? (
+              <>Will post <strong>{toPost.length}</strong> voucher{toPost.length === 1 ? '' : 's'}
+                {skipped.size ? ` · ${skipped.size} skipped` : ''}
+                {proposeQ.data?.unresolvedCount ? ` · ${proposeQ.data.unresolvedCount} unresolved (no fallback ledger available)` : ''}
+              </>
+            ) : null}
+          </div>
+          <div className="flex gap-2">
+            <Button size="sm" variant="secondary" onClick={onClose}>Cancel</Button>
+            <Button size="sm" variant="primary" onClick={() => commitM.mutate()} disabled={toPost.length === 0 || commitM.isPending}>
+              {commitM.isPending ? 'Posting…' : `Confirm & post${toPost.length ? ` ${toPost.length}` : ''}`}
+            </Button>
+          </div>
+        </div>
+      </div>
     </div>
   );
 }

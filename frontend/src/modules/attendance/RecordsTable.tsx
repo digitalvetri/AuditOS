@@ -121,7 +121,7 @@ function FiltersBar({
       <button
         type="button"
         onClick={onReset}
-        className="h-9 px-3 text-13 rounded-full text-primary bg-[#eaf0f8] hover:bg-[#d6e1f0]"
+        className="h-9 px-3 text-13 rounded-full text-primary bg-[#f1edff] hover:bg-[#e0d8f8]"
       >
         Reset
       </button>
