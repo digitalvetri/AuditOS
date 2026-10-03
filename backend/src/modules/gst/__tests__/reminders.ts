@@ -84,34 +84,39 @@ async function suite() {
     },
   })
 
-  // Three return cases: one due in 2 days, one overdue (yesterday), one far out (10 days).
+  // Four return cases to prove the GSTR-2B exclusion:
+  //   GSTR-1  due in 2 days  → in window (should fire)
+  //   GSTR-2B overdue        → excluded by REMINDED_KINDS (should NOT fire)
+  //   GSTR-3B due today      → in window (should fire)
+  //   (plus a far-out GSTR-1 covered by the subsequent completed-case check)
   await prisma.partnershipCase.createMany({
     data: [
       { caseCode: `GSTR1-${stamp}`,  kind: 'GSTR1',  clientId: client.id, period, status: 'IN_PROGRESS', dueDate: in2Days },
       { caseCode: `GSTR2B-${stamp}`, kind: 'GSTR2B', clientId: client.id, period, status: 'IN_PROGRESS', dueDate: yesterday },
-      { caseCode: `GSTR3B-${stamp}`, kind: 'GSTR3B', clientId: client.id, period, status: 'IN_PROGRESS', dueDate: in10Days },
+      { caseCode: `GSTR3B-${stamp}`, kind: 'GSTR3B', clientId: client.id, period, status: 'IN_PROGRESS', dueDate: iso(today) },
     ],
   })
 
   const items = await computeUpcoming(prisma, { period, today: iso(today), clientIdFilter: [client.id] })
-  check('Two returns in window (GSTR-1 due-soon, GSTR-2B overdue; GSTR-3B skipped)', items.length, 2)
+  check('Two returns in window (GSTR-1 due-soon, GSTR-3B due today; GSTR-2B deliberately excluded)', items.length, 2)
   const kinds = items.map((i) => i.kind).sort()
-  check('Correct kinds surfaced', kinds.join(','), 'GSTR1,GSTR2B')
+  check('Only GSTR-1 and GSTR-3B surfaced — GSTR-2B is not actionable', kinds.join(','), 'GSTR1,GSTR3B')
 
   const g1 = items.find((i) => i.kind === 'GSTR1')
-  const g2 = items.find((i) => i.kind === 'GSTR2B')
+  const g3 = items.find((i) => i.kind === 'GSTR3B')
   check('GSTR-1 state is due', g1?.state, 'due')
   check('GSTR-1 days_to_due = 2', g1?.daysToDue, 2)
-  check('GSTR-2B state is overdue', g2?.state, 'overdue')
+  check('GSTR-3B state is due (today)', g3?.state, 'due')
+  check('GSTR-3B days_to_due = 0', g3?.daysToDue, 0)
   check('Dedupe key is stable (contains clientId + kind + period + state)',
     (g1?.key.includes(client.id) && g1?.key.includes('GSTR1') && g1?.key.includes(period) && g1?.key.includes('due')) ?? false, true)
 
-  // Completed case drops out of the window.
+  // Completed GSTR-1 case drops out of the window.
   const g1Case = await prisma.partnershipCase.findFirst({ where: { caseCode: `GSTR1-${stamp}` } })
   await prisma.partnershipCase.update({ where: { id: g1Case!.id }, data: { status: 'COMPLETED' } })
   const items2 = await computeUpcoming(prisma, { period, today: iso(today), clientIdFilter: [client.id] })
   check('Completed case is excluded', items2.length, 1)
-  check('Only the overdue GSTR-2B remains', items2[0]?.kind, 'GSTR2B')
+  check('Only GSTR-3B remains (GSTR-2B was never there to begin with)', items2[0]?.kind, 'GSTR3B')
   // Put it back for the scheduler check.
   await prisma.partnershipCase.update({ where: { id: g1Case!.id }, data: { status: 'IN_PROGRESS' } })
 
@@ -119,7 +124,7 @@ async function suite() {
   const beforeCount = await prisma.notification.count({ where: { entityType: 'gst_reminder', entityId: { contains: `:${client.id}:` } } })
   await sendGstReminders(prisma)
   const afterCount = await prisma.notification.count({ where: { entityType: 'gst_reminder', entityId: { contains: `:${client.id}:` } } })
-  check('Scheduler writes one notification per item (2 new)', afterCount - beforeCount, 2)
+  check('Scheduler writes one notification per in-window item (2 new, GSTR-2B skipped)', afterCount - beforeCount, 2)
 
   // Second tick is a no-op.
   await sendGstReminders(prisma)
