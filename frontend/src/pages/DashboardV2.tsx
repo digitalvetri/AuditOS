@@ -21,7 +21,7 @@ import { Link } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   AlertTriangle, ArrowUpRight, CalendarClock, CalendarDays, Check, CheckCircle2, ChevronRight, ClockAlert,
-  FileText, FileWarning, Inbox, Info, Landmark, Plane, Receipt, Users, Wallet,
+  FileText, FileWarning, Inbox, Landmark, Plane, Receipt, Users, Wallet,
 } from 'lucide-react';
 import { useAuth } from '@/platform/auth/AuthContext';
 import { can } from '@/platform/rbac/can';
@@ -119,52 +119,52 @@ export function DashboardV2Page() {
   const hasDeadlines = (seesGst || seesTds) && (gst.isSuccess || tds.isSuccess);
   const showSide = seesTeam || seesActivity;
 
+  const kpiTiles = [
+    approves && pending.data ? <WaitingTile key="waiting" items={pending.data.items} /> : null,
+    seesBilling && money.data ? <ReceivablesTile key="recv" data={money.data} /> : null,
+    (seesGst || seesTds) && hasDeadlines ? <FilingsTile key="filings" due={due7} list={deadlineList} today={today} /> : null,
+    seesTeam && counts ? <TeamTile key="team" counts={counts} /> : null,
+    seesBilling && monthly.data ? <BilledTile key="billed" months={monthly.data.months} /> : null,
+    seesLedger && ledger.data ? (
+      <Kpi key="ledger" href="/hrms/accounts" icon={Landmark} tone="lavender" label="Ledger balance"
+        value={paise(ledger.data.totals.balance_paise)}
+        sub={`This month · out ${paise(ledger.data.this_month.debit_paise)} · in ${paise(ledger.data.this_month.credit_paise)}`} />
+    ) : null,
+    seesCalendar && todays ? (
+      <Kpi key="schedule" href="/workstation/calendar" icon={CalendarDays} tone="blue" label="Today's schedule"
+        value={String(todays.length)} sub={scheduleNote(todays)} />
+    ) : null,
+  ].filter(Boolean).slice(0, 4);
+  const loadingBrief = [money, gst, tds, pending, attendance].some((q) => q.isLoading && q.fetchStatus !== 'idle');
+  const gauge = seesGst && gst.data && stats.total > 0 ? { stats, period } : null;
+
   return (
     <div className="dash-v3 space-y-5">
-      <Hero
-        insights={insights}
-        loading={[money, gst, tds, pending, attendance].some((q) => q.isLoading && q.fetchStatus !== 'idle')}
-        counts={counts}
-        waiting={pending.data?.count}
-        gauge={seesGst && gst.data && stats.total > 0 ? { stats, period } : null}
-        seesTeam={seesTeam}
-      />
+      <Greeting insights={insights} counts={counts} waiting={pending.data?.count} seesTeam={seesTeam} />
 
       {checksIn ? <TodayCard /> : null}
       {/* Staff without a team view get their own leave position instead. */}
       {checksIn && !seesTeam ? <BalancesCard /> : null}
 
-      <KpiRow
-        tiles={[
-          seesBilling && monthly.data ? <BilledTile key="billed" months={monthly.data.months} /> : null,
-          seesBilling && money.data ? <ReceivablesTile key="recv" data={money.data} /> : null,
-          (seesGst || seesTds) && hasDeadlines ? <FilingsTile key="filings" due={due7} list={deadlineList} today={today} /> : null,
-          seesTeam && counts ? <TeamTile key="team" counts={counts} /> : null,
-          approves && pending.data ? <WaitingTile key="waiting" items={pending.data.items} /> : null,
-          seesLedger && ledger.data ? (
-            <Kpi key="ledger" href="/hrms/accounts" icon={Landmark} tone="coral" label="Ledger balance"
-              value={paise(ledger.data.totals.balance_paise)}
-              sub={`This month · out ${paise(ledger.data.this_month.debit_paise)} · in ${paise(ledger.data.this_month.credit_paise)}`} />
-          ) : null,
-          seesCalendar && todays ? (
-            <Kpi key="schedule" href="/workstation/calendar" icon={CalendarDays} tone="teal" label="Today's schedule"
-              value={String(todays.length)} sub={scheduleNote(todays)} />
-          ) : null,
-        ]}
-      />
+      {/* Bento: the dark brief tile beside a 2×2 of pastel figures. */}
+      <section className="grid gap-4 grid-cols-1 sm:grid-cols-2 xl:grid-cols-[minmax(0,1.15fr)_minmax(0,1fr)_minmax(0,1fr)]" data-testid="overview-tiles">
+        <BriefTile insights={insights} loading={loadingBrief} className="sm:col-span-2 xl:col-span-1 xl:row-span-2" />
+        {kpiTiles}
+      </section>
 
-      {seesBilling || hasDeadlines ? (
-        <div className={`grid gap-5 grid-cols-1 ${seesBilling && hasDeadlines ? 'xl:grid-cols-[minmax(0,1.55fr)_minmax(340px,1fr)]' : ''}`}>
+      {seesBilling || gauge ? (
+        <div className={`grid gap-5 grid-cols-1 ${seesBilling && gauge ? 'xl:grid-cols-[minmax(0,1.55fr)_minmax(320px,1fr)]' : ''}`}>
           {seesBilling ? <CashFlowCard months={monthly.data?.months} avgDays={monthly.data?.avg_days_to_collect ?? null} money={money.data} loading={monthly.isLoading} error={!!monthly.error} /> : null}
-          {hasDeadlines ? <DeadlinesCard list={deadlineList} today={today} /> : null}
+          {gauge ? <GstTile {...gauge} /> : null}
         </div>
       ) : null}
 
-      {approves || showSide ? (
-        <div className={`grid gap-5 grid-cols-1 ${approves && showSide ? 'xl:grid-cols-[minmax(0,1.6fr)_minmax(320px,1fr)]' : ''}`}>
+      {approves || showSide || hasDeadlines ? (
+        <div className={`grid gap-5 grid-cols-1 ${approves && (showSide || hasDeadlines) ? 'xl:grid-cols-[minmax(0,1.6fr)_minmax(320px,1fr)]' : ''}`}>
           {approves ? <ApprovalQueue data={pending.data} loading={pending.isLoading} error={!!pending.error} /> : null}
-          {showSide ? (
+          {showSide || hasDeadlines ? (
             <aside className="space-y-5 min-w-0">
+              {hasDeadlines ? <DeadlinesCard list={deadlineList} today={today} /> : null}
               {seesTeam ? <TeamToday counts={counts} loading={attendance.isLoading} error={!!attendance.error} /> : null}
               {seesActivity ? <ActivityCard data={activity.data} loading={activity.isLoading} error={!!activity.error} /> : null}
             </aside>
@@ -204,18 +204,8 @@ function State({ loading, error, empty, emptyText, children }: {
 
 // ── Hero / morning brief ──────────────────────────────────────────────────
 
-const INSIGHT_STYLE: Record<Insight['tone'], { icon: typeof Info; cls: string }> = {
-  // Theme tokens, so the tiles read on the light brief panel and the dark one.
-  danger: { icon: AlertTriangle, cls: 'bg-danger/10 text-danger' },
-  warning: { icon: ClockAlert, cls: 'bg-warning/10 text-warning' },
-  success: { icon: CheckCircle2, cls: 'bg-success/10 text-success' },
-  info: { icon: Info, cls: 'bg-gold/10 text-gold' },
-};
-
-function Hero({ insights, loading, counts, waiting, gauge, seesTeam }: {
-  insights: Insight[]; loading: boolean;
-  counts: TodayResponse['counts'] | null; waiting: number | undefined;
-  gauge: { stats: ReturnType<typeof filingStats>; period: string } | null; seesTeam: boolean;
+function Greeting({ insights, counts, waiting, seesTeam }: {
+  insights: Insight[]; counts: TodayResponse['counts'] | null; waiting: number | undefined; seesTeam: boolean;
 }) {
   const [now, setNow] = useState(() => new Date());
   useEffect(() => {
@@ -227,194 +217,146 @@ function Hero({ insights, loading, counts, waiting, gauge, seesTeam }: {
   const h = Number(new Intl.DateTimeFormat('en-GB', { hour: 'numeric', hour12: false, timeZone: 'Asia/Kolkata' }).format(now));
   const partOfDay = h < 12 ? 'Good morning' : h < 17 ? 'Good afternoon' : 'Good evening';
   const inToday = counts ? counts.present + counts.late + counts.wfh : null;
-  const weekday = now.toLocaleDateString('en-IN', { weekday: 'long', timeZone: 'Asia/Kolkata' });
+  const weekday = now.toLocaleDateString('en-IN', { weekday: 'long', day: 'numeric', month: 'long', timeZone: 'Asia/Kolkata' });
   const lead = insights.length
-    ? `Here’s your brief — ${insights.length === 1 ? 'one thing needs' : `${insights.length} things need`} you today.`
-    : [
-      counts && inToday !== null ? `${inToday} of ${counts.total} in today` : null,
-      waiting ? `${waiting} waiting on you` : null,
-    ].filter(Boolean).join(' · ') || 'Here is how the firm stands today.';
-
+    ? `${weekday} — ${insights.length === 1 ? 'one thing needs' : `${insights.length} things need`} you today`
+    : [weekday, counts && inToday !== null ? `${inToday} of ${counts.total} in today` : null].filter(Boolean).join(' · ');
   return (
-    <>
-      {/* Greeting — on the page itself, not in a box. */}
-      <header className="dash-greet dash-rise flex flex-col md:flex-row md:items-end gap-x-6 gap-y-4" data-testid="timestamp">
-        <div className="min-w-0 w-full md:flex-1">
-          <span className="inline-flex items-center gap-2 h-7 px-3 rounded-full text-12 font-medium text-inkMuted bg-surface shadow-card whitespace-nowrap">
-            <span className="dash-live rounded-full bg-success" style={{ width: 7, height: 7 }} />
-            {weekday}, {formatDate(now)} · {formatTime(now)}
-          </span>
-          <h1 className="font-serif mt-3 text-[40px] sm:text-[44px] md:text-[56px] leading-[1.0] tracking-[-0.025em] text-ink">
-            {partOfDay}{firstName ? <>, <em className="dash-greet-name">{firstName}.</em></> : '.'}
-          </h1>
-          <p className="mt-2 text-15 text-inkMuted">{lead}</p>
-        </div>
-        <div className="flex flex-wrap items-center gap-2">
-          {seesTeam ? (
-            <Link to="/hrms/attendance"
-              className="inline-flex items-center gap-2 h-10 px-4 rounded-[10px] bg-surface text-ink text-13 font-semibold shadow-card hover:shadow-raised transition-shadow">
-              Open attendance <ArrowUpRight size={15} strokeWidth={2} />
-            </Link>
-          ) : null}
-          {waiting ? (
-            <a href="#approvals" className="inline-flex items-center gap-2 h-10 px-4 rounded-[10px] bg-primary text-white text-13 font-semibold">
-              Review approvals <span className="h-5 min-w-[20px] px-[6px] rounded-full bg-white/20 text-12 grid place-items-center tabular-nums">{waiting}</span>
-            </a>
-          ) : null}
-        </div>
-      </header>
-
-      {/* Today's brief — the dark panel holds only what needs attention. */}
-      <section className="dash-hero dash-rise relative overflow-hidden rounded-[20px] p-5 md:p-6 text-white">
-        <div className="dash-hero-grid" aria-hidden />
-        <div className={'relative z-[1] grid gap-5 items-stretch ' + (gauge || counts ? 'xl:grid-cols-[minmax(0,1fr)_300px]' : '')}>
-          <div className="min-w-0 flex flex-col">
-            <div className="flex items-center gap-3 mb-4">
-              <span className="text-11 font-semibold uppercase tracking-[0.12em] text-white/55">Today’s brief</span>
-              {insights.length ? <span className="h-5 px-2 rounded-full text-11 font-semibold bg-white/10 text-white/80 grid place-items-center">{insights.length} to act on</span> : null}
-            </div>
-            {insights.length ? (
-              <ul className={'grid gap-3 flex-1 ' + (insights.length >= 3 ? 'md:grid-cols-3' : insights.length === 2 ? 'md:grid-cols-2' : '')}>
-                {insights.map((i) => {
-                  const S = INSIGHT_STYLE[i.tone];
-                  const inner = (
-                    <>
-                      <span className={'h-10 w-10 rounded-[12px] grid place-items-center ' + S.cls}><S.icon size={18} strokeWidth={2.1} /></span>
-                      <span className="block mt-4 text-16 font-semibold text-white leading-snug">{i.title}</span>
-                      <span className="block mt-1 text-12 text-white/60">{i.detail}</span>
-                      <span className="mt-auto pt-4 inline-flex items-center gap-1 text-13 font-semibold text-gold">
-                        {i.cta} <ChevronRight size={15} className="transition-transform group-hover:translate-x-0.5" />
-                      </span>
-                    </>
-                  );
-                  const cls = 'dash-tile group h-full flex flex-col rounded-[16px] p-4';
-                  return (
-                    <li key={i.key} className="min-w-0">
-                      {i.href.startsWith('#')
-                        ? <a href={i.href} className={cls}>{inner}</a>
-                        : <Link to={i.href} className={cls}>{inner}</Link>}
-                    </li>
-                  );
-                })}
-              </ul>
-            ) : loading ? <div className="flex-1 min-h-[140px] rounded-[16px] bg-white/[0.04]" /> : (
-              <div className="dash-tile flex-1 flex items-center gap-4 rounded-[16px] p-5">
-                <span className="h-12 w-12 rounded-[14px] grid place-items-center bg-success/10 text-success"><CheckCircle2 size={22} /></span>
-                <span>
-                  <span className="block text-16 font-semibold">Nothing urgent — you’re all caught up.</span>
-                  <span className="block text-13 text-white/60 mt-1">New deadlines, overdue money and approvals will show up here.</span>
-                </span>
-              </div>
-            )}
-          </div>
-
-          {gauge ? <FilingGauge {...gauge} /> : counts ? <AttendanceRing counts={counts} /> : null}
-        </div>
-      </section>
-    </>
+    <header className="dash-greet dash-rise flex flex-col md:flex-row md:items-end gap-x-6 gap-y-4" data-testid="timestamp">
+      <div className="min-w-0 w-full md:flex-1">
+        <h1 className="text-[30px] md:text-[34px] leading-tight font-extrabold tracking-[-0.03em] text-ink">
+          {partOfDay}{firstName ? `, ${firstName}` : ''} <span aria-hidden>👋</span>
+        </h1>
+        <p className="mt-1 text-14 font-medium text-inkMuted">{lead}</p>
+      </div>
+      <div className="flex flex-wrap items-center gap-2">
+        {seesTeam ? (
+          <Link to="/hrms/attendance" className="inline-flex items-center gap-2 h-10 px-4 rounded-[14px] bg-surface text-ink text-13 font-bold shadow-card hover:shadow-raised transition-shadow">
+            Open attendance <ArrowUpRight size={15} strokeWidth={2} />
+          </Link>
+        ) : null}
+        {waiting ? (
+          <a href="#approvals" className="inline-flex items-center gap-2 h-10 px-4 rounded-[14px] bg-primary text-white text-13 font-bold">
+            Review approvals <span className="h-5 min-w-[20px] px-[6px] rounded-full bg-[#ffcf5c] text-[#1f1d2b] text-12 grid place-items-center tabular-nums">{waiting}</span>
+          </a>
+        ) : null}
+      </div>
+    </header>
   );
 }
 
-function FilingGauge({ stats, period }: { stats: ReturnType<typeof filingStats>; period: string }) {
+/** Pastel number chip for each brief row. */
+const BRIEF_CHIP: Record<Insight['tone'], string> = {
+  danger: 'bg-[#ff8fa3]', warning: 'bg-[#ffcf5c]', success: 'bg-[#a5e8c8]', info: 'bg-[#c9b8ff]',
+};
+
+/** "Today's brief" — the dark bento tile: each insight as a numbered row. */
+function BriefTile({ insights, loading, className = '' }: { insights: Insight[]; loading: boolean; className?: string }) {
+  return (
+    <section className={'dash-hero dash-rise relative overflow-hidden p-5 md:p-6 text-white flex flex-col ' + className}>
+      <span className="text-11 font-bold uppercase tracking-[0.12em] text-white/50">Today’s brief</span>
+      <h2 className="mt-1 text-[22px] font-extrabold tracking-[-0.02em] leading-tight">
+        {insights.length ? `${insights.length} thing${insights.length === 1 ? '' : 's'} need you` : 'All caught up'}
+      </h2>
+      {insights.length ? (
+        <ul className="mt-4 space-y-[10px] flex-1">
+          {insights.map((i) => {
+            const m = i.title.match(/^([₹\d][\d.,]*\s?(?:L|K|Cr)?)\s+(.*)$/);
+            const chip = m ? m[1] : '!';
+            const rest = m ? m[2].charAt(0).toUpperCase() + m[2].slice(1) : i.title;
+            const inner = (
+              <>
+                <span className={'h-8 min-w-[32px] px-2 shrink-0 rounded-[10px] grid place-items-center text-13 font-extrabold text-[#1f1d2b] ' + BRIEF_CHIP[i.tone]}>{chip}</span>
+                <span className="min-w-0 flex-1">
+                  <span className="block text-13 font-bold text-white truncate">{rest}</span>
+                  <span className="block text-11 text-white/55 truncate">{i.detail}</span>
+                </span>
+                <ChevronRight size={15} className="shrink-0 text-white/40 transition-transform group-hover:translate-x-0.5" />
+              </>
+            );
+            const cls = 'dash-tile group flex items-center gap-3 rounded-[14px] px-3 py-[10px]';
+            return (
+              <li key={i.key}>
+                {i.href.startsWith('#') ? <a href={i.href} className={cls}>{inner}</a> : <Link to={i.href} className={cls}>{inner}</Link>}
+              </li>
+            );
+          })}
+        </ul>
+      ) : loading ? <div className="mt-4 flex-1 min-h-[120px] rounded-[14px] bg-white/[0.05]" /> : (
+        <p className="mt-3 text-13 text-white/60">Nothing urgent right now. New deadlines, overdue money and approvals will show up here.</p>
+      )}
+    </section>
+  );
+}
+
+/** GST progress for the current return period — the aqua bento tile. */
+function GstTile({ stats, period }: { stats: ReturnType<typeof filingStats>; period: string }) {
   return (
     <Link to="/workstation/services/registration/gst/dashboard"
-      className="dash-glass flex flex-col items-center rounded-[16px] px-5 pt-4 pb-4"
+      className="pastel-tile dash-rise flex flex-col p-5" style={{ background: '#e6fbfa', ['--blob' as string]: '#9ee6e1' }}
       title="Share of this period's GSTR-1 and GSTR-3B returns marked filed. At risk = past due and not filed.">
-      <span className="self-start text-11 font-semibold uppercase tracking-[0.1em] text-white/55">GST returns · {periodName(period)}</span>
-      <div className="relative mt-2">
-        <Gauge value={stats.progress} size={200} />
-        <div className="absolute inset-x-0 bottom-0 text-center">
-          <div className="num-display text-[34px] leading-none text-white">{Math.round(stats.progress * 100)}%</div>
+      <span className="text-13 font-bold text-ink/70">GST · {periodName(period)} returns</span>
+      <div className="flex items-center gap-5 mt-3 relative z-[1]">
+        <div className="relative">
+          <Gauge value={stats.progress} size={170} track="rgb(15 157 150 / 0.15)" />
+          <div className="absolute inset-x-0 bottom-0 text-center num-display text-[28px] leading-none text-ink">{Math.round(stats.progress * 100)}%</div>
         </div>
+        <ul className="space-y-2 text-13 font-semibold text-ink">
+          <li className="flex items-center gap-2"><i className="h-[10px] w-[10px] rounded-full bg-success" />{stats.filed} filed</li>
+          <li className="flex items-center gap-2"><i className="h-[10px] w-[10px] rounded-full bg-[#7a5af8]" />{stats.inProgress} in progress</li>
+          <li className="flex items-center gap-2"><i className="h-[10px] w-[10px] rounded-full bg-danger" />{stats.atRisk} at risk</li>
+        </ul>
       </div>
-      <div className="text-12 text-white/60 mt-1 mb-3">filed so far</div>
-      <div className="grid grid-cols-3 w-full border-t border-white/10 pt-3 text-center">
-        <GaugeStat value={stats.filed} label="Filed" />
-        <GaugeStat value={stats.inProgress} label="In progress" />
-        <GaugeStat value={stats.atRisk} label="At risk" warn={stats.atRisk > 0} />
-      </div>
-    </Link>
-  );
-}
-function GaugeStat({ value, label, warn }: { value: number; label: string; warn?: boolean }) {
-  return (
-    <div>
-      <div className={`num-display text-18 ${warn ? 'text-danger' : 'text-white'}`}>{value}</div>
-      <div className="text-11 text-white/55">{label}</div>
-    </div>
-  );
-}
-
-function AttendanceRing({ counts }: { counts: NonNullable<TodayResponse['counts']> }) {
-  const inToday = counts.present + counts.late + counts.wfh;
-  return (
-    <Link to="/hrms/attendance" className="dash-glass flex flex-col items-center rounded-[16px] px-5 py-4">
-      <span className="self-start text-11 font-semibold uppercase tracking-[0.1em] text-white/55">Team today</span>
-      <div className="mt-3">
-        <Donut size={132} stroke={14} segments={[
-          { value: counts.present, color: '#2563eb' }, { value: counts.late, color: '#f6c069' },
-          { value: counts.wfh, color: '#3b82f6' }, { value: counts.on_leave, color: '#94a3b8' },
-          { value: Math.max(0, counts.total - inToday - counts.on_leave), color: 'rgb(255 255 255 / 0.12)' },
-        ]}>
-          <span>
-            <span className="num-display block text-[28px] leading-none text-white">{inToday}</span>
-            <span className="text-11 text-white/60">of {counts.total} in</span>
-          </span>
-        </Donut>
-      </div>
+      <span className="mt-auto pt-3 text-12 font-bold text-ink/60">{stats.filed} of {stats.total} filed · open GST →</span>
     </Link>
   );
 }
 
 // ── KPI row ───────────────────────────────────────────────────────────────
 
-function KpiRow({ tiles }: { tiles: (ReactNode | null)[] }) {
-  const shown = tiles.filter(Boolean).slice(0, 4);
-  if (!shown.length) return null;
-  const cols = shown.length >= 4 ? 'xl:grid-cols-4' : shown.length === 3 ? 'xl:grid-cols-3' : shown.length === 2 ? 'sm:grid-cols-2' : '';
-  return <section className={`grid gap-4 grid-cols-1 sm:grid-cols-2 ${cols}`} data-testid="overview-tiles">{shown}</section>;
-}
-
+/** Pastel tile tones — [tile background, blob, icon colour]. */
 const KPI_TONE = {
-  teal: 'bg-[#eaf0f8] text-[#1a4b8c]',
-  coral: 'bg-[#eff6ff] text-[#1e40af]',
-  amber: 'bg-[#fff7e6] text-[#b45309]',
-  green: 'bg-[#e9f9f1] text-[#047857]',
-  red: 'bg-[#fef2f2] text-[#b91c1c]',
-};
+  pink: ['#ffe3ea', '#ffb3c5', '#e0457b'],
+  blue: ['#e3f0ff', '#b6d4ff', '#2f6fed'],
+  mint: ['#e3f8ee', '#a5e8c8', '#1f9d5a'],
+  yellow: ['#fff4d6', '#ffe08a', '#b98900'],
+  lavender: ['#efe9ff', '#c9b8ff', '#7a5af8'],
+} as const;
 
 function Kpi({ href, icon: Icon, tone, label, value, prefix, sub, badge, footer }: {
   href: string; icon: typeof Users; tone: keyof typeof KPI_TONE; label: string; value: string; prefix?: string;
   sub: ReactNode; badge?: ReactNode; footer?: ReactNode;
 }) {
-  const cls = 'group dash-card dash-card-link dash-rise block overflow-hidden';
+  const [bg, blob, fg] = KPI_TONE[tone];
+  const cls = 'group pastel-tile dash-rise block';
+  const style = { background: bg, ['--blob' as string]: blob } as React.CSSProperties;
   const body = (
     <>
-      <div className="px-5 pt-4">
-        <div className="flex items-center gap-2 text-13 font-medium text-inkMuted">
-          <span className={'h-7 w-7 rounded-lg inline-grid place-items-center ' + KPI_TONE[tone]}><Icon size={14} strokeWidth={2.1} /></span>
+      <div className="relative z-[1] px-5 pt-4">
+        <div className="flex items-center gap-2 text-13 font-bold text-ink/70">
+          <span className="h-8 w-8 rounded-[10px] inline-grid place-items-center bg-white" style={{ color: fg }}><Icon size={15} strokeWidth={2.2} /></span>
           <span className="truncate">{label}</span>
           <span className="flex-1" />
           {badge}
         </div>
-        <div className="num-display text-[30px] leading-tight mt-3 text-ink">
-          {prefix ? <span className="text-18 text-inkFaint font-medium mr-0.5">{prefix}</span> : null}{value}
+        <div className="num-display text-[34px] leading-tight mt-3 text-ink">
+          {prefix ? <span className="text-18 text-ink/50 font-bold mr-0.5">{prefix}</span> : null}{value}
         </div>
-        <div className="text-12 text-inkMuted mt-0.5 truncate">{sub}</div>
+        <div className="text-12 font-semibold text-ink/60 mt-0.5 truncate">{sub}</div>
       </div>
-      <div className="mt-3">{footer ?? <div className="h-4" />}</div>
+      <div className="relative z-[1] mt-3">{footer ?? <div className="h-4" />}</div>
     </>
   );
   // In-page targets (#approvals) need a plain anchor; React Router's Link only pushes the hash.
   return href.startsWith('#')
-    ? <a href={href} className={cls}>{body}</a>
-    : <Link to={href} className={cls}>{body}</Link>;
+    ? <a href={href} className={cls} style={style}>{body}</a>
+    : <Link to={href} className={cls} style={style}>{body}</Link>;
 }
 
 function Pill({ tone, children }: { tone: 'up' | 'down' | 'warn' | 'info'; children: ReactNode }) {
   const cls = {
     up: 'bg-[#e9f9f1] text-[#047857]', down: 'bg-[#fef2f2] text-[#b91c1c]',
-    warn: 'bg-[#fff7e6] text-[#b45309]', info: 'bg-[#eaf0f8] text-[#1a4b8c]',
+    warn: 'bg-[#fff7e6] text-[#b45309]', info: 'bg-[#f1edff] text-[#6941d9]',
   }[tone];
   return <span className={'inline-flex items-center h-6 px-2 rounded-full text-11 font-semibold whitespace-nowrap shrink-0 ' + cls}>{children}</span>;
 }
@@ -424,7 +366,7 @@ function BilledTile({ months }: { months: { billed_paise: number; collected_pais
   const prev = months[months.length - 2]?.billed_paise ?? 0;
   const delta = prev > 0 ? Math.round(((cur - prev) / prev) * 1000) / 10 : null;
   return (
-    <Kpi href="/workstation/invoices" icon={FileText} tone="teal" label="Billed this month"
+    <Kpi href="/workstation/invoices" icon={FileText} tone="blue" label="Billed this month"
       prefix="₹" value={formatINR(cur / 100).replace('₹', '')}
       sub={prev > 0 ? `vs ${paise(prev)} last month` : 'Invoices raised this month'}
       badge={delta !== null ? <Pill tone={delta >= 0 ? 'up' : 'down'}>{delta >= 0 ? '▲' : '▼'} {Math.abs(delta)}%</Pill> : null}
@@ -436,7 +378,7 @@ function ReceivablesTile({ data }: { data: import('@/modules/paymentSummary/api'
   const a = data.ageing;
   const overdueClients = data.clients.filter((c) => c.overdue_paise > 0).length;
   return (
-    <Kpi href="/hrms/payment-summary" icon={Wallet} tone="amber" label="Receivables"
+    <Kpi href="/hrms/payment-summary" icon={Wallet} tone="yellow" label="Receivables"
       prefix="₹" value={formatINR(data.totals.pending_paise / 100).replace('₹', '')}
       sub={`${data.clients.reduce((s, c) => s + c.open_invoices, 0)} open invoices · ${data.totals.clients_with_dues} clients`}
       badge={overdueClients ? <Pill tone="down">{overdueClients} overdue</Pill> : null}
@@ -454,7 +396,7 @@ function FilingsTile({ due, list, today }: { due: number; list: Deadline[]; toda
   const done = week.reduce((s, d) => s + d.done, 0);
   const total = week.reduce((s, d) => s + d.total, 0);
   return (
-    <Kpi href="/workstation/services/registration/gst/dashboard" icon={CalendarClock} tone="coral" label="Due in 7 days"
+    <Kpi href="/workstation/services/registration/gst/dashboard" icon={CalendarClock} tone="lavender" label="Due in 7 days"
       value={String(due)} sub={total ? `${done} of ${total} done this week` : 'GST and TDS work due this week'}
       badge={overdue ? <Pill tone="warn">{overdue} overdue</Pill> : null}
       footer={<div className="px-5 pb-4"><SegBar parts={[
@@ -468,7 +410,7 @@ function TeamTile({ counts }: { counts: NonNullable<TodayResponse['counts']> }) 
   const inToday = counts.present + counts.late + counts.wfh;
   const pct = counts.total ? Math.round((inToday / counts.total) * 1000) / 10 : 0;
   return (
-    <Kpi href="/hrms/attendance" icon={Users} tone="green" label="Team in today"
+    <Kpi href="/hrms/attendance" icon={Users} tone="mint" label="Team in today"
       value={String(inToday)} prefix={undefined}
       sub={`of ${counts.total} · ${counts.late} late · ${counts.on_leave} on leave · ${counts.wfh} WFH`}
       badge={<Pill tone={pct >= 80 ? 'up' : 'warn'}>{pct}%</Pill>}
@@ -484,7 +426,7 @@ function TeamTile({ counts }: { counts: NonNullable<TodayResponse['counts']> }) 
 
 function WaitingTile({ items }: { items: PendingAction[] }) {
   return (
-    <Kpi href="#approvals" icon={Inbox} tone="amber" label="Waiting on you"
+    <Kpi href="#approvals" icon={Inbox} tone="pink" label="Waiting on you"
       value={String(items.length)} sub={pendingNote(items)}
       badge={items.length ? <Pill tone="warn">Action</Pill> : <Pill tone="up">Clear</Pill>} />
   );
@@ -551,7 +493,7 @@ function Seg({ value, onChange, options }: { value: number | string; onChange: (
 function EmptyIllo({ icon: Icon, title, text, cta }: { icon: typeof Users; title: string; text: string; cta?: { label: string; href: string } }) {
   return (
     <div className="flex flex-col items-center text-center py-8 px-4">
-      <span className="h-12 w-12 rounded-[16px] inline-grid place-items-center bg-[#eaf0f8] text-[#1a4b8c] mb-3"><Icon size={22} strokeWidth={1.8} /></span>
+      <span className="h-12 w-12 rounded-[16px] inline-grid place-items-center bg-[#f1edff] text-[#6941d9] mb-3"><Icon size={22} strokeWidth={1.8} /></span>
       <div className="text-14 font-semibold text-ink">{title}</div>
       <div className="text-13 text-inkMuted mt-1 max-w-[360px]">{text}</div>
       {cta ? <Link to={cta.href} className="mt-4 inline-flex items-center h-8 px-3 rounded-lg bg-primary text-white text-13 font-semibold">{cta.label}</Link> : null}
@@ -569,7 +511,7 @@ function DeadlinesCard({ list, today }: { list: Deadline[]; today: string }) {
   const overdue = list.filter((d) => d.date < today);
   const overdueCount = overdue.reduce((s, d) => s + (d.total - d.done), 0);
   return (
-    <Panel id="deadlines" title="Deadlines" sub="Next 30 days"
+    <Panel id="deadlines" title="Deadlines" sub="Next 30 days" className="pastel-panel"
       right={<Link to="/workstation/calendar" className="inline-flex items-center h-7 px-[10px] rounded-lg text-12 font-medium text-inkMuted bg-neutral-100 hover:text-ink">Calendar →</Link>}>
       <div className="grid grid-cols-7 gap-[6px] px-5 pb-2">
         {week.map((d) => {
@@ -621,7 +563,7 @@ function DeadlinesCard({ list, today }: { list: Deadline[]; today: string }) {
                   <span className="min-w-0">
                     <span className="flex items-center gap-2 text-13 font-semibold text-ink">
                       <span className="truncate">{d.title}</span>
-                      <span className={'shrink-0 text-[10px] font-semibold px-[6px] rounded ' + (d.tag === 'GST' ? 'bg-[#eaf0f8] text-[#1a4b8c]' : 'bg-[#eff6ff] text-[#1e40af]')}>{d.tag}</span>
+                      <span className={'shrink-0 text-[10px] font-semibold px-[6px] rounded ' + (d.tag === 'GST' ? 'bg-[#f1edff] text-[#6941d9]' : 'bg-[#f5f1ff] text-[#5b33c4]')}>{d.tag}</span>
                     </span>
                     <span className="flex items-center gap-2 mt-1 text-12 text-inkMuted">
                       {d.tag === 'GST' ? (
@@ -652,7 +594,7 @@ const KIND_ICON: Record<PendingAction['kind'], typeof Users> = {
   leave: Plane, expense: Receipt, correction: ClockAlert, document_expiring: FileWarning,
 };
 const KIND_PILL: Record<PendingAction['kind'], string> = {
-  leave: 'bg-[#eff6ff] text-[#1e40af]',
+  leave: 'bg-[#f5f1ff] text-[#5b33c4]',
   expense: 'bg-[#ecfdf5] text-[#047857]',
   correction: 'bg-[#f1f5f9] text-[#475569]',
   document_expiring: 'bg-[#fffbeb] text-[#b45309]',
@@ -733,7 +675,7 @@ function ApprovalQueue({ data, loading, error }: { data: { items: PendingAction[
                 const I = KIND_ICON[i.kind];
                 const isSel = selected.has(k);
                 return (
-                  <tr key={k} className={'group border-b border-border last:border-0 transition-colors ' + (isSel ? 'bg-[#eaf0f8]' : 'hover:bg-neutral-50')}>
+                  <tr key={k} className={'group border-b border-border last:border-0 transition-colors ' + (isSel ? 'bg-[#f1edff]' : 'hover:bg-neutral-50')}>
                     <td className="pl-5 py-3 align-middle">
                       {approvable(i) ? (
                         <button type="button" onClick={() => toggle(i)} aria-pressed={isSel} aria-label={`Select ${i.title}`}

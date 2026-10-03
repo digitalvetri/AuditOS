@@ -16,7 +16,7 @@ import { prisma } from '../../lib/prisma.js'
 import { ApiError } from '../../lib/http.js'
 import { decryptToken, encryptToken } from '../zpay/crypto.js'
 import { exchangeRefreshTokenForAccess, ZohoOAuthError, type FetchLike } from '../zpay/oauth.js'
-import { booksConfig, isTrustedZohoHost } from './config.js'
+import { BooksNotConfigured, booksConfig, isTrustedZohoHost } from './config.js'
 
 export type ZohoErrorKind =
   | 'reconnect' | 'permission' | 'validation' | 'not_found' | 'rate_limit'
@@ -81,6 +81,22 @@ export interface ConnectionRow {
   accessTokenExpiresAt: Date | null
   accountsServer: string | null
   apiDomain: string | null
+  /** This connection's own Zoho client; null = the server-wide one. */
+  clientId?: string | null
+  clientSecretEncrypted?: string | null
+}
+
+/**
+ * The Zoho API client a connection's tokens belong to. Each connection
+ * refreshes with its OWN client and refresh token — never another's.
+ */
+export function clientFor(conn: Pick<ConnectionRow, 'clientId' | 'clientSecretEncrypted'>): { clientId: string; clientSecret: string } {
+  const cfg = booksConfig()
+  if (conn.clientId && conn.clientSecretEncrypted) {
+    return { clientId: conn.clientId, clientSecret: decryptToken(conn.clientSecretEncrypted, cfg.encryptionKey) }
+  }
+  if (cfg.clientId && cfg.clientSecret) return { clientId: cfg.clientId, clientSecret: cfg.clientSecret }
+  throw new BooksNotConfigured()
 }
 
 const refreshing = new Map<string, Promise<string>>()
@@ -109,7 +125,7 @@ export async function accessTokenFor(conn: ConnectionRow, force = false): Promis
     // was refused), only a token other than that one counts as newer.
     const latest = await prisma.booksZohoConnection.findUnique({
       where: { id: conn.id },
-      select: { status: true, accessTokenEncrypted: true, accessTokenExpiresAt: true, refreshTokenEncrypted: true },
+      select: { status: true, accessTokenEncrypted: true, accessTokenExpiresAt: true, refreshTokenEncrypted: true, clientId: true, clientSecretEncrypted: true },
     })
     if (!latest || latest.status !== 'connected' || !latest.refreshTokenEncrypted) {
       throw new ZohoBooksError('reconnect', 'connection is not connected')
@@ -126,7 +142,8 @@ export async function accessTokenFor(conn: ConnectionRow, force = false): Promis
     const refreshToken = decryptToken(latest.refreshTokenEncrypted, cfg.encryptionKey)
     const accountsBase = conn.accountsServer && isTrustedZohoHost(conn.accountsServer, cfg) ? conn.accountsServer : cfg.accountsBase
     try {
-      const t = await exchangeRefreshTokenForAccess({ ...cfg, accountsBase }, refreshToken, oauthFetch)
+      // This connection's own client + refresh token; nothing shared with another connection.
+      const t = await exchangeRefreshTokenForAccess({ ...cfg, ...clientFor(latest), accountsBase }, refreshToken, oauthFetch)
       const expiresAt = new Date(Date.now() + (t.expires_in - 60) * 1000)
       const accessTokenEncrypted = encryptToken(t.access_token, cfg.encryptionKey)
       await prisma.booksZohoConnection.update({

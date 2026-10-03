@@ -167,8 +167,11 @@ export const ENTITIES: Record<string, EntityDef> = {
 
   // ── The rest of Zoho Books' own navigation (Sales, Purchases, Time
   // Tracking, Accountant, Items, Documents). Created here wherever Zoho
-  // documents a create endpoint; budgets, documents and inventory
-  // adjustments have none, so those stay read + delete.
+  // has a create endpoint. Inventory adjustments: Zoho Books answers
+  // POST /inventoryadjustments with the body Zoho documents for Inventory
+  // (organisations with inventory tracking on). Documents are uploaded via
+  // /documents/upload. Budgets have no usable create call (the API refuses
+  // every entity_type), so they stay read + delete.
   recurringinvoices: {
     path: 'recurringinvoices', listKey: 'recurring_invoices', key: 'recurring_invoice', idField: 'recurring_invoice_id',
     listParams: [...PAGING, 'customer_id'], create: M, remove: A,
@@ -231,7 +234,7 @@ export const ENTITIES: Record<string, EntityDef> = {
   },
   inventoryadjustments: {
     path: 'inventoryadjustments', listKey: 'inventory_adjustments', key: 'inventory_adjustment', idField: 'inventory_adjustment_id',
-    listParams: DATED, remove: A,
+    listParams: DATED, create: A, remove: A,
   },
   // Read-only: the people a project or time entry is assigned to.
   users: {

@@ -53,7 +53,6 @@ import { gstApi } from '@/modules/workstation/gst/api';
 import { filingStats, istToday, periodName, previousPeriod, returnCells } from '@/modules/dashboardV2/brief';
 import { employeeApi } from '@/modules/employees/api';
 import { TOOLS } from '@/modules/tools/registry';
-import { History } from 'lucide-react';
 // The rail lists the registrations from the same catalogue the pages
 // render, so a service can never exist in one place and not the other.
 import { REGISTRATION_SERVICES } from '@/pages/workstation/registration/services';
@@ -99,7 +98,19 @@ const MODULE_META: Record<ModuleKey, { title: string; icon: LucideIcon }> = {
   INTEGRATIONS: { title: 'Integrations', icon: Plug },
 };
 const MODULE_KEY = 'audit-os:sidebar-module';
-const RECENT_KEY = 'audit-os:sidebar-recent';
+
+/** Pastel chip tones for menu icons — [background, icon colour]. */
+const CHIP_TONES: [string, string][] = [
+  ['#e6f7ee', '#1f9d5a'], ['#fff0e6', '#e2742d'], ['#efe9ff', '#7a5af8'], ['#e6f1ff', '#2f6fed'],
+  ['#ffe9f0', '#e0457b'], ['#e6fbfa', '#0f9d96'], ['#fff7d6', '#b98900'], ['#f3e8ff', '#a347d6'],
+];
+function chipStyle(to: string, active: boolean): React.CSSProperties {
+  if (active) return { background: '#ffcf5c', color: '#1f1d2b' };
+  let h = 0;
+  for (let i = 0; i < to.length; i++) h = (h * 31 + to.charCodeAt(i)) >>> 0;
+  const [bg, fg] = CHIP_TONES[h % CHIP_TONES.length];
+  return { background: bg, color: fg };
+}
 
 /** Every navigable row (item, child, leaf) with the module it belongs to. */
 function flatten(nav: NavGroup[]): { to: string; label: string; module: string | null }[] {
@@ -307,20 +318,6 @@ export function Sidebar({ mobileOpen, onMobileClose }: Props) {
     return pages;
   };
 
-  // ── Recent pages (this browser only) ──────────────────────────────────
-  const [recent, setRecent] = useState<{ to: string; label: string }[]>(() => {
-    try { return JSON.parse(localStorage.getItem(RECENT_KEY) ?? '[]'); } catch { return []; }
-  });
-  useEffect(() => {
-    if (!here || here.to === '/') return;
-    setRecent((prev) => {
-      const next = [{ to: here.to, label: here.label }, ...prev.filter((r) => r.to !== here.to)].slice(0, 6);
-      try { localStorage.setItem(RECENT_KEY, JSON.stringify(next)); } catch { /* ignore */ }
-      return next;
-    });
-  }, [here?.to]);
-  // Only pages this role can still see, and not the one already open.
-  const recentShown = recent.filter((r) => r.to !== here?.to && rows.some((x) => x.to === r.to)).slice(0, 4);
   const drawer = mobileOpen ? 'translate-x-0' : '-translate-x-full invisible lg:visible';
 
   return (
@@ -361,7 +358,8 @@ export function Sidebar({ mobileOpen, onMobileClose }: Props) {
                   return (
                     <li key={m.label}>
                       <button type="button" onClick={() => setChosen(m.label)} title={M.title} aria-pressed={on}
-                        className={'sb-modicon w-full h-10 grid place-items-center rounded-[10px] ' + (on ? 'is-on' : '')}>
+                        data-mod={m.label}
+                        className={'sb-modicon w-full h-10 grid place-items-center rounded-[12px] ' + (on ? 'is-on' : '')}>
                         <M.icon size={18} strokeWidth={1.9} />
                       </button>
                     </li>
@@ -375,7 +373,8 @@ export function Sidebar({ mobileOpen, onMobileClose }: Props) {
                   const on = m === active;
                   return (
                     <button key={m.label} type="button" role="tab" aria-selected={on} onClick={() => setChosen(m.label)}
-                      className={'sb-modcard text-left rounded-[12px] px-3 pt-[10px] pb-[9px] ' + (on ? 'is-on' : '')}>
+                      data-mod={m.label}
+                      className={'sb-modcard text-left rounded-[16px] px-3 pt-[10px] pb-[9px] ' + (on ? 'is-on' : '')}>
                       <span className="sb-modcard-ico h-7 w-7 rounded-[8px] grid place-items-center mb-2"><M.icon size={15} strokeWidth={2} /></span>
                       <span className="block text-13 font-semibold text-white leading-tight truncate">{M.title}</span>
                       <span className="block text-[11px] text-sidebarMuted leading-tight mt-0.5 truncate">{stat(m.label, m)}</span>
@@ -401,22 +400,6 @@ export function Sidebar({ mobileOpen, onMobileClose }: Props) {
 
           {!collapsed ? <Pinned /> : null}
 
-          {!collapsed && recentShown.length ? (
-            <div>
-              <div className="pl-5 pr-4 pt-5 pb-2 text-[10.5px] font-semibold uppercase tracking-[0.1em] text-sidebarMuted">Recent</div>
-              <ul className="px-2 space-y-px">
-                {recentShown.map((r) => (
-                  <li key={r.to}>
-                    <Link to={r.to} title={r.label}
-                      className="flex items-center gap-3 h-8 px-3 rounded-[9px] text-13 text-white/65 sb-hover hover:text-white">
-                      <History size={15} strokeWidth={1.8} className="shrink-0 text-white/40" />
-                      <span className="truncate">{r.label}</span>
-                    </Link>
-                  </li>
-                ))}
-              </ul>
-            </div>
-          ) : null}
         </nav>
         {!collapsed ? <FilingSeason /> : null}
         <Profile collapsed={collapsed} onToggle={() => setCollapsed((c) => !c)} />
@@ -542,7 +525,7 @@ function NavItemRow({ item, collapsed }: { item: NavItem; collapsed: boolean }) 
         const spacing = collapsed ? 'justify-center px-0' : 'px-3';
         const grow = hasChildren ? ' flex-1 min-w-0' : '';
         const state = isActive
-          ? 'sb-active relative text-white font-semibold before:absolute before:left-0 before:top-2 before:bottom-2 before:w-[3px] before:rounded-full before:bg-[#60a5fa]'
+          ? 'sb-active relative text-white font-semibold before:absolute before:left-0 before:top-2 before:bottom-2 before:w-[3px] before:rounded-full before:bg-[#a78bfa]'
           : 'text-white/70 font-medium sb-hover hover:text-white';
         return `${base} ${spacing} ${state}${grow}`;
       }}
@@ -550,9 +533,11 @@ function NavItemRow({ item, collapsed }: { item: NavItem; collapsed: boolean }) 
     >
       {({ isActive }) => (
         <>
-          {/* The accent bar's orange when active, soft white otherwise. */}
-          <Icon size={18} strokeWidth={1.9}
-            className={'shrink-0 ' + (isActive ? 'text-[#bfdbfe]' : 'text-white/60 group-hover/nav:text-white')} />
+          {/* Each row's icon sits in its own pastel chip (stable colour per
+              page); the selected row's chip turns sunny yellow on the ink pill. */}
+          <span className="sb-chip shrink-0 h-7 w-7 rounded-[9px] grid place-items-center" style={chipStyle(item.to, isActive)}>
+            <Icon size={15} strokeWidth={2} />
+          </span>
           {!collapsed ? <span className="truncate">{item.label}</span> : null}
           {item.badge ? (
             collapsed
@@ -616,7 +601,7 @@ function NavChildRow({ child }: { child: NavChild }) {
         className={({ isActive }) =>
           'flex items-center h-9 pl-11 pr-3 rounded-lg text-13 transition-colors ' +
           (isActive
-            ? 'sb-active relative text-white font-semibold before:absolute before:left-0 before:top-2 before:bottom-2 before:w-[3px] before:rounded-full before:bg-[#60a5fa]'
+            ? 'sb-active relative text-white font-semibold before:absolute before:left-0 before:top-2 before:bottom-2 before:w-[3px] before:rounded-full before:bg-[#a78bfa]'
             : 'text-white/70 font-medium sb-hover hover:text-white')
         }
       >
@@ -658,7 +643,7 @@ function NavChildRow({ child }: { child: NavChild }) {
                 className={({ isActive }) =>
                   'flex items-center h-8 pl-[68px] pr-3 rounded-lg text-12 transition-colors ' +
                   (isActive
-                    ? 'sb-active relative text-white font-semibold before:absolute before:left-0 before:top-2 before:bottom-2 before:w-[3px] before:rounded-full before:bg-[#60a5fa]'
+                    ? 'sb-active relative text-white font-semibold before:absolute before:left-0 before:top-2 before:bottom-2 before:w-[3px] before:rounded-full before:bg-[#a78bfa]'
                     : 'text-white/55 font-medium sb-hover hover:text-white')
                 }
               >
@@ -718,7 +703,7 @@ function FilingSeason() {
       className="sb-season mx-3 mb-2 mt-2 block rounded-[12px] px-3 py-[10px] shrink-0">
       <div className="flex items-center justify-between text-12 font-medium text-white/85">
         <span>GST · {periodName(period)} returns</span>
-        <span className="font-semibold text-[#60a5fa]">{pct}%</span>
+        <span className="font-semibold text-[#a78bfa]">{pct}%</span>
       </div>
       <div className="h-[6px] rounded-full bg-white/10 my-2 overflow-hidden">
         <i className="sb-season-bar block h-full rounded-full" style={{ width: `${Math.max(pct, 2)}%` }} />

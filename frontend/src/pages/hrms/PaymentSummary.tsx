@@ -37,7 +37,7 @@ const M = ({ paise }: { paise: number }) => <Money value={rupees(paise)} />;
 const STATE_LOOK: Record<PayState, { label: string; bg: string; fg: string; dot: string }> = {
   paid: { label: 'Paid', bg: '#ecfdf5', fg: '#047857', dot: '#10b981' },
   partial: { label: 'Partly paid', bg: '#fffbeb', fg: '#b45309', dot: '#f59e0b' },
-  unpaid: { label: 'Unpaid', bg: '#eff6ff', fg: '#1e40af', dot: '#2563eb' },
+  unpaid: { label: 'Unpaid', bg: '#f5f1ff', fg: '#5b33c4', dot: '#7a5af8' },
   overdue: { label: 'Overdue', bg: '#fef2f2', fg: '#b91c1c', dot: '#ef4444' },
 };
 
@@ -198,7 +198,7 @@ function ClientRows({ c, isOpen, pct, onToggle, canManage }: {
       <tr
         onClick={onToggle} tabIndex={0}
         onKeyDown={(e) => { if (e.key === 'Enter' && e.target === e.currentTarget) onToggle(); }}
-        className={`border-b border-neutral-100 cursor-pointer transition-colors ${isOpen ? 'bg-[#f7f9fc]' : 'hover:bg-neutral-50'}`}
+        className={`border-b border-neutral-100 cursor-pointer transition-colors ${isOpen ? 'bg-[#f9f8ff]' : 'hover:bg-neutral-50'}`}
         data-testid={`ps-client-${c.client_id}`}
       >
         <td className="py-3 pl-5 pr-4">
@@ -221,7 +221,7 @@ function ClientRows({ c, isOpen, pct, onToggle, canManage }: {
         <td className="py-3 px-4 hidden lg:table-cell">
           <div className="flex items-center gap-2 w-[120px]">
             <div className="flex-1 h-1.5 rounded-full bg-neutral-100 overflow-hidden" aria-label={`${pct}% received`}>
-              <div className="h-full rounded-full" style={{ width: `${pct}%`, background: pct === 100 ? '#10b981' : '#2f62b0' }} />
+              <div className="h-full rounded-full" style={{ width: `${pct}%`, background: pct === 100 ? '#10b981' : '#7a5af8' }} />
             </div>
             <span className="text-11 text-neutral-500 tabular-nums w-8 text-right">{pct}%</span>
           </div>
@@ -238,7 +238,7 @@ function ClientRows({ c, isOpen, pct, onToggle, canManage }: {
         </td>
       </tr>
       {isOpen ? (
-        <tr className="border-b border-neutral-200 bg-[#f7f9fc]">
+        <tr className="border-b border-neutral-200 bg-[#f9f8ff]">
           <td colSpan={8} className="px-5 pb-5 pt-1">
             <ClientInvoices clientId={c.client_id} canManage={canManage} />
           </td>
@@ -422,7 +422,7 @@ function PaymentModal({ inv, onClose }: { inv: ClientInvoice; onClose: () => voi
 
 function Ageing({ ageing }: { ageing: SummaryResponse['ageing'] }) {
   const parts = [
-    { label: 'Not yet due', value: ageing.current, color: '#2f62b0' },
+    { label: 'Not yet due', value: ageing.current, color: '#7a5af8' },
     { label: '1–30 days overdue', value: ageing.d1_30, color: '#f59e0b' },
     { label: '31–60 days', value: ageing.d31_60, color: '#f97316' },
     { label: '61–90 days', value: ageing.d61_90, color: '#ef4444' },

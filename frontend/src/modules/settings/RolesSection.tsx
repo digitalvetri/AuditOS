@@ -19,7 +19,7 @@ import { settingsApi, type ModuleAccess, type ModuleCode } from './api';
 
 /** The brand's navy header gradient (as on the register header strips). */
 const NAVY = {
-  background: 'linear-gradient(180deg, rgb(255 255 255 / 0.08), transparent 55%), linear-gradient(180deg, #1c3d6e 0%, #12305a 100%)',
+  background: 'linear-gradient(180deg, rgb(255 255 255 / 0.08), transparent 55%), linear-gradient(180deg, #3a3358 0%, #2d2944 100%)',
 };
 
 export function RolesSection() {
@@ -80,7 +80,7 @@ export function RolesSection() {
           </thead>
           <tbody>
             {modules.map((m) => (
-              <tr key={m.code} className="border-b border-neutral-100 last:border-b-0 hover:bg-[#f7f9fc]">
+              <tr key={m.code} className="border-b border-neutral-100 last:border-b-0 hover:bg-[#f9f8ff]">
                 <td className="px-4 py-3 text-13 font-medium text-neutral-900 sticky left-0 bg-white whitespace-nowrap">{m.name}</td>
                 {roles.map((r) => {
                   const key = `${r.id}:${m.code}`;

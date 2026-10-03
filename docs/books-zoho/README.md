@@ -207,3 +207,34 @@ The following are written to the platform `AuditLog`:
 - list, create, validation errors, actions, PDF, id validation and outage mapping
 - sync success, failure, retry and concurrency
 - computed and unavailable reports
+
+## Pre-configured connections (developer only)
+
+Zoho Books connections are added by a developer on the server. People using the
+app only **switch** between them (Books → Settings → *Active Zoho Books*, or the
+switcher at the top of Books); they never see or enter a Client ID, Secret,
+token or grant code. Each connection keeps its own Zoho client, refresh token
+and organisations, and refreshes only its own token.
+
+```bash
+cd backend
+npm run books:connection -- list
+BOOKS_CONN_NAME="Testing Account" BOOKS_CONN_METHOD=SELF_CLIENT BOOKS_CONN_DC=in \
+  npm run books:connection -- add          # asks for Client ID, Secret and refresh token / code (hidden)
+npm run books:connection -- rename "Testing Account" "QA Account"
+npm run books:connection -- remove "QA Account"   # revokes at Zoho, wipes tokens, keeps history
+# Docker: docker compose run --rm migrate npm run books:connection -- add
+```
+
+Inputs for `add` (environment, or prompted — secrets are never command-line arguments):
+`BOOKS_CONN_NAME`, `BOOKS_CONN_METHOD` (SERVER_OAUTH | SELF_CLIENT), `BOOKS_CONN_CLIENT_ID`,
+`BOOKS_CONN_CLIENT_SECRET`, `BOOKS_CONN_REFRESH_TOKEN` or `BOOKS_CONN_CODE`, `BOOKS_CONN_DC`
+(in, com, eu, com.au, jp, ca, sa, uk), `BOOKS_CONN_ORG_IDS` (organisations to turn on; default all).
+
+- The Client Secret and tokens are AES-256-GCM encrypted in the database (`ZBOOKS_ENCRYPTION_KEY`)
+  and never returned by any API.
+- The connection made before this existed is named **Main Account** automatically and keeps using
+  the server-wide `ZBOOKS_CLIENT_ID` / `ZBOOKS_CLIENT_SECRET`.
+- The in-app *Connect / Reconnect / Disconnect* routes are refused unless `BOOKS_SELF_SERVICE_CONNECT=true`.
+- A background job syncs every active organisation through its own connection every 5 minutes when its
+  auto-refresh interval has passed — independent of what anyone has selected.

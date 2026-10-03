@@ -7,6 +7,7 @@ import { BookkeepingVoucherService } from './services/BookkeepingVoucherService.
 import { BookkeepingReportService } from './services/BookkeepingReportService.js'
 import { BookkeepingInventoryService } from './services/BookkeepingInventoryService.js'
 import { BookkeepingBankingService } from './services/BookkeepingBankingService.js'
+import { BookkeepingBankCategorizeService } from './services/BookkeepingBankCategorizeService.js'
 import { BookkeepingGstService } from './services/BookkeepingGstService.js'
 import { BookkeepingPayrollService } from './services/BookkeepingPayrollService.js'
 import { BookkeepingAuditService } from './services/BookkeepingAuditService.js'
@@ -545,6 +546,86 @@ export function registerExtendedBookkeepingRoutes(router: Router): void {
     const b = parse(z.object({ statement_date: ISO, notes: z.string().nullable().optional() }), req.body, 'statement_date is required.')
     const out = await BookkeepingBankingService.saveReconciliation(s, req.params.id, req.params.ledgerId, b.statement_date, b.notes)
     await writeAudit({ actorUserId: s.userId, action: 'tally.bank_reconciled', entityType: 'TallyBankReconciliation', entityId: out.id, after: { company_id: req.params.id, ...out }, req })
+    ok(res, out, 201)
+  }))
+
+  // Rules CRUD — permission uses settings gate; rules change the posting
+  // output of a shared facility and should be editable only by the same
+  // role allowed to tweak company-level settings.
+  router.get(`${C}/banking/categorize-rules`, handler(async (req, res) => {
+    const s = requireSession(req); requireReportRead(s)
+    ok(res, { items: await BookkeepingBankCategorizeService.listRules(s, req.params.id) })
+  }))
+
+  router.post(`${C}/banking/categorize-rules`, handler(async (req, res) => {
+    const s = requireSession(req); requireSettings(s)
+    const b = parse(z.object({
+      match_pattern: z.string().min(1).max(500),
+      counter_ledger_id: z.string().min(1),
+      direction: z.enum(['auto', 'receipt', 'payment']).optional(),
+      priority: z.number().int().min(0).max(10000).optional(),
+      label: z.string().max(200).nullable().optional(),
+    }), req.body, 'match_pattern and counter_ledger_id are required.')
+    const out = await BookkeepingBankCategorizeService.createRule(s, req.params.id, {
+      matchPattern: b.match_pattern,
+      counterLedgerId: b.counter_ledger_id,
+      direction: b.direction,
+      priority: b.priority,
+      label: b.label,
+    })
+    await writeAudit({ actorUserId: s.userId, action: 'tally.bank_categorize_rule_created', entityType: 'TallyBankCategorizeRule', entityId: out.id, after: { company_id: req.params.id, ...b }, req })
+    ok(res, out, 201)
+  }))
+
+  router.patch(`${C}/banking/categorize-rules/:ruleId`, handler(async (req, res) => {
+    const s = requireSession(req); requireSettings(s)
+    const b = parse(z.object({
+      match_pattern: z.string().min(1).max(500).optional(),
+      counter_ledger_id: z.string().min(1).optional(),
+      direction: z.enum(['auto', 'receipt', 'payment']).optional(),
+      priority: z.number().int().min(0).max(10000).optional(),
+      label: z.string().max(200).nullable().optional(),
+      enabled: z.boolean().optional(),
+    }), req.body, 'Nothing to update.')
+    const out = await BookkeepingBankCategorizeService.updateRule(s, req.params.id, req.params.ruleId, {
+      matchPattern: b.match_pattern,
+      counterLedgerId: b.counter_ledger_id,
+      direction: b.direction,
+      priority: b.priority,
+      label: b.label,
+      enabled: b.enabled,
+    })
+    await writeAudit({ actorUserId: s.userId, action: 'tally.bank_categorize_rule_updated', entityType: 'TallyBankCategorizeRule', entityId: req.params.ruleId, after: { company_id: req.params.id, ...b }, req })
+    ok(res, out)
+  }))
+
+  router.delete(`${C}/banking/categorize-rules/:ruleId`, handler(async (req, res) => {
+    const s = requireSession(req); requireSettings(s)
+    const out = await BookkeepingBankCategorizeService.deleteRule(s, req.params.id, req.params.ruleId)
+    await writeAudit({ actorUserId: s.userId, action: 'tally.bank_categorize_rule_deleted', entityType: 'TallyBankCategorizeRule', entityId: req.params.ruleId, after: { company_id: req.params.id }, req })
+    ok(res, out)
+  }))
+
+  // Propose + commit auto-categorization for a bank ledger.
+  router.get(`${C}/banking/accounts/:ledgerId/categorize/propose`, handler(async (req, res) => {
+    const s = requireSession(req); requireReportRead(s)
+    ok(res, await BookkeepingBankCategorizeService.proposeForLedger(s, req.params.id, req.params.ledgerId))
+  }))
+
+  router.post(`${C}/banking/accounts/:ledgerId/categorize/commit`, handler(async (req, res) => {
+    const s = requireSession(req); requireVoucherManage(s)
+    const b = parse(z.object({
+      proposals: z.array(z.object({
+        line_id: z.string().min(1),
+        counter_ledger_id: z.string().min(1),
+        voucher_type: z.enum(['receipt', 'payment']),
+      })).min(1),
+    }), req.body, 'proposals is required (at least one).')
+    const out = await BookkeepingBankCategorizeService.commitProposals(
+      s, req.params.id, req.params.ledgerId,
+      b.proposals.map((p) => ({ lineId: p.line_id, counterLedgerId: p.counter_ledger_id, voucherType: p.voucher_type })),
+    )
+    await writeAudit({ actorUserId: s.userId, action: 'tally.bank_lines_auto_categorized', entityType: 'TallyLedger', entityId: req.params.ledgerId, after: { company_id: req.params.id, ...out }, req })
     ok(res, out, 201)
   }))
 

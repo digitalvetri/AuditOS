@@ -107,7 +107,7 @@ export function RegistrationServiceDetail({
       {/* The truth-of-data rule this codebase holds elsewhere: say what the
           system has and has not done, rather than implying a capability. */}
       {showOverview ? (
-        <div className="flex items-start gap-3 rounded-lg px-4 py-3 text-12 text-neutral-600" style={{ background: '#f4f7fb', boxShadow: 'inset 3px 0 0 #1c3d6e, inset 0 0 0 1px #dde6f2' }}>
+        <div className="flex items-start gap-3 rounded-lg px-4 py-3 text-12 text-neutral-600" style={{ background: '#f7f5ff', boxShadow: 'inset 3px 0 0 #3a3358, inset 0 0 0 1px #e6dffa' }}>
           <Info size={15} strokeWidth={1.9} className="text-primary shrink-0 mt-px" aria-hidden />
           <span>Audit OS does not file this registration and never contacts a government portal. The link
           above opens the official site in a new tab; an employee does the work there and records
@@ -121,7 +121,7 @@ export function RegistrationServiceDetail({
 function Fact({ icon: FactIcon, label, value }: { icon: typeof Info; label: string; value: string }) {
   return (
     <div className="dash-card card-zoom flex items-start gap-3 px-4 py-3 min-w-0">
-      <span className="h-9 w-9 rounded-lg inline-flex items-center justify-center shrink-0" style={{ background: '#e8eef8', color: '#1a4b8c', boxShadow: 'inset 0 0 0 1px #d2deee' }}>
+      <span className="h-9 w-9 rounded-lg inline-flex items-center justify-center shrink-0" style={{ background: '#efeafd', color: '#6941d9', boxShadow: 'inset 0 0 0 1px #ddd5f6' }}>
         <FactIcon size={16} strokeWidth={1.9} />
       </span>
       <div className="min-w-0">

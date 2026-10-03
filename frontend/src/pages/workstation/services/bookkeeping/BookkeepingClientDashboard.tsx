@@ -18,7 +18,7 @@ import { Download, FileText, History, Maximize2, RefreshCw } from 'lucide-react'
 import { bookkeepingAccountingApi } from '@/modules/tools/audit-automation/bookkeeping';
 import { usePeriod } from '@/modules/tools/bookkeeping/ui';
 
-const INDIGO = '#1d4ed8';
+const INDIGO = '#6941d9';
 
 export function BookkeepingClientDashboardPage() {
   const { companyId = '' } = useParams();

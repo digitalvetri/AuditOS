@@ -16,7 +16,7 @@ type Filter = 'all' | 'overdue' | 'due_soon' | 'check_due' | 'no_tan';
 const STANDING: Record<TdsOverviewRow['standing'], { label: string; bg: string; fg: string }> = {
   overdue:   { label: 'Overdue',        bg: '#FDE7EA', fg: '#B91C1C' },
   due_soon:  { label: 'Due this week',  bg: '#FEF3C7', fg: '#B45309' },
-  check_due: { label: 'TRACES check due', bg: '#E2EAF5', fg: '#1A4B8C' },
+  check_due: { label: 'TRACES check due', bg: '#E9E3FB', fg: '#6941D9' },
   ok:        { label: 'Up to date',     bg: '#E7F5EE', fg: '#166534' },
   no_tan:    { label: 'No TAN',         bg: '#EEF0F3', fg: '#475569' },
 };
@@ -50,7 +50,7 @@ export function TdsOverviewBoard({ fy, onOpen }: { fy: string; onOpen: (clientId
       <div className="grid gap-3 grid-cols-2 lg:grid-cols-4">
         <Tile icon={<AlertTriangle size={16} />} tone="#B91C1C" bg="#FDE7EA" label="Clients with overdue TDS" value={counts.clientsOverdue} sub={`${counts.itemsOverdue} overdue item${counts.itemsOverdue === 1 ? '' : 's'}`} onClick={() => setFilter('overdue')} active={filter === 'overdue'} />
         <Tile icon={<CalendarClock size={16} />} tone="#B45309" bg="#FEF3C7" label={`Due in the next ${q.data?.due_soon_days ?? 7} days`} value={counts.dueSoon} sub="challans, returns, certificates" onClick={() => setFilter('due_soon')} active={filter === 'due_soon'} />
-        <Tile icon={<SearchCheck size={16} />} tone="#1A4B8C" bg="#E2EAF5" label="TRACES checks due" value={counts.checksDue} sub="not checked in 7 days" onClick={() => setFilter('check_due')} active={filter === 'check_due'} />
+        <Tile icon={<SearchCheck size={16} />} tone="#6941D9" bg="#E9E3FB" label="TRACES checks due" value={counts.checksDue} sub="not checked in 7 days" onClick={() => setFilter('check_due')} active={filter === 'check_due'} />
         <Tile icon={<ShieldAlert size={16} />} tone="#475569" bg="#EEF0F3" label="Clients without a TAN" value={counts.noTan} sub="record it under TDS Registration" onClick={() => setFilter('no_tan')} active={filter === 'no_tan'} />
       </div>
 
@@ -106,8 +106,8 @@ export function TdsOverviewBoard({ fy, onOpen }: { fy: string; onOpen: (clientId
                       </td>
                       <td className="px-3 py-2.5 text-12 whitespace-nowrap">
                         {!r.tan ? '—' : r.last_notice_check
-                          ? <span className={r.notice_check_stale ? 'text-[#1A4B8C]' : 'text-neutral-600'}>checked {fmtDate(r.last_notice_check)}</span>
-                          : <span className="text-[#1A4B8C]">never checked</span>}
+                          ? <span className={r.notice_check_stale ? 'text-[#6941D9]' : 'text-neutral-600'}>checked {fmtDate(r.last_notice_check)}</span>
+                          : <span className="text-[#6941D9]">never checked</span>}
                       </td>
                       <td className="px-3 py-2.5 text-right"><ChevronRight size={16} className="inline text-neutral-400" /></td>
                     </tr>
