@@ -237,7 +237,7 @@ function DashboardBody({ data, meta }: { data: DashboardResponse; meta: ReactNod
                     )
                   }
                 >
-                  <TD first><TwoLine top={f.subject_name} sub={f.title} /></TD>
+                  <TD first><TwoLine top={f.subject_name} sub={f.title} avatar={f.subject_name} square={f.subject_type === 'client'} /></TD>
                   <TD muted>{f.service_name ?? '—'}</TD>
                   <TD nowrap>{fmtTime(f.scheduled_at)}</TD>
                   <TD muted>{f.assigned_employee?.full_name ?? '—'}</TD>
@@ -260,7 +260,7 @@ function DashboardBody({ data, meta }: { data: DashboardResponse; meta: ReactNod
           <ListTable float={false} cols={['Company', 'Status', { label: 'Docs', align: 'right' }]}>
             {data.client_summary.items.map((c) => (
               <ListRow key={c.id} onOpen={() => navigate(`/workstation/clients/${c.id}`)}>
-                <TD first><TwoLine top={c.company_name} sub={c.client_id} /></TD>
+                <TD first><TwoLine top={c.company_name} sub={c.client_id} avatar={c.company_name} square /></TD>
                 <TD><StatusChip value={c.status} /></TD>
                 <TD last right muted nowrap>{c.pending_document_count > 0 ? `${c.pending_document_count} pending` : '—'}</TD>
               </ListRow>

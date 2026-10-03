@@ -42,26 +42,25 @@ function ReturnCell({ cell, onOpen, busy }: {
     : cell.due_date ? new Date(cell.due_date).toLocaleDateString('en-IN', { day: '2-digit', month: 'short' })
     : 'not started';
   const Icon = cell.state === 'done' ? Check : cell.state === 'overdue' ? AlertTriangle : Circle;
-  const iconTint =
-    cell.state === 'done' ? 'text-green'
-    : cell.state === 'overdue' ? 'text-red'
-    : cell.state === 'due' ? 'text-amber'
-    : 'text-neutral-400';
-  const bar = cell.state === 'due' || cell.state === 'overdue';
+  // A tinted chip per state — filed green, overdue red, due amber, not started grey.
+  const chip =
+    cell.state === 'done' ? 'bg-success/10 text-success'
+    : cell.state === 'overdue' ? 'bg-danger/10 text-danger'
+    : cell.state === 'due' ? 'bg-warning/10 text-warning'
+    : 'bg-neutral-100 text-inkMuted';
   return (
     <button
       type="button"
       onClick={onOpen ? (e) => { e.stopPropagation(); onOpen(); } : undefined}
       disabled={!onOpen || busy}
       className={
-        'inline-flex items-center gap-1.5 text-13 disabled:opacity-60 ' +
-        (onOpen ? 'hover:underline cursor-pointer' : 'cursor-default')
+        'inline-flex items-center gap-[6px] h-7 px-[10px] rounded-full text-12 font-semibold whitespace-nowrap transition-shadow disabled:opacity-60 ' + chip + ' ' +
+        (onOpen ? 'cursor-pointer hover:shadow-[inset_0_0_0_1px_currentColor]' : 'cursor-default')
       }
     >
-      {bar ? <span className="w-[3px] self-stretch bg-amber inline-block" aria-hidden /> : null}
-      <Icon size={13} strokeWidth={2} className={iconTint} aria-hidden />
-      <span className={cell.state === 'overdue' ? 'text-red' : 'text-neutral-900'}>{label}</span>
-      {cell.arn ? <span className="font-mono text-11 text-neutral-500 ml-1">ARN ⋯{cell.arn.slice(-5)}</span> : null}
+      <Icon size={13} strokeWidth={2.2} aria-hidden />
+      <span>{label}</span>
+      {cell.arn ? <span className="font-mono text-11 font-normal opacity-70 ml-1">ARN ⋯{cell.arn.slice(-5)}</span> : null}
     </button>
   );
 }

@@ -1677,3 +1677,81 @@ select[size] option:hover,
     box-shadow: -24px 0 48px -12px rgb(10 15 28 / 0.3);
   }
 }
+
+/* ── Card tables (Teal & Coral) ────────────────────────────────────────────
+   Every register (`.ws-float`, ListTable) and app table (`table.hr-float`,
+   the workstation <Table>) renders as ONE card with a light header strip and
+   hairline rows — the Clients-page look — instead of floating row cards.
+   Desktop and tablet only: below 768px the `.m-cards` stacked layout in
+   mobile.css still takes over. This block overrides the earlier floating
+   rules, so it lives at the end and uses !important where they did. */
+@media (min-width: 768px) {
+  .ws-float, :has(> table.hr-float) {
+    background: rgb(var(--c-surface)) !important;
+    border: 1px solid rgb(var(--c-border)) !important;
+    border-radius: 14px !important;
+    box-shadow: 0 1px 2px rgb(10 15 28 / 0.04), 0 2px 8px -2px rgb(10 15 28 / 0.05) !important;
+    padding: 0 !important; margin: 0 !important;
+    overflow-x: auto !important;
+  }
+  /* A card that already frames the table doesn't need a second frame. */
+  .ws-card:not(:has(> .ws-card-title)) > .ws-float,
+  .ws-card:not(:has(> .ws-card-title)) > .m-cards:has(> table.hr-float) { border: 0 !important; box-shadow: none !important; border-radius: 0 !important; }
+  .ws-card:has(> .ws-float), .ws-card:has(> .m-cards > table.hr-float) {
+    background: rgb(var(--c-surface)) !important; border-color: rgb(var(--c-border)) !important; overflow: hidden !important;
+  }
+  .ws-card:has(> .ws-float) > .ws-card-title, .ws-card:has(> .m-cards > table.hr-float) > .ws-card-title {
+    border-bottom: 1px solid rgb(var(--c-border)) !important; padding: 12px 20px !important;
+  }
+  .ws-card:has(> .ws-card-title) > .ws-float,
+  .ws-card:has(> .ws-card-title) > .m-cards:has(> table.hr-float) { border: 0 !important; box-shadow: none !important; border-radius: 0 !important; }
+
+  .ws-float table, table.hr-float { border-collapse: collapse !important; border-spacing: 0 !important; margin-top: 0 !important; }
+  .ws-float thead th, table.hr-float thead th, .ws-float.ws-plain-head thead th {
+    background: rgb(var(--c-neutral-50)) !important;
+    color: rgb(var(--c-inkFaint)) !important;
+    font-size: 11px !important; font-weight: 600 !important; text-transform: uppercase; letter-spacing: 0.06em;
+    border: 0 !important; border-bottom: 1px solid rgb(var(--c-border)) !important; border-radius: 0 !important;
+    padding-top: 10px !important; padding-bottom: 10px !important; height: auto !important;
+  }
+  .ws-float tbody tr, table.hr-float tbody tr {
+    box-shadow: none !important; transform: none !important; will-change: auto !important;
+    transition: background-color 0.12s ease !important;
+  }
+  .ws-float tbody td, table.hr-float tbody td {
+    background: transparent !important;
+    border: 0 !important; border-bottom: 1px solid rgb(var(--c-border)) !important; border-radius: 0 !important;
+    padding-top: 12px !important; padding-bottom: 12px !important;
+    box-shadow: none !important;
+  }
+  .ws-float tbody tr:last-child td, table.hr-float tbody tr:last-child td { border-bottom: 0 !important; }
+  .ws-float thead th:first-child, .ws-float tbody td:first-child,
+  table.hr-float thead th:first-child, table.hr-float tbody td:first-child { padding-left: 20px !important; }
+  .ws-float thead th:last-child, .ws-float tbody td:last-child,
+  table.hr-float thead th:last-child, table.hr-float tbody td:last-child { padding-right: 20px !important; }
+  /* The floating style's hover outline + zoom is replaced by a tint and a teal edge. */
+  .ws-float tbody tr:hover, table.hr-float tbody tr:hover { outline: 0 !important; border-radius: 0 !important; position: static !important; }
+  .ws-float tbody tr:hover td, table.hr-float tbody tr:hover td { border-bottom-color: rgb(var(--c-border)) !important; }
+  .ws-float tbody tr:last-child:hover td, table.hr-float tbody tr:last-child:hover td { border-bottom-color: transparent !important; }
+  .ws-float tbody tr:is([tabindex], .cursor-pointer):hover,
+  table.hr-float tbody tr:is([tabindex], .cursor-pointer):hover { background: rgb(var(--c-neutral-50)) !important; }
+  .ws-float tbody tr:is([tabindex], .cursor-pointer):hover td:first-child,
+  table.hr-float tbody tr:is([tabindex], .cursor-pointer):hover td:first-child { box-shadow: inset 3px 0 0 rgb(var(--c-primary)) !important; }
+}
+
+/* Login brand panel — the dashboard hero's teal and coral glows, full height. */
+.login-hero {
+  background:
+    radial-gradient(60% 50% at 85% 15%, rgb(45 212 191 / 0.22), transparent 60%),
+    radial-gradient(55% 45% at 15% 100%, rgb(240 122 90 / 0.24), transparent 65%),
+    linear-gradient(150deg, #03262a 0%, #06373b 55%, #0a4649 100%) !important;
+}
+:root[data-theme='dark'] .login-hero { --c-white: 255 255 255; }
+.gs-scrim { position: fixed; inset: 0; z-index: -1; background: rgb(8 12 22 / 0.28); backdrop-filter: blur(3px); animation: gs-in 0.18s ease; pointer-events: none; }
+
+/* Glass cards on the dark theme: keep the rim, drop most of the white sheen. */
+:root[data-theme='dark'] .doc-glass {
+  border-color: rgb(var(--c-border)) !important;
+  box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.05), 0 1px 2px rgb(0 0 0 / 0.3), 0 12px 28px -12px rgb(0 0 0 / 0.6) !important;
+}
+:root[data-theme='dark'] .doc-glass::before { opacity: 0.08 !important; }

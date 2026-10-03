@@ -108,7 +108,7 @@ export function FollowUpsPage() {
                     }
                   >
                     <TD first strong className="min-w-[200px]">{f.title}</TD>
-                    <TD><TwoLine top={f.subject_name} sub={<>{f.subject_type === 'lead' ? 'Lead' : 'Client'} · {f.subject_code}</>} /></TD>
+                    <TD><TwoLine avatar={f.subject_name} square={f.subject_type === 'client'} top={f.subject_name} sub={<>{f.subject_type === 'lead' ? 'Lead' : 'Client'} · {f.subject_code}</>} /></TD>
                     <TD muted nowrap>{f.contact_number ?? '—'}</TD>
                     <TD muted>{f.service_name ?? '—'}</TD>
                     <TD muted nowrap>

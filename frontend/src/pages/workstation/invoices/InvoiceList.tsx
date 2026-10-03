@@ -7,7 +7,7 @@ import { inrAmount } from '@/modules/workstation/invoices/document';
 import { QueryState } from '@/modules/workstation/components';
 import {
   ListAction, ListCard, ListEmpty, ListHeader, ListRow, ListTable, ListToolbar, Money, SearchBox, Spacer,
-  StatusChip, StatusPills, TD, fmtDay,
+  StatusChip, TwoLine, StatusPills, TD, fmtDay,
 } from '@/modules/workstation/listUi';
 import { can } from '@/platform/rbac/can';
 import { useAuth } from '@/platform/auth/AuthContext';
@@ -77,7 +77,7 @@ export function InvoiceListPage() {
                 return (
                   <ListRow key={inv.id} onOpen={() => navigate(`/workstation/invoices/${inv.id}`)}>
                     <TD first strong nowrap className="tracking-[0.02em]">{inv.invoice_number}</TD>
-                    <TD strong>{inv.billing_name || inv.client_name || '—'}</TD>
+                    <TD><TwoLine avatar={inv.billing_name || inv.client_name} square top={inv.billing_name || inv.client_name || '—'} /></TD>
                     <TD muted nowrap>{fmtDay(inv.invoice_date)}</TD>
                     <TD muted nowrap>{fmtDay(inv.due_date)}</TD>
                     <TD><StatusChip value={inv.status} /></TD>

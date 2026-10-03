@@ -88,7 +88,7 @@ export function LeadsPage() {
             <ListTable cols={['Lead', 'Contact', 'Service', { label: 'Price quoted', align: 'right' }, 'Created', 'Status', 'Assigned to']}>
               {data.items.map((l) => (
                 <ListRow key={l.id} onOpen={() => navigate(`/workstation/leads/${l.id}`)}>
-                  <TD first><TwoLine top={l.name} sub={l.lead_id} /></TD>
+                  <TD first><TwoLine top={l.name} sub={l.lead_id} avatar={l.name} /></TD>
                   <TD muted nowrap>{l.contact_number}</TD>
                   <TD muted>{l.service_name ?? '—'}</TD>
                   {/* Quoted, not received — Finance owns payment (§55). */}

@@ -2,6 +2,7 @@ import { Children, cloneElement, createContext, isValidElement, useContext, useL
 import { createPortal } from 'react-dom';
 import { Link } from 'react-router-dom';
 import { Search, SlidersHorizontal, X } from 'lucide-react';
+import { Avatar } from '@/components/viz';
 
 /**
  * The Workstation register look — Quotations, Invoices, Engagement letters,
@@ -148,7 +149,10 @@ const pill = (on: boolean) => `h-8 px-3 inline-flex items-center gap-1 text-13 r
   on ? 'bg-[#e3f4f3] border-[#abd8d4] text-primary font-medium' : 'bg-white border-neutral-200 text-neutral-700 hover:border-neutral-300 hover:bg-neutral-50'
 }`;
 
-/** Status filter as pills; `counts` shows beside a label when above zero. */
+/**
+ * Status filter as saved-view tabs — an underlined tab row like the Clients
+ * page. `counts` shows a count pill beside a label when known.
+ */
 export function StatusPills({ options, value, onChange, counts }: {
   options: { value: string; label: string }[];
   value: string;
@@ -156,14 +160,15 @@ export function StatusPills({ options, value, onChange, counts }: {
   counts?: Record<string, number | undefined>;
 }) {
   return (
-    <div className="sp-row flex items-center gap-2 flex-wrap" role="radiogroup" aria-label="Status">
+    <div className="sp-row cl-views flex items-center gap-1 border-b border-border overflow-x-auto" role="radiogroup" aria-label="Status">
       {options.map((p) => {
         const on = value === p.value;
         const n = counts?.[p.value];
         return (
-          <button key={p.value || 'all'} type="button" role="radio" aria-checked={on} onClick={() => onChange(p.value)} className={pill(on)}>
+          <button key={p.value || 'all'} type="button" role="radio" aria-checked={on} onClick={() => onChange(p.value)}
+            className={'cl-view relative flex items-center gap-2 px-3 pt-2 pb-[10px] text-13 font-medium whitespace-nowrap transition-colors ' + (on ? 'is-on text-ink' : 'text-inkMuted hover:text-ink')}>
             {p.label}
-            {n !== undefined && n > 0 ? <span className={`text-11 tabular-nums ${on ? 'text-primary/70' : 'text-neutral-400'}`}>{n}</span> : null}
+            {n !== undefined && n > 0 ? <span className="cl-count">{n}</span> : null}
           </button>
         );
       })}
@@ -279,13 +284,25 @@ export function TD({ children, first, last, right, strong, muted, nowrap, classN
   );
 }
 
-/** A name with a small second line (kind, company, ID). */
-export const TwoLine = ({ top, sub }: { top: ReactNode; sub?: ReactNode }) => (
-  <>
-    <div className="font-semibold text-neutral-900">{top}</div>
-    {sub ? <div className="text-11 text-neutral-500 mt-px">{sub}</div> : null}
-  </>
-);
+/**
+ * A name with a small second line (kind, company, ID). Pass `avatar` (the
+ * person or company name) to lead with an initials avatar.
+ */
+export const TwoLine = ({ top, sub, avatar, square }: { top: ReactNode; sub?: ReactNode; avatar?: string | null; square?: boolean }) => {
+  const text = (
+    <>
+      <div className="font-semibold text-neutral-900">{top}</div>
+      {sub ? <div className="text-11 text-neutral-500 mt-px">{sub}</div> : null}
+    </>
+  );
+  if (avatar === undefined) return text;
+  return (
+    <div className="flex items-center gap-3 min-w-0">
+      <Avatar name={avatar} size={30} square={square} />
+      <div className="min-w-0">{text}</div>
+    </div>
+  );
+};
 
 // ── Values ────────────────────────────────────────────────────────────────
 

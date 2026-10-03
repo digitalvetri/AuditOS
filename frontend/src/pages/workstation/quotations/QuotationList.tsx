@@ -79,7 +79,7 @@ export function QuotationListPage() {
               {data.items.map((q) => (
                 <ListRow key={q.id} onOpen={() => navigate(`/workstation/quotations/${q.id}`)}>
                   <TD first strong nowrap className="tracking-[0.02em]">{q.quotation_code}</TD>
-                  <TD><TwoLine top={q.party_name ?? 'Unknown client'} sub={q.party_kind === 'lead' ? 'Lead' : 'Client'} /></TD>
+                  <TD><TwoLine avatar={q.party_name} square top={q.party_name ?? 'Unknown client'} sub={q.party_kind === 'lead' ? 'Lead' : 'Client'} /></TD>
                   <TD muted className="max-w-[280px] truncate" title={q.subject}>{q.subject}</TD>
                   <TD muted nowrap>{fmtDay(q.quote_date)}</TD>
                   <TD muted nowrap>{fmtDay(q.valid_until)}</TD>

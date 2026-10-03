@@ -212,6 +212,10 @@ export const GlobalSearch = forwardRef<GlobalSearchHandle>(function GlobalSearch
         ) : null}
       </label>
 
+      {/* While the palette is open the page dims behind it (desktop), so it
+          reads as a focused command window. Clicks on the scrim close it via
+          the outside-click handler above. */}
+      {open && (q || hits.length) ? <div className="gs-scrim hidden md:block" aria-hidden /> : null}
       {open && (q || hits.length) ? (
         <div
           className="gs-panel absolute left-0 right-0 top-14 z-40 bg-surface border border-border rounded-[14px] shadow-drawer overflow-hidden"

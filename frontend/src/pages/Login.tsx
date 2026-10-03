@@ -51,29 +51,44 @@ export function LoginPage() {
 
   return (
     <div className="min-h-screen grid grid-cols-1 md:grid-cols-2 bg-white">
-      {/* Left: hero artwork */}
+      {/* Left: brand panel — deep teal with teal and coral glows (Teal & Coral) */}
       <div
-        className="hidden md:block relative overflow-hidden"
+        className="login-hero hidden md:flex relative overflow-hidden flex-col p-10 lg:p-14 text-white"
         style={{ backgroundColor: BRAND.panel }}
       >
-        <img
-          src="/login-hero.png"
-          alt=""
-          aria-hidden="true"
-          className="absolute inset-0 h-full w-full object-cover"
-        />
-        <div className="relative z-10 h-full flex flex-col p-8">
-          <div className="flex items-start justify-end">
-            <a
-              href="#"
-              className="text-white/85 text-13 hover:text-white"
-              onClick={(e) => e.preventDefault()}
-            >
-              Help
-            </a>
-          </div>
-          <div className="flex-1" />
+        <div className="dash-hero-grid" aria-hidden />
+        <div className="relative z-10 flex items-center justify-between">
+          <span className="sb-logo inline-flex items-center justify-center h-11 px-3 rounded-[12px]">
+            <img src="/jns-mark.png" alt="JNS Accounting Solutions" className="h-7 w-auto" style={{ filter: 'brightness(0) invert(1)' }} />
+          </span>
+          <a href="#" className="text-white/75 text-13 hover:text-white" onClick={(e) => e.preventDefault()}>Help</a>
         </div>
+        <div className="relative z-10 flex-1 flex flex-col justify-center max-w-[520px]">
+          <h2 className="font-serif text-[44px] lg:text-[54px] leading-[1.02] tracking-[-0.02em]">
+            Your whole practice,<br /><em className="dash-hero-name">in one place.</em>
+          </h2>
+          <p className="mt-4 text-15 text-white/70 max-w-[420px]">
+            Clients, compliance, billing and your team — the daily work of JNS Accounting Solutions, together.
+          </p>
+          <ul className="mt-8 space-y-3">
+            {[
+              ['GST & TDS', 'Every return and challan, with its deadline'],
+              ['Clients & billing', 'Quotations, invoices and what each client owes'],
+              ['People', 'Attendance, leave, expenses and payroll'],
+            ].map(([t, d]) => (
+              <li key={t} className="dash-insight flex items-center gap-3 rounded-[12px] px-4 py-3">
+                <span className="h-8 w-8 shrink-0 rounded-[9px] grid place-items-center bg-[rgb(45_212_191/0.18)] text-[#7ee8d8]">
+                  <CheckIcon />
+                </span>
+                <span>
+                  <span className="block text-14 font-semibold">{t}</span>
+                  <span className="block text-12 text-white/60">{d}</span>
+                </span>
+              </li>
+            ))}
+          </ul>
+        </div>
+        <div className="relative z-10 text-12 text-white/45">© JNS Accounting Solutions</div>
       </div>
 
       {/* Right: sign-in form */}
@@ -84,7 +99,7 @@ export function LoginPage() {
             alt="JNS Accounting Solutions"
             className="block h-16 w-auto mb-8"
           />
-          <h1 className="text-28 font-semibold text-neutral-900 leading-tight">
+          <h1 className="text-[30px] font-semibold text-neutral-900 leading-tight tracking-[-0.025em]">
             Welcome back
           </h1>
           <p className="text-14 text-neutral-500 mt-1">Sign in to your workspace</p>
@@ -106,9 +121,7 @@ export function LoginPage() {
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 required
-                onFocus={(e) => (e.currentTarget.style.borderColor = BRAND.primary)}
-                onBlur={(e) => (e.currentTarget.style.borderColor = '')}
-                className="block w-full h-11 px-3 text-14 bg-white text-neutral-900 placeholder-neutral-400 border border-neutral-300 rounded-md focus:outline-none"
+                className="block w-full h-11 px-3 text-14 bg-white text-neutral-900 placeholder-neutral-400 border border-neutral-300 rounded-[10px] shadow-card focus:outline-none focus:border-primary"
               />
             </div>
 
@@ -128,9 +141,7 @@ export function LoginPage() {
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   required
-                  onFocus={(e) => (e.currentTarget.style.borderColor = BRAND.primary)}
-                  onBlur={(e) => (e.currentTarget.style.borderColor = '')}
-                  className="block w-full h-11 pl-3 pr-11 text-14 bg-white text-neutral-900 placeholder-neutral-400 border border-neutral-300 rounded-md focus:outline-none"
+                  className="block w-full h-11 pl-3 pr-11 text-14 bg-white text-neutral-900 placeholder-neutral-400 border border-neutral-300 rounded-[10px] shadow-card focus:outline-none focus:border-primary"
                 />
                 <button
                   type="button"
@@ -171,10 +182,7 @@ export function LoginPage() {
             <button
               type="submit"
               disabled={loading}
-              className="w-full h-11 inline-flex items-center justify-center gap-2 text-14 font-medium text-white rounded-md transition-colors disabled:cursor-not-allowed disabled:opacity-60"
-              style={{ backgroundColor: BRAND.primary }}
-              onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = BRAND.primaryHover)}
-              onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = BRAND.primary)}
+              className="w-full h-11 inline-flex items-center justify-center gap-2 text-14 font-semibold text-white rounded-[10px] bg-primary transition-colors disabled:cursor-not-allowed disabled:opacity-60"
             >
               {loading ? 'Signing in…' : (
                 <>
@@ -214,7 +222,7 @@ function DemoCredentials({ onPick }: { onPick: (email: string, password: string)
       <div className="text-11 uppercase tracking-[0.06em] text-neutral-500 mb-2">
         Demo logins ({MOCK_MODE ? 'mock mode' : 'seeded development backend'})
       </div>
-      <div className="bg-white border border-neutral-200 rounded">
+      <div className="bg-white border border-neutral-200 rounded-[12px] overflow-hidden shadow-card">
         {demoCredentials.map((c, i) => (
           <button
             key={c.email}
@@ -239,6 +247,14 @@ function DemoCredentials({ onPick }: { onPick: (email: string, password: string)
         development credentials from the seed — never enable this on a real deployment.
       </p>
     </div>
+  );
+}
+
+function CheckIcon() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M20 6 9 17l-5-5" />
+    </svg>
   );
 }
 

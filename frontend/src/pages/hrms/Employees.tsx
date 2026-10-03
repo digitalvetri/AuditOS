@@ -16,6 +16,7 @@ import { EmployeeCreateModal } from '@/modules/employees/EmployeeCreateModal';
 import { fmtDate } from '@/lib/format';
 import { StatusLabel, type StatusVariant } from '@/components/StatusRow';
 import { Button } from '@/components/Button';
+import { Avatar } from '@/components/viz';
 import { useAuth } from '@/platform/auth/AuthContext';
 import { can } from '@/platform/rbac/can';
 import { styleForStatus as attendanceStyleForStatus } from '@/modules/attendance/statusStyle';
@@ -171,11 +172,14 @@ function Row({
   const cells: React.ReactNode[] = [];
   cells.push(<span className="text-13 text-neutral-500">{row.employee_code}</span>);
   cells.push(
-    <div>
-      <div className="text-13 text-neutral-900">{row.full_name}</div>
-      {isFullEmployee(row) ? (
-        <div className="text-11 text-neutral-500">{row.email}</div>
-      ) : null}
+    <div className="flex items-center gap-3 min-w-0">
+      <Avatar name={row.full_name} src={'photo_url' in row ? (row.photo_url as string | null) : null} size={30} />
+      <div className="min-w-0">
+        <div className="text-13 font-semibold text-neutral-900">{row.full_name}</div>
+        {isFullEmployee(row) ? (
+          <div className="text-11 text-neutral-500">{row.email}</div>
+        ) : null}
+      </div>
     </div>,
   );
 

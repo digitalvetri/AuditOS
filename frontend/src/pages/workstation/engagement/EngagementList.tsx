@@ -86,7 +86,7 @@ export function EngagementListPage() {
               {data.items.map((l) => (
                 <ListRow key={l.id} onOpen={() => navigate(`/workstation/engagement/${l.id}/edit`)}>
                   <TD first strong nowrap className="tracking-[0.02em]">{l.letter_code}</TD>
-                  <TD><TwoLine top={l.party_name ?? '—'} sub={l.party_kind === 'lead' ? 'Lead' : l.party_kind === 'client' ? 'Client' : undefined} /></TD>
+                  <TD><TwoLine avatar={l.party_name} square top={l.party_name ?? '—'} sub={l.party_kind === 'lead' ? 'Lead' : l.party_kind === 'client' ? 'Client' : undefined} /></TD>
                   <TD muted className="max-w-[320px] truncate" title={l.subject}>{l.subject}</TD>
                   <TD muted nowrap>{fmtDay(l.letter_date)}</TD>
                   <TD muted nowrap>{l.financial_year ?? '—'}</TD>
