@@ -16,6 +16,7 @@ import {
 import { useAuth } from '@/platform/auth/AuthContext';
 import { can } from '@/platform/rbac/can';
 import { Avatar } from '@/components/viz';
+import { BrandLogo } from '@/components/BrandLogo';
 import { employeeApi } from '@/modules/employees/api';
 import { useTheme } from '@/platform/theme/theme';
 import { GlobalSearch, type GlobalSearchHandle } from './GlobalSearch';
@@ -72,11 +73,7 @@ export function TopBar({ onOpenMobileNav }: Props) {
           the inverse of the sidebar, which renders the same asset white on
           the navy rail. One asset, two treatments, picked by background. */}
       <span className="md:hidden flex-1 min-w-0 flex items-center">
-        <img
-          src="/jns-mark.png"
-          alt="JNS Accounting Solutions"
-          className="m-brand-mark block h-7 w-auto max-w-full object-contain object-left"
-        />
+        <BrandLogo src="/jns-mark.png" alt="JNS Accounting Solutions" className="h-7" />
       </span>
 
       {/* Right cluster */}

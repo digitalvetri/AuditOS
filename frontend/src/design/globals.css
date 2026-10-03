@@ -1821,3 +1821,11 @@ select[size] option:hover,
 @media (min-width: 1024px) { .qb-head { top: -24px; margin: -24px -24px 16px; padding: 18px 24px; } }
 .cp-scrim-all { background: rgb(8 12 22 / 0.3); backdrop-filter: blur(2px); animation: gs-in 0.2s ease; }
 .cp-panel-slide { animation: cp-in 0.3s cubic-bezier(.2,.7,.2,1); }
+
+/* Brand logo tinted via mask (BrandLogo.tsx). */
+.brand-mask {
+  background: linear-gradient(135deg, #0f8f8c, #0a5355);
+  -webkit-mask: var(--logo) left center / contain no-repeat;
+          mask: var(--logo) left center / contain no-repeat;
+}
+:root[data-theme='dark'] .brand-mask { background: #e6f4f3; }

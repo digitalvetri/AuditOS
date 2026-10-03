@@ -2,6 +2,7 @@ import { useState, type FormEvent } from 'react';
 import { Navigate, useNavigate } from 'react-router-dom';
 import { useAuth } from '@/platform/auth/AuthContext';
 import { demoCredentials } from '@/data/seed';
+import { BrandLogo } from '@/components/BrandLogo';
 
 const MOCK_MODE = import.meta.env.VITE_MOCK_MODE === 'true';
 /**
@@ -94,11 +95,7 @@ export function LoginPage() {
       {/* Right: sign-in form */}
       <div className="relative flex items-center justify-center p-6 md:p-12">
         <div className="w-full max-w-[380px]">
-          <img
-            src="/jns-logo-tight.png"
-            alt="JNS Accounting Solutions"
-            className="block h-16 w-auto mb-8"
-          />
+          <BrandLogo src="/jns-logo-tight.png" alt="JNS Accounting Solutions" className="h-16 mb-8" />
           <h1 className="text-[30px] font-semibold text-neutral-900 leading-tight tracking-[-0.025em]">
             Welcome back
           </h1>
