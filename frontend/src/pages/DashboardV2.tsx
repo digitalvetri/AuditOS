@@ -28,7 +28,6 @@ import { can } from '@/platform/rbac/can';
 import { api } from '@/services/api';
 import { useToast } from '@/components/Toast';
 import { AreaChart, Avatar, Donut, Gauge, SegBar, Sparkline } from '@/components/viz';
-import { AuditOrbit } from '@/modules/dashboardV2/AuditOrbit';
 import { formatDate, formatINR, formatTime } from '@/modules/dashboardV2/format';
 import {
   addDaysISO, buildInsights, deadlines as buildDeadlines, dueWithin, filingStats, inrCompact, istToday,
@@ -227,6 +226,7 @@ function Hero({ insights, loading, counts, waiting, gauge, seesTeam }: {
   const h = Number(new Intl.DateTimeFormat('en-GB', { hour: 'numeric', hour12: false, timeZone: 'Asia/Kolkata' }).format(now));
   const partOfDay = h < 12 ? 'Good morning' : h < 17 ? 'Good afternoon' : 'Good evening';
   const inToday = counts ? counts.present + counts.late + counts.wfh : null;
+  const weekday = now.toLocaleDateString('en-IN', { weekday: 'long', timeZone: 'Asia/Kolkata' });
   const lead = insights.length
     ? `Here’s your brief — ${insights.length === 1 ? 'one thing needs' : `${insights.length} things need`} you today.`
     : [
@@ -235,71 +235,89 @@ function Hero({ insights, loading, counts, waiting, gauge, seesTeam }: {
     ].filter(Boolean).join(' · ') || 'Here is how the firm stands today.';
 
   return (
-    <section className="dash-hero dash-rise relative overflow-hidden rounded-[20px] px-6 py-6 md:px-8 md:py-7 text-white" data-testid="timestamp">
-      <div className="dash-hero-grid" aria-hidden />
-      <div className="relative z-[1] grid gap-7 lg:grid-cols-[minmax(0,1fr)_300px] items-center">
-        <div className="min-w-0">
-          <span className="inline-flex items-center gap-2 h-7 px-3 rounded-full text-12 font-medium text-white/75 bg-white/[0.07] ring-1 ring-inset ring-white/10">
-            <span className="rounded-full" style={{ background: '#34d399', width: 6, height: 6, boxShadow: '0 0 8px #34d399' }} />
-            {formatDate(now)} · {formatTime(now)} · Live
+    <>
+      {/* Greeting — on the page itself, not in a box. */}
+      <header className="dash-greet dash-rise flex flex-col md:flex-row md:items-end gap-x-6 gap-y-4" data-testid="timestamp">
+        <div className="min-w-0 w-full md:flex-1">
+          <span className="inline-flex items-center gap-2 h-7 px-3 rounded-full text-12 font-medium text-inkMuted bg-surface shadow-card whitespace-nowrap">
+            <span className="dash-live rounded-full bg-success" style={{ width: 7, height: 7 }} />
+            {weekday}, {formatDate(now)} · {formatTime(now)}
           </span>
-          <h1 className="font-serif mt-3 text-[38px] md:text-[46px] leading-[1.04] tracking-[-0.02em] text-white">
-            {partOfDay}{firstName ? <>, <em className="dash-hero-name">{firstName}.</em></> : '.'}
+          <h1 className="font-serif mt-3 text-[40px] sm:text-[44px] md:text-[56px] leading-[1.0] tracking-[-0.025em] text-ink">
+            {partOfDay}{firstName ? <>, <em className="dash-greet-name">{firstName}.</em></> : '.'}
           </h1>
-          <p className="mt-[6px] text-14 text-white/70">{lead}</p>
-
-          {insights.length ? (
-            <ul className="mt-5 space-y-2 max-w-[660px]">
-              {insights.map((i) => {
-                const S = INSIGHT_STYLE[i.tone];
-                const inner = (
-                  <>
-                    <span className={'h-8 w-8 shrink-0 rounded-lg inline-grid place-items-center ' + S.cls}><S.icon size={15} strokeWidth={2.1} /></span>
-                    <span className="min-w-0 flex-1">
-                      <span className="block text-14 font-semibold text-white truncate">{i.title}</span>
-                      <span className="block text-12 text-white/60 truncate">{i.detail}</span>
-                    </span>
-                    <span className="shrink-0 hidden sm:inline-flex items-center gap-1 text-12 font-semibold text-[#7ee8d8]">{i.cta} <ChevronRight size={14} /></span>
-                  </>
-                );
-                const cls = 'dash-insight flex items-center gap-3 rounded-[12px] px-3 py-[10px]';
-                return (
-                  <li key={i.key}>
-                    {i.href.startsWith('#')
-                      ? <a href={i.href} className={cls}>{inner}</a>
-                      : <Link to={i.href} className={cls}>{inner}</Link>}
-                  </li>
-                );
-              })}
-            </ul>
-          ) : loading ? null : (
-            <div className="mt-5 inline-flex items-center gap-2 rounded-[12px] px-3 py-2 bg-white/[0.06] ring-1 ring-inset ring-white/10 text-13 text-white/80">
-              <CheckCircle2 size={16} className="text-[#7ee29a]" /> Nothing urgent — you’re all caught up.
-            </div>
-          )}
-
+          <p className="mt-2 text-15 text-inkMuted">{lead}</p>
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
           {seesTeam ? (
-            <div className="mt-5 flex flex-wrap gap-2">
-              <Link to="/hrms/attendance"
-                className="inline-flex items-center gap-2 h-9 px-4 rounded-lg bg-white text-[#03262a] text-13 font-semibold hover:bg-white/90 transition-colors shadow-raised">
-                Open attendance <ArrowUpRight size={15} strokeWidth={2} />
-              </Link>
-            </div>
+            <Link to="/hrms/attendance"
+              className="inline-flex items-center gap-2 h-10 px-4 rounded-[10px] bg-surface text-ink text-13 font-semibold shadow-card hover:shadow-raised transition-shadow">
+              Open attendance <ArrowUpRight size={15} strokeWidth={2} />
+            </Link>
+          ) : null}
+          {waiting ? (
+            <a href="#approvals" className="inline-flex items-center gap-2 h-10 px-4 rounded-[10px] bg-primary text-white text-13 font-semibold">
+              Review approvals <span className="h-5 min-w-[20px] px-[6px] rounded-full bg-white/20 text-12 grid place-items-center tabular-nums">{waiting}</span>
+            </a>
           ) : null}
         </div>
+      </header>
 
-        {gauge ? <FilingGauge {...gauge} /> : counts ? <AttendanceRing counts={counts} /> : (
-          <div aria-hidden className="hidden md:flex items-center justify-center"><AuditOrbit /></div>
-        )}
-      </div>
-    </section>
+      {/* Today's brief — the dark panel holds only what needs attention. */}
+      <section className="dash-hero dash-rise relative overflow-hidden rounded-[20px] p-5 md:p-6 text-white">
+        <div className="dash-hero-grid" aria-hidden />
+        <div className={'relative z-[1] grid gap-5 items-stretch ' + (gauge || counts ? 'xl:grid-cols-[minmax(0,1fr)_300px]' : '')}>
+          <div className="min-w-0 flex flex-col">
+            <div className="flex items-center gap-3 mb-4">
+              <span className="text-11 font-semibold uppercase tracking-[0.12em] text-white/55">Today’s brief</span>
+              {insights.length ? <span className="h-5 px-2 rounded-full text-11 font-semibold bg-white/10 text-white/80 grid place-items-center">{insights.length} to act on</span> : null}
+            </div>
+            {insights.length ? (
+              <ul className={'grid gap-3 flex-1 ' + (insights.length >= 3 ? 'md:grid-cols-3' : insights.length === 2 ? 'md:grid-cols-2' : '')}>
+                {insights.map((i) => {
+                  const S = INSIGHT_STYLE[i.tone];
+                  const inner = (
+                    <>
+                      <span className={'h-10 w-10 rounded-[12px] grid place-items-center ' + S.cls}><S.icon size={18} strokeWidth={2.1} /></span>
+                      <span className="block mt-4 text-16 font-semibold text-white leading-snug">{i.title}</span>
+                      <span className="block mt-1 text-12 text-white/60">{i.detail}</span>
+                      <span className="mt-auto pt-4 inline-flex items-center gap-1 text-13 font-semibold text-[#7ee8d8]">
+                        {i.cta} <ChevronRight size={15} className="transition-transform group-hover:translate-x-0.5" />
+                      </span>
+                    </>
+                  );
+                  const cls = 'dash-tile group h-full flex flex-col rounded-[16px] p-4';
+                  return (
+                    <li key={i.key} className="min-w-0">
+                      {i.href.startsWith('#')
+                        ? <a href={i.href} className={cls}>{inner}</a>
+                        : <Link to={i.href} className={cls}>{inner}</Link>}
+                    </li>
+                  );
+                })}
+              </ul>
+            ) : loading ? <div className="flex-1 min-h-[140px] rounded-[16px] bg-white/[0.04]" /> : (
+              <div className="dash-tile flex-1 flex items-center gap-4 rounded-[16px] p-5">
+                <span className="h-12 w-12 rounded-[14px] grid place-items-center bg-[rgb(76_199_100/0.18)] text-[#7ee29a]"><CheckCircle2 size={22} /></span>
+                <span>
+                  <span className="block text-16 font-semibold">Nothing urgent — you’re all caught up.</span>
+                  <span className="block text-13 text-white/60 mt-1">New deadlines, overdue money and approvals will show up here.</span>
+                </span>
+              </div>
+            )}
+          </div>
+
+          {gauge ? <FilingGauge {...gauge} /> : counts ? <AttendanceRing counts={counts} /> : null}
+        </div>
+      </section>
+    </>
   );
 }
 
 function FilingGauge({ stats, period }: { stats: ReturnType<typeof filingStats>; period: string }) {
   return (
     <Link to="/workstation/services/registration/gst/dashboard"
-      className="dash-glass hidden md:flex flex-col items-center rounded-[16px] px-5 pt-4 pb-4"
+      className="dash-glass flex flex-col items-center rounded-[16px] px-5 pt-4 pb-4"
       title="Share of this period's GSTR-1 and GSTR-3B returns marked filed. At risk = past due and not filed.">
       <span className="self-start text-11 font-semibold uppercase tracking-[0.1em] text-white/55">GST returns · {periodName(period)}</span>
       <div className="relative mt-2">
@@ -329,7 +347,7 @@ function GaugeStat({ value, label, warn }: { value: number; label: string; warn?
 function AttendanceRing({ counts }: { counts: NonNullable<TodayResponse['counts']> }) {
   const inToday = counts.present + counts.late + counts.wfh;
   return (
-    <Link to="/hrms/attendance" className="dash-glass hidden md:flex flex-col items-center rounded-[16px] px-5 py-4">
+    <Link to="/hrms/attendance" className="dash-glass flex flex-col items-center rounded-[16px] px-5 py-4">
       <span className="self-start text-11 font-semibold uppercase tracking-[0.1em] text-white/55">Team today</span>
       <div className="mt-3">
         <Donut size={132} stroke={14} segments={[
