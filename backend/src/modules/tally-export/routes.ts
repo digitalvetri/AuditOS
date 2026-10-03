@@ -14,6 +14,7 @@
  * RBAC reuses the accounting-engine grants — the operator running
  * exports is the same role that manages vouchers.
  */
+import { createHash } from 'node:crypto'
 import { Router } from 'express'
 import { prisma } from '../../lib/prisma.js'
 import { ApiError, handler, ok } from '../../lib/http.js'
@@ -197,6 +198,30 @@ tallyExportRouter.post('/generate', handler(async (req, res) => {
 
   const xml = formatVouchersXml({ rows: report.rows, bankLedgerName: bankLedger.name })
   const filename = `tally-vouchers-${opts.bankLedgerId.slice(0, 8)}-${opts.periodFrom}_${opts.periodTo}.xml`
+
+  // Persist the export BEFORE flushing bytes so a DB failure returns an
+  // error instead of leaving an export on the client with no AuditOS record
+  // of it. `scopeJson` is what §7's duplicate detector reads to flag an
+  // overlapping re-export; `checksum` is the identity byte-for-byte so a
+  // later `fileId` download can verify. `fileId` is left null until the
+  // storage backend lands — the current flow re-generates deterministically
+  // from the preserved scope.
+  const checksum = createHash('sha256').update(xml).digest('hex')
+  const scopeIds = report.rows.map((r) => r.statement_line_id)
+  await prisma.tallyExport.create({
+    data: {
+      companyId: opts.companyId,
+      bankLedgerId: opts.bankLedgerId,
+      periodFrom: opts.periodFrom,
+      periodTo: opts.periodTo,
+      kind: 'vouchers',
+      rowCount: report.rows.length,
+      voucherCount: report.rows.length,
+      checksum,
+      scopeJson: JSON.stringify(scopeIds),
+      generatedBy: session.userId,
+    },
+  })
 
   res.setHeader('Content-Type', 'application/xml; charset=utf-8')
   res.setHeader('Content-Disposition', `attachment; filename="${filename}"`)
