@@ -552,6 +552,7 @@ export function notificationToApi(n: Notification) {
     body: n.body,
     action_url: n.actionUrl,
     is_read: n.isRead,
+    snoozed_until: n.snoozedUntil ? n.snoozedUntil.toISOString() : null,
     created_at: isoReq(n.createdAt),
   }
 }

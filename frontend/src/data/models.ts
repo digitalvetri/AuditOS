@@ -358,6 +358,9 @@ export interface Notification {
   body: string;
   action_url: string | null;
   is_read: boolean;
+  /** Nullable because mock handlers written before this field exists
+   *  omit it; the live backend always sends `null` when not snoozed. */
+  snoozed_until?: ISODateTime | null;
   created_at: ISODateTime;
 }
 
