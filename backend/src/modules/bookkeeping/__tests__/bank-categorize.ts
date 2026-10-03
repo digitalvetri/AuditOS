@@ -80,7 +80,26 @@ async function suite() {
   await cleanupByName(organisationId)
 
   const company = await createCompany(session)
-  await BookkeepingBootstrapService.ensure(company.id)
+  // BookkeepingCompanyService.create() already called ensure() implicitly,
+  // so the rule-target ledgers are in place before the first explicit call.
+  // Verify from the DB rather than from the return value — the latter is 0
+  // on a second ensure() by design.
+  const seededNames = await prisma.bookkeepingLedger.findMany({
+    where: { tallyCompanyId: company.id, name: { in: ['Rent', 'Bank Charges', 'Suspense', 'Interest Income', 'GST Clearing', 'Salary', 'TDS Payable'] } },
+    select: { name: true },
+  })
+  check('Rent ledger seeded', seededNames.some((l) => l.name === 'Rent'), true)
+  check('Bank Charges ledger seeded', seededNames.some((l) => l.name === 'Bank Charges'), true)
+  check('Suspense ledger seeded', seededNames.some((l) => l.name === 'Suspense'), true)
+  check('Interest Income ledger seeded', seededNames.some((l) => l.name === 'Interest Income'), true)
+  check('GST Clearing ledger seeded', seededNames.some((l) => l.name === 'GST Clearing'), true)
+  check('Salary ledger seeded', seededNames.some((l) => l.name === 'Salary'), true)
+  check('TDS Payable ledger seeded', seededNames.some((l) => l.name === 'TDS Payable'), true)
+
+  // A second explicit ensure() must not duplicate — seed is per-name
+  // idempotent for the new rule-target block too.
+  const seed2 = await BookkeepingBootstrapService.ensure(company.id)
+  check('Second ensure() creates no duplicate rule-target ledgers', seed2.ruleTargetLedgersCreated, 0)
 
   // A bank ledger under Bank Accounts.
   const bankGroup = await prisma.bookkeepingGroup.findFirst({ where: { tallyCompanyId: company.id, name: 'Bank Accounts' } })
