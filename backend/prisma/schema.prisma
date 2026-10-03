@@ -1040,12 +1040,19 @@ model Notification {
   body       String
   actionUrl  String?
   isRead     Boolean @default(false)
+  /// When set to a future time, the notification is hidden from the bell
+  /// dropdown + /notifications list + unread count. When the time passes,
+  /// it reappears in the list as unread. Clearing the field (unsnooze)
+  /// shows it immediately. Snoozing never deletes — the row is kept so
+  /// an operator can filter "show snoozed" to see what they put off.
+  snoozedUntil DateTime?
 
   user User @relation(fields: [userId], references: [id])
 
   createdAt DateTime @default(now())
 
   @@index([userId, isRead])
+  @@index([userId, snoozedUntil])
 }
 
 /// A browser's Web Push endpoint (§8.9). One row per browser install; the

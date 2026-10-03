@@ -19,17 +19,38 @@ export const auditRouter = Router()
 export const dashboardRouter = Router()
 
 // ── Notifications ─────────────────────────────────────────────────────────
+/**
+ * Default list hides items that are currently snoozed (snoozedUntil > now).
+ * Pass ?include_snoozed=1 to show everything — the UI uses this for a
+ * "Snoozed" filter so an operator can review what they put off.
+ *
+ * `unread` is the useful counter for the bell badge — it counts items
+ * that are both unread AND not currently snoozed, matching what's visible.
+ */
 notificationsRouter.get('/', handler(async (req, res) => {
   const session = requireSession(req)
   const limit = Math.max(1, Math.min(100, Number(req.query.limit ?? 20)))
-  const [rows, total, unread] = await Promise.all([
+  const includeSnoozed = String(req.query.include_snoozed ?? '') === '1'
+  const now = new Date()
+  const visibleWhere = includeSnoozed
+    ? { userId: session.userId }
+    : { userId: session.userId, OR: [{ snoozedUntil: null }, { snoozedUntil: { lte: now } }] }
+  const [rows, total, unread, snoozedCount] = await Promise.all([
     prisma.notification.findMany({
-      where: { userId: session.userId }, orderBy: { createdAt: 'desc' }, take: limit,
+      where: visibleWhere, orderBy: { createdAt: 'desc' }, take: limit,
     }),
     prisma.notification.count({ where: { userId: session.userId } }),
-    prisma.notification.count({ where: { userId: session.userId, isRead: false } }),
+    prisma.notification.count({
+      where: {
+        userId: session.userId, isRead: false,
+        OR: [{ snoozedUntil: null }, { snoozedUntil: { lte: now } }],
+      },
+    }),
+    prisma.notification.count({
+      where: { userId: session.userId, snoozedUntil: { gt: now } },
+    }),
   ])
-  ok(res, { items: rows.map(notificationToApi), unread, total })
+  ok(res, { items: rows.map(notificationToApi), unread, total, snoozed: snoozedCount })
 }))
 
 notificationsRouter.patch('/:id/read', handler(async (req, res) => {
@@ -47,6 +68,42 @@ notificationsRouter.post('/read-all', handler(async (req, res) => {
     where: { userId: session.userId, isRead: false }, data: { isRead: true },
   })
   ok(res, { ok: true })
+}))
+
+/**
+ * POST /:id/snooze with body { until: ISO datetime }
+ *
+ * Hides the notification until the given moment. The row stays in the
+ * database so it reappears when the time passes, and the "Snoozed" filter
+ * can surface it in the meantime.
+ */
+notificationsRouter.post('/:id/snooze', handler(async (req, res) => {
+  const session = requireSession(req)
+  const row = await prisma.notification.findUnique({ where: { id: req.params.id } })
+  if (!row) throw ApiError.notFound('Notification not found.')
+  if (row.userId !== session.userId) throw ApiError.forbidden()
+  const b = (req.body ?? {}) as Record<string, unknown>
+  if (typeof b.until !== 'string') throw ApiError.badRequest('until (ISO datetime) is required.')
+  const until = new Date(b.until)
+  if (Number.isNaN(until.getTime())) throw ApiError.badRequest('until is not a valid ISO datetime.')
+  if (until.getTime() <= Date.now()) {
+    throw ApiError.badRequest('until must be in the future — to clear a snooze, use /unsnooze instead.')
+  }
+  const updated = await prisma.notification.update({
+    where: { id: row.id }, data: { snoozedUntil: until },
+  })
+  ok(res, { notification: notificationToApi(updated) })
+}))
+
+notificationsRouter.post('/:id/unsnooze', handler(async (req, res) => {
+  const session = requireSession(req)
+  const row = await prisma.notification.findUnique({ where: { id: req.params.id } })
+  if (!row) throw ApiError.notFound('Notification not found.')
+  if (row.userId !== session.userId) throw ApiError.forbidden()
+  const updated = await prisma.notification.update({
+    where: { id: row.id }, data: { snoozedUntil: null },
+  })
+  ok(res, { notification: notificationToApi(updated) })
 }))
 
 // ── Web Push subscriptions ─────────────────────────────────────────────────
