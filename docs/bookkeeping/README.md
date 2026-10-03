@@ -150,7 +150,7 @@ Both follow the convention: **row 1** is the FY label, **row 2** is the header, 
 1. Sign in as a user with `tools.audit_automation.bookkeeping.master.manage` (seeded accounts: `ravi@auditos.local` / `md`, or `priya@auditos.local` / `hr`).
 2. **Workstation → Services → Books**. If no company exists, click **Create company**: pick a client, name it, set FY to **2025-26**.
 3. Open the company → go to **Groups**. The engine seeds the standard tree (Sundry Debtors, Direct Expenses, Bank Accounts, …). Add any client-specific group if needed.
-4. Go to **Ledgers**. Add at least one **Sales** ledger ("Sales — Services", group = Sales Accounts) and one **Bank** ledger ("HDFC Current A/c", group = Bank Accounts). The import can create party ledgers (customers / suppliers) for you from the review step; it will NOT auto-create a Sales or Expense ledger — pick those in Settings → Import defaults.
+4. **Ledgers** — company bootstrap already seeded two defaults for you: `Sales` under Sales Accounts and `Purchases` under Purchase Accounts. The import deriver picks these up automatically as the Cr side for every sales row and the Dr side for every purchase row. Rename them if your firm prefers "Sales — Services" / "Office Supplies Purchased", or add more ledgers alongside; the first alphabetical ledger in each group wins. Also add one **Bank** ledger ("HDFC Current A/c", group = Bank Accounts) when you're ready to post receipts/payments. The import can create party ledgers (customers / suppliers) for you from the Review step on commit.
 5. Open **Import**:
    - Upload `docs/bookkeeping/sample-sales.xlsx`. Preview opens.
    - Pick sheet `Sales`, header row **2**, target **Sales register**.

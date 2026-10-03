@@ -19,6 +19,7 @@ import {
   type MappableField,
 } from './services/BookkeepingImportService.js'
 import { buildLedgerSnapshot } from './services/BookkeepingLedgerSnapshot.js'
+import { BookkeepingBootstrapService } from './services/BookkeepingBootstrapService.js'
 import { deriveBatch } from './engine/deriveVouchers.js'
 import {
   classifyExistence,
@@ -238,6 +239,13 @@ export function registerBookkeepingImportRoutes(router: Router): void {
         rows.push(vals)
       }
 
+      // Self-heal pre-rebuild companies: ensure() seeds the operational
+      // Sales + Purchases defaults the snapshot picks up as alphabetical-
+      // first. Idempotent, so cheap to run every derive. Without this a
+      // company bootstrapped before the default-ledger seed shipped would
+      // still see no_sales_ledger / no_purchase_ledger flags here even
+      // after the fix deploys.
+      await BookkeepingBootstrapService.ensure(req.params.companyId)
       const snapshot = await buildLedgerSnapshot(prisma, req.params.companyId)
       const columnMap = mapping.columnMapJson as Record<string, MappableField>
       const currencyAliases = mapping.currencyAliasesJson as Record<string, string>
