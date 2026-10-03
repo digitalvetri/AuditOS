@@ -9,7 +9,7 @@
  */
 import { requestCredential } from '../api/crm-api';
 import { CRM_ORIGINS, evaluate, launchUrlAllowed } from '../security/context-validator';
-import type { ContentState, LaunchContext, LaunchMessage } from '../types';
+import type { ContentState, FillPurpose, LaunchContext, LaunchMessage } from '../types';
 
 const key = (tabId: number) => `ctx:${tabId}`;
 
@@ -38,15 +38,45 @@ async function inherit(sourceTabId: number, tabId: number) {
 chrome.webNavigation.onCreatedNavigationTarget.addListener((d) => { void inherit(d.sourceTabId, d.tabId); });
 chrome.tabs.onCreated.addListener((tab) => { if (tab.id !== undefined && tab.openerTabId !== undefined) void inherit(tab.openerTabId, tab.id); });
 
-/** One launch, one fill: once any tab used the token, every tab sharing it is done. */
-async function markLaunchUsed(launchToken: string) {
+/** Portals with a registration form the extension fills (besides the login). */
+const REGISTRATION_FORM_PORTALS = new Set(['GST', 'DGFT', 'LABOUR_TN', 'TNREGINET', 'UDYAM', 'ESIC', 'EWAYBILL']);
+const purposesFor = (portalId: string): FillPurpose[] => (REGISTRATION_FORM_PORTALS.has(portalId) ? ['login', 'registration'] : ['login']);
+
+/**
+ * Each fill a launch allows happens once: once any tab used it, every tab
+ * sharing the launch has used it. When all are used the launch is done.
+ */
+async function markLaunchUsed(launchToken: string, purpose: FillPurpose) {
   const all = await chrome.storage.session.get(null);
   const updates: Record<string, LaunchContext> = {};
   for (const [k, v] of Object.entries(all)) {
-    if (k.startsWith('ctx:') && (v as LaunchContext).launchToken === launchToken) updates[k] = { ...(v as LaunchContext), state: 'filled' };
+    const c = v as LaunchContext;
+    if (!k.startsWith('ctx:') || c.launchToken !== launchToken) continue;
+    const used = [...new Set([...(c.used ?? []), purpose])];
+    updates[k] = { ...c, used, state: purposesFor(c.portalId).every((p) => used.includes(p)) ? 'filled' : c.state };
   }
   if (Object.keys(updates).length) await chrome.storage.session.set(updates);
 }
+
+/**
+ * Chrome does not put a reloaded / updated extension's scripts into tabs that
+ * are already open — their old copies are cut off, so launches from an open
+ * CRM tab went nowhere and open portal tabs stopped filling until each was
+ * refreshed. On install / update, inject the current scripts into every open
+ * tab the manifest's content scripts cover. (Old copies stay inert.)
+ */
+chrome.runtime.onInstalled.addListener(() => {
+  void (async () => {
+    for (const cs of chrome.runtime.getManifest().content_scripts ?? []) {
+      if (!cs.js?.length || !cs.matches?.length) continue;
+      const tabs = await chrome.tabs.query({ url: cs.matches }).catch(() => []);
+      for (const t of tabs) {
+        if (t.id === undefined || t.discarded) continue;
+        await chrome.scripting.executeScript({ target: { tabId: t.id }, files: cs.js }).catch(() => undefined);
+      }
+    }
+  })();
+});
 
 const HANDLED = new Set(['AUDITOS_PORTAL_LAUNCH', 'AUDITOS_GET_STATE', 'AUDITOS_REQUEST_FILL', 'AUDITOS_POPUP_STATE', 'AUDITOS_POPUP_FILL']);
 
@@ -93,8 +123,10 @@ chrome.runtime.onMessage.addListener((msg, sender, reply) => {
           : state.kind === 'mismatch' ? `This page is not ${state.expected}.` : 'No CRM context found. Please open this portal from the CRM.';
         return answer({ ok: false, message });
       }
-      const r = await requestCredential(ctx, sender.url ?? '');
-      if (r.ok) await markLaunchUsed(ctx.launchToken);
+      const purpose: FillPurpose = msg.purpose === 'registration' ? 'registration' : 'login';
+      if (ctx.used?.includes(purpose)) return answer({ ok: false, message: 'Already filled from this launch. Reopen this service from the CRM to fill again.' });
+      const r = await requestCredential(ctx, sender.url ?? '', purpose);
+      if (r.ok) await markLaunchUsed(ctx.launchToken, purpose);
       else await setCtx(tabId, { ...ctx, state: 'failed', lastError: r.message });
       return answer(r.ok ? { ok: true, credential: r.credential } : { ok: false, message: r.message });
     }

@@ -10,7 +10,8 @@ export type RegistrationMode = 'new' | 'existing';
 export interface RegistrationFieldSpec {
   key: string;
   label: string;
-  kind?: 'text' | 'email' | 'phone' | 'gstin' | 'textarea' | 'select' | 'date';
+  /** 'secret': a second password-like value — never in a read; revealed like the password. */
+  kind?: 'text' | 'email' | 'phone' | 'gstin' | 'textarea' | 'select' | 'date' | 'secret';
   options?: string[];
   placeholder?: string;
   required?: boolean | RegistrationMode[];
@@ -32,6 +33,8 @@ export interface RegistrationCredential {
   mode: RegistrationMode | null;
   fields: Record<string, string>;
   password_present: boolean;
+  /** Which secret fields hold a value (their values are never sent). */
+  secrets_present?: Record<string, boolean>;
   updated_at: string;
 }
 
@@ -43,13 +46,14 @@ export const registrationCredentialsApi = {
   save: (type: string, clientId: string, input: { mode?: RegistrationMode | null; fields: Record<string, string>; password?: string }) =>
     api.put<{ record: RegistrationCredential }>(base(type, clientId), input),
   remove: (type: string, clientId: string) => api.delete<{ deleted: true }>(base(type, clientId)),
-  reveal: (type: string, clientId: string, action: 'show' | 'copy') =>
-    api.post<{ value: string }>(`${base(type, clientId)}/reveal`, { action }),
+  /** `field`: a secret field instead of the main password. */
+  reveal: (type: string, clientId: string, action: 'show' | 'copy', field?: string) =>
+    api.post<{ value: string }>(`${base(type, clientId)}/reveal`, { action, ...(field ? { field } : {}) }),
 };
 
 /** Registrations that have a credentials card. */
 export const CREDENTIAL_REGISTRATIONS = new Set([
-  'private-limited', 'llp', 'partnership-firm',
+  'gst', 'private-limited', 'llp', 'partnership-firm',
   'msme-udyam', 'shops-establishment', 'import-export-code', 'pf', 'esi', 'e-invoice', 'e-way-bill',
   'income-tax-efiling',
 ]);

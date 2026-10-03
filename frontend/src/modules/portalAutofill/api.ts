@@ -73,7 +73,7 @@ export async function openGovernmentPortal(o: { clientId: string; portalId: stri
   }
   const requestId = crypto.randomUUID();
   const result = await new Promise<{ ok: boolean; error: string | null }>((resolve) => {
-    const t = setTimeout(() => { window.removeEventListener('message', on); resolve({ ok: false, error: 'The extension did not respond.' }); }, 4000);
+    const t = setTimeout(() => { window.removeEventListener('message', on); resolve({ ok: false, error: 'The AuditOS extension did not respond — it was probably reloaded or updated. Refresh this page and try again.' }); }, 4000);
     function on(ev: MessageEvent) {
       if (ev.source !== window || ev.data?.source !== 'auditos-extension' || ev.data.type !== 'AUDITOS_PORTAL_LAUNCH_RESULT' || ev.data.requestId !== requestId) return;
       clearTimeout(t); window.removeEventListener('message', on); resolve({ ok: ev.data.ok, error: ev.data.error });

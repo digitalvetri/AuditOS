@@ -6,12 +6,13 @@
 import type { Credential } from '../types';
 
 export async function withCredential<T>(cred: Credential, use: (c: Credential) => Promise<T>): Promise<T> {
-  const c: Credential = { username: cred.username, password: cred.password, mobile: cred.mobile };
+  const c: Credential = { username: cred.username, password: cred.password, mobile: cred.mobile, details: cred.details ? { ...cred.details } : undefined };
   try {
     return await use(c);
   } finally {
     c.username = '';
     c.password = '';
     c.mobile = '';
+    c.details = undefined;
   }
 }

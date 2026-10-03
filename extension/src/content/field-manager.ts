@@ -72,7 +72,7 @@ export async function setValue(el: HTMLInputElement, value: string): Promise<boo
   fire(el, new InputEvent('input', { bubbles: true, inputType: 'insertText', data: value }));
   fire(el, new KeyboardEvent('keyup', { bubbles: true, key: value.slice(-1) }));
   fire(el, new Event('change', { bubbles: true }));
-  await sleep(250);
+  await sleep(100);
 
   // 2 · the page cleared it → type it character by character.
   if (!same(el.value, value)) {
@@ -85,20 +85,20 @@ export async function setValue(el: HTMLInputElement, value: string): Promise<boo
       fire(el, new KeyboardEvent('keyup', { bubbles: true, key: ch }));
     }
     fire(el, new Event('change', { bubbles: true }));
-    await sleep(250);
+    await sleep(100);
   }
   if (!same(el.value, value)) return false;
 
   // 3 · let the page validate on blur, but if blur wipes it, put it back.
   fire(el, new FocusEvent('focusout', { bubbles: true }));
   fire(el, new FocusEvent('blur'));
-  await sleep(200);
+  await sleep(80);
   if (!same(el.value, value)) {
     el.focus();
     set(value);
     fire(el, new InputEvent('input', { bubbles: true, inputType: 'insertText', data: value }));
     fire(el, new Event('change', { bubbles: true }));
-    await sleep(150);
+    await sleep(80);
   }
   return same(el.value, value);
 }

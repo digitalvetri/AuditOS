@@ -68,6 +68,25 @@ start the `api` gives every invoice that was paid before history existed one
 "recorded before payment history" row, so the totals and the history agree —
 nothing to run by hand.
 
+**Registration details + portal autofill.** `migrate` needs nothing extra:
+registration details live in the existing `RegistrationCredential` table
+(secret fields such as Aadhaar, the security answer or a second login are
+encrypted inside it with `PORTAL_ACCESS_ENC_KEY`, so set that key before the
+first run and never change it afterwards). The seed adds sample Partnership /
+LLP / Private Limited cases with filled-in details (`seed-registration-samples.ts`).
+To autofill portal logins and registration forms, build the Chrome extension
+and load it unpacked:
+
+```bash
+docker compose --profile tools run --rm extension-build   # → extension/dist
+# chrome://extensions → Developer mode → Load unpacked → extension/dist
+```
+
+It works with the CRM at `http://localhost:8080` or `http://127.0.0.1:8080`
+(and the dev server on :5173); it reaches the API through the CRM's own
+`/api/` proxy. A CRM on any other address needs adding to
+`extension/src/security/context-validator.ts` and the manifest.
+
 **Demo logins.** The seed creates one login per role — Super Admin
 `ravi@auditos.local` / `md`, Admin `priya@auditos.local` / `hr`, Senior
 Associate `vikram@auditos.local` / `mgr`, Associate `meera@auditos.local` /

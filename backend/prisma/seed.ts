@@ -30,6 +30,7 @@ import { setupRoles } from './setup-roles.js'
 import { seedAuditAutomation } from './seed-audit-automation.js'
 import { seedRegistration } from './seed-registration.js'
 import { seedPartnership } from './seed-partnership.js'
+import { seedRegistrationSamples } from './seed-registration-samples.js'
 import { migrateGstReturnCases } from './seed-gst-return-cases.js'
 import { seedGst } from './seed-gst.js'
 
@@ -970,6 +971,8 @@ async function main() {
   await seedAuditAutomation(prisma)
   const registration = await seedRegistration(prisma, org.id)
   await seedPartnership(prisma, org.id)
+  // Five sample cases each for Partnership, LLP and Private Limited.
+  await seedRegistrationSamples(prisma)
   // Batch-open case-per-period rows for the demo GstCompliancePeriod data so
   // §9-3's per-return client lists have something to render. Idempotent —
   // only opens what is still missing.
