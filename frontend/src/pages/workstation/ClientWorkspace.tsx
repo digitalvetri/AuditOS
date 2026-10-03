@@ -1,8 +1,17 @@
 import { useState } from 'react';
 // Government-portal autofill (Phase 1) — remove with src/modules/portalAutofill.
 import { GovernmentPortalsCard } from '@/modules/portalAutofill/GovernmentPortals';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { NavLink, useNavigate, useParams } from 'react-router-dom';
+import { useMutation, useQueries, useQuery, useQueryClient } from '@tanstack/react-query';
+import { Link, useNavigate, useParams } from 'react-router-dom';
+import { Copy, Mail, Phone, Pin, PinOff, Plus, User } from 'lucide-react';
+import { EntityHeader, HeaderTag, MetaItem, PageTabs, headerBtn, headerBtnPrimary, type HeaderStat } from '@/components/EntityHeader';
+import { Avatar } from '@/components/viz';
+import { usePinnedClients } from '@/modules/workstation/pins';
+import { paymentSummaryApi } from '@/modules/paymentSummary/api';
+import { gstApi } from '@/modules/workstation/gst/api';
+import { gstHistory, lastPeriods } from '@/modules/workstation/clientInsights';
+import { istToday } from '@/modules/dashboardV2/brief';
+import { formatINR } from '@/modules/dashboardV2/format';
 import { workstationApi } from '@/modules/workstation/api';
 import {
   Card, Cell, Detail, Field, Modal, QueryState, Row, SimulatedNotice, Status,
@@ -69,40 +78,13 @@ export function ClientWorkspacePage() {
       <QueryState query={query}>
         {(client: ClientDetail) => (
           <>
-            {/* Header (§7.3) */}
-            <header className="mb-4">
-              <h1 className="text-20 font-semibold text-neutral-900">{client.company_name}</h1>
-              <div className="text-13 text-neutral-500 mt-1 flex flex-wrap items-center gap-x-3 gap-y-1">
-                <span>{client.client_id}</span>
-                {client.gstin ? <span>GSTIN {client.gstin}</span> : null}
-                {client.pan ? <span>PAN {client.pan}</span> : null}
-                <span>{client.contact_person}</span>
-                <span>{client.contact_number}</span>
-                {client.email ? <span>{client.email}</span> : null}
-                <span>AM: {client.account_manager?.full_name ?? '—'}</span>
-                <Status value={client.status} />
-              </div>
-            </header>
-
-            {/* Tabs — 2px gold underline on the active one, matching the
-                sidebar's active treatment. */}
-            <nav className="flex flex-wrap gap-x-4 border-b border-neutral-200 mb-4 overflow-x-auto">
-              {visibleTabs.map((t) => (
-                <NavLink
-                  key={t.key}
-                  end={t.key === ''}
-                  to={`/workstation/clients/${client.id}${t.key ? `/${t.key}` : ''}`}
-                  className={({ isActive }) =>
-                    'h-8 flex items-center text-13 whitespace-nowrap border-b-2 -mb-px transition-colors ' +
-                    (isActive
-                      ? 'border-gold text-neutral-900 font-medium'
-                      : 'border-transparent text-neutral-500 hover:text-neutral-900')
-                  }
-                >
-                  {t.label}
-                </NavLink>
-              ))}
-            </nav>
+            <ClientHeader client={client} />
+            <PageTabs tabs={visibleTabs.map((t) => ({
+              to: `/workstation/clients/${client.id}${t.key ? `/${t.key}` : ''}`,
+              label: t.label,
+              end: t.key === '',
+              count: t.key === 'documents' ? client.document_count : t.key === 'follow-ups' ? client.follow_up_count : undefined,
+            }))} />
 
             {tab === '' ? <GovernmentPortalsCard clientId={client.id} clientName={client.company_name} /> : null}
             {tab === '' ? <OverviewTab client={client} /> : null}
@@ -121,6 +103,89 @@ export function ClientWorkspacePage() {
         )}
       </QueryState>
     </div>
+  );
+}
+
+// ── Header ────────────────────────────────────────────────────────────────
+/**
+ * Who the client is and where they stand: identity and contact, then the
+ * figures that matter — services, documents, money owed (finance roles) and
+ * GST periods overdue in the last six (GST roles). Same data and gates as
+ * the Clients list, read from the same caches.
+ */
+function ClientHeader({ client }: { client: ClientDetail }) {
+  const { session } = useAuth();
+  const role = session?.role.code;
+  const toast = useToast();
+  const { isPinned, toggle } = usePinnedClients();
+  const seesBilling = can(role, 'payment_summary.read', 'organisation');
+  const seesGst = can(role, 'workstation.gst.read', 'self');
+  const money = useQuery({ queryKey: ['payment-summary'], queryFn: () => paymentSummaryApi.summary(), enabled: seesBilling });
+  const periods = lastPeriods(istToday(), 6);
+  const gstQueries = useQueries({
+    queries: periods.map((p) => ({ queryKey: ['gst', 'client-dashboard', p], queryFn: () => gstApi.clientDashboard(p), enabled: seesGst, staleTime: 120_000 })),
+  });
+  const gst = seesGst && gstQueries.every((q) => q.isSuccess) ? gstHistory(periods, gstQueries.map((q) => q.data)) : undefined;
+  const row = gst?.byClient.get(client.id);
+  const gstOverdue = row ? [...row.values()].filter((p) => p.state === 'overdue').length : null;
+  const m = money.data?.clients.find((c) => c.client_id === client.id);
+  const primary = client.contacts.find((c) => c.is_primary) ?? client.contacts[0];
+  const pinned = isPinned(client.id);
+  const services = useQuery({
+    queryKey: ['workstation', 'client', client.id, 'services'],
+    queryFn: () => workstationApi.clientServices(client.id),
+    enabled: can(role, 'workstation.service.read', 'self'),
+  });
+
+  const stats: HeaderStat[] = [
+    { label: 'Services', value: services.data ? services.data.items.length : '—' },
+    { label: 'Documents', value: client.document_count },
+    { label: 'Follow-ups', value: client.follow_up_count },
+  ];
+  if (seesBilling) stats.push(m && m.overdue_paise > 0
+    ? { label: 'Overdue', value: formatINR(m.overdue_paise / 100), tone: 'bad' }
+    : { label: 'Outstanding', value: m ? formatINR(m.pending_paise / 100) : '₹0' });
+  if (seesGst && gstOverdue !== null) stats.push({
+    label: 'GST overdue', value: `${gstOverdue} of 6`, tone: gstOverdue ? 'bad' : 'ok',
+    hint: 'Return periods in the last six with a GSTR-1 or GSTR-3B past due and not filed',
+  });
+
+  return (
+    <EntityHeader
+      name={client.company_name}
+      square
+      idLine={<>
+        <span>{client.client_id}</span>
+        {client.gstin ? <button type="button" title="Copy GSTIN" className="inline-flex items-center gap-1 hover:text-ink"
+          onClick={async () => { try { await navigator.clipboard.writeText(client.gstin!); toast.push('success', 'GSTIN copied'); } catch { /* blocked */ } }}>
+          · GSTIN {client.gstin} <Copy size={11} />
+        </button> : null}
+        {client.pan ? <span>· PAN {client.pan}</span> : null}
+      </>}
+      chips={<>
+        <Status value={client.status} />
+        {client.business_type ? <HeaderTag>{client.business_type}</HeaderTag> : null}
+        {client.onboarding_date ? <HeaderTag>Client since {new Date(client.onboarding_date).getFullYear()}</HeaderTag> : null}
+        {m && m.overdue_paise > 0 ? <HeaderTag tone="bad">● Payment overdue</HeaderTag> : null}
+      </>}
+      meta={<>
+        <MetaItem icon={<User size={14} />}>{primary?.name ?? client.contact_person}</MetaItem>
+        {(primary?.phone ?? client.contact_number) ? <MetaItem icon={<Phone size={14} />} href={`tel:${primary?.phone ?? client.contact_number}`}>{primary?.phone ?? client.contact_number}</MetaItem> : null}
+        {(primary?.email ?? client.email) ? <MetaItem icon={<Mail size={14} />} href={`mailto:${primary?.email ?? client.email}`}>{primary?.email ?? client.email}</MetaItem> : null}
+        {client.account_manager ? (
+          <span className="inline-flex items-center gap-2"><Avatar name={client.account_manager.full_name} size={20} />Managed by {client.account_manager.full_name}</span>
+        ) : null}
+      </>}
+      actions={<>
+        <button type="button" onClick={() => toggle({ id: client.id, name: client.company_name })} className={headerBtn} aria-pressed={pinned}>
+          {pinned ? <PinOff size={14} /> : <Pin size={14} />}{pinned ? 'Unpin' : 'Pin'}
+        </button>
+        {can(role, 'workstation.invoice.manage', 'self') ? (
+          <Link to={`/workstation/invoices/new?client_id=${client.id}`} className={headerBtnPrimary}><Plus size={14} />New invoice</Link>
+        ) : null}
+      </>}
+      stats={stats}
+    />
   );
 }
 

@@ -334,7 +334,7 @@ export function InvoiceBuilderPage() {
 
   return (
     <>
-      <header className="flex items-start gap-3 flex-wrap mb-4 qdoc-screen-only">
+      <header className="qb-head flex items-start gap-3 flex-wrap mb-4 qdoc-screen-only">
         <div className="flex-1 min-w-[200px]">
           <h1 className="text-[26px] leading-tight font-semibold tracking-[-0.01em] text-neutral-900">Invoice builder</h1>
           <p className="text-12 text-neutral-500 mt-1">

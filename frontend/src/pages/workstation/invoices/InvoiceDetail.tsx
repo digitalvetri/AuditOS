@@ -14,7 +14,7 @@ import {
 import { InvoiceDocument, type InvoiceDoc } from './InvoiceDocument';
 import { StatusPill } from './InvoiceBuilder';
 import {
-  Card, Detail, Field, Modal, PageHeader, QueryState, fieldErrors, inputClass,
+  Card, Detail, Field, Modal, QueryState, fieldErrors, inputClass,
 } from '@/modules/workstation/components';
 import { Button } from '@/components/Button';
 import { useToast } from '@/components/Toast';
@@ -25,6 +25,14 @@ import { can } from '@/platform/rbac/can';
 import { useAuth } from '@/platform/auth/AuthContext';
 import { SendEmailDialog } from '@/modules/workstation/SendEmailDialog';
 import { SendWhatsAppDialog } from '@/modules/workstation/SendWhatsAppDialog';
+import { EntityHeader, HeaderTag } from '@/components/EntityHeader';
+
+/** Whole days between a due date and today (IST). */
+function daysLate(due: string | null | undefined): number {
+  if (!due) return 0;
+  const ms = new Date(`${istToday()}T00:00:00Z`).getTime() - new Date(`${due.slice(0, 10)}T00:00:00Z`).getTime();
+  return Math.max(0, Math.round(ms / 86_400_000));
+}
 
 /**
  * A saved invoice: the document as issued, plus the actions an issued invoice
@@ -162,10 +170,25 @@ function Body({ inv }: { inv: Invoice }) {
         note={note}
       />
       <div className="qdoc-screen-only">
-        <PageHeader
-          title={inv.invoice_number}
-          subtitle={<>{inv.billing_name || inv.client_name} · <StatusPill status={inv.status} /></>}
-          action={
+        <EntityHeader
+          name={inv.billing_name || inv.client_name || 'Invoice'}
+          square
+          title={<span className="font-mono tracking-[-0.01em]">{inv.invoice_number ?? 'Draft invoice'}</span>}
+          idLine={<>
+            <span className="font-sans">{inv.billing_name || inv.client_name}</span>
+            <span>· {fmtDate(inv.invoice_date)}</span>
+          </>}
+          chips={<>
+            <StatusPill status={inv.status} />
+            {inv.is_overdue ? <HeaderTag tone="bad">● {daysLate(inv.due_date)} days overdue</HeaderTag> : null}
+          </>}
+          stats={[
+            { label: 'Total', value: `₹${inrAmount(inv.total_paise)}` },
+            { label: 'Paid', value: `₹${inrAmount(inv.amount_paid_paise)}`, tone: inv.amount_paid_paise > 0 ? 'ok' : undefined },
+            { label: 'Balance due', value: `₹${inrAmount(inv.balance_due_paise)}`, tone: inv.balance_due_paise > 0 && inv.is_overdue ? 'bad' : undefined },
+            { label: 'Due date', value: inv.due_date ? fmtDate(inv.due_date) : '—', tone: inv.is_overdue ? 'bad' : undefined },
+          ]}
+          actions={
             <span className="flex gap-2 flex-wrap">
               {mayWrite && inv.stored_status === 'draft' ? (
                 <Button variant="primary" disabled={send.isPending} onClick={() => send.mutate()}>Send</Button>
@@ -181,7 +204,19 @@ function Body({ inv }: { inv: Invoice }) {
               />
             </span>
           }
-        />
+        >
+          {inv.total_paise > 0 && inv.stored_status !== 'draft' ? (
+            <div className="mt-5">
+              <div className="flex justify-between text-12 text-inkMuted mb-[6px]">
+                <span>Paid {Math.round((inv.amount_paid_paise / inv.total_paise) * 100)}%</span>
+                <span>{inv.balance_due_paise > 0 ? `₹${inrAmount(inv.balance_due_paise)} to collect` : 'Fully paid'}</span>
+              </div>
+              <div className="h-2 rounded-full bg-neutral-100 overflow-hidden">
+                <i className="block h-full rounded-full bg-success transition-[width]" style={{ width: `${Math.min(100, (inv.amount_paid_paise / inv.total_paise) * 100)}%` }} />
+              </div>
+            </div>
+          ) : null}
+        </EntityHeader>
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 mb-4">
           <Card title="Invoice">

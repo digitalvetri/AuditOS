@@ -5,6 +5,7 @@
  * click, or route change.
  */
 import { useEffect } from 'react';
+import { Avatar } from '@/components/viz';
 import { Link, useLocation } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { X } from 'lucide-react';
@@ -37,28 +38,31 @@ export function RightPanel({ open, onClose }: { open: boolean; onClose: () => vo
 
   return (
     <>
-      <div className="fixed inset-0 z-40 bg-black/[0.16]" onClick={onClose} aria-hidden />
+      <div className="cp-scrim-all fixed inset-0 z-40" onClick={onClose} aria-hidden />
       <aside
-        className="fixed inset-y-0 right-0 z-50 w-full sm:w-[400px] bg-surface border-l border-border shadow-drawer flex flex-col"
+        className="cp-panel-slide fixed inset-y-0 right-0 z-50 w-full sm:w-[400px] bg-surface border-l border-border shadow-drawer flex flex-col"
         role="dialog"
         aria-label="Quick panel"
         data-testid="right-panel"
       >
-        <div className="h-12 px-4 flex items-center border-b border-border shrink-0">
-          <span className="text-13 font-medium text-ink">{session?.employee?.full_name ?? session?.user.email}</span>
-          <span className="ml-2 text-12 text-inkMuted">{session?.role.name}</span>
+        <div className="cp-head px-4 py-4 flex items-center gap-3 border-b border-border shrink-0">
+          <Avatar name={session?.employee?.full_name ?? session?.user.email} src={session?.employee?.photo_url} size={40} />
+          <span className="min-w-0">
+            <span className="block text-14 font-semibold text-ink truncate">{session?.employee?.full_name ?? session?.user.email}</span>
+            <span className="block text-12 text-inkMuted">{session?.role.name}</span>
+          </span>
           <div className="flex-1" />
           <button type="button" onClick={onClose} aria-label="Close panel" className="inline-flex items-center justify-center w-8 h-8 text-inkMuted hover:text-ink"><X size={16} strokeWidth={1.75} /></button>
         </div>
         <div className="flex-1 min-h-0 overflow-y-auto p-4 space-y-5">
           {session?.employee ? (
             <section>
-              <h3 className="text-11 uppercase tracking-[0.06em] text-inkFaint mb-2">Today</h3>
+              <h3 className="text-[10.5px] font-semibold uppercase tracking-[0.08em] text-inkFaint mb-2">Today</h3>
               <TodayCard />
             </section>
           ) : null}
           <section>
-            <h3 className="text-11 uppercase tracking-[0.06em] text-inkFaint mb-2">Notifications</h3>
+            <h3 className="text-[10.5px] font-semibold uppercase tracking-[0.08em] text-inkFaint mb-2">Notifications</h3>
             <div className="text-13 text-ink">
               {unread.data ? (unread.data.unread > 0 ? `${unread.data.unread} unread` : "You're all caught up.") : 'Loading…'}
             </div>
@@ -67,10 +71,10 @@ export function RightPanel({ open, onClose }: { open: boolean; onClose: () => vo
             ))}
           </section>
           <section>
-            <h3 className="text-11 uppercase tracking-[0.06em] text-inkFaint mb-2">Shortcuts</h3>
-            <ul className="divide-y divide-border border border-border rounded-md overflow-hidden">
+            <h3 className="text-[10.5px] font-semibold uppercase tracking-[0.08em] text-inkFaint mb-2">Shortcuts</h3>
+            <ul className="divide-y divide-border border border-border rounded-[12px] overflow-hidden shadow-card">
               {links.filter((l) => l.to === '/notifications' || session?.employee).map((l) => (
-                <li key={l.to}><Link to={l.to} className="block h-10 px-3 leading-10 text-13 text-ink hover:bg-canvas">{l.label}</Link></li>
+                <li key={l.to}><Link to={l.to} className="flex items-center justify-between h-10 px-3 text-13 font-medium text-ink hover:bg-canvas">{l.label}</Link></li>
               ))}
             </ul>
           </section>

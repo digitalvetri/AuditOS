@@ -29,6 +29,28 @@ import { Button } from '@/components/Button';
 import { useAuth } from '@/platform/auth/AuthContext';
 import { can } from '@/platform/rbac/can';
 import type { Employee } from '@/data/models';
+import { CalendarDays, Mail, Pencil, Phone } from 'lucide-react';
+import { EntityHeader, HeaderTag, MetaItem, headerBtn, type HeaderStat } from '@/components/EntityHeader';
+
+/** Tenure, notice period and weekly capacity — straight from the record. */
+function employeeStats(e: Employee): HeaderStat[] {
+  const start = new Date(e.joining_date + 'T00:00:00Z');
+  const end = e.exit_date ? new Date(e.exit_date + 'T00:00:00Z') : new Date();
+  const months = Math.max(0, (end.getUTCFullYear() - start.getUTCFullYear()) * 12 + (end.getUTCMonth() - start.getUTCMonth()));
+  const tenure = months >= 12 ? `${Math.floor(months / 12)}y ${months % 12}m` : `${months}m`;
+  const out: HeaderStat[] = [
+    { label: 'Tenure', value: tenure },
+    { label: 'Notice period', value: `${e.notice_period_days} days` },
+  ];
+  if (e.weekly_capacity_hours) out.push({ label: 'Weekly capacity', value: `${e.weekly_capacity_hours} h` });
+  if (e.exit_date) out.push({ label: 'Exit date', value: fmtDate(e.exit_date + 'T00:00:00Z'), tone: 'warn' });
+  return out;
+}
+
+function EmployeeStatusChip({ status }: { status: string }) {
+  const tone = status === 'active' ? 'ok' : status === 'inactive' ? 'bad' : 'warn';
+  return <HeaderTag tone={tone}>● {status.replace(/_/g, ' ').replace(/^\w/, (c) => c.toUpperCase())}</HeaderTag>;
+}
 
 type Tab = 'overview' | 'attendance' | 'leave' | 'payroll' | 'expenses' | 'documents' | 'training' | 'activity';
 
@@ -102,49 +124,50 @@ export function EmployeeDetailPage({ fixedId }: Props) {
           ← Employees
         </Link>
       </div>
-      <header className="flex items-baseline justify-between gap-4 flex-wrap">
-        <div>
-          <div className="text-11 uppercase tracking-[0.06em] text-neutral-500">
-            {emp.employee_code}
-          </div>
-          <h1 className="text-[26px] leading-tight font-semibold tracking-[-0.01em] text-neutral-900">
-            {emp.full_name}
-          </h1>
-          <p className="text-13 text-neutral-500 mt-1">
-            {emp.employee_code}
-          </p>
-        </div>
-        <div className="flex items-center gap-2">
+      <EntityHeader
+        name={emp.full_name}
+        avatar={full ? (emp as Employee).photo_url : null}
+        idLine={<>
+          <span>{emp.employee_code}</span>
+          {full ? <span>· {EMPLOYEE_TYPE_LABEL[(emp as Employee).type]}</span> : null}
+        </>}
+        chips={<>
+          <EmployeeStatusChip status={emp.status} />
+          {isOwn ? <HeaderTag tone="teal">You</HeaderTag> : null}
+          {isArticled ? <HeaderTag>Articled</HeaderTag> : null}
+        </>}
+        meta={full ? <>
+          <MetaItem icon={<Mail size={14} />} href={`mailto:${(emp as Employee).email}`}>{(emp as Employee).email}</MetaItem>
+          {(emp as Employee).phone ? <MetaItem icon={<Phone size={14} />} href={`tel:${(emp as Employee).phone}`}>{(emp as Employee).phone}</MetaItem> : null}
+          <MetaItem icon={<CalendarDays size={14} />}>Joined {fmtDate((emp as Employee).joining_date + 'T00:00:00Z')}</MetaItem>
+        </> : undefined}
+        actions={<>
           {(isOwn || canManage) && full ? (
-            <Button
-              variant="secondary"
+            <button type="button" className={headerBtn}
               onClick={() => (canManage ? setEditHr(true) : setEditSelf(true))}
-              data-testid="employee-edit-open"
-            >
-              {canManage ? 'Edit' : 'Edit contact'}
-            </Button>
+              data-testid="employee-edit-open">
+              <Pencil size={14} />{canManage ? 'Edit' : 'Edit contact'}
+            </button>
           ) : null}
           {canManage && !isOwn && emp.status !== 'inactive' ? (
             <DeactivateButton employeeId={emp.id} employeeName={emp.full_name} />
           ) : null}
-        </div>
-      </header>
+        </>}
+        stats={full ? employeeStats(emp as Employee) : undefined}
+      />
 
-      <div className="flex items-center gap-2 flex-wrap">
+      <div className="cl-views flex gap-1 border-b border-border overflow-x-auto" role="tablist">
         {tabs
           .filter((t) => t.show)
           .map((t) => (
             <button
               key={t.id}
               type="button"
+              role="tab"
+              aria-selected={tab === t.id}
               onClick={() => setTab(t.id)}
               data-testid={`employee-tab-${t.id}`}
-              className={
-                'h-8 px-3 inline-flex items-center text-13 rounded-full border transition-colors whitespace-nowrap ' +
-                (tab === t.id
-                  ? 'bg-[#e3f4f3] border-[#abd8d4] text-primary font-medium'
-                  : 'bg-white border-neutral-200 text-neutral-700 hover:border-neutral-300 hover:bg-neutral-50')
-              }
+              className={'cl-view relative px-3 pt-2 pb-[10px] text-13 font-medium whitespace-nowrap transition-colors ' + (tab === t.id ? 'is-on text-ink' : 'text-inkMuted hover:text-ink')}
             >
               {t.label}
             </button>

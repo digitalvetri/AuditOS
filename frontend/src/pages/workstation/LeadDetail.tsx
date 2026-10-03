@@ -3,12 +3,36 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { workstationApi } from '@/modules/workstation/api';
 import {
-  Card, Cell, Detail, Field, Modal, PageHeader, QueryState, Row, SimulatedNotice, Status,
+  Card, Cell, Detail, Field, Modal, QueryState, Row, SimulatedNotice, Status,
   Table, fieldErrors, inputClass, textareaClass,
 } from '@/modules/workstation/components';
 import { quotationsApi } from '@/modules/workstation/quotations/api';
 import type { Activity, Lead, LeadStatus, ListResponse } from '@/modules/workstation/types';
 import { Button } from '@/components/Button';
+import { Mail, Phone } from 'lucide-react';
+import { Avatar } from '@/components/viz';
+import { EntityHeader, HeaderTag, MetaItem, headerBtnPrimary } from '@/components/EntityHeader';
+
+/** The sales stages as a stepper — where this lead stands at a glance. */
+const PIPELINE: LeadStatus[] = ['new', 'contacted', 'requirement_identified', 'quote_sent', 'negotiation', 'won'];
+function LeadPipeline({ status }: { status: LeadStatus }) {
+  const lost = status === 'lost';
+  const at = lost ? -1 : PIPELINE.indexOf(status);
+  return (
+    <ol className="mt-5 grid gap-1" style={{ gridTemplateColumns: `repeat(${PIPELINE.length}, minmax(0, 1fr))` }} aria-label="Pipeline">
+      {PIPELINE.map((s, i) => {
+        const done = !lost && i <= at;
+        return (
+          <li key={s} className="min-w-0">
+            <span className={'block h-[6px] rounded-full ' + (lost ? 'bg-danger/25' : done ? (i === at ? 'bg-primary' : 'bg-primary/60') : 'bg-neutral-200')} />
+            <span className={'block mt-[6px] text-11 truncate ' + (i === at ? 'font-semibold text-ink' : 'text-inkFaint')}>{LABEL[s]}</span>
+          </li>
+        );
+      })}
+      {lost ? <li className="col-span-full text-12 font-semibold text-danger mt-1">This lead was lost.</li> : null}
+    </ol>
+  );
+}
 import { useToast } from '@/components/Toast';
 import { fmtDate, fmtDateTime, fmtTime, inr } from '@/lib/format';
 import { can } from '@/platform/rbac/can';
@@ -77,19 +101,31 @@ function LeadBody({ lead }: { lead: Lead }) {
 
   return (
     <>
-      <PageHeader
-        title={lead.name}
-        subtitle={
-          <>
-            {lead.lead_id} · {lead.contact_number} · <Status value={lead.status} />
-          </>
-        }
-        action={
-          canConvert && lead.status === 'won' && !lead.converted_client_id ? (
-            <Button variant="primary" onClick={() => setConvertOpen(true)}>Convert to Client</Button>
-          ) : undefined
-        }
-      />
+      <EntityHeader
+        name={lead.name}
+        idLine={<span>{lead.lead_id}</span>}
+        chips={<>
+          <Status value={lead.status} />
+          {lead.service_name ? <HeaderTag>{lead.service_name}</HeaderTag> : null}
+        </>}
+        meta={<>
+          <MetaItem icon={<Phone size={14} />} href={`tel:${lead.contact_number}`}>{lead.contact_number}</MetaItem>
+          {lead.email ? <MetaItem icon={<Mail size={14} />} href={`mailto:${lead.email}`}>{lead.email}</MetaItem> : null}
+          {lead.assigned_employee ? (
+            <span className="inline-flex items-center gap-2"><Avatar name={lead.assigned_employee.full_name} size={20} />Assigned to {lead.assigned_employee.full_name}</span>
+          ) : null}
+        </>}
+        actions={canConvert && lead.status === 'won' && !lead.converted_client_id ? (
+          <button type="button" className={headerBtnPrimary} onClick={() => setConvertOpen(true)}>Convert to Client</button>
+        ) : undefined}
+        stats={[
+          { label: 'Price quoted', value: inr(lead.price_quoted_paise) },
+          { label: 'Created', value: fmtDate(lead.created_at) },
+          { label: 'Last updated', value: fmtDate(lead.updated_at) },
+        ]}
+      >
+        <LeadPipeline status={lead.status} />
+      </EntityHeader>
 
       {lead.converted_client_id ? (
         <div className="mb-4 border-l-2 border-neutral-400 bg-white px-3 py-2 text-13">
