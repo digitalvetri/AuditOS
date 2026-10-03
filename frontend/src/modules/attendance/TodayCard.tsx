@@ -190,7 +190,7 @@ function TimesRow({
 /** The state at a glance: a tinted icon square in the state's colour. */
 const STAGE_LOOK = {
   not_checked_in: { bg: '#f1f5f9', fg: '#475569', Icon: Clock },
-  in_progress: { bg: '#e4f5f3', fg: '#0c7a7a', Icon: Timer },
+  in_progress: { bg: '#e8eef8', fg: '#1a4b8c', Icon: Timer },
   done: { bg: '#e9f9f1', fg: '#047857', Icon: CircleCheck },
   on_leave: { bg: '#fff7e6', fg: '#b45309', Icon: Plane },
   missing: { bg: '#fef2f2', fg: '#b91c1c', Icon: CircleAlert },
@@ -230,7 +230,7 @@ function DayStats({
       </div>
       <div className="mt-4 flex items-center gap-3">
         <div className="flex-1 h-2 rounded-full overflow-hidden" style={{ background: '#e7ece9' }} aria-label={`${pct}% of the working day`}>
-          <div className="h-full rounded-full" style={{ width: `${pct}%`, background: done ? 'linear-gradient(90deg, #34d399, #10b981)' : 'linear-gradient(90deg, #60a5fa, #0c7a7a)' }} />
+          <div className="h-full rounded-full" style={{ width: `${pct}%`, background: done ? 'linear-gradient(90deg, #34d399, #10b981)' : 'linear-gradient(90deg, #60a5fa, #1a4b8c)' }} />
         </div>
         <span className="text-12 text-neutral-500 tabular-nums whitespace-nowrap">{pct}% of the 9h day</span>
       </div>

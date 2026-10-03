@@ -80,7 +80,7 @@ const config: Config = {
       red:   'rgb(var(--c-red) / <alpha-value>)',
       amber: 'rgb(var(--c-amber) / <alpha-value>)',
 
-      // Coral — the Teal & Coral accent. Fills and highlights only.
+      // Coral token = the Navy & Gold theme's champagne gold. Fills and highlights only.
       coral: 'rgb(var(--c-coral) / <alpha-value>)',
     },
 

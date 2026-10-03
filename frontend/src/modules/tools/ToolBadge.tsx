@@ -7,8 +7,8 @@ import type { ToolDefinition } from './registry';
  */
 const TINTS: Record<ToolDefinition['badge']['tint'], { bg: string; fg: string }> = {
   green:  { bg: '#E4F0E6', fg: '#2F6B3A' },
-  blue:   { bg: '#E3F4F3', fg: '#0C7A7A' },
-  indigo: { bg: '#FFF1EC', fg: '#C2492B' },
+  blue:   { bg: '#EAF0F8', fg: '#1A4B8C' },
+  indigo: { bg: '#EFF6FF', fg: '#1E40AF' },
   amber:  { bg: '#FBF0DA', fg: '#8A6212' },
   rose:   { bg: '#F8E3E6', fg: '#A33A4A' },
 };

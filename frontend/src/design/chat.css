@@ -30,8 +30,8 @@
 .chat-wallpaper {
   background-color: rgb(var(--c-chat-bg));
   background-image:
-    radial-gradient(rgb(15 111 111 / 0.06) 1px, transparent 1px),
-    radial-gradient(rgb(15 111 111 / 0.04) 1px, transparent 1px);
+    radial-gradient(rgb(28 61 110 / 0.06) 1px, transparent 1px),
+    radial-gradient(rgb(28 61 110 / 0.04) 1px, transparent 1px);
   background-size: 28px 28px, 28px 28px;
   background-position: 0 0, 14px 14px;
 }
@@ -50,7 +50,7 @@
 
 .chat-bubble--own {
   background-color: rgb(var(--c-bubble-own));
-  background-image: linear-gradient(180deg, #0f6f6f 0%, #0a5355 100%);
+  background-image: linear-gradient(180deg, #1c3d6e 0%, #12305a 100%);
   border: 1px solid rgb(var(--c-bubble-own-border));
   color: #fff;
   border-top-right-radius: 4px;
@@ -97,8 +97,8 @@
   height: 22px;
   padding: 0 10px;
   border-radius: 999px;
-  background-color: #e3f4f3;
-  border: 1px solid #c5e3e1;
+  background-color: #eaf0f8;
+  border: 1px solid #ccd9ea;
   font-size: 11px;
   line-height: 16px;
   font-weight: 600;
@@ -116,10 +116,10 @@
   height: 34px;
   border-radius: 999px;
   background-color: rgb(var(--c-primary));
-  background-image: linear-gradient(180deg, #0f6f6f 0%, #0a5355 100%);
+  background-image: linear-gradient(180deg, #1c3d6e 0%, #12305a 100%);
   color: rgb(var(--c-white));
   flex: 0 0 auto;
-  box-shadow: 0 4px 10px -4px rgb(10 83 85 / 0.5);
+  box-shadow: 0 4px 10px -4px rgb(18 48 90 / 0.5);
   transition: filter 0.12s ease, transform 0.12s ease;
 }
 .chat-send:hover:not(:disabled) {
@@ -144,12 +144,12 @@
    pale-blue selection). In dark, map them onto the theme's own surfaces so
    text stays readable; own bubbles keep the navy gradient. */
 :root[data-theme='dark'] [data-testid='chat-sidebar'] { background-color: rgb(var(--c-surface)) !important; }
-:root[data-theme='dark'] [data-testid='chat-sidebar'] .bg-\[\#e3f4f3\] { background-color: rgb(20 163 160 / 0.18) !important; }
+:root[data-theme='dark'] [data-testid='chat-sidebar'] .bg-\[\#eaf0f8\] { background-color: rgb(47 98 176 / 0.18) !important; }
 :root[data-theme='dark'] [data-testid='chat-sidebar'] .hover\:bg-\[\#f1f4f9\]:hover { background-color: rgb(255 255 255 / 0.05) !important; }
 :root[data-theme='dark'] [data-testid='chat-sidebar'] input.bg-white { background-color: rgb(var(--c-canvas)) !important; }
 :root[data-theme='dark'] [data-testid='conversation'] .bg-white { background-color: rgb(var(--c-surface)) !important; }
 :root[data-theme='dark'] [data-testid='conversation'] .bg-\[\#f4f6fa\] { background-color: rgb(var(--c-canvas)) !important; }
-:root[data-theme='dark'] [data-testid='conversation'] .bg-\[\#e3f4f3\] { background-color: rgb(20 163 160 / 0.16) !important; }
+:root[data-theme='dark'] [data-testid='conversation'] .bg-\[\#eaf0f8\] { background-color: rgb(47 98 176 / 0.16) !important; }
 :root[data-theme='dark'] [data-testid='conversation'] .bg-\[\#f1f4f9\] { background-color: rgb(255 255 255 / 0.06) !important; }
 :root[data-theme='dark'] .chat-bubble--them {
   background-color: rgb(var(--c-surface));
@@ -162,8 +162,8 @@
   border-right-color: rgb(var(--c-border));
 }
 :root[data-theme='dark'] .chat-daymark {
-  background-color: rgb(20 163 160 / 0.16);
-  border-color: rgb(20 163 160 / 0.30);
+  background-color: rgb(47 98 176 / 0.16);
+  border-color: rgb(47 98 176 / 0.30);
   color: rgb(var(--c-ink));
 }
 /* In dark the theme's `white` token is itself dark, so white-on-navy text

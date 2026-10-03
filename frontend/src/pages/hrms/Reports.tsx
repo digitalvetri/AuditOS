@@ -21,8 +21,8 @@ import {
 /** Each report's icon and tint — the dashboard's tinted icon squares. */
 const REPORT_META: Record<ReportType, { icon: LucideIcon; bg: string; fg: string; blurb: string }> = {
   attendance: { icon: CalendarCheck, bg: '#e9f9f1', fg: '#047857', blurb: 'Days present, late, on leave and hours, per employee.' },
-  leave: { icon: CalendarDays, bg: '#e4f5f3', fg: '#0c7a7a', blurb: 'Entitlement, availed and balance, by leave type.' },
-  payroll: { icon: Wallet, bg: '#fff1ec', fg: '#c2492b', blurb: 'Earnings, deductions and net pay for a run.' },
+  leave: { icon: CalendarDays, bg: '#e8eef8', fg: '#1a4b8c', blurb: 'Entitlement, availed and balance, by leave type.' },
+  payroll: { icon: Wallet, bg: '#eff6ff', fg: '#1e40af', blurb: 'Earnings, deductions and net pay for a run.' },
   expenses: { icon: Receipt, bg: '#fff7e6', fg: '#b45309', blurb: 'Claims and reimbursements, per employee and category.' },
 };
 
@@ -148,7 +148,7 @@ export function ReportsPage() {
                   className={
                     'flex items-center gap-3 h-10 px-2 text-13 w-full text-left rounded-lg transition-colors ' +
                     (t.id === type
-                      ? 'bg-[#e3f4f3] text-primary font-medium'
+                      ? 'bg-[#eaf0f8] text-primary font-medium'
                       : 'text-neutral-700 hover:bg-neutral-50 hover:text-neutral-900')
                   }
                 >
@@ -260,7 +260,7 @@ function LeaveReportView({ filters }: { filters: FilterState }) {
             <div key={r.employee_id} className="dash-card p-5">
               <div className="flex items-center gap-3 mb-3">
                 <span className="h-9 w-9 shrink-0 rounded-full inline-flex items-center justify-center text-12 font-semibold text-white"
-                  style={{ background: 'linear-gradient(180deg, #0f6f6f, #0a5355)' }} aria-hidden>
+                  style={{ background: 'linear-gradient(180deg, #1c3d6e, #12305a)' }} aria-hidden>
                   {r.full_name.split(/\s+/).filter(Boolean).slice(0, 2).map((w) => w[0]).join('').toUpperCase()}
                 </span>
                 <div className="min-w-0">

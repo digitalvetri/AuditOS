@@ -41,7 +41,7 @@ const TABS: { key: Tab; label: string }[] = [
 const BASIS: Record<TdsBasis, { label: string; bg: string; fg: string }> = {
   normal:            { label: 'Normal rate', bg: '#EEF0F3', fg: '#475569' },
   no_pan:            { label: 'No PAN · 206AA', bg: '#FDE7EA', fg: '#B91C1C' },
-  lower_certificate: { label: 'Form 13 cert.', bg: '#DFF2F0', fg: '#0C7A7A' },
+  lower_certificate: { label: 'Form 13 cert.', bg: '#E2EAF5', fg: '#1A4B8C' },
   declaration:       { label: '15G / 15H', bg: '#E7F5EE', fg: '#166534' },
   below_threshold:   { label: 'Below threshold', bg: '#E7F5EE', fg: '#166534' },
   manual:            { label: 'Entered by hand', bg: '#FEF3C7', fg: '#B45309' },

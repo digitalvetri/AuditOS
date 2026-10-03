@@ -60,7 +60,7 @@ export function LoginPage() {
         <div className="dash-hero-grid" aria-hidden />
         <div className="relative z-10 flex items-center justify-between">
           <span className="sb-logo inline-flex items-center justify-center h-11 px-3 rounded-[12px]">
-            <img src="/jns-mark.png" alt="JNS Accounting Solutions" className="h-7 w-auto" style={{ filter: 'brightness(0) invert(1)' }} />
+            <img src="/jns-mark.png" alt="JNS Accounting Solutions" className="sb-logo-img h-7 w-auto" />
           </span>
           <a href="#" className="text-white/75 text-13 hover:text-white" onClick={(e) => e.preventDefault()}>Help</a>
         </div>
@@ -78,7 +78,7 @@ export function LoginPage() {
               ['People', 'Attendance, leave, expenses and payroll'],
             ].map(([t, d]) => (
               <li key={t} className="dash-insight flex items-center gap-3 rounded-[12px] px-4 py-3">
-                <span className="h-8 w-8 shrink-0 rounded-[9px] grid place-items-center bg-[rgb(45_212_191/0.18)] text-[#7ee8d8]">
+                <span className="h-8 w-8 shrink-0 rounded-[9px] grid place-items-center bg-[rgb(37_99_235/0.18)] text-[#93c5fd]">
                   <CheckIcon />
                 </span>
                 <span>

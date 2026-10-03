@@ -465,8 +465,7 @@ function Brand({ collapsed }: { collapsed: boolean }) {
              asset serving both the white-background and dark-background
              lockups. The swoosh climbs above the cap height on the right, so
              a 1px lift optically centres the letterform mass. */
-          style={{ filter: 'brightness(0) invert(1)' }}
-          className="block max-h-full max-w-full object-contain -translate-y-px"
+          className="sb-logo-img block max-h-full max-w-full object-contain -translate-y-px"
         />
       </span>
       {!collapsed ? (
@@ -543,7 +542,7 @@ function NavItemRow({ item, collapsed }: { item: NavItem; collapsed: boolean }) 
         const spacing = collapsed ? 'justify-center px-0' : 'px-3';
         const grow = hasChildren ? ' flex-1 min-w-0' : '';
         const state = isActive
-          ? 'sb-active relative text-white font-semibold before:absolute before:left-0 before:top-2 before:bottom-2 before:w-[3px] before:rounded-full before:bg-[#5eead4]'
+          ? 'sb-active relative text-white font-semibold before:absolute before:left-0 before:top-2 before:bottom-2 before:w-[3px] before:rounded-full before:bg-[#60a5fa]'
           : 'text-white/70 font-medium sb-hover hover:text-white';
         return `${base} ${spacing} ${state}${grow}`;
       }}
@@ -553,7 +552,7 @@ function NavItemRow({ item, collapsed }: { item: NavItem; collapsed: boolean }) 
         <>
           {/* The accent bar's orange when active, soft white otherwise. */}
           <Icon size={18} strokeWidth={1.9}
-            className={'shrink-0 ' + (isActive ? 'text-[#99f6e4]' : 'text-white/60 group-hover/nav:text-white')} />
+            className={'shrink-0 ' + (isActive ? 'text-[#bfdbfe]' : 'text-white/60 group-hover/nav:text-white')} />
           {!collapsed ? <span className="truncate">{item.label}</span> : null}
           {item.badge ? (
             collapsed
@@ -617,7 +616,7 @@ function NavChildRow({ child }: { child: NavChild }) {
         className={({ isActive }) =>
           'flex items-center h-9 pl-11 pr-3 rounded-lg text-13 transition-colors ' +
           (isActive
-            ? 'sb-active relative text-white font-semibold before:absolute before:left-0 before:top-2 before:bottom-2 before:w-[3px] before:rounded-full before:bg-[#5eead4]'
+            ? 'sb-active relative text-white font-semibold before:absolute before:left-0 before:top-2 before:bottom-2 before:w-[3px] before:rounded-full before:bg-[#60a5fa]'
             : 'text-white/70 font-medium sb-hover hover:text-white')
         }
       >
@@ -659,7 +658,7 @@ function NavChildRow({ child }: { child: NavChild }) {
                 className={({ isActive }) =>
                   'flex items-center h-8 pl-[68px] pr-3 rounded-lg text-12 transition-colors ' +
                   (isActive
-                    ? 'sb-active relative text-white font-semibold before:absolute before:left-0 before:top-2 before:bottom-2 before:w-[3px] before:rounded-full before:bg-[#5eead4]'
+                    ? 'sb-active relative text-white font-semibold before:absolute before:left-0 before:top-2 before:bottom-2 before:w-[3px] before:rounded-full before:bg-[#60a5fa]'
                     : 'text-white/55 font-medium sb-hover hover:text-white')
                 }
               >
@@ -719,7 +718,7 @@ function FilingSeason() {
       className="sb-season mx-3 mb-2 mt-2 block rounded-[12px] px-3 py-[10px] shrink-0">
       <div className="flex items-center justify-between text-12 font-medium text-white/85">
         <span>GST · {periodName(period)} returns</span>
-        <span className="font-semibold text-[#5eead4]">{pct}%</span>
+        <span className="font-semibold text-[#60a5fa]">{pct}%</span>
       </div>
       <div className="h-[6px] rounded-full bg-white/10 my-2 overflow-hidden">
         <i className="sb-season-bar block h-full rounded-full" style={{ width: `${Math.max(pct, 2)}%` }} />

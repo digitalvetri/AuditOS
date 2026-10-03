@@ -107,7 +107,7 @@ export function StatutoryRatesSection() {
             <div key={code} className="dash-card p-5" data-testid={`rate-${code}`}>
               <div className="flex items-baseline justify-between gap-4">
                 <div>
-                  <span className="inline-flex items-center h-6 px-3 rounded-full text-11 font-semibold tracking-[0.04em] bg-[#fff1ec] text-[#c2492b]">{code}</span>
+                  <span className="inline-flex items-center h-6 px-3 rounded-full text-11 font-semibold tracking-[0.04em] bg-[#eff6ff] text-[#1e40af]">{code}</span>
                   <div className="num-display text-20 text-neutral-900 mt-2 break-all">
                     {current.value.length > 60 ? current.value.slice(0, 60) + '…' : current.value}
                   </div>

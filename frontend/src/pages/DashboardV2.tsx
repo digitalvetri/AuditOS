@@ -205,10 +205,11 @@ function State({ loading, error, empty, emptyText, children }: {
 // ── Hero / morning brief ──────────────────────────────────────────────────
 
 const INSIGHT_STYLE: Record<Insight['tone'], { icon: typeof Info; cls: string }> = {
-  danger: { icon: AlertTriangle, cls: 'bg-[rgb(242_112_94/0.18)] text-[#ff9b8a]' },
-  warning: { icon: ClockAlert, cls: 'bg-[rgb(234_165_59/0.18)] text-[#f6c069]' },
-  success: { icon: CheckCircle2, cls: 'bg-[rgb(76_199_100/0.18)] text-[#7ee29a]' },
-  info: { icon: Info, cls: 'bg-[rgb(45_212_191/0.18)] text-[#7ee8d8]' },
+  // Theme tokens, so the tiles read on the light brief panel and the dark one.
+  danger: { icon: AlertTriangle, cls: 'bg-danger/10 text-danger' },
+  warning: { icon: ClockAlert, cls: 'bg-warning/10 text-warning' },
+  success: { icon: CheckCircle2, cls: 'bg-success/10 text-success' },
+  info: { icon: Info, cls: 'bg-gold/10 text-gold' },
 };
 
 function Hero({ insights, loading, counts, waiting, gauge, seesTeam }: {
@@ -281,7 +282,7 @@ function Hero({ insights, loading, counts, waiting, gauge, seesTeam }: {
                       <span className={'h-10 w-10 rounded-[12px] grid place-items-center ' + S.cls}><S.icon size={18} strokeWidth={2.1} /></span>
                       <span className="block mt-4 text-16 font-semibold text-white leading-snug">{i.title}</span>
                       <span className="block mt-1 text-12 text-white/60">{i.detail}</span>
-                      <span className="mt-auto pt-4 inline-flex items-center gap-1 text-13 font-semibold text-[#7ee8d8]">
+                      <span className="mt-auto pt-4 inline-flex items-center gap-1 text-13 font-semibold text-gold">
                         {i.cta} <ChevronRight size={15} className="transition-transform group-hover:translate-x-0.5" />
                       </span>
                     </>
@@ -298,7 +299,7 @@ function Hero({ insights, loading, counts, waiting, gauge, seesTeam }: {
               </ul>
             ) : loading ? <div className="flex-1 min-h-[140px] rounded-[16px] bg-white/[0.04]" /> : (
               <div className="dash-tile flex-1 flex items-center gap-4 rounded-[16px] p-5">
-                <span className="h-12 w-12 rounded-[14px] grid place-items-center bg-[rgb(76_199_100/0.18)] text-[#7ee29a]"><CheckCircle2 size={22} /></span>
+                <span className="h-12 w-12 rounded-[14px] grid place-items-center bg-success/10 text-success"><CheckCircle2 size={22} /></span>
                 <span>
                   <span className="block text-16 font-semibold">Nothing urgent — you’re all caught up.</span>
                   <span className="block text-13 text-white/60 mt-1">New deadlines, overdue money and approvals will show up here.</span>
@@ -338,7 +339,7 @@ function FilingGauge({ stats, period }: { stats: ReturnType<typeof filingStats>;
 function GaugeStat({ value, label, warn }: { value: number; label: string; warn?: boolean }) {
   return (
     <div>
-      <div className={`num-display text-18 ${warn ? 'text-[#ff9b8a]' : 'text-white'}`}>{value}</div>
+      <div className={`num-display text-18 ${warn ? 'text-danger' : 'text-white'}`}>{value}</div>
       <div className="text-11 text-white/55">{label}</div>
     </div>
   );
@@ -351,8 +352,8 @@ function AttendanceRing({ counts }: { counts: NonNullable<TodayResponse['counts'
       <span className="self-start text-11 font-semibold uppercase tracking-[0.1em] text-white/55">Team today</span>
       <div className="mt-3">
         <Donut size={132} stroke={14} segments={[
-          { value: counts.present, color: '#2dd4bf' }, { value: counts.late, color: '#f6c069' },
-          { value: counts.wfh, color: '#f49a80' }, { value: counts.on_leave, color: '#7aa6a6' },
+          { value: counts.present, color: '#2563eb' }, { value: counts.late, color: '#f6c069' },
+          { value: counts.wfh, color: '#3b82f6' }, { value: counts.on_leave, color: '#94a3b8' },
           { value: Math.max(0, counts.total - inToday - counts.on_leave), color: 'rgb(255 255 255 / 0.12)' },
         ]}>
           <span>
@@ -375,8 +376,8 @@ function KpiRow({ tiles }: { tiles: (ReactNode | null)[] }) {
 }
 
 const KPI_TONE = {
-  teal: 'bg-[#e3f4f3] text-[#0c7a7a]',
-  coral: 'bg-[#fff1ec] text-[#c2492b]',
+  teal: 'bg-[#eaf0f8] text-[#1a4b8c]',
+  coral: 'bg-[#eff6ff] text-[#1e40af]',
   amber: 'bg-[#fff7e6] text-[#b45309]',
   green: 'bg-[#e9f9f1] text-[#047857]',
   red: 'bg-[#fef2f2] text-[#b91c1c]',
@@ -413,7 +414,7 @@ function Kpi({ href, icon: Icon, tone, label, value, prefix, sub, badge, footer 
 function Pill({ tone, children }: { tone: 'up' | 'down' | 'warn' | 'info'; children: ReactNode }) {
   const cls = {
     up: 'bg-[#e9f9f1] text-[#047857]', down: 'bg-[#fef2f2] text-[#b91c1c]',
-    warn: 'bg-[#fff7e6] text-[#b45309]', info: 'bg-[#e3f4f3] text-[#0c7a7a]',
+    warn: 'bg-[#fff7e6] text-[#b45309]', info: 'bg-[#eaf0f8] text-[#1a4b8c]',
   }[tone];
   return <span className={'inline-flex items-center h-6 px-2 rounded-full text-11 font-semibold whitespace-nowrap shrink-0 ' + cls}>{children}</span>;
 }
@@ -550,7 +551,7 @@ function Seg({ value, onChange, options }: { value: number | string; onChange: (
 function EmptyIllo({ icon: Icon, title, text, cta }: { icon: typeof Users; title: string; text: string; cta?: { label: string; href: string } }) {
   return (
     <div className="flex flex-col items-center text-center py-8 px-4">
-      <span className="h-12 w-12 rounded-[16px] inline-grid place-items-center bg-[#e3f4f3] text-[#0c7a7a] mb-3"><Icon size={22} strokeWidth={1.8} /></span>
+      <span className="h-12 w-12 rounded-[16px] inline-grid place-items-center bg-[#eaf0f8] text-[#1a4b8c] mb-3"><Icon size={22} strokeWidth={1.8} /></span>
       <div className="text-14 font-semibold text-ink">{title}</div>
       <div className="text-13 text-inkMuted mt-1 max-w-[360px]">{text}</div>
       {cta ? <Link to={cta.href} className="mt-4 inline-flex items-center h-8 px-3 rounded-lg bg-primary text-white text-13 font-semibold">{cta.label}</Link> : null}
@@ -620,7 +621,7 @@ function DeadlinesCard({ list, today }: { list: Deadline[]; today: string }) {
                   <span className="min-w-0">
                     <span className="flex items-center gap-2 text-13 font-semibold text-ink">
                       <span className="truncate">{d.title}</span>
-                      <span className={'shrink-0 text-[10px] font-semibold px-[6px] rounded ' + (d.tag === 'GST' ? 'bg-[#e3f4f3] text-[#0c7a7a]' : 'bg-[#fff1ec] text-[#c2492b]')}>{d.tag}</span>
+                      <span className={'shrink-0 text-[10px] font-semibold px-[6px] rounded ' + (d.tag === 'GST' ? 'bg-[#eaf0f8] text-[#1a4b8c]' : 'bg-[#eff6ff] text-[#1e40af]')}>{d.tag}</span>
                     </span>
                     <span className="flex items-center gap-2 mt-1 text-12 text-inkMuted">
                       {d.tag === 'GST' ? (
@@ -651,7 +652,7 @@ const KIND_ICON: Record<PendingAction['kind'], typeof Users> = {
   leave: Plane, expense: Receipt, correction: ClockAlert, document_expiring: FileWarning,
 };
 const KIND_PILL: Record<PendingAction['kind'], string> = {
-  leave: 'bg-[#fff1ec] text-[#c2492b]',
+  leave: 'bg-[#eff6ff] text-[#1e40af]',
   expense: 'bg-[#ecfdf5] text-[#047857]',
   correction: 'bg-[#f1f5f9] text-[#475569]',
   document_expiring: 'bg-[#fffbeb] text-[#b45309]',
@@ -732,7 +733,7 @@ function ApprovalQueue({ data, loading, error }: { data: { items: PendingAction[
                 const I = KIND_ICON[i.kind];
                 const isSel = selected.has(k);
                 return (
-                  <tr key={k} className={'group border-b border-border last:border-0 transition-colors ' + (isSel ? 'bg-[#e3f4f3]' : 'hover:bg-neutral-50')}>
+                  <tr key={k} className={'group border-b border-border last:border-0 transition-colors ' + (isSel ? 'bg-[#eaf0f8]' : 'hover:bg-neutral-50')}>
                     <td className="pl-5 py-3 align-middle">
                       {approvable(i) ? (
                         <button type="button" onClick={() => toggle(i)} aria-pressed={isSel} aria-label={`Select ${i.title}`}

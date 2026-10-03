@@ -137,7 +137,7 @@ export function RegistrationRunPanel({ service }: { service: RegistrationService
               <button
                 type="button"
                 onClick={() => { setClientId(''); setQuery(''); setPickerOpen(true); }}
-                className="h-8 px-3 text-12 font-medium text-primary bg-white border border-neutral-200 rounded-lg hover:border-primary/40 hover:bg-[#f2f8f8]"
+                className="h-8 px-3 text-12 font-medium text-primary bg-white border border-neutral-200 rounded-lg hover:border-primary/40 hover:bg-[#f4f7fb]"
               >
                 Change
               </button>
@@ -308,7 +308,7 @@ export function RegistrationRunPanel({ service }: { service: RegistrationService
                 <ul className="space-y-2">
                   {related.slice(0, 6).map((d) => (
                     <li key={d.id} className="dash-row px-3 py-2 flex items-center gap-3 rounded-lg">
-                      <span className="h-8 w-8 rounded-lg inline-flex items-center justify-center shrink-0" style={{ background: '#e6f8f6', color: '#0f766e' }}>
+                      <span className="h-8 w-8 rounded-lg inline-flex items-center justify-center shrink-0" style={{ background: '#eaf0f8', color: '#1a4b8c' }}>
                         <FileText size={15} strokeWidth={1.9} />
                       </span>
                       <span className="min-w-0 flex-1">

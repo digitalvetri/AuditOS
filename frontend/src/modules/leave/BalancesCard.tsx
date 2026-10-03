@@ -73,14 +73,14 @@ export function BalancesCard() {
 
 /** A colour and icon per leave type, so each reads at a glance. */
 const LEAVE_LOOK: Record<string, { bg: string; fg: string; Icon: typeof Sun }> = {
-  casual: { bg: '#e4f5f3', fg: '#0c7a7a', Icon: Sun },
-  cl: { bg: '#e4f5f3', fg: '#0c7a7a', Icon: Sun },
+  casual: { bg: '#e8eef8', fg: '#1a4b8c', Icon: Sun },
+  cl: { bg: '#e8eef8', fg: '#1a4b8c', Icon: Sun },
   sick: { bg: '#fef2f2', fg: '#dc2626', Icon: HeartPulse },
   sl: { bg: '#fef2f2', fg: '#dc2626', Icon: HeartPulse },
   earned: { bg: '#e9f9f1', fg: '#059669', Icon: Award },
   el: { bg: '#e9f9f1', fg: '#059669', Icon: Award },
-  comp_off: { bg: '#fff1ec', fg: '#d9603f', Icon: Repeat },
-  co: { bg: '#fff1ec', fg: '#d9603f', Icon: Repeat },
+  comp_off: { bg: '#eff6ff', fg: '#1d4ed8', Icon: Repeat },
+  co: { bg: '#eff6ff', fg: '#1d4ed8', Icon: Repeat },
   lop: { bg: '#fff7e6', fg: '#b45309', Icon: InfinityIcon },
   default: { bg: '#f1f5f9', fg: '#475569', Icon: CalendarDays },
 };
