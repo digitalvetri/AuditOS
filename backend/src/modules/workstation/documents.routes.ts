@@ -6,6 +6,7 @@ import { ApiError, handler, ok } from '../../lib/http.js'
 import { requireSession } from '../../platform/auth.js'
 import { writeAudit } from '../../platform/audit.js'
 import { writeActivity } from '../../platform/workstation/activity.js'
+import { notifyEmployees } from '../../platform/notify.js'
 import { signedLink, verifyResourceToken } from '../../platform/signedUrl.js'
 import { mailConfigured, MailError, sendMail } from '../../lib/mailer.js'
 import {
@@ -242,6 +243,17 @@ documentsRouter.post('/:id/versions', (req, res, next) => {
     actorUserId: session.userId, action: 'client_document.version',
     entityType: 'ClientDocument', entityId: updated.id, after: { version: updated.currentVersion }, req,
   })
+  // Only when it answers an open request (or replaces a rejected file) —
+  // not on every routine version an employee files themselves.
+  if (doc.status === 'requested' || doc.status === 'rejected') {
+    await notifyEmployees([updated.requestedByEmployeeId, updated.client.accountManagerId], {
+      type: 'document.uploaded', module: 'document',
+      title: `Document uploaded — ${updated.name}`,
+      body: `${updated.client.companyName} · v${updated.currentVersion} ready to verify`,
+      entityType: 'ClientDocument', entityId: updated.id,
+      actionUrl: `/workstation/clients/${updated.clientId}/documents`,
+    }, session)
+  }
 
   const m = await employeeMap([
     updated.requestedByEmployeeId, updated.verifiedByEmployeeId, ...updated.versions.map((x) => x.uploadedBy),
@@ -362,6 +374,16 @@ documentsRouter.post('/:id/verify', handler(async (req, res) => {
     actorUserId: session.userId, action: approve ? 'client_document.verify' : 'client_document.reject',
     entityType: 'ClientDocument', entityId: doc.id, before, after: doc, req,
   })
+  const latest = doc.versions.find((x) => x.version === doc.currentVersion)
+  await notifyEmployees([doc.requestedByEmployeeId, doc.client.accountManagerId, latest?.uploadedBy], {
+    type: approve ? 'document.verified' : 'document.rejected', module: 'document',
+    title: approve ? `Document verified — ${doc.name}` : `Document rejected — ${doc.name}`,
+    body: approve
+      ? doc.client.companyName
+      : `${doc.client.companyName} · needs a re-upload${doc.rejectionReason ? `. Reason: ${doc.rejectionReason}` : ''}`,
+    entityType: 'ClientDocument', entityId: doc.id,
+    actionUrl: `/workstation/clients/${doc.clientId}/documents`,
+  }, session)
 
   const m = await employeeMap([doc.requestedByEmployeeId, doc.verifiedByEmployeeId, ...doc.versions.map((x) => x.uploadedBy)])
   ok(res, clientDocumentToApi(doc, m))

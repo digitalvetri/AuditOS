@@ -4,6 +4,8 @@ import { ApiError, handler, noContent, ok } from '../../lib/http.js'
 import { can, requireSession, type Session } from '../../platform/auth.js'
 import { requireWorkstation } from '../../platform/workstation/scope.js'
 import { signedLink } from '../../platform/signedUrl.js'
+import { notifyEmployees } from '../../platform/notify.js'
+import { prisma } from '../../lib/prisma.js'
 import { QuotationService, type ItemInput } from './service.js'
 import { GST_RATES } from './totals.js'
 
@@ -208,7 +210,9 @@ quotationsRouter.post('/:id/send', handler(async (req, res) => {
 quotationsRouter.post('/:id/accept', handler(async (req, res) => {
   const session = requireSession(req)
   const scope = requireWorkstation(session, 'workstation.quotation.approve')
-  ok(res, await QuotationService.transition(session, scope, req.params.id, 'accepted'))
+  const q = await QuotationService.transition(session, scope, req.params.id, 'accepted')
+  await notifyOutcome(session, q, true)
+  ok(res, q)
 }))
 
 quotationsRouter.post('/:id/reject', handler(async (req, res) => {
@@ -216,8 +220,30 @@ quotationsRouter.post('/:id/reject', handler(async (req, res) => {
   const scope = requireWorkstation(session, 'workstation.quotation.approve')
   const body = parse(z.object({ reason: z.string().trim().min(1, 'Record why it was rejected.').max(500) }),
     req.body, 'Invalid rejection.')
-  ok(res, await QuotationService.transition(session, scope, req.params.id, 'rejected', { reason: body.reason }))
+  const q = await QuotationService.transition(session, scope, req.params.id, 'rejected', { reason: body.reason })
+  await notifyOutcome(session, q, false)
+  ok(res, q)
 }))
+
+/** Tell the preparer and the lead owner / account manager how it went. Best effort. */
+async function notifyOutcome(session: Session, q: {
+  id: string; quotation_code: string; party_name: string | null
+  prepared_by_id: string | null; lead_id: string | null; client_id: string | null; rejection_reason: string | null
+}, accepted: boolean) {
+  try {
+    const [lead, client] = await Promise.all([
+      q.lead_id ? prisma.lead.findUnique({ where: { id: q.lead_id }, select: { assignedEmployeeId: true } }) : null,
+      q.client_id ? prisma.client.findUnique({ where: { id: q.client_id }, select: { accountManagerId: true } }) : null,
+    ])
+    await notifyEmployees([q.prepared_by_id, lead?.assignedEmployeeId, client?.accountManagerId], {
+      type: accepted ? 'quotation.accepted' : 'quotation.rejected', module: 'workstation',
+      title: `Quotation ${accepted ? 'accepted' : 'rejected'} — ${q.quotation_code}`,
+      body: [q.party_name, !accepted && q.rejection_reason ? `Reason: ${q.rejection_reason}` : null].filter(Boolean).join(' · '),
+      entityType: 'Quotation', entityId: q.id,
+      actionUrl: `/workstation/quotations/${q.id}`,
+    }, session)
+  } catch { /* best effort */ }
+}
 
 /** Copy into a fresh draft — how a sent quotation gets "edited". */
 quotationsRouter.post('/:id/revise', handler(async (req, res) => {

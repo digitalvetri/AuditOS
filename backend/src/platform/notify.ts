@@ -1,4 +1,5 @@
 import { prisma } from '../lib/prisma.js'
+import { sendPushToUser } from './push.js'
 
 /**
  * Notification primitive (§8.9). Owned by the platform, emitted into by every
@@ -37,6 +38,11 @@ export async function notifyUser(input: NotifyInput) {
     },
   })
   emit(input.userId, row)
+  // Off the request path: a slow or failing push service must never delay or
+  // break the action that caused the notification.
+  void sendPushToUser(input.userId, {
+    id: row.id, title: row.title, body: row.body, action_url: row.actionUrl, module: row.module,
+  }).catch(() => {})
   return row
 }
 
@@ -57,4 +63,30 @@ export async function notifyRole(roleCode: string, input: Omit<NotifyInput, 'use
     select: { id: true },
   })
   for (const u of users) await notifyUser({ ...input, userId: u.id })
+}
+
+/**
+ * Notify several employees about one event: drops blanks and duplicates, and
+ * never tells the person who performed the action about their own action.
+ * Failures are swallowed — a notification must never fail the business write.
+ */
+export async function notifyEmployees(
+  employeeIds: (string | null | undefined)[],
+  input: Omit<NotifyInput, 'userId'>,
+  actor?: { employeeId?: string | null; userId?: string | null },
+) {
+  const ids = [...new Set(employeeIds.filter((id): id is string => !!id))]
+    .filter((id) => id !== actor?.employeeId)
+  for (const id of ids) {
+    try {
+      const user = await prisma.user.findFirst({
+        where: { employeeId: id, isActive: true, deletedAt: null },
+        select: { id: true },
+      })
+      if (!user || user.id === actor?.userId) continue
+      await notifyUser({ ...input, userId: user.id })
+    } catch {
+      /* best effort */
+    }
+  }
 }

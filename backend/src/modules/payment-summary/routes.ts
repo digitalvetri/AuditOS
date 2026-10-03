@@ -21,7 +21,7 @@ import { requirePermission, requireSession } from '../../platform/auth.js'
 import { writeAudit } from '../../platform/audit.js'
 import { avgDaysToCollect, bucketMonthly, monthWindow } from './monthly.js'
 import {
-  addPayment, listPayments, paymentBodySchema, paymentToApi, removePayment, toPaymentInput,
+  addPayment, listPayments, notifyPaymentRecorded, paymentBodySchema, paymentToApi, removePayment, toPaymentInput,
 } from '../invoice/payments.js'
 
 export const paymentSummaryRouter = Router()
@@ -222,6 +222,7 @@ paymentSummaryRouter.post('/invoices/:id/payments',
       actorUserId: session.userId, action: 'invoice_payment.recorded', entityType: 'Invoice', entityId: req.params.id,
       after: paymentToApi(row), req,
     })
+    await notifyPaymentRecorded(req.params.id, row.amountPaise, session)
     ok(res, { payment: paymentToApi(row), payments: await listPayments(req.params.id) })
   }))
 

@@ -138,6 +138,7 @@ model User {
   employee     Employee?    @relation(fields: [employeeId], references: [id])
 
   notifications       Notification[]
+  pushSubscriptions   PushSubscription[]
   auditLogs           AuditLog[]
   toolDocuments       ToolDocument[]
   toolJobs            ToolJob[]
@@ -1045,6 +1046,25 @@ model Notification {
   createdAt DateTime @default(now())
 
   @@index([userId, isRead])
+}
+
+/// A browser's Web Push endpoint (§8.9). One row per browser install; the
+/// endpoint is unique, so re-subscribing on a shared machine moves it to the
+/// user now signed in, and logout deletes it.
+model PushSubscription {
+  id        String  @id @default(uuid())
+  userId    String
+  endpoint  String  @unique
+  p256dh    String
+  auth      String
+  userAgent String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  createdAt  DateTime  @default(now())
+  lastUsedAt DateTime?
+
+  @@index([userId])
 }
 
 /// Append-only. There is no update shape and no delete.
@@ -4625,8 +4645,8 @@ model TallyExport {
 /// different clients). Tokens are AES-256-GCM encrypted at rest and never
 /// leave the server.
 model BooksZohoConnection {
-  id             String @id @default(uuid())
-  organisationId String
+  id                    String  @id @default(uuid())
+  organisationId        String
   /// Display name in the Books switcher, e.g. "Main Account". Set by the
   /// developer who configures the connection (prisma/books-connection.ts).
   name                  String?
@@ -4637,7 +4657,6 @@ model BooksZohoConnection {
   /// per-connection credentials). The secret is AES-256-GCM encrypted.
   clientId              String?
   clientSecretEncrypted String?
-
 
   /// not_connected | consent_pending | connected | expired | revoked | error | disconnected
   status String @default("not_connected")

@@ -6,7 +6,7 @@ import { requireWorkstation } from '../../platform/workstation/scope.js'
 import { signedLink } from '../../platform/signedUrl.js'
 import { InvoiceService, QR_MODES, TERMS, type ItemInput } from './service.js'
 import { GST_RATES } from './totals.js'
-import { listPayments, paymentBodySchema, toPaymentInput } from './payments.js'
+import { listPayments, notifyPaymentRecorded, paymentBodySchema, toPaymentInput } from './payments.js'
 
 /**
  * Invoice HTTP surface — mounted at /api/invoices.
@@ -256,7 +256,10 @@ invoicesRouter.post('/:id/payments', handler(async (req, res) => {
   const session = requireSession(req)
   const scope = requireWorkstation(session, 'workstation.invoice.manage')
   const body = parse(paymentBodySchema, req.body, 'Check the payment.')
-  ok(res, await InvoiceService.recordPayment(session, scope, req.params.id, toPaymentInput(body)))
+  const input = toPaymentInput(body)
+  const invoice = await InvoiceService.recordPayment(session, scope, req.params.id, input)
+  await notifyPaymentRecorded(req.params.id, input.amountPaise, session)
+  ok(res, invoice)
 }))
 
 invoicesRouter.delete('/:id/payments/:paymentId', handler(async (req, res) => {

@@ -10,17 +10,21 @@ import { Bell } from 'lucide-react';
 import { notificationsApi } from '@/platform/notifications/api';
 import { fmtDateTime } from '@/lib/format';
 import type { Notification } from '@/data/models';
+import { useRealtimeConnected } from '@/platform/realtime/RealtimeProvider';
+import { AlertsNudge } from '@/platform/pwa/PwaUi';
 
 export function NotificationsMenu() {
   const navigate = useNavigate();
   const qc = useQueryClient();
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement | null>(null);
+  // Live socket pushes new notifications; poll only as a fallback.
+  const live = useRealtimeConnected();
 
   const q = useQuery({
     queryKey: ['notifications', 'list'],
     queryFn: () => notificationsApi.list(8),
-    refetchInterval: 30_000,
+    refetchInterval: live ? 5 * 60_000 : 30_000,
   });
   const markAll = useMutation({
     mutationFn: () => notificationsApi.markAllRead(),
@@ -79,6 +83,7 @@ export function NotificationsMenu() {
               <button type="button" onClick={() => markAll.mutate()} disabled={markAll.isPending} className="text-12 text-gold hover:text-gold-hover">Mark all read</button>
             ) : null}
           </div>
+          <AlertsNudge />
           <div className="max-h-[420px] overflow-y-auto">
             {q.isLoading ? (
               <div className="h-16 m-3 rounded bg-border" aria-label="Loading" />

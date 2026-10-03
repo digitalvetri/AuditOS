@@ -12,6 +12,8 @@ import { z } from 'zod'
 import { istToday } from '../../lib/dates.js'
 import { ApiError } from '../../lib/http.js'
 import { prisma } from '../../lib/prisma.js'
+import { formatINR } from '../../lib/money.js'
+import { notifyEmployees } from '../../platform/notify.js'
 import { paymentState } from './totals.js'
 
 export const PAYMENT_MODES = ['bank_transfer', 'upi', 'cash', 'cheque', 'card', 'other'] as const
@@ -120,6 +122,28 @@ export async function addPayment(invoiceId: string, input: PaymentInput, userId:
     await recompute(tx, invoiceId, userId)
     return row
   })
+}
+
+/**
+ * Tell the invoice's preparer and the client's account manager that money
+ * came in (never the person who recorded it). Call after addPayment has
+ * committed. Best effort — never throws.
+ */
+export async function notifyPaymentRecorded(invoiceId: string, amountPaise: number, actor: { employeeId: string | null; userId: string }) {
+  try {
+    const inv = await prisma.invoice.findUnique({
+      where: { id: invoiceId },
+      select: { invoiceNumber: true, preparedById: true, balanceDuePaise: true, client: { select: { companyName: true, accountManagerId: true } } },
+    })
+    if (!inv) return
+    await notifyEmployees([inv.preparedById, inv.client.accountManagerId], {
+      type: 'invoice.payment_recorded', module: 'workstation',
+      title: `Payment received — ${inv.invoiceNumber}`,
+      body: `${formatINR(amountPaise)} from ${inv.client.companyName}${inv.balanceDuePaise > 0 ? ` · ${formatINR(inv.balanceDuePaise)} still due` : ' · fully paid'}`,
+      entityType: 'Invoice', entityId: invoiceId,
+      actionUrl: `/workstation/invoices/${invoiceId}`,
+    }, actor)
+  } catch { /* best effort */ }
 }
 
 /** Remove a wrongly-entered payment; the invoice is recomputed from the rest. */

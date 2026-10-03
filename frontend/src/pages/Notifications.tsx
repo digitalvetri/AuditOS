@@ -7,6 +7,7 @@ import { notificationsApi } from '@/platform/notifications/api';
 import { fmtDateTime } from '@/lib/format';
 import { Button } from '@/components/Button';
 import type { Notification } from '@/data/models';
+import { DeviceCard } from '@/platform/pwa/PwaUi';
 
 export function NotificationsPage() {
   const navigate = useNavigate();
@@ -42,6 +43,7 @@ export function NotificationsPage() {
           </Button>
         ) : null}
       </header>
+      <DeviceCard />
       <div className="dash-card bg-white border border-neutral-200 rounded-lg overflow-hidden">
         {q.isLoading ? (
           <div className="h-40 bg-neutral-100" aria-label="Loading" />

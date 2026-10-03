@@ -1,5 +1,6 @@
 import { defineConfig, loadEnv } from 'vite';
 import react from '@vitejs/plugin-react';
+import { VitePWA } from 'vite-plugin-pwa';
 import path from 'node:path';
 
 /**
@@ -13,7 +14,50 @@ export default defineConfig(({ mode }) => {
   const apiTarget = env.VITE_API_PROXY_TARGET ?? 'http://localhost:4000';
 
   return {
-    plugins: [react()],
+    plugins: [
+      react(),
+      // Installable app + offline shell + Web Push (src/sw.ts). The service
+      // worker is registered from src/platform/pwa — never in mock mode, where
+      // MSW's worker owns the same scope.
+      VitePWA({
+        strategies: 'injectManifest',
+        srcDir: 'src',
+        filename: 'sw.ts',
+        injectRegister: false,
+        registerType: 'prompt',
+        devOptions: { enabled: env.VITE_MOCK_MODE !== 'true', type: 'module', navigateFallback: 'index.html' },
+        injectManifest: {
+          globPatterns: ['**/*.{js,css,html,woff2,svg,png,ico,webmanifest}'],
+          globIgnores: ['mockServiceWorker.js', 'brand/**', 'login-hero.png', 'jns-logo.png'],
+          maximumFileSizeToCacheInBytes: 6 * 1024 * 1024,
+        },
+        manifest: {
+          id: '/',
+          name: 'JNS Accounting — AuditOS',
+          short_name: 'JNS AuditOS',
+          description: 'Practice workspace for JNS Accounting Solutions — clients, filings, HR and payroll.',
+          start_url: '/',
+          scope: '/',
+          display: 'standalone',
+          orientation: 'any',
+          background_color: '#f7f4ff',
+          theme_color: '#f7f4ff',
+          categories: ['business', 'finance', 'productivity'],
+          icons: [
+            { src: '/pwa/icon-192.png', sizes: '192x192', type: 'image/png', purpose: 'any' },
+            { src: '/pwa/icon-512.png', sizes: '512x512', type: 'image/png', purpose: 'any' },
+            { src: '/pwa/maskable-192.png', sizes: '192x192', type: 'image/png', purpose: 'maskable' },
+            { src: '/pwa/maskable-512.png', sizes: '512x512', type: 'image/png', purpose: 'maskable' },
+          ],
+          shortcuts: [
+            { name: 'Dashboard', url: '/', icons: [{ src: '/pwa/icon-192.png', sizes: '192x192' }] },
+            { name: 'Clients', url: '/workstation/clients', icons: [{ src: '/pwa/icon-192.png', sizes: '192x192' }] },
+            { name: 'Attendance', url: '/hrms/attendance', icons: [{ src: '/pwa/icon-192.png', sizes: '192x192' }] },
+            { name: 'Notifications', url: '/notifications', icons: [{ src: '/pwa/icon-192.png', sizes: '192x192' }] },
+          ],
+        },
+      }),
+    ],
     resolve: {
       alias: {
         '@': path.resolve(__dirname, 'src'),

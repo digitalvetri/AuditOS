@@ -33,6 +33,7 @@ import {
 import { DocumentChip, MessageMenu, NewChatButton, ThreadMenu, VoicePlayer, VoiceRecorder } from './MessagesExtras';
 import { useToast } from '@/components/Toast';
 import { useIsMobile } from '@/lib/useIsMobile';
+import { useRealtimeConnected } from '@/platform/realtime/RealtimeProvider';
 
 // ── Identity chips ────────────────────────────────────────────────────────
 
@@ -220,10 +221,12 @@ export function MessagesPage() {
   const activeChatId = params.get('chat');
   const isMobile = useIsMobile();
 
+  const live = useRealtimeConnected();
   const chatsQ = useQuery({
     queryKey: ['chats', 'list'],
     queryFn: messagesApi.listChats,
-    refetchInterval: 15_000,
+    // The socket refreshes on every chat event; polling is the fallback.
+    refetchInterval: live ? 60_000 : 15_000,
   });
 
   const chats = chatsQ.data?.items ?? [];
@@ -436,10 +439,11 @@ function ThreadView({
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const chatId = chat.id;
 
+  const live = useRealtimeConnected();
   const q = useQuery({
     queryKey: ['chats', 'messages', chatId],
     queryFn: () => messagesApi.messages(chatId),
-    refetchInterval: 5_000,
+    refetchInterval: live ? 30_000 : 5_000,
   });
 
   const messages = useMemo(() => q.data?.items ?? [], [q.data]);

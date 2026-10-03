@@ -21,6 +21,7 @@ import { ApiError, ok } from '../../lib/http.js'
 import { prisma } from '../../lib/prisma.js'
 import { can, requirePermission, requireSession } from '../../platform/auth.js'
 import { writeAudit } from '../../platform/audit.js'
+import { notifyEmployee, notifyRole, notifyUser, type NotifyInput } from '../../platform/notify.js'
 import type { PermissionCode } from '../../platform/rbac/matrix.js'
 import { BooksNotConfigured, booksConfig, booksConfigured } from './config.js'
 import { toApiError, zohoRequest, ZohoBooksError, type ZohoContext } from './client.js'
@@ -359,8 +360,33 @@ export async function syncOrganization(orgId: string, trigger: 'manual' | 'auto'
     await prisma.booksZohoOrganization.update({ where: { id: org.id }, data: { syncStatus: 'failed', lastSyncError: message } })
     await prisma.booksSyncLog.update({ where: { id: log.id }, data: { status: 'failed', finishedAt: new Date(), error: message, apiCalls: counter.calls } })
     await writeAudit({ actorUserId: userId, action: 'books.sync.failed', entityType: 'books.organization', entityId: org.id, after: { error: message, trigger }, req })
+    // A manual run shows the error to the person who ran it; a background run
+    // tells someone once, when it starts failing — not on every retry.
+    if (trigger === 'scheduled' && org.syncStatus !== 'failed') await notifySyncFailed(org, message)
     throw e
   }
+}
+
+/** Client's account manager, else whoever connected Zoho, else the MD. Best effort. */
+async function notifySyncFailed(org: { id: string; name: string; clientId: string | null; connection: { connectedBy: string | null } }, message: string) {
+  try {
+    const n: Omit<NotifyInput, 'userId'> = {
+      type: 'books.sync_failed', module: 'system',
+      title: `Zoho Books sync failed — ${org.name}`,
+      body: message.slice(0, 200),
+      entityType: 'BooksZohoOrganization', entityId: org.id,
+      actionUrl: '/books',
+    }
+    const client = org.clientId
+      ? await prisma.client.findUnique({ where: { id: org.clientId }, select: { accountManagerId: true } })
+      : null
+    if (client?.accountManagerId && await notifyEmployee(client.accountManagerId, n)) return
+    const connector = org.connection.connectedBy
+      ? await prisma.user.findFirst({ where: { id: org.connection.connectedBy, isActive: true, deletedAt: null }, select: { id: true } })
+      : null
+    if (connector) await notifyUser({ ...n, userId: connector.id })
+    else await notifyRole('md', n)
+  } catch { /* best effort */ }
 }
 
 orgRouter.get('/dashboard', h(async (req, res) => {

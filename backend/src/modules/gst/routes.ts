@@ -15,7 +15,8 @@ import { Router } from 'express'
 import { Prisma } from '@prisma/client'
 import { prisma, alive } from '../../lib/prisma.js'
 import { ApiError, handler, ok } from '../../lib/http.js'
-import { requireSession } from '../../platform/auth.js'
+import { requireSession, type Session } from '../../platform/auth.js'
+import { notifyEmployees } from '../../platform/notify.js'
 import { requireWorkstation, assignedClientIds } from '../../platform/workstation/scope.js'
 import { employeeMap } from '../../api/workstation.serialize.js'
 import { periodToApi, profileToApi, stagesOf, type PeriodRow } from './serialize.js'
@@ -802,6 +803,31 @@ async function periodForWrite(req: Parameters<typeof requireSession>[0], id: str
   return { session, row }
 }
 
+/**
+ * Notify about one GST period, linking to the client's GST view. The client's
+ * account manager is added when `withAccountManager`. Never the actor; best effort.
+ */
+async function notifyPeriod(
+  session: Session, period: { id: string; gstProfileId: string; period: string },
+  employeeIds: (string | null | undefined)[], withAccountManager: boolean,
+  n: { type: string; title: string; body: string },
+) {
+  try {
+    const profile = await prisma.gstProfile.findUnique({
+      where: { id: period.gstProfileId },
+      select: { client: { select: { id: true, companyName: true, accountManagerId: true } } },
+    })
+    if (!profile) return
+    const { client } = profile
+    await notifyEmployees([...employeeIds, withAccountManager ? client.accountManagerId : null], {
+      type: n.type, module: 'workstation', title: n.title,
+      body: `${client.companyName} · ${period.period}${n.body ? ` · ${n.body}` : ''}`,
+      entityType: 'GstCompliancePeriod', entityId: period.id,
+      actionUrl: `/workstation/services/registration/gst/clients/${client.id}`,
+    }, session)
+  } catch { /* best effort */ }
+}
+
 /** PATCH /api/gst/periods/:id/assign — preparer, reviewer, approver (§30). */
 gstRouter.patch('/periods/:id/assign', handler(async (req, res) => {
   const { session, row } = await periodForWrite(req, req.params.id)
@@ -849,6 +875,16 @@ gstRouter.patch('/periods/:id/assign', handler(async (req, res) => {
     oldValue: JSON.stringify({ a: row.assignedEmployeeId, r: row.reviewerEmployeeId, m: row.managerEmployeeId }),
     newValue: JSON.stringify(next),
   })
+  for (const [label, employeeId, before] of [
+    ['preparer', next.assignedEmployeeId, row.assignedEmployeeId],
+    ['reviewer', next.reviewerEmployeeId, row.reviewerEmployeeId],
+    ['approver', next.managerEmployeeId, row.managerEmployeeId],
+  ] as const) {
+    if (!employeeId || employeeId === before) continue
+    await notifyPeriod(session, row, [employeeId], false, {
+      type: 'gst.period_assigned', title: `GST returns assigned — ${label}`, body: '',
+    })
+  }
   ok(res, { ok: true })
 }))
 
@@ -969,6 +1005,16 @@ gstRouter.post('/periods/:id/stages/:stage', handler(async (req, res) => {
     stage, userId: session.userId, oldValue: before, newValue: status,
     meta: status === 'filed' ? { arn, filed_date: filedDate } : undefined,
   })
+  const moved = status !== normaliseFilingStatus(before, returnType)
+  if (moved && status === 'under_review') {
+    await notifyPeriod(session, row, [row.reviewerEmployeeId], false, {
+      type: 'gst.return_review', title: `${returnType} ready for review`, body: '',
+    })
+  } else if (moved && status === 'filed') {
+    await notifyPeriod(session, row, [row.assignedEmployeeId, row.managerEmployeeId], true, {
+      type: 'gst.return_filed', title: `${returnType} filed`, body: arn ? `ARN ${arn}` : '',
+    })
+  }
   ok(res, { ok: true })
 }))
 

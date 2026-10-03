@@ -4,6 +4,8 @@ import { ApiError, handler, noContent, ok } from '../../lib/http.js'
 import { can, requireSession, type Session } from '../../platform/auth.js'
 import { requireWorkstation } from '../../platform/workstation/scope.js'
 import { signedLink } from '../../platform/signedUrl.js'
+import { notifyEmployees } from '../../platform/notify.js'
+import { prisma } from '../../lib/prisma.js'
 import { EngagementService, type LetterInput } from './service.js'
 
 export const engagementRouter = Router()
@@ -128,8 +130,32 @@ for (const to of ['draft', 'sent', 'accepted', 'archived'] as const) {
     const session = requireSession(req)
     const scope = requireWorkstation(session, 'workstation.engagement.manage')
     requireManage(session)
-    ok(res, await EngagementService.setStatus(session, scope, req.params.id, to))
+    const letter = await EngagementService.setStatus(session, scope, req.params.id, to)
+    if (to === 'accepted') await notifyAccepted(session, letter.id)
+    ok(res, letter)
   }))
+}
+
+/** Tell the preparer and the lead owner / account manager the client signed. Best effort. */
+async function notifyAccepted(session: Session, id: string) {
+  try {
+    const l = await prisma.engagementLetter.findUnique({
+      where: { id },
+      select: {
+        letterCode: true, preparedById: true,
+        client: { select: { companyName: true, accountManagerId: true } },
+        lead: { select: { name: true, assignedEmployeeId: true } },
+      },
+    })
+    if (!l) return
+    await notifyEmployees([l.preparedById, l.lead?.assignedEmployeeId, l.client?.accountManagerId], {
+      type: 'engagement.accepted', module: 'workstation',
+      title: `Engagement letter accepted — ${l.letterCode}`,
+      body: l.client?.companyName ?? l.lead?.name ?? 'The client accepted the engagement letter.',
+      entityType: 'EngagementLetter', entityId: id,
+      actionUrl: `/workstation/engagement/${id}/edit`,
+    }, session)
+  } catch { /* best effort */ }
 }
 
 engagementRouter.post('/:id/unarchive', handler(async (req, res) => {
