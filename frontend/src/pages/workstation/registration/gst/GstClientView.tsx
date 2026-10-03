@@ -16,11 +16,12 @@
 import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link, useNavigate, useParams } from 'react-router-dom';
-import { ChevronLeft, ExternalLink, Check, Circle, AlertTriangle } from 'lucide-react';
+import { ChevronLeft, ExternalLink, Check, Circle, AlertTriangle, Upload, Download, FileText, X, Mail } from 'lucide-react';
 import { Card, PageHeader, QueryState } from '@/modules/workstation/components';
 import {
   gstApi, periodLabel, recentPeriods,
   type ClientViewCell, type ClientViewResponse,
+  type GstDocType,
 } from '@/modules/workstation/gst/api';
 import { SERVICES } from '../partnership/shared';
 import { PortalPanel } from './PortalPanel';
@@ -292,6 +293,9 @@ export function GstClientView() {
                 cases + tasks in a single POST. §4. */}
             <TasksPanel view={d} period={period} viewQueryKey={viewQueryKey} />
 
+            {/* GST documents — upload / list / draft client letter. */}
+            <GstDocumentsPanel clientId={d.client.id} clientName={d.client.name} />
+
             {d.earlier.length > 0 ? (
               <Card title="Earlier periods">
                 <div className="px-4 py-3 flex flex-wrap gap-x-6 gap-y-2 text-13">
@@ -311,6 +315,252 @@ export function GstClientView() {
           </>
         )}
       </QueryState>
+    </div>
+  );
+}
+
+const DOC_TYPE_LABEL: Record<GstDocType, string> = {
+  registration_cert: 'Registration Certificate (REG-06)',
+  composition_optin: 'Composition opt-in (CMP-02)',
+  amendment_cert: 'Amendment Certificate',
+  notice_order: 'Notice / Order',
+  other: 'Other',
+};
+
+function GstDocumentsPanel({ clientId, clientName }: { clientId: string; clientName: string }) {
+  const qc = useQueryClient();
+  const toast = useToast();
+  const [uploading, setUploading] = useState(false);
+  const [drafting, setDrafting] = useState(false);
+
+  const docsQ = useQuery({
+    queryKey: ['gst', 'documents', clientId],
+    queryFn: () => gstApi.listDocuments(clientId),
+    enabled: !!clientId,
+  });
+
+  const items = docsQ.data?.items ?? [];
+  return (
+    <Card title="GST documents & drafts">
+      <div className="p-3 flex flex-wrap items-center gap-2 border-b border-neutral-100">
+        <button type="button" onClick={() => setUploading(true)}
+          className="h-8 px-3 text-12 inline-flex items-center gap-1 bg-neutral-900 text-white rounded">
+          <Upload size={13} strokeWidth={2} /> Upload document
+        </button>
+        <button type="button" onClick={() => setDrafting(true)}
+          className="h-8 px-3 text-12 inline-flex items-center gap-1 border border-neutral-300 rounded hover:border-neutral-500">
+          <FileText size={13} strokeWidth={2} /> Draft client letter
+        </button>
+        <span className="text-11 text-neutral-500 ml-auto">
+          Registration certificates automatically create a 30-day display-reminder task for the account manager.
+        </span>
+      </div>
+      {docsQ.isLoading ? (
+        <div className="p-4 text-13 text-neutral-500">Loading…</div>
+      ) : items.length === 0 ? (
+        <div className="p-4 text-13 text-neutral-500">
+          No documents uploaded yet. Click <strong>Upload document</strong> to attach the registration certificate or any GST correspondence.
+        </div>
+      ) : (
+        <ul className="divide-y divide-neutral-100">
+          {items.map((d) => (
+            <li key={d.id} className="px-4 py-2 flex items-center gap-3">
+              <FileText size={14} className="text-neutral-400 shrink-0" />
+              <div className="min-w-0 flex-1">
+                <div className="text-13 text-neutral-900 truncate" title={d.name}>{d.name}</div>
+                <div className="text-11 text-neutral-500">
+                  {DOC_TYPE_LABEL[d.doc_type]} · {(d.size_bytes / 1024).toFixed(0)} KB · uploaded {new Date(d.uploaded_at).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}
+                </div>
+              </div>
+              <a href={gstApi.documentDownloadUrl(clientId, d.id) + '?download=1'} download
+                className="h-7 px-2 text-11 border border-neutral-300 rounded hover:border-neutral-500 inline-flex items-center gap-1" title="Download">
+                <Download size={11} strokeWidth={2} /> Download
+              </a>
+            </li>
+          ))}
+        </ul>
+      )}
+      {uploading ? (
+        <UploadDocumentModal clientId={clientId} onClose={() => setUploading(false)} onDone={(r) => {
+          void qc.invalidateQueries({ queryKey: ['gst', 'documents', clientId] });
+          toast.push('success',
+            r.thirtyDayTaskId
+              ? 'Certificate uploaded. 30-day display reminder scheduled for the account manager.'
+              : 'Document uploaded.',
+          );
+          setUploading(false);
+        }} />
+      ) : null}
+      {drafting ? (
+        <DraftLetterModal clientId={clientId} clientName={clientName} onClose={() => setDrafting(false)} />
+      ) : null}
+    </Card>
+  );
+}
+
+function UploadDocumentModal({ clientId, onClose, onDone }: {
+  clientId: string;
+  onClose: () => void;
+  onDone: (r: { documentId: string; thirtyDayTaskId: string | null }) => void;
+}) {
+  const [docType, setDocType] = useState<GstDocType>('registration_cert');
+  const [label, setLabel] = useState('');
+  const [reference, setReference] = useState('');
+  const [file, setFile] = useState<File | null>(null);
+  const upload = useMutation({
+    mutationFn: () => {
+      if (!file) throw new Error('Choose a file.');
+      const fd = new FormData();
+      fd.append('file', file);
+      fd.append('doc_type', docType);
+      if (label.trim()) fd.append('label', label.trim());
+      if (reference.trim()) fd.append('reference', reference.trim());
+      return gstApi.uploadDocument(clientId, fd);
+    },
+    onSuccess: onDone,
+  });
+  const err = upload.error instanceof Error ? upload.error.message : null;
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={onClose}>
+      <div className="bg-white rounded shadow-lg w-full max-w-[520px] max-h-[90vh] flex flex-col" onClick={(e) => e.stopPropagation()}>
+        <div className="px-5 py-3 border-b border-neutral-200 flex items-center justify-between">
+          <h2 className="text-14 font-semibold text-neutral-900">Upload GST document</h2>
+          <button type="button" onClick={onClose} aria-label="Close" className="text-neutral-400 hover:text-neutral-700"><X size={16} /></button>
+        </div>
+        <div className="p-4 space-y-3">
+          <label className="block text-11 text-neutral-500">
+            Document type
+            <select value={docType} onChange={(e) => setDocType(e.target.value as GstDocType)}
+              className="mt-1 h-8 w-full px-2 text-12 border border-neutral-300 rounded bg-white">
+              {(Object.entries(DOC_TYPE_LABEL) as [GstDocType, string][]).map(([k, v]) => (
+                <option key={k} value={k}>{v}</option>
+              ))}
+            </select>
+          </label>
+          <label className="block text-11 text-neutral-500">
+            Label <span className="text-neutral-400">(optional — defaults to file name)</span>
+            <input value={label} onChange={(e) => setLabel(e.target.value)}
+              placeholder="e.g. Original certificate, Amendment Sep 2026"
+              className="mt-1 h-8 w-full px-2 text-12 border border-neutral-300 rounded" />
+          </label>
+          <label className="block text-11 text-neutral-500">
+            Reference <span className="text-neutral-400">(optional — ARN, letter number)</span>
+            <input value={reference} onChange={(e) => setReference(e.target.value)}
+              placeholder="e.g. AA3304240012345"
+              className="mt-1 h-8 w-full px-2 text-12 border border-neutral-300 rounded" />
+          </label>
+          <label className="block text-11 text-neutral-500">
+            File <span className="text-neutral-400">(PDF, JPG, PNG, up to 10 MB)</span>
+            <input type="file" accept=".pdf,.jpg,.jpeg,.png" onChange={(e) => setFile(e.target.files?.[0] ?? null)}
+              className="mt-1 w-full text-12" />
+          </label>
+          {err ? <div className="text-12 text-danger">{err}</div> : null}
+          {docType === 'registration_cert' ? (
+            <div className="text-11 text-neutral-500 bg-neutral-50 rounded p-2">
+              Note: uploading a <strong>Registration Certificate</strong> schedules a 30-day display-reminder task for the account manager.
+            </div>
+          ) : null}
+        </div>
+        <div className="px-4 py-3 border-t border-neutral-200 flex justify-end gap-2">
+          <button type="button" onClick={onClose} className="h-8 px-3 text-12 border border-neutral-300 rounded">Cancel</button>
+          <button type="button" onClick={() => upload.mutate()}
+            disabled={!file || upload.isPending}
+            className="h-8 px-3 text-12 bg-neutral-900 text-white rounded disabled:opacity-60 inline-flex items-center gap-1">
+            <Upload size={11} strokeWidth={2} /> {upload.isPending ? 'Uploading…' : 'Upload'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function DraftLetterModal({ clientId, clientName, onClose }: {
+  clientId: string;
+  clientName: string;
+  onClose: () => void;
+}) {
+  const toast = useToast();
+  const tpl = useQuery({
+    queryKey: ['gst', 'draft', clientId, 'welcome_letter'],
+    queryFn: () => gstApi.draft(clientId, 'welcome_letter'),
+  });
+  const [subject, setSubject] = useState('');
+  const [body, setBody] = useState('');
+  const [to, setTo] = useState('');
+  useState(() => undefined); // keep the linter quiet on hooks order; actual initialisation below
+  // Prefill when template arrives.
+  if (tpl.data && !subject && !body) {
+    setSubject(tpl.data.subject);
+    setBody(tpl.data.body);
+    setTo(tpl.data.recipient_email ?? '');
+  }
+
+  const download = () => {
+    const blob = new Blob([`Subject: ${subject}\n\n${body}\n`], { type: 'text/plain;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `gst-welcome-letter-${clientName.replace(/[^A-Za-z0-9]+/g, '-').toLowerCase()}.txt`;
+    document.body.appendChild(a); a.click(); a.remove();
+    URL.revokeObjectURL(url);
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={onClose}>
+      <div className="bg-white rounded shadow-lg w-full max-w-[680px] max-h-[90vh] flex flex-col" onClick={(e) => e.stopPropagation()}>
+        <div className="px-5 py-3 border-b border-neutral-200 flex items-center justify-between">
+          <div>
+            <h2 className="text-14 font-semibold text-neutral-900">Draft — client welcome letter</h2>
+            <p className="text-11 text-neutral-500 mt-0.5">Prefilled from the client's GST profile. Edit before downloading or copying.</p>
+          </div>
+          <button type="button" onClick={onClose} aria-label="Close" className="text-neutral-400 hover:text-neutral-700"><X size={16} /></button>
+        </div>
+        {tpl.isLoading ? (
+          <div className="p-6 text-13 text-neutral-500 flex-1">Loading template…</div>
+        ) : tpl.isError ? (
+          <div className="p-6 text-13 text-danger flex-1">{(tpl.error as Error).message}</div>
+        ) : (
+          <>
+            <div className="flex-1 overflow-y-auto p-4 space-y-3">
+              <label className="block text-11 text-neutral-500">
+                Recipient (optional — used by Copy mail-to and Send)
+                <input value={to} onChange={(e) => setTo(e.target.value)} type="email"
+                  className="mt-1 h-8 w-full px-2 text-12 border border-neutral-300 rounded" placeholder="client@example.com" />
+              </label>
+              <label className="block text-11 text-neutral-500">
+                Subject
+                <input value={subject} onChange={(e) => setSubject(e.target.value)}
+                  className="mt-1 h-8 w-full px-2 text-12 border border-neutral-300 rounded" />
+              </label>
+              <label className="block text-11 text-neutral-500">
+                Letter
+                <textarea value={body} onChange={(e) => setBody(e.target.value)} rows={16}
+                  className="mt-1 w-full px-2 py-1 text-12 font-mono border border-neutral-300 rounded leading-relaxed" />
+              </label>
+            </div>
+            <div className="px-4 py-3 border-t border-neutral-200 flex justify-between gap-2">
+              <button type="button" onClick={() => {
+                void navigator.clipboard.writeText(body);
+                toast.push('success', 'Letter copied to clipboard.');
+              }} className="h-8 px-3 text-12 border border-neutral-300 rounded">Copy letter</button>
+              <div className="flex gap-2">
+                <button type="button" onClick={onClose} className="h-8 px-3 text-12 border border-neutral-300 rounded">Close</button>
+                {to ? (
+                  <a href={`mailto:${encodeURIComponent(to)}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`}
+                    className="h-8 px-3 text-12 border border-neutral-300 rounded inline-flex items-center gap-1" title="Open your email client with the letter prefilled">
+                    <Mail size={11} strokeWidth={2} /> Email in client
+                  </a>
+                ) : null}
+                <button type="button" onClick={download}
+                  className="h-8 px-3 text-12 bg-neutral-900 text-white rounded inline-flex items-center gap-1">
+                  <Download size={11} strokeWidth={2} /> Download .txt
+                </button>
+              </div>
+            </div>
+          </>
+        )}
+      </div>
     </div>
   );
 }
