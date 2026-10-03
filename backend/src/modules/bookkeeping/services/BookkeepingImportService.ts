@@ -295,3 +295,23 @@ export async function getMapping(
     where: { tallyCompanyId_target: { tallyCompanyId: companyId, target } },
   })
 }
+
+/**
+ * Hard delete a saved mapping. Used when the operator realises they
+ * saved a bad column map against the wrong target (e.g. a Purchase map
+ * saved under `sales_register`) and wants to start over. Returns the
+ * deleted row for the audit record, or null if nothing matched.
+ */
+export async function deleteMapping(
+  prisma: PrismaClient,
+  companyId: string,
+  mappingId: string,
+) {
+  const row = await prisma.bookkeepingImportMapping.findFirst({
+    where: { id: mappingId, tallyCompanyId: companyId },
+    select: { id: true, target: true, sheetName: true, version: true },
+  })
+  if (!row) return null
+  await prisma.bookkeepingImportMapping.delete({ where: { id: mappingId } })
+  return row
+}

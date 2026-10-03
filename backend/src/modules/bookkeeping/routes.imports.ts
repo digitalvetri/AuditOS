@@ -11,6 +11,7 @@ import {
   saveMapping,
   listMappings,
   getMapping,
+  deleteMapping,
   isImportTarget,
   isMappableField,
   IMPORT_TARGETS,
@@ -107,6 +108,30 @@ export function registerBookkeepingImportRoutes(router: Router): void {
       const item = await getMapping(prisma, req.params.companyId, req.params.target)
       if (!item) throw ApiError.notFound('No saved mapping for that target yet.')
       ok(res, item)
+    }),
+  )
+
+  // DELETE /companies/:companyId/imports/mappings/:id
+  // Hard delete. Used when the operator saved a map against the wrong
+  // target (e.g. purchase columns saved under sales_register) and wants
+  // to start over without a stale version-6 ghost in the saved-mappings
+  // list. Audit row records what was removed.
+  router.delete(
+    '/companies/:companyId/imports/mappings/:id',
+    handler(async (req, res) => {
+      const session = requireSession(req)
+      requireImportManage(session)
+      const removed = await deleteMapping(prisma, req.params.companyId, req.params.id)
+      if (!removed) throw ApiError.notFound('Mapping not found or not on this company.')
+      await writeAudit({
+        actorUserId: session.userId,
+        action: 'bookkeeping.import_mapping.delete',
+        entityType: 'bookkeeping_import_mapping',
+        entityId: removed.id,
+        before: { target: removed.target, sheetName: removed.sheetName, version: removed.version },
+        req,
+      })
+      ok(res, { id: removed.id })
     }),
   )
 
