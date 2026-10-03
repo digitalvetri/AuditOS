@@ -17,13 +17,13 @@
 import { useMemo, useState } from 'react';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
-import { Check, Circle, AlertTriangle } from 'lucide-react';
+import { Check, Circle, AlertTriangle, Mail, X } from 'lucide-react';
 import {
   Card, PageHeader, QueryState, Table, Row, Cell, FilterBar, SearchInput,
 } from '@/modules/workstation/components';
 import {
   gstApi, periodLabel, recentPeriods,
-  type ClientDashboardRow, type ClientDashboardCell,
+  type ClientDashboardRow, type ClientDashboardCell, type UpcomingReminderRow,
 } from '@/modules/workstation/gst/api';
 import { SERVICES } from '../partnership/shared';
 import type { RegistrationKind } from '@/modules/partnership/api';
@@ -169,6 +169,8 @@ export function GstDashboard({ focusKind }: { focusKind?: 'GSTR1' | 'GSTR2B' | '
               </span>
             </div>
 
+            <UpcomingRemindersPanel period={period} />
+
             <div className="flex flex-wrap items-center gap-1">
               {([
                 ['all', 'All'],
@@ -224,6 +226,169 @@ export function GstDashboard({ focusKind }: { focusKind?: 'GSTR1' | 'GSTR2B' | '
           </>
         )}
       </QueryState>
+    </div>
+  );
+}
+
+/**
+ * Upcoming reminders panel — the top-of-dashboard surface that lists every
+ * return in the operator's visible set that is due within three days or
+ * already overdue. Mirrors the data the scheduled job uses for bell
+ * notifications so the operator sees the same list in context, with a
+ * "Send to client" affordance on each row.
+ */
+function UpcomingRemindersPanel({ period }: { period: string }) {
+  const [sendTarget, setSendTarget] = useState<UpcomingReminderRow | null>(null);
+  const q = useQuery({
+    queryKey: ['gst', 'reminders', 'upcoming', period],
+    queryFn: () => gstApi.upcomingReminders(period),
+  });
+  const items = q.data?.items ?? [];
+  if (q.isLoading || items.length === 0) return null;
+  const overdueCount = items.filter((i) => i.state === 'overdue').length;
+  const dueCount = items.length - overdueCount;
+  return (
+    <>
+      <Card className="p-3">
+        <div className="flex items-center justify-between gap-3 mb-2">
+          <div className="text-13 font-semibold text-neutral-800">
+            Upcoming reminders
+            <span className="text-11 font-normal text-neutral-500 ml-2">
+              {overdueCount > 0 ? <span className="text-red">{overdueCount} overdue · </span> : null}
+              {dueCount} due in the next 3 days
+            </span>
+          </div>
+        </div>
+        <ul className="divide-y divide-neutral-100">
+          {items.map((item) => {
+            const pill =
+              item.state === 'overdue'
+                ? 'bg-danger/10 text-danger'
+                : 'bg-warning/10 text-warning';
+            const label =
+              item.state === 'overdue'
+                ? `${Math.abs(item.days_to_due)} day${Math.abs(item.days_to_due) === 1 ? '' : 's'} overdue`
+                : item.days_to_due === 0
+                  ? 'due today'
+                  : `due in ${item.days_to_due} day${item.days_to_due === 1 ? '' : 's'}`;
+            return (
+              <li key={item.key} className="py-2 flex items-center gap-3">
+                <span className={`text-11 px-2 py-0.5 rounded-full font-semibold whitespace-nowrap ${pill}`}>{label}</span>
+                <div className="min-w-0 flex-1">
+                  <div className="text-13 text-neutral-900 truncate">{item.client_name}</div>
+                  <div className="text-11 text-neutral-500 truncate">
+                    {item.kind.replace('GSTR', 'GSTR-')} · {periodLabel(item.period)} · due {new Date(`${item.due_date}T00:00:00Z`).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', timeZone: 'UTC' })}
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setSendTarget(item)}
+                  className="h-7 px-2 text-11 border border-neutral-300 rounded hover:border-neutral-500 inline-flex items-center gap-1"
+                  title={item.client_email ? `Send reminder to ${item.client_email}` : 'Send reminder (client email will be collected)'}
+                >
+                  <Mail size={11} strokeWidth={2} />
+                  Send reminder
+                </button>
+              </li>
+            );
+          })}
+        </ul>
+      </Card>
+      {sendTarget ? <SendReminderModal row={sendTarget} onClose={() => setSendTarget(null)} /> : null}
+    </>
+  );
+}
+
+/**
+ * Send modal — pre-fills subject + body from the backend template, and
+ * uses the client record's email as the recipient default. The operator
+ * can override any field before sending. On success the modal closes with
+ * a lightweight success note; on failure (SMTP missing, bad address,
+ * network) the error renders inline so nothing is silently dropped.
+ */
+function SendReminderModal({ row, onClose }: { row: UpcomingReminderRow; onClose: () => void }) {
+  const tpl = useQuery({
+    queryKey: ['gst', 'reminders', 'template', row.client_id, row.kind, row.period, row.due_date],
+    queryFn: () => gstApi.reminderTemplate({
+      client_id: row.client_id, kind: row.kind, period: row.period, due_date: row.due_date,
+    }),
+  });
+  const [to, setTo] = useState('');
+  const [subject, setSubject] = useState('');
+  const [body, setBody] = useState('');
+  const [sent, setSent] = useState<{ to: string; at: string } | null>(null);
+
+  // Pre-fill once the template loads.
+  useMemo(() => {
+    if (tpl.data) {
+      setTo((prev) => prev || tpl.data!.to || '');
+      setSubject((prev) => prev || tpl.data!.subject || '');
+      setBody((prev) => prev || tpl.data!.body || '');
+    }
+  }, [tpl.data]);
+
+  const send = useMutation({
+    mutationFn: () => gstApi.sendReminder({
+      client_id: row.client_id, kind: row.kind, period: row.period, due_date: row.due_date,
+      case_id: row.case_id ?? undefined, to, subject, body,
+    }),
+    onSuccess: (r) => setSent({ to: r.to, at: r.sentAt }),
+  });
+  const err = send.error instanceof Error ? send.error.message : null;
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={onClose}>
+      <div className="bg-white rounded shadow-lg w-full max-w-[640px] max-h-[90vh] flex flex-col" onClick={(e) => e.stopPropagation()}>
+        <div className="px-5 py-3 border-b border-neutral-200 flex items-center justify-between">
+          <div>
+            <h2 className="text-14 font-semibold text-neutral-900">Send reminder — {row.client_name}</h2>
+            <p className="text-11 text-neutral-500 mt-0.5">
+              {row.kind.replace('GSTR', 'GSTR-')} · {periodLabel(row.period)} · due {new Date(`${row.due_date}T00:00:00Z`).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric', timeZone: 'UTC' })}
+            </p>
+          </div>
+          <button type="button" onClick={onClose} aria-label="Close" className="text-neutral-400 hover:text-neutral-700"><X size={16} /></button>
+        </div>
+
+        {sent ? (
+          <div className="p-6 flex-1">
+            <div className="text-13 text-neutral-800">Reminder sent to <strong>{sent.to}</strong>.</div>
+            <div className="text-11 text-neutral-500 mt-1">{new Date(sent.at).toLocaleString('en-IN')}</div>
+            <div className="mt-4"><button type="button" onClick={onClose} className="h-8 px-3 text-12 bg-neutral-900 text-white rounded">Close</button></div>
+          </div>
+        ) : tpl.isLoading ? (
+          <div className="p-6 text-13 text-neutral-500 flex-1">Loading template…</div>
+        ) : (
+          <>
+            <div className="flex-1 overflow-y-auto p-4 space-y-3">
+              <label className="block text-11 text-neutral-500">
+                To
+                <input value={to} onChange={(e) => setTo(e.target.value)} type="email" placeholder="client@example.com"
+                  className="mt-1 h-8 w-full px-2 text-12 border border-neutral-300 rounded focus:outline-none focus:border-neutral-500" />
+                {!row.client_email ? <span className="text-11 text-amber-600 block mt-1">No email on the client record — enter one to send.</span> : null}
+              </label>
+              <label className="block text-11 text-neutral-500">
+                Subject
+                <input value={subject} onChange={(e) => setSubject(e.target.value)}
+                  className="mt-1 h-8 w-full px-2 text-12 border border-neutral-300 rounded focus:outline-none focus:border-neutral-500" />
+              </label>
+              <label className="block text-11 text-neutral-500">
+                Message
+                <textarea value={body} onChange={(e) => setBody(e.target.value)} rows={10}
+                  className="mt-1 w-full px-2 py-1 text-12 font-sans border border-neutral-300 rounded focus:outline-none focus:border-neutral-500" />
+              </label>
+              {err ? <div className="text-12 text-danger">{err}</div> : null}
+            </div>
+            <div className="px-4 py-3 border-t border-neutral-200 flex justify-end gap-2">
+              <button type="button" onClick={onClose} className="h-8 px-3 text-12 border border-neutral-300 rounded">Cancel</button>
+              <button type="button" onClick={() => send.mutate()}
+                disabled={!to.trim() || !subject.trim() || !body.trim() || send.isPending}
+                className="h-8 px-3 text-12 bg-neutral-900 text-white rounded disabled:opacity-60 inline-flex items-center gap-1">
+                <Mail size={11} strokeWidth={2} /> {send.isPending ? 'Sending…' : 'Send'}
+              </button>
+            </div>
+          </>
+        )}
+      </div>
     </div>
   );
 }

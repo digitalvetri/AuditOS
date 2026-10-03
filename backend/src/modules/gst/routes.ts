@@ -25,7 +25,8 @@ import {
 } from './service.js'
 import { openCase } from '../partnership/service.js'
 import { TaskService } from '../task/service.js'
-import { createRuleResolver, type FilingFrequency } from './dueDate.js'
+import { createRuleResolver, type FilingFrequency, type ReturnKind } from './dueDate.js'
+import { computeUpcoming, sendClientReminder, defaultReminderSubject, defaultReminderBody } from './reminders.js'
 import {
   assertDate, assertFilingRecord, assertGstin, assertGstinMatchesPan, assertGstr1Transition,
   assertGstr2bTransition, assertGstr3bTransition, assertOneOf, assertPan,
@@ -1209,4 +1210,98 @@ gstRouter.patch('/clients/:id', handler(async (req, res) => {
   })
 
   ok(res, { ok: true })
+}))
+
+/**
+ * GET /api/gst/reminders/upcoming?period=YYYY-MM
+ *
+ * Dashboard panel feed — every return in `due` (within 3 days) or `overdue`
+ * state for the operator's visible clients. The scheduler emits the same
+ * list to bell notifications; this endpoint powers the inline panel so the
+ * operator sees both in context.
+ */
+gstRouter.get('/reminders/upcoming', handler(async (req, res) => {
+  const session = requireSession(req)
+  const scope = requireWorkstation(session, 'workstation.gst.read', 'workstation.gst.manage')
+  const scopedClients = await assignedClientIds(session, scope)
+  const period = typeof req.query.period === 'string' && /^\d{4}-\d{2}$/.test(req.query.period) ? req.query.period : undefined
+  const items = await computeUpcoming(prisma, {
+    period,
+    clientIdFilter: scopedClients === 'ALL' ? undefined : scopedClients,
+  })
+  ok(res, {
+    items: items.map((i) => ({
+      key: i.key,
+      case_id: i.caseId,
+      client_id: i.clientId,
+      client_name: i.clientName,
+      client_email: i.clientEmail,
+      gstin: i.gstin,
+      assigned_employee_id: i.assignedEmployeeId,
+      reviewer_employee_id: i.reviewerEmployeeId,
+      kind: i.kind,
+      period: i.period,
+      due_date: i.dueDate,
+      state: i.state,
+      days_to_due: i.daysToDue,
+    })),
+  })
+}))
+
+/**
+ * POST /api/gst/reminders/send
+ *
+ * Sends a reminder email to the client. Default subject + body are
+ * templated per return + period; the operator may override either before
+ * sending. `to` defaults to the client record's email but can be an
+ * override.
+ */
+gstRouter.post('/reminders/send', handler(async (req, res) => {
+  const session = requireSession(req)
+  requireWorkstation(session, 'workstation.gst.manage')
+  const b = (req.body ?? {}) as Record<string, unknown>
+  const clientId = typeof b.client_id === 'string' ? b.client_id : null
+  const kind = typeof b.kind === 'string' && ['GSTR1', 'GSTR2B', 'GSTR3B'].includes(b.kind) ? b.kind as ReturnKind : null
+  const period = typeof b.period === 'string' && /^\d{4}-\d{2}$/.test(b.period) ? b.period : null
+  const dueDate = typeof b.due_date === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(b.due_date) ? b.due_date : null
+  const to = typeof b.to === 'string' ? b.to : ''
+  const subject = typeof b.subject === 'string' ? b.subject : ''
+  const body = typeof b.body === 'string' ? b.body : ''
+  const caseId = typeof b.case_id === 'string' ? b.case_id : null
+  const cc = Array.isArray(b.cc) ? b.cc.filter((x): x is string => typeof x === 'string') : undefined
+  if (!clientId || !kind || !period || !dueDate) {
+    throw ApiError.badRequest('client_id, kind (GSTR1 / GSTR2B / GSTR3B), period (YYYY-MM) and due_date (YYYY-MM-DD) are required.')
+  }
+  const result = await sendClientReminder(prisma, {
+    caseId, clientId, kind, period, dueDate, subject, body, to, cc,
+  }, session.userId)
+  ok(res, result, 201)
+}))
+
+/**
+ * GET /api/gst/reminders/template?client_id=X&kind=Y&period=Z&due_date=D
+ *
+ * Returns the pre-filled subject + body + recipient the Send modal opens
+ * with. Pure derivation — no side effects.
+ */
+gstRouter.get('/reminders/template', handler(async (req, res) => {
+  const session = requireSession(req)
+  requireWorkstation(session, 'workstation.gst.read', 'workstation.gst.manage')
+  const clientId = typeof req.query.client_id === 'string' ? req.query.client_id : null
+  const kind = typeof req.query.kind === 'string' && ['GSTR1', 'GSTR2B', 'GSTR3B'].includes(req.query.kind) ? req.query.kind as ReturnKind : null
+  const period = typeof req.query.period === 'string' && /^\d{4}-\d{2}$/.test(req.query.period) ? req.query.period : null
+  const dueDate = typeof req.query.due_date === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(req.query.due_date) ? req.query.due_date : null
+  if (!clientId || !kind || !period || !dueDate) {
+    throw ApiError.badRequest('client_id, kind, period, due_date are required.')
+  }
+  const client = await prisma.client.findFirst({
+    where: { id: clientId, deletedAt: null },
+    select: { id: true, companyName: true, email: true },
+  })
+  if (!client) throw ApiError.notFound('No such client.')
+  ok(res, {
+    to: client.email ?? '',
+    subject: defaultReminderSubject({ clientName: client.companyName, kind, period, dueDate }),
+    body: defaultReminderBody({ clientName: client.companyName, kind, period, dueDate }),
+  })
 }))
