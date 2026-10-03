@@ -2,7 +2,7 @@ import type { ToolUI } from './types';
 import { pdfToExcelUI, excelToPdfUI, pdfToWordUI, wordToPdfUI, imageToPdfUI, csvToExcelUI } from './conversion';
 import { mergePdfUI, splitPdfUI, compressPdfUI, unlockPdfUI, esignPdfUI, ocrScanUI } from './pdf';
 import {
-  gstJsonExcelUI, bankStatementToExcelUI, form26asToExcelUI,
+  gstJsonExcelUI, gstr2bJsonExcelUI, bankStatementToExcelUI, form26asToExcelUI,
   excelToTallyXmlUI, tdsFvuGeneratorUI, invoiceToEInvoiceJsonUI,
 } from './compliance';
 
@@ -21,6 +21,7 @@ export const TOOL_UI: Record<string, ToolUI> = {
   'esign-pdf': esignPdfUI,
   'ocr-scan': ocrScanUI,
   'gst-json-excel': gstJsonExcelUI,
+  'gstr2b-json-excel': gstr2bJsonExcelUI,
   'bank-statement-to-excel': bankStatementToExcelUI,
   'form-26as-to-excel': form26asToExcelUI,
   'excel-to-tally-xml': excelToTallyXmlUI,

@@ -12,6 +12,7 @@ import { WordService } from './services/tools/WordService.js'
 import { ImageService } from './services/tools/ImageService.js'
 import { OCRService } from './services/tools/OCRService.js'
 import { signatureProvider } from './services/tools/SignatureProvider.js'
+import { gstr2bExcelToJson, gstr2bJsonToExcel } from './services/tools/gstr2b.js'
 import { ComplianceService } from './services/tools/ComplianceService.js'
 import { fmtDateIST } from './lib/dates.js'
 
@@ -246,6 +247,33 @@ const IMPLEMENTATIONS: Record<string, Implementation> = {
     return {
       filename: withExtension(doc.originalFilename, 'json'), mime: OUTPUT_MIME.json, bytes: r.bytes,
       meta: { direction: 'excel_to_json', sections: r.sections, invoices: r.invoices, rows: r.rows },
+    }
+  },
+
+  // Bidirectional and lossless (gstr2b.ts): the input's type picks the direction.
+  'gstr2b-json-excel': async ({ inputs, progress }) => {
+    const { doc, bytes } = inputs[0]
+    const toExcel = doc.mimeType === OUTPUT_MIME.json || /\.json$/i.test(doc.originalFilename)
+    progress(15)
+    const r = toExcel ? await gstr2bJsonToExcel(bytes) : await gstr2bExcelToJson(bytes)
+    progress(90)
+    const warnings = r.issues.filter((i) => i.severity === 'warning')
+    const selfTest: { pass: boolean; diffs: string[] } | null = 'selfTest' in r ? (r as { selfTest: { pass: boolean; diffs: string[] } }).selfTest : null
+    const parts = [
+      ...(selfTest && !selfTest.pass ? [`Round-trip self-test FAILED at: ${selfTest.diffs.slice(0, 5).join('; ')}.`] : []),
+      ...(warnings.length ? [`${warnings.length} warning${warnings.length === 1 ? '' : 's'}: ${warnings.slice(0, 4).map((w) => `${w.where} — ${w.message}`).join(' · ')}${warnings.length > 4 ? ' · …' : ''}`] : []),
+    ]
+    return {
+      filename: withExtension(doc.originalFilename, toExcel ? 'xlsx' : 'json'),
+      mime: toExcel ? OUTPUT_MIME.xlsx : OUTPUT_MIME.json, bytes: r.bytes,
+      meta: {
+        direction: toExcel ? 'json_to_excel' : 'excel_to_json',
+        sections: r.sections.map((s) => s.section), section_counts: r.sections,
+        documents: r.sections.reduce((a, s) => a + s.documents, 0), rows: r.sections.reduce((a, s) => a + s.rows, 0),
+        self_test: selfTest ? (selfTest.pass ? 'PASS' : 'FAIL') : null, self_test_diffs: selfTest?.diffs ?? [],
+        warnings: warnings.slice(0, 100),
+      },
+      warning: parts.length ? parts.join(' ') : undefined,
     }
   },
 

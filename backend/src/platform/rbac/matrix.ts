@@ -96,6 +96,7 @@ export type PermissionCode =
   | 'tools.esign_pdf'
   | 'tools.ocr_scan'
   | 'tools.gst_json_excel'
+  | 'tools.gstr2b_json_excel'
   | 'tools.bank_statement_to_excel'
   | 'tools.form_26as_to_excel'
   | 'tools.excel_to_tally_xml'
@@ -200,6 +201,7 @@ export const MATRIX: Record<RoleCode, Grant[]> = {
     { permission: 'tools.esign_pdf', scope: 'self' },
     { permission: 'tools.ocr_scan', scope: 'self' },
     { permission: 'tools.gst_json_excel', scope: 'self' },
+    { permission: 'tools.gstr2b_json_excel', scope: 'self' },
     { permission: 'tools.bank_statement_to_excel', scope: 'self' },
     { permission: 'tools.form_26as_to_excel', scope: 'self' },
     { permission: 'tools.excel_to_tally_xml', scope: 'self' },
@@ -299,6 +301,7 @@ export const MATRIX: Record<RoleCode, Grant[]> = {
     { permission: 'tools.esign_pdf', scope: 'organisation' },
     { permission: 'tools.ocr_scan', scope: 'organisation' },
     { permission: 'tools.gst_json_excel', scope: 'organisation' },
+    { permission: 'tools.gstr2b_json_excel', scope: 'organisation' },
     { permission: 'tools.bank_statement_to_excel', scope: 'organisation' },
     { permission: 'tools.form_26as_to_excel', scope: 'organisation' },
     { permission: 'tools.excel_to_tally_xml', scope: 'organisation' },
@@ -472,6 +475,7 @@ export const MATRIX: Record<RoleCode, Grant[]> = {
     { permission: 'tools.esign_pdf', scope: 'organisation' },
     { permission: 'tools.ocr_scan', scope: 'organisation' },
     { permission: 'tools.gst_json_excel', scope: 'organisation' },
+    { permission: 'tools.gstr2b_json_excel', scope: 'organisation' },
     { permission: 'tools.bank_statement_to_excel', scope: 'organisation' },
     { permission: 'tools.form_26as_to_excel', scope: 'organisation' },
     { permission: 'tools.excel_to_tally_xml', scope: 'organisation' },
@@ -609,6 +613,7 @@ export const PERMISSION_DESCRIPTIONS: Record<string, string> = {
   'tools.esign_pdf': 'Use the e-Sign PDF tool',
   'tools.ocr_scan': 'Use the OCR Scan tool',
   'tools.gst_json_excel': 'Use the GST JSON â‡„ Excel tool',
+  'tools.gstr2b_json_excel': 'Use the GSTR-2B JSON ⇄ Excel tool',
   'tools.bank_statement_to_excel': 'Use the Bank Statement to Excel tool',
   'tools.form_26as_to_excel': 'Use the Form 26AS to Excel tool',
   'tools.excel_to_tally_xml': 'Use the Excel to Tally XML tool',

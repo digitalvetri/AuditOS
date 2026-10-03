@@ -211,6 +211,45 @@ const GST_SECTIONS: Record<string, { label: string; key: string; party: string; 
   exp: { label: 'EXP', key: 'exp_typ', party: 'Export type' },
 }
 
+/**
+ * GSTR-2B (the portal's ITC download) nests its sections under
+ * `data.docdata` and spells the fields differently — `dt`/`ntnum`/`rev`,
+ * and tax amounts on the invoice itself (or in `items[]`) rather than in
+ * `itms[].itm_det`. Reshape it into the GSTR-1 layout so one flattener
+ * serves both; returns null when the file is not a 2B.
+ */
+function gstr2bAsGstr1(doc: Record<string, unknown>): Record<string, unknown> | null {
+  const data = doc.data as Record<string, unknown> | undefined
+  const docdata = data?.docdata as Record<string, Record<string, unknown>[]> | undefined
+  if (!docdata || typeof docdata !== 'object') return null
+  const lines = (inv: Record<string, unknown>) =>
+    (Array.isArray(inv.items) && inv.items.length ? inv.items as Record<string, unknown>[] : [inv]).map((d) => ({
+      itm_det: { rt: d.rt, txval: d.txval, iamt: d.igst, camt: d.cgst, samt: d.sgst, csamt: d.cess },
+    }))
+  const out: Record<string, unknown> = { gstin: data!.gstin, fp: data!.rtnprd, version: data!.version }
+  if (Array.isArray(docdata.b2b)) {
+    out.b2b = docdata.b2b.map((g) => ({
+      ctin: g.ctin,
+      inv: ((g.inv ?? []) as Record<string, unknown>[]).map((i) => ({
+        inum: i.inum, idt: i.dt, val: i.val, pos: i.pos, rchrg: i.rev, itms: lines(i),
+      })),
+    }))
+  }
+  if (Array.isArray(docdata.cdnr)) {
+    out.cdnr = docdata.cdnr.map((g) => ({
+      ctin: g.ctin,
+      nt: ((g.nt ?? []) as Record<string, unknown>[]).map((n) => ({
+        nt_num: n.ntnum, nt_dt: n.dt, val: n.val, pos: n.pos, rchrg: n.rev, itms: lines(n),
+      })),
+    }))
+  }
+  return out
+}
+
+/** Whether a parsed JSON carries any top-level GSTR-1 section. */
+const GST_SECTIONS_PRESENT = (doc: Record<string, unknown>) =>
+  Object.keys(GST_SECTIONS).some((s) => Array.isArray(doc[s]) && (doc[s] as unknown[]).length > 0)
+
 interface GstFlatRow {
   section: string
   party: string
@@ -343,6 +382,8 @@ export const ComplianceService = {
     } catch {
       throw new ToolError('unreadable', "This file isn't valid JSON. Export it again from the GST offline utility.")
     }
+    const from2b = gstr2bAsGstr1(doc)
+    if (from2b) doc = from2b
     const wb = newBook()
     const sections: string[] = []
     let invoices = 0
@@ -396,7 +437,7 @@ export const ComplianceService = {
 
       const ws = wb.addWorksheet(meta.label)
       ws.columns = [
-        { header: meta.party, key: 'party', width: 20 },
+        { header: from2b && meta.key === 'ctin' ? 'Supplier GSTIN' : meta.party, key: 'party', width: 20 },
         { header: 'Invoice No', key: 'invoiceNo', width: 16 },
         { header: 'Invoice Date', key: 'invoiceDate', width: 14 },
         { header: 'Invoice Value', key: 'invoiceValue', width: 14 },

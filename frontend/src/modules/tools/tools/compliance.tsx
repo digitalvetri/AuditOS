@@ -69,6 +69,70 @@ export const gstJsonExcelUI: ToolUI = {
   },
 };
 
+// ── 1b. GSTR-2B JSON ⇄ Excel (lossless) ───────────────────────────────────
+
+type SectionCount = { section: string; suppliers: number; documents: number; rows: number };
+type Warning = { where: string; message: string };
+
+export const gstr2bJsonExcelUI: ToolUI = {
+  actionLabel: 'Convert',
+  processingLabel: 'Converting GSTR-2B…',
+  Options: () => (
+    <div className="space-y-2">
+      <Notice tone="info">
+        <div className="text-13">
+          The direction follows the file you upload: the GSTR-2B <strong className="font-medium">.json</strong> from the
+          GST portal becomes a workbook (Info, one sheet per section with one row per item, and an ITC Summary built from
+          formulas), and a workbook in that layout becomes GSTR-2B JSON again. The round trip is lossless: JSON → Excel →
+          JSON gives back the same JSON, and every conversion checks this.
+          <div className="text-12 text-neutral-500 mt-1">
+            Sections: B2B, B2BA, CDNR, CDNRA, ISD, ISDA, IMPG, IMPGSEZ; anything else is kept in a hidden sheet. Codes are
+            written as the portal's codes (R, Y/N, C, 33); labels like "Regular", "Yes" or "33-Tamil Nadu" are read back
+            as codes with a warning. On the way back, itcsumm is rebuilt from the rows.
+          </div>
+        </div>
+      </Notice>
+      <Notice tone="warn">
+        <div className="text-13">Sample/test tool. Verify output against a real GST portal download before filing or importing.</div>
+      </Notice>
+    </div>
+  ),
+  ResultNote: ({ output }) => {
+    const counts = (output.meta.section_counts as SectionCount[] | undefined) ?? [];
+    const warnings = (output.meta.warnings as Warning[] | undefined) ?? [];
+    const selfTest = output.meta.self_test as 'PASS' | 'FAIL' | null | undefined;
+    const diffs = (output.meta.self_test_diffs as string[] | undefined) ?? [];
+    return (
+      <div className="space-y-2 text-13">
+        <div className="text-neutral-500">
+          {output.meta.direction === 'excel_to_json' ? 'Rebuilt' : 'Read'} {n(output.meta.documents)} documents across {n(output.meta.rows)} rows.
+        </div>
+        {counts.length ? (
+          <table className="text-12 border-collapse">
+            <thead><tr className="text-neutral-500 text-left"><th className="pr-6 font-medium">Section</th><th className="pr-6 font-medium">Suppliers</th><th className="pr-6 font-medium">Documents</th><th className="font-medium">Rows</th></tr></thead>
+            <tbody>{counts.map((c) => (
+              <tr key={c.section} className="border-t border-neutral-100"><td className="pr-6 py-0.5 font-medium text-neutral-800">{c.section}</td><td className="pr-6">{c.suppliers || '—'}</td><td className="pr-6">{c.documents}</td><td>{c.rows}</td></tr>
+            ))}</tbody>
+          </table>
+        ) : null}
+        {selfTest ? (
+          selfTest === 'PASS'
+            ? <div className="text-green-700">Round-trip self-test: PASS — converting this workbook back gives the identical JSON.</div>
+            : <div className="text-red-700">Round-trip self-test: FAIL at {diffs.slice(0, 5).join('; ')}</div>
+        ) : null}
+        {warnings.length ? (
+          <details>
+            <summary className="cursor-pointer text-amber-700">{warnings.length} warning{warnings.length === 1 ? '' : 's'} (download allowed)</summary>
+            <ul className="mt-1 space-y-0.5 text-12 text-neutral-600 max-h-48 overflow-auto">
+              {warnings.map((w, i) => <li key={i}><span className="font-medium text-neutral-800">{w.where}</span> — {w.message}</li>)}
+            </ul>
+          </details>
+        ) : null}
+      </div>
+    );
+  },
+};
+
 // ── 2. Bank Statement to Excel ───────────────────────────────────────────
 
 export const bankStatementToExcelUI: ToolUI = {
@@ -227,6 +291,16 @@ function saveDeductor(v: Record<string, unknown>) {
 }
 
 const PAN_RE = /^[A-Z]{5}\d{4}[A-Z]$/;
+
+/** The return usually being prepared: the last quarter that has ended, in its tax year (2026-27 at the earliest). */
+function currentReturnPeriod(today = new Date()): { quarter: string; financial_year: string } {
+  const m = today.getMonth(); // 0 = Jan
+  const y = today.getFullYear();
+  // Quarter just ended: Jan–Mar → Q3 (Oct–Dec), Apr–Jun → Q4 of last year, Jul–Sep → Q1, Oct–Dec → Q2.
+  const [quarter, start] = m < 3 ? ['Q3', y - 1] : m < 6 ? ['Q4', y - 1] : m < 9 ? ['Q1', y] : ['Q2', y];
+  const fyStart = Math.max(2026, start as number);
+  return { quarter: fyStart > (start as number) ? 'Q1' : (quarter as string), financial_year: `${fyStart}-${String((fyStart + 1) % 100).padStart(2, '0')}` };
+}
 const EMAIL_RE = /^[^\s@^]+@[^\s@^]+\.[^\s@^]+$/;
 
 function TdsOptions({ value, onChange, disabled }: OptionsProps) {
@@ -341,26 +415,48 @@ function TdsOptions({ value, onChange, disabled }: OptionsProps) {
 export const tdsFvuGeneratorUI: ToolUI = {
   actionLabel: 'Generate Form 140 file',
   processingLabel: 'Building records…',
-  defaults: { quarter: 'Q1', financial_year: '', rp_same_address: true, filed_earlier: false },
+  // Prefilled with real values — a placeholder that only looks like "2026-27"
+  // left the field empty and the button disabled.
+  defaults: { ...currentReturnPeriod(), rp_same_address: true, filed_earlier: false },
   Options: TdsOptions,
   validate: (v) => {
     const s = (k: string) => String(v[k] ?? '').trim();
     const fy = s('financial_year').match(/^(\d{4})-(\d{2}|\d{4})$/);
     if (!fy) return 'Write the tax year as 2026-27.';
     if (Number(fy[1]) < 2026) return 'Form 140 starts with tax year 2026-27. For earlier years, file Form 26Q through NSDL\'s RPU 6.0.';
-    if (!/^[A-Z]{4}\d{5}[A-Z]$/.test(s('tan'))) return 'A TAN is four letters, five digits, then a letter — for example CHEA12345B.';
-    if (!PAN_RE.test(s('deductor_pan')) && s('deductor_pan') !== 'PANNOTREQD') return 'Enter the deductor\'s PAN.';
+    if (!/^[A-Z]{4}\d{5}[A-Z]$/.test(s('tan').toUpperCase())) return 'A TAN is four letters, five digits, then a letter — for example CHEA12345B.';
+    // Say what is wrong with a PAN, not just that one is needed.
+    const panProblem = (raw: string, whose: string) => {
+      const p = raw.toUpperCase();
+      if (!p) return `Enter ${whose} PAN.`;
+      if (PAN_RE.test(p)) return null;
+      return `${whose[0].toUpperCase()}${whose.slice(1)} PAN "${raw}" is not valid — it is ${p.length} character${p.length === 1 ? '' : 's'}; a PAN is 10: five letters, four digits, then a letter (e.g. AABCK1234M).`;
+    };
+    const deductorPan = s('deductor_pan').toUpperCase() === 'PANNOTREQD' ? null : panProblem(s('deductor_pan'), 'the deductor\'s');
+    if (deductorPan) return deductorPan;
     if (!s('deductor_name')) return 'Enter the deductor\'s name as registered with TRACES.';
     if (!s('deductor_type')) return 'Choose the deductor type.';
+    // Same rule as the server, caught before the upload.
+    const gstin = s('deductor_gstin').toUpperCase();
+    if (gstin && !/^\d{2}[A-Z]{5}\d{4}[A-Z][A-Z0-9]Z[A-Z0-9]$/.test(gstin)) {
+      return `Deductor GSTIN "${s('deductor_gstin')}" is not valid — a GSTIN is 15 characters (e.g. 33AABCK1234M1Z5). It is optional: clear the field if there isn't one.`;
+    }
     if (!s('address1') || !s('state') || !/^\d{6}$/.test(s('pincode'))) return 'Enter the deductor\'s address, state and 6-digit PIN code.';
     if (!EMAIL_RE.test(s('email'))) return 'Enter a valid deductor email.';
     if (s('phone').replace(/\D/g, '').length < 10) return 'Enter the deductor\'s 10-digit mobile number.';
     if (!s('rp_name') || !s('rp_designation')) return 'Enter the name and designation of the person responsible.';
-    if (!PAN_RE.test(s('rp_pan'))) return 'Enter the PAN of the person responsible.';
+    const rpPan = panProblem(s('rp_pan'), 'the responsible person\'s');
+    if (rpPan) return rpPan;
     if (v.rp_same_address === false && (!s('rp_address1') || !s('rp_state') || !/^\d{6}$/.test(s('rp_pincode')))) {
       return 'Enter the responsible person\'s address, state and PIN code.';
     }
-    if (v.filed_earlier === true && !/^\d{15}$/.test(s('previous_token'))) return 'Enter the 15-digit token number of the previous statement.';
+    if (v.filed_earlier === true && !/^\d{15}$/.test(s('previous_token'))) {
+      const t = s('previous_token');
+      const digits = t.replace(/\D/g, '').length;
+      return !t ? 'Enter the 15-digit token number of the previous statement, or untick the box if this is the first one.'
+        : /\D/.test(t) ? `The token number "${t}" must be digits only — 15 of them.`
+        : `The token number has ${digits} digit${digits === 1 ? '' : 's'} — it needs exactly 15.`;
+    }
     return null;
   },
   ResultNote: ({ output }) => {
