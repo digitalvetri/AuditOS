@@ -227,7 +227,37 @@ export const gstApi = {
     api.post<{ id: string; period: string; financial_year: string }>(
       `/api/gst/stages/${stage}/entries`, body,
     ),
+
+  // ── Reminders (GST-REMINDERS §1) ────────────────────────────────────────
+  upcomingReminders: (period?: string) =>
+    api.get<{ items: UpcomingReminderRow[] }>(
+      `/api/gst/reminders/upcoming${period ? `?period=${encodeURIComponent(period)}` : ''}`,
+    ),
+  reminderTemplate: (q: { client_id: string; kind: 'GSTR1' | 'GSTR2B' | 'GSTR3B'; period: string; due_date: string }) =>
+    api.get<{ to: string; subject: string; body: string }>(
+      `/api/gst/reminders/template?client_id=${encodeURIComponent(q.client_id)}&kind=${q.kind}&period=${encodeURIComponent(q.period)}&due_date=${encodeURIComponent(q.due_date)}`,
+    ),
+  sendReminder: (body: {
+    client_id: string; kind: 'GSTR1' | 'GSTR2B' | 'GSTR3B'; period: string; due_date: string;
+    to: string; subject: string; body: string; case_id?: string | null; cc?: string[];
+  }) => api.post<{ messageId: string; to: string; sentAt: string }>('/api/gst/reminders/send', body),
 };
+
+export interface UpcomingReminderRow {
+  key: string;
+  case_id: string | null;
+  client_id: string;
+  client_name: string;
+  client_email: string | null;
+  gstin: string;
+  assigned_employee_id: string | null;
+  reviewer_employee_id: string | null;
+  kind: 'GSTR1' | 'GSTR2B' | 'GSTR3B';
+  period: string;
+  due_date: string;
+  state: 'due' | 'overdue';
+  days_to_due: number;
+}
 
 export const REGISTRATION_TYPES = [
   { value: 'regular', label: 'Regular' },

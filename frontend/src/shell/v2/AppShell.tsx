@@ -13,11 +13,14 @@ import { Outlet } from 'react-router-dom';
 import { Sidebar } from './Sidebar';
 import { TopBar } from './TopBar';
 import { MobileNav } from './MobileNav';
+import { RealtimeProvider } from '@/platform/realtime/RealtimeProvider';
+import { OfflineBar, UpdateBar } from '@/platform/pwa/PwaUi';
 
 export function AppShellV2() {
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
 
   return (
+    <RealtimeProvider>
     <div className="h-dvh flex overflow-hidden bg-canvas text-ink">
       <a href="#main" className="skip-link h-10 px-4 inline-flex items-center rounded-[10px] bg-primary text-white text-13 font-semibold shadow-drawer">Skip to content</a>
       <Sidebar mobileOpen={mobileNavOpen} onMobileClose={() => setMobileNavOpen(false)} />
@@ -35,6 +38,9 @@ export function AppShellV2() {
       {/* Below `md` only. The drawer stays the overflow for everything the
           five slots can't hold. */}
       <MobileNav onOpenMore={() => setMobileNavOpen(true)} />
+      <UpdateBar />
+      <OfflineBar />
     </div>
+    </RealtimeProvider>
   );
 }

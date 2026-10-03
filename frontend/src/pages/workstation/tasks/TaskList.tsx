@@ -175,14 +175,14 @@ function Tile({ label, value, text, tone, onClick }: {
   const body = (
     <>
       <div className="text-11 uppercase tracking-[0.06em] text-neutral-500">{label}</div>
-      <div className={`text-18 font-semibold mt-0.5 ${tone === 'danger' && (value ?? 0) > 0 ? 'text-red' : 'text-neutral-900'}`}>
+      <div className={`num-display text-[24px] leading-tight mt-1 ${tone === 'danger' && (value ?? 0) > 0 ? 'text-red' : 'text-neutral-900'}`}>
         {text ?? (value === undefined ? '—' : value)}
       </div>
     </>
   );
-  if (!onClick) return <div className="bg-white border border-neutral-200 rounded p-3">{body}</div>;
+  if (!onClick) return <div className="bg-white border border-neutral-200 rounded-lg p-3">{body}</div>;
   return (
-    <button type="button" onClick={onClick} className="text-left bg-white border border-neutral-200 rounded p-3 hover:border-gold transition-colors">
+    <button type="button" onClick={onClick} className="text-left bg-white border border-neutral-200 rounded-lg p-3 hover:border-gold transition-colors">
       {body}
     </button>
   );

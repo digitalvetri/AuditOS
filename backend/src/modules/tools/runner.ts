@@ -14,6 +14,7 @@ import { OCRService } from './services/tools/OCRService.js'
 import { signatureProvider } from './services/tools/SignatureProvider.js'
 import { ComplianceService } from './services/tools/ComplianceService.js'
 import { fmtDateIST } from './lib/dates.js'
+import { notifyUser } from '../../platform/notify.js'
 
 /**
  * THE RUNNER — one job at a time per slot, each tool a small function.
@@ -352,6 +353,7 @@ export function enqueue(session: Session, organisationId: string, jobId: string,
 }
 
 async function execute(session: Session, organisationId: string, jobId: string, tool: ToolDef, inputDocs: ToolDocumentRow[], options: Record<string, unknown>) {
+  const queuedAt = Date.now()
   const release = await slot()
   const primary = inputDocs[0]
   const expectedName = withExtension(primary?.originalFilename ?? tool.id, tool.outputType)
@@ -386,6 +388,9 @@ async function execute(session: Session, organisationId: string, jobId: string, 
       session, action: 'conversion_completed', toolId: tool.id, documentId: outputDoc.id, jobId, status: 'success',
       meta: { from: inputDocs.map((d) => d.originalFilename).join(', '), to: out.filename, size: out.bytes.length, ...(out.warning ? { warning: out.warning } : {}) },
     })
+    // A quick conversion is watched on screen; only a long one (OCR, a big
+    // PDF, a queue) is worth a ping.
+    if (Date.now() - queuedAt > LONG_JOB_MS) await notifyToolJob(session, jobId, tool, false, out.filename)
   } catch (err) {
     const { code, message } = userMessage(err)
     if (code === 'failed') console.error('[tools] job failed', tool.id, err instanceof Error ? err.stack ?? err.message : err)
@@ -395,9 +400,26 @@ async function execute(session: Session, organisationId: string, jobId: string, 
     }).catch(() => null)
     await ToolJobService.failJob(jobId, message, failedDoc?.id ?? null, { code }).catch(() => undefined)
     await AuditLogService.log({ session, action: 'conversion_failed', toolId: tool.id, documentId: failedDoc?.id ?? primary?.id ?? null, jobId, status: 'failed', meta: { code, message, from: inputDocs.map((d) => d.originalFilename).join(', ') } })
+    await notifyToolJob(session, jobId, tool, true, message)
   } finally {
     release()
   }
+}
+
+const LONG_JOB_MS = 20_000
+
+/** Tell the person who ran the job it finished — they may have moved on. Best effort. */
+async function notifyToolJob(session: Session, jobId: string, tool: ToolDef, failed: boolean, detail: string) {
+  try {
+    await notifyUser({
+      userId: session.userId,
+      type: failed ? 'tools.job_failed' : 'tools.job_completed', module: 'document',
+      title: failed ? `${tool.name} failed` : `${tool.name} ready`,
+      body: detail.slice(0, 200),
+      entityType: 'ToolJob', entityId: jobId,
+      actionUrl: '/tools/documents',
+    })
+  } catch { /* best effort */ }
 }
 
 export function isImplemented(toolId: string): boolean {

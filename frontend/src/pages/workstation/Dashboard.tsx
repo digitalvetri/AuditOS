@@ -49,10 +49,10 @@ const viewAll = 'inline-flex items-center min-h-[44px] md:min-h-0 text-12 font-m
 // ── Tiles ─────────────────────────────────────────────────────────────
 
 const TINT = {
-  blue: { bg: '#e8eef8', fg: '#1a4b8c', ring: '#d2deee' },
-  indigo: { bg: '#eff6ff', fg: '#1e40af', ring: '#dbeafe' },
+  blue: { bg: '#efeafd', fg: '#6941d9', ring: '#ddd5f6' },
+  indigo: { bg: '#f5f1ff', fg: '#5b33c4', ring: '#ece6ff' },
   green: { bg: '#e9f9f1', fg: '#047857', ring: '#cdeede' },
-  teal: { bg: '#eaf0f8', fg: '#1a4b8c', ring: '#c9d6e8' },
+  teal: { bg: '#f1edff', fg: '#6941d9', ring: '#d9cff5' },
   amber: { bg: '#fff7e6', fg: '#b45309', ring: '#fde7bf' },
 } as const;
 type Tint = keyof typeof TINT;
@@ -94,8 +94,8 @@ function Hero({ data, meta }: { data: DashboardResponse; meta: ReactNode }) {
   const k = data.kpis;
   const pct = (part: number, whole: number) => (whole > 0 ? Math.round((part / whole) * 100) : null);
   const rings: Ring[] = [
-    { label: 'Win rate', note: `${won} won · ${lost} lost`, value: winRate, color: '#60a5fa', color2: '#2563eb', to: '/workstation/leads?status=won' },
-    { label: 'Follow-ups on time', note: `${k.overdue_follow_ups} of ${k.pending_follow_ups} overdue`, value: pct(Math.max(0, k.pending_follow_ups - k.overdue_follow_ups), k.pending_follow_ups), color: '#93c5fd', color2: '#2563eb', to: '/workstation/follow-ups?range=overdue' },
+    { label: 'Win rate', note: `${won} won · ${lost} lost`, value: winRate, color: '#a78bfa', color2: '#7a5af8', to: '/workstation/leads?status=won' },
+    { label: 'Follow-ups on time', note: `${k.overdue_follow_ups} of ${k.pending_follow_ups} overdue`, value: pct(Math.max(0, k.pending_follow_ups - k.overdue_follow_ups), k.pending_follow_ups), color: '#c9b8ff', color2: '#7a5af8', to: '/workstation/follow-ups?range=overdue' },
     { label: 'Services on track', note: `${k.services_due_soon} of ${k.active_services} due soon`, value: pct(Math.max(0, k.active_services - k.services_due_soon), k.active_services), color: '#a7f3d0', color2: '#34d399', to: '/workstation/services?due=soon' },
   ];
   const stats: { label: string; value: string }[] = [
@@ -275,7 +275,7 @@ function DashboardBody({ data, meta }: { data: DashboardResponse; meta: ReactNod
 function Summary({ label, value, icon: Icon, tint }: { label: string; value: number; icon: LucideIcon; tint: Tint }) {
   const t = TINT[tint];
   return (
-    <div className="min-w-0 rounded-lg px-3 py-2" style={{ background: '#f7f9fc', boxShadow: 'inset 0 0 0 1px #e8ecf3' }}>
+    <div className="min-w-0 rounded-lg px-3 py-2" style={{ background: '#f9f8ff', boxShadow: 'inset 0 0 0 1px #e8ecf3' }}>
       <div className="flex items-center gap-2">
         <span className="h-6 w-6 rounded-md inline-flex items-center justify-center shrink-0" style={{ background: t.bg, color: t.fg }}>
           <Icon size={13} strokeWidth={2} />

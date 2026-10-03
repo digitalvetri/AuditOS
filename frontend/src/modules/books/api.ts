@@ -18,6 +18,9 @@ export interface BooksOrg {
   client_name?: string | null;
   connection_id: string;
   connection_status?: string;
+  /** The configured connection this organisation belongs to, e.g. "Main Account". */
+  connection_name?: string | null;
+  connection_auth_method?: 'SERVER_OAUTH' | 'SELF_CLIENT' | null;
   sync_status: 'idle' | 'syncing' | 'synced' | 'failed';
   last_sync_at: string | null;
   last_sync_attempt_at: string | null;
@@ -28,6 +31,9 @@ export interface BooksOrg {
 
 export interface BooksConnection {
   id: string;
+  /** Set by the developer who configured it; never a secret. */
+  name: string | null;
+  auth_method: 'SERVER_OAUTH' | 'SELF_CLIENT' | null;
   status: string;
   connected_at: string | null;
   last_error_code: string | null;
@@ -38,6 +44,12 @@ export interface BooksConnection {
 
 export interface BooksStatus {
   configured: boolean;
+  /** False: connections are configured by the developer; users only switch. */
+  self_service_connect: boolean;
+  /** Super Admin only: may add a Zoho account (Settings → Add organisation). */
+  can_add_connection: boolean;
+  /** This user's last chosen organisation (and so connection), kept on the server. */
+  selected_org_ref: string | null;
   connections: BooksConnection[];
   organizations: BooksOrg[];
   permissions: { manage: boolean; accountant: boolean; settings: boolean; reports: boolean };
@@ -81,6 +93,9 @@ export function qs(params: Record<string, string | number | boolean | null | und
 
 export const booksApi = {
   status: () => api.get<BooksStatus>('/api/books/status'),
+  addConnection: (input: { name: string; auth_method: 'SELF_CLIENT' | 'SERVER_OAUTH'; data_center: string; client_id: string; client_secret: string; code: string }) =>
+    api.post<{ connection_id: string; organizations: { zoho_org_id: string; name: string; is_active: boolean }[] }>('/api/books/connections', input),
+  select: (orgRef: string) => api.put<{ selected_org_ref: string }>('/api/books/selection', { org_ref: orgRef }),
   connect: () => api.post<{ connectionId: string; authorizeUrl: string }>('/api/books/connect'),
   reconnect: (id: string) => api.post<{ authorizeUrl: string }>(`/api/books/connections/${id}/reconnect`),
   /** Self Client grant code from the Zoho API console — no browser redirect. */
@@ -117,6 +132,11 @@ export const booksApi = {
       bulkUpdate: (accountId: string, body: { account_id: string; reason: string; entities: { entity_id: string; entity_type: string }[] }) => api.put<{ message: string }>(`${b}/registers/${accountId}/bulkupdate`, body),
       unlock: (lockId: string, reason: string) => api.post<{ deleted: boolean }>(`${b}/transactionlock/${lockId}/unlock`, { reason }),
       pdfUrl: (entity: string, id: string) => `${b}/e/${entity}/${id}/pdf`,
+      uploadDocument: (file: File) => {
+        const f = new FormData();
+        f.append('file', file);
+        return api.postForm<ZRecord>(`${b}/documents/upload`, f);
+      },
       attachReceipt: (expenseId: string, file: File) => {
         const f = new FormData();
         f.append('receipt', file);

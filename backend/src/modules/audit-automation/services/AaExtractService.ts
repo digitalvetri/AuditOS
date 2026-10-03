@@ -5,6 +5,7 @@ import { aaStorage } from '../storage.js'
 import type { ExtractedPage } from '../lib/pdfInspect.js'
 import { parseStatementPdf, parseStatementTable, type ParsedTxn, type ParseResult } from '../lib/statementParser.js'
 import { AaRuleService, type RuleRow } from './AaRuleService.js'
+import { notifyUser } from '../../../platform/notify.js'
 
 /**
  * Statement → AaBankTxn rows. Replaces the old stub extractor.
@@ -29,6 +30,20 @@ export function fingerprintOf(bankAccountId: string, t: Pick<ParsedTxn, 'txnDate
   return crypto.createHash('sha256')
     .update([bankAccountId, t.txnDate, t.debitPaise, t.creditPaise, t.balancePaise ?? '', normNarration(t.narration)].join('|'))
     .digest('hex')
+}
+
+/** Tell the uploader the background extraction finished. Best effort. */
+async function notifyJobOwner(job: { id: string; createdByUserId: string; sourceDocument: { originalFilename: string } }, failed: boolean, detail: string) {
+  try {
+    await notifyUser({
+      userId: job.createdByUserId,
+      type: failed ? 'aa.bank_extraction_failed' : 'aa.bank_extracted', module: 'system',
+      title: failed ? 'Statement extraction failed' : 'Statement extracted',
+      body: `${job.sourceDocument.originalFilename} · ${detail}`,
+      entityType: 'AaJob', entityId: job.id,
+      actionUrl: `/audit-automation/bank/jobs/${job.id}`,
+    })
+  } catch { /* best effort */ }
 }
 
 /** "2026-27" → [2026-04-01, 2027-03-31]. */
@@ -123,9 +138,11 @@ export const AaExtractService = {
           },
         }),
       ])
+      await notifyJobOwner(job, false, `${data.length} transaction${data.length === 1 ? '' : 's'}${flagged ? `, ${flagged} flagged for review` : ''}`)
     } catch (err) {
       const msg = err instanceof Error ? err.message : 'Extraction failed.'
-      await prisma.aaJob.update({ where: { id: jobId }, data: { status: 'failed', progress: 100, errorMessage: msg.slice(0, 500), completedAt: new Date() } }).catch(() => undefined)
+      const saved = await prisma.aaJob.update({ where: { id: jobId }, data: { status: 'failed', progress: 100, errorMessage: msg.slice(0, 500), completedAt: new Date() } }).then(() => true, () => false)
+      if (saved) await notifyJobOwner(job, true, msg.slice(0, 160))
     }
   },
 

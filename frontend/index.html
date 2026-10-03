@@ -4,6 +4,16 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     <meta name="color-scheme" content="light dark" />
+    <meta name="theme-color" content="#f7f4ff" media="(prefers-color-scheme: light)" />
+    <meta name="theme-color" content="#0f0d17" media="(prefers-color-scheme: dark)" />
+    <meta name="description" content="Practice workspace for JNS Accounting Solutions — clients, filings, HR and payroll." />
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <link rel="icon" type="image/png" sizes="32x32" href="/pwa/favicon-32.png" />
+    <link rel="apple-touch-icon" href="/pwa/apple-touch-icon.png" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-title" content="JNS AuditOS" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="default" />
     <script>
       // Apply the saved theme before first paint so a dark session never flashes light.
       try { var t = localStorage.getItem('audit-os:theme'); if (t === 'dark') document.documentElement.setAttribute('data-theme', 'dark'); } catch (e) {}

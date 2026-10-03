@@ -58,10 +58,10 @@ export function Section({ title, right, children, className = '' }: { title?: Re
 
 /** Icon-square tints, as on the CRM dashboards. */
 export const TINTS = {
-  blue: { bg: '#e8eef8', fg: '#1a4b8c', ring: '#d2deee' },
-  indigo: { bg: '#eff6ff', fg: '#1e40af', ring: '#dbeafe' },
+  blue: { bg: '#efeafd', fg: '#6941d9', ring: '#ddd5f6' },
+  indigo: { bg: '#f5f1ff', fg: '#5b33c4', ring: '#ece6ff' },
   green: { bg: '#e9f9f1', fg: '#047857', ring: '#cdeede' },
-  teal: { bg: '#eaf0f8', fg: '#1a4b8c', ring: '#c9d6e8' },
+  teal: { bg: '#f1edff', fg: '#6941d9', ring: '#d9cff5' },
   amber: { bg: '#fff7e6', fg: '#b45309', ring: '#fde7bf' },
   rose: { bg: '#fff1f2', fg: '#be123c', ring: '#fde2e6' },
 } as const;
@@ -137,7 +137,7 @@ export function TextArea({ value, onChange, rows = 3 }: { value: string; onChang
 export function Btn({ children, onClick, variant = 'secondary', disabled, loading, type = 'button', title }: { children: ReactNode; onClick?: () => void; variant?: 'primary' | 'secondary' | 'danger' | 'ghost'; disabled?: boolean; loading?: boolean; type?: 'button' | 'submit'; title?: string }) {
   const styles = {
     primary: 'bg-primary text-white hover:bg-primaryHover shadow-card',
-    secondary: 'bg-surface text-primary border border-neutral-200 hover:border-primary/40 hover:bg-[#f4f7fb] shadow-card',
+    secondary: 'bg-surface text-primary border border-neutral-200 hover:border-primary/40 hover:bg-[#f7f5ff] shadow-card',
     danger: 'bg-surface text-danger border border-neutral-200 hover:border-danger/40 hover:bg-[#fff5f5]',
     ghost: 'text-inkMuted hover:text-primary hover:bg-[#f1f4f9]',
   }[variant];
@@ -156,7 +156,7 @@ export function Notice({ tone = 'info', children }: { tone?: 'info' | 'warn' | '
     ? { background: '#fff5f5', boxShadow: 'inset 3px 0 0 #dc2626, inset 0 0 0 1px #fde2e2', color: '#991b1b' }
     : tone === 'warn'
       ? { background: '#fffbeb', boxShadow: 'inset 3px 0 0 #f59e0b, inset 0 0 0 1px #fdecc8', color: '#92400e' }
-      : { background: '#f4f7fb', boxShadow: 'inset 3px 0 0 #1c3d6e, inset 0 0 0 1px #dde6f2', color: '#334155' };
+      : { background: '#f7f5ff', boxShadow: 'inset 3px 0 0 #3a3358, inset 0 0 0 1px #e6dffa', color: '#334155' };
   return <div className="rounded-lg px-4 py-2 text-12" style={look}>{children}</div>;
 }
 
@@ -198,7 +198,7 @@ const CHIP: Record<Tone, { bg: string; fg: string; dot: string }> = {
   red: { bg: '#fef2f2', fg: '#b91c1c', dot: '#ef4444' },
   amber: { bg: '#fffbeb', fg: '#b45309', dot: '#f59e0b' },
   grey: { bg: '#f1f5f9', fg: '#475569', dot: '#94a3b8' },
-  blue: { bg: '#eff6ff', fg: '#1e40af', dot: '#2563eb' },
+  blue: { bg: '#f5f1ff', fg: '#5b33c4', dot: '#7a5af8' },
 };
 export function Badge({ status }: { status: unknown }) {
   const s = String(status ?? '').toLowerCase();

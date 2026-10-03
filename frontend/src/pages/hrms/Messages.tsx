@@ -33,6 +33,7 @@ import {
 import { DocumentChip, MessageMenu, NewChatButton, ThreadMenu, VoicePlayer, VoiceRecorder } from './MessagesExtras';
 import { useToast } from '@/components/Toast';
 import { useIsMobile } from '@/lib/useIsMobile';
+import { useRealtimeConnected } from '@/platform/realtime/RealtimeProvider';
 
 // ── Identity chips ────────────────────────────────────────────────────────
 
@@ -50,8 +51,8 @@ function initials(name: string): string {
  * without anything being stored. Every swatch is a platform palette value.
  */
 const TONES = [
-  'rgb(11,31,58)', 'rgb(28,61,110)', 'rgb(26,75,140)', 'rgb(47,158,68)',
-  'rgb(209,67,47)', 'rgb(194,122,10)', 'rgb(74,84,104)', 'rgb(29,78,216)',
+  'rgb(31,29,43)', 'rgb(58,51,88)', 'rgb(105,65,217)', 'rgb(47,158,68)',
+  'rgb(209,67,47)', 'rgb(194,122,10)', 'rgb(74,84,104)', 'rgb(105,65,217)',
 ];
 function toneFor(seed: string): string {
   let h = 0;
@@ -68,7 +69,7 @@ function Avatar({
         src={src}
         alt=""
         className="rounded-full object-cover shrink-0"
-        style={{ width: size, height: size, boxShadow: '0 0 0 1px rgb(15 23 42 / 0.08), 0 2px 6px -2px rgb(18 48 90 / 0.45)' }}
+        style={{ width: size, height: size, boxShadow: '0 0 0 1px rgb(15 23 42 / 0.08), 0 2px 6px -2px rgb(45 41 68 / 0.45)' }}
         aria-hidden
       />
     );
@@ -80,8 +81,8 @@ function Avatar({
         width: size, height: size,
         fontSize: Math.round(size * 0.36),
         // The brand navy gradient, as on the dashboard's activity avatars.
-        background: 'linear-gradient(180deg, #1c3d6e 0%, #12305a 100%)',
-        boxShadow: 'inset 0 1px 0 rgb(255 255 255 / 0.18), 0 2px 6px -2px rgb(18 48 90 / 0.45)',
+        background: 'linear-gradient(180deg, #3a3358 0%, #2d2944 100%)',
+        boxShadow: 'inset 0 1px 0 rgb(255 255 255 / 0.18), 0 2px 6px -2px rgb(45 41 68 / 0.45)',
       }}
       aria-hidden
     >
@@ -163,7 +164,7 @@ function PhotoEditor({
         </span>
         <span
           className="absolute -right-0.5 -bottom-0.5 grid place-items-center rounded-full text-white"
-          style={{ width: 18, height: 18, background: 'linear-gradient(180deg, #1c3d6e 0%, #12305a 100%)', boxShadow: '0 0 0 2px #fff' }}
+          style={{ width: 18, height: 18, background: 'linear-gradient(180deg, #3a3358 0%, #2d2944 100%)', boxShadow: '0 0 0 2px #fff' }}
           aria-hidden
         >
           <Camera size={10} strokeWidth={2.25} />
@@ -220,10 +221,12 @@ export function MessagesPage() {
   const activeChatId = params.get('chat');
   const isMobile = useIsMobile();
 
+  const live = useRealtimeConnected();
   const chatsQ = useQuery({
     queryKey: ['chats', 'list'],
     queryFn: messagesApi.listChats,
-    refetchInterval: 15_000,
+    // The socket refreshes on every chat event; polling is the fallback.
+    refetchInterval: live ? 60_000 : 15_000,
   });
 
   const chats = chatsQ.data?.items ?? [];
@@ -378,7 +381,7 @@ function ChatRow({
         'w-full text-left flex items-center gap-3 px-3 rounded-lg transition-colors ' +
         (mobile ? 'py-3 min-h-[44px] ' : 'py-2 ') +
         // Selected: pale blue with a navy accent bar on the left.
-        (active ? 'bg-[#eaf0f8] ' : 'hover:bg-[#f1f4f9] ')
+        (active ? 'bg-[#f1edff] ' : 'hover:bg-[#f1f4f9] ')
       }
       style={active ? { boxShadow: 'inset 3px 0 0 rgb(var(--c-primary))' } : undefined}
     >
@@ -405,7 +408,7 @@ function ChatRow({
           </span>
           {unread ? (
             <span className="shrink-0 inline-flex items-center justify-center h-5 min-w-[20px] px-2 rounded-full text-11 font-semibold tabular-nums text-white"
-              style={{ background: 'linear-gradient(180deg, #1c3d6e 0%, #12305a 100%)' }}>
+              style={{ background: 'linear-gradient(180deg, #3a3358 0%, #2d2944 100%)' }}>
               {chat.unread > 9 ? '9+' : chat.unread}
             </span>
           ) : null}
@@ -436,10 +439,11 @@ function ThreadView({
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const chatId = chat.id;
 
+  const live = useRealtimeConnected();
   const q = useQuery({
     queryKey: ['chats', 'messages', chatId],
     queryFn: () => messagesApi.messages(chatId),
-    refetchInterval: 5_000,
+    refetchInterval: live ? 30_000 : 5_000,
   });
 
   const messages = useMemo(() => q.data?.items ?? [], [q.data]);
@@ -690,7 +694,7 @@ function Bubble({
           <span className={'text-11 tabular-nums ' + (own ? 'text-white/70' : 'text-inkFaint')}>{fmtTime(message.created_at)}</span>
           {own ? (
             message.read_by_me ? (
-              <CheckCheck size={13} strokeWidth={2.25} className="text-[#bfdbfe]" aria-label="Read" />
+              <CheckCheck size={13} strokeWidth={2.25} className="text-[#ddd3ff]" aria-label="Read" />
             ) : (
               <Check size={13} strokeWidth={2.25} className="text-white/60" aria-label="Sent" />
             )
@@ -844,7 +848,7 @@ function Composer({
       className={'shrink-0 border-t border-border bg-white ' + (mobile ? 'pt-2 pb-1' : 'px-4 py-3')}
     >
       {replyTo ? (
-        <div className="flex items-start justify-between gap-2 mb-2 rounded-lg border-l-2 border-primary bg-[#eaf0f8] px-3 py-2">
+        <div className="flex items-start justify-between gap-2 mb-2 rounded-lg border-l-2 border-primary bg-[#f1edff] px-3 py-2">
           <div className="min-w-0">
             <div className="text-11 font-medium text-primary">
               Replying to {replyTo.author?.full_name ?? '—'}

@@ -412,6 +412,19 @@ export interface StatementLine {
   status: string; matched_entry_id: string | null; matched_voucher_id: string | null; matched_voucher_number: string | null;
 }
 
+export interface CategorizeProposal {
+  lineId: string;
+  date: string;
+  description: string;
+  debitPaise: number;
+  creditPaise: number;
+  voucherType: 'receipt' | 'payment';
+  counterLedgerId: string;
+  counterLedgerName: string;
+  source: 'db_rule' | 'default_rule' | 'party_match' | 'suspense';
+  matchedBy: string;
+}
+
 export interface GstSummary {
   from: string | null; to: string | null;
   input: { cgstPaise: number; sgstPaise: number; igstPaise: number; cessPaise: number; totalPaise: number };
@@ -548,6 +561,20 @@ export const bookkeepingAccountingApi = {
     api.post<{ id: string; difference_paise: number }>(`${base(c)}/banking/accounts/${ledgerId}/reconciliation`, { statement_date: statementDate, notes: notes ?? null }),
   listReconciliations: (c: string, ledgerId?: string) =>
     api.get<{ items: { id: string; bank_ledger_id: string; bank_ledger_name: string; statement_date: string; book_balance_paise: number; statement_balance_paise: number; difference_paise: number; matched_count: number; unmatched_count: number; notes: string | null; created_at: string }[] }>(`${base(c)}/banking/reconciliations${qs({ ledger_id: ledgerId })}`),
+
+  // ── Bank auto-categorize ───────────────────────────────────────────
+  listCategorizeRules: (c: string) =>
+    api.get<{ items: { id: string; match_pattern: string; counter_ledger_id: string; counter_ledger_name: string; direction: 'auto' | 'receipt' | 'payment'; priority: number; source: 'seed' | 'user'; enabled: boolean; label: string | null; created_at: string }[] }>(`${base(c)}/banking/categorize-rules`),
+  createCategorizeRule: (c: string, r: { match_pattern: string; counter_ledger_id: string; direction?: 'auto' | 'receipt' | 'payment'; priority?: number; label?: string | null }) =>
+    api.post<{ id: string }>(`${base(c)}/banking/categorize-rules`, r),
+  updateCategorizeRule: (c: string, ruleId: string, r: { match_pattern?: string; counter_ledger_id?: string; direction?: 'auto' | 'receipt' | 'payment'; priority?: number; label?: string | null; enabled?: boolean }) =>
+    api.patch<{ id: string }>(`${base(c)}/banking/categorize-rules/${ruleId}`, r),
+  deleteCategorizeRule: (c: string, ruleId: string) =>
+    api.delete<{ id: string }>(`${base(c)}/banking/categorize-rules/${ruleId}`),
+  proposeCategorize: (c: string, ledgerId: string) =>
+    api.get<{ proposals: CategorizeProposal[]; unresolvedCount: number }>(`${base(c)}/banking/accounts/${ledgerId}/categorize/propose`),
+  commitCategorize: (c: string, ledgerId: string, proposals: { line_id: string; counter_ledger_id: string; voucher_type: 'receipt' | 'payment' }[]) =>
+    api.post<{ posted: number; skipped: number; errorCount: number; errors: { lineId: string; message: string }[] }>(`${base(c)}/banking/accounts/${ledgerId}/categorize/commit`, { proposals }),
 
   // ── GST ────────────────────────────────────────────────────────────
   gstSummary: (c: string, f: BookkeepingPeriod = {}) => api.get<GstSummary>(`${base(c)}/gst/summary${qs(f)}`),

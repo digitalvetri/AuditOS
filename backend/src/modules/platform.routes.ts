@@ -8,6 +8,7 @@ import { auditLogToApi, notificationToApi } from '../api/serialize.js'
 import { expiringDocuments } from './documents.routes.js'
 import { canApproveCorrection, canApproveExpense, canApproveLeave } from './dashboard-approvable.js'
 import type { Scope } from '../platform/rbac/matrix.js'
+import { pushPublicKey } from '../platform/push.js'
 
 /**
  * PLATFORM SURFACES — notifications, audit log, dashboard aggregates (§8.9,
@@ -103,6 +104,39 @@ notificationsRouter.post('/:id/unsnooze', handler(async (req, res) => {
     where: { id: row.id }, data: { snoozedUntil: null },
   })
   ok(res, { notification: notificationToApi(updated) })
+}))
+
+// ── Web Push subscriptions ─────────────────────────────────────────────────
+notificationsRouter.get('/push/key', handler(async (_req, res) => {
+  ok(res, { public_key: pushPublicKey() })
+}))
+
+const subscriptionSchema = z.object({
+  endpoint: z.string().url().max(2000),
+  keys: z.object({ p256dh: z.string().min(1).max(500), auth: z.string().min(1).max(500) }),
+})
+
+notificationsRouter.post('/push/subscribe', handler(async (req, res) => {
+  const session = requireSession(req)
+  const parsed = subscriptionSchema.safeParse(req.body ?? {})
+  if (!parsed.success) throw ApiError.badRequest('Invalid push subscription.', parsed.error.flatten().fieldErrors)
+  const { endpoint, keys } = parsed.data
+  const userAgent = String(req.headers['user-agent'] ?? '').slice(0, 300) || null
+  // Upsert by endpoint: on a shared machine the browser keeps one endpoint,
+  // so it moves to whoever is signed in now.
+  await prisma.pushSubscription.upsert({
+    where: { endpoint },
+    create: { endpoint, p256dh: keys.p256dh, auth: keys.auth, userId: session.userId, userAgent },
+    update: { p256dh: keys.p256dh, auth: keys.auth, userId: session.userId, userAgent },
+  })
+  ok(res, { ok: true })
+}))
+
+notificationsRouter.post('/push/unsubscribe', handler(async (req, res) => {
+  const session = requireSession(req)
+  const endpoint = z.object({ endpoint: z.string().max(2000) }).parse(req.body ?? {}).endpoint
+  await prisma.pushSubscription.deleteMany({ where: { endpoint, userId: session.userId } })
+  ok(res, { ok: true })
 }))
 
 // ── Audit log ─────────────────────────────────────────────────────────────

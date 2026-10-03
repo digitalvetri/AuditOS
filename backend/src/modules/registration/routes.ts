@@ -4,6 +4,7 @@ import { ApiError, handler, ok } from '../../lib/http.js'
 import { requireSession } from '../../platform/auth.js'
 import { writeAudit } from '../../platform/audit.js'
 import { writeActivity } from '../../platform/workstation/activity.js'
+import { notifyEmployees } from '../../platform/notify.js'
 import {
   assertCanSeeClient, clientScopeWhere, requireWorkstation,
 } from '../../platform/workstation/scope.js'
@@ -173,6 +174,13 @@ registrationsRouter.post('/', handler(async (req, res) => {
     actorUserId: session.userId, action: 'client_registration.create',
     entityType: 'ClientRegistration', entityId: row.id, after: row, req,
   })
+  await notifyEmployees([row.assignedEmployeeId], {
+    type: 'registration.assigned', module: 'workstation',
+    title: `Registration assigned — ${row.registrationCode}`,
+    body: `${type.name} · ${row.client.companyName}`,
+    entityType: 'ClientRegistration', entityId: row.id,
+    actionUrl: `/workstation/clients/${row.clientId}`,
+  }, session)
 
   const m = await employeeMap(actorIds([row]))
   ok(res, {
@@ -255,6 +263,26 @@ registrationsRouter.patch('/:id', handler(async (req, res) => {
     actorUserId: session.userId, action: 'client_registration.update',
     entityType: 'ClientRegistration', entityId: row.id, before, after: row, req,
   })
+  const reassigned = row.assignedEmployeeId !== before.assignedEmployeeId ? row.assignedEmployeeId : null
+  const what = `${row.type?.name ?? 'Registration'} · ${row.client.companyName}`
+  if (reassigned) {
+    await notifyEmployees([reassigned], {
+      type: 'registration.assigned', module: 'workstation',
+      title: `Registration assigned — ${row.registrationCode}`,
+      body: what,
+      entityType: 'ClientRegistration', entityId: row.id,
+      actionUrl: `/workstation/clients/${row.clientId}`,
+    }, session)
+  }
+  if (before.status !== row.status) {
+    await notifyEmployees([row.assignedEmployeeId, row.client.accountManagerId].filter((id) => id !== reassigned), {
+      type: 'registration.status_changed', module: 'workstation',
+      title: `Registration ${row.status.replace(/_/g, ' ')} — ${row.registrationCode}`,
+      body: `${what}${row.registrationNumber ? ` · ${row.registrationNumber}` : ''}`,
+      entityType: 'ClientRegistration', entityId: row.id,
+      actionUrl: `/workstation/clients/${row.clientId}`,
+    }, session)
+  }
 
   const m = await employeeMap(actorIds([row]))
   ok(res, registrationToApi(row, m, today()))

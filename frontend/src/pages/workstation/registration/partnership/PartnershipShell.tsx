@@ -34,7 +34,7 @@ export function PartnershipShell({ kind = 'PARTNERSHIP' }: { kind?: Registration
             to={t.to}
             className={({ isActive }) =>
               'px-3 min-h-[44px] md:min-h-0 md:h-8 flex items-center text-13 whitespace-nowrap rounded-full border transition-colors ' +
-              (isActive ? 'bg-[#eaf0f8] border-[#b5c6df] text-primary font-medium' : 'bg-white border-neutral-200 text-neutral-700 hover:border-neutral-300 hover:bg-neutral-50')
+              (isActive ? 'bg-[#f1edff] border-[#cbbdf2] text-primary font-medium' : 'bg-white border-neutral-200 text-neutral-700 hover:border-neutral-300 hover:bg-neutral-50')
             }
           >
             {t.label}

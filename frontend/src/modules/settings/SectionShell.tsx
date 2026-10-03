@@ -10,14 +10,14 @@ import { Button } from '@/components/Button';
 
 /** A tinted icon square per section, keyed by its title. */
 const LOOK: Record<string, { Icon: typeof Settings; bg: string; fg: string }> = {
-  'Departments': { Icon: Building2, bg: '#e8eef8', fg: '#1a4b8c' },
-  'Designations': { Icon: Briefcase, bg: '#eff6ff', fg: '#1e40af' },
+  'Departments': { Icon: Building2, bg: '#efeafd', fg: '#6941d9' },
+  'Designations': { Icon: Briefcase, bg: '#f5f1ff', fg: '#5b33c4' },
   'Work locations': { Icon: MapPin, bg: '#e9f9f1', fg: '#047857' },
   'Holiday calendar': { Icon: CalendarDays, bg: '#fff7e6', fg: '#b45309' },
   'Leave types': { Icon: CalendarRange, bg: '#e9f9f1', fg: '#047857' },
   'Expense categories': { Icon: Receipt, bg: '#fff7e6', fg: '#b45309' },
-  'Statutory rates': { Icon: BadgePercent, bg: '#eff6ff', fg: '#1e40af' },
-  'Roles & permissions': { Icon: KeyRound, bg: '#e8eef8', fg: '#1a4b8c' },
+  'Statutory rates': { Icon: BadgePercent, bg: '#f5f1ff', fg: '#5b33c4' },
+  'Roles & permissions': { Icon: KeyRound, bg: '#efeafd', fg: '#6941d9' },
 };
 
 interface Props {

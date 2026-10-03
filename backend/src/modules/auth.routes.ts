@@ -80,6 +80,11 @@ authRouter.post('/login', handler(async (req, res) => {
 
 authRouter.post('/logout', authenticate, handler(async (req, res) => {
   const session = requireSession(req)
+  // This browser must stop receiving the signed-out user's notifications.
+  const pushEndpoint = typeof req.body?.push_endpoint === 'string' ? req.body.push_endpoint : null
+  if (pushEndpoint) {
+    await prisma.pushSubscription.deleteMany({ where: { endpoint: pushEndpoint, userId: session.userId } })
+  }
   res.clearCookie(env.cookieName, { path: '/' })
   await writeAudit({
     actorUserId: session.userId, action: 'auth.logout', entityType: 'User', entityId: session.userId, req,

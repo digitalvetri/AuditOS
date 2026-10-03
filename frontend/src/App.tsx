@@ -136,6 +136,7 @@ import { useAuth } from '@/platform/auth/AuthContext';
 import { NotFoundPage } from '@/pages/NotFound';
 import { NotificationsPage } from '@/pages/Notifications';
 import { ToastProvider } from '@/components/Toast';
+import { PwaProvider } from '@/platform/pwa/PwaProvider';
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -172,6 +173,7 @@ export default function App() {
   return (
     <QueryClientProvider client={queryClient}>
       <ToastProvider>
+        <PwaProvider>
         <AuthProvider>
           <BrowserRouter>
             <Routes>
@@ -512,6 +514,7 @@ export default function App() {
             </Routes>
           </BrowserRouter>
         </AuthProvider>
+        </PwaProvider>
       </ToastProvider>
     </QueryClientProvider>
   );

@@ -27,3 +27,6 @@ src/modules/tools/__tests__/fixtures/out/
 .vscode/
 *.swp
 Thumbs.db
+
+# Locally generated Web Push keys (src/platform/push.ts).
+.vapid-keys.json

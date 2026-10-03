@@ -146,7 +146,7 @@ export function TogglePill({ on, onChange, children }: { on: boolean; onChange: 
 }
 
 const pill = (on: boolean) => `h-8 px-3 inline-flex items-center gap-1 text-13 rounded-full border transition-colors whitespace-nowrap ${
-  on ? 'bg-[#eaf0f8] border-[#b5c6df] text-primary font-medium' : 'bg-white border-neutral-200 text-neutral-700 hover:border-neutral-300 hover:bg-neutral-50'
+  on ? 'bg-[#f1edff] border-[#cbbdf2] text-primary font-medium' : 'bg-white border-neutral-200 text-neutral-700 hover:border-neutral-300 hover:bg-neutral-50'
 }`;
 
 /**
@@ -309,7 +309,7 @@ export const TwoLine = ({ top, sub, avatar, square }: { top: ReactNode; sub?: Re
 type Tone = { bg: string; fg: string; dot: string };
 const TONES: Record<'grey' | 'blue' | 'green' | 'amber' | 'red', Tone> = {
   grey: { bg: '#f1f5f9', fg: '#475569', dot: '#94a3b8' },
-  blue: { bg: '#eff6ff', fg: '#1e40af', dot: '#2563eb' },
+  blue: { bg: '#f5f1ff', fg: '#5b33c4', dot: '#7a5af8' },
   green: { bg: '#ecfdf5', fg: '#047857', dot: '#10b981' },
   amber: { bg: '#fffbeb', fg: '#b45309', dot: '#f59e0b' },
   red: { bg: '#fef2f2', fg: '#b91c1c', dot: '#ef4444' },

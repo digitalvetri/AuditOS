@@ -30,6 +30,8 @@
  */
 import { Prisma } from '@prisma/client'
 import { prisma } from '../../lib/prisma.js'
+import { formatINR } from '../../lib/money.js'
+import { notifyEmployee } from '../../platform/notify.js'
 import { zpayConfig, type ZpayConfig } from './config.js'
 import { decryptToken, encryptToken } from './crypto.js'
 import { classify, proposeProbableForPayment } from './matcher.js'
@@ -437,7 +439,7 @@ async function upsertPayment(
     { invoiceSeriesPrefix: account.invoiceSeriesPrefix },
   )
   if (outcome.matchType === 'exact') {
-    await prisma.zpayPayment.updateMany({
+    const matched = await prisma.zpayPayment.updateMany({
       where: {
         accountRowId: account.id,
         zohoPaymentId,
@@ -448,6 +450,13 @@ async function upsertPayment(
         matchedInvoiceRef: outcome.matchedInvoiceRef,
       },
     })
+    // Only a payment that became matched just now — a re-sync of one that
+    // was already matched updates nothing and tells no one — and only a
+    // recent one, so a first-sync backfill of history stays quiet.
+    const recent = paidAt != null && Date.now() - paidAt.getTime() <= 7 * 86_400_000
+    if (matched.count > 0 && recent && outcome.matchedInvoiceRef) {
+      await notifyMatched(account.id, outcome.matchedInvoiceRef, amountPaise, data.customerName)
+    }
     return
   }
 
@@ -464,6 +473,25 @@ async function upsertPayment(
   if (created?.matchType === 'unmatched') {
     await proposeProbableForPayment(created.id)
   }
+}
+
+/** Tell the invoice's client's account manager the money arrived. Best effort. */
+async function notifyMatched(accountRowId: string, invoiceNumber: string, amountPaise: number, customerName: string | null) {
+  try {
+    const inv = await prisma.zpayExternalInvoice.findFirst({
+      where: { billingAccountId: accountRowId, invoiceNumber, deletedAt: null },
+      select: { client: { select: { id: true, companyName: true, accountManagerId: true } } },
+    })
+    const client = inv?.client
+    if (!client) return
+    await notifyEmployee(client.accountManagerId, {
+      type: 'zpay.payment_matched', module: 'workstation',
+      title: `Payment received — ${invoiceNumber}`,
+      body: `${formatINR(amountPaise)} from ${customerName ?? client.companyName} · matched via Zoho Payments`,
+      entityType: 'Client', entityId: client.id,
+      actionUrl: `/workstation/clients/${client.id}`,
+    })
+  } catch { /* best effort */ }
 }
 
 async function upsertRefund(

@@ -4,6 +4,7 @@ import jwt from 'jsonwebtoken'
 import { env } from '../../lib/env.js'
 import { loadSession } from '../../platform/auth.js'
 import { setNotificationEmitter } from '../../platform/notify.js'
+import { notificationToApi } from '../../api/serialize.js'
 import { chatBus, type ChatEvent } from './events.js'
 
 /**
@@ -11,15 +12,44 @@ import { chatBus, type ChatEvent } from './events.js'
  * more — no domain code imports socket.io, so the messaging service is
  * testable and the transport is replaceable.
  *
- * The handshake is authenticated with the same JWT the HTTP API uses. An
- * unauthenticated socket never joins a room.
+ * The handshake is authenticated with the same JWT the HTTP API uses — read
+ * from the httpOnly session cookie the browser sends with the upgrade request
+ * (same origin through the proxy), or from `auth.token` for non-browser
+ * clients. An unauthenticated socket never joins a room.
  */
+function cookieToken(header: string | undefined): string | undefined {
+  if (!header) return undefined
+  for (const part of header.split(';')) {
+    const i = part.indexOf('=')
+    if (i < 0) continue
+    if (part.slice(0, i).trim() === env.cookieName) return decodeURIComponent(part.slice(i + 1).trim())
+  }
+  return undefined
+}
+
 export function attachRealtime(http: HttpServer) {
-  const io = new Server(http, { cors: { origin: env.webOrigins, credentials: true } })
+  const io = new Server(http, {
+    cors: { origin: env.webOrigins, credentials: true },
+    // The cookie rides along on any page's websocket, and CORS does not apply
+    // to the websocket transport — so a browser connection must come from
+    // this app's own origin (same host) or a configured web origin.
+    allowRequest: (req, done) => {
+      const origin = req.headers.origin
+      if (!origin) return done(null, true) // non-browser client; auth still required
+      try {
+        // Hostname only: nginx forwards `Host: $host`, which drops the port.
+        const sameHost = new URL(origin).hostname === String(req.headers.host ?? '').replace(/:\d+$/, '')
+        done(null, sameHost || env.webOrigins.includes(origin))
+      } catch {
+        done(null, false)
+      }
+    },
+  })
 
   io.use(async (socket: Socket, next) => {
     try {
-      const token = socket.handshake.auth?.token as string | undefined
+      const token = (socket.handshake.auth?.token as string | undefined)
+        ?? cookieToken(socket.request.headers.cookie)
       if (!token) return next(new Error('unauthorized'))
       const payload = jwt.verify(token, env.jwtSecret) as jwt.JwtPayload
       const session = await loadSession(String(payload.sub))
@@ -35,8 +65,9 @@ export function attachRealtime(http: HttpServer) {
     const session = socket.data.session as { userId: string; employeeId: string | null }
     socket.join(`user:${session.userId}`)
     if (session.employeeId) socket.join(`employee:${session.employeeId}`)
-    socket.on('chat:join', (chatId: string) => socket.join(`chat:${chatId}`))
-    socket.on('chat:leave', (chatId: string) => socket.leave(`chat:${chatId}`))
+    // No client-chosen rooms: joining `chat:<id>` without a membership check
+    // would let any signed-in user listen to any chat. Members hear about
+    // chat events through their own `employee:` room (chat:activity).
   })
 
   chatBus.on('chat', (event: ChatEvent) => {
@@ -46,8 +77,8 @@ export function attachRealtime(http: HttpServer) {
     }
   })
 
-  setNotificationEmitter((userId, payload) => {
-    io.to(`user:${userId}`).emit('notification:new', payload)
+  setNotificationEmitter((userId, row) => {
+    io.to(`user:${userId}`).emit('notification:new', notificationToApi(row as Parameters<typeof notificationToApi>[0]))
   })
 
   return io

@@ -95,7 +95,7 @@ function TabBtn({ id, active, onClick, children }: { id: string; active: boolean
       data-testid={`expense-tab-${id}`}
       className={
         'h-8 px-3 inline-flex items-center text-13 rounded-full border transition-colors whitespace-nowrap ' +
-        (active ? 'bg-[#eaf0f8] border-[#b5c6df] text-primary font-medium' : 'bg-white border-neutral-200 text-neutral-700 hover:border-neutral-300 hover:bg-neutral-50')
+        (active ? 'bg-[#f1edff] border-[#cbbdf2] text-primary font-medium' : 'bg-white border-neutral-200 text-neutral-700 hover:border-neutral-300 hover:bg-neutral-50')
       }
     >
       {children}

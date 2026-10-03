@@ -44,7 +44,7 @@ export function GovernmentPortalsCard({ clientId, clientName }: { clientId: stri
   return (
     <section className="dash-card p-5 mb-5" aria-label="Government portals">
       <div className="flex flex-wrap items-center gap-3 mb-3">
-        <span className="h-9 w-9 rounded-lg inline-flex items-center justify-center" style={{ background: '#eff6ff', color: '#1e40af', boxShadow: 'inset 0 0 0 1px #dbeafe' }}>
+        <span className="h-9 w-9 rounded-lg inline-flex items-center justify-center" style={{ background: '#f5f1ff', color: '#5b33c4', boxShadow: 'inset 0 0 0 1px #ece6ff' }}>
           <KeyRound size={16} strokeWidth={1.9} />
         </span>
         <div className="min-w-0 flex-1">
@@ -56,7 +56,7 @@ export function GovernmentPortalsCard({ clientId, clientName }: { clientId: stri
       <div className="flex flex-wrap gap-2">
         {PORTALS.map((p) => (
           <button key={p.registrationId} type="button" disabled={busy !== null} onClick={() => void launch(p)}
-            className="h-9 px-3 inline-flex items-center gap-2 text-13 font-medium rounded-lg border border-neutral-200 bg-white text-primary hover:border-primary/40 hover:bg-[#f4f7fb] disabled:opacity-60">
+            className="h-9 px-3 inline-flex items-center gap-2 text-13 font-medium rounded-lg border border-neutral-200 bg-white text-primary hover:border-primary/40 hover:bg-[#f7f5ff] disabled:opacity-60">
             <ExternalLink size={14} strokeWidth={2} />
             {busy === p.registrationId ? 'Opening…' : p.label}
           </button>

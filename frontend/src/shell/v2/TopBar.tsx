@@ -3,14 +3,14 @@
  *
  * 64px sticky. Left: global search flex-1 max-width 940px. Right: 4 lucide
  * icons (Search = focus the box / ⌘K, Sun|Moon = theme, Bell = notifications
- * menu, PanelRight = quick panel), 1px divider, avatar + name + ChevronDown as
- * dropdown trigger.
+ * menu), 1px divider, avatar + name + ChevronDown, which opens the quick
+ * panel (today's attendance, notifications, shortcuts, log out).
  */
 import { useEffect, useRef, useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import {
-  ChevronDown, FileSignature, Handshake, Menu, Moon, PanelRight, PhoneCall, Plane, Plus, ReceiptText, Receipt,
+  ChevronDown, FileSignature, Handshake, Menu, Moon, PhoneCall, Plane, Plus, ReceiptText, Receipt,
   ScrollText, Search, Sun, UserPlus,
 } from 'lucide-react';
 import { useAuth } from '@/platform/auth/AuthContext';
@@ -28,22 +28,10 @@ interface Props {
 }
 
 export function TopBar({ onOpenMobileNav }: Props) {
-  const { session, logout } = useAuth();
-  const navigate = useNavigate();
-  const [menuOpen, setMenuOpen] = useState(false);
+  const { session } = useAuth();
   const [panelOpen, setPanelOpen] = useState(false);
-  const menuRef = useRef<HTMLDivElement | null>(null);
   const searchRef = useRef<GlobalSearchHandle | null>(null);
   const { theme, toggle: toggleTheme } = useTheme();
-
-  useEffect(() => {
-    if (!menuOpen) return;
-    const onClick = (e: MouseEvent) => {
-      if (menuRef.current && !menuRef.current.contains(e.target as Node)) setMenuOpen(false);
-    };
-    document.addEventListener('mousedown', onClick);
-    return () => document.removeEventListener('mousedown', onClick);
-  }, [menuOpen]);
 
   // Target reference uses a plain silhouette in a grey chip; the display
   // name is read inline from the session inside the trigger button below.
@@ -91,22 +79,20 @@ export function TopBar({ onOpenMobileNav }: Props) {
           {theme === 'dark' ? <Moon size={20} strokeWidth={1.75} /> : <Sun size={20} strokeWidth={1.75} />}
         </IconBtn>
         <NotificationsMenu />
-        <IconBtn className="hidden md:inline-flex" label={panelOpen ? 'Close quick panel' : 'Open quick panel'} onClick={() => setPanelOpen((v) => !v)} data-testid="topbar-panel" aria-pressed={panelOpen}>
-          <PanelRight size={20} strokeWidth={1.75} />
-        </IconBtn>
 
         <CreateMenu />
 
         <span className="hidden md:block h-6 w-px bg-border" aria-hidden />
 
-        {/* Avatar dropdown trigger */}
-        <div className="relative" ref={menuRef}>
+        {/* Avatar: opens the quick panel */}
+        <div className="relative">
           <button
             type="button"
-            onClick={() => setMenuOpen((v) => !v)}
+            onClick={() => setPanelOpen((v) => !v)}
             className="flex items-center gap-2 h-11 md:h-10 pr-1 pl-1 rounded-md hover:bg-canvas"
-            aria-haspopup="menu"
-            aria-expanded={menuOpen}
+            aria-haspopup="dialog"
+            aria-expanded={panelOpen}
+            data-testid="topbar-panel"
           >
             <Avatar name={session?.employee?.full_name ?? session?.user.email} src={session?.employee?.photo_url} size={34} />
             <span className="hidden xl:inline text-14 font-medium text-ink">
@@ -114,24 +100,6 @@ export function TopBar({ onOpenMobileNav }: Props) {
             </span>
             <ChevronDown size={16} strokeWidth={1.75} className="text-inkMuted" />
           </button>
-          {menuOpen ? (
-            <div
-              className="absolute right-0 top-12 w-[220px] bg-surface border border-border rounded-lg shadow-drawer py-1 z-40"
-              role="menu"
-            >
-              <MenuItem onClick={() => { setMenuOpen(false); navigate('/me/profile'); }}>My Profile</MenuItem>
-              <MenuItem onClick={() => { setMenuOpen(false); navigate('/me/attendance'); }}>My Attendance</MenuItem>
-              <MenuItem onClick={() => { setMenuOpen(false); navigate('/me/leave'); }}>My Leave</MenuItem>
-              <MenuItem onClick={() => { setMenuOpen(false); navigate('/me/expenses'); }}>My Expenses</MenuItem>
-              <MenuItem onClick={() => { setMenuOpen(false); navigate('/me/payslips'); }}>My Payslips</MenuItem>
-              <div className="h-px bg-border my-1" />
-              <MenuItem
-                onClick={async () => { setMenuOpen(false); await logout(); navigate('/login', { replace: true }); }}
-              >
-                Log out
-              </MenuItem>
-            </div>
-          ) : null}
         </div>
       </div>
       <RightPanel open={panelOpen} onClose={() => setPanelOpen(false)} />
@@ -169,18 +137,6 @@ function IconBtn({
   );
 }
 
-function MenuItem({ onClick, children }: { onClick: () => void; children: React.ReactNode }) {
-  return (
-    <button
-      type="button"
-      role="menuitem"
-      onClick={onClick}
-      className="block w-full text-left h-9 px-3 text-13 text-ink hover:bg-canvas"
-    >
-      {children}
-    </button>
-  );
-}
 
 // ── Who's in ───────────────────────────────────────────────────────────────
 

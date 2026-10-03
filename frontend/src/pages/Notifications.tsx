@@ -13,6 +13,7 @@ import { notificationsApi, snoozePresets } from '@/platform/notifications/api';
 import { fmtDateTime } from '@/lib/format';
 import { Button } from '@/components/Button';
 import type { Notification } from '@/data/models';
+import { DeviceCard } from '@/platform/pwa/PwaUi';
 
 type Tab = 'active' | 'snoozed';
 
@@ -60,8 +61,8 @@ export function NotificationsPage() {
     <div className="max-w-[840px] mx-auto space-y-6">
       <header className="flex items-baseline justify-between gap-4 flex-wrap">
         <div>
-          <div className="text-11 uppercase tracking-[0.06em] text-neutral-500">Platform</div>
-          <h1 className="text-20 font-semibold text-neutral-900 mt-1">Notifications</h1>
+          <h1 className="text-[26px] leading-tight font-semibold tracking-[-0.01em] text-neutral-900">Notifications</h1>
+          <p className="text-13 text-neutral-500 mt-1">Everything that needs your attention, newest first.</p>
         </div>
         {tab === 'active' && q.data && q.data.unread > 0 ? (
           <Button variant="secondary" onClick={() => markAll.mutate()} disabled={markAll.isPending}>
@@ -69,6 +70,7 @@ export function NotificationsPage() {
           </Button>
         ) : null}
       </header>
+      <DeviceCard />
 
       <div className="flex gap-1 border-b border-neutral-200">
         {(['active', 'snoozed'] as const).map((t) => (
@@ -91,7 +93,7 @@ export function NotificationsPage() {
         ))}
       </div>
 
-      <div className="bg-white border border-neutral-200 rounded overflow-hidden">
+      <div className="dash-card bg-white border border-neutral-200 rounded-lg overflow-hidden">
         {q.isLoading ? (
           <div className="h-40 bg-neutral-100" aria-label="Loading" />
         ) : items.length === 0 ? (
