@@ -11,8 +11,23 @@ import { VOUCHER_TYPE_SEEDS, GST_LEDGER_SEEDS } from '../engine/voucherTypes.js'
  * created before this slice existed pick up their voucher types without
  * a data migration and without ever double-seeding.
  */
+/**
+ * Operational ledgers the import deriver needs. buildLedgerSnapshot picks
+ * the alphabetical-first ledger under each group as the default — without
+ * at least one, every imported sales/purchase row flags as
+ * `no_sales_ledger` / `no_purchase_ledger` and the commit button never
+ * enables. A firm that renames or adds their own ("Sales — Services",
+ * "Office Supplies Purchased") keeps that as the alphabetical-first
+ * default; we only seed when the group is empty so nothing surprising
+ * ever shows up alongside their own names.
+ */
+const OPERATIONAL_LEDGER_SEEDS: { groupName: string; ledgerName: string }[] = [
+  { groupName: 'Sales Accounts', ledgerName: 'Sales' },
+  { groupName: 'Purchase Accounts', ledgerName: 'Purchases' },
+]
+
 export const BookkeepingBootstrapService = {
-  async ensure(companyId: string): Promise<{ voucherTypesCreated: number; gstLedgersCreated: number }> {
+  async ensure(companyId: string): Promise<{ voucherTypesCreated: number; gstLedgersCreated: number; operationalLedgersCreated: number }> {
     const existingTypes = await prisma.bookkeepingVoucherType.findMany({
       where: { tallyCompanyId: companyId, ...alive }, select: { code: true },
     })
@@ -62,6 +77,37 @@ export const BookkeepingBootstrapService = {
       }
     }
 
+    // Operational default ledgers (Sales / Purchases). Seed one per group
+    // only when the group has none, so an existing company that already
+    // added its own ("Sales — Services") doesn't suddenly see a stock
+    // "Sales" row appear beside it on the next ensure() pass.
+    let operationalLedgersCreated = 0
+    for (const seed of OPERATIONAL_LEDGER_SEEDS) {
+      const group = await prisma.bookkeepingGroup.findFirst({
+        where: { tallyCompanyId: companyId, name: seed.groupName, ...alive },
+        select: { id: true },
+      })
+      if (!group) continue
+      const existing = await prisma.bookkeepingLedger.count({
+        where: { tallyCompanyId: companyId, groupId: group.id, ...alive },
+      })
+      if (existing > 0) continue
+      try {
+        await prisma.bookkeepingLedger.create({
+          data: {
+            tallyCompanyId: companyId,
+            name: seed.ledgerName,
+            groupId: group.id,
+          },
+        })
+        operationalLedgersCreated++
+      } catch {
+        // Unique (tallyCompanyId, name) collision — someone created a
+        // ledger of the same name under a different group between our
+        // check and insert. Treat as success-equivalent and move on.
+      }
+    }
+
     const unitCount = await prisma.bookkeepingUnit.count({ where: { tallyCompanyId: companyId, ...alive } })
     if (unitCount === 0) {
       await prisma.bookkeepingUnit.createMany({
@@ -79,6 +125,6 @@ export const BookkeepingBootstrapService = {
       await prisma.bookkeepingGodown.create({ data: { tallyCompanyId: companyId, name: 'Main Location' } })
     }
 
-    return { voucherTypesCreated: missing.length, gstLedgersCreated }
+    return { voucherTypesCreated: missing.length, gstLedgersCreated, operationalLedgersCreated }
   },
 }
