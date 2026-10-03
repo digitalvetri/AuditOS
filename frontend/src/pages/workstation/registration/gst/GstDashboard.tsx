@@ -35,12 +35,15 @@ function ReturnCell({ cell, onOpen, busy }: {
   busy: boolean;
 }) {
   if (!cell) return <span className="text-neutral-400">—</span>;
+  // Status words, not dates — the statutory 11/16/20 are the same every
+  // month and reading them row-by-row drowns out what matters, which is
+  // "is this one still outstanding?". `cell.due_date` is used as the
+  // button's title attribute for the handful of operators who want it.
   const label =
-    cell.state === 'done' ? (cell.due_date ? new Date(cell.due_date).toLocaleDateString('en-IN', { day: '2-digit', month: 'short' }) : 'done')
-    : cell.state === 'overdue' ? 'overdue'
-    : cell.state === 'due' && cell.due_date ? new Date(cell.due_date).toLocaleDateString('en-IN', { day: '2-digit', month: 'short' })
-    : cell.due_date ? new Date(cell.due_date).toLocaleDateString('en-IN', { day: '2-digit', month: 'short' })
-    : 'not started';
+    cell.state === 'done'    ? 'Filed'
+    : cell.state === 'overdue' ? 'Overdue'
+    : cell.state === 'due'   ? 'Due soon'
+    : 'Pending';
   const Icon = cell.state === 'done' ? Check : cell.state === 'overdue' ? AlertTriangle : Circle;
   // A tinted chip per state — filed green, overdue red, due amber, not started grey.
   const chip =
@@ -53,6 +56,7 @@ function ReturnCell({ cell, onOpen, busy }: {
       type="button"
       onClick={onOpen ? (e) => { e.stopPropagation(); onOpen(); } : undefined}
       disabled={!onOpen || busy}
+      title={cell.due_date ? `${label} · due ${new Date(cell.due_date).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}` : label}
       className={
         'inline-flex items-center gap-[6px] h-7 px-[10px] rounded-full text-12 font-semibold whitespace-nowrap transition-shadow disabled:opacity-60 ' + chip + ' ' +
         (onOpen ? 'cursor-pointer hover:shadow-[inset_0_0_0_1px_currentColor]' : 'cursor-default')
@@ -126,7 +130,9 @@ export function GstDashboard({ focusKind }: { focusKind?: 'GSTR1' | 'GSTR2B' | '
       if (filter === 'monthly' && r.filing_frequency !== 'monthly') return false;
       if (filter === 'quarterly' && r.filing_frequency !== 'quarterly') return false;
       if (filter === 'needs_action') {
-        const anyOverdue = [r.gstr1, r.gstr2b, r.gstr3b].some((c) => c?.state === 'overdue' || c?.state === 'due');
+        // "Needs action" means "has a return that someone has to actually
+        // file" — so GSTR-2B is excluded, matching the dashboard columns.
+        const anyOverdue = [r.gstr1, r.gstr3b].some((c) => c?.state === 'overdue' || c?.state === 'due');
         if (!anyOverdue) return false;
       }
       if (needle && !r.name.toLowerCase().includes(needle) && !r.gstin.toLowerCase().includes(needle)) return false;
@@ -156,17 +162,30 @@ export function GstDashboard({ focusKind }: { focusKind?: 'GSTR1' | 'GSTR2B' | '
       <QueryState query={dash}>
         {(d) => (
           <>
-            {/* Counter strip — five numbers, no cards. */}
+            {/* Counter strip — five numbers, no cards.
+                `d.counters.overdue` + `due_soon` sum ALL three return kinds,
+                including GSTR-2B. We now show only GSTR-1 + GSTR-3B because
+                GSTR-2B has no filing action — the strip has to match the
+                grid or operators lose trust in the numbers. */}
             <div className="text-13 text-neutral-700 flex flex-wrap gap-x-6 gap-y-1">
               <span><strong className="tabular-nums">{d.counters.total_clients}</strong> clients</span>
               <span><strong className="tabular-nums">{d.counters.monthly}</strong> monthly</span>
               <span><strong className="tabular-nums">{d.counters.quarterly}</strong> quarterly</span>
-              <span className={d.counters.overdue ? 'text-red' : ''}>
-                <strong className="tabular-nums">{d.counters.overdue}</strong> overdue
-              </span>
-              <span className={d.counters.due_soon ? 'text-amber' : ''}>
-                <strong className="tabular-nums">{d.counters.due_soon}</strong> due ≤3 days
-              </span>
+              {(() => {
+                const rows = d.clients;
+                const overdue = rows.reduce((n, c) => n + [c.gstr1, c.gstr3b].filter((x) => x?.state === 'overdue').length, 0);
+                const dueSoon = rows.reduce((n, c) => n + [c.gstr1, c.gstr3b].filter((x) => x?.state === 'due').length, 0);
+                return (
+                  <>
+                    <span className={overdue ? 'text-red' : ''}>
+                      <strong className="tabular-nums">{overdue}</strong> overdue
+                    </span>
+                    <span className={dueSoon ? 'text-amber' : ''}>
+                      <strong className="tabular-nums">{dueSoon}</strong> due ≤3 days
+                    </span>
+                  </>
+                );
+              })()}
             </div>
 
             <UpcomingRemindersPanel period={period} />
@@ -200,13 +219,18 @@ export function GstDashboard({ focusKind }: { focusKind?: 'GSTR1' | 'GSTR2B' | '
               {filtered.length === 0 ? (
                 <div className="px-4 py-6 text-13 text-neutral-500">No clients match these filters.</div>
               ) : (
-                <Table head={['Client', 'GSTIN', 'Type', 'GSTR-1', 'IMS + 2B', 'GSTR-3B']}>
+                // GSTR-2B is deliberately not surfaced here — it is auto-
+                // generated by GSTN on the 14th and has no filing action
+                // on the firm's side. Keeping it as a column with a static
+                // date chip for every client was noise. Status is accessed
+                // through the client view when needed.
+                <Table head={['Client', 'GSTIN', 'Type', 'GSTR-1', 'GSTR-3B']}>
                   {filtered.map((r) => (
                     <Row key={r.client_id} onClick={() => navigate(`../clients/${r.client_id}`)}>
                       <Cell><span className="font-medium">{r.name}</span></Cell>
                       <Cell muted><span className="font-mono text-12">{r.gstin}</span></Cell>
                       <Cell muted className="capitalize">{r.filing_frequency}</Cell>
-                      {(['gstr1', 'gstr2b', 'gstr3b'] as const).map((k) => (
+                      {(['gstr1', 'gstr3b'] as const).map((k) => (
                         <Cell key={k}>
                           <ReturnCell
                             cell={r[k]}
@@ -220,7 +244,7 @@ export function GstDashboard({ focusKind }: { focusKind?: 'GSTR1' | 'GSTR2B' | '
                 </Table>
               )}
               <div className="px-4 py-2 text-11 text-neutral-500 border-t border-neutral-100">
-                ✓ done · ▍ due or overdue · ○ not started · — not this month
+                ✓ Filed · ▍ Due soon or overdue · ○ Pending · — not this month · hover a status for the due date
               </div>
             </Card>
           </>

@@ -27,6 +27,14 @@ import { openCase } from '../partnership/service.js'
 import { TaskService } from '../task/service.js'
 import { createRuleResolver, type FilingFrequency, type ReturnKind } from './dueDate.js'
 import { computeUpcoming, sendClientReminder, defaultReminderSubject, defaultReminderBody } from './reminders.js'
+import multer from 'multer'
+import {
+  GST_DOC_TYPES, isDraftTemplate, isGstDocType,
+  listGstDocuments, readGstDocumentBytes, renderDraft, uploadGstDocument,
+} from './documents.js'
+import { sendFile } from '../workstation/client-folders.routes.js'
+
+const gstDocUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024, files: 1 } })
 import {
   assertDate, assertFilingRecord, assertGstin, assertGstinMatchesPan, assertGstr1Transition,
   assertGstr2bTransition, assertGstr3bTransition, assertOneOf, assertPan,
@@ -1192,6 +1200,7 @@ gstRouter.patch('/clients/:id', handler(async (req, res) => {
     contactPhone: has('contact_phone') ? s('contact_phone') : current.contactPhone,
     address: has('address') ? s('address') : current.address,
     active: has('active') ? b.active !== false : current.active,
+    remindersEnabled: has('reminders_enabled') ? b.reminders_enabled !== false : current.remindersEnabled,
     updatedBy: session.userId,
   }
 
@@ -1210,6 +1219,44 @@ gstRouter.patch('/clients/:id', handler(async (req, res) => {
   })
 
   ok(res, { ok: true })
+}))
+
+/**
+ * PATCH /api/gst/clients/:id/reminders-enabled
+ *
+ * Dedicated single-field endpoint for the one-click toggle on the Clients
+ * tab. Separate from the full PATCH /clients/:id to keep the payload
+ * minimal and to allow a less-privileged "settings" permission later
+ * without opening the whole edit surface. For now it reuses the same
+ * manage gate.
+ */
+gstRouter.patch('/clients/:id/reminders-enabled', handler(async (req, res) => {
+  const session = requireSession(req)
+  const scope = requireWorkstation(session, 'workstation.gst.manage')
+  const ids = await assignedClientIds(session, scope)
+  const current = await prisma.gstProfile.findFirst({
+    where: { ...alive, id: req.params.id, ...(ids === 'ALL' ? {} : { clientId: { in: ids } }) },
+  })
+  if (!current) throw ApiError.notFound()
+  const b = (req.body ?? {}) as Record<string, unknown>
+  if (typeof b.reminders_enabled !== 'boolean') {
+    throw ApiError.badRequest('reminders_enabled must be true or false.')
+  }
+  if (b.reminders_enabled === current.remindersEnabled) {
+    return ok(res, { ok: true, reminders_enabled: current.remindersEnabled })
+  }
+  await prisma.gstProfile.update({
+    where: { id: current.id },
+    data: { remindersEnabled: b.reminders_enabled, updatedBy: session.userId },
+  })
+  await writeGstAudit({
+    gstProfileId: current.id,
+    action: b.reminders_enabled ? 'GST_REMINDERS_ENABLED' : 'GST_REMINDERS_DISABLED',
+    stage: 'client',
+    userId: session.userId,
+    meta: { before: current.remindersEnabled, after: b.reminders_enabled },
+  })
+  ok(res, { ok: true, reminders_enabled: b.reminders_enabled })
 }))
 
 /**
@@ -1284,6 +1331,97 @@ gstRouter.post('/reminders/send', handler(async (req, res) => {
  * Returns the pre-filled subject + body + recipient the Send modal opens
  * with. Pure derivation — no side effects.
  */
+/**
+ * GET /api/gst/clients/:clientId/documents
+ *
+ * The GST documents panel on the client view reads this. Returns every
+ * doc in the `gst_registration` category for the client, newest first,
+ * with its sub-type decoded from the stored name prefix.
+ */
+gstRouter.get('/clients/:clientId/documents', handler(async (req, res) => {
+  const session = requireSession(req)
+  requireWorkstation(session, 'workstation.gst.read', 'workstation.gst.manage')
+  const items = await listGstDocuments(prisma, req.params.clientId)
+  ok(res, { items, doc_types: GST_DOC_TYPES })
+}))
+
+/**
+ * POST /api/gst/clients/:clientId/documents (multipart/form-data)
+ *
+ * Fields: `file` (required), `doc_type` (required: registration_cert |
+ * composition_optin | amendment_cert | notice_order | other), `label`
+ * (optional), `reference` (optional, e.g. ARN).
+ *
+ * On a registration_cert upload we also open a 30-day task for the
+ * client's account manager (statutory display reminder). Idempotent per
+ * client — a re-upload reuses the existing open task.
+ */
+gstRouter.post('/clients/:clientId/documents', (req, res, next) => {
+  gstDocUpload.single('file')(req, res, (err: unknown) => {
+    if (err instanceof multer.MulterError) {
+      if (err.code === 'LIMIT_FILE_SIZE') return next(ApiError.unprocessable('file_too_large', 'The file is larger than 10 MB.'))
+      return next(ApiError.badRequest('Upload failed: ' + err.message))
+    }
+    if (err) return next(err)
+    void (async () => {
+      try {
+        const session = requireSession(req)
+        requireWorkstation(session, 'workstation.gst.manage')
+        const file = req.file
+        if (!file) throw ApiError.badRequest('Choose a file to upload.')
+        const b = (req.body ?? {}) as Record<string, unknown>
+        const docTypeRaw = typeof b.doc_type === 'string' ? b.doc_type : ''
+        if (!isGstDocType(docTypeRaw)) {
+          throw ApiError.badRequest(`doc_type must be one of ${GST_DOC_TYPES.join(', ')}.`)
+        }
+        const label = typeof b.label === 'string' ? b.label : null
+        const reference = typeof b.reference === 'string' ? b.reference : null
+        const result = await uploadGstDocument(prisma, {
+          clientId: req.params.clientId,
+          docType: docTypeRaw,
+          file: { buffer: file.buffer, originalname: file.originalname, size: file.size },
+          label,
+          reference,
+        }, { userId: session.userId, employeeId: session.employeeId ?? null })
+        ok(res, result, 201)
+      } catch (e) { next(e) }
+    })()
+  })
+})
+
+/**
+ * GET /api/gst/clients/:clientId/documents/:documentId/download
+ *
+ * Serves the latest version's bytes. Query ?download=1 forces an
+ * attachment response.
+ */
+gstRouter.get('/clients/:clientId/documents/:documentId/download', handler(async (req, res) => {
+  const session = requireSession(req)
+  requireWorkstation(session, 'workstation.gst.read', 'workstation.gst.manage')
+  const file = await readGstDocumentBytes(prisma, req.params.clientId, req.params.documentId)
+  if (!file) throw ApiError.notFound('Document not found.')
+  const download = String(req.query.download ?? '') === '1'
+  sendFile(res, file.bytes, file.name, file.mimeType, download)
+}))
+
+/**
+ * GET /api/gst/clients/:clientId/drafts/:template
+ *
+ * Renders a draft (today: welcome_letter) from the client's record +
+ * GST profile. Pure read — no bytes stored. The UI shows the result in
+ * an editor modal; the operator can download the text or paste it into
+ * the Send modal.
+ */
+gstRouter.get('/clients/:clientId/drafts/:template', handler(async (req, res) => {
+  const session = requireSession(req)
+  requireWorkstation(session, 'workstation.gst.read', 'workstation.gst.manage')
+  if (!isDraftTemplate(req.params.template)) {
+    throw ApiError.badRequest(`Unknown template "${req.params.template}".`)
+  }
+  const draft = await renderDraft(prisma, { clientId: req.params.clientId, template: req.params.template })
+  ok(res, draft)
+}))
+
 gstRouter.get('/reminders/template', handler(async (req, res) => {
   const session = requireSession(req)
   requireWorkstation(session, 'workstation.gst.read', 'workstation.gst.manage')

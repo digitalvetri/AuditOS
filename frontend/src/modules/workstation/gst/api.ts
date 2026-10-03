@@ -88,6 +88,7 @@ export interface GstClient {
   reviewer_employee_id: string | null;
   reviewer_employee_name: string | null;
   active: boolean;
+  reminders_enabled: boolean;
   period_count: number;
 }
 
@@ -222,6 +223,11 @@ export const gstApi = {
   /** Edit a client's GST registration details (§28). */
   updateClient: (id: string, body: Record<string, unknown>) =>
     api.patch<{ ok: true }>(`/api/gst/clients/${id}`, body),
+  /** One-click toggle for the Clients-tab Reminders column. */
+  toggleReminders: (id: string, enabled: boolean) =>
+    api.patch<{ ok: true; reminders_enabled: boolean }>(
+      `/api/gst/clients/${id}/reminders-enabled`, { reminders_enabled: enabled },
+    ),
   /** Add a client's work for one period to this section. */
   addEntry: (stage: StageKey, body: Record<string, unknown>) =>
     api.post<{ id: string; period: string; financial_year: string }>(
@@ -241,7 +247,41 @@ export const gstApi = {
     client_id: string; kind: 'GSTR1' | 'GSTR2B' | 'GSTR3B'; period: string; due_date: string;
     to: string; subject: string; body: string; case_id?: string | null; cc?: string[];
   }) => api.post<{ messageId: string; to: string; sentAt: string }>('/api/gst/reminders/send', body),
+
+  // ── Documents + drafts ─────────────────────────────────────────────────
+  listDocuments: (clientId: string) =>
+    api.get<{ items: GstDocument[]; doc_types: string[] }>(`/api/gst/clients/${clientId}/documents`),
+  uploadDocument: (clientId: string, form: FormData) =>
+    api.post<{ documentId: string; name: string; version: number; size: number; thirtyDayTaskId: string | null }>(
+      `/api/gst/clients/${clientId}/documents`, form,
+    ),
+  documentDownloadUrl: (clientId: string, documentId: string) =>
+    `/api/gst/clients/${clientId}/documents/${documentId}/download`,
+  draft: (clientId: string, template: 'welcome_letter') =>
+    api.get<DraftResult>(`/api/gst/clients/${clientId}/drafts/${template}`),
 };
+
+export type GstDocType = 'registration_cert' | 'composition_optin' | 'amendment_cert' | 'notice_order' | 'other';
+
+export interface GstDocument {
+  id: string;
+  name: string;
+  doc_type: GstDocType;
+  status: string;
+  version: number;
+  size_bytes: number;
+  mime_type: string;
+  original_name: string;
+  uploaded_at: string;
+}
+
+export interface DraftResult {
+  template: string;
+  subject: string;
+  body: string;
+  recipient_email: string | null;
+  variables: Record<string, string>;
+}
 
 export interface UpcomingReminderRow {
   key: string;
