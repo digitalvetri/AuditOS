@@ -34,11 +34,11 @@ import { tdsPortalApi } from '@/modules/tdsPortal/api';
 
 const STATUS_TINT: Record<SubServiceStatus['key'], { bg: string; fg: string }> = {
   not_registered:  { bg: '#EEF0F3', fg: '#475569' },
-  applied:         { bg: '#E2EAF5', fg: '#1A4B8C' },
+  applied:         { bg: '#E9E3FB', fg: '#6941D9' },
   active:          { bg: '#E7F5EE', fg: '#166534' },
   due:             { bg: '#FEF3C7', fg: '#B45309' },
   overdue:         { bg: '#FDE7EA', fg: '#B91C1C' },
-  in_progress:     { bg: '#E2EAF5', fg: '#1A4B8C' },
+  in_progress:     { bg: '#E9E3FB', fg: '#6941D9' },
   filed:           { bg: '#E7F5EE', fg: '#166534' },
   unpaid:          { bg: '#FEF3C7', fg: '#B45309' },
   paid:            { bg: '#E7F5EE', fg: '#166534' },

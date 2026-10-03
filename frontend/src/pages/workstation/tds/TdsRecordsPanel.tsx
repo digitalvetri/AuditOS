@@ -342,7 +342,7 @@ function summarize(r: TdsRecord): string {
 
 const PILL: Record<ExpectedItem['state'], { bg: string; fg: string }> = {
   done:        { bg: '#E7F5EE', fg: '#166534' },
-  in_progress: { bg: '#E2EAF5', fg: '#1A4B8C' },
+  in_progress: { bg: '#E9E3FB', fg: '#6941D9' },
   due:         { bg: '#FEF3C7', fg: '#B45309' },
   overdue:     { bg: '#FDE7EA', fg: '#B91C1C' },
 };

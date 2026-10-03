@@ -10,6 +10,8 @@ import '@fontsource-variable/inter/index.css';
 // Geist — the Teal & Coral UI face (self-hosted for the same reason as Inter;
 // Inter stays loaded as the fallback). Geist Mono sets codes and GSTINs.
 import '@fontsource-variable/geist/index.css';
+// Plus Jakarta Sans — the Pastel Bento UI face.
+import '@fontsource-variable/plus-jakarta-sans/index.css';
 import '@fontsource-variable/geist-mono/index.css';
 // Instrument Serif — the dashboard greeting only.
 import '@fontsource/instrument-serif/latin-400.css';

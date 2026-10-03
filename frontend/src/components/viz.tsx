@@ -149,7 +149,7 @@ function niceMax(v: number): number {
 // ── Gauge ──────────────────────────────────────────────────────────────────
 
 /** A 180° gauge for a 0–1 value, teal → coral gradient, animated in. */
-export function Gauge({ value, size = 200 }: { value: number; size?: number }) {
+export function Gauge({ value, size = 200, track = 'rgb(var(--c-white) / 0.10)' }: { value: number; size?: number; track?: string }) {
   const id = useId().replace(/:/g, '');
   const len = Math.PI * 80;
   const v = Math.max(0, Math.min(1, value));
@@ -157,13 +157,13 @@ export function Gauge({ value, size = 200 }: { value: number; size?: number }) {
     <svg viewBox="0 0 200 112" style={{ width: size, height: size * 0.56 }} aria-hidden>
       <defs>
         <linearGradient id={`g-${id}`} x1="0" x2="1">
-          <stop offset="0" stopColor="#93c5fd" /><stop offset="1" stopColor="#2563eb" />
+          <stop offset="0" stopColor="#5fd3c9" /><stop offset="1" stopColor="#0f9d96" />
         </linearGradient>
       </defs>
-      <path d="M20 104 A80 80 0 0 1 180 104" fill="none" stroke="rgb(var(--c-white) / 0.10)" strokeWidth="14" strokeLinecap="round" />
+      <path d="M20 104 A80 80 0 0 1 180 104" fill="none" stroke={track} strokeWidth="14" strokeLinecap="round" />
       <path d="M20 104 A80 80 0 0 1 180 104" fill="none" stroke={`url(#g-${id})`} strokeWidth="14" strokeLinecap="round"
         strokeDasharray={len} strokeDashoffset={len * (1 - v)} className="viz-gauge"
-        style={{ filter: 'drop-shadow(0 0 6px rgb(37 99 235 / 0.30))' }} />
+        style={{ filter: 'drop-shadow(0 0 6px rgb(122 90 248 / 0.30))' }} />
     </svg>
   );
 }
@@ -237,7 +237,7 @@ export function SegBar({ parts, className = '' }: { parts: { value: number; colo
 
 // ── Avatar ─────────────────────────────────────────────────────────────────
 
-const AVATAR_TONES = ['#1a4b8c', '#2f9e44', '#c27a0a', '#1d4ed8', '#2f62b0', '#4a5468', '#b45309', '#1c3d6e'];
+const AVATAR_TONES = ['#6941d9', '#2f9e44', '#c27a0a', '#6941d9', '#7a5af8', '#4a5468', '#b45309', '#3a3358'];
 
 export function initials(name: string | null | undefined): string {
   return (name ?? '').split(/\s+/).filter(Boolean).slice(0, 2).map((w) => w[0]).join('').toUpperCase() || '·';

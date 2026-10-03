@@ -127,6 +127,9 @@ const config: Config = {
       normal: '400',
       medium: '500',
       semibold: '600',
+      // Pastel Bento headings and figures use the heavier cuts.
+      bold: '700',
+      extrabold: '800',
     },
 
     // Spacing scale — 4px grid. Includes the sizes used by the shell
@@ -165,6 +168,7 @@ const config: Config = {
     extend: {
       fontFamily: {
         sans: [
+          'Plus Jakarta Sans Variable',
           'Geist Variable',
           'Inter Variable',
           'Inter',

@@ -78,7 +78,7 @@ export function LoginPage() {
               ['People', 'Attendance, leave, expenses and payroll'],
             ].map(([t, d]) => (
               <li key={t} className="dash-insight flex items-center gap-3 rounded-[12px] px-4 py-3">
-                <span className="h-8 w-8 shrink-0 rounded-[9px] grid place-items-center bg-[rgb(37_99_235/0.18)] text-[#93c5fd]">
+                <span className="h-8 w-8 shrink-0 rounded-[9px] grid place-items-center bg-[rgb(122_90_248/0.18)] text-[#c9b8ff]">
                   <CheckIcon />
                 </span>
                 <span>

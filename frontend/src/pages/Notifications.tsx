@@ -33,8 +33,8 @@ export function NotificationsPage() {
     <div className="max-w-[840px] mx-auto space-y-6">
       <header className="flex items-baseline justify-between gap-4 flex-wrap">
         <div>
-          <div className="text-11 uppercase tracking-[0.06em] text-neutral-500">Platform</div>
-          <h1 className="text-20 font-semibold text-neutral-900 mt-1">Notifications</h1>
+          <h1 className="text-[26px] leading-tight font-semibold tracking-[-0.01em] text-neutral-900">Notifications</h1>
+          <p className="text-13 text-neutral-500 mt-1">Everything that needs your attention, newest first.</p>
         </div>
         {q.data && q.data.unread > 0 ? (
           <Button variant="secondary" onClick={() => markAll.mutate()} disabled={markAll.isPending}>
@@ -42,7 +42,7 @@ export function NotificationsPage() {
           </Button>
         ) : null}
       </header>
-      <div className="bg-white border border-neutral-200 rounded overflow-hidden">
+      <div className="dash-card bg-white border border-neutral-200 rounded-lg overflow-hidden">
         {q.isLoading ? (
           <div className="h-40 bg-neutral-100" aria-label="Loading" />
         ) : (q.data?.items.length ?? 0) === 0 ? (
