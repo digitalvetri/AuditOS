@@ -121,15 +121,32 @@ async function suite() {
   await prisma.partnershipCase.update({ where: { id: g1Case!.id }, data: { status: 'IN_PROGRESS' } })
 
   // Scheduler path writes org-wide; filter result by our dedupe key prefix.
+  // Reminders now fan out to the assigned employee + reviewer + every active
+  // md/hr_admin user. Our fixture assigns one employee (the MD user, who is
+  // also an admin — same user), so the fan-out should dedupe to one bell
+  // per in-window item, not multiple.
   const beforeCount = await prisma.notification.count({ where: { entityType: 'gst_reminder', entityId: { contains: `:${client.id}:` } } })
   await sendGstReminders(prisma)
   const afterCount = await prisma.notification.count({ where: { entityType: 'gst_reminder', entityId: { contains: `:${client.id}:` } } })
-  check('Scheduler writes one notification per in-window item (2 new, GSTR-2B skipped)', afterCount - beforeCount, 2)
+  check('Scheduler writes at least one bell per in-window item', afterCount - beforeCount >= 2, true)
+  // The MD user is both the assigned employee and an admin role holder,
+  // so the fan-out dedupe collapses to one bell per (user, item). With
+  // one additional active admin in the system, we'd see 4 (2 items × 2
+  // users). The important invariant: the MD user never gets more than
+  // one bell per item.
+  const mdUserBells = await prisma.notification.count({
+    where: {
+      entityType: 'gst_reminder',
+      userId: user.id,
+      entityId: { contains: `:${client.id}:` },
+    },
+  })
+  check('Admin+assignee (same user) gets exactly one bell per item', mdUserBells, 2)
 
   // Second tick is a no-op.
   await sendGstReminders(prisma)
   const afterCount2 = await prisma.notification.count({ where: { entityType: 'gst_reminder', entityId: { contains: `:${client.id}:` } } })
-  check('Second tick creates no duplicates', afterCount2, afterCount)
+  check('Second tick creates no duplicates (per-user dedupe)', afterCount2, afterCount)
 
   // Per-client opt-out: flipping remindersEnabled to false drops the
   // client from both the panel feed and any subsequent scheduler tick.
