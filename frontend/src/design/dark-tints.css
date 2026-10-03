@@ -29,7 +29,6 @@
 :root[data-theme='dark'] .hover\:bg-\[\#f7f9fc\]:hover { background-color: rgb(255 255 255 / 0.06); }
 :root[data-theme='dark'] .hover\:bg-\[\#fff5f5\]:hover { background-color: rgb(211 69 69 / 0.14); }
 :root[data-theme='dark'] .ring-\[\#cdeede\]:not(.qdoc-page *):not(.qdoc-stack *) { --tw-ring-color: rgb(83 198 142 / 0.28); }
-:root[data-theme='dark'] .text-\[\#03262a\]:not(.qdoc-page *):not(.qdoc-stack *):not(.dash-hero *) { color: rgb(131 216 226); }
 :root[data-theme='dark'] .text-\[\#047857\]:not(.qdoc-page *):not(.qdoc-stack *):not(.dash-hero *) { color: rgb(131 226 199); }
 :root[data-theme='dark'] .text-\[\#0C7A7A\]:not(.qdoc-page *):not(.qdoc-stack *):not(.dash-hero *) { color: rgb(131 226 226); }
 :root[data-theme='dark'] .text-\[\#0c7a7a\]:not(.qdoc-page *):not(.qdoc-stack *):not(.dash-hero *) { color: rgb(131 226 226); }
