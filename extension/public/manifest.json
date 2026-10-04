@@ -26,7 +26,8 @@
     "https://*.ewaybillgst.gov.in/*",
     "https://*.epfindia.gov.in/*",
     "https://incometax.gov.in/*",
-    "https://*.incometax.gov.in/*"
+    "https://*.incometax.gov.in/*",
+    "https://sellercentral.amazon.in/*"
   ],
   "background": {
     "service_worker": "background.js",
@@ -77,6 +78,15 @@
         "portal.js"
       ],
       "run_at": "document_end"
+    },
+    {
+      "matches": [
+        "https://sellercentral.amazon.in/*"
+      ],
+      "js": [
+        "marketplace-amazon.js"
+      ],
+      "run_at": "document_idle"
     }
   ],
   "icons": {

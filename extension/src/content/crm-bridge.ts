@@ -22,4 +22,17 @@ window.addEventListener('message', (ev) => {
       window.postMessage({ source: 'auditos-extension', type: 'AUDITOS_PORTAL_LAUNCH_RESULT', requestId: d.requestId, ok: !!r?.ok, error: r ? (r.error ?? null) : 'The extension was reloaded — refresh this CRM page and try again.' }, window.location.origin);
     });
   }
+  // Repotic Ecommerce scope — AuditOS Ecommerce GSTR-1 page tells the
+  // extension which (client, GSTIN, period) is active. Content scripts on
+  // marketplace seller portals read this to pre-fill the upload scope so
+  // the staffer isn't asked twice (once in AuditOS and again on Amazon).
+  if (d.type === 'AUDITOS_SET_ECOMMERCE_SCOPE') {
+    void send({
+      type: 'AUDITOS_SET_ECOMMERCE_SCOPE',
+      payload: { ...d.payload, crmOrigin: window.location.origin, updatedAt: new Date().toISOString() },
+    });
+  }
+  if (d.type === 'AUDITOS_CLEAR_ECOMMERCE_SCOPE') {
+    void send({ type: 'AUDITOS_CLEAR_ECOMMERCE_SCOPE' });
+  }
 });

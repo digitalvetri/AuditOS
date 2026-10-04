@@ -15,7 +15,7 @@
  * surprise modal — nobody discovers at download that document summary
  * doesn't work for Myntra; they see it before uploading anything.
  */
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
 import { ArrowLeft, Upload, Check, AlertTriangle, Info } from 'lucide-react';
@@ -57,6 +57,23 @@ export function EcommerceGstr1HomePage() {
   });
 
   const clientName = clients.data?.items.find((c) => c.client_id === clientId)?.client_name ?? '';
+
+  // Push the scope to the AuditOS browser extension (if installed) so the
+  // marketplace FAB on Amazon Seller Central etc. already knows which
+  // client × GSTIN × period to attach uploads to. The extension listens for
+  // this on crm-bridge; if it isn't installed the postMessage is a no-op.
+  useEffect(() => {
+    if (clientId && effectiveGstin && period && clientName) {
+      window.postMessage(
+        {
+          source: 'auditos-crm',
+          type: 'AUDITOS_SET_ECOMMERCE_SCOPE',
+          payload: { clientId, clientName, gstin: effectiveGstin, period },
+        },
+        window.location.origin,
+      );
+    }
+  }, [clientId, clientName, effectiveGstin, period]);
 
   return (
     <div className="max-w-[1240px] mx-auto">

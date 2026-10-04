@@ -14,6 +14,7 @@ const opts = {
     background: 'src/background/service-worker.ts',
     'crm-bridge': 'src/content/crm-bridge.ts',
     portal: 'src/content/portal-detector.ts',
+    'marketplace-amazon': 'src/content/marketplace-amazon.ts',
     popup: 'src/ui/popup/popup.ts',
   },
   outdir: 'dist', bundle: true, format: 'iife', target: 'chrome116', minify: false, sourcemap: false, logLevel: 'info',

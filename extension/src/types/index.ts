@@ -62,3 +62,24 @@ export interface Credential {
 export interface GstNewRegistrationDetails {
   applicant_type: string; state: string; district: string; legal_name: string; pan: string; email: string; mobile: string
 }
+
+/**
+ * The Repotic Ecommerce GSTR-1 scope the AuditOS Ecommerce page is pointed
+ * at — one client × GSTIN × period. Written to chrome.storage.local by
+ * crm-bridge when the user picks a scope on the AuditOS Ecommerce page,
+ * read by marketplace content scripts (sellercentral.amazon.in and later
+ * Flipkart / Meesho / etc.) to pre-fill uploads.
+ *
+ * Only the scope — never a credential. The marketplace FAB uploads with
+ * `credentials: 'include'` so AuditOS session cookies attach from the
+ * crmOrigin automatically; nothing sensitive is persisted here.
+ */
+export interface EcommerceScope {
+  clientId: string;
+  clientName: string;
+  gstin: string;
+  period: string;        // YYYY-MM
+  /** AuditOS origin to POST the upload to (defaults to the last set origin). */
+  crmOrigin: string;
+  updatedAt: string;     // ISO
+}

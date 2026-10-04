@@ -78,7 +78,15 @@ chrome.runtime.onInstalled.addListener(() => {
   })();
 });
 
-const HANDLED = new Set(['AUDITOS_PORTAL_LAUNCH', 'AUDITOS_GET_STATE', 'AUDITOS_REQUEST_FILL', 'AUDITOS_POPUP_STATE', 'AUDITOS_POPUP_FILL']);
+const HANDLED = new Set([
+  'AUDITOS_PORTAL_LAUNCH', 'AUDITOS_GET_STATE', 'AUDITOS_REQUEST_FILL',
+  'AUDITOS_POPUP_STATE', 'AUDITOS_POPUP_FILL',
+  // Repotic Ecommerce scope — shared by crm-bridge (writes) and marketplace
+  // content scripts (reads).
+  'AUDITOS_SET_ECOMMERCE_SCOPE', 'AUDITOS_CLEAR_ECOMMERCE_SCOPE', 'AUDITOS_GET_ECOMMERCE_SCOPE',
+])
+
+const ECOMMERCE_SCOPE_KEY = 'ecommerceScope'
 
 chrome.runtime.onMessage.addListener((msg, sender, reply) => {
   if (!HANDLED.has(msg?.type)) return false;
@@ -145,6 +153,27 @@ chrome.runtime.onMessage.addListener((msg, sender, reply) => {
       if (!tab?.id) return answer({ ok: false });
       const r = await chrome.tabs.sendMessage(tab.id, { type: 'AUDITOS_FILL_NOW' }).catch(() => ({ ok: false, message: 'Reload the portal page (it was open before the extension updated), then press Autofill.' }));
       return answer(r);
+    }
+
+    // ── Repotic Ecommerce scope — AuditOS Ecommerce page writes, marketplace
+    //    content scripts read. Stored in chrome.storage.local so it survives
+    //    a browser restart (unlike launch contexts which are per-session).
+    //    We only accept writes from the registered CRM origins — a page on
+    //    some other site cannot push a scope that would then be used to
+    //    upload to the AuditOS backend.
+    if (msg?.type === 'AUDITOS_SET_ECOMMERCE_SCOPE') {
+      const origin = sender.origin ?? (sender.url ? new URL(sender.url).origin : '')
+      if (!CRM_ORIGINS.includes(origin)) return answer({ ok: false, error: 'Not a CRM origin.' })
+      await chrome.storage.local.set({ [ECOMMERCE_SCOPE_KEY]: msg.payload })
+      return answer({ ok: true })
+    }
+    if (msg?.type === 'AUDITOS_CLEAR_ECOMMERCE_SCOPE') {
+      await chrome.storage.local.remove(ECOMMERCE_SCOPE_KEY)
+      return answer({ ok: true })
+    }
+    if (msg?.type === 'AUDITOS_GET_ECOMMERCE_SCOPE') {
+      const r = await chrome.storage.local.get(ECOMMERCE_SCOPE_KEY)
+      return answer({ ok: true, scope: r[ECOMMERCE_SCOPE_KEY] ?? null })
     }
   })().catch(() => answer({ ok: false, message: 'Something went wrong — reopen this portal from the CRM.' }));
   return true; // async reply
