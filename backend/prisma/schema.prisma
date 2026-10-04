@@ -7402,6 +7402,101 @@ model AaExport {
   @@index([jobId])
 }
 
+// ============================================================
+// REPOTIC — Ecommerce GSTR-1 (REPOTIC-MODULE.md Phase 1+)
+// ============================================================
+//
+// Marketplaces change their report formats without notice; hardcoded
+// parsers rot SILENTLY — parse succeeds, columns shifted, numbers wrong.
+// This registry carries each adapter's header fingerprint, column map
+// and coverage per marketplace × report_kind. See §2.1 of the spec.
+
+/// One row per (marketplace, report_kind, version). The adapter engine
+/// fingerprints an uploaded file's header row and routes to the newest
+/// matching adapter whose `effectiveFrom` is on or before today.
+///
+/// Three detect outcomes drive the UI:
+///   matched              → parse
+///   matched + drifted    → parse AND flag loudly (new/reordered cols)
+///   no match             → refuse, offer manual column mapping
+model RpMarketplaceAdapter {
+  id             String @id @default(uuid())
+  organisationId String
+  /// amazon | flipkart | meesho | myntra | ajio | glowroad | jiomart |
+  /// limeroad | shop101 | citymall | paytm | snapdeal | gov_excel | other
+  marketplace    String
+  /// mtr_b2c | mtr_b2b | sales | gst | tcs_b2c | tcs_b2b | b2c_sheet |
+  /// b2b_sheet | gov_summary
+  reportKind     String
+  version        Int    @default(1)
+  /// JSON array of expected header column names, in order. Used by the
+  /// fingerprint engine to score a file against known adapter versions.
+  detectJson     String
+  /// JSON map { source_column: canonical_field }. Canonical fields are
+  /// documented in docs/repotic/README.md.
+  columnMapJson  String
+  /// Date formats, sign conventions, state code lookups per adapter.
+  transformsJson String?
+  /// Which GSTR-1 tables this adapter can populate: { "4A": true,
+  /// "7": true, "9B": true, "12": true, "13": false, ... }.
+  coverageJson   String
+  /// NULL = active from forever until superseded. Format YYYY-MM-DD.
+  effectiveFrom  String?
+  notes          String?
+  active         Boolean @default(true)
+
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  createdByUserId String?
+  updatedByUserId String?
+  deletedAt       DateTime?
+
+  @@index([organisationId, marketplace, reportKind, active])
+}
+
+/// One row per uploaded marketplace file. Idempotent by file sha256 +
+/// (client, gstin, period, marketplace, report_kind) so re-uploading the
+/// same file for the same scope does not double-count anything.
+model RpEcommerceUpload {
+  id             String @id @default(uuid())
+  organisationId String
+  clientId       String
+  /// Client GSTIN this upload is being prepared for.
+  gstin          String
+  /// YYYY-MM — the GSTR-1 period the upload applies to.
+  period         String
+  marketplace    String
+  reportKind     String
+  /// matched | drifted | no_match | rejected
+  detectStatus   String
+  /// FK to the adapter that matched. NULL for no_match uploads waiting
+  /// on manual column mapping.
+  adapterId      String?
+  adapterVersion Int?
+  /// Original filename as uploaded.
+  originalName   String
+  /// SHA-256 of the raw file bytes; the idempotency key.
+  fileSha256     String
+  sizeBytes      Int
+  rowCount       Int     @default(0)
+  /// JSON summary of transaction type counts { "shipment": 664,
+  /// "refund": 31, "cancel": 5 }. Required by §3 of the spec.
+  typeCountsJson String?
+  /// JSON blob with the drifted/new/missing columns so the UI can show
+  /// "header differs from adapter v4 (2 new columns)".
+  driftJson      String?
+  /// pending | parsed | errored | superseded
+  status         String  @default("pending")
+  errorMessage   String?
+
+  uploadedByUserId String
+  uploadedAt       DateTime @default(now())
+  deletedAt        DateTime?
+
+  @@unique([organisationId, clientId, gstin, period, marketplace, reportKind, fileSha256])
+  @@index([organisationId, clientId, gstin, period])
+}
+
 /// Post-registration compliance for a completed Private Limited registration
 /// (INC-20A, ADTC). One row per (case, compliance) — the unique key is what
 /// stops a status flipped to COMPLETED twice from creating duplicates. The

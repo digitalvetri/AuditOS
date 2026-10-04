@@ -50,10 +50,8 @@ import { BankJobDetailPage } from '@/pages/tools/BankJobDetail';
 import { GstJobsListPage } from '@/pages/tools/GstJobsList';
 import { GstNewReconPage } from '@/pages/tools/GstNewRecon';
 import { GstReconDetailPage } from '@/pages/tools/GstReconDetail';
-// TDS reconciliation pipeline.
-import { TdsJobsListPage } from '@/pages/tools/TdsJobsList';
-import { TdsNewReconPage } from '@/pages/tools/TdsNewRecon';
-import { TdsReconDetailPage } from '@/pages/tools/TdsReconDetail';
+// Repotic · Ecommerce GSTR-1 pipeline (REPOTIC-MODULE.md Phase 1+).
+import { EcommerceGstr1HomePage } from '@/pages/tools/repotic/EcommerceGstr1Home';
 // Bookkeeping — native double-entry accounting (formerly Tally engine).
 import { BookkeepingHome } from '@/pages/workstation/services/bookkeeping/BookkeepingHome';
 import { BookkeepingCompanies } from '@/pages/workstation/services/bookkeeping/BookkeepingCompanies';
@@ -430,9 +428,9 @@ export default function App() {
               <Route path="audit-automation/gst" element={<GstJobsListPage />} />
               <Route path="audit-automation/gst/new" element={<GstNewReconPage />} />
               <Route path="audit-automation/gst/jobs/:jobId" element={<GstReconDetailPage />} />
-              <Route path="audit-automation/tds" element={<TdsJobsListPage />} />
-              <Route path="audit-automation/tds/new" element={<TdsNewReconPage />} />
-              <Route path="audit-automation/tds/jobs/:jobId" element={<TdsReconDetailPage />} />
+              {/* Repotic Phase 1 — Ecommerce GSTR-1 landing. Phases 2+ add
+                  the Build GSTR-1 flow and per-marketplace adapter screens. */}
+              <Route path="audit-automation/ecommerce" element={<EcommerceGstr1HomePage />} />
 
               {/* Bookkeeping (formerly Tally engine) — native double-entry accounting.
                   Now under Services alongside TDS and Registration. */}
