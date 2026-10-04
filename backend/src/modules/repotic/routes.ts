@@ -32,8 +32,9 @@ import { readStatementTable } from '../audit-automation/lib/tableFile.js'
 import { parseCsv } from '../zpay/invoice-import.js'
 import { MARKETPLACES, isMarketplaceKey, findReportKind } from './marketplaces.js'
 import { detect, fingerprintOf } from './fingerprint.js'
-import { parseFromBuffer } from './parser.js'
+import { parseFromBuffer, readRowsFromBuffer } from './parser.js'
 import { buildGstr1Preview } from './gstr1-builder.js'
+import { autoMap } from './auto-mapper.js'
 
 export const repoticRouter = Router()
 
@@ -179,9 +180,32 @@ repoticRouter.post('/ecommerce/uploads', (req, res, next) => {
             organisationId, marketplace, reportKind, active: true, deletedAt: null,
             OR: [{ effectiveFrom: null }, { effectiveFrom: { lte: today() } }],
           },
-          select: { id: true, version: true, detectJson: true },
+          select: { id: true, version: true, detectJson: true, columnMapJson: true },
         })
         const result = detect(fp, candidates)
+
+        // Auto-mapper fallback — when no saved adapter matched the file,
+        // try to work out the column mapping from the header row alone
+        // using a synonym table ("Order ID" → invoice_number, "Taxable
+        // Value" → taxable_value). If required fields are present, we
+        // proceed with status 'auto_detected' instead of 'no_match', so
+        // sellers never see "no adapter configured" — files just work.
+        //
+        // We never upgrade matched/drifted → auto; a saved adapter that
+        // matched is still the authoritative column map, even if the
+        // auto-mapper would have agreed.
+        let autoColumnMapJson: string | null = null
+        let autoMappedFields: string[] = []
+        if (result.status === 'no_match') {
+          const auto = autoMap(fp.original)
+          if (auto.missingRequired.length === 0) {
+            autoColumnMapJson = JSON.stringify(auto.columnMap)
+            autoMappedFields = auto.mappedFields as string[]
+            result.status = 'auto_detected'
+            result.newColumns = []
+            result.missingColumns = []
+          }
+        }
 
         // 3. Persist a RpEcommerceUpload row. Idempotent on sha256 +
         //    scope — re-uploading the same file for the same scope
@@ -217,7 +241,7 @@ repoticRouter.post('/ecommerce/uploads', (req, res, next) => {
               : null,
             status: result.status === 'no_match' ? 'errored' : 'pending',
             errorMessage: result.status === 'no_match'
-              ? `No marketplace adapter matched this file's header row. Add an adapter or map the columns manually.`
+              ? `This file's columns don't include invoice number, invoice date, amount and taxable value — we couldn't read it. Check that you've exported the right report from the marketplace.`
               : null,
             uploadedByUserId: session.userId,
           },
@@ -233,15 +257,20 @@ repoticRouter.post('/ecommerce/uploads', (req, res, next) => {
         //    and can be retried via POST /uploads/:id/parse once Phase 2.1
         //    persists file bytes.
         let parseOutcome: { rows: number; typeCounts: Record<string, number>; warnings: string[] } | null = null
-        if (result.status !== 'no_match' && row.adapterId) {
+        if (result.status !== 'no_match') {
           try {
-            const adapter = await prisma.rpMarketplaceAdapter.findUniqueOrThrow({ where: { id: row.adapterId }, select: { columnMapJson: true } })
+            // When a saved adapter matched, use its column map. When
+            // auto-mapper derived the mapping, use that one directly —
+            // no transient adapter row needed.
+            const columnMapJson: string = row.adapterId
+              ? (await prisma.rpMarketplaceAdapter.findUniqueOrThrow({ where: { id: row.adapterId }, select: { columnMapJson: true } })).columnMapJson
+              : (autoColumnMapJson ?? '{}')
             const out = await parseFromBuffer({
               uploadId: row.id,
               organisationId,
               buffer: file.buffer,
               ext,
-              adapterColumnMapJson: adapter.columnMapJson,
+              adapterColumnMapJson: columnMapJson,
               prisma,
             })
             parseOutcome = { rows: out.rowsWritten, typeCounts: out.typeCounts, warnings: out.warnings }
@@ -262,6 +291,7 @@ repoticRouter.post('/ecommerce/uploads', (req, res, next) => {
           similarity: result.similarity,
           new_columns: result.newColumns,
           missing_columns: result.missingColumns,
+          auto_mapped_fields: autoMappedFields,
           status: row.status,
           error_message: row.errorMessage,
           parse: parseOutcome,

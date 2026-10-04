@@ -17,7 +17,7 @@ export interface ReportEntry {
   latest_adapter_version: number | null;
   upload?: {
     rows: number;
-    detectStatus: 'matched' | 'drifted' | 'no_match';
+    detectStatus: 'matched' | 'drifted' | 'no_match' | 'auto_detected';
     adapterVersion: number | null;
     typeCounts: Record<string, number> | null;
     drift: { newColumns: string[]; missingColumns: string[] } | null;
@@ -27,14 +27,16 @@ export interface ReportEntry {
 
 export interface UploadResult {
   upload_id: string;
-  detect_status: 'matched' | 'drifted' | 'no_match';
+  detect_status: 'matched' | 'drifted' | 'no_match' | 'auto_detected';
   adapter_id: string | null;
   adapter_version: number | null;
   similarity: number;
   new_columns: string[];
   missing_columns: string[];
+  auto_mapped_fields: string[];
   status: string;
   error_message: string | null;
+  parse: { rows: number; typeCounts: Record<string, number>; warnings: string[] } | null;
 }
 
 export const repoticApi = {
@@ -43,7 +45,7 @@ export const repoticApi = {
     return api.get<{ items: MarketplaceEntry[] }>(`/api/repotic/marketplaces${qs}`);
   },
   upload: (form: FormData) =>
-    api.post<UploadResult>('/api/repotic/ecommerce/uploads', form),
+    api.postForm<UploadResult>('/api/repotic/ecommerce/uploads', form),
   uploads: (q: { client_id: string; gstin: string; period: string }) =>
     api.get<{ items: Array<Omit<Required<ReportEntry['upload']>, 'typeCounts' | 'drift'> & { id: string; marketplace: string; report_kind: string; original_name: string; status: string; error_message: string | null; type_counts: Record<string, number> | null; drift: { newColumns: string[]; missingColumns: string[] } | null }> }>(
       `/api/repotic/ecommerce/uploads?client_id=${encodeURIComponent(q.client_id)}&gstin=${encodeURIComponent(q.gstin)}&period=${encodeURIComponent(q.period)}`,

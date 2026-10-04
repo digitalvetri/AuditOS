@@ -32,7 +32,7 @@ export interface AdapterCandidate {
   detectJson: string
 }
 
-export type DetectStatus = 'matched' | 'drifted' | 'no_match'
+export type DetectStatus = 'matched' | 'drifted' | 'no_match' | 'auto_detected'
 
 export interface DetectResult {
   status: DetectStatus

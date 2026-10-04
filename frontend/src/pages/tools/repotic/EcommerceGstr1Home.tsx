@@ -201,12 +201,13 @@ function ReportState({ scope, marketplace, report }: {
     },
     onSuccess: async (r) => {
       await qc.invalidateQueries({ queryKey: ['repotic.marketplaces'] });
-      if (r.detect_status === 'matched') {
-        toast.push('success', `Uploaded — adapter v${r.adapter_version} matched the header.`);
+      const rows = r.parse?.rows ?? 0;
+      if (r.detect_status === 'matched' || r.detect_status === 'auto_detected') {
+        toast.push('success', `Uploaded — ${rows} row${rows === 1 ? '' : 's'} parsed.`);
       } else if (r.detect_status === 'drifted') {
-        toast.push('info', `Uploaded with warnings — header drifted from adapter v${r.adapter_version}.`);
+        toast.push('info', `Uploaded with warnings — some columns differ from last time.`);
       } else {
-        toast.push('error', 'Header did not match any adapter. Add a marketplace adapter or map columns manually.');
+        toast.push('error', r.error_message ?? "We couldn't read this file. Please check the export is the right report.");
       }
     },
     onError: (e: Error) => toast.push('error', e.message),
@@ -214,28 +215,23 @@ function ReportState({ scope, marketplace, report }: {
 
   if (report.upload) {
     const u = report.upload;
-    const usable = u.detectStatus === 'matched' || u.detectStatus === 'drifted';
+    const usable = u.detectStatus === 'matched' || u.detectStatus === 'drifted' || u.detectStatus === 'auto_detected';
     return (
       <div className="space-y-1">
         {usable ? (
           <div className="inline-flex items-center gap-1 text-12 text-success">
             <Check size={13} strokeWidth={2} />
-            Uploaded {u.rows ? `· ${u.rows} rows` : ''} · adapter v{u.adapterVersion ?? '?'}
+            Uploaded{u.rows ? ` · ${u.rows} rows` : ''}
           </div>
         ) : (
           <div className="inline-flex items-center gap-1 text-12 text-danger">
             <AlertTriangle size={13} strokeWidth={2} />
-            Last upload rejected — header did not match any adapter
+            Couldn't read this file — try a different export
           </div>
         )}
         {u.detectStatus === 'drifted' && u.drift ? (
           <div className="text-11 text-amber bg-amber/10 border-l-2 border-amber px-2 py-1">
-            Header drifted — {u.drift.newColumns.length} new column{u.drift.newColumns.length === 1 ? '' : 's'}, {u.drift.missingColumns.length} missing. Review before building.
-          </div>
-        ) : null}
-        {u.detectStatus === 'no_match' ? (
-          <div className="text-11 text-danger bg-danger/10 border-l-2 border-danger px-2 py-1">
-            Adapter missing — manual column mapping required (Phase 2+).
+            Some columns changed since last time — {u.drift.newColumns.length} new, {u.drift.missingColumns.length} missing. Review before building.
           </div>
         ) : null}
         <button type="button" className="text-11 text-primary hover:underline"
@@ -248,7 +244,6 @@ function ReportState({ scope, marketplace, report }: {
       </div>
     );
   }
-  const noAdapter = report.adapter_versions === 0;
   return (
     <div className="space-y-1">
       <button type="button"
@@ -259,13 +254,6 @@ function ReportState({ scope, marketplace, report }: {
         <Upload size={12} strokeWidth={2} />
         {upload.isPending ? 'Uploading…' : 'Upload'}
       </button>
-      {noAdapter ? (
-        <div className="text-11 text-neutral-500 inline-flex items-center gap-1">
-          <AlertTriangle size={11} /> No adapter configured yet for this firm. Upload a sample to seed one.
-        </div>
-      ) : (
-        <div className="text-11 text-neutral-400">Adapter v{report.latest_adapter_version} available.</div>
-      )}
       {uploading ? (
         <FilePicker onPick={(f) => { upload.mutate(f); setUploading(false); }} onCancel={() => setUploading(false)} />
       ) : null}
