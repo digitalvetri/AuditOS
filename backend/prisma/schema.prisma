@@ -1253,6 +1253,7 @@ model Client {
   tdsProfile              TdsProfile?
   tdsDeductees            TdsDeductee[]
   tdsFilings              TdsFiling[]
+  gstNotices              GstNotice[]
 
   createdAt           DateTime              @default(now())
   updatedAt           DateTime              @updatedAt
@@ -1636,6 +1637,103 @@ model GstProfile {
   createdBy String?
   updatedBy String?
   deletedAt DateTime?
+}
+
+/// Per-organisation LLM provider credentials. One row per org per provider —
+/// today only 'groq' is wired, but 'anthropic'/'openai' slot into the same
+/// shape. The API key is AES-256-GCM encrypted at rest using portalCrypto
+/// (same key material as GST portal credentials). The server-wide
+/// GROQ_API_KEY env var remains as a fallback for firms that haven't
+/// configured their own, so the Notices feature works out of the box.
+model AiProviderConfig {
+  id               String   @id @default(uuid())
+  organisationId   String
+  /// 'groq' | 'anthropic' | 'openai'
+  provider         String
+  /// Base64 of iv|ciphertext|tag — same shape as PortalAccess passwords.
+  apiKeyCiphertext String
+  /// Optional model override; when null the module's default applies.
+  model            String?
+  active           Boolean  @default(true)
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+  createdBy        String?
+  updatedBy        String?
+
+  @@unique([organisationId, provider])
+}
+
+/// A GST notice/order received from the department and the LLM-drafted reply.
+/// Scoped to a client (one GSTIN per client via GstProfile). Kinds we handle:
+///   DRC07   — Summary of the Order (section 73/74 demand)
+///   DRC01   — Show Cause Notice (DRC-01 / DRC-01A)
+///   ASMT10  — Scrutiny of returns
+///   GSTR3A  — Notice to non-filers
+/// extractedJson holds the parsed fields from the uploaded PDF (OCR fallback
+/// via Tesseract when pdf-parse returns empty text). replyInputs holds the
+/// practitioner-entered grounds/facts/prayer that we hand to the LLM alongside
+/// the parsed notice to produce draftContent.
+model GstNotice {
+  id             String @id @default(uuid())
+  organisationId String
+  clientId       String
+
+  /// DRC07 | DRC01 | ASMT10 | GSTR3A
+  kind String
+
+  /// draft | review | sent | closed
+  status String @default("draft")
+
+  // Extracted / entered facts about the notice.
+  referenceNo        String?
+  noticeDate         String?
+  section            String?
+  financialYear      String?
+  periodFrom         String?
+  periodTo           String?
+  officerName        String?
+  officerDesignation String?
+  jurisdiction       String?
+  totalDemand        Decimal? @db.Decimal(14, 2)
+
+  // Source document.
+  uploadedFileName String?
+  uploadedFileKey  String?
+  uploadedFileSize Int?
+  uploadedMime     String?
+  /// Full extracted text (post-OCR if applicable). Nullable until extraction runs.
+  extractedText    String?
+  /// Structured fields the LLM pulled out of extractedText — kept so a re-run can diff.
+  extractedJson    Json?
+  /// Which extractor path produced extractedText — 'pdf-parse' | 'tesseract' | 'manual'.
+  extractionSource String?
+
+  // Reply.
+  /// Practitioner inputs: grounds, facts, documents in support, prayer.
+  replyInputs   Json?
+  /// Short letter to the firm's client (the taxpayer) explaining what the
+  /// notice says and what the practitioner proposes to do. Auto-drafted on
+  /// upload — no practitioner input required.
+  clientLetter  String?
+  /// LLM output for the DEPARTMENT reply — editable Markdown that becomes the
+  /// final letter filed with the officer. First draft is auto-generated on
+  /// upload with [TO BE FILLED] placeholders; practitioner fills grounds and
+  /// clicks Regenerate for a tailored version.
+  draftContent  String?
+  llmProvider   String?
+  llmModel      String?
+  generatedAt   DateTime?
+
+  client Client @relation(fields: [clientId], references: [id])
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  createdBy String?
+  updatedBy String?
+  deletedAt DateTime?
+
+  @@index([organisationId, clientId])
+  @@index([clientId, status])
 }
 
 /// GST portal + e-invoice + e-way bill credentials, one row per GSTIN.

@@ -24,6 +24,7 @@ import {
 } from '@/modules/workstation/gst/api';
 import { SERVICES } from '../partnership/shared';
 import { PortalPanel } from './PortalPanel';
+import { NoticesPanel } from '@/modules/notices/NoticesPanel';
 import { useToast } from '@/components/Toast';
 import { tasksApi, PRIORITY_LABEL, STATUS_LABEL, type Task } from '@/modules/workstation/tasks/api';
 import type { RegistrationKind } from '@/modules/partnership/api';
@@ -261,6 +262,15 @@ export function GstClientView() {
 
             {/* Portal credentials — the first thing needed when starting work. */}
             <PortalPanel gstProfileId={d.gst_profile.id} />
+
+            {/* Departmental notices + LLM-drafted replies. Scoped per GSTIN,
+                not per return period — a DRC-07 arrives months after any
+                particular filing. */}
+            <NoticesPanel
+              clientId={d.client.id}
+              taxpayerName={d.client.name}
+              taxpayerGstin={d.gst_profile.gstin}
+            />
 
             <div className="flex items-center gap-1 self-start">
               <button type="button" onClick={() => {

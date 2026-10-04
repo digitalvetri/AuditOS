@@ -244,6 +244,8 @@ export function Sidebar({ mobileOpen, onMobileClose }: Props) {
     const integrationsItems: NavItem[] = [
       { to: '/integrations/zoho-payments', label: 'Zoho Payments', icon: Plug,
         visible: can(role, 'integrations.access', 'organisation') },
+      { to: '/integrations/ai-provider', label: 'AI provider', icon: Plug,
+        visible: can(role, 'integrations.access', 'organisation') },
     ];
     return [
       { label: null, items: [{ to: '/', label: 'Dashboard', icon: Home, end: true, visible: true, badge: pendingCount || undefined, hot: true }] },
