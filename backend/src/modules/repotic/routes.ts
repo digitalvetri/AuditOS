@@ -94,9 +94,16 @@ repoticRouter.get('/marketplaces', handler(async (req, res) => {
       where: { organisationId, clientId, gstin, period, deletedAt: null },
       orderBy: { uploadedAt: 'desc' },
     })
+    // Prefer the most recent MATCHED/DRIFTED upload per (marketplace, report)
+    // over a more recent no_match attempt — a bad file following a good one
+    // shouldn't hide the valid data. If every attempt is no_match, surface
+    // the latest no_match so the UI can offer manual mapping.
     for (const r of rows) {
       const key = `${r.marketplace}:${r.reportKind}`
-      if (uploadsByKey.has(key)) continue   // already have newest
+      const existing = uploadsByKey.get(key)
+      const isUsable = r.detectStatus === 'matched' || r.detectStatus === 'drifted'
+      if (existing && (existing.detectStatus === 'matched' || existing.detectStatus === 'drifted')) continue
+      if (existing && !isUsable) continue
       uploadsByKey.set(key, {
         rows: r.rowCount,
         detectStatus: r.detectStatus,

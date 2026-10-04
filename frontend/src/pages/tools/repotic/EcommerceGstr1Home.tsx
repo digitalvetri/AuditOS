@@ -214,12 +214,20 @@ function ReportState({ scope, marketplace, report }: {
 
   if (report.upload) {
     const u = report.upload;
+    const usable = u.detectStatus === 'matched' || u.detectStatus === 'drifted';
     return (
       <div className="space-y-1">
-        <div className="inline-flex items-center gap-1 text-12 text-success">
-          <Check size={13} strokeWidth={2} />
-          Uploaded {u.rows ? `· ${u.rows} rows` : ''} · adapter v{u.adapterVersion ?? '?'}
-        </div>
+        {usable ? (
+          <div className="inline-flex items-center gap-1 text-12 text-success">
+            <Check size={13} strokeWidth={2} />
+            Uploaded {u.rows ? `· ${u.rows} rows` : ''} · adapter v{u.adapterVersion ?? '?'}
+          </div>
+        ) : (
+          <div className="inline-flex items-center gap-1 text-12 text-danger">
+            <AlertTriangle size={13} strokeWidth={2} />
+            Last upload rejected — header did not match any adapter
+          </div>
+        )}
         {u.detectStatus === 'drifted' && u.drift ? (
           <div className="text-11 text-amber bg-amber/10 border-l-2 border-amber px-2 py-1">
             Header drifted — {u.drift.newColumns.length} new column{u.drift.newColumns.length === 1 ? '' : 's'}, {u.drift.missingColumns.length} missing. Review before building.
@@ -232,7 +240,7 @@ function ReportState({ scope, marketplace, report }: {
         ) : null}
         <button type="button" className="text-11 text-primary hover:underline"
           onClick={() => setUploading(true)}>
-          Replace file
+          {usable ? 'Replace file' : 'Try another file'}
         </button>
         {uploading ? (
           <FilePicker onPick={(f) => { upload.mutate(f); setUploading(false); }} onCancel={() => setUploading(false)} />
