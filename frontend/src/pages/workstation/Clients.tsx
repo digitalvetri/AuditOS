@@ -24,6 +24,7 @@ import { istToday } from '@/modules/dashboardV2/brief';
 import { formatINR } from '@/modules/dashboardV2/format';
 import { clientHealth, gstHistory, lastPeriods, tdsRowsFor, type PeriodState } from '@/modules/workstation/clientInsights';
 import { ClientPanel } from './ClientPanel';
+import { deriveShortName, OrganizationBadge, OrganizationOf } from '@/modules/workstation/organization/badges';
 
 /**
  * §7.3 — the client list. Search covers company · Client ID · GSTIN · contact.
@@ -114,6 +115,7 @@ export function ClientsPage() {
     { key: 'status:pending_documents', label: 'Pending documents', count: allItems.filter((c) => c.status === 'pending_documents').length, apply: { status: 'pending_documents' }, show: true },
     { key: 'status:service_due', label: 'Service due', count: allItems.filter((c) => c.status === 'service_due').length, apply: { status: 'service_due' }, show: true },
     { key: 'view:overdue', label: 'Payment overdue', count: money.data ? money.data.clients.filter((c) => c.overdue_paise > 0).length : null, apply: { view: 'overdue' }, show: seesBilling },
+    { key: 'view:organizations', label: 'Organizations', count: allItems.filter((c) => c.is_organization).length, apply: { view: 'organizations' }, show: allItems.some((c) => c.is_organization) },
     { key: 'view:mine', label: 'My clients', count: myId ? allItems.filter((c) => c.account_manager_id === myId).length : null, apply: { view: 'mine' }, show: !!myId },
     { key: 'status:inactive', label: 'Inactive', count: allItems.filter((c) => c.status === 'inactive').length, apply: { status: 'inactive' }, show: true },
   ];
@@ -122,6 +124,7 @@ export function ClientsPage() {
   const rowsFor = (items: ClientListItem[]) => items.filter((c) => {
     if (view === 'overdue') return (moneyById.get(c.id)?.overdue_paise ?? 0) > 0;
     if (view === 'mine') return c.account_manager_id === myId;
+    if (view === 'organizations') return c.is_organization;
     return true;
   });
   const opened = (clients.data?.items ?? []).find((c) => c.id === openId) ?? allItems.find((c) => c.id === openId);
@@ -192,17 +195,21 @@ export function ClientsPage() {
                           <tr key={c.id} tabIndex={0}
                             className={c.id === openId ? 'is-cur' : ''}
                             onClick={(e) => {
-                              if (e.metaKey || e.ctrlKey) { window.open(`/workstation/clients/${c.id}`, '_blank'); return; }
+                              if (e.metaKey || e.ctrlKey) { window.open(`/workstation/clients/${c.id}${c.is_organization ? '/organization' : ''}`, '_blank'); return; }
                               setParam('client', c.id === openId ? '' : c.id);
                             }}
                             onKeyDown={(e) => { if (e.key === 'Enter') setParam('client', c.id); }}
-                            onDoubleClick={() => navigate(`/workstation/clients/${c.id}`)}>
+                            onDoubleClick={() => navigate(`/workstation/clients/${c.id}${c.is_organization ? '/organization' : ''}`)}>
                             <td>
                               <div className="flex items-center gap-3 min-w-0">
                                 <Avatar name={c.company_name} size={32} square />
                                 <div className="min-w-0">
-                                  <div className="font-semibold text-ink truncate max-w-[260px]">{c.company_name}</div>
+                                  <div className="flex items-center gap-2 min-w-0">
+                                    <span className="font-semibold text-ink truncate max-w-[260px]">{c.company_name}</span>
+                                    {c.is_organization ? <OrganizationBadge count={c.child_client_count} /> : null}
+                                  </div>
                                   <div className="font-mono text-[11.5px] text-inkFaint truncate">{c.client_id}{c.gstin ? ` · ${c.gstin}` : ''}</div>
+                                  {c.organization ? <OrganizationOf org={c.organization} /> : null}
                                 </div>
                               </div>
                             </td>
@@ -295,16 +302,26 @@ function Strip({ states, periods }: { states: PeriodState[]; periods: string[] }
  * rather than someone's choice. A lead that converts takes the same path via
  * Leads → Convert, so there is exactly one way a Client row comes to exist.
  */
-function AddClientModal({ open, onClose }: { open: boolean; onClose: () => void }) {
+export function AddClientModal({ open, onClose, organization, defaultName, onCreated }: {
+  open: boolean;
+  onClose: () => void;
+  /** Create the client under this organization (it stays a normal client). */
+  organization?: { id: string; name: string };
+  defaultName?: string;
+  /** Instead of opening the new client's workspace. */
+  onCreated?: (id: string) => void;
+}) {
   const qc = useQueryClient();
   const toast = useToast();
   const navigate = useNavigate();
   const employees = useQuery({ queryKey: ['workstation', 'employees'], queryFn: workstationApi.assignableEmployees });
 
   const [form, setForm] = useState({
-    company_name: '', business_type: '', contact_person: '', contact_number: '',
+    company_name: defaultName ?? '', business_type: '', contact_person: '', contact_number: '',
     email: '', gstin: '', pan: '', address: '', account_manager_id: '',
+    kind: 'client' as 'client' | 'organization', short_name: '',
   });
+  const isOrg = !organization && form.kind === 'organization';
   const set = (k: keyof typeof form, v: string) => setForm((f) => ({ ...f, [k]: v }));
   const [clientErrors, setClientErrors] = useState<Record<string, string>>({});
 
@@ -321,12 +338,17 @@ function AddClientModal({ open, onClose }: { open: boolean; onClose: () => void 
       gstin: form.gstin ? form.gstin.toUpperCase() : undefined,
       pan: form.pan ? form.pan.toUpperCase() : undefined,
       address: form.address || undefined,
+      ...(organization ? { organization_id: organization.id } : {}),
+      ...(isOrg ? { is_organization: true, short_name: form.short_name || undefined } : {}),
     }),
     onSuccess: (client) => {
       void qc.invalidateQueries({ queryKey: ['workstation'] });
-      toast.push('success', `Client ${client.client_id} created.`);
+      toast.push('success', organization
+        ? `${client.company_name} (${client.client_id}) added to ${organization.name}.`
+        : `${isOrg ? 'Organization client' : 'Client'} ${client.client_id} created.`);
       onClose();
-      navigate(`/workstation/clients/${client.id}`);
+      if (onCreated) onCreated(client.id);
+      else navigate(`/workstation/clients/${client.id}${client.is_organization ? '/organization' : ''}`);
     },
   });
 
@@ -359,7 +381,7 @@ function AddClientModal({ open, onClose }: { open: boolean; onClose: () => void 
   return (
     <Modal
       open={open}
-      title="Add Client"
+      title={organization ? `Add Client to ${organization.name}` : 'Add Client'}
       onClose={onClose}
       footer={
         <>
@@ -374,9 +396,38 @@ function AddClientModal({ open, onClose }: { open: boolean; onClose: () => void 
         </>
       }
     >
-      <Field label="Company Name" error={err('company_name')}>
+      {organization ? (
+        <div className="mb-4 rounded-lg bg-primary/5 px-3 py-2 text-12 text-neutral-700">
+          This becomes a full client with its own workspace, linked to <b>{organization.name}</b>.
+        </div>
+      ) : (
+        <Field label="Client Type" hint={isOrg ? 'An organization is a client that other clients can be added under.' : undefined}>
+          <div className="grid grid-cols-2 gap-2" role="radiogroup" aria-label="Client type">
+            {([['client', 'Client'], ['organization', 'Organization']] as const).map(([value, label]) => (
+              <label
+                key={value}
+                className={'flex items-center gap-2 rounded-lg border px-3 py-2 cursor-pointer text-13 ' +
+                  (form.kind === value ? 'border-primary bg-primary/5' : 'border-neutral-200 hover:border-neutral-300')}
+              >
+                <input type="radio" name="client_kind" checked={form.kind === value} onChange={() => set('kind', value)} />
+                {label}
+              </label>
+            ))}
+          </div>
+        </Field>
+      )}
+      <Field label={isOrg ? 'Organization Name' : 'Company Name'} error={err('company_name')}>
         <input className={inputClass} value={form.company_name} onChange={(e) => set('company_name', e.target.value)} />
       </Field>
+      {isOrg ? (
+        <Field label="Short Name" error={err('short_name')} hint={`Used to name its clients: "${form.short_name || deriveShortName(form.company_name) || 'ABC'} DV Client 1".`}>
+          <input
+            className={inputClass} maxLength={20} value={form.short_name}
+            placeholder={deriveShortName(form.company_name)}
+            onChange={(e) => set('short_name', e.target.value.toUpperCase())}
+          />
+        </Field>
+      ) : null}
       <Field label="Business Type" error={err('business_type')} hint="Private Limited, LLP, Proprietorship…">
         <input className={inputClass} value={form.business_type} onChange={(e) => set('business_type', e.target.value)} />
       </Field>

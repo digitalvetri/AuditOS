@@ -4,6 +4,7 @@ import { Button } from '@/components/Button';
 import { useToast } from '@/components/Toast';
 import { Field, Modal, SimulatedNotice, fieldErrors, inputClass, textareaClass } from '@/modules/workstation/components';
 import { workstationApi } from '@/modules/workstation/api';
+import { clientOptionLabel } from '@/modules/workstation/organization/badges';
 
 /**
  * Create a follow-up against a client or lead.
@@ -85,12 +86,21 @@ export function NewFollowUpModal({ open, onClose, defaultDateTime }: {
           <option value="">Select…</option>
           {subjectKind === 'client'
             ? (clients.data?.items ?? []).map((c) => (
-                <option key={c.id} value={c.id}>{c.client_id} · {c.company_name}</option>
+                <option key={c.id} value={c.id}>{clientOptionLabel(c)}</option>
               ))
             : (leads.data?.items ?? []).map((l) => (
                 <option key={l.id} value={l.id}>{l.lead_id} · {l.name}</option>
               ))}
         </select>
+        {(() => {
+          // A follow-up about an organization's client is sent to the organization.
+          const c = subjectKind === 'client' ? clients.data?.items.find((x) => x.id === form.subject_id) : undefined;
+          return c?.organization ? (
+            <p className="mt-1 text-12 text-primary">
+              This follow-up will be sent to the organization, {c.organization.name}, and listed there too.
+            </p>
+          ) : null;
+        })()}
       </Field>
       <Field label="Title" error={e.title}>
         <input className={inputClass} value={form.title} onChange={(ev) => set('title', ev.target.value)} />

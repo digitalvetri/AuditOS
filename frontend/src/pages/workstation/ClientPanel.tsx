@@ -7,6 +7,7 @@
  * client workspace (/workstation/clients/:id/…), which stays the place where
  * work is done — the panel only reads.
  */
+import { OrganizationBadge, OrganizationOf } from '@/modules/workstation/organization/badges';
 import { Link } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { ArrowUpRight, Copy, Mail, Phone, Pin, PinOff, Plus, X } from 'lucide-react';
@@ -90,6 +91,7 @@ export function ClientPanel({ client, money, gst, tds, health, onClose }: {
           <Avatar name={client.company_name} size={48} square className="shadow-raised" />
           <div className="min-w-0">
             <h2 className="text-18 font-semibold text-ink tracking-[-0.02em] leading-tight truncate">{client.company_name}</h2>
+            {client.organization ? <OrganizationOf org={client.organization} /> : null}
             <div className="flex items-center gap-2 text-12 text-inkMuted font-mono">
               <span>{client.client_id}</span>
               {client.gstin ? (
@@ -102,6 +104,7 @@ export function ClientPanel({ client, money, gst, tds, health, onClose }: {
         </div>
         <div className="flex flex-wrap gap-[6px] mt-3">
           <StatusChip value={client.status} />
+          {client.is_organization ? <OrganizationBadge count={client.child_client_count} /> : null}
           {client.business_type ? <Tag>{client.business_type}</Tag> : null}
           {client.onboarding_date ? <Tag>Client since {new Date(client.onboarding_date).getFullYear()}</Tag> : null}
           {money && money.overdue_paise > 0 ? <Tag tone="bad">● Payment overdue</Tag> : null}
@@ -117,7 +120,7 @@ export function ClientPanel({ client, money, gst, tds, health, onClose }: {
             <Link to={`/workstation/invoices/${oldestOverdue.id}`} title={`Remind about ${oldestOverdue.invoice_number}`}
               className="inline-flex items-center gap-[6px] h-8 px-3 rounded-[9px] bg-danger text-white text-13 font-semibold">Send reminder</Link>
           ) : null}
-          <Link to={base} className="inline-flex items-center gap-[6px] h-8 px-3 rounded-[9px] bg-surface shadow-card text-13 font-semibold text-ink hover:shadow-raised">Open workspace <ArrowUpRight size={14} /></Link>
+          <Link to={client.is_organization ? `${base}/organization` : base} className="inline-flex items-center gap-[6px] h-8 px-3 rounded-[9px] bg-surface shadow-card text-13 font-semibold text-ink hover:shadow-raised">{client.is_organization ? 'Open organization' : 'Open workspace'} <ArrowUpRight size={14} /></Link>
         </div>
       </div>
 

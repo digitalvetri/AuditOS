@@ -26,6 +26,7 @@ import { DocDocument, type DocEditApi, type DocModel } from './DocDocument';
 import { useAuth } from '@/platform/auth/AuthContext';
 import { can } from '@/platform/rbac/can';
 import { printDocumentOnly } from '@/modules/workstation/print';
+import { clientNameWithOrg } from '@/modules/workstation/organization/badges';
 
 /**
  * THE DOCUMENT BUILDER — /workstation/doc/:typeId/new and /workstation/doc/:id/edit.
@@ -627,7 +628,7 @@ function DetailsTab({ t, s, update, clients, chooseClient }: {
             <select className={inputClass} value={s.partyKind === 'client' ? s.partyId : ''}
               onChange={(e) => chooseClient(e.target.value)}>
               <option value="">Not linked</option>
-              {clients.map((c) => <option key={c.id} value={c.id}>{c.company_name}</option>)}
+              {clients.map((c) => <option key={c.id} value={c.id}>{clientNameWithOrg(c)}</option>)}
             </select>
           </label>
         </div>

@@ -19,6 +19,7 @@ import { StatusSelect, useSetDocumentStatus } from '@/modules/workstation/docume
 import {
   RequestButtons, SendRequestDialog, needsRequest, type RequestChannel, type RequestTarget,
 } from '@/modules/workstation/documents/SendRequestDialog';
+import { clientOptionLabel } from '@/modules/workstation/organization/badges';
 
 /**
  * §7.6 — the document list, grouped BY CLIENT.
@@ -72,7 +73,7 @@ export function DocumentsPage() {
       <AddDocumentModal
         open={addOpen} onClose={() => setAddOpen(false)}
         defaultClientId={clientId}
-        clients={(clients.data?.items ?? []).map((c) => ({ id: c.id, label: `${c.client_id} · ${c.company_name}` }))}
+        clients={(clients.data?.items ?? []).map((c) => ({ id: c.id, label: clientOptionLabel(c) }))}
         categories={categories.data?.items ?? []}
       />
       <SendRequestDialog
@@ -84,7 +85,7 @@ export function DocumentsPage() {
       <ListToolbar>
         <FilterSelect
           label="Client" value={clientId} onChange={(v) => setParam('client_id', v)}
-          options={(clients.data?.items ?? []).map((c) => ({ value: c.id, label: `${c.client_id} · ${c.company_name}` }))}
+          options={(clients.data?.items ?? []).map((c) => ({ value: c.id, label: clientOptionLabel(c) }))}
         />
         <FilterSelect
           label="Category" value={categoryId} onChange={(v) => setParam('category_id', v)}

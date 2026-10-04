@@ -108,8 +108,12 @@ export function FollowUpsPage() {
                     }
                   >
                     <TD first strong className="min-w-[200px]">{f.title}</TD>
-                    <TD><TwoLine avatar={f.subject_name} square={f.subject_type === 'client'} top={f.subject_name} sub={<>{f.subject_type === 'lead' ? 'Lead' : 'Client'} · {f.subject_code}</>} /></TD>
-                    <TD muted nowrap>{f.contact_number ?? '—'}</TD>
+                    <TD><TwoLine avatar={f.subject_name} square={f.subject_type === 'client'} top={f.subject_name} sub={<>{f.subject_type === 'lead' ? 'Lead' : 'Client'} · {f.subject_code}{f.sent_to_organization ? <> · <span className="text-primary">via {f.sent_to_organization.name}</span></> : null}</>} /></TD>
+                    <TD muted nowrap>
+                      {f.contact_number ?? '—'}
+                      {/* An organization's client is followed up through the organization. */}
+                      {f.sent_to_organization ? <div className="text-11 text-primary">{f.contact_name ? `${f.contact_name}, ` : ''}{f.sent_to_organization.name}</div> : null}
+                    </TD>
                     <TD muted>{f.service_name ?? '—'}</TD>
                     <TD muted nowrap>
                       {fmtDay(f.scheduled_at)} <span className="text-neutral-400">{fmtTime(f.scheduled_at)}</span>

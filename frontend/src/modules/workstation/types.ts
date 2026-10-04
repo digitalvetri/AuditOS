@@ -73,7 +73,12 @@ export interface Lead extends Auditable {
   organisation_id: string;
   /** The human-readable 'LD-1001', not the uuid. */
   lead_id: string;
+  /** organization → converts into an organization client. */
+  lead_type: LeadType;
+  /** The person, or the organization's name for an organization lead. */
   name: string;
+  /** Organization leads: who we deal with there. */
+  contact_person: string | null;
   contact_number: string;
   email: string | null;
   service_id: string;
@@ -122,6 +127,13 @@ export interface Client extends Auditable {
   onboarding_date: string;
   notes: string | null;
   source_lead_id: string | null;
+  /** An organization: a client that other clients sit under. */
+  is_organization: boolean;
+  /** Organizations: short label for naming clients ("ABC" → "ABC DV Client 1"). */
+  short_name: string | null;
+  /** The organization this client belongs to — an extra identifier only. */
+  organization_id: string | null;
+  organization: OrganizationRef | null;
   portal_enabled: boolean;
   portal_invite_email: string | null;
 }
@@ -129,12 +141,81 @@ export interface Client extends Auditable {
 export interface ClientListItem extends Client {
   service_names: string[];
   document_count: number;
+  child_client_count: number;
 }
 
 export interface ClientDetail extends Client {
   contacts: ClientContact[];
   document_count: number;
   follow_up_count: number;
+  /** Organizations: how many of its clients the caller can open. */
+  child_client_count: number;
+}
+
+export type LeadType = 'individual' | 'organization';
+
+export interface OrganizationRef {
+  id: string;
+  name: string;
+  /** 'CLI-1001' */
+  client_id: string;
+}
+
+export interface OrganizationClientCard extends Client {
+  service_names: string[];
+  service_count: number;
+  active_service_count: number;
+  completed_service_count: number;
+  document_count: number;
+}
+
+export interface OrganizationOverview {
+  organization: Client;
+  stats: {
+    clients: number;
+    active_clients: number;
+    inactive_clients: number;
+    services: number;
+    services_in_progress: number;
+    services_not_started: number;
+    services_completed: number;
+    /** null when the caller cannot read documents. */
+    documents: number | null;
+    organization_documents: number | null;
+  };
+  services_by_type: {
+    service_id: string;
+    name: string;
+    client_count: number;
+    active: number;
+    completed: number;
+    clients: { id: string; name: string }[];
+  }[];
+  clients: OrganizationClientCard[];
+  recent_activity: (Activity & { client_id: string; client_name: string | null; is_organization_level: boolean })[];
+  next_client_name: string;
+}
+
+export type OrganizationDocType = 'gst' | 'eway' | 'einvoice' | 'tds' | 'invoices' | 'returns' | 'other';
+
+export interface OrganizationDocument extends ClientFolderItem {
+  client_id: string;
+  client_name: string;
+  client_code: string;
+  is_organization_level: boolean;
+  folder_key: string;
+  folder_label: string;
+  types: OrganizationDocType[];
+  uploaded_by: string | null;
+}
+
+export interface OrganizationDocuments {
+  organization: OrganizationRef;
+  clients: { id: string; name: string; client_id: string; is_organization: boolean }[];
+  types: { key: OrganizationDocType; label: string }[];
+  counts: Record<string, number>;
+  items: OrganizationDocument[];
+  can_upload: boolean;
 }
 
 export interface ClientService extends Auditable {
@@ -166,7 +247,12 @@ export interface FollowUp extends Auditable {
   subject_id: string | null;
   subject_name: string | null;
   subject_code: string | null;
+  /** Who is actually contacted. For an organization's client this is the organization. */
   contact_number: string | null;
+  contact_name: string | null;
+  contact_email: string | null;
+  /** Set when the follow-up goes to the client's organization instead of the client. */
+  sent_to_organization: OrganizationRef | null;
   service_name: string | null;
   title: string;
   type: FollowUpType;
@@ -376,6 +462,8 @@ export interface ClientFolderItem {
   mime_type: string | null;
   fields: [string, string][] | null;
   document_id: string | null;
+  /** An organization request received for one of its clients. */
+  stored_for?: { client_id: string; client_name: string; document_id: string } | null;
 }
 
 export interface ClientFolder {

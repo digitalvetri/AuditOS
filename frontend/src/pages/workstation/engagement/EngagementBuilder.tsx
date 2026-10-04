@@ -27,6 +27,7 @@ import { focusSibling, forceSync, requestFocus } from './Editable';
 import { useAuth } from '@/platform/auth/AuthContext';
 import { can } from '@/platform/rbac/can';
 import { printDocumentOnly } from '@/modules/workstation/print';
+import { clientNameWithOrg } from '@/modules/workstation/organization/badges';
 
 /**
  * THE ENGAGEMENT LETTER BUILDER — /workstation/engagement/new and /:id/edit.
@@ -644,7 +645,8 @@ export function EngagementBuilderPage() {
                   onChange={(e) => chooseParty(s.partyKind, e.target.value)} className={inputClass}>
                   <option value="">{s.partyKind === 'client' ? 'Choose a client…' : 'Choose a lead…'}</option>
                   {s.partyKind === 'client'
-                    ? (clientsQ.data?.items ?? []).map((c) => <option key={c.id} value={c.id}>{c.company_name}</option>)
+                    // An organization's clients are engaged through the organization.
+                    ? (clientsQ.data?.items ?? []).filter((c) => !c.organization || c.id === s.partyId).map((c) => <option key={c.id} value={c.id}>{clientNameWithOrg(c)}</option>)
                     : (leadsQ.data?.items ?? []).map((l) => <option key={l.id} value={l.id}>{l.name}</option>)}
                 </select>
               </div>

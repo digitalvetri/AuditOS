@@ -3,7 +3,7 @@ import type {
   Activity, AssignableEmployee, ClientDetail, ClientDocument, ClientListItem,
   ClientService, DashboardResponse, DocumentCategory, EwayResponse, FollowUp,
   GstProfile, Lead, ListResponse, SearchResponse, ServiceCatalogItem, Task,
-  ClientDocumentFolders,
+  ClientDocumentFolders, OrganizationDocuments, OrganizationOverview,
 } from './types';
 
 /**
@@ -28,6 +28,7 @@ function qs(params: Record<string, string | number | boolean | null | undefined>
 }
 
 export interface LeadFilters {
+  lead_type?: 'individual' | 'organization';
   status?: string;
   service_id?: string;
   employee_id?: string;
@@ -40,6 +41,9 @@ export interface ClientFilters {
   account_manager_id?: string;
   service_id?: string;
   pending_documents?: boolean;
+  /** The clients under one organization. */
+  organization_id?: string;
+  kind?: 'organization' | 'member' | 'standalone';
 }
 
 export interface ServiceFilters {
@@ -66,7 +70,9 @@ export interface DocumentFilters {
 }
 
 export interface CreateLeadInput {
+  lead_type: 'individual' | 'organization';
   name: string;
+  contact_person?: string;
   contact_number: string;
   service_id: string;
   price_quoted: number;
@@ -84,6 +90,8 @@ export interface ConvertLeadInput {
   pan?: string;
   account_manager_id: string;
   due_date?: string;
+  /** Organization leads: the label used to name its clients. */
+  short_name?: string;
 }
 
 export const workstationApi = {
@@ -153,9 +161,10 @@ export const workstationApi = {
     form.append('file', file);
     return api.postForm<ClientDocument>(`/api/client-documents/${id}/versions`, form);
   },
-  uploadToFolder: (clientId: string, folderKey: string, file: File) => {
+  uploadToFolder: (clientId: string, folderKey: string, file: File, name?: string) => {
     const form = new FormData();
     form.append('file', file);
+    if (name) form.append('name', name);
     return api.postForm<{ id: string; name: string; folder: string }>(
       `/api/clients/${clientId}/document-folders/${encodeURIComponent(folderKey)}/upload`, form,
     );
@@ -177,6 +186,38 @@ export const workstationApi = {
   },
   clientDocumentFolders: (clientId: string) =>
     api.get<ClientDocumentFolders>(`/api/clients/${clientId}/document-folders`),
+  // ── Organizations ───────────────────────────────────────────────────────
+  organizationOverview: (id: string) => api.get<OrganizationOverview>(`/api/clients/${id}/organization`),
+  organizationDocuments: (id: string, type?: string) =>
+    api.get<OrganizationDocuments>(`/api/clients/${id}/organization/documents${qs({ type })}`),
+  /** Save the merged file into Organization Documents. */
+  mergeOrganizationDocumentsToStore: (id: string, items: { client_id: string; source: string; ref: string }[], title: string) =>
+    api.post<{ document_id: string; name: string; pages: number; skipped: number; source_clients: string[] }>(
+      `/api/clients/${id}/organization/documents/merge`, { items, title, store: true },
+    ),
+  /** The merged file as a download, not saved. */
+  mergeOrganizationDocumentsToFile: async (id: string, items: { client_id: string; source: string; ref: string }[], title: string) => {
+    const res = await fetch(`/api/clients/${id}/organization/documents/merge`, {
+      method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ items, title, store: false }),
+    });
+    if (!res.ok) {
+      const j = await res.json().catch(() => null) as { error?: { message?: string } } | null;
+      throw new Error(j?.error?.message ?? `Merge failed (${res.status}).`);
+    }
+    const name = /filename="([^"]+)"/.exec(res.headers.get('Content-Disposition') ?? '')?.[1] ?? 'combined.pdf';
+    return { blob: await res.blob(), fileName: name, skipped: Number(res.headers.get('X-Merged-Skipped') ?? 0) };
+  },
+  /** A file received against an organization request, stored for the organization or one of its clients. */
+  receiveOrganizationRequest: (orgId: string, requestId: string, file: File, clientId: string) => {
+    const form = new FormData();
+    form.append('file', file);
+    form.append('client_id', clientId);
+    return api.postForm<{ document_id: string; stored_for: { client_id: string; client_name: string } }>(
+      `/api/clients/${orgId}/organization/requests/${requestId}/receive`, form,
+    );
+  },
+
   openClientDocument: (clientId: string, source: string, ref: string) =>
     api.get<{ url: string; expires_at: string }>(
       `/api/clients/${clientId}/document-folders/open${qs({ source, ref })}`,

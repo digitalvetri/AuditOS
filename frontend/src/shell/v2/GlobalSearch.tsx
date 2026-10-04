@@ -146,7 +146,7 @@ export const GlobalSearch = forwardRef<GlobalSearchHandle>(function GlobalSearch
     }
     const ws = workstation.data;
     if (ws) {
-      for (const c of ws.clients.slice(0, 4)) out.push({ group: 'Clients', label: c.company_name, hint: [c.client_id, c.gstin].filter(Boolean).join(' · '), to: `/workstation/clients/${c.id}`, avatar: c.company_name });
+      for (const c of ws.clients.slice(0, 4)) out.push({ group: 'Clients', label: c.company_name, hint: [c.client_id, c.gstin, c.is_organization ? 'Organization' : c.organization ? `Organization: ${c.organization.name}` : null].filter(Boolean).join(' · '), to: `/workstation/clients/${c.id}`, avatar: c.company_name });
       // The top client match also gets its most common next steps.
       const top = ws.clients[0];
       if (top && can(role, 'workstation.invoice.manage', 'self')) {

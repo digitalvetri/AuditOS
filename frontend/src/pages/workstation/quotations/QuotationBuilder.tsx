@@ -22,6 +22,7 @@ import {
 import { QuotationDocument, type DocumentModel, type QuoteEditApi, type QuoteField } from './QuotationDocument';
 import { forceSync } from '@/pages/workstation/engagement/Editable';
 import { printDocumentOnly } from '@/modules/workstation/print';
+import { clientNameWithOrg } from '@/modules/workstation/organization/badges';
 
 /**
  * THE QUOTATION BUILDER — /workstation/quotations/new and /:id/edit.
@@ -678,7 +679,8 @@ function DetailsTab(p: DetailsProps) {
               >
                 <option value="">Select…</option>
                 {p.partyKind === 'client'
-                  ? p.clients.map((c) => <option key={c.id} value={c.id}>{c.company_name}</option>)
+                  // An organization's clients are quoted through the organization.
+                  ? p.clients.filter((c) => !c.organization || c.id === p.partyId).map((c) => <option key={c.id} value={c.id}>{clientNameWithOrg(c)}</option>)
                   : p.leads.map((l) => <option key={l.id} value={l.id}>{l.name}</option>)}
               </select>
             </div>
