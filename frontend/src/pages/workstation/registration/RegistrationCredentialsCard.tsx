@@ -47,6 +47,8 @@ export function RegistrationCredentialsCard({
 
   const [mode, setMode] = useState<'view' | 'form' | 'confirm-delete'>('view');
   const [shown, setShown] = useState<string | null>(null);
+  /** Revealed secret fields (key → value), hidden again with the password. */
+  const [shownSecrets, setShownSecrets] = useState<Record<string, string>>({});
   const [copied, setCopied] = useState<string | null>(null);
   const [detailsOpen, setDetailsOpen] = useState(false);
 
@@ -56,12 +58,19 @@ export function RegistrationCredentialsCard({
     return () => clearTimeout(t);
   }, [shown]);
 
+  // Revealed secrets hide again on the same timer as the password.
+  useEffect(() => {
+    if (!Object.keys(shownSecrets).length) return;
+    const t = setTimeout(() => setShownSecrets({}), AUTO_HIDE_SECONDS * 1000);
+    return () => clearTimeout(t);
+  }, [shownSecrets]);
+
   const title = spec ? `${spec.title} — Credentials` : 'Registration Credentials';
 
   const del = useMutation({
     mutationFn: () => registrationCredentialsApi.remove(type, client.id),
     onSuccess: () => {
-      setShown(null); setMode('view');
+      setShown(null); setShownSecrets({}); setMode('view');
       void qc.invalidateQueries({ queryKey: key });
       toast.push('success', 'Saved details deleted.');
     },
@@ -89,6 +98,26 @@ export function RegistrationCredentialsCard({
       await navigator.clipboard.writeText(value);
       flashCopied('password');
       toast.push('success', 'Password copied');
+    } catch (e) {
+      toast.push('error', (e as Error).message || 'Could not copy to clipboard.');
+    }
+  }
+
+  async function toggleSecret(key: string) {
+    if (shownSecrets[key] !== undefined) { setShownSecrets(({ [key]: _, ...rest }) => rest); return; }
+    try {
+      const { value } = await registrationCredentialsApi.reveal(type, client.id, 'show', key);
+      setShownSecrets((s) => ({ ...s, [key]: value }));
+    } catch (e) {
+      toast.push('error', (e as Error).message);
+    }
+  }
+  async function copySecret(key: string, label: string) {
+    try {
+      const value = shownSecrets[key] ?? (await registrationCredentialsApi.reveal(type, client.id, 'copy', key)).value;
+      await navigator.clipboard.writeText(value);
+      flashCopied(key);
+      toast.push('success', `${label} copied`);
     } catch (e) {
       toast.push('error', (e as Error).message || 'Could not copy to clipboard.');
     }
@@ -154,8 +183,13 @@ export function RegistrationCredentialsCard({
   const saved = spec.fields.filter((f) => inMode(f.modes, recMode) && record.fields[f.key]);
   // The login leads; what the first-time application needed stays folded.
   const visible = saved.filter((f) => f.group !== 'details');
-  const details = saved.filter((f) => f.group === 'details');
+  // Folded first-time details, in the declared order — saved secrets (e.g. Aadhaar) included, masked.
+  const details = spec.fields.filter((f) => f.group === 'details' && (saved.includes(f) || (f.kind === 'secret' && inMode(f.modes, recMode) && !!record.secrets_present?.[f.key])));
   const showPassword = !!spec.password && inMode(spec.password.modes, recMode);
+  const secrets = spec.fields.filter((f) => f.kind === 'secret' && inMode(f.modes, recMode) && record.secrets_present?.[f.key]);
+  // Saved values and secrets in the order the registration declares them, so
+  // each login's fields sit together (the main password follows).
+  const ordered = spec.fields.filter((f) => f.group !== 'details' && (visible.includes(f) || secrets.includes(f)));
   const modeLabel = spec.modes?.find((m) => m.key === recMode)?.label;
 
   return (
@@ -166,7 +200,21 @@ export function RegistrationCredentialsCard({
         </div>
       ) : null}
       <div className="grid gap-4 md:grid-cols-2">
-        {visible.map((f) => (
+        {ordered.map((f) => f.kind === 'secret' ? (
+          <Field key={f.key} label={f.label}>
+            <span className={'flex-1 min-w-0 text-13 font-mono truncate ' + (shownSecrets[f.key] === undefined ? 'text-neutral-500 tracking-widest' : 'text-neutral-900')}>
+              {shownSecrets[f.key] ?? MASK}
+            </span>
+            <button type="button" className={btn} onClick={() => toggleSecret(f.key)} hidden={!canReveal}>
+              {shownSecrets[f.key] === undefined ? <Eye size={12} strokeWidth={2} /> : <EyeOff size={12} strokeWidth={2} />}
+              {shownSecrets[f.key] === undefined ? 'Show' : 'Hide'}
+            </button>
+            <button type="button" className={btn} onClick={() => copySecret(f.key, f.label)} hidden={!canReveal}>
+              {copied === f.key ? <Check size={12} strokeWidth={2.5} /> : <ClipboardCopy size={12} strokeWidth={2} />}
+              {copied === f.key ? 'Copied' : 'Copy'}
+            </button>
+          </Field>
+        ) : (
           <Field key={f.key} label={f.label} tall={f.kind === 'textarea'}>
             <span className={'flex-1 min-w-0 text-13 text-neutral-900 ' + (f.kind === 'textarea' ? 'whitespace-pre-wrap break-words py-2' : 'truncate') + (f.mono ? ' font-mono' : '')}>
               {record.fields[f.key]}
@@ -207,7 +255,21 @@ export function RegistrationCredentialsCard({
           </button>
           {detailsOpen ? (
             <div className="grid gap-4 md:grid-cols-2 p-3 pt-1">
-              {details.map((f) => (
+              {details.map((f) => f.kind === 'secret' ? (
+                <Field key={f.key} label={f.label}>
+                  <span className={'flex-1 min-w-0 text-13 font-mono truncate ' + (shownSecrets[f.key] === undefined ? 'text-neutral-500 tracking-widest' : 'text-neutral-900')}>
+                    {shownSecrets[f.key] ?? MASK}
+                  </span>
+                  <button type="button" className={btn} onClick={() => toggleSecret(f.key)} hidden={!canReveal}>
+                    {shownSecrets[f.key] === undefined ? <Eye size={12} strokeWidth={2} /> : <EyeOff size={12} strokeWidth={2} />}
+                    {shownSecrets[f.key] === undefined ? 'Show' : 'Hide'}
+                  </button>
+                  <button type="button" className={btn} onClick={() => copySecret(f.key, f.label)} hidden={!canReveal}>
+                    {copied === f.key ? <Check size={12} strokeWidth={2.5} /> : <ClipboardCopy size={12} strokeWidth={2} />}
+                    {copied === f.key ? 'Copied' : 'Copy'}
+                  </button>
+                </Field>
+              ) : (
                 <Field key={f.key} label={f.label} tall={f.kind === 'textarea'}>
                   <span className={'flex-1 min-w-0 text-13 text-neutral-900 ' + (f.kind === 'textarea' ? 'whitespace-pre-wrap break-words py-2' : 'truncate') + (f.mono ? ' font-mono' : '')}>
                     {record.fields[f.key]}
@@ -299,7 +361,7 @@ function CredentialForm({
   const save = useMutation({
     mutationFn: () => registrationCredentialsApi.save(type, client.id, {
       mode: regMode,
-      fields: Object.fromEntries(fields.map((f) => [f.key, (values[f.key] ?? '').trim()])),
+      fields: Object.fromEntries(fields.map((f) => [f.key, f.kind === 'secret' ? (values[f.key] ?? '') : (values[f.key] ?? '').trim()])),
       ...(usesPassword && password ? { password } : {}),
     }),
     onSuccess: () => onSaved(editing),
@@ -310,7 +372,7 @@ function CredentialForm({
     },
   });
 
-  const missing = fields.some((f) => requiredIn(f.required, regMode) && !(values[f.key] ?? '').trim())
+  const missing = fields.some((f) => requiredIn(f.required, regMode) && !(values[f.key] ?? '').trim() && !(f.kind === 'secret' && existing?.secrets_present?.[f.key]))
     || (passwordRequired && !password);
 
   return (
@@ -361,6 +423,16 @@ function CredentialForm({
                 <option value="">Select…</option>
                 {f.options?.map((o) => <option key={o} value={o}>{o}</option>)}
               </select>
+            ) : f.kind === 'secret' ? (
+              <input
+                type="password"
+                className={input}
+                value={values[f.key] ?? ''}
+                onChange={(e) => set(e.target.value)}
+                placeholder={existing?.secrets_present?.[f.key] ? 'Leave blank to keep the current password' : f.placeholder ?? `Enter ${f.label}`}
+                maxLength={200}
+                autoComplete="new-password"
+              />
             ) : f.kind === 'textarea' ? (
               <textarea
                 className={input + ' h-auto min-h-[72px] py-2'}

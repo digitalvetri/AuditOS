@@ -19,10 +19,14 @@ export interface LaunchContext {
   /** CRM origin the launch came from — the API is called there (/api/...). */
   crmOrigin: string;
   expiresAt: string;
-  /** 'ready' until the credential has been used once. */
+  /** 'ready' until every fill this launch allows has been used. */
   state: 'ready' | 'filled' | 'failed';
+  /** Fills already used: the login, and (GST, DGFT) the registration form — each once. */
+  used?: FillPurpose[];
   lastError?: string;
 }
+
+export type FillPurpose = 'login' | 'registration';
 
 /** CRM page → bridge → service worker. */
 export interface LaunchMessage {
@@ -48,4 +52,13 @@ export type ContentState =
   | { kind: 'ready'; ctx: Omit<LaunchContext, 'launchToken'>; autoFill: boolean };
 
 /** One login. `mobile` only for password-less portals (UDYAM: number + mobile, then OTP). */
-export interface Credential { username: string; password: string; mobile?: string }
+export interface Credential {
+  username: string; password: string; mobile?: string
+  /** A registration form (GST New Registration, DGFT Register): saved first-time details, not a login. */
+  details?: Record<string, string>
+}
+
+/** What the GST portal's New Registration form (Part A) asks for. */
+export interface GstNewRegistrationDetails {
+  applicant_type: string; state: string; district: string; legal_name: string; pan: string; email: string; mobile: string
+}

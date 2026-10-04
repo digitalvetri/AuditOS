@@ -14,5 +14,7 @@ export const epfoAdapter = genericAdapter({
   registrationIds: ['PF_EPFO'],
   domains: ['epfo.gov.in', 'epfindia.gov.in'],
   status: 'PARTIAL',
-  selectors: { username: '#AuthenticationForm #username1', password: '#AuthenticationForm #password' },
+  // Employer portal (#username1) or the member portal's UAN login (#userName, 03 Oct 2026).
+  // The server hands over the UAN login on the member portal, never the employer's.
+  selectors: { username: '#AuthenticationForm #username1, input#userName', password: '#AuthenticationForm #password, input#password' },
 });

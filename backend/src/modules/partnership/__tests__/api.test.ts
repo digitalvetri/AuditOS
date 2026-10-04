@@ -462,31 +462,28 @@ describe('LLP Registration (same engine, /api/llp)', () => {
 })
 
 describe('GST Registration (same engine, /api/gst-registration)', () => {
-  it('collects only the chosen business type\'s documents plus business place proof', async () => {
+  it('lists every section\'s documents whatever the business type (spreadsheet template)', async () => {
     const cl = await client('GST Client')
     const r = await api('/api/gst-registration/cases', { method: 'POST', body: { client_id: cl.id } })
     expect(r.status).toBe(201)
     expect(r.body.case_code).toMatch(/^GST-\d{4}-\d{4}$/)
     const id = r.body.id
     const req = async () => (await api(`/api/gst-registration/cases/${id}`)).body.progress.docs_required
-    // No entity type yet: every entity's documents are listed (GST rebuild —
-    // entityConditionApplies treats an unknown entity as "applies"); the
-    // premises proofs still wait for the premises type.
-    expect(await req()).toBe(14)
+    // Entity-agnostic since cc3e74e: Proprietorship check (4) + Partnership /
+    // Corporate check (6) + Business place proof (3). The section titles say
+    // when each applies; the operator skips what doesn't.
+    expect(await req()).toBe(13)
 
     await api(`/api/gst-registration/cases/${id}`, { method: 'PATCH', body: { entity_type: 'PROPRIETORSHIP', premises_type: 'OWNED' } })
-    expect(await req()).toBe(4 + 1) // PAN, Aadhaar, photo, bank + one owned-property proof
+    expect(await req()).toBe(13)
 
     await api(`/api/gst-registration/cases/${id}`, { method: 'PATCH', body: { entity_type: 'PARTNERSHIP', premises_type: 'RENTED' } })
     await api(`/api/gst-registration/cases/${id}/partners`, { method: 'POST', body: { name: 'Ravi' } })
     await api(`/api/gst-registration/cases/${id}/partners`, { method: 'POST', body: { name: 'Priya' } })
     const c = (await api(`/api/gst-registration/cases/${id}`)).body
-    // Firm PAN, deed, signatory proof, bank (4) + PAN/Aadhaar/photo × 2 partners (6) + rented proofs (3)
     expect(c.progress.docs_required).toBe(13)
     const applicable = c.requirements.filter((x: any) => x.status !== 'NOT_APPLICABLE').map((x: any) => x.name)
-    expect(applicable).toContain('PAN Card — Priya') // Partner KYC, one per partner (GST rebuild §7.1)
-    expect(applicable.some((n: string) => n.startsWith("Owner's"))).toBe(false)
+    expect(applicable).toEqual(expect.arrayContaining(['Owner PAN', 'Entity PAN', 'Partner/Director PAN & Aadhaar', 'NOC from Property Owner']))
     expect((await api(`/api/llp/cases/${id}`)).status).toBe(404)
   })
-
 })

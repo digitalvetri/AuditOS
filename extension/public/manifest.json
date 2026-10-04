@@ -2,17 +2,15 @@
   "manifest_version": 3,
   "name": "AuditOS \u2014 Government Portal Autofill",
   "short_name": "AuditOS Autofill",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "description": "AuditOS internal tool: opens a client's government portal from the CRM and fills that client's login. You complete CAPTCHA / OTP / MFA / DSC.",
   "minimum_chrome_version": "116",
-  "permissions": [
-    "storage",
-    "webNavigation"
-  ],
+  "permissions": ["storage", "webNavigation", "scripting"],
   "host_permissions": [
     "http://localhost:5173/*",
     "http://127.0.0.1:5173/*",
     "http://localhost:8080/*",
+    "http://127.0.0.1:8080/*",
     "https://*.gst.gov.in/*",
     "https://*.mca.gov.in/*",
     "https://tnreginet.gov.in/*",
@@ -48,7 +46,8 @@
       "matches": [
         "http://localhost:5173/*",
         "http://127.0.0.1:5173/*",
-        "http://localhost:8080/*"
+        "http://localhost:8080/*",
+        "http://127.0.0.1:8080/*"
       ],
       "js": [
         "crm-bridge.js"
@@ -77,7 +76,7 @@
       "js": [
         "portal.js"
       ],
-      "run_at": "document_idle"
+      "run_at": "document_end"
     }
   ],
   "icons": {

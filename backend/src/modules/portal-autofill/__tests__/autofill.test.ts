@@ -206,6 +206,150 @@ describe('portal autofill — isolation', () => {
     expect(r.redeem.body.error.message).toMatch(/No credential configured/)
   })
 
+  it('GST New Registration page: hands over the saved first-time details (no password), once', async () => {
+    const a = await client('New GST Applicant')
+    const details = { applicant_type: 'Taxpayer', state: 'Tamil Nadu', district: 'Coimbatore', legal_name: 'NEW GST APPLICANT PVT LTD', pan: 'AABCN1234M', email: 'a@x.local', mobile: '9840011111' }
+    await prisma.registrationCredential.create({ data: { clientId: a.id, typeCode: 'gst', mode: 'new', fieldsJson: JSON.stringify(details) } })
+    const pageUrl = 'https://reg.gst.gov.in/registration/'
+    const { redeem } = await launchAndRedeem(a.id, 'GST_REGISTRATION', { pageUrl })
+    expect(redeem.status).toBe(200)
+    expect(redeem.body).toEqual({ kind: 'gst_new_registration', details })
+    expect(JSON.stringify(redeem.body)).not.toContain('password')
+    // The same page on a client with nothing saved: refused, nothing filled.
+    const b = await client('Nothing Saved')
+    const none = await launchAndRedeem(b.id, 'GST_REGISTRATION', { pageUrl })
+    expect(none.redeem.status).toBe(403)
+    expect(none.redeem.body.error.message).toMatch(/No first-time registration details/)
+    // The GST login page still gets the login, not the details.
+    await prisma.registrationCredential.update({ where: { id: (await prisma.registrationCredential.findFirstOrThrow({ where: { clientId: a.id, typeCode: 'gst' } })).id }, data: { fieldsJson: JSON.stringify({ ...details, username: 'gstuser1' }), passwordCiphertext: encryptPortalSecret('gst-pass', 'registration.gst') } })
+    const login = await launchAndRedeem(a.id, 'GST_REGISTRATION', { pageUrl: 'https://services.gst.gov.in/services/login' })
+    expect(login.redeem.body).toEqual({ username: 'gstuser1', password: 'gst-pass' })
+  })
+
+  it('ESIC: the Insured Person page gets the Insured Person login, never the employer password', async () => {
+    const a = await client('ESI Employer')
+    await prisma.registrationCredential.create({ data: {
+      clientId: a.id, typeCode: 'esi', mode: 'existing',
+      fieldsJson: JSON.stringify({ username: 'LIN777', ip_user_id: 'IP-31-0001', ip_password: 'enc:' + encryptPortalSecret('ip-pass', 'x') }),
+      passwordCiphertext: encryptPortalSecret('employer-pass', 'registration.esi'),
+    } })
+    const ipPage = 'https://portal.esic.gov.in/EmployeePortal/login.aspx'
+    expect((await launchAndRedeem(a.id, 'ESI_ESIC', { pageUrl: ipPage })).redeem.body).toEqual({ username: 'IP-31-0001', password: 'ip-pass' })
+    const employerPage = 'https://portal.esic.gov.in/EmployerPortal/ESICInsurancePortal/Portal_Loginnew.aspx'
+    expect((await launchAndRedeem(a.id, 'ESI_ESIC', { pageUrl: employerPage })).redeem.body).toEqual({ username: 'LIN777', password: 'employer-pass' })
+    // No Insured Person login saved: refused — the employer login is not used instead.
+    const b = await client('ESI No IP')
+    await saveCred(b.id, 'esi', 'LIN888', 'employer-only')
+    const r = await launchAndRedeem(b.id, 'ESI_ESIC', { pageUrl: ipPage })
+    expect(r.redeem.status).toBe(403)
+    expect(JSON.stringify(r.redeem.body)).not.toContain('employer-only')
+  })
+
+  it('EPFO: the member portal gets the UAN login, the employer portal the employer login', async () => {
+    const a = await client('PF Employer')
+    await prisma.registrationCredential.create({ data: {
+      clientId: a.id, typeCode: 'pf', fieldsJson: JSON.stringify({ username: 'EMPUSER1', uan: '100200300400', uan_password: 'enc:' + encryptPortalSecret('uan-pass', 'x') }),
+      passwordCiphertext: encryptPortalSecret('employer-pf-pass', 'registration.pf'),
+    } })
+    const member = 'https://unifiedportal-mem.epfindia.gov.in/memberinterface/'
+    expect((await launchAndRedeem(a.id, 'PF_EPFO', { pageUrl: member })).redeem.body).toEqual({ username: '100200300400', password: 'uan-pass' })
+    expect((await launchAndRedeem(a.id, 'PF_EPFO', { pageUrl: 'https://unifiedportal-emp.epfindia.gov.in/epfo/' })).redeem.body).toEqual({ username: 'EMPUSER1', password: 'employer-pf-pass' })
+    const b = await client('PF No UAN')
+    await saveCred(b.id, 'pf', 'EMPUSER2', 'employer-only-pf')
+    const r = await launchAndRedeem(b.id, 'PF_EPFO', { pageUrl: member })
+    expect(r.redeem.status).toBe(403)
+    expect(JSON.stringify(r.redeem.body)).not.toContain('employer-only-pf')
+  })
+
+  it('DGFT / IEC: one launch fills the login once AND the registration form once', async () => {
+    const a = await client('IEC Applicant')
+    await prisma.registrationCredential.create({ data: {
+      clientId: a.id, typeCode: 'import-export-code', mode: 'new',
+      fieldsJson: JSON.stringify({ register_as: 'IEC Applicant', first_name: 'Ravi', reg_email: 'r@x.local', reg_mobile: '9840011111', pincode: '641001', district: 'Coimbatore', state: 'Tamil Nadu', city: 'Coimbatore', username: 'iecuser' }),
+      passwordCiphertext: encryptPortalSecret('iec-pass', 'registration.import-export-code'),
+    } })
+    const l = await api('/api/portal-autofill/launch', { method: 'POST', as: mdCookie, body: { client_id: a.id, registration_id: 'IEC_REGISTRATION' } })
+    const req = (purpose?: string) => api('/api/extension/credentials/request', { method: 'POST', body: { launchToken: l.body.launch_token, clientId: a.id, registrationId: 'IEC_REGISTRATION', portalId: 'DGFT', pageUrl: 'https://www.dgft.gov.in/CP/', ...(purpose ? { purpose } : {}) } })
+    expect((await req()).body).toEqual({ username: 'iecuser', password: 'iec-pass' })
+    const reg = await req('registration')
+    expect(reg.body).toEqual({ kind: 'iec_registration', details: { register_as: 'IEC Applicant', first_name: 'Ravi', last_name: '', email: 'r@x.local', mobile: '9840011111', pincode: '641001', district: 'Coimbatore', state: 'Tamil Nadu', city: 'Coimbatore' } })
+    expect(JSON.stringify(reg.body)).not.toContain('iec-pass')
+    // Each purpose once.
+    expect((await req()).status).toBe(403)
+    expect((await req('registration')).status).toBe(403)
+  })
+
+  it('Labour TN: login and the applicant registration form each fill once from one launch', async () => {
+    const a = await client('Shop Owner')
+    await prisma.registrationCredential.create({ data: {
+      clientId: a.id, typeCode: 'shops-establishment', mode: 'new',
+      fieldsJson: JSON.stringify({ username: 'shopuser', applicant_name: 'Ravi Kumar', dob: '1985-06-15', aadhaar: 'enc:' + encryptPortalSecret('999988887777', 'x'), id_proof: 'PAN', id_proof_number: 'AABCK1234M', state: 'Tamil Nadu', district: 'Chennai', reg_mobile: '9876543210', reg_email: 'a@x.local' }),
+      passwordCiphertext: encryptPortalSecret('shop-pass', 'registration.shops-establishment'),
+    } })
+    const l = await api('/api/portal-autofill/launch', { method: 'POST', as: mdCookie, body: { client_id: a.id, registration_id: 'SHOPS_ESTABLISHMENT' } })
+    const req = (pageUrl: string, purpose?: string) => api('/api/extension/credentials/request', { method: 'POST', body: { launchToken: l.body.launch_token, clientId: a.id, registrationId: 'SHOPS_ESTABLISHMENT', portalId: 'LABOUR_TN', pageUrl, ...(purpose ? { purpose } : {}) } })
+    expect((await req('https://labour.tn.gov.in/services/users/login')).body).toEqual({ username: 'shopuser', password: 'shop-pass' })
+    const reg = await req('https://labour.tn.gov.in/services/Applicants/applicantRegistration', 'registration')
+    expect(reg.body.kind).toBe('labour_registration')
+    expect(reg.body.details).toMatchObject({ name: 'Ravi Kumar', dob: '1985-06-15', aadhaar: '999988887777', id_proof: 'PAN', id_number: 'AABCK1234M', state: 'Tamil Nadu', district: 'Chennai', password: 'shop-pass' })
+    expect((await req('https://labour.tn.gov.in/services/Applicants/applicantRegistration', 'registration')).status).toBe(403)
+  })
+
+  it('TNREGINET: login and the Sign Up form each fill once from one launch', async () => {
+    const a = await client('Firm Partner')
+    await prisma.registrationCredential.create({ data: {
+      clientId: a.id, typeCode: 'partnership-firm', mode: 'new',
+      fieldsJson: JSON.stringify({ username: 'firmuser', user_type: 'Citizen', security_answer: 'enc:' + encryptPortalSecret('Tommy', 'registration_partnership_firm_password_security_answer'), identification_type: 'PAN', identification_no: 'enc:' + encryptPortalSecret('ABCPM1234K', 'registration_partnership_firm_password_identification_no'), first_name: 'Suresh', dob: '1980-04-12', state: 'Tamil Nadu', district: 'Chennai', reg_email: 'a@x.local', reg_mobile: '9876543210' }),
+      passwordCiphertext: encryptPortalSecret('firm pass@2026', 'registration.partnership-firm'),
+    } })
+    const l = await api('/api/portal-autofill/launch', { method: 'POST', as: mdCookie, body: { client_id: a.id, registration_id: 'PARTNERSHIP_FIRM' } })
+    const req = (purpose?: string) => api('/api/extension/credentials/request', { method: 'POST', body: { launchToken: l.body.launch_token, clientId: a.id, registrationId: 'PARTNERSHIP_FIRM', portalId: 'TNREGINET', pageUrl: 'https://tnreginet.gov.in/portal/', ...(purpose ? { purpose } : {}) } })
+    expect((await req()).body).toEqual({ username: 'firmuser', password: 'firm pass@2026' })
+    const reg = await req('registration')
+    expect(reg.body.kind).toBe('tnreginet_registration')
+    expect(reg.body.details).toMatchObject({ username: 'firmuser', password: 'firm pass@2026', security_answer: 'Tommy', identification_no: 'ABCPM1234K', email: 'a@x.local', mobile: '9876543210', dob: '1980-04-12' })
+    expect((await req('registration')).status).toBe(403)
+  })
+
+  it('Udyam: the registration page gets the Aadhaar and entrepreneur name; the login stays passwordless', async () => {
+    const a = await client('Udyam Owner')
+    await prisma.registrationCredential.create({ data: {
+      clientId: a.id, typeCode: 'msme-udyam', mode: 'new',
+      fieldsJson: JSON.stringify({ udyam_number: 'UDYAM-TN-00-0000009', signatory_mobile: '9876543210', entrepreneur_name: 'Suresh Menon', aadhaar: 'enc:' + encryptPortalSecret('999988887777', 'registration_msme_udyam_password_aadhaar') }),
+    } })
+    const l = await api('/api/portal-autofill/launch', { method: 'POST', as: mdCookie, body: { client_id: a.id, registration_id: 'MSME_UDYAM' } })
+    const req = (pageUrl: string, purpose?: string) => api('/api/extension/credentials/request', { method: 'POST', body: { launchToken: l.body.launch_token, clientId: a.id, registrationId: 'MSME_UDYAM', portalId: 'UDYAM', pageUrl, ...(purpose ? { purpose } : {}) } })
+    const login = await req('https://udyamregistration.gov.in/Udyam_Login.aspx')
+    expect(login.body).toEqual({ username: 'UDYAM-TN-00-0000009', password: '', mobile: '9876543210' })
+    const reg = await req('https://udyamregistration.gov.in/UdyamRegistration.aspx', 'registration')
+    expect(reg.body).toEqual({ kind: 'udyam_registration', details: { aadhaar: '999988887777', entrepreneur_name: 'Suresh Menon' } })
+  })
+
+  it('ESIC: the sign-up pages get the employer and Insured Person sign-up details, never a password', async () => {
+    const a = await client('ESIC Signup')
+    await prisma.registrationCredential.create({ data: {
+      clientId: a.id, typeCode: 'esi', mode: 'new',
+      fieldsJson: JSON.stringify({ company_name: 'ABC', principal_employer_name: 'Suresh', state: 'Tamil Nadu', region: 'Chennai', signup_email: 'a@x.local', ip_insurance_number: '5100123456', ip_dob: '1990-01-31', ip_mobile: '9876543210', ip_password: 'enc:' + encryptPortalSecret('ip-pass', 'registration_esi_password_ip_password') }),
+      passwordCiphertext: encryptPortalSecret('emp-pass', 'registration.esi'),
+    } })
+    const l = await api('/api/portal-autofill/launch', { method: 'POST', as: mdCookie, body: { client_id: a.id, registration_id: 'ESI_ESIC' } })
+    const reg = await api('/api/extension/credentials/request', { method: 'POST', body: { launchToken: l.body.launch_token, clientId: a.id, registrationId: 'ESI_ESIC', portalId: 'ESIC', pageUrl: 'https://portal.esic.gov.in/EmployeePortal/SignUp.aspx', purpose: 'registration' } })
+    expect(reg.body).toMatchObject({ kind: 'esi_registration', details: { company_name: 'ABC', region: 'Chennai', email: 'a@x.local', ip_number: '5100123456', ip_dob: '1990-01-31', ip_mobile: '9876543210' } })
+    expect(JSON.stringify(reg.body)).not.toMatch(/ip-pass|emp-pass/)
+  })
+
+  it('E-Way Bill: the registration form gets the GSTIN, and the login still fills from the same launch', async () => {
+    const a = await client('EWB Reg')
+    await prisma.registrationCredential.create({ data: {
+      clientId: a.id, typeCode: 'e-way-bill', mode: 'new', fieldsJson: JSON.stringify({ gstin: '33ABCDE1234F1Z5', username: 'ewbuser' }),
+      passwordCiphertext: encryptPortalSecret('ewb-pass', 'registration.e-way-bill'),
+    } })
+    const l = await api('/api/portal-autofill/launch', { method: 'POST', as: mdCookie, body: { client_id: a.id, registration_id: 'E_WAY_BILL' } })
+    const req = (pageUrl: string, purpose?: string) => api('/api/extension/credentials/request', { method: 'POST', body: { launchToken: l.body.launch_token, clientId: a.id, registrationId: 'E_WAY_BILL', portalId: 'EWAYBILL', pageUrl, ...(purpose ? { purpose } : {}) } })
+    expect((await req('https://ewaybillgst.gov.in/Login.aspx')).body).toEqual({ username: 'ewbuser', password: 'ewb-pass' })
+    expect((await req('https://ewaybillgst.gov.in/Account/EWBUserRegistration.aspx', 'registration')).body).toEqual({ kind: 'ewb_registration', details: { gstin: '33ABCDE1234F1Z5' } })
+  })
+
   it('never puts a credential in the launch response or audit log', async () => {
     const a = await client('NoLeak')
     await saveCred(a.id, 'e-invoice', 'ei-user', 'ei-secret-pass')

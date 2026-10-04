@@ -27,7 +27,7 @@ export function waitForLogin(adapter: PortalAdapter, timeoutMs = 20_000): Promis
 export async function fill(adapter: PortalAdapter, waitMs = 20_000, onWaiting?: (text?: string) => void): Promise<{ ok: boolean; message: string }> {
   if (!adapter.isLoginPage()) {
     adapter.openLogin?.();
-    await new Promise((r) => setTimeout(r, 600));
+    await new Promise((r) => setTimeout(r, 250));
   }
   if (!adapter.isLoginPage()) onWaiting?.();
   if (!(await waitForLogin(adapter, waitMs))) return { ok: false, message: 'No login form found yet. Open the portal’s login, then press Autofill in the extension.' };
@@ -62,7 +62,7 @@ async function twoStepFill(adapter: PortalAdapter, c: Credential, onWaiting?: (t
     const deadline = Date.now() + 3 * 60_000;
     while (!shown(adapter.findPasswordField())) {
       if (Date.now() > deadline) return { ok: false, message: 'Password screen did not appear. Reopen the portal from the CRM to try again.' };
-      await new Promise((r) => setTimeout(r, 400));
+      await new Promise((r) => setTimeout(r, 200));
     }
   }
   const p = await adapter.fillPassword(c.password);

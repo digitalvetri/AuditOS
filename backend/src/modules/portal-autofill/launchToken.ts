@@ -50,7 +50,13 @@ export type VerifyResult = { ok: true; claims: LaunchClaims } | { ok: false; rea
 const used = new Map<string, number>()
 function sweep(nowSec: number) { for (const [j, e] of used) if (e < nowSec) used.delete(j) }
 
-export function verifyLaunchToken(token: unknown, now = Date.now()): VerifyResult {
+/**
+ * A launch serves two fills, each once: the portal's login, and (where the
+ * portal has one) its registration form with the saved first-time details.
+ */
+export type LaunchPurpose = 'login' | 'registration'
+
+export function verifyLaunchToken(token: unknown, now = Date.now(), purpose: LaunchPurpose = 'login'): VerifyResult {
   if (typeof token !== 'string' || token.length > 2000) return { ok: false, reason: 'malformed' }
   const [body, sig] = token.split('.')
   if (!body || !sig) return { ok: false, reason: 'malformed' }
@@ -63,9 +69,9 @@ export function verifyLaunchToken(token: unknown, now = Date.now()): VerifyResul
   const nowSec = Math.floor(now / 1000)
   if (claims.exp < nowSec) return { ok: false, reason: 'expired' }
   sweep(nowSec)
-  if (used.has(claims.jti)) return { ok: false, reason: 'used' }
+  if (used.has(`${claims.jti}:${purpose}`)) return { ok: false, reason: 'used' }
   return { ok: true, claims }
 }
 
-/** Burn a token once its credential has been released. */
-export function consumeLaunchToken(claims: LaunchClaims) { used.set(claims.jti, claims.exp) }
+/** Burn a token for one purpose once that fill's data has been released. */
+export function consumeLaunchToken(claims: LaunchClaims, purpose: LaunchPurpose = 'login') { used.set(`${claims.jti}:${purpose}`, claims.exp) }

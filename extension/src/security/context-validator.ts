@@ -23,7 +23,7 @@ export function evaluate(ctx: LaunchContext | null, pageUrl: string, now = Date.
 }
 
 /** CRM origins allowed to launch (also listed in the manifest). */
-export const CRM_ORIGINS = ['http://localhost:5173', 'http://127.0.0.1:5173', 'http://localhost:8080'];
+export const CRM_ORIGINS = ['http://localhost:5173', 'http://127.0.0.1:5173', 'http://localhost:8080', 'http://127.0.0.1:8080'];
 
 /** The URL a launch may open: exactly a registry starting URL. */
 export function launchUrlAllowed(launchUrl: string, portalId: string): string | null {
