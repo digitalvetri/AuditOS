@@ -119,6 +119,7 @@ import { EmployeeDetailPage } from '@/pages/hrms/EmployeeDetail';
 import { DocumentsPage } from '@/pages/hrms/Documents';
 import { SettingsPage } from '@/pages/hrms/Settings';
 import { ZohoPaymentsIntegrationPage } from '@/pages/integrations/ZohoPayments';
+import { AiProviderIntegrationPage } from '@/pages/integrations/AiProvider';
 import { PayrollPage, PayrollRunDetailPage } from '@/pages/hrms/Payroll';
 import { PayslipDetailPage } from '@/pages/hrms/PayslipDetail';
 import { MyPayslipsPage } from '@/pages/MyPayslips';
@@ -259,6 +260,7 @@ export default function App() {
               <Route path="hrms/reports" element={<ReportsPage />} />
               <Route path="hrms/settings" element={<SettingsPage />} />
               <Route path="integrations/zoho-payments" element={<ZohoPaymentsIntegrationPage />} />
+              <Route path="integrations/ai-provider" element={<AiProviderIntegrationPage />} />
 
               <Route path="me/profile" element={<MyProfileRoute />} />
               <Route path="me/attendance" element={<AttendancePage />} />

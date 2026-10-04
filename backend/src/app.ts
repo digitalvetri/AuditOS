@@ -62,6 +62,14 @@ import { registrationCredentialsRouter } from './modules/registration/credential
 // the module folder to drop the feature.
 import { portalAutofillRouter, extensionCredentialsRouter } from './modules/portal-autofill/routes.js'
 import { tdsServiceRouter } from './modules/tds/routes.js'
+// GST departmental notices (DRC-07 / DRC-01 / ASMT-10 / GSTR-3A) — upload the
+// scanned notice, OCR + Groq extract the facts, practitioner enters grounds,
+// Groq drafts the reply letter. Needs GROQ_API_KEY in the environment, OR the
+// firm configures its own key via Integrations → AI provider.
+import { clientNoticesRouter, noticesRouter } from './modules/notices/routes.js'
+// Integrations → AI provider: per-organisation Groq (future: Anthropic / OpenAI)
+// API key configuration, encrypted at rest via portalCrypto.
+import { integrationsAiRouter } from './modules/integrations/ai.routes.js'
 // Tally Export — bank statement → TallyPrime Excel file (docs/tally-export/README.md).
 import { tallyExportRouter } from './modules/tally-export/routes.js'
 // Books — Zoho Books integration under TOOLS (docs/books-zoho/README.md).
@@ -268,6 +276,12 @@ export function createApp() {
   app.use('/api/registration-credentials', registrationCredentialsRouter)
   app.use('/api/portal-autofill', portalAutofillRouter)
   app.use('/api/tds', tdsServiceRouter)
+  // GST notices — upload + LLM-drafted reply. The /:clientId/notices list hangs
+  // off the clients router so it reaches the same scope guards as other
+  // client-scoped resources (einvoice, folders).
+  app.use('/api/clients', clientNoticesRouter)
+  app.use('/api/notices', noticesRouter)
+  app.use('/api/integrations/ai', integrationsAiRouter)
 
   // ── Books ──────────────────────────────────────────────────────────────
   app.use('/api/books', booksRouter)

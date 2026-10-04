@@ -1,1 +1,8 @@
 .superpowers/
+.env.docker
+.env.docker.*
+.env.local
+.scratch/
+.claude/
+dev-full.log
+server/
