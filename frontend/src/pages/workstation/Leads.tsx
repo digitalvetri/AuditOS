@@ -16,6 +16,7 @@ import { useToast } from '@/components/Toast';
 import { fmtDate, fmtTime, inr } from '@/lib/format';
 import { can } from '@/platform/rbac/can';
 import { useAuth } from '@/platform/auth/AuthContext';
+import { OrganizationBadge } from '@/modules/workstation/organization/badges';
 
 /** §7.2 — the lead list, its filters and the Add Lead form. */
 export function LeadsPage() {
@@ -28,6 +29,7 @@ export function LeadsPage() {
   const status = params.get('status') ?? '';
   const serviceId = params.get('service_id') ?? '';
   const employeeId = params.get('employee_id') ?? '';
+  const leadType = (params.get('lead_type') ?? '') as '' | 'individual' | 'organization';
   const q = params.get('q') ?? '';
 
   const setParam = (key: string, value: string) => {
@@ -38,8 +40,8 @@ export function LeadsPage() {
   };
 
   const leads = useQuery({
-    queryKey: ['workstation', 'leads', { status, serviceId, employeeId, q }],
-    queryFn: () => workstationApi.listLeads({ status, service_id: serviceId, employee_id: employeeId, q }),
+    queryKey: ['workstation', 'leads', { status, serviceId, employeeId, leadType, q }],
+    queryFn: () => workstationApi.listLeads({ status, service_id: serviceId, employee_id: employeeId, lead_type: leadType || undefined, q }),
   });
   const catalog = useQuery({ queryKey: ['workstation', 'catalog'], queryFn: workstationApi.serviceCatalog });
   const employees = useQuery({ queryKey: ['workstation', 'employees'], queryFn: workstationApi.assignableEmployees });
@@ -68,6 +70,10 @@ export function LeadsPage() {
           label="Assigned to" value={employeeId} onChange={(v) => setParam('employee_id', v)}
           options={(employees.data?.items ?? []).map((e) => ({ value: e.id, label: e.full_name }))}
         />
+        <FilterSelect
+          label="Lead type" value={leadType} onChange={(v) => setParam('lead_type', v)}
+          options={[{ value: 'individual', label: 'Individual' }, { value: 'organization', label: 'Organization' }]}
+        />
       </ListToolbar>
       <div className="mb-4">
         <StatusPills value={status} onChange={(v) => setParam('status', v)} options={[
@@ -88,7 +94,15 @@ export function LeadsPage() {
             <ListTable cols={['Lead', 'Contact', 'Service', { label: 'Price quoted', align: 'right' }, 'Created', 'Status', 'Assigned to']}>
               {data.items.map((l) => (
                 <ListRow key={l.id} onOpen={() => navigate(`/workstation/leads/${l.id}`)}>
-                  <TD first><TwoLine top={l.name} sub={l.lead_id} avatar={l.name} /></TD>
+                  <TD first>
+                    <TwoLine
+                      top={l.lead_type === 'organization'
+                        ? <span className="inline-flex items-center gap-2">{l.name} <OrganizationBadge /></span>
+                        : l.name}
+                      sub={l.lead_type === 'organization' && l.contact_person ? `${l.lead_id} · Contact: ${l.contact_person}` : l.lead_id}
+                      avatar={l.name}
+                    />
+                  </TD>
                   <TD muted nowrap>{l.contact_number}</TD>
                   <TD muted>{l.service_name ?? '—'}</TD>
                   {/* Quoted, not received — Finance owns payment (§55). */}
@@ -116,15 +130,19 @@ function AddLeadModal({ open, onClose }: { open: boolean; onClose: () => void })
   const employees = useQuery({ queryKey: ['workstation', 'employees'], queryFn: workstationApi.assignableEmployees });
 
   const [form, setForm] = useState({
-    name: '', contact_number: '', service_id: '', price_quoted: '',
+    lead_type: 'individual' as 'individual' | 'organization',
+    name: '', contact_person: '', contact_number: '', service_id: '', price_quoted: '',
     assigned_employee_id: '', email: '', notes: '',
   });
+  const isOrg = form.lead_type === 'organization';
   const set = (k: keyof typeof form, v: string) => setForm((f) => ({ ...f, [k]: v }));
   const [clientErrors, setClientErrors] = useState<Record<string, string>>({});
 
   const create = useMutation({
     mutationFn: () => workstationApi.createLead({
+      lead_type: form.lead_type,
       name: form.name,
+      contact_person: isOrg ? form.contact_person || undefined : undefined,
       contact_number: form.contact_number,
       service_id: form.service_id,
       price_quoted: Number(form.price_quoted || 0),
@@ -134,7 +152,7 @@ function AddLeadModal({ open, onClose }: { open: boolean; onClose: () => void })
     }),
     onSuccess: (lead) => {
       void qc.invalidateQueries({ queryKey: ['workstation'] });
-      toast.push('success', `Lead ${lead.lead_id} created.`);
+      toast.push('success', `${lead.lead_type === 'organization' ? 'Organization lead' : 'Lead'} ${lead.lead_id} created.`);
       onClose();
       navigate(`/workstation/leads/${lead.id}`);
     },
@@ -176,9 +194,47 @@ function AddLeadModal({ open, onClose }: { open: boolean; onClose: () => void })
         </>
       }
     >
-      <Field label="Name" error={err('name')}>
-        <input className={inputClass} value={form.name} onChange={(e) => set('name', e.target.value)} />
+      <Field
+        label="Lead Type"
+        error={err('lead_type')}
+        hint={isOrg
+          ? 'Converts into an Organization Client — a client that holds other clients.'
+          : 'Converts into a normal client.'}
+      >
+        <div className="grid grid-cols-2 gap-2" role="radiogroup" aria-label="Lead type">
+          {([
+            ['individual', 'Individual / Lead', 'A person or a single business'],
+            ['organization', 'Organization', 'A group with several clients under it'],
+          ] as const).map(([value, label, sub]) => (
+            <label
+              key={value}
+              className={'flex items-start gap-2 rounded-lg border px-3 py-2 cursor-pointer ' +
+                (form.lead_type === value ? 'border-primary bg-primary/5' : 'border-neutral-200 hover:border-neutral-300')}
+            >
+              <input
+                type="radio" name="lead_type" value={value} className="mt-[3px]"
+                checked={form.lead_type === value}
+                onChange={() => set('lead_type', value)}
+              />
+              <span>
+                <span className="block text-13 font-medium text-neutral-900">{label}</span>
+                <span className="block text-11 text-neutral-500">{sub}</span>
+              </span>
+            </label>
+          ))}
+        </div>
       </Field>
+      <Field label={isOrg ? 'Organization Name' : 'Name'} error={err('name')}>
+        <input
+          className={inputClass} value={form.name} onChange={(e) => set('name', e.target.value)}
+          placeholder={isOrg ? 'e.g. ABC Business Solutions' : undefined}
+        />
+      </Field>
+      {isOrg ? (
+        <Field label="Contact Person" error={err('contact_person')} hint="Who you deal with at the organization.">
+          <input className={inputClass} value={form.contact_person} onChange={(e) => set('contact_person', e.target.value)} />
+        </Field>
+      ) : null}
       <Field label="Contact Number" error={err('contact_number')}>
         <input className={inputClass} value={form.contact_number} onChange={(e) => set('contact_number', e.target.value)} placeholder="9876543210" />
       </Field>

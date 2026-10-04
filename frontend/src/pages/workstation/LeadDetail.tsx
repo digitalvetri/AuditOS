@@ -12,6 +12,7 @@ import { Button } from '@/components/Button';
 import { Mail, Phone } from 'lucide-react';
 import { Avatar } from '@/components/viz';
 import { EntityHeader, HeaderTag, MetaItem, headerBtnPrimary } from '@/components/EntityHeader';
+import { deriveShortName, OrganizationBadge } from '@/modules/workstation/organization/badges';
 
 /** The sales stages as a stepper — where this lead stands at a glance. */
 const PIPELINE: LeadStatus[] = ['new', 'contacted', 'requirement_identified', 'quote_sent', 'negotiation', 'won'];
@@ -106,9 +107,13 @@ function LeadBody({ lead }: { lead: Lead }) {
         idLine={<span>{lead.lead_id}</span>}
         chips={<>
           <Status value={lead.status} />
+          {lead.lead_type === 'organization' ? <OrganizationBadge /> : null}
           {lead.service_name ? <HeaderTag>{lead.service_name}</HeaderTag> : null}
         </>}
         meta={<>
+          {lead.lead_type === 'organization' && lead.contact_person
+            ? <span className="inline-flex items-center gap-2"><Avatar name={lead.contact_person} size={20} />Contact: {lead.contact_person}</span>
+            : null}
           <MetaItem icon={<Phone size={14} />} href={`tel:${lead.contact_number}`}>{lead.contact_number}</MetaItem>
           {lead.email ? <MetaItem icon={<Mail size={14} />} href={`mailto:${lead.email}`}>{lead.email}</MetaItem> : null}
           {lead.assigned_employee ? (
@@ -116,7 +121,9 @@ function LeadBody({ lead }: { lead: Lead }) {
           ) : null}
         </>}
         actions={canConvert && lead.status === 'won' && !lead.converted_client_id ? (
-          <button type="button" className={headerBtnPrimary} onClick={() => setConvertOpen(true)}>Convert to Client</button>
+          <button type="button" className={headerBtnPrimary} onClick={() => setConvertOpen(true)}>
+            {lead.lead_type === 'organization' ? 'Convert to Organization Client' : 'Convert to Client'}
+          </button>
         ) : undefined}
         stats={[
           { label: 'Price quoted', value: inr(lead.price_quoted_paise) },
@@ -129,9 +136,12 @@ function LeadBody({ lead }: { lead: Lead }) {
 
       {lead.converted_client_id ? (
         <div className="mb-4 border-l-2 border-neutral-400 bg-white px-3 py-2 text-13">
-          Converted to a client on {fmtDate(lead.converted_at ?? lead.updated_at)}.{' '}
-          <Link className="underline text-neutral-900" to={`/workstation/clients/${lead.converted_client_id}`}>
-            Open Client
+          Converted to {lead.lead_type === 'organization' ? 'an organization client' : 'a client'} on {fmtDate(lead.converted_at ?? lead.updated_at)}.{' '}
+          <Link
+            className="underline text-neutral-900"
+            to={`/workstation/clients/${lead.converted_client_id}${lead.lead_type === 'organization' ? '/organization' : ''}`}
+          >
+            {lead.lead_type === 'organization' ? 'Open Organization' : 'Open Client'}
           </Link>
           <span className="block text-12 text-neutral-500 mt-1">
             This lead record is preserved — converting never deletes it.
@@ -316,10 +326,15 @@ function ConvertModal({ lead, open, onClose }: { lead: Lead; open: boolean; onCl
   const navigate = useNavigate();
   const employees = useQuery({ queryKey: ['workstation', 'employees'], queryFn: workstationApi.assignableEmployees });
 
+  const isOrg = lead.lead_type === 'organization';
+  // An organization lead already carries the organization's name.
   const [form, setForm] = useState({
-    company_name: '', contact_person: lead.name, contact_number: lead.contact_number,
+    company_name: isOrg ? lead.name : '',
+    contact_person: isOrg ? (lead.contact_person ?? '') : lead.name,
+    contact_number: lead.contact_number,
     email: lead.email ?? '', gstin: '', pan: '',
     account_manager_id: lead.assigned_employee_id, due_date: '',
+    short_name: isOrg ? deriveShortName(lead.name) : '',
   });
   const set = (k: keyof typeof form, v: string) => setForm((f) => ({ ...f, [k]: v }));
 
@@ -333,12 +348,14 @@ function ConvertModal({ lead, open, onClose }: { lead: Lead; open: boolean; onCl
       pan: form.pan || undefined,
       account_manager_id: form.account_manager_id,
       due_date: form.due_date || undefined,
+      short_name: isOrg ? form.short_name || undefined : undefined,
     }),
     onSuccess: (res) => {
       void qc.invalidateQueries({ queryKey: ['workstation'] });
-      toast.push('success', 'Lead successfully converted to client.');
+      toast.push('success', isOrg ? 'Lead converted to an organization client.' : 'Lead successfully converted to client.');
       onClose();
-      navigate(`/workstation/clients/${res.client.id}`);
+      // An organization opens on its overview, ready for its clients.
+      navigate(`/workstation/clients/${res.client.id}${isOrg ? '/organization' : ''}`);
     },
   });
 
@@ -347,13 +364,13 @@ function ConvertModal({ lead, open, onClose }: { lead: Lead; open: boolean; onCl
   return (
     <Modal
       open={open}
-      title="Convert this lead into a client?"
+      title={isOrg ? 'Convert this lead into an organization client?' : 'Convert this lead into a client?'}
       onClose={onClose}
       footer={
         <>
           <Button onClick={onClose}>Cancel</Button>
           <Button variant="primary" disabled={convert.isPending} onClick={() => convert.mutate()}>
-            {convert.isPending ? 'Converting…' : 'Convert to Client'}
+            {convert.isPending ? 'Converting…' : isOrg ? 'Convert to Organization Client' : 'Convert to Client'}
           </Button>
         </>
       }
@@ -365,12 +382,22 @@ function ConvertModal({ lead, open, onClose }: { lead: Lead; open: boolean; onCl
         <Detail label="Price Quoted" value={inr(lead.price_quoted_paise)} />
       </div>
       <p className="text-12 text-neutral-500 mb-4">
-        A new client record and its first service will be created. The lead is kept.
+        {isOrg
+          ? 'An organization client and its first service will be created. You can then add clients under it — each one a full client with its own workspace. The lead is kept.'
+          : 'A new client record and its first service will be created. The lead is kept.'}
       </p>
 
-      <Field label="Company Name" error={e.company_name}>
+      <Field label={isOrg ? 'Organization Name' : 'Company Name'} error={e.company_name}>
         <input className={inputClass} value={form.company_name} onChange={(ev) => set('company_name', ev.target.value)} />
       </Field>
+      {isOrg ? (
+        <Field
+          label="Short Name" error={e.short_name}
+          hint={`Used to name its clients: "${form.short_name || 'ABC'} DV Client 1". Names can still be changed.`}
+        >
+          <input className={inputClass} maxLength={20} value={form.short_name} onChange={(ev) => set('short_name', ev.target.value.toUpperCase())} />
+        </Field>
+      ) : null}
       <Field label="Contact Person" error={e.contact_person}>
         <input className={inputClass} value={form.contact_person} onChange={(ev) => set('contact_person', ev.target.value)} />
       </Field>
