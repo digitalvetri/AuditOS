@@ -10,6 +10,7 @@ import {
 } from '../../platform/workstation/scope.js'
 import { employeeMap, followUpToApi } from '../../api/workstation.serialize.js'
 import { body, FieldErrors, FOLLOWUP_STATUSES, FOLLOWUP_TYPES } from './validate.js'
+import { clientAndMembers, FOLLOW_UP_CLIENT } from '../../platform/workstation/organization.js'
 
 /**
  * FOLLOW-UPS (AUDIT_OS_WORKSTATION.md §7.5).
@@ -20,7 +21,7 @@ import { body, FieldErrors, FOLLOWUP_STATUSES, FOLLOWUP_TYPES } from './validate
  */
 export const followUpsRouter = Router()
 
-const include = { lead: { include: { service: true } }, client: true } as const
+const include = { lead: { include: { service: true } }, client: FOLLOW_UP_CLIENT } as const
 
 // GET /api/follow-ups
 followUpsRouter.get('/', handler(async (req, res) => {
@@ -54,7 +55,9 @@ followUpsRouter.get('/', handler(async (req, res) => {
       ...rangeWhere,
       ...(status ? { status } : {}),
       ...(employeeId ? { assignedEmployeeId: employeeId } : {}),
-      ...(clientId ? { clientId } : {}),
+      // An organization's list includes its clients' follow-ups — they are
+      // sent to the organization. Scope above still limits what is returned.
+      ...(clientId ? { clientId: { in: await clientAndMembers(clientId) } } : {}),
       ...(leadId ? { leadId } : {}),
     },
     include,
@@ -110,14 +113,25 @@ followUpsRouter.post('/', handler(async (req, res) => {
     include,
   })
 
+  const org = row.client?.parentClient ?? null
   await writeActivity({
     session,
     subjectType: leadId ? 'lead' : 'client',
     subjectId: (leadId ?? clientId)!,
     action: 'followup.created',
-    description: `Follow-up scheduled — ${row.title}.`,
+    description: org
+      ? `Follow-up scheduled — ${row.title}. It goes to the organization, ${org.companyName}.`
+      : `Follow-up scheduled — ${row.title}.`,
     entityType: 'FollowUp', entityId: row.id,
   })
+  if (org) {
+    await writeActivity({
+      session, subjectType: 'client', subjectId: org.id,
+      action: 'followup.created',
+      description: `Follow-up scheduled for ${row.client!.companyName} — ${row.title}.`,
+      entityType: 'FollowUp', entityId: row.id,
+    })
+  }
   await writeAudit({
     actorUserId: session.userId, action: 'follow_up.create',
     entityType: 'FollowUp', entityId: row.id, after: row, req,

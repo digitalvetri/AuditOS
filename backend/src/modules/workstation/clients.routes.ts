@@ -7,11 +7,12 @@ import { notifyEmployee } from '../../platform/notify.js'
 import { writeActivity } from '../../platform/workstation/activity.js'
 import { nextClientCode } from '../../platform/workstation/codes.js'
 import {
-  assertCanSeeClient, clientIdWhere, requireWorkstation,
+  assertCanSeeClient, assignedClientIds, clientIdWhere, requireWorkstation,
 } from '../../platform/workstation/scope.js'
+import { assertCanJoinOrganization, deriveShortName } from '../../platform/workstation/organization.js'
 import {
   activityToApi, clientContactToApi, clientDocumentToApi, clientServiceToApi,
-  clientToApi, employeeMap, ewayBillToApi, gstFilingToApi, gstProfileToApi, taskToApi,
+  clientToApi, employeeMap, ewayBillToApi, gstFilingToApi, gstProfileToApi, ORGANIZATION_REF, taskToApi,
 } from '../../api/workstation.serialize.js'
 import {
   body, CLIENT_STATUSES, DOCUMENT_STATUSES, FieldErrors, SERVICE_STATUSES,
@@ -36,6 +37,10 @@ clientsRouter.get('/', handler(async (req, res) => {
   const managerId = typeof req.query.account_manager_id === 'string' ? req.query.account_manager_id : null
   const serviceId = typeof req.query.service_id === 'string' ? req.query.service_id : null
   const pendingDocs = req.query.pending_documents === 'true'
+  // organization_id = the clients under one organization;
+  // kind = organization | member (under an organization) | standalone.
+  const organizationId = typeof req.query.organization_id === 'string' ? req.query.organization_id : null
+  const kind = typeof req.query.kind === 'string' ? req.query.kind : null
 
   const where = {
     ...alive,
@@ -46,15 +51,21 @@ clientsRouter.get('/', handler(async (req, res) => {
     ...(pendingDocs
       ? { documents: { some: { status: { in: ['requested', 'pending'] }, deletedAt: null } } }
       : {}),
-    // §7.2 search: company · client id · GSTIN · contact person · number.
+    ...(organizationId ? { parentClientId: organizationId } : {}),
+    ...(kind === 'organization' ? { isOrganization: true } : {}),
+    ...(kind === 'member' ? { parentClientId: { not: null } } : {}),
+    ...(kind === 'standalone' ? { isOrganization: false, parentClientId: null } : {}),
+    // §7.2 search: company · client id · GSTIN · contact person · number,
+    // plus the organization's name so "ABC" also finds ABC's clients.
     ...(q
       ? {
           OR: [
-            { companyName: { contains: q } },
-            { clientCode: { contains: q } },
-            { gstin: { contains: q } },
-            { contactPerson: { contains: q } },
+            { companyName: { contains: q, mode: 'insensitive' as const } },
+            { clientCode: { contains: q, mode: 'insensitive' as const } },
+            { gstin: { contains: q, mode: 'insensitive' as const } },
+            { contactPerson: { contains: q, mode: 'insensitive' as const } },
             { contactNumber: { contains: q } },
+            { parentClient: { companyName: { contains: q, mode: 'insensitive' as const } } },
           ],
         }
       : {}),
@@ -63,8 +74,9 @@ clientsRouter.get('/', handler(async (req, res) => {
   const rows = await prisma.client.findMany({
     where,
     include: {
+      parentClient: { select: ORGANIZATION_REF },
+      _count: { select: { documents: { where: { deletedAt: null } }, childClients: { where: { deletedAt: null } } } },
       services: { where: alive, include: { service: true } },
-      _count: { select: { documents: { where: { deletedAt: null } } } },
     },
     orderBy: { clientCode: 'asc' },
   })
@@ -75,6 +87,8 @@ clientsRouter.get('/', handler(async (req, res) => {
       ...clientToApi(r, m),
       service_names: r.services.map((s) => s.service.name),
       document_count: r._count.documents,
+      // All children, not only visible ones: a count alone reveals no client.
+      child_client_count: r.isOrganization ? r._count.childClients : 0,
     })),
     count: rows.length,
     scope,
@@ -84,7 +98,7 @@ clientsRouter.get('/', handler(async (req, res) => {
 // POST /api/clients — direct creation (a client that never was a lead)
 clientsRouter.post('/', handler(async (req, res) => {
   const session = requireSession(req)
-  requireWorkstation(session, 'workstation.client.manage')
+  const scope = requireWorkstation(session, 'workstation.client.manage')
   const b = body(req)
 
   const v = new FieldErrors()
@@ -97,11 +111,19 @@ clientsRouter.post('/', handler(async (req, res) => {
   const accountManagerId = v.str('account_manager_id', b.account_manager_id)
   const businessType = v.str('business_type', b.business_type, { required: false, max: 80 })
   const address = v.str('address', b.address, { required: false, max: 500 })
+  // A new client can be an organization, or be created under one.
+  const organizationId = v.str('organization_id', b.organization_id, { required: false })
+  const isOrganization = b.is_organization === true
+  const shortName = v.str('short_name', b.short_name, { required: false, max: 20 })
+  if (isOrganization && organizationId) {
+    v.add('organization_id', 'An organization cannot be placed under another organization.')
+  }
   v.throwIfAny()
 
   const manager = await prisma.employee.findFirst({ where: { id: accountManagerId!, ...alive } })
   if (!manager) v.add('account_manager_id', 'Select a valid employee.')
   v.throwIfAny()
+  const org = organizationId ? await assertCanJoinOrganization(session, scope, organizationId) : null
 
   const client = await prisma.$transaction(async (tx) => {
     const clientCode = await nextClientCode(tx)
@@ -121,9 +143,13 @@ clientsRouter.post('/', handler(async (req, res) => {
         accountManagerId: accountManagerId!,
         status: 'onboarding',
         onboardingDate: new Date().toISOString().slice(0, 10),
+        isOrganization,
+        shortName: isOrganization ? (shortName ?? deriveShortName(companyName!)) : null,
+        parentClientId: org?.id ?? null,
         createdBy: session.userId,
         updatedBy: session.userId,
       },
+      include: { parentClient: { select: ORGANIZATION_REF } },
     })
     await tx.clientContact.create({
       data: {
@@ -136,8 +162,19 @@ clientsRouter.post('/', handler(async (req, res) => {
 
   await writeActivity({
     session, subjectType: 'client', subjectId: client.id,
-    action: 'client.created', description: `Client ${client.clientCode} created.`,
+    action: 'client.created',
+    description: org
+      ? `Client ${client.clientCode} created under organization ${org.companyName}.`
+      : isOrganization ? `Organization client ${client.clientCode} created.` : `Client ${client.clientCode} created.`,
   })
+  if (org) {
+    await writeActivity({
+      session, subjectType: 'client', subjectId: org.id,
+      action: 'organization.client_added',
+      description: `${client.companyName} (${client.clientCode}) added to the organization.`,
+      entityType: 'Client', entityId: client.id,
+    })
+  }
   await writeAudit({
     actorUserId: session.userId, action: 'client.create',
     entityType: 'Client', entityId: client.id, after: client, req,
@@ -155,9 +192,22 @@ clientsRouter.get('/:id', handler(async (req, res) => {
 
   const client = await prisma.client.findFirst({
     where: { id: req.params.id, ...alive },
-    include: { contacts: { where: alive }, _count: { select: { documents: { where: alive }, followUps: { where: alive } } } },
+    include: {
+      contacts: { where: alive },
+      parentClient: { select: ORGANIZATION_REF },
+      _count: { select: { documents: { where: alive }, followUps: { where: alive } } },
+    },
   })
   if (!client) throw ApiError.notFound('Client not found.')
+
+  // An organization reports how many of its clients THIS caller can open.
+  let childClientCount = 0
+  if (client.isOrganization) {
+    const ids = await assignedClientIds(session, scope)
+    childClientCount = await prisma.client.count({
+      where: { parentClientId: client.id, ...alive, ...(ids === 'ALL' ? {} : { id: { in: ids } }) },
+    })
+  }
 
   const m = await employeeMap([client.accountManagerId])
   ok(res, {
@@ -165,6 +215,7 @@ clientsRouter.get('/:id', handler(async (req, res) => {
     contacts: client.contacts.map(clientContactToApi),
     document_count: client._count.documents,
     follow_up_count: client._count.followUps,
+    child_client_count: childClientCount,
   })
 }))
 
@@ -194,10 +245,69 @@ clientsRouter.patch('/:id', handler(async (req, res) => {
   if ('assigned_team' in b) data.assignedTeam = v.str('assigned_team', b.assigned_team, { required: false, max: 80 }) ?? null
   if ('status' in b) data.status = v.oneOf('status', b.status, CLIENT_STATUSES)
   if ('notes' in b) data.notes = v.str('notes', b.notes, { required: false, max: 2000 }) ?? null
+  if ('short_name' in b) data.shortName = v.str('short_name', b.short_name, { required: false, max: 20 }) ?? null
   v.throwIfAny()
+
+  // Organization membership: organization_id links an existing client under
+  // an organization (null removes it). is_organization turns a client into
+  // an organization or back. Both keep the tree one level deep.
+  let joined: { id: string; companyName: string } | null = null
+  let left: { id: string; companyName: string } | null = null
+  if ('organization_id' in b) {
+    const target = b.organization_id ? String(b.organization_id) : null
+    if (target) {
+      joined = await assertCanJoinOrganization(session, scope, target, before)
+      if (before.parentClientId === target) joined = null
+      data.parentClientId = target
+    } else {
+      if (before.parentClientId) {
+        left = await prisma.client.findUnique({ where: { id: before.parentClientId }, select: { id: true, companyName: true } })
+      }
+      data.parentClientId = null
+    }
+  }
+  if ('is_organization' in b) {
+    const turnOn = b.is_organization === true
+    if (turnOn && (data.parentClientId ?? before.parentClientId)) {
+      throw ApiError.unprocessable('nested_organization', 'Remove this client from its organization before making it an organization.')
+    }
+    if (!turnOn && before.isOrganization) {
+      const children = await prisma.client.count({ where: { parentClientId: before.id, ...alive } })
+      if (children > 0) {
+        throw ApiError.unprocessable('has_clients', 'Move or remove this organization\'s clients before turning it back into a normal client.')
+      }
+    }
+    data.isOrganization = turnOn
+    if (turnOn && !before.shortName && !data.shortName) data.shortName = deriveShortName(String(data.companyName ?? before.companyName))
+  }
   data.updatedBy = session.userId
 
-  const client = await prisma.client.update({ where: { id: before.id }, data })
+  const client = await prisma.client.update({
+    where: { id: before.id }, data, include: { parentClient: { select: ORGANIZATION_REF } },
+  })
+
+  if (joined) {
+    await writeActivity({
+      session, subjectType: 'client', subjectId: joined.id, action: 'organization.client_added',
+      description: `${client.companyName} (${client.clientCode}) added to the organization.`,
+      entityType: 'Client', entityId: client.id,
+    })
+    await writeActivity({
+      session, subjectType: 'client', subjectId: client.id, action: 'client.organization_joined',
+      description: `Added to organization ${joined.companyName}.`, entityType: 'Client', entityId: joined.id,
+    })
+  }
+  if (left) {
+    await writeActivity({
+      session, subjectType: 'client', subjectId: left.id, action: 'organization.client_removed',
+      description: `${client.companyName} (${client.clientCode}) removed from the organization.`,
+      entityType: 'Client', entityId: client.id,
+    })
+    await writeActivity({
+      session, subjectType: 'client', subjectId: client.id, action: 'client.organization_left',
+      description: `Removed from organization ${left.companyName}.`, entityType: 'Client', entityId: left.id,
+    })
+  }
 
   await writeActivity({
     session, subjectType: 'client', subjectId: client.id,

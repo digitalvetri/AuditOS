@@ -10,7 +10,8 @@ import {
   assertCanSeeLead, leadScopeWhere, requireWorkstation,
 } from '../../platform/workstation/scope.js'
 import { activityToApi, clientToApi, employeeMap, leadToApi } from '../../api/workstation.serialize.js'
-import { assertLeadTransition, body, FieldErrors, LEAD_STATUSES } from './validate.js'
+import { assertLeadTransition, body, FieldErrors, LEAD_STATUSES, LEAD_TYPES } from './validate.js'
+import { deriveShortName } from '../../platform/workstation/organization.js'
 
 /**
  * LEADS (AUDIT_OS_WORKSTATION.md §7.2).
@@ -34,10 +35,12 @@ leadsRouter.get('/', handler(async (req, res) => {
   const serviceId = typeof req.query.service_id === 'string' ? req.query.service_id : null
   const employeeId = typeof req.query.employee_id === 'string' ? req.query.employee_id : null
   const q = typeof req.query.q === 'string' ? req.query.q.trim() : ''
+  const leadType = req.query.lead_type === 'organization' || req.query.lead_type === 'individual' ? req.query.lead_type : null
 
   const where = {
     ...alive,
     ...(await leadScopeWhere(session, scope)),
+    ...(leadType ? { leadType } : {}),
     ...(status ? { status } : {}),
     ...(serviceId ? { serviceId } : {}),
     ...(employeeId ? { assignedEmployeeId: employeeId } : {}),
@@ -82,7 +85,10 @@ leadsRouter.post('/', handler(async (req, res) => {
   const b = body(req)
 
   const v = new FieldErrors()
-  const name = v.str('name', b.name, { max: 120 })
+  // Individual is the default, so existing callers keep today's behaviour.
+  const leadType = v.oneOf('lead_type', b.lead_type ?? 'individual', LEAD_TYPES)
+  const name = v.str('name', b.name, { max: leadType === 'organization' ? 200 : 120 })
+  const contactPerson = v.str('contact_person', b.contact_person, { required: false, max: 120 })
   const contactNumber = v.phone('contact_number', b.contact_number)
   const serviceId = v.str('service_id', b.service_id)
   const priceQuotedPaise = v.rupeesToPaise('price_quoted', b.price_quoted)
@@ -108,7 +114,9 @@ leadsRouter.post('/', handler(async (req, res) => {
       data: {
         organisationId: 'org-audit-os',
         leadCode,
+        leadType: leadType!,
         name: name!,
+        contactPerson: leadType === 'organization' ? (contactPerson ?? null) : null,
         contactNumber: contactNumber!,
         email: email ?? null,
         serviceId: serviceId!,
@@ -126,7 +134,9 @@ leadsRouter.post('/', handler(async (req, res) => {
   await writeActivity({
     session, subjectType: 'lead', subjectId: lead.id,
     action: 'lead.created',
-    description: `Lead ${lead.leadCode} created for ${lead.name}.`,
+    description: lead.leadType === 'organization'
+      ? `Organization lead ${lead.leadCode} created for ${lead.name}.`
+      : `Lead ${lead.leadCode} created for ${lead.name}.`,
   })
   await writeAudit({
     actorUserId: session.userId, action: 'lead.create',
@@ -159,7 +169,15 @@ leadsRouter.patch('/:id', handler(async (req, res) => {
   const v = new FieldErrors()
   const data: Record<string, unknown> = {}
 
-  if ('name' in b) data.name = v.str('name', b.name, { max: 120 })
+  if ('name' in b) data.name = v.str('name', b.name, { max: before.leadType === 'organization' ? 200 : 120 })
+  if ('contact_person' in b) data.contactPerson = v.str('contact_person', b.contact_person, { required: false, max: 120 }) ?? null
+  if ('lead_type' in b) {
+    // The type decides what conversion creates, so it is fixed once converted.
+    if (before.convertedClientId) {
+      throw ApiError.conflict('already_converted', 'The lead type cannot change after conversion.')
+    }
+    data.leadType = v.oneOf('lead_type', b.lead_type, LEAD_TYPES)
+  }
   if ('contact_number' in b) data.contactNumber = v.phone('contact_number', b.contact_number)
   if ('email' in b) data.email = v.email('email', b.email, false) ?? null
   if ('service_id' in b) data.serviceId = v.str('service_id', b.service_id)
@@ -232,6 +250,7 @@ leadsRouter.post('/:id/convert', handler(async (req, res) => {
   const pan = 'pan' in b && b.pan ? v.pan('pan', b.pan) : undefined
   const accountManagerId = v.str('account_manager_id', b.account_manager_id)
   const dueDate = v.date('due_date', b.due_date, false)
+  const shortName = v.str('short_name', b.short_name, { required: false, max: 20 })
   v.throwIfAny()
 
   /* One transaction. Lead.convertedClientId is @unique, so even a double
@@ -253,6 +272,9 @@ leadsRouter.post('/:id/convert', handler(async (req, res) => {
 
     const clientCode = await nextClientCode(tx)
     const today = new Date().toISOString().slice(0, 10)
+    // An organization lead becomes an organization client: a real client
+    // that other clients can later be added under.
+    const isOrganization = lead.leadType === 'organization'
 
     const client = await tx.client.create({
       data: {
@@ -269,6 +291,8 @@ leadsRouter.post('/:id/convert', handler(async (req, res) => {
         status: 'onboarding',
         onboardingDate: today,
         sourceLeadId: lead.id,
+        isOrganization,
+        shortName: isOrganization ? (shortName ?? deriveShortName(companyName!)) : null,
         createdBy: session.userId,
         updatedBy: session.userId,
       },
@@ -307,13 +331,17 @@ leadsRouter.post('/:id/convert', handler(async (req, res) => {
   await writeActivity({
     session, subjectType: 'lead', subjectId: result.lead.id,
     action: 'lead.converted',
-    description: `Lead converted to client ${result.client.clientCode} — ${result.client.companyName}.`,
+    description: result.client.isOrganization
+      ? `Lead converted to organization client ${result.client.clientCode} — ${result.client.companyName}.`
+      : `Lead converted to client ${result.client.clientCode} — ${result.client.companyName}.`,
     entityType: 'Client', entityId: result.client.id,
   })
   await writeActivity({
     session, subjectType: 'client', subjectId: result.client.id,
     action: 'client.created',
-    description: `Client created from lead ${result.lead.leadCode}.`,
+    description: result.client.isOrganization
+      ? `Organization client created from lead ${result.lead.leadCode}.`
+      : `Client created from lead ${result.lead.leadCode}.`,
     entityType: 'Lead', entityId: result.lead.id,
   })
   await writeActivity({

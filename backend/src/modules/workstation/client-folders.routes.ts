@@ -50,9 +50,14 @@ interface FolderItem {
   fields: [string, string][] | null
   /** Uploaded files only: the ClientDocument, for version/verify actions. */
   document_id: string | null
+  /** Uploaded files only: the employee who uploaded the shown version. */
+  uploaded_by_id?: string | null
+  /** An organization's request that was received for one of its clients:
+   *  the file lives with that client, not here. */
+  stored_for?: { client_id: string; client_name: string; document_id: string } | null
 }
 
-interface Folder {
+export interface Folder {
   key: string
   label: string
   group: 'compliance' | 'billing' | 'uploads' | 'imports'
@@ -79,6 +84,25 @@ const FOLDER_UPLOAD_CATEGORY: Record<string, string> = {
   tds_books: 'TDS Books',
 }
 const FOLDER_CATEGORY_PREFIX = 'folder_'
+
+/**
+ * Document categories an upload may create on first use, for folders that
+ * have no record behind them yet. `tds` matches the TDS module's own
+ * category; `consolidated` holds merged files saved on an organization.
+ */
+export const LAZY_CATEGORIES: Record<string, { name: string; description: string }> = {
+  tds: { name: 'TDS', description: 'Challans, return receipts, certificates and notices recorded under TDS.' },
+  consolidated: { name: 'Consolidated', description: 'Merged files built from several documents (originals are kept).' },
+}
+
+export async function ensureCategory(organisationId: string, code: string) {
+  const known = LAZY_CATEGORIES[code]
+  if (!known) return prisma.documentCategory.findFirst({ where: { code, organisationId, ...alive } })
+  return prisma.documentCategory.upsert({
+    where: { code }, update: {},
+    create: { organisationId, code, name: known.name, description: known.description, sortOrder: 90 },
+  })
+}
 
 function item(p: Partial<FolderItem> & Pick<FolderItem, 'id' | 'source' | 'title' | 'openable'>): FolderItem {
   return {
@@ -116,6 +140,24 @@ clientFoldersRouter.get('/:id/document-folders', handler(async (req, res) => {
 
   const client = await prisma.client.findFirst({ where: { id: clientId, ...alive }, select: { id: true, organisationId: true } })
   if (!client) throw ApiError.notFound('Client not found.')
+  const folders = await buildClientFolders(session, client)
+
+  const canUpload = has(session, 'workstation.document.manage')
+  const total = folders.reduce((n, f) => n + f.items.length, 0)
+  ok(res, {
+    folders: folders.map((f) => ({ ...f, count: f.items.length, can_upload: canUpload })),
+    total,
+    generated_at: new Date().toISOString(),
+  })
+}))
+
+/**
+ * Every folder for one client, gated by the caller's module permissions.
+ * The CALLER must already have checked the client is in scope — the
+ * organization document view reuses this for each of its clients.
+ */
+export async function buildClientFolders(session: Session, client: { id: string; organisationId: string }): Promise<Folder[]> {
+  const clientId = client.id
   const categories = await prisma.documentCategory.findMany({
     where: { organisationId: client.organisationId, ...alive }, orderBy: { sortOrder: 'asc' },
   })
@@ -247,6 +289,15 @@ clientFoldersRouter.get('/:id/document-folders', handler(async (req, res) => {
   // category is `folder_<key>`) joins that folder; everything else gets one
   // folder per document category. TDS receipts, partnership filings and
   // bookkeeping deliverables all land here.
+  // Requests answered on behalf of a child client (organization requests).
+  const answered = uploads.length
+    ? await prisma.clientDocument.findMany({
+        where: { sourceRequestId: { in: uploads.map((d) => d.id) }, ...alive },
+        select: { id: true, sourceRequestId: true, client: { select: { id: true, companyName: true } } },
+      })
+    : []
+  const storedFor = new Map(answered.map((a) => [a.sourceRequestId!, { client_id: a.client.id, client_name: a.client.companyName, document_id: a.id }]))
+
   const intoFolder = new Map<string, FolderItem[]>()
   const byCategory = new Map<string, Folder>()
   for (const c of categories) {
@@ -255,13 +306,18 @@ clientFoldersRouter.get('/:id/document-folders', handler(async (req, res) => {
   }
   for (const d of uploads) {
     const v = d.versions[0]
+    const sf = storedFor.get(d.id) ?? null
     const it = item({
       id: v?.id ?? d.id, source: 'upload',
       openable: !v ? 'none' : v.mimeType ? 'file' : 'missing',
       title: d.name,
-      subtitle: [d.financialYear, v ? `v${v.version}` : null].filter(Boolean).join(' · ') || null,
+      subtitle: sf
+        ? `Received · stored under ${sf.client_name}`
+        : [d.financialYear, v ? `v${v.version}` : null].filter(Boolean).join(' · ') || null,
+      stored_for: sf,
       date: iso(v?.uploadedAt ?? d.updatedAt), status: d.status,
       file_name: v?.originalName ?? null, mime_type: v?.mimeType ?? null, document_id: d.id,
+      uploaded_by_id: v?.uploadedBy ?? null,
     })
     if (d.category.code.startsWith(FOLDER_CATEGORY_PREFIX)) {
       const target = d.category.code.slice(FOLDER_CATEGORY_PREFIX.length)
@@ -310,15 +366,8 @@ clientFoldersRouter.get('/:id/document-folders', handler(async (req, res) => {
     const extra = intoFolder.get(f.key)
     if (extra) f.items.push(...extra)
   }
-
-  const canUpload = has(session, 'workstation.document.manage')
-  const total = folders.reduce((n, f) => n + f.items.length, 0)
-  ok(res, {
-    folders: folders.map((f) => ({ ...f, count: f.items.length, can_upload: canUpload })),
-    total,
-    generated_at: new Date().toISOString(),
-  })
-}))
+  return folders
+}
 
 /**
  * GET /api/clients/:id/document-folders/open?source=…&ref=… — a short-lived
@@ -433,9 +482,7 @@ clientFoldersRouter.post('/:id/document-folders/:folder/upload', (req, res, next
   const folder = req.params.folder
   let categoryId: string
   if (folder.startsWith('uploads:')) {
-    const cat = await prisma.documentCategory.findFirst({
-      where: { code: folder.slice('uploads:'.length), organisationId: client.organisationId, ...alive },
-    })
+    const cat = await ensureCategory(client.organisationId, folder.slice('uploads:'.length))
     if (!cat) throw ApiError.notFound('Folder not found.')
     categoryId = cat.id
   } else {

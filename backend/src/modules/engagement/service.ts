@@ -1,3 +1,4 @@
+import { assertNotOrganizationMember } from '../../platform/workstation/organization.js'
 import type { Prisma } from '@prisma/client'
 import { prisma } from '../../lib/prisma.js'
 import { ApiError } from '../../lib/http.js'
@@ -116,8 +117,10 @@ async function assertParty(session: Session, scope: Scope, input: Pick<LetterInp
   if (hasClient === hasLead) {
     throw ApiError.badRequest('An engagement letter belongs to exactly one party — choose a client or a lead, not both.')
   }
-  if (hasClient) await assertCanSeeClient(session, scope, input.clientId!)
-  else await assertCanSeeLead(session, scope, input.leadId!)
+  if (hasClient) {
+    await assertCanSeeClient(session, scope, input.clientId!)
+    await assertNotOrganizationMember(input.clientId!, 'Engagement letters')
+  } else await assertCanSeeLead(session, scope, input.leadId!)
 }
 
 const fees = (items: FeeInput[]) =>
