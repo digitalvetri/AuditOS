@@ -52,6 +52,7 @@ import { GstNewReconPage } from '@/pages/tools/GstNewRecon';
 import { GstReconDetailPage } from '@/pages/tools/GstReconDetail';
 // Repotic · Ecommerce GSTR-1 pipeline (REPOTIC-MODULE.md Phase 1+).
 import { EcommerceGstr1HomePage } from '@/pages/tools/repotic/EcommerceGstr1Home';
+import { AdaptersPage } from '@/pages/tools/repotic/AdaptersPage';
 // Bookkeeping — native double-entry accounting (formerly Tally engine).
 import { BookkeepingHome } from '@/pages/workstation/services/bookkeeping/BookkeepingHome';
 import { BookkeepingCompanies } from '@/pages/workstation/services/bookkeeping/BookkeepingCompanies';
@@ -431,6 +432,7 @@ export default function App() {
               {/* Repotic Phase 1 — Ecommerce GSTR-1 landing. Phases 2+ add
                   the Build GSTR-1 flow and per-marketplace adapter screens. */}
               <Route path="audit-automation/ecommerce" element={<EcommerceGstr1HomePage />} />
+              <Route path="audit-automation/ecommerce/adapters" element={<AdaptersPage />} />
 
               {/* Bookkeeping (formerly Tally engine) — native double-entry accounting.
                   Now under Services alongside TDS and Registration. */}

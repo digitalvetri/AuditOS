@@ -274,7 +274,7 @@ function safeParseColumnMap(json: string): ColumnMap {
   } catch { return {} }
 }
 
-async function readRowsFromBuffer(buffer: Buffer, ext: string): Promise<string[][]> {
+export async function readRowsFromBuffer(buffer: Buffer, ext: string): Promise<string[][]> {
   const kind = (ext || '').toLowerCase().replace(/^\./, '')
   if (kind === 'xlsx' || kind === 'xls') {
     return await readStatementTable(buffer, 'xlsx')

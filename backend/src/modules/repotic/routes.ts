@@ -32,7 +32,7 @@ import { readStatementTable } from '../audit-automation/lib/tableFile.js'
 import { parseCsv } from '../zpay/invoice-import.js'
 import { MARKETPLACES, isMarketplaceKey, findReportKind } from './marketplaces.js'
 import { detect, fingerprintOf } from './fingerprint.js'
-import { parseFromBuffer } from './parser.js'
+import { parseFromBuffer, readRowsFromBuffer } from './parser.js'
 import { buildGstr1Preview } from './gstr1-builder.js'
 
 export const repoticRouter = Router()
@@ -375,6 +375,165 @@ repoticRouter.get('/adapters', handler(async (req, res) => {
     })),
   })
 }))
+
+/**
+ * Preview a sample marketplace file BEFORE saving an adapter. Returns
+ * headers + the first few rows so the staffer can map each standard field
+ * to a header without committing anything to the DB. No RpEcommerceUpload
+ * row is written.
+ *
+ * Multipart body: `file` (xlsx/csv/tsv), `marketplace`, `report_kind`.
+ */
+repoticRouter.post('/adapters/preview', (req, res, next) => {
+  upload.single('file')(req, res, (err: unknown) => {
+    if (err instanceof multer.MulterError) {
+      if (err.code === 'LIMIT_FILE_SIZE') return next(ApiError.unprocessable('file_too_large', `The file is larger than ${UPLOAD_MAX_MB} MB.`))
+      return next(ApiError.badRequest('Upload failed: ' + err.message))
+    }
+    if (err) return next(err)
+    void (async () => {
+      try {
+        const session = requireSession(req)
+        requireAaManage(session)
+        const file = req.file
+        if (!file) throw ApiError.badRequest('Choose a file to preview.')
+        const b = (req.body ?? {}) as Record<string, unknown>
+        const marketplace = typeof b.marketplace === 'string' ? b.marketplace : ''
+        const reportKind = typeof b.report_kind === 'string' ? b.report_kind : ''
+        if (!isMarketplaceKey(marketplace)) throw ApiError.badRequest('Unknown marketplace.')
+        if (!findReportKind(marketplace, reportKind)) throw ApiError.badRequest('Unknown report_kind for this marketplace.')
+        const ext = (file.originalname.split('.').pop() ?? '').toLowerCase()
+        const rows = await readRowsFromBuffer(file.buffer, ext)
+        if (rows.length < 2) {
+          throw ApiError.unprocessable('empty_file', 'The file has no data rows below the header.')
+        }
+        const headers = (rows[0] ?? []).map((h: string) => (h ?? '').trim()).filter((h: string) => h.length > 0)
+        const sample = rows.slice(1, Math.min(6, rows.length))  // first 5 data rows
+        ok(res, {
+          marketplace,
+          report_kind: reportKind,
+          original_name: file.originalname.slice(0, 240),
+          size_bytes: file.size,
+          headers,
+          sample_rows: sample,
+        })
+      } catch (e) { next(e) }
+    })()
+  })
+})
+
+/**
+ * Create a new adapter version for (marketplace, report_kind). The firm
+ * version counter auto-increments — v1 then v2 then v3 — so firms can
+ * save a fixed version after the marketplace tweaks headers without
+ * dropping files uploaded against the earlier format.
+ *
+ * Body:
+ *   marketplace, report_kind,
+ *   detect_columns: string[]           // the header row we're matching against
+ *   column_map: Record<string,string>  // standard field → source header
+ *   coverage?: Record<string,boolean>  // GSTR-1 table → covered; derived if omitted
+ *   notes?: string
+ */
+repoticRouter.post('/adapters', handler(async (req, res) => {
+  const session = requireSession(req)
+  requireAaManage(session)
+  const organisationId = await orgIdOf(session.userId)
+  const b = (req.body ?? {}) as Record<string, unknown>
+  const marketplace = typeof b.marketplace === 'string' ? b.marketplace : ''
+  const reportKind = typeof b.report_kind === 'string' ? b.report_kind : ''
+  if (!isMarketplaceKey(marketplace)) throw ApiError.badRequest('Unknown marketplace.')
+  if (!findReportKind(marketplace, reportKind)) throw ApiError.badRequest('Unknown report_kind for this marketplace.')
+  const detectColumns = Array.isArray(b.detect_columns) ? b.detect_columns.filter((x): x is string => typeof x === 'string') : []
+  if (detectColumns.length === 0) throw ApiError.badRequest('detect_columns must be a non-empty array of header labels.')
+  const columnMap = (b.column_map && typeof b.column_map === 'object' && !Array.isArray(b.column_map))
+    ? b.column_map as Record<string, string>
+    : {}
+  if (!columnMap.invoice_amount || !columnMap.taxable_value) {
+    throw ApiError.badRequest('column_map must map at least invoice_amount and taxable_value — the GSTR-1 builder needs both.')
+  }
+  const notes = typeof b.notes === 'string' ? b.notes.slice(0, 500) : null
+  const coverage: Record<string, boolean> = (b.coverage && typeof b.coverage === 'object' && !Array.isArray(b.coverage))
+    ? b.coverage as Record<string, boolean>
+    : deriveCoverage(columnMap)
+  // Next version number for this (org, marketplace, report_kind).
+  const latest = await prisma.rpMarketplaceAdapter.findFirst({
+    where: { organisationId, marketplace, reportKind },
+    orderBy: { version: 'desc' },
+    select: { version: true },
+  })
+  const nextVersion = (latest?.version ?? 0) + 1
+  // Keep older versions active alongside the new one by default — a drifted
+  // file against v1 would otherwise suddenly fail after v2 is saved. The
+  // staffer can toggle versions off from the PATCH endpoint.
+  const row = await prisma.rpMarketplaceAdapter.create({
+    data: {
+      organisationId, marketplace, reportKind, version: nextVersion,
+      detectJson: JSON.stringify(detectColumns),
+      columnMapJson: JSON.stringify(columnMap),
+      coverageJson: JSON.stringify(coverage),
+      notes, active: true,
+    },
+  })
+  ok(res, { id: row.id, version: row.version, coverage }, 201)
+}))
+
+/** Toggle active, update notes, or supersede the mapping for an adapter. */
+repoticRouter.patch('/adapters/:id', handler(async (req, res) => {
+  const session = requireSession(req)
+  requireAaManage(session)
+  const organisationId = await orgIdOf(session.userId)
+  const id = req.params.id
+  const existing = await prisma.rpMarketplaceAdapter.findFirst({ where: { id, organisationId, deletedAt: null } })
+  if (!existing) throw ApiError.notFound('Adapter not found.')
+  const b = (req.body ?? {}) as Record<string, unknown>
+  const data: Record<string, unknown> = {}
+  if (typeof b.active === 'boolean') data.active = b.active
+  if (typeof b.notes === 'string') data.notes = b.notes.slice(0, 500)
+  if (b.column_map && typeof b.column_map === 'object' && !Array.isArray(b.column_map)) {
+    data.columnMapJson = JSON.stringify(b.column_map)
+  }
+  if (b.coverage && typeof b.coverage === 'object' && !Array.isArray(b.coverage)) {
+    data.coverageJson = JSON.stringify(b.coverage)
+  }
+  const updated = await prisma.rpMarketplaceAdapter.update({ where: { id }, data })
+  ok(res, { id: updated.id, active: updated.active })
+}))
+
+/** Soft-delete — sets deletedAt. Uploads already fingerprinted against this
+ *  adapter version keep their reference; new uploads skip it. */
+repoticRouter.delete('/adapters/:id', handler(async (req, res) => {
+  const session = requireSession(req)
+  requireAaManage(session)
+  const organisationId = await orgIdOf(session.userId)
+  const id = req.params.id
+  const existing = await prisma.rpMarketplaceAdapter.findFirst({ where: { id, organisationId, deletedAt: null } })
+  if (!existing) throw ApiError.notFound('Adapter not found.')
+  await prisma.rpMarketplaceAdapter.update({ where: { id }, data: { deletedAt: new Date(), active: false } })
+  ok(res, { id, deleted: true })
+}))
+
+/**
+ * Infer which GSTR-1 tables an adapter CAN produce based on which standard
+ * fields the column map hits. Preserves honesty against the §3 coverage
+ * commitment: we never claim coverage for a table whose source fields the
+ * adapter doesn't even expose.
+ */
+function deriveCoverage(columnMap: Record<string, string>): Record<string, boolean> {
+  const hasInvoice = Boolean(columnMap.invoice_amount && columnMap.taxable_value)
+  const hasShipState = Boolean(columnMap.ship_to_state)
+  const hasCreditNote = Boolean(columnMap.credit_note_number)
+  const hasHsn = Boolean(columnMap.hsn)
+  return {
+    '4A': false,            // B2B — not for a B2C report
+    '5A': hasInvoice && hasShipState,
+    '7': hasInvoice && hasShipState,
+    '9B': hasCreditNote,
+    '12': hasHsn,
+    '13': false,            // documents issued — needs a separate report
+    '14a': false,           // ECO self-supplies — not in a seller's own file
+  }
+}
 
 // ── Helpers ─────────────────────────────────────────────────────────────
 

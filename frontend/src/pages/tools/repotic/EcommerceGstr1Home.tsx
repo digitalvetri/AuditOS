@@ -66,11 +66,17 @@ export function EcommerceGstr1HomePage() {
         </Link>
       </div>
 
-      <header className="mb-5">
-        <h1 className="text-20 font-semibold text-neutral-900">Ecommerce GSTR-1</h1>
-        <p className="text-13 text-neutral-500 mt-1">
-          One normalised set of rows from the marketplaces the seller uses, built into the government's GSTR-1 tables.
-        </p>
+      <header className="mb-5 flex items-start justify-between gap-4">
+        <div>
+          <h1 className="text-20 font-semibold text-neutral-900">Ecommerce GSTR-1</h1>
+          <p className="text-13 text-neutral-500 mt-1">
+            One normalised set of rows from the marketplaces the seller uses, built into the government's GSTR-1 tables.
+          </p>
+        </div>
+        <Link to="/audit-automation/ecommerce/adapters"
+          className="h-9 px-3 inline-flex items-center gap-1 text-13 border border-neutral-300 rounded hover:bg-neutral-50 shrink-0">
+          Manage adapters
+        </Link>
       </header>
 
       <section className="bg-white border border-neutral-200 rounded p-4 mb-4">
