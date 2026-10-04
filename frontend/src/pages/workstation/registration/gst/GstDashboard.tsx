@@ -25,50 +25,11 @@ import {
   gstApi, periodLabel, recentPeriods,
   type ClientDashboardRow, type ClientDashboardCell, type UpcomingReminderRow,
 } from '@/modules/workstation/gst/api';
+import { workstationApi } from '@/modules/workstation/api';
 import { SERVICES } from '../partnership/shared';
 import type { RegistrationKind } from '@/modules/partnership/api';
 
-/** Cell renderer: ✓ done / ▍ due / ▍ overdue / ○ not started / — not this month. */
-function ReturnCell({ cell, onOpen, busy }: {
-  cell: ClientDashboardCell | null;
-  onOpen: (() => void) | null;
-  busy: boolean;
-}) {
-  if (!cell) return <span className="text-neutral-400">—</span>;
-  const label =
-    cell.state === 'done' ? (cell.due_date ? new Date(cell.due_date).toLocaleDateString('en-IN', { day: '2-digit', month: 'short' }) : 'done')
-    : cell.state === 'overdue' ? 'overdue'
-    : cell.state === 'due' && cell.due_date ? new Date(cell.due_date).toLocaleDateString('en-IN', { day: '2-digit', month: 'short' })
-    : cell.due_date ? new Date(cell.due_date).toLocaleDateString('en-IN', { day: '2-digit', month: 'short' })
-    : 'not started';
-  const Icon = cell.state === 'done' ? Check : cell.state === 'overdue' ? AlertTriangle : Circle;
-  // A tinted chip per state — filed green, overdue red, due amber, not started grey.
-  const chip =
-    cell.state === 'done' ? 'bg-success/10 text-success'
-    : cell.state === 'overdue' ? 'bg-danger/10 text-danger'
-    : cell.state === 'due' ? 'bg-warning/10 text-warning'
-    : 'bg-neutral-100 text-inkMuted';
-  return (
-    <button
-      type="button"
-      onClick={onOpen ? (e) => { e.stopPropagation(); onOpen(); } : undefined}
-      disabled={!onOpen || busy}
-      className={
-        'inline-flex items-center gap-[6px] h-7 px-[10px] rounded-full text-12 font-semibold whitespace-nowrap transition-shadow disabled:opacity-60 ' + chip + ' ' +
-        (onOpen ? 'cursor-pointer hover:shadow-[inset_0_0_0_1px_currentColor]' : 'cursor-default')
-      }
-    >
-      <Icon size={13} strokeWidth={2.2} aria-hidden />
-      <span>{label}</span>
-      {cell.arn ? <span className="font-mono text-11 font-normal opacity-70 ml-1">ARN ⋯{cell.arn.slice(-5)}</span> : null}
-    </button>
-  );
-}
-
 type Filter = 'all' | 'monthly' | 'quarterly' | 'needs_action';
-const STAGE_TO_KIND: Record<'gstr1' | 'gstr2b' | 'gstr3b', RegistrationKind> = {
-  gstr1: 'GSTR1', gstr2b: 'GSTR2B', gstr3b: 'GSTR3B',
-};
 
 const FOCUS_LABEL: Record<'GSTR1' | 'GSTR2B' | 'GSTR3B', { title: string; subtitle: string }> = {
   GSTR1: { title: 'GSTR-1 clients', subtitle: 'Every GST client with their GSTR-1 status for the selected period. Click a row to open the client view.' },
@@ -95,6 +56,19 @@ export function GstDashboard({ focusKind }: { focusKind?: 'GSTR1' | 'GSTR2B' | '
     queryKey: ['gst', 'client-dashboard', period],
     queryFn: () => gstApi.clientDashboard(period),
   });
+
+  // Resolve assignee names once per page view — fed into every row of the
+  // Client progress table so operators see "Vikram" instead of a UUID.
+  const employees = useQuery({
+    queryKey: ['workstation', 'assignable-employees'],
+    queryFn: () => workstationApi.assignableEmployees(),
+    staleTime: 5 * 60_000,
+  });
+  const assigneeNameOf = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const e of employees.data?.items ?? []) map.set(e.id, e.full_name);
+    return (id: string | null) => (id ? map.get(id) ?? null : null);
+  }, [employees.data]);
 
   const openCase = useMutation({
     mutationFn: async ({ row, kind }: { row: ClientDashboardRow; kind: RegistrationKind }) => {
@@ -154,79 +128,252 @@ export function GstDashboard({ focusKind }: { focusKind?: 'GSTR1' | 'GSTR2B' | '
       </div>
 
       <QueryState query={dash}>
-        {(d) => (
-          <>
-            {/* Counter strip — five numbers, no cards. */}
-            <div className="text-13 text-neutral-700 flex flex-wrap gap-x-6 gap-y-1">
-              <span><strong className="tabular-nums">{d.counters.total_clients}</strong> clients</span>
-              <span><strong className="tabular-nums">{d.counters.monthly}</strong> monthly</span>
-              <span><strong className="tabular-nums">{d.counters.quarterly}</strong> quarterly</span>
-              <span className={d.counters.overdue ? 'text-red' : ''}>
-                <strong className="tabular-nums">{d.counters.overdue}</strong> overdue
-              </span>
-              <span className={d.counters.due_soon ? 'text-amber' : ''}>
-                <strong className="tabular-nums">{d.counters.due_soon}</strong> due ≤3 days
-              </span>
-            </div>
-
-            <UpcomingRemindersPanel period={period} />
-
-            <div className="flex flex-wrap items-center gap-1">
-              {([
-                ['all', 'All'],
-                ['monthly', `Monthly ${d.counters.monthly}`],
-                ['quarterly', `Quarterly ${d.counters.quarterly}`],
-                ['needs_action', 'Needs action'],
-              ] as const).map(([key, label]) => (
-                <button key={key} type="button" onClick={() => setFilter(key)}
-                        className={
-                          'px-3 h-8 text-13 rounded border ' +
-                          (filter === key
-                            ? 'bg-primary text-white border-primary'
-                            : 'bg-white text-neutral-700 border-neutral-300 hover:border-neutral-400')
-                        }>
-                  {label}
-                </button>
-              ))}
-            </div>
-
-            <Card
-              title={`Clients — ${periodLabel(period)}`}
-              right={<span className="text-12 text-neutral-500">{filtered.length} of {d.clients.length}</span>}
-            >
-              <FilterBar>
-                <SearchInput value={q} onChange={setQ} placeholder="Client or GSTIN" />
-              </FilterBar>
-              {filtered.length === 0 ? (
-                <div className="px-4 py-6 text-13 text-neutral-500">No clients match these filters.</div>
-              ) : (
-                <Table head={['Client', 'GSTIN', 'Type', 'GSTR-1', 'IMS + 2B', 'GSTR-3B']}>
-                  {filtered.map((r) => (
-                    <Row key={r.client_id} onClick={() => navigate(`../clients/${r.client_id}`)}>
-                      <Cell><span className="font-medium">{r.name}</span></Cell>
-                      <Cell muted><span className="font-mono text-12">{r.gstin}</span></Cell>
-                      <Cell muted className="capitalize">{r.filing_frequency}</Cell>
-                      {(['gstr1', 'gstr2b', 'gstr3b'] as const).map((k) => (
-                        <Cell key={k}>
-                          <ReturnCell
-                            cell={r[k]}
-                            onOpen={r[k] ? () => openCase.mutate({ row: r, kind: STAGE_TO_KIND[k] }) : null}
-                            busy={openCase.isPending}
-                          />
-                        </Cell>
-                      ))}
-                    </Row>
-                  ))}
-                </Table>
-              )}
-              <div className="px-4 py-2 text-11 text-neutral-500 border-t border-neutral-100">
-                ✓ done · ▍ due or overdue · ○ not started · — not this month
+        {(d) => {
+          const periodReturns = clientReturnStats(d.clients);
+          const tiles: Array<[label: string, value: number, filter: Filter | '', tone?: 'red' | 'amber']> = [
+            ['Total GSTINs', d.counters.total_clients, ''],
+            ['Monthly', d.counters.monthly, 'monthly'],
+            ['Quarterly', d.counters.quarterly, 'quarterly'],
+            ['Returns filed', periodReturns.filed, ''],
+            ['Overdue', d.counters.overdue, 'needs_action', 'red'],
+            ['Due ≤ 3 days', d.counters.due_soon, 'needs_action', 'amber'],
+          ];
+          return (
+            <>
+              {/* Summary tiles — same visual as the Private Limited dashboard. */}
+              <div className="reg-tiles grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-3">
+                {tiles.map(([label, value, f, tone]) => (
+                  <button
+                    key={label}
+                    type="button"
+                    onClick={() => f && setFilter(f as Filter)}
+                    disabled={!f}
+                    className="reg-tile bg-white border border-neutral-200 rounded-lg px-4 py-3 text-left hover:border-primary/40 hover:shadow-raised transition-all disabled:cursor-default disabled:hover:border-neutral-200 disabled:hover:shadow-none"
+                  >
+                    <div className="text-12 text-neutral-500">{label}</div>
+                    <div className={
+                      'text-[24px] leading-tight font-semibold mt-1 tabular-nums ' +
+                      (tone === 'red' && value > 0 ? 'text-red'
+                        : tone === 'amber' && value > 0 ? 'text-amber'
+                        : 'text-neutral-900')
+                    }>{value}</div>
+                  </button>
+                ))}
               </div>
-            </Card>
-          </>
-        )}
+
+              <UpcomingRemindersPanel period={period} />
+
+              <Card
+                title={`Client progress — ${periodLabel(period)}`}
+                right={<span className="text-12 text-neutral-500">{filtered.length} of {d.clients.length}</span>}
+              >
+                <FilterBar>
+                  <SearchInput value={q} onChange={setQ} placeholder="Client or GSTIN" />
+                  <div className="flex flex-wrap items-center gap-1">
+                    {([
+                      ['all', 'All'],
+                      ['monthly', 'Monthly'],
+                      ['quarterly', 'Quarterly'],
+                      ['needs_action', 'Needs action'],
+                    ] as const).map(([key, label]) => (
+                      <button key={key} type="button" onClick={() => setFilter(key)}
+                              className={
+                                'px-3 h-8 text-13 rounded border ' +
+                                (filter === key
+                                  ? 'bg-primary text-white border-primary'
+                                  : 'bg-white text-neutral-700 border-neutral-300 hover:border-neutral-400')
+                              }>
+                        {label}
+                      </button>
+                    ))}
+                  </div>
+                </FilterBar>
+                {filtered.length === 0 ? (
+                  <div className="px-4 py-6 text-13 text-neutral-500">No clients match these filters.</div>
+                ) : (
+                  <Table head={['Client', 'Filing', 'Returns', 'Status', 'Next due', 'Assigned']}>
+                    {filtered.map((r) => (
+                      <GstClientRow
+                        key={r.client_id}
+                        row={r}
+                        assigneeName={assigneeNameOf(r.assigned_employee_id)}
+                        onOpenClient={() => navigate(`../clients/${r.client_id}`)}
+                        onOpenCase={(kind) => openCase.mutate({ row: r, kind })}
+                        openCasePending={openCase.isPending}
+                      />
+                    ))}
+                  </Table>
+                )}
+                <div className="px-4 py-2 text-11 text-neutral-500 border-t border-neutral-100">
+                  Click a client to open the client view, or click a return pill to open that case.
+                </div>
+              </Card>
+            </>
+          );
+        }}
       </QueryState>
     </div>
+  );
+}
+
+/**
+ * Count how many return cells across every client are already filed vs
+ * pending for the selected period. Used by the top tiles — "4 of 15 filed"
+ * is more useful than any single-column average.
+ */
+function clientReturnStats(rows: ClientDashboardRow[]): { filed: number; applicable: number } {
+  let filed = 0;
+  let applicable = 0;
+  for (const r of rows) {
+    for (const k of ['gstr1', 'gstr2b', 'gstr3b'] as const) {
+      const c = r[k];
+      if (!c) continue;
+      applicable += 1;
+      if (c.state === 'done') filed += 1;
+    }
+  }
+  return { filed, applicable };
+}
+
+const KIND_LABEL: Record<'GSTR1' | 'GSTR2B' | 'GSTR3B', string> = {
+  GSTR1: 'GSTR-1', GSTR2B: 'IMS + 2B', GSTR3B: 'GSTR-3B',
+};
+
+const RETURN_KEYS: Array<['gstr1' | 'gstr2b' | 'gstr3b', 'GSTR1' | 'GSTR2B' | 'GSTR3B']> = [
+  ['gstr1', 'GSTR1'],
+  ['gstr2b', 'GSTR2B'],
+  ['gstr3b', 'GSTR3B'],
+];
+
+/**
+ * Render a tiny ✓ / ! / ○ pill per return cell so the row shows the whole
+ * cycle at a glance: "G1 ✓ · 2B ✓ · 3B ○" instead of three cryptic dates.
+ */
+function ReturnPills({ row, onOpenCase, busy }: {
+  row: ClientDashboardRow;
+  onOpenCase: (kind: 'GSTR1' | 'GSTR2B' | 'GSTR3B') => void;
+  busy: boolean;
+}) {
+  return (
+    <div className="inline-flex items-center gap-1">
+      {RETURN_KEYS.map(([k, kind]) => {
+        const cell = row[k];
+        const short = kind === 'GSTR1' ? 'G1' : kind === 'GSTR2B' ? '2B' : '3B';
+        if (!cell) {
+          return (
+            <span key={k} title={`${KIND_LABEL[kind]} — not due`} className="inline-flex items-center h-6 px-1.5 rounded bg-neutral-100 text-neutral-400 text-11 font-semibold">
+              {short}
+            </span>
+          );
+        }
+        const chip =
+          cell.state === 'done' ? 'bg-success/10 text-success hover:bg-success/15'
+          : cell.state === 'overdue' ? 'bg-danger/10 text-danger hover:bg-danger/15'
+          : cell.state === 'due' ? 'bg-warning/10 text-warning hover:bg-warning/15'
+          : 'bg-neutral-100 text-inkMuted hover:bg-neutral-200';
+        const Icon = cell.state === 'done' ? Check : cell.state === 'overdue' ? AlertTriangle : Circle;
+        return (
+          <button
+            key={k}
+            type="button"
+            onClick={(e) => { e.stopPropagation(); onOpenCase(kind); }}
+            disabled={busy}
+            title={`${KIND_LABEL[kind]} — ${cell.state === 'done' ? 'filed' : cell.state === 'overdue' ? 'overdue' : cell.state === 'due' ? 'due' : 'not started'}`}
+            className={'inline-flex items-center gap-1 h-6 px-1.5 rounded text-11 font-semibold transition-colors disabled:opacity-60 ' + chip}
+          >
+            <Icon size={11} strokeWidth={2.4} />
+            {short}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+/**
+ * Pick the single most urgent pending return and render it as a sentence —
+ * "GSTR-3B · 22 Oct · in 7 days" or "GSTR-1 · 8 days overdue" — so the
+ * operator reads what they need to do, not a raw date.
+ */
+function NextDue({ row }: { row: ClientDashboardRow }) {
+  const applicable = RETURN_KEYS
+    .map(([k, kind]) => ({ kind, cell: row[k] }))
+    .filter((x): x is { kind: 'GSTR1' | 'GSTR2B' | 'GSTR3B'; cell: ClientDashboardCell } =>
+      !!x.cell && x.cell.state !== 'done');
+  if (applicable.length === 0) return <span className="text-12 text-neutral-500">All filed</span>;
+
+  // Overdue wins; then the earliest due date.
+  const overdue = applicable.find((x) => x.cell.state === 'overdue');
+  const pick = overdue ?? applicable
+    .filter((x) => x.cell.due_date)
+    .sort((a, b) => (a.cell.due_date! < b.cell.due_date! ? -1 : 1))[0] ?? applicable[0];
+  const cell = pick.cell;
+  const date = cell.due_date;
+  const today = new Date(); today.setHours(0, 0, 0, 0);
+  const dueMs = date ? Date.parse(date + 'T00:00:00') : null;
+  const days = dueMs !== null ? Math.round((dueMs - today.getTime()) / 86_400_000) : null;
+  const dateStr = date
+    ? new Date(date + 'T00:00:00').toLocaleDateString('en-IN', { day: '2-digit', month: 'short' })
+    : '—';
+  const label =
+    cell.state === 'overdue' && days !== null
+      ? `${Math.abs(days)} day${Math.abs(days) === 1 ? '' : 's'} overdue`
+      : days === null ? ''
+      : days === 0 ? 'today'
+      : days < 0 ? `${Math.abs(days)} day${Math.abs(days) === 1 ? '' : 's'} overdue`
+      : `in ${days} day${days === 1 ? '' : 's'}`;
+  const tint =
+    cell.state === 'overdue' ? 'text-danger'
+    : days !== null && days <= 3 ? 'text-warning'
+    : 'text-neutral-700';
+  return (
+    <div className="min-w-0">
+      <div className="text-13 font-medium text-neutral-900">{KIND_LABEL[pick.kind]}</div>
+      <div className={`text-12 ${tint}`}>{dateStr}{label ? ` · ${label}` : ''}</div>
+    </div>
+  );
+}
+
+/**
+ * Derived single-line status for a client row.
+ */
+function statusLabel(row: ClientDashboardRow): { label: string; tint: string } {
+  const cells = RETURN_KEYS.map(([k]) => row[k]).filter((c): c is ClientDashboardCell => !!c);
+  if (cells.length === 0) return { label: 'Not due', tint: 'bg-neutral-100 text-neutral-500' };
+  if (cells.some((c) => c.state === 'overdue')) return { label: 'Overdue', tint: 'bg-danger/10 text-danger' };
+  if (cells.every((c) => c.state === 'done')) return { label: 'All filed', tint: 'bg-success/10 text-success' };
+  if (cells.some((c) => c.state === 'due')) return { label: 'Due soon', tint: 'bg-warning/10 text-warning' };
+  const done = cells.filter((c) => c.state === 'done').length;
+  if (done > 0) return { label: `In progress ${done}/${cells.length}`, tint: 'bg-info/10 text-info' };
+  return { label: 'Not started', tint: 'bg-neutral-100 text-neutral-600' };
+}
+
+function GstClientRow({ row, assigneeName, onOpenClient, onOpenCase, openCasePending }: {
+  row: ClientDashboardRow;
+  assigneeName: string | null;
+  onOpenClient: () => void;
+  onOpenCase: (kind: 'GSTR1' | 'GSTR2B' | 'GSTR3B') => void;
+  openCasePending: boolean;
+}) {
+  const status = statusLabel(row);
+  return (
+    <Row onClick={onOpenClient}>
+      <Cell>
+        <div className="font-medium text-neutral-900">{row.name}</div>
+        <div className="text-11 font-mono text-neutral-500">{row.gstin}</div>
+      </Cell>
+      <Cell muted className="capitalize">{row.filing_frequency}</Cell>
+      <Cell>
+        <ReturnPills row={row} onOpenCase={onOpenCase} busy={openCasePending} />
+      </Cell>
+      <Cell>
+        <span className={`inline-flex items-center h-6 px-2 rounded-full text-11 font-semibold whitespace-nowrap ${status.tint}`}>{status.label}</span>
+      </Cell>
+      <Cell>
+        <NextDue row={row} />
+      </Cell>
+      <Cell muted>{assigneeName ?? '—'}</Cell>
+    </Row>
   );
 }
 
