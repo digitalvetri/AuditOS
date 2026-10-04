@@ -422,7 +422,7 @@ function LedgerInput({ value, disabled, known, onSave }: {
         }}
         placeholder={disabled ? '' : 'Ledger…'}
         className={'h-7 w-full px-1.5 text-12 border rounded disabled:bg-transparent disabled:border-transparent ' + (!value && !disabled ? 'border-amber/60' : 'border-neutral-300')} />
-      {focused && !disabled && (suggestions.length > 0 || pendingCreate) ? (
+      {focused && !disabled && (suggestions.length > 0 || pendingCreate || (typed && !matchExact)) ? (
         <div className="absolute left-0 right-0 top-full mt-0.5 z-20 bg-white border border-neutral-300 rounded shadow-md text-12 max-h-56 overflow-auto">
           {suggestions.map((s) => (
             <button key={s} type="button"
