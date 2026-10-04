@@ -23,6 +23,8 @@ export function PartnershipShell({ kind = 'PARTNERSHIP' }: { kind?: Registration
       ? [{ to: 'template', label: 'Checklist Template' }]
       : []),
     { to: 'registration', label: gst ? 'Reference' : 'Registration' },
+    // Private Limited: INC-20A / ADTC for every incorporated company.
+    ...(kind === 'PRIVATE_LIMITED' ? [{ to: 'compliance', label: 'Post-Registration Compliance' }] : []),
   ];
   return (
     <ServiceProvider kind={kind}>

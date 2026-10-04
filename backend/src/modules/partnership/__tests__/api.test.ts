@@ -105,6 +105,111 @@ describe('Private Limited Incorporation (same engine, /api/private-limited)', ()
   })
 })
 
+describe('Private Limited — post-registration compliance (INC-20A, ADTC)', () => {
+  it('completing the registration creates INC-20A (+180 days from incorporation) and ADTC once; status and days remaining are computed', async () => {
+    const cl = await client('Comply Pvt Ltd')
+    const id = (await api('/api/private-limited/cases', { method: 'POST', body: { client_id: cl.id } })).body.id
+    const list = async (q = '') => (await api(`/api/post-registration-compliance?case_id=${id}${q}`)).body
+
+    expect((await list()).items).toEqual([]) // nothing before completion
+    expect((await api(`/api/private-limited/cases/${id}`, { method: 'PATCH', body: { status: 'COMPLETED', incorporation_date: '2999-01-01' } })).status).toBe(400)
+    expect((await api(`/api/private-limited/cases/${id}`, { method: 'PATCH', body: { status: 'COMPLETED', incorporation_date: '2026-10-01' } })).status).toBe(200)
+    let l = await list()
+    expect(l.items.map((x: any) => x.code).sort()).toEqual(['ADTC', 'INC_20A'])
+    const inc = l.items.find((x: any) => x.code === 'INC_20A')
+    expect(inc).toMatchObject({ trigger_date: '2026-10-01', trigger_label: 'Date of Incorporation', offset_days: 180, due_date: '2027-03-30', client: { name: 'Comply Pvt Ltd' } })
+    const adtc = l.items.find((x: any) => x.code === 'ADTC')
+    // ADTC starts from the Date of Incorporation too; due = +30.
+    expect(adtc).toMatchObject({ trigger_date: '2026-10-01', due_date: '2026-10-31', offset_days: 30, trigger_editable_label: true })
+
+    // Status flips again: still exactly two rows.
+    await api(`/api/private-limited/cases/${id}`, { method: 'PATCH', body: { status: 'SUBMITTED' } })
+    await api(`/api/private-limited/cases/${id}`, { method: 'PATCH', body: { status: 'COMPLETED' } })
+    expect((await list()).items).toHaveLength(2)
+
+    // ADTC: the trigger date is correctable; due = trigger + 30.
+    expect((await api(`/api/post-registration-compliance/${adtc.id}`, { method: 'PATCH', body: { trigger_date: '2026-10-15' } })).body.item.due_date).toBe('2026-11-14')
+    const relabel = await api(`/api/post-registration-compliance/${adtc.id}`, { method: 'PATCH', body: { trigger_label: 'Date of bank account opening', offset_days: 45 } })
+    expect(relabel.body.item).toMatchObject({ trigger_label: 'Date of bank account opening', offset_days: 45, due_date: '2026-11-29' })
+    expect((await api(`/api/post-registration-compliance/${inc.id}`, { method: 'PATCH', body: { trigger_label: 'x' } })).status).toBe(400)
+
+    // Complete with a date; future dates refused; reopen keeps the row.
+    expect((await api(`/api/post-registration-compliance/${inc.id}/complete`, { method: 'POST', body: { completed_on: '2999-01-01' } })).status).toBe(400)
+    const done = await api(`/api/post-registration-compliance/${inc.id}/complete`, { method: 'POST', body: { completed_on: '2026-10-03' } })
+    expect(done.body.item).toMatchObject({ status: 'COMPLETED', completed_on: '2026-10-03', days_remaining: null })
+    l = await list()
+    expect(l.summary.completed).toBe(1)
+    expect((await list('&status=COMPLETED')).items.map((x: any) => x.code)).toEqual(['INC_20A'])
+    expect((await api(`/api/post-registration-compliance/${inc.id}/reopen`, { method: 'POST' })).body.item.completed_on).toBeNull()
+
+    const acts = (await api(`/api/private-limited/cases/${id}/activity`)).body.items.map((a: any) => a.action)
+    expect(acts).toEqual(expect.arrayContaining(['compliance.created', 'compliance.trigger_changed', 'compliance.completed', 'compliance.reopened']))
+  })
+
+  it('reminds the case team every 20 days (INC-20A) / 7 days (ADTC), once per period, and stops when completed', async () => {
+    const { sendPostRegistrationReminders } = await import('../postRegReminders.js')
+    const { nextReminder } = await import('../compliance.js')
+    // One employee with a login, assigned to the case.
+    const dept = await prisma.department.create({ data: { id: uid('dep'), organisationId: orgId, code: uid('D'), name: 'General' } })
+    const desg = await prisma.designation.create({ data: { id: uid('desg'), organisationId: orgId, name: 'Ex' } })
+    const loc = await prisma.workLocation.create({ data: { id: uid('loc'), organisationId: orgId, name: 'HQ', latitude: 13, longitude: 80 } })
+    const sched = await prisma.workSchedule.create({ data: { id: uid('sch'), organisationId: orgId, name: 'Std', standardStart: '09:30', standardEnd: '18:30' } })
+    const emp = await prisma.employee.create({
+      data: {
+        id: uid('emp'), organisationId: orgId, employeeCode: uid('EC'), firstName: 'A', lastName: 'B', fullName: 'A B',
+        type: 'executive', status: 'active', designationId: desg.id, departmentId: dept.id, workLocationId: loc.id, workScheduleId: sched.id,
+        email: `${uid('e')}@x.local`, joiningDate: '2026-01-01',
+      },
+    })
+    const role = await prisma.role.findUniqueOrThrow({ where: { code: 'md' } })
+    const u = await prisma.user.create({ data: { id: uid('u'), organisationId: orgId, email: `${uid('e')}@x.local`, passwordHash: 'x', roleId: role.id, employeeId: emp.id } })
+
+    const cl = await client('Remind Pvt Ltd')
+    const id = (await api('/api/private-limited/cases', { method: 'POST', body: { client_id: cl.id, assigned_employee_id: emp.id } })).body.id
+    await api(`/api/private-limited/cases/${id}`, { method: 'PATCH', body: { status: 'COMPLETED', incorporation_date: '2026-09-01' } })
+    const mine = () => prisma.notification.findMany({ where: { userId: u.id, type: 'post_registration_reminder' }, orderBy: { createdAt: 'asc' } })
+
+    // Day 10: ADTC period 1 (7 days) only — INC-20A's first is day 20.
+    expect(await sendPostRegistrationReminders(prisma, '2026-09-11')).toBeGreaterThanOrEqual(1)
+    expect((await mine()).map((n) => n.title)).toEqual(['ADTC reminder — Remind Pvt Ltd'])
+    // Same day again: nothing new.
+    await sendPostRegistrationReminders(prisma, '2026-09-11')
+    expect(await mine()).toHaveLength(1)
+    // Day 21: INC-20A period 1 and ADTC period 3 — one each, not a backlog.
+    await sendPostRegistrationReminders(prisma, '2026-09-22')
+    expect((await mine()).map((n) => n.title).slice(1).sort()).toEqual(['ADTC reminder — Remind Pvt Ltd', 'INC-20A reminder — Remind Pvt Ltd'])
+    // ADTC due date (+30) and then overdue.
+    await sendPostRegistrationReminders(prisma, '2026-10-01')
+    expect((await mine()).at(-1)?.title).toBe('ADTC due today — Remind Pvt Ltd')
+    await sendPostRegistrationReminders(prisma, '2026-10-06')
+    expect((await mine()).at(-1)?.title).toBe('ADTC overdue — Remind Pvt Ltd')
+
+    // Next reminder: next multiple of the interval, or the due date if sooner.
+    expect(nextReminder({ code: 'INC_20A', triggerDate: '2026-09-01', dueDate: '2027-02-28', completedOn: null }, '2026-09-22')).toBe('2026-10-11')
+    expect(nextReminder({ code: 'ADTC', triggerDate: '2026-09-01', dueDate: '2026-10-01', completedOn: null }, '2026-09-29')).toBe('2026-10-01')
+    expect(nextReminder({ code: 'ADTC', triggerDate: '2026-09-01', dueDate: '2026-10-01', completedOn: '2026-09-20' }, '2026-09-29')).toBeNull()
+
+    // Completed → no more reminders for it.
+    const adtc = (await api(`/api/post-registration-compliance?case_id=${id}`)).body.items.find((x: any) => x.code === 'ADTC')
+    await api(`/api/post-registration-compliance/${adtc.id}/complete`, { method: 'POST', body: { completed_on: '2026-10-03' } })
+    const before = (await mine()).length
+    await sendPostRegistrationReminders(prisma, '2026-10-13')
+    expect((await mine()).slice(before).map((n) => n.title)).toEqual(['INC-20A reminder — Remind Pvt Ltd'])
+  })
+
+  it('works out the status from the due date and today', async () => {
+    const { complianceState } = await import('../compliance.js')
+    const now = '2026-10-04'
+    expect(complianceState({ code: 'INC_20A', dueDate: '2027-03-30', completedOn: null }, now)).toEqual({ status: 'UPCOMING', daysRemaining: 177 })
+    expect(complianceState({ code: 'INC_20A', dueDate: '2026-11-01', completedOn: null }, now)).toEqual({ status: 'DUE_SOON', daysRemaining: 28 })
+    expect(complianceState({ code: 'ADTC', dueDate: '2026-10-20', completedOn: null }, now)).toEqual({ status: 'UPCOMING', daysRemaining: 16 })
+    expect(complianceState({ code: 'ADTC', dueDate: '2026-10-04', completedOn: null }, now)).toEqual({ status: 'DUE_TODAY', daysRemaining: 0 })
+    expect(complianceState({ code: 'ADTC', dueDate: '2026-09-29', completedOn: null }, now)).toEqual({ status: 'OVERDUE', daysRemaining: -5 })
+    expect(complianceState({ code: 'ADTC', dueDate: null, completedOn: null }, now)).toEqual({ status: 'NOT_STARTED', daysRemaining: null })
+    expect(complianceState({ code: 'ADTC', dueDate: '2026-09-29', completedOn: '2026-09-28' }, now)).toEqual({ status: 'COMPLETED', daysRemaining: null })
+  })
+})
+
 beforeAll(async () => {
   const org = await prisma.organisation.create({ data: { id: uid('org'), name: 'Firm' } })
   orgId = org.id

@@ -9,6 +9,7 @@ import { backfillInvoicePayments } from './modules/invoice/payments.js'
 import { startEinvoiceEwbScheduler } from './modules/workstation/einvoice-ewb/scheduler.js'
 import { startTdsReminderScheduler } from './modules/tds/reminders.js'
 import { startGstReminderScheduler } from './modules/gst/reminders.js'
+import { startPostRegistrationReminderScheduler } from './modules/partnership/postRegReminders.js'
 import { startBooksSyncScheduler } from './modules/books/scheduler.js'
 import { AaExtractService } from './modules/audit-automation/services/AaExtractService.js'
 
@@ -31,6 +32,7 @@ backfillInvoicePayments(prisma).then((n) => { if (n) console.log(`Invoice paymen
 startEinvoiceEwbScheduler(prisma)
 startTdsReminderScheduler(prisma)
 startGstReminderScheduler(prisma)
+startPostRegistrationReminderScheduler(prisma)
 startBooksSyncScheduler()
 
 http.listen(env.port, () => {

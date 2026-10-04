@@ -68,6 +68,15 @@ start the `api` gives every invoice that was paid before history existed one
 "recorded before payment history" row, so the totals and the history agree —
 nothing to run by hand.
 
+**Private Limited post-registration compliance.** `migrate` creates the
+`PostRegistrationCompliance` table like any other additive schema change.
+Marking a Private Limited case Completed (with its Date of Incorporation)
+starts INC-20A (due +180 days) and ADTC (due +30 days); the `api` sends
+reminder notifications every 20 / 7 days until each is completed. The
+defaults can be changed in `.env.docker` — `ADTC_OFFSET_DAYS`,
+`ADTC_TRIGGER_LABEL`, `INC20A_REMINDER_EVERY_DAYS`, `ADTC_REMINDER_EVERY_DAYS`
+(see `.env.docker.example`). Nothing to run by hand.
+
 **Demo logins.** The seed creates one login per role — Super Admin
 `ravi@auditos.local` / `md`, Admin `priya@auditos.local` / `hr`, Senior
 Associate `vikram@auditos.local` / `mgr`, Associate `meera@auditos.local` /
