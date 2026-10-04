@@ -109,12 +109,15 @@ export function EcommerceGstr1HomePage() {
           Choose a client and period above to start uploading marketplace reports.
         </div>
       ) : (
-        <SourcesTable
-          scope={scoped}
-          clientName={clientName}
-          items={marketplacesQ.data?.items ?? []}
-          loading={marketplacesQ.isLoading}
-        />
+        <>
+          <SourcesTable
+            scope={scoped}
+            clientName={clientName}
+            items={marketplacesQ.data?.items ?? []}
+            loading={marketplacesQ.isLoading}
+          />
+          <BuildGstr1Section scope={scoped} />
+        </>
       )}
     </div>
   );
@@ -279,4 +282,87 @@ function Coverage({ intendedCoverage }: { intendedCoverage: string[] }) {
   if (missing.length === 0) return <span className="text-success">all tables</span>;
   if (missing.length === 1) return <span>no table {missing[0] === '13' ? 'doc 13' : missing[0]}</span>;
   return <span>no {missing.map((t) => (t === '13' ? 'doc 13' : t)).join(', ')}</span>;
+}
+
+/**
+ * Phase 3 — Build GSTR-1 preview. Reads a per-scope summary from the
+ * backend and offers a download link. The summary number is what firms
+ * use to decide "is this safe to download?" — a sudden drop in b2cs
+ * rows against last month is usually an unparsed Cancel adjustment or a
+ * missing upload, which the summary surfaces before download.
+ */
+function BuildGstr1Section({ scope }: { scope: { client_id: string; gstin: string; period: string } }) {
+  const summaryQ = useQuery({
+    queryKey: ['repotic.gstr1', scope.client_id, scope.gstin, scope.period],
+    queryFn: () => repoticApi.gstr1Summary(scope),
+    enabled: true,
+  });
+  const anyRows = (summaryQ.data?.counts.total_rows ?? 0) > 0;
+  const downloadHref = repoticApi.gstr1DownloadUrl(scope);
+  return (
+    <section className="mt-4 bg-white border border-neutral-200 rounded">
+      <div className="p-4 border-b border-neutral-200 flex items-center justify-between gap-4">
+        <div>
+          <div className="text-11 tracking-[0.06em] text-neutral-500 mb-1">BUILD</div>
+          <div className="text-14 font-semibold text-neutral-900">GSTR-1 preview</div>
+          <div className="text-11 text-neutral-500 mt-0.5">
+            Tables 5A, 7, 9B and 12 — assembled from every matched upload above.
+          </div>
+        </div>
+        <a href={anyRows ? downloadHref : undefined}
+          aria-disabled={!anyRows}
+          className={
+            'h-9 px-3 text-13 inline-flex items-center gap-1 border rounded ' +
+            (anyRows
+              ? 'border-neutral-900 bg-neutral-900 text-white hover:bg-neutral-700'
+              : 'border-neutral-200 text-neutral-400 cursor-not-allowed')
+          }
+          onClick={(e) => { if (!anyRows) e.preventDefault(); }}
+          download={anyRows ? `gstr1-preview-${scope.gstin}-${scope.period}.json` : undefined}
+        >
+          Download JSON
+        </a>
+      </div>
+      <div className="p-4">
+        {summaryQ.isLoading ? (
+          <div className="text-13 text-neutral-500">Checking what's buildable…</div>
+        ) : !anyRows ? (
+          <div className="text-13 text-neutral-500">
+            Upload a matched marketplace report above to populate the GSTR-1 preview.
+          </div>
+        ) : (
+          <>
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+              <TableCount label="5A — B2C Large (≥ ₹1 lakh)" count={summaryQ.data!.counts.b2cl} />
+              <TableCount label="7 — B2C Small (consolidated)" count={summaryQ.data!.counts.b2cs} />
+              <TableCount label="9B — Credit/debit notes" count={summaryQ.data!.counts.cdnur} />
+              <TableCount label="12 — HSN summary" count={summaryQ.data!.counts.hsn} />
+            </div>
+            <div className="mt-3 text-11 text-neutral-500 flex items-start gap-1.5">
+              <Info size={12} className="mt-0.5" />
+              <span>
+                {summaryQ.data!.counts.total_rows} source rows{' '}
+                {summaryQ.data!.counts.excluded_free_replacement
+                  ? `· ${summaryQ.data!.counts.excluded_free_replacement} free-replacement rows excluded`
+                  : ''}{' '}
+                {summaryQ.data!.counts.excluded_other
+                  ? `· ${summaryQ.data!.counts.excluded_other} unclassified rows excluded`
+                  : ''}
+                . Preview JSON is for human review — not yet verified against the GSTN offline tool schema.
+              </span>
+            </div>
+          </>
+        )}
+      </div>
+    </section>
+  );
+}
+
+function TableCount({ label, count }: { label: string; count: number }) {
+  return (
+    <div className="border border-neutral-200 rounded p-3">
+      <div className="text-11 text-neutral-500">{label}</div>
+      <div className="text-18 font-semibold text-neutral-900 mt-1">{count}</div>
+    </div>
+  );
 }

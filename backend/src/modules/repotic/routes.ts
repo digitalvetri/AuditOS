@@ -32,6 +32,8 @@ import { readStatementTable } from '../audit-automation/lib/tableFile.js'
 import { parseCsv } from '../zpay/invoice-import.js'
 import { MARKETPLACES, isMarketplaceKey, findReportKind } from './marketplaces.js'
 import { detect, fingerprintOf } from './fingerprint.js'
+import { parseFromBuffer } from './parser.js'
+import { buildGstr1Preview } from './gstr1-builder.js'
 
 export const repoticRouter = Router()
 
@@ -218,6 +220,33 @@ repoticRouter.post('/ecommerce/uploads', (req, res, next) => {
           },
         })
 
+        // 4. Phase 2 — parse the file into normalised rows synchronously.
+        //    Keeps the UI "upload → row count badge" story reactive. If
+        //    parsing throws the upload still exists (status=parse_errored)
+        //    and can be retried via POST /uploads/:id/parse once Phase 2.1
+        //    persists file bytes.
+        let parseOutcome: { rows: number; typeCounts: Record<string, number>; warnings: string[] } | null = null
+        if (result.status !== 'no_match' && row.adapterId) {
+          try {
+            const adapter = await prisma.rpMarketplaceAdapter.findUniqueOrThrow({ where: { id: row.adapterId }, select: { columnMapJson: true } })
+            const out = await parseFromBuffer({
+              uploadId: row.id,
+              organisationId,
+              buffer: file.buffer,
+              ext,
+              adapterColumnMapJson: adapter.columnMapJson,
+              prisma,
+            })
+            parseOutcome = { rows: out.rowsWritten, typeCounts: out.typeCounts, warnings: out.warnings }
+          } catch (parseErr) {
+            await prisma.rpEcommerceUpload.update({
+              where: { id: row.id },
+              data: { status: 'parse_errored', errorMessage: `Parse failed: ${(parseErr as Error).message}` },
+            })
+            parseOutcome = { rows: 0, typeCounts: {}, warnings: [(parseErr as Error).message] }
+          }
+        }
+
         ok(res, {
           upload_id: row.id,
           detect_status: row.detectStatus,
@@ -228,6 +257,7 @@ repoticRouter.post('/ecommerce/uploads', (req, res, next) => {
           missing_columns: result.missingColumns,
           status: row.status,
           error_message: row.errorMessage,
+          parse: parseOutcome,
         }, 201)
       } catch (e) { next(e) }
     })()
@@ -262,6 +292,52 @@ repoticRouter.get('/ecommerce/uploads', handler(async (req, res) => {
       error_message: r.errorMessage,
       uploaded_at: r.uploadedAt.toISOString(),
     })),
+  })
+}))
+
+// ── GSTR-1 preview (Phase 3) ────────────────────────────────────────────
+
+repoticRouter.get('/ecommerce/gstr1', handler(async (req, res) => {
+  const session = requireSession(req)
+  requireAaView(session)
+  const organisationId = await orgIdOf(session.userId)
+  const clientId = typeof req.query.client_id === 'string' ? req.query.client_id : null
+  const gstin = typeof req.query.gstin === 'string' ? req.query.gstin.toUpperCase() : null
+  const period = typeof req.query.period === 'string' && ISO_PERIOD.test(req.query.period) ? req.query.period : null
+  const download = req.query.download === '1' || req.query.download === 'true'
+  if (!clientId || !gstin || !period) throw ApiError.badRequest('client_id, gstin and period (YYYY-MM) are required.')
+  const { preview, counts } = await buildGstr1Preview({ organisationId, clientId, gstin, period }, prisma)
+
+  if (download) {
+    // Persist a build record so firms can see what was downloaded when.
+    // The preview JSON is the authoritative artefact — once downloaded we
+    // can show "last downloaded 2025-12-05 by Priya" without re-aggregating.
+    await prisma.rpGstr1Build.create({
+      data: {
+        organisationId, clientId, gstin, period,
+        builtByUserId: session.userId,
+        tableCountsJson: JSON.stringify(counts),
+        previewJson: JSON.stringify(preview),
+      },
+    })
+    const filename = `gstr1-preview-${gstin}-${period}.json`
+    res.setHeader('Content-Type', 'application/json')
+    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`)
+    res.status(200).send(JSON.stringify(preview, null, 2))
+    return
+  }
+
+  ok(res, {
+    counts,
+    preview_sample: {
+      gstin: preview.gstin,
+      fp: preview.fp,
+      disclaimer: preview.disclaimer,
+      b2cs_count: preview.b2cs.length,
+      b2cl_count: preview.b2cl.length,
+      cdnur_count: preview.cdnur.length,
+      hsn_count: preview.hsn.length,
+    },
   })
 }))
 

@@ -7493,7 +7493,98 @@ model RpEcommerceUpload {
   uploadedAt       DateTime @default(now())
   deletedAt        DateTime?
 
+  parsedRows RpParsedRow[]
+
   @@unique([organisationId, clientId, gstin, period, marketplace, reportKind, fileSha256])
+  @@index([organisationId, clientId, gstin, period])
+}
+
+/// REPOTIC Phase 2 — one normalised invoice row per source row the parser
+/// extracted from an RpEcommerceUpload. The source row keeps its index so
+/// the UI can jump back to the original file when a value looks wrong, and
+/// the whole raw record is kept as JSON for the same reason: an auditor who
+/// questions a Rs. figure can see every field the marketplace sent us, not
+/// just the ones we mapped.
+///
+/// All money is INTEGER PAISE — Rs. 423.73 → 42373. GST aggregations across
+/// many rows will divide back out at display time. Floats would drift at the
+/// rupee level with a few thousand rows.
+model RpParsedRow {
+  id             String @id @default(uuid())
+  organisationId String
+  uploadId       String
+  /// 1-based row number within the source file (header row = 1).
+  sourceRowIndex Int
+
+  /// shipment | cancel | refund | free_replacement | other — classifier
+  /// takes the raw "Transaction Type" value and buckets it. Only `shipment`
+  /// contributes to B2CS/B2CL totals; `cancel` and `refund` feed Table 9B.
+  txType         String
+
+  /// Invoice fields. invoice_number may be empty on Cancel rows that
+  /// cite a credit note instead; the GSTR-1 builder uses creditNoteNumber
+  /// in that case.
+  invoiceNumber   String?
+  invoiceDate     String?    // YYYY-MM-DD, pulled from the Marketplace cell
+  invoiceAmount   Int        // paise
+  taxableValue    Int        // paise
+
+  /// Tax amounts in paise. Rate is the HSN-level rate (percent, no %
+  /// sign — "18" for 18%). The parser derives rate from the Cgst/Sgst/Igst
+  /// Rate columns; it does NOT re-derive from amount/txval because rows with
+  /// zero taxable (free replacements) would divide-by-zero.
+  cgstTax Int @default(0)
+  sgstTax Int @default(0)
+  igstTax Int @default(0)
+  cessTax Int @default(0)
+  rate    Int @default(0)   // percent × 100 (18.00% → 1800)
+
+  /// Classification fields the builder needs.
+  hsn          String?
+  quantity     Int @default(0)   // integer units — Amazon uses whole numbers
+  shipToState  String?           // state name as written by the marketplace
+  sellerGstin  String?
+  stateCodeIntra Boolean @default(false) // true if CGST/SGST > 0 and IGST = 0
+
+  /// Credit note refs — Table 9B source.
+  creditNoteNumber String?
+  creditNoteDate   String?
+
+  /// Everything the mapper saw. kept so an auditor can see the untransformed
+  /// data when a figure is questioned.
+  rawJson        String
+
+  createdAt      DateTime @default(now())
+
+  upload RpEcommerceUpload @relation(fields: [uploadId], references: [id], onDelete: Cascade)
+
+  @@index([organisationId, uploadId])
+  @@index([organisationId, uploadId, txType])
+}
+
+/// REPOTIC Phase 3 — a build of GSTR-1 preview JSON for one scope.
+///
+/// Kept separate from the uploads so a build can be re-triggered without
+/// re-uploading, and so firms get a history of what was downloaded (an
+/// auditor downloads a JSON on day N; on day N+3 the uploads changed; the
+/// stored build tells us what the N-th download actually contained).
+///
+/// `tableCountsJson` summarises what the UI shows in the drawer; the full
+/// JSON lives in `previewJson` and is served for download.
+model RpGstr1Build {
+  id             String @id @default(uuid())
+  organisationId String
+  clientId       String
+  gstin          String
+  period         String
+  builtAt        DateTime @default(now())
+  builtByUserId  String
+  /// Row counts per table so the drawer renders fast without reparsing.
+  tableCountsJson String
+  /// Full GSTR-1 preview JSON. Not GSTN-offline-tool-verified yet; see
+  /// REPOTIC-MODULE.md Phase 3.1 for schema validation.
+  previewJson    String
+
   @@index([organisationId, clientId, gstin, period])
 }
 
