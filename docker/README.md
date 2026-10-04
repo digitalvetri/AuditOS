@@ -94,7 +94,12 @@ starts INC-20A (due +180 days) and ADTC (due +30 days); the `api` sends
 reminder notifications every 20 / 7 days until each is completed. The
 defaults can be changed in `.env.docker` — `ADTC_OFFSET_DAYS`,
 `ADTC_TRIGGER_LABEL`, `INC20A_REMINDER_EVERY_DAYS`, `ADTC_REMINDER_EVERY_DAYS`
-(see `.env.docker.example`). Nothing to run by hand.
+(see `.env.docker.example`). LLP works the same way: completing an LLP
+registration starts **LLP Form 3 – Initial LLP Agreement** (due +30 days; its
+"Due Soon" window is `LLP_FORM3_DUE_SOON_DAYS`), shown on the LLP Dashboard and
+the case's Post-Registration Compliance tab. `migrate` adds the new columns
+(LLPIN/CIN on the case, assignee and completed-by on each compliance).
+Nothing to run by hand.
 
 **Demo logins.** The seed creates one login per role — Super Admin
 `ravi@auditos.local` / `md`, Admin `priya@auditos.local` / `hr`, Senior

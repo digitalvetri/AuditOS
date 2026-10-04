@@ -24,7 +24,7 @@ import {
 import {
   ALLOWED_EXTENSIONS, MAX_UPLOAD_MB, MIME_BY_EXT, fileKey, partnershipStorage,
 } from './storage.js'
-import { ensurePostRegistrationCompliances } from './compliance.js'
+import { ensurePostRegistrationCompliances, hasCompliance, rulesFor } from './compliance.js'
 
 /**
  * PARTNERSHIP FIRM REGISTRATION — Workstation → Services → Registration.
@@ -149,6 +149,7 @@ function caseSummary(c: CaseRow, m: EmployeeLookup) {
     due_date: c.dueDate,
     due_state: dueState(c.dueDate, done),
     premises_type: c.premisesType,
+    registration_number: c.registrationNumber,
     entity_type: c.entityType,
     period: c.period,
     period_type: c.periodType,
@@ -766,10 +767,14 @@ partnershipRouter.patch('/cases/:id', handler(async (req, res) => {
   const reviewer = await employeeField(e, 'reviewer_employee_id', b.reviewer_employee_id)
   const approver = await employeeField(e, 'approver_employee_id', b.approver_employee_id)
   const dueDate = b.due_date === null || b.due_date === '' ? null : e.date('due_date', b.due_date)
-  // Private Limited: the Date of Incorporation, captured when the registration
-  // is completed — INC-20A is due 180 days after it.
-  const incorporationDate = c.kind === 'PRIVATE_LIMITED' && b.incorporation_date ? e.date('incorporation_date', b.incorporation_date) : undefined
+  // Private Limited / LLP: the Date of Incorporation, captured when the
+  // registration is completed — post-registration compliance counts from it
+  // (INC-20A +180 days, LLP Form 3 +30 days…).
+  const incorporationDate = hasCompliance(c.kind) && b.incorporation_date ? e.date('incorporation_date', b.incorporation_date) : undefined
   if (incorporationDate && incorporationDate > today()) e.add('incorporation_date', 'The Date of Incorporation cannot be in the future.')
+  // LLPIN / CIN — issued with the Certificate of Incorporation.
+  const regNo = b.registration_number === undefined ? undefined
+    : (e.str('registration_number', typeof b.registration_number === 'string' ? b.registration_number.trim().toUpperCase() : b.registration_number, { max: 40, required: false }) ?? null)
   e.throwIfAny()
   if (status === 'COMPLETED') mustCan(session, 'workstation.document.verify')
 
@@ -796,6 +801,7 @@ partnershipRouter.patch('/cases/:id', handler(async (req, res) => {
   if (reviewer !== undefined && reviewer !== c.reviewerEmployeeId) { data.reviewerEmployeeId = reviewer; log.push(['case.reviewer_assigned', `Reviewer set to ${name(reviewer)}`]) }
   if (approver !== undefined && approver !== c.approverEmployeeId) { data.approverEmployeeId = approver; log.push(['case.approver_assigned', `Approver set to ${name(approver)}`]) }
   if (b.due_date !== undefined && (dueDate ?? null) !== c.dueDate) { data.dueDate = dueDate ?? null; log.push(['case.due_changed', `Due date ${c.dueDate ?? '—'} → ${dueDate ?? '—'}`]) }
+  if (regNo !== undefined && (regNo || null) !== c.registrationNumber) { data.registrationNumber = regNo || null; log.push(['case.registration_number_changed', `${c.kind === 'LLP' ? 'LLPIN' : 'CIN'} set to ${regNo || '—'}`]) }
 
   const updated = await prisma.partnershipCase.update({ where: { id: c.id }, data })
   if (c.clientServiceId) {
@@ -811,11 +817,12 @@ partnershipRouter.patch('/cases/:id', handler(async (req, res) => {
     })
   }
   if (data.premisesType !== undefined || data.entityType !== undefined) await recompute(c.id)
-  // Completed Private Limited registration → its post-registration compliances
-  // (INC-20A, ADTC). Idempotent: completing again never duplicates them.
-  if (c.kind === 'PRIVATE_LIMITED' && updated.status === 'COMPLETED') {
+  // Completed Private Limited / LLP registration → its post-registration
+  // compliances (INC-20A + ADTC / LLP Form 3). Idempotent: editing or
+  // completing again never duplicates them.
+  if (hasCompliance(c.kind) && updated.status === 'COMPLETED') {
     const n = await ensurePostRegistrationCompliances(c.id, { incorporationDate: incorporationDate ?? null, userId: session.userId })
-    if (n) log.push(['compliance.created', `Post-registration compliance created: INC-20A, ADTC${incorporationDate ? ` (incorporated ${incorporationDate})` : ''}`])
+    if (n) log.push(['compliance.created', `Post-registration compliance created: ${rulesFor(c.kind).map((r) => r.label).join(', ')}${incorporationDate ? ` (incorporated ${incorporationDate})` : ''}`])
   }
   for (const [action, detail] of log) await logActivity(c.id, session, action, detail)
   if (log.length) {

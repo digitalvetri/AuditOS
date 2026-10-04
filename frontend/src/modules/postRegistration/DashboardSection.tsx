@@ -20,7 +20,7 @@ const matches = (f: Filter, s: ComplianceStatus) =>
   f === 'PENDING' ? s !== 'COMPLETED' : (f === 'DUE_SOON' ? s === 'DUE_SOON' || s === 'DUE_TODAY' : f === 'UPCOMING' ? s === 'UPCOMING' || s === 'NOT_STARTED' : s === f);
 
 export function PostRegistrationDashboardSection() {
-  const q = useQuery({ queryKey: postRegistrationKeys.list(), queryFn: () => postRegistrationApi.list() });
+  const q = useQuery({ queryKey: postRegistrationKeys.list({ kind: 'PRIVATE_LIMITED' }), queryFn: () => postRegistrationApi.list({ kind: 'PRIVATE_LIMITED' }) });
   const [filter, setFilter] = useState<Filter>('PENDING');
   const items = useMemo(() => (q.data?.items ?? []).filter((i) => matches(filter, i.status)), [q.data, filter]);
 

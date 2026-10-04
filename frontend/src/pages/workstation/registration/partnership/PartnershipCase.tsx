@@ -11,7 +11,11 @@ import { CaseDocuments } from './CaseDocuments';
 import { CaseDetails } from './CaseDetails';
 import { PortalStrip } from './PortalStrip';
 import { useState } from 'react';
-import { CaseCompliancePanel } from '@/modules/postRegistration/ui';
+import { CaseCompliancePanel, REG_NO_LABEL } from '@/modules/postRegistration/ui';
+import { postRegistrationKeys } from '@/modules/postRegistration/api';
+
+/** Registrations with post-registration compliance (INC-20A / ADTC, LLP Form 3). */
+const hasCompliance = (k: string): k is 'PRIVATE_LIMITED' | 'LLP' => k === 'PRIVATE_LIMITED' || k === 'LLP';
 
 const TAB_KEYS = ['checklist', 'documents', 'details', 'compliance', 'activity'] as const;
 type TabKey = (typeof TAB_KEYS)[number];
@@ -26,13 +30,14 @@ export function PartnershipCase() {
   const { api: regApi, keys: regKeys, base, label, detailsLabel, kind } = useSvc();
   const { caseId = '' } = useParams();
   const [params, setParams] = useSearchParams();
+  const saveRegNo = useCaseMutation((v: { registration_number: string | null }) => regApi.updateCase(caseId, v), 'Saved');
   const tab = (params.get('tab') ?? 'checklist') as TabKey;
   const tabs: { key: TabKey; label: string }[] = [
     { key: 'checklist', label: 'Checklist' },
     { key: 'documents', label: 'Documents' },
     { key: 'details', label: detailsLabel },
     // Private Limited only: INC-20A / ADTC once the registration is completed.
-    ...(kind === 'PRIVATE_LIMITED' ? [{ key: 'compliance' as const, label: 'Post-Registration Compliance' }] : []),
+    ...(hasCompliance(kind) ? [{ key: 'compliance' as const, label: 'Post-Registration Compliance' }] : []),
     { key: 'activity', label: 'Activity' },
   ];
   const q = useQuery({ queryKey: regKeys.case(caseId), queryFn: () => regApi.getCase(caseId) });
@@ -63,7 +68,20 @@ export function PartnershipCase() {
             {tab === 'checklist' && <CaseChecklist c={c} onOpenDocuments={() => setParams({ tab: 'documents' }, { replace: true })} onOpenDetails={() => setParams({ tab: 'details' }, { replace: true })} />}
             {tab === 'documents' && <CaseDocuments c={c} />}
             {tab === 'details' && <CaseDetails c={c} />}
-            {tab === 'compliance' && kind === 'PRIVATE_LIMITED' && <CaseCompliancePanel caseId={c.id} caseStatus={c.status} canEdit={c.permissions.manage} />}
+            {tab === 'compliance' && hasCompliance(kind) && (
+              <CaseCompliancePanel
+                caseId={c.id}
+                canEdit={c.permissions.manage}
+                info={{
+                  kind,
+                  name: c.client.name,
+                  status: c.status,
+                  statusLabel: CASE_STATUS_OPTIONS.find((o) => o.value === c.status)?.label ?? c.status,
+                  registrationNumber: c.registration_number ?? null,
+                  onSaveRegistrationNumber: (v) => saveRegNo.mutateAsync({ registration_number: v }),
+                }}
+              />
+            )}
             {tab === 'activity' && <CaseActivity caseId={c.id} />}
           </>
         )}
@@ -80,6 +98,8 @@ export function useCaseMutation<T>(fn: (v: T) => Promise<unknown>, success?: str
     mutationFn: fn,
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: regKeys.all });
+      // Completing a registration can create post-registration compliance rows.
+      void qc.invalidateQueries({ queryKey: postRegistrationKeys.all });
       if (success) toast.push('success', success);
     },
     onError: (e: ApiError) => toast.push('error', e.message),
@@ -93,6 +113,7 @@ function CaseHeader({ c }: { c: CaseDetail }) {
   // Incorporation — INC-20A falls due 180 days after it.
   const [completing, setCompleting] = useState(false);
   const [incDate, setIncDate] = useState('');
+  const [regNo, setRegNo] = useState(c.registration_number ?? '');
   const canEdit = c.permissions.manage;
   const sel = 'h-8 px-2 text-13 bg-white border border-neutral-300 rounded focus:outline-none focus:border-gold';
   const p = c.progress;
@@ -119,7 +140,7 @@ function CaseHeader({ c }: { c: CaseDetail }) {
           <select
             className={sel} disabled={!canEdit} value={completing ? 'COMPLETED' : c.status}
             onChange={(e) => {
-              if (kind === 'PRIVATE_LIMITED' && e.target.value === 'COMPLETED' && c.status !== 'COMPLETED') { setCompleting(true); return; }
+              if (hasCompliance(kind) && e.target.value === 'COMPLETED' && c.status !== 'COMPLETED') { setCompleting(true); return; }
               setCompleting(false);
               update.mutate({ status: e.target.value });
             }}
@@ -133,7 +154,7 @@ function CaseHeader({ c }: { c: CaseDetail }) {
             onChange={(e) => {
               // Private Limited: reaching the Completed stage is completing the
               // registration — ask for the Date of Incorporation, same as Status.
-              if (kind === 'PRIVATE_LIMITED' && e.target.value === 'COMPLETED' && c.status !== 'COMPLETED') { setCompleting(true); return; }
+              if (hasCompliance(kind) && e.target.value === 'COMPLETED' && c.status !== 'COMPLETED') { setCompleting(true); return; }
               update.mutate({ stage: e.target.value });
             }}
           >
@@ -146,16 +167,26 @@ function CaseHeader({ c }: { c: CaseDetail }) {
           className="px-4 py-3 flex flex-wrap items-end gap-3 border-b border-neutral-200 bg-neutral-50"
           onSubmit={(e) => {
             e.preventDefault();
-            update.mutate({ status: 'COMPLETED', ...(incDate ? { incorporation_date: incDate } : {}) }, { onSuccess: () => setCompleting(false) });
+            update.mutate(
+              { status: 'COMPLETED', ...(incDate ? { incorporation_date: incDate } : {}), ...(regNo.trim() ? { registration_number: regNo.trim() } : {}) },
+              { onSuccess: () => setCompleting(false) },
+            );
           }}
         >
           <div className="text-13 text-neutral-700 basis-full">
-            Registration completed — enter the <b>Date of Incorporation</b> so INC-20A (due 180 days after it) and ADTC are tracked under Post-Registration Compliance.
+            Registration completed — enter the <b>Date of Incorporation</b> so{' '}
+            {kind === 'LLP' ? 'LLP Form 3 – Initial LLP Agreement (due 30 days after it) is' : 'INC-20A (due 180 days after it) and ADTC are'} tracked under Post-Registration Compliance.
           </div>
           <label className="block">
             <span className="block text-11 uppercase tracking-[0.06em] text-neutral-500 mb-1">Date of Incorporation</span>
             <input type="date" className={sel} value={incDate} max={new Date(Date.now() + 5.5 * 3600_000).toISOString().slice(0, 10)} onChange={(e) => setIncDate(e.target.value)} />
           </label>
+          {hasCompliance(kind) ? (
+            <label className="block">
+              <span className="block text-11 uppercase tracking-[0.06em] text-neutral-500 mb-1">{REG_NO_LABEL[kind]} (optional)</span>
+              <input className={sel + ' uppercase'} value={regNo} maxLength={40} onChange={(e) => setRegNo(e.target.value)} />
+            </label>
+          ) : null}
           <button type="submit" className="h-8 px-3 text-13 rounded border border-neutral-900 bg-neutral-900 text-white" disabled={update.isPending}>
             {incDate ? 'Complete registration' : 'Complete without the date'}
           </button>

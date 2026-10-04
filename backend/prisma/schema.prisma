@@ -1029,17 +1029,17 @@ model MessageRead {
 // ============================================================
 
 model Notification {
-  id         String  @id @default(uuid())
-  userId     String
-  type       String
+  id           String    @id @default(uuid())
+  userId       String
+  type         String
   // attendance | leave | payroll | expense | message | document | system
-  module     String
-  entityType String?
-  entityId   String?
-  title      String
-  body       String
-  actionUrl  String?
-  isRead     Boolean @default(false)
+  module       String
+  entityType   String?
+  entityId     String?
+  title        String
+  body         String
+  actionUrl    String?
+  isRead       Boolean   @default(false)
   /// When set to a future time, the notification is hidden from the bell
   /// dropdown + /notifications list + unread count. When the time passes,
   /// it reappears in the list as unread. Clearing the field (unsnooze)
@@ -7065,6 +7065,9 @@ model PartnershipCase {
   dueDate            String?
   /// RENTED | OWNED — decides which office-proof items apply
   premisesType       String?
+  /// LLPIN (LLP) / CIN (Private Limited) — issued with the Certificate of
+  /// Incorporation; captured when the registration is completed.
+  registrationNumber String?
   /// PROPRIETORSHIP | PARTNERSHIP | LLP | PVT_LTD — the client's entity type
   /// for GST Registration. Decides which of the six §7.1 categories apply.
   entityType         String?
@@ -7094,14 +7097,14 @@ model PartnershipCase {
   progressPct       Int       @default(0)
   lastActivityAt    DateTime?
 
-  client        Client                      @relation(fields: [clientId], references: [id])
-  clientService ClientService?              @relation(fields: [clientServiceId], references: [id])
-  partners      PartnershipPartner[]
-  categories    PartnershipCaseCategory[]
-  items         PartnershipCaseItem[]
-  requirements  PartnershipDocRequirement[]
-  activities    PartnershipActivity[]
-  tasks         Task[]
+  client             Client                       @relation(fields: [clientId], references: [id])
+  clientService      ClientService?               @relation(fields: [clientServiceId], references: [id])
+  partners           PartnershipPartner[]
+  categories         PartnershipCaseCategory[]
+  items              PartnershipCaseItem[]
+  requirements       PartnershipDocRequirement[]
+  activities         PartnershipActivity[]
+  tasks              Task[]
   /// Private Limited: post-registration compliances (INC-20A, ADTC), created
   /// once when the case is marked COMPLETED.
   postRegCompliances PostRegistrationCompliance[]
@@ -7409,26 +7412,32 @@ model AaExport {
 /// worked out from dueDate and today on every read. Completed rows stay as
 /// history.
 model PostRegistrationCompliance {
-  id           String  @id @default(uuid())
-  caseId       String
-  clientId     String
-  /// INC_20A | ADTC — see modules/partnership/compliance.ts
-  code         String
+  id                    String  @id @default(uuid())
+  caseId                String
+  clientId              String
+  /// INC_20A | ADTC (Private Limited), LLP_FORM_3_INITIAL (LLP) — the rule
+  /// catalogue is in modules/partnership/compliance.ts
+  code                  String
   /// 'YYYY-MM-DD' — INC-20A: the Date of Incorporation; ADTC: the trigger /
   /// event date. Null until someone enters it (status Not Started).
-  triggerDate  String?
+  triggerDate           String?
   /// What the trigger date is (shown as the field's label). Editable for
   /// ADTC, whose statutory starting event is still to be confirmed.
-  triggerLabel String
+  triggerLabel          String
   /// Due = trigger + offsetDays. Copied from the rule at creation so a later
   /// rule change never rewrites existing deadlines; editable per row.
-  offsetDays   Int
+  offsetDays            Int
   /// 'YYYY-MM-DD' — triggerDate + offsetDays, kept for sorting/filtering.
-  dueDate      String?
+  dueDate               String?
   /// 'YYYY-MM-DD' the compliance was actually completed (as recorded).
-  completedOn  String?
-  completedBy  String?
-  notes        String?
+  completedOn           String?
+  /// The user who recorded the completion.
+  completedBy           String?
+  /// The staff member who actually completed it (chosen on the form).
+  completedByEmployeeId String?
+  /// Staff responsible; defaults to the case's assigned employee.
+  assignedEmployeeId    String?
+  notes                 String?
 
   case PartnershipCase @relation(fields: [caseId], references: [id])
 

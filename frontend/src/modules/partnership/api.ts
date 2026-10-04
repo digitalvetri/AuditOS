@@ -61,6 +61,8 @@ export interface CaseSummary {
   due_date: string | null;
   due_state: DueState;
   premises_type: 'RENTED' | 'OWNED' | null;
+  /** LLPIN (LLP) / CIN (Private Limited), captured when the registration is completed. */
+  registration_number?: string | null;
   entity_type: EntityType | null;
   /** For GSTR* kinds — 'YYYY-MM' monthly, 'YYYY-Q1' quarterly. null for the three registration kinds. */
   period: string | null;
