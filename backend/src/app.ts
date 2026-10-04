@@ -25,6 +25,7 @@ import { clientFoldersRouter, clientFilesSignedRouter } from './modules/workstat
 import { clientMergeRouter } from './modules/workstation/client-merge.routes.js'
 import { servicesRouter, serviceCatalogRouter } from './modules/workstation/services.routes.js'
 import { forKind, partnershipRouter, partnershipSignedRouter } from './modules/partnership/routes.js'
+import { postRegistrationRouter } from './modules/partnership/compliance.js'
 import { registrationsRouter } from './modules/registration/routes.js'
 import { followUpsRouter } from './modules/workstation/followups.routes.js'
 import {
@@ -216,6 +217,8 @@ export function createApp() {
   app.use('/api/gstr2b', forKind('GSTR2B'), partnershipRouter)
   app.use('/api/gstr3b', forKind('GSTR3B'), partnershipRouter)
   app.use('/api/private-limited', forKind('PRIVATE_LIMITED'), partnershipRouter)
+  // Private Limited post-registration compliance (INC-20A, ADTC) — case screen + Dashboard.
+  app.use('/api/post-registration-compliance', postRegistrationRouter)
   // NOT '/api/documents': that path already belongs to the HRMS
   // EmployeeDocument router mounted above, and Express matches the first
   // mount — so mounting here would shadow the Workstation list and silently

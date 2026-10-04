@@ -7102,6 +7102,9 @@ model PartnershipCase {
   requirements  PartnershipDocRequirement[]
   activities    PartnershipActivity[]
   tasks         Task[]
+  /// Private Limited: post-registration compliances (INC-20A, ADTC), created
+  /// once when the case is marked COMPLETED.
+  postRegCompliances PostRegistrationCompliance[]
 
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt
@@ -7397,4 +7400,44 @@ model AaExport {
   job AaJob @relation(fields: [jobId], references: [id], onDelete: Cascade)
 
   @@index([jobId])
+}
+
+/// Post-registration compliance for a completed Private Limited registration
+/// (INC-20A, ADTC). One row per (case, compliance) — the unique key is what
+/// stops a status flipped to COMPLETED twice from creating duplicates. The
+/// status (Upcoming / Due Soon / Due Today / Overdue) is NOT stored: it is
+/// worked out from dueDate and today on every read. Completed rows stay as
+/// history.
+model PostRegistrationCompliance {
+  id           String  @id @default(uuid())
+  caseId       String
+  clientId     String
+  /// INC_20A | ADTC — see modules/partnership/compliance.ts
+  code         String
+  /// 'YYYY-MM-DD' — INC-20A: the Date of Incorporation; ADTC: the trigger /
+  /// event date. Null until someone enters it (status Not Started).
+  triggerDate  String?
+  /// What the trigger date is (shown as the field's label). Editable for
+  /// ADTC, whose statutory starting event is still to be confirmed.
+  triggerLabel String
+  /// Due = trigger + offsetDays. Copied from the rule at creation so a later
+  /// rule change never rewrites existing deadlines; editable per row.
+  offsetDays   Int
+  /// 'YYYY-MM-DD' — triggerDate + offsetDays, kept for sorting/filtering.
+  dueDate      String?
+  /// 'YYYY-MM-DD' the compliance was actually completed (as recorded).
+  completedOn  String?
+  completedBy  String?
+  notes        String?
+
+  case PartnershipCase @relation(fields: [caseId], references: [id])
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  createdBy String?
+  updatedBy String?
+
+  @@unique([caseId, code])
+  @@index([clientId])
+  @@index([dueDate])
 }

@@ -6,6 +6,15 @@ import { ENTITY_TYPE_OPTIONS, useSvc } from './shared';
 import { useCaseMutation } from './PartnershipCase';
 
 /**
+ * Sticky "Save details" bar. <main> has bottom padding (p-3 / md:p-5 / lg:p-6),
+ * and a plain bottom-0 bar stops above it, letting the page scroll through the
+ * strip below. The negative bottom matches that padding and the extra bottom
+ * padding fills it, so nothing shows beneath the bar.
+ */
+const saveBarClass =
+  'sticky -bottom-3 md:-bottom-5 lg:-bottom-6 z-10 bg-white border-t border-neutral-200 pt-2 pb-5 md:pb-7 lg:pb-8 flex justify-end gap-2';
+
+/**
  * Registration Details — the fields named in the source PDF, Part A
  * ("Details & documents required for Partnership Deed drafting"). Client
  * master data (name, GSTIN, contact) stays on the client record.
@@ -110,7 +119,7 @@ function PartnershipDetails({ c }: { c: CaseDetail }) {
       </Section>
 
       {!ro ? (
-        <div className="sticky bottom-0 bg-white border-t border-neutral-200 py-2 flex justify-end gap-2">
+        <div className={saveBarClass}>
           {dirty ? <span className="text-12 text-amber self-center">Unsaved changes</span> : null}
           <Button variant="primary" disabled={!dirty || save.isPending} onClick={() => save.mutate(undefined, { onSuccess: () => setDirty(false) })}>Save details</Button>
         </div>
@@ -169,7 +178,7 @@ function LlpCaseDetails({ c }: { c: CaseDetail }) {
       <Partners c={c} />
 
       {!ro ? (
-        <div className="sticky bottom-0 bg-white border-t border-neutral-200 py-2 flex justify-end gap-2">
+        <div className={saveBarClass}>
           {dirty ? <span className="text-12 text-amber self-center">Unsaved changes</span> : null}
           <Button variant="primary" disabled={!dirty || save.isPending} onClick={() => save.mutate(undefined, { onSuccess: () => setDirty(false) })}>Save details</Button>
         </div>
@@ -282,7 +291,7 @@ function PvtCaseDetails({ c }: { c: CaseDetail }) {
       <Partners c={c} />
 
       {!ro ? (
-        <div className="sticky bottom-0 bg-white border-t border-neutral-200 py-2 flex justify-end gap-2">
+        <div className={saveBarClass}>
           {dirty ? <span className="text-12 text-amber self-center">Unsaved changes</span> : null}
           <Button variant="primary" disabled={!dirty || save.isPending} onClick={() => save.mutate(undefined, { onSuccess: () => setDirty(false) })}>Save details</Button>
         </div>
@@ -387,7 +396,7 @@ function ReturnCaseDetails({ c }: { c: CaseDetail }) {
       </Section>
 
       {!ro ? (
-        <div className="sticky bottom-0 bg-white border-t border-neutral-200 py-2 flex justify-end gap-2">
+        <div className={saveBarClass}>
           {dirty ? <span className="text-12 text-amber self-center">Unsaved changes</span> : null}
           <Button variant="primary" disabled={!dirty || save.isPending} onClick={() => save.mutate(undefined, { onSuccess: () => setDirty(false) })}>Save details</Button>
         </div>
