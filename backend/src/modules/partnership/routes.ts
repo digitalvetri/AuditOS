@@ -24,6 +24,7 @@ import {
 import {
   ALLOWED_EXTENSIONS, MAX_UPLOAD_MB, MIME_BY_EXT, fileKey, partnershipStorage,
 } from './storage.js'
+import { ensurePostRegistrationCompliances } from './compliance.js'
 
 /**
  * PARTNERSHIP FIRM REGISTRATION — Workstation → Services → Registration.
@@ -765,6 +766,10 @@ partnershipRouter.patch('/cases/:id', handler(async (req, res) => {
   const reviewer = await employeeField(e, 'reviewer_employee_id', b.reviewer_employee_id)
   const approver = await employeeField(e, 'approver_employee_id', b.approver_employee_id)
   const dueDate = b.due_date === null || b.due_date === '' ? null : e.date('due_date', b.due_date)
+  // Private Limited: the Date of Incorporation, captured when the registration
+  // is completed — INC-20A is due 180 days after it.
+  const incorporationDate = c.kind === 'PRIVATE_LIMITED' && b.incorporation_date ? e.date('incorporation_date', b.incorporation_date) : undefined
+  if (incorporationDate && incorporationDate > today()) e.add('incorporation_date', 'The Date of Incorporation cannot be in the future.')
   e.throwIfAny()
   if (status === 'COMPLETED') mustCan(session, 'workstation.document.verify')
 
@@ -806,6 +811,12 @@ partnershipRouter.patch('/cases/:id', handler(async (req, res) => {
     })
   }
   if (data.premisesType !== undefined || data.entityType !== undefined) await recompute(c.id)
+  // Completed Private Limited registration → its post-registration compliances
+  // (INC-20A, ADTC). Idempotent: completing again never duplicates them.
+  if (c.kind === 'PRIVATE_LIMITED' && updated.status === 'COMPLETED') {
+    const n = await ensurePostRegistrationCompliances(c.id, { incorporationDate: incorporationDate ?? null, userId: session.userId })
+    if (n) log.push(['compliance.created', `Post-registration compliance created: INC-20A, ADTC${incorporationDate ? ` (incorporated ${incorporationDate})` : ''}`])
+  }
   for (const [action, detail] of log) await logActivity(c.id, session, action, detail)
   if (log.length) {
     await writeAudit({

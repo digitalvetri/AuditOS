@@ -164,6 +164,8 @@ function AddClientModal({ open, onClose }: { open: boolean; onClose: () => void 
   const toast = useToast();
   const [search, setSearch] = useState('');
   const [clientId, setClientId] = useState('');
+  // Label of the chosen client — kept so the list can collapse once picked.
+  const [clientLabel, setClientLabel] = useState('');
   const [assigned, setAssigned] = useState('');
   const [reviewer, setReviewer] = useState('');
   const [approver, setApprover] = useState('');
@@ -219,10 +221,24 @@ function AddClientModal({ open, onClose }: { open: boolean; onClose: () => void 
       }
     >
       <Field label="Existing client" error={errs.client_id} hint="Clients come from Workstation → Clients. Add a new client there first.">
-        <input className={inputClass + ' mb-2'} placeholder="Search clients…" value={search} onChange={(e) => setSearch(e.target.value)} />
-        <select className={inputClass} size={6} style={{ height: 'auto' }} value={clientId} onChange={(e) => setClientId(e.target.value)}>
-          {filtered.map((c) => <option key={c.id} value={c.id}>{c.company_name} · {c.client_id}</option>)}
-        </select>
+        {clientId ? (
+          <div className={inputClass + ' flex items-center justify-between gap-2'}>
+            <span className="truncate">{clientLabel}</span>
+            <button type="button" className="shrink-0 text-12 underline text-neutral-600 hover:text-neutral-900" onClick={() => { setClientId(''); setClientLabel(''); }}>
+              Change
+            </button>
+          </div>
+        ) : (
+          <>
+            <input className={inputClass + ' mb-2'} placeholder="Search clients…" value={search} onChange={(e) => setSearch(e.target.value)} />
+            <select
+              className={inputClass} size={6} style={{ height: 'auto' }} value={clientId}
+              onChange={(e) => { setClientId(e.target.value); setClientLabel(e.target.selectedOptions[0]?.text ?? ''); }}
+            >
+              {filtered.map((c) => <option key={c.id} value={c.id}>{c.company_name} · {c.client_id}</option>)}
+            </select>
+          </>
+        )}
       </Field>
       <div className="grid grid-cols-2 gap-3">
         {needsEntityType ? (

@@ -19,6 +19,7 @@
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { Link } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { PostRegistrationDashboardSection } from '@/modules/postRegistration/DashboardSection';
 import {
   AlertTriangle, ArrowUpRight, CalendarClock, CalendarDays, Check, CheckCircle2, ChevronRight, ClockAlert,
   FileText, FileWarning, Inbox, Landmark, Plane, Receipt, Users, Wallet,
@@ -151,6 +152,9 @@ export function DashboardV2Page() {
         <BriefTile insights={insights} loading={loadingBrief} className="sm:col-span-2 xl:col-span-1 xl:row-span-2" />
         {kpiTiles}
       </section>
+
+      {/* Private Limited post-registration compliance (INC-20A, ADTC) — hidden until there is any. */}
+      {seesTds ? <PostRegistrationDashboardSection /> : null}
 
       {seesBilling || gauge ? (
         <div className={`grid gap-5 grid-cols-1 ${seesBilling && gauge ? 'xl:grid-cols-[minmax(0,1.55fr)_minmax(320px,1fr)]' : ''}`}>

@@ -88,6 +88,7 @@ import { PartnershipClients } from '@/pages/workstation/registration/partnership
 import { PartnershipCase } from '@/pages/workstation/registration/partnership/PartnershipCase';
 import { ServiceProvider } from '@/pages/workstation/registration/partnership/shared';
 import { PartnershipTemplate } from '@/pages/workstation/registration/partnership/PartnershipTemplate';
+import { PostRegistrationOverview } from '@/modules/postRegistration/Overview';
 import { GstShell } from '@/pages/workstation/registration/gst/GstShell';
 import { GstRegistrationTab } from '@/pages/workstation/registration/gst/GstRegistrationTab';
 import { GstDashboard } from '@/pages/workstation/registration/gst/GstDashboard';
@@ -386,6 +387,7 @@ export default function App() {
                 <Route path="clients/:caseId" element={<PartnershipCase />} />
                 <Route path="template" element={<PartnershipTemplate />} />
                 <Route path="registration" element={<RegistrationServiceDetail slug="private-limited" embedded />} />
+                <Route path="compliance" element={<PostRegistrationOverview />} />
                 <Route path="about" element={<Navigate to="../registration" replace />} />
               </Route>
               <Route path="workstation/services/registration/:slug" element={<RegistrationServiceDetail />} />

@@ -10,8 +10,10 @@ import { CaseChecklist } from './CaseChecklist';
 import { CaseDocuments } from './CaseDocuments';
 import { CaseDetails } from './CaseDetails';
 import { PortalStrip } from './PortalStrip';
+import { useState } from 'react';
+import { CaseCompliancePanel } from '@/modules/postRegistration/ui';
 
-const TAB_KEYS = ['checklist', 'documents', 'details', 'activity'] as const;
+const TAB_KEYS = ['checklist', 'documents', 'details', 'compliance', 'activity'] as const;
 type TabKey = (typeof TAB_KEYS)[number];
 
 /**
@@ -21,7 +23,7 @@ type TabKey = (typeof TAB_KEYS)[number];
  * different data — per GST-RETURNS-CASE-SCREEN §2.
  */
 export function PartnershipCase() {
-  const { api: regApi, keys: regKeys, base, label, detailsLabel } = useSvc();
+  const { api: regApi, keys: regKeys, base, label, detailsLabel, kind } = useSvc();
   const { caseId = '' } = useParams();
   const [params, setParams] = useSearchParams();
   const tab = (params.get('tab') ?? 'checklist') as TabKey;
@@ -29,6 +31,8 @@ export function PartnershipCase() {
     { key: 'checklist', label: 'Checklist' },
     { key: 'documents', label: 'Documents' },
     { key: 'details', label: detailsLabel },
+    // Private Limited only: INC-20A / ADTC once the registration is completed.
+    ...(kind === 'PRIVATE_LIMITED' ? [{ key: 'compliance' as const, label: 'Post-Registration Compliance' }] : []),
     { key: 'activity', label: 'Activity' },
   ];
   const q = useQuery({ queryKey: regKeys.case(caseId), queryFn: () => regApi.getCase(caseId) });
@@ -59,6 +63,7 @@ export function PartnershipCase() {
             {tab === 'checklist' && <CaseChecklist c={c} onOpenDocuments={() => setParams({ tab: 'documents' }, { replace: true })} onOpenDetails={() => setParams({ tab: 'details' }, { replace: true })} />}
             {tab === 'documents' && <CaseDocuments c={c} />}
             {tab === 'details' && <CaseDetails c={c} />}
+            {tab === 'compliance' && kind === 'PRIVATE_LIMITED' && <CaseCompliancePanel caseId={c.id} caseStatus={c.status} canEdit={c.permissions.manage} />}
             {tab === 'activity' && <CaseActivity caseId={c.id} />}
           </>
         )}
@@ -82,8 +87,12 @@ export function useCaseMutation<T>(fn: (v: T) => Promise<unknown>, success?: str
 }
 
 function CaseHeader({ c }: { c: CaseDetail }) {
-  const { api: regApi, stageOptions, label } = useSvc();
+  const { api: regApi, stageOptions, label, kind } = useSvc();
   const update = useCaseMutation((v: Record<string, unknown>) => regApi.updateCase(c.id, v), 'Saved');
+  // Private Limited: completing the registration asks for the Date of
+  // Incorporation — INC-20A falls due 180 days after it.
+  const [completing, setCompleting] = useState(false);
+  const [incDate, setIncDate] = useState('');
   const canEdit = c.permissions.manage;
   const sel = 'h-8 px-2 text-13 bg-white border border-neutral-300 rounded focus:outline-none focus:border-gold';
   const p = c.progress;
@@ -107,17 +116,52 @@ function CaseHeader({ c }: { c: CaseDetail }) {
         <div className="flex-1" />
         <label className="block">
           <span className="block text-11 uppercase tracking-[0.06em] text-neutral-500 mb-1">Status</span>
-          <select className={sel} disabled={!canEdit} value={c.status} onChange={(e) => update.mutate({ status: e.target.value })}>
+          <select
+            className={sel} disabled={!canEdit} value={completing ? 'COMPLETED' : c.status}
+            onChange={(e) => {
+              if (kind === 'PRIVATE_LIMITED' && e.target.value === 'COMPLETED' && c.status !== 'COMPLETED') { setCompleting(true); return; }
+              setCompleting(false);
+              update.mutate({ status: e.target.value });
+            }}
+          >
             {CASE_STATUS_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
           </select>
         </label>
         <label className="block">
           <span className="block text-11 uppercase tracking-[0.06em] text-neutral-500 mb-1">Stage</span>
-          <select className={sel} disabled={!canEdit} value={c.stage} onChange={(e) => update.mutate({ stage: e.target.value })}>
+          <select className={sel} disabled={!canEdit} value={c.stage}
+            onChange={(e) => {
+              // Private Limited: reaching the Completed stage is completing the
+              // registration — ask for the Date of Incorporation, same as Status.
+              if (kind === 'PRIVATE_LIMITED' && e.target.value === 'COMPLETED' && c.status !== 'COMPLETED') { setCompleting(true); return; }
+              update.mutate({ stage: e.target.value });
+            }}
+          >
             {stageOptions.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
           </select>
         </label>
       </div>
+      {completing ? (
+        <form
+          className="px-4 py-3 flex flex-wrap items-end gap-3 border-b border-neutral-200 bg-neutral-50"
+          onSubmit={(e) => {
+            e.preventDefault();
+            update.mutate({ status: 'COMPLETED', ...(incDate ? { incorporation_date: incDate } : {}) }, { onSuccess: () => setCompleting(false) });
+          }}
+        >
+          <div className="text-13 text-neutral-700 basis-full">
+            Registration completed — enter the <b>Date of Incorporation</b> so INC-20A (due 180 days after it) and ADTC are tracked under Post-Registration Compliance.
+          </div>
+          <label className="block">
+            <span className="block text-11 uppercase tracking-[0.06em] text-neutral-500 mb-1">Date of Incorporation</span>
+            <input type="date" className={sel} value={incDate} max={new Date(Date.now() + 5.5 * 3600_000).toISOString().slice(0, 10)} onChange={(e) => setIncDate(e.target.value)} />
+          </label>
+          <button type="submit" className="h-8 px-3 text-13 rounded border border-neutral-900 bg-neutral-900 text-white" disabled={update.isPending}>
+            {incDate ? 'Complete registration' : 'Complete without the date'}
+          </button>
+          <button type="button" className="h-8 px-3 text-13 rounded border border-neutral-300 bg-white" onClick={() => { setCompleting(false); setIncDate(''); }}>Cancel</button>
+        </form>
+      ) : null}
 
       <div className="px-4 py-3 grid grid-cols-2 md:grid-cols-6 gap-4">
         <div className="col-span-2">
