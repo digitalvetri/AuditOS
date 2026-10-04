@@ -101,6 +101,15 @@ the case's Post-Registration Compliance tab. `migrate` adds the new columns
 (LLPIN/CIN on the case, assignee and completed-by on each compliance).
 Nothing to run by hand.
 
+**Organization clients.** `migrate` adds the new columns like any other
+additive schema change — `Client.isOrganization`, `shortName` and
+`parentClientId`, `Lead.leadType` and `contactPerson`, and
+`ClientDocument.sourceRequestId`. Existing leads and clients stay individual
+until someone chooses otherwise. Merged files saved to an organization's
+documents are written to the `auditos-uploads` volume with every other client
+document; the "Consolidated" (and, if missing, "TDS") document category is
+created on first use. Nothing to run by hand.
+
 **Demo logins.** The seed creates one login per role — Super Admin
 `ravi@auditos.local` / `md`, Admin `priya@auditos.local` / `hr`, Senior
 Associate `vikram@auditos.local` / `mgr`, Associate `meera@auditos.local` /
