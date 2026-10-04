@@ -6,10 +6,10 @@ import { useAuth } from '@/platform/auth/AuthContext';
 /**
  * /audit-automation — the submodule landing.
  *
- * AMENDMENT-02-REPOTIC-GAPS.md is scoped to the bank-statement pipeline
- * for now (Phases 0–4 of the parent spec). Other pipelines — GSTR-2B
- * reconciliation, GSTR-3B, 26AS TDS matching — are deferred per §5 of
- * the amendment, but declared here for orientation.
+ * Per REPOTIC-MODULE.md §0, Repotic is EXACTLY two tools: the bank
+ * statement → Tally pipeline (shipped) and the ecommerce seller's
+ * GSTR-1 pipeline (built across the Phase 1+ PRs). The TDS tab was
+ * removed per spec — TDS reconciliation lives in the TDS module.
  */
 export function AuditAutomationLandingPage() {
   const { session } = useAuth();
@@ -21,7 +21,7 @@ export function AuditAutomationLandingPage() {
       <header className="mb-5">
         <h1 className="text-20 font-semibold text-neutral-900">Repotic</h1>
         <p className="text-13 text-neutral-500 mt-1">
-          Bank statements, GST filings and TDS — ingested, reconciled, exported.
+          Files in, files out. Bank statements → Tally, ecommerce reports → GSTR-1.
         </p>
       </header>
 
@@ -30,23 +30,17 @@ export function AuditAutomationLandingPage() {
           You do not have access to Audit Automation.
         </div>
       ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <PipelineCard
             to="/audit-automation/bank"
-            title="Bank statements"
+            title="PDF bank statement → Tally XML / CSV"
             description="PDF, Excel or CSV statement → rows checked against the running balance → review, ledgers and rules → approve → Tally XML"
             status="active"
           />
           <PipelineCard
-            to="/audit-automation/gst"
-            title="GST reconciliation"
-            description="GSTR-2B vs purchase register — matched, partial, variance, missing, duplicates; ITC with reasons; manual pairing"
-            status="active"
-          />
-          <PipelineCard
-            to="/audit-automation/tds"
-            title="TDS reconciliation"
-            description="Form 26AS (text or PDF) vs TDS receivable — verified, variance, missing; deductor chase list with follow-ups"
+            to="/audit-automation/ecommerce"
+            title="File ecommerce seller's GSTR-1"
+            description="Amazon · Flipkart · Meesho · Myntra · … → one normalised set of rows → GSTR-1 tables → JSON for the portal, Tally XML or CSV"
             status="active"
           />
         </div>
@@ -55,9 +49,9 @@ export function AuditAutomationLandingPage() {
       <div className="mt-6 flex items-start gap-2 text-12 text-neutral-500 bg-white border border-neutral-200 rounded p-3">
         <Info size={14} strokeWidth={1.75} className="mt-0.5 flex-shrink-0" />
         <div>
-          Bank-statement pipeline follows the revised upload flow from
-          AMENDMENT-02-REPOTIC-GAPS.md: user-selected bank, password-protected
-          PDF support, scanned documents refused, per-client dedupe.
+          GST reconciliation (GSTR-2B vs Purchase Register) lives in the GST module.
+          TDS reconciliation (26AS) lives in the TDS module.
+          Repotic itself is file-in / file-out only.
         </div>
       </div>
     </div>

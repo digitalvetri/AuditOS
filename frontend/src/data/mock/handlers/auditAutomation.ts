@@ -67,22 +67,8 @@ export const auditAutomationHandlers = [
   http.get('/api/audit-automation/gst/recon/:id/rows', unavailable),
   http.patch('/api/audit-automation/gst/recon/rows/:id', unavailable),
 
-  // ── TDS reconciliation ─────────────────────────────────────────────
-  http.get('/api/audit-automation/tds/26as', () =>
-    HttpResponse.json({ data: { items: [] } }),
-  ),
-  http.get('/api/audit-automation/tds/books', () =>
-    HttpResponse.json({ data: { items: [] } }),
-  ),
-  http.get('/api/audit-automation/tds/recon', () =>
-    HttpResponse.json({ data: { items: [] } }),
-  ),
-  http.post('/api/audit-automation/tds/26as/uploads', unavailable),
-  http.post('/api/audit-automation/tds/books/uploads', unavailable),
-  http.post('/api/audit-automation/tds/recon', unavailable),
-  http.get('/api/audit-automation/tds/recon/:id', unavailable),
-  http.get('/api/audit-automation/tds/recon/:id/rows', unavailable),
-  http.patch('/api/audit-automation/tds/recon/rows/:id', unavailable),
+  // TDS reconciliation handlers removed — TDS matching lives in the TDS
+  // module now, per REPOTIC-MODULE.md §0.
 
   // ── Tally (accounting) ─────────────────────────────────────────────
   // Reads return honest empty lists in mock mode; every mutation and

@@ -7500,6 +7500,192 @@ model AaExport {
   @@index([jobId])
 }
 
+// ============================================================
+// REPOTIC — Ecommerce GSTR-1 (REPOTIC-MODULE.md Phase 1+)
+// ============================================================
+//
+// Marketplaces change their report formats without notice; hardcoded
+// parsers rot SILENTLY — parse succeeds, columns shifted, numbers wrong.
+// This registry carries each adapter's header fingerprint, column map
+// and coverage per marketplace × report_kind. See §2.1 of the spec.
+
+/// One row per (marketplace, report_kind, version). The adapter engine
+/// fingerprints an uploaded file's header row and routes to the newest
+/// matching adapter whose `effectiveFrom` is on or before today.
+///
+/// Three detect outcomes drive the UI:
+///   matched              → parse
+///   matched + drifted    → parse AND flag loudly (new/reordered cols)
+///   no match             → refuse, offer manual column mapping
+model RpMarketplaceAdapter {
+  id             String @id @default(uuid())
+  organisationId String
+  /// amazon | flipkart | meesho | myntra | ajio | glowroad | jiomart |
+  /// limeroad | shop101 | citymall | paytm | snapdeal | gov_excel | other
+  marketplace    String
+  /// mtr_b2c | mtr_b2b | sales | gst | tcs_b2c | tcs_b2b | b2c_sheet |
+  /// b2b_sheet | gov_summary
+  reportKind     String
+  version        Int    @default(1)
+  /// JSON array of expected header column names, in order. Used by the
+  /// fingerprint engine to score a file against known adapter versions.
+  detectJson     String
+  /// JSON map { source_column: canonical_field }. Canonical fields are
+  /// documented in docs/repotic/README.md.
+  columnMapJson  String
+  /// Date formats, sign conventions, state code lookups per adapter.
+  transformsJson String?
+  /// Which GSTR-1 tables this adapter can populate: { "4A": true,
+  /// "7": true, "9B": true, "12": true, "13": false, ... }.
+  coverageJson   String
+  /// NULL = active from forever until superseded. Format YYYY-MM-DD.
+  effectiveFrom  String?
+  notes          String?
+  active         Boolean @default(true)
+
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  createdByUserId String?
+  updatedByUserId String?
+  deletedAt       DateTime?
+
+  @@index([organisationId, marketplace, reportKind, active])
+}
+
+/// One row per uploaded marketplace file. Idempotent by file sha256 +
+/// (client, gstin, period, marketplace, report_kind) so re-uploading the
+/// same file for the same scope does not double-count anything.
+model RpEcommerceUpload {
+  id             String @id @default(uuid())
+  organisationId String
+  clientId       String
+  /// Client GSTIN this upload is being prepared for.
+  gstin          String
+  /// YYYY-MM — the GSTR-1 period the upload applies to.
+  period         String
+  marketplace    String
+  reportKind     String
+  /// matched | drifted | no_match | rejected
+  detectStatus   String
+  /// FK to the adapter that matched. NULL for no_match uploads waiting
+  /// on manual column mapping.
+  adapterId      String?
+  adapterVersion Int?
+  /// Original filename as uploaded.
+  originalName   String
+  /// SHA-256 of the raw file bytes; the idempotency key.
+  fileSha256     String
+  sizeBytes      Int
+  rowCount       Int     @default(0)
+  /// JSON summary of transaction type counts { "shipment": 664,
+  /// "refund": 31, "cancel": 5 }. Required by §3 of the spec.
+  typeCountsJson String?
+  /// JSON blob with the drifted/new/missing columns so the UI can show
+  /// "header differs from adapter v4 (2 new columns)".
+  driftJson      String?
+  /// pending | parsed | errored | superseded
+  status         String  @default("pending")
+  errorMessage   String?
+
+  uploadedByUserId String
+  uploadedAt       DateTime @default(now())
+  deletedAt        DateTime?
+
+  parsedRows RpParsedRow[]
+
+  @@unique([organisationId, clientId, gstin, period, marketplace, reportKind, fileSha256])
+  @@index([organisationId, clientId, gstin, period])
+}
+
+/// REPOTIC Phase 2 — one normalised invoice row per source row the parser
+/// extracted from an RpEcommerceUpload. The source row keeps its index so
+/// the UI can jump back to the original file when a value looks wrong, and
+/// the whole raw record is kept as JSON for the same reason: an auditor who
+/// questions a Rs. figure can see every field the marketplace sent us, not
+/// just the ones we mapped.
+///
+/// All money is INTEGER PAISE — Rs. 423.73 → 42373. GST aggregations across
+/// many rows will divide back out at display time. Floats would drift at the
+/// rupee level with a few thousand rows.
+model RpParsedRow {
+  id             String @id @default(uuid())
+  organisationId String
+  uploadId       String
+  /// 1-based row number within the source file (header row = 1).
+  sourceRowIndex Int
+
+  /// shipment | cancel | refund | free_replacement | other — classifier
+  /// takes the raw "Transaction Type" value and buckets it. Only `shipment`
+  /// contributes to B2CS/B2CL totals; `cancel` and `refund` feed Table 9B.
+  txType         String
+
+  /// Invoice fields. invoice_number may be empty on Cancel rows that
+  /// cite a credit note instead; the GSTR-1 builder uses creditNoteNumber
+  /// in that case.
+  invoiceNumber   String?
+  invoiceDate     String?    // YYYY-MM-DD, pulled from the Marketplace cell
+  invoiceAmount   Int        // paise
+  taxableValue    Int        // paise
+
+  /// Tax amounts in paise. Rate is the HSN-level rate (percent, no %
+  /// sign — "18" for 18%). The parser derives rate from the Cgst/Sgst/Igst
+  /// Rate columns; it does NOT re-derive from amount/txval because rows with
+  /// zero taxable (free replacements) would divide-by-zero.
+  cgstTax Int @default(0)
+  sgstTax Int @default(0)
+  igstTax Int @default(0)
+  cessTax Int @default(0)
+  rate    Int @default(0)   // percent × 100 (18.00% → 1800)
+
+  /// Classification fields the builder needs.
+  hsn          String?
+  quantity     Int @default(0)   // integer units — Amazon uses whole numbers
+  shipToState  String?           // state name as written by the marketplace
+  sellerGstin  String?
+  stateCodeIntra Boolean @default(false) // true if CGST/SGST > 0 and IGST = 0
+
+  /// Credit note refs — Table 9B source.
+  creditNoteNumber String?
+  creditNoteDate   String?
+
+  /// Everything the mapper saw. kept so an auditor can see the untransformed
+  /// data when a figure is questioned.
+  rawJson        String
+
+  createdAt      DateTime @default(now())
+
+  upload RpEcommerceUpload @relation(fields: [uploadId], references: [id], onDelete: Cascade)
+
+  @@index([organisationId, uploadId])
+  @@index([organisationId, uploadId, txType])
+}
+
+/// REPOTIC Phase 3 — a build of GSTR-1 preview JSON for one scope.
+///
+/// Kept separate from the uploads so a build can be re-triggered without
+/// re-uploading, and so firms get a history of what was downloaded (an
+/// auditor downloads a JSON on day N; on day N+3 the uploads changed; the
+/// stored build tells us what the N-th download actually contained).
+///
+/// `tableCountsJson` summarises what the UI shows in the drawer; the full
+/// JSON lives in `previewJson` and is served for download.
+model RpGstr1Build {
+  id             String @id @default(uuid())
+  organisationId String
+  clientId       String
+  gstin          String
+  period         String
+  builtAt        DateTime @default(now())
+  builtByUserId  String
+  /// Row counts per table so the drawer renders fast without reparsing.
+  tableCountsJson String
+  /// Full GSTR-1 preview JSON. Not GSTN-offline-tool-verified yet; see
+  /// REPOTIC-MODULE.md Phase 3.1 for schema validation.
+  previewJson    String
+
+  @@index([organisationId, clientId, gstin, period])
+}
+
 /// Post-registration compliance for a completed Private Limited registration
 /// (INC-20A, ADTC). One row per (case, compliance) — the unique key is what
 /// stops a status flipped to COMPLETED twice from creating duplicates. The

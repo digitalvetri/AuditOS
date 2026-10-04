@@ -42,8 +42,8 @@ import { toolsRouter, toolJobsRouter, toolDocumentsRouter, toolsSignedRouter } f
 import { auditAutomationRouter } from './modules/audit-automation/routes.js'
 // Audit Automation · GST reconciliation (GSTR-2B vs Purchase Register).
 import { gstRouter } from './modules/audit-automation/gst.routes.js'
-// Audit Automation · TDS reconciliation (Form 26AS vs Books TDS register).
-import { tdsRouter } from './modules/audit-automation/tds.routes.js'
+// Repotic · Ecommerce GSTR-1 pipeline (REPOTIC-MODULE.md Phase 1+).
+import { repoticRouter } from './modules/repotic/routes.js'
 // Bookkeeping — native double-entry accounting module.
 import { bookkeepingRouter } from './modules/bookkeeping/routes.js'
 import { tasksRouter } from './modules/task/routes.js'
@@ -243,11 +243,12 @@ export function createApp() {
 
   // ── Audit Automation (submodule of Tools) ──────────────────────────────
   // Mount more-specific paths first so Express's prefix matching lands on
-  // the right router — auditAutomationRouter has no /gst or /tds routes
-  // but its prefix would still consume the path.
+  // the right router — auditAutomationRouter has no /gst routes but its
+  // prefix would still consume the path. The /tds mount was removed per
+  // REPOTIC-MODULE.md §0 — TDS reconciliation lives in the TDS module now.
   app.use('/api/audit-automation/gst', gstRouter)
-  app.use('/api/audit-automation/tds', tdsRouter)
   app.use('/api/audit-automation', auditAutomationRouter)
+  app.use('/api/repotic', repoticRouter)
 
   // ── Bookkeeping (native double-entry accounting, formerly Tally) ───────
   app.use('/api/bookkeeping', bookkeepingRouter)
