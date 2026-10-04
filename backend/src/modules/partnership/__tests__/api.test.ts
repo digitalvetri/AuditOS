@@ -197,6 +197,82 @@ describe('Private Limited — post-registration compliance (INC-20A, ADTC)', () 
     expect((await mine()).slice(before).map((n) => n.title)).toEqual(['INC-20A reminder — Remind Pvt Ltd'])
   })
 
+  it('LLP: completing the registration creates one LLP Form 3 (+30 days) with the LLPIN; never duplicated', async () => {
+    const cl = await client('Silverline Legal LLP')
+    const id = (await api('/api/llp/cases', { method: 'POST', body: { client_id: cl.id } })).body.id
+    const list = async (q = '') => (await api(`/api/post-registration-compliance?case_id=${id}${q}`)).body
+    expect((await list()).items).toEqual([]) // not before incorporation
+
+    expect((await api(`/api/llp/cases/${id}`, { method: 'PATCH', body: { status: 'COMPLETED', incorporation_date: '2026-10-04', registration_number: 'aab-1234' } })).status).toBe(200)
+    let items = (await list()).items
+    expect(items).toHaveLength(1)
+    expect(items[0]).toMatchObject({
+      code: 'LLP_FORM_3_INITIAL', kind: 'LLP', label: 'LLP Form 3', title: 'LLP Form 3 – Initial LLP Agreement',
+      trigger_date: '2026-10-04', trigger_label: 'Date of Incorporation', due_date: '2026-11-03', offset_days: 30,
+      registration_number: 'AAB-1234', client: { name: 'Silverline Legal LLP' }, case: { status: 'COMPLETED' },
+    })
+    expect((await api(`/api/llp/cases/${id}`)).body.registration_number).toBe('AAB-1234')
+
+    // Edited, reopened, completed again, listed again: still exactly one.
+    await api(`/api/llp/cases/${id}`, { method: 'PATCH', body: { status: 'IN_PROGRESS' } })
+    await api(`/api/llp/cases/${id}`, { method: 'PATCH', body: { status: 'COMPLETED', incorporation_date: '2026-10-01' } })
+    await list()
+    items = (await list()).items
+    expect(items).toHaveLength(1)
+    expect(items[0].trigger_date).toBe('2026-10-04') // an existing date is never overwritten
+
+    // Kind filter keeps LLP and Private Limited apart.
+    expect((await api(`/api/post-registration-compliance?case_id=${id}&kind=PRIVATE_LIMITED`)).body.items).toEqual([])
+    expect((await api(`/api/post-registration-compliance?case_id=${id}&kind=LLP`)).body.items).toHaveLength(1)
+    expect((await api('/api/post-registration-compliance?kind=NOPE')).status).toBe(400)
+
+    // No date at completion → "awaiting" (Not Started), nothing guessed.
+    const cl2 = await client('Trident Logistics LLP')
+    const id2 = (await api('/api/llp/cases', { method: 'POST', body: { client_id: cl2.id } })).body.id
+    await api(`/api/llp/cases/${id2}`, { method: 'PATCH', body: { status: 'COMPLETED' } })
+    expect((await api(`/api/post-registration-compliance?case_id=${id2}`)).body.items[0]).toMatchObject({ trigger_date: null, due_date: null, status: 'NOT_STARTED', days_remaining: null })
+
+    // Mark completed: completion date, completed by, notes; the due date stays; history keeps it.
+    const f3 = items[0]
+    expect((await api(`/api/post-registration-compliance/${f3.id}/complete`, { method: 'POST', body: { completed_on: '2026-10-04', completed_by_employee_id: 'nope' } })).status).toBe(400)
+    const done = (await api(`/api/post-registration-compliance/${f3.id}/complete`, { method: 'POST', body: { completed_on: '2026-10-04', notes: 'Filed SRN X1' } })).body.item
+    expect(done).toMatchObject({ status: 'COMPLETED', completed_on: '2026-10-04', due_date: '2026-11-03', notes: 'Filed SRN X1', reminder_message: null })
+    expect(done.completed_by?.name).toBeTruthy()
+    expect((await list('&status=COMPLETED')).items).toHaveLength(1)
+  })
+
+  it('LLP Form 3: dates across month / year / leap year, Due Soon threshold, reminder timing and wording', async () => {
+    const { complianceState, reminderKey, nextReminder, reminderMessage } = await import('../compliance.js')
+    const { addDays } = await import('../service.js')
+    expect(addDays('2026-10-04', 30)).toBe('2026-11-03')
+    expect(addDays('2026-12-15', 30)).toBe('2027-01-14')
+    expect(addDays('2028-02-15', 30)).toBe('2028-03-16') // 2028 is a leap year
+    expect(addDays('2027-02-15', 30)).toBe('2027-03-17')
+
+    const code = 'LLP_FORM_3_INITIAL'
+    expect(complianceState({ code, dueDate: '2026-10-11', completedOn: null }, '2026-10-04')).toEqual({ status: 'DUE_SOON', daysRemaining: 7 })
+    expect(complianceState({ code, dueDate: '2026-10-12', completedOn: null }, '2026-10-04')).toEqual({ status: 'UPCOMING', daysRemaining: 8 })
+
+    const row = { code, triggerDate: '2026-10-04', dueDate: '2026-11-03', completedOn: null }
+    expect(reminderKey(row, '2026-10-10')).toBeNull() // 24 days left
+    expect(reminderKey(row, '2026-10-14')).toBe('t20')
+    expect(reminderKey(row, '2026-10-20')).toBe('t20')
+    expect(reminderKey(row, '2026-10-24')).toBe('t10')
+    expect(reminderKey(row, '2026-10-31')).toBe('t3')
+    expect(reminderKey(row, '2026-11-03')).toBe('due')
+    expect(reminderKey(row, '2026-11-04')).toBe('o0')
+    expect(reminderKey(row, '2026-11-11')).toBe('o1')
+    expect(reminderKey({ ...row, completedOn: '2026-10-20' }, '2026-11-11')).toBeNull()
+    expect(nextReminder(row, '2026-10-10')).toBe('2026-10-14')
+    expect(nextReminder(row, '2026-11-01')).toBe('2026-11-03')
+    expect(nextReminder(row, '2026-11-04')).toBe('2026-11-11')
+
+    expect(reminderMessage('LLP Form 3', 'Silverline Legal LLP', { status: 'UPCOMING', daysRemaining: 20 })).toBe('LLP Form 3 for Silverline Legal LLP is due in 20 days.')
+    expect(reminderMessage('LLP Form 3', 'Apex Design Studio LLP', { status: 'DUE_TODAY', daysRemaining: 0 })).toBe('LLP Form 3 for Apex Design Studio LLP is due today.')
+    expect(reminderMessage('LLP Form 3', 'Greenleaf Organics LLP', { status: 'OVERDUE', daysRemaining: -4 })).toBe('LLP Form 3 for Greenleaf Organics LLP is overdue by 4 days.')
+    expect(reminderMessage('LLP Form 3', 'X', { status: 'COMPLETED', daysRemaining: null })).toBeNull()
+  })
+
   it('works out the status from the due date and today', async () => {
     const { complianceState } = await import('../compliance.js')
     const now = '2026-10-04'

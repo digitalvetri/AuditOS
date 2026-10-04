@@ -87,6 +87,7 @@ import { PartnershipCase } from '@/pages/workstation/registration/partnership/Pa
 import { ServiceProvider } from '@/pages/workstation/registration/partnership/shared';
 import { PartnershipTemplate } from '@/pages/workstation/registration/partnership/PartnershipTemplate';
 import { PostRegistrationOverview } from '@/modules/postRegistration/Overview';
+import { LlpCompliancePage } from '@/modules/postRegistration/RegistrationComplianceSection';
 import { GstShell } from '@/pages/workstation/registration/gst/GstShell';
 import { GstRegistrationTab } from '@/pages/workstation/registration/gst/GstRegistrationTab';
 import { GstDashboard } from '@/pages/workstation/registration/gst/GstDashboard';
@@ -376,6 +377,7 @@ export default function App() {
                 <Route path="clients/:caseId" element={<PartnershipCase />} />
                 <Route path="template" element={<PartnershipTemplate />} />
                 <Route path="registration" element={<RegistrationServiceDetail slug="llp" embedded />} />
+                <Route path="compliance" element={<LlpCompliancePage />} />
                 <Route path="about" element={<Navigate to="../registration" replace />} />
               </Route>
               {/* Private Limited Incorporation — the same case engine, its own checklist.

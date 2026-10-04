@@ -6,10 +6,14 @@ import { Card, Cell, PageHeader, QueryState, Row, Status, Table } from '@/module
 import { ListAction } from '@/modules/workstation/listUi';
 import { fmtDateTime } from '@/lib/format';
 import { DueChip, ProgressBar, useSvc } from './shared';
+import { RegistrationComplianceSection } from '@/modules/postRegistration/RegistrationComplianceSection';
 
 /** Service dashboard: database counts, then the cases needing attention. */
 export function PartnershipDashboard() {
-  const { api: regApi, keys: regKeys, base, label } = useSvc();
+  const { api: regApi, keys: regKeys, base, label, kind } = useSvc();
+  // LLP has post-registration compliance on this Dashboard; its own Overdue
+  // tile is then named for what it counts, so the two never read as one.
+  const llp = kind === 'LLP';
   const navigate = useNavigate();
   const overview = useQuery({ queryKey: regKeys.overview, queryFn: regApi.overview });
   const active = useQuery({
@@ -26,6 +30,8 @@ export function PartnershipDashboard() {
       />
       <QueryState query={overview}>
         {(o) => (
+          <>
+          {llp ? <h2 className="text-[18px] font-semibold text-neutral-900 mb-3">Registration Overview</h2> : null}
           <div className="reg-tiles grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-3 mb-5">
             {[
               ['Total Clients', o.total_clients, ''],
@@ -33,7 +39,7 @@ export function PartnershipDashboard() {
               ['Documents Pending', o.documents_pending, 'doc_status=pending'],
               ['Checklist Items Pending', o.checklist_items_pending, ''],
               ['Completed', o.completed, 'status=COMPLETED'],
-              ['Overdue', o.overdue, 'due=overdue'],
+              [llp ? 'Registration Overdue' : 'Overdue', o.overdue, 'due=overdue'],
             ].map(([label, value, filter]) => (
               <Link
                 key={label as string}
@@ -41,10 +47,11 @@ export function PartnershipDashboard() {
                 className="reg-tile bg-white border border-neutral-200 rounded-lg px-4 py-3 hover:border-primary/40 hover:shadow-raised transition-all"
               >
                 <div className="text-12 text-neutral-500">{label}</div>
-                <div className={`text-[24px] leading-tight font-semibold mt-1 tabular-nums ${label === 'Overdue' && Number(value) > 0 ? 'text-red' : 'text-neutral-900'}`}>{value}</div>
+                <div className={`text-[24px] leading-tight font-semibold mt-1 tabular-nums ${String(label).endsWith('Overdue') && Number(value) > 0 ? 'text-red' : 'text-neutral-900'}`}>{value}</div>
               </Link>
             ))}
           </div>
+          </>
         )}
       </QueryState>
 
@@ -79,6 +86,8 @@ export function PartnershipDashboard() {
           )}
         </QueryState>
       </Card>
+
+      {llp ? <RegistrationComplianceSection kind="LLP" base={base} /> : null}
     </>
   );
 }

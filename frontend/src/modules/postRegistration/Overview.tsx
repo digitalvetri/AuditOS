@@ -55,7 +55,7 @@ function ComplianceCell({ i }: { i?: ComplianceItem }) {
 }
 
 export function PostRegistrationOverview() {
-  const q = useQuery({ queryKey: postRegistrationKeys.list(), queryFn: () => postRegistrationApi.list() });
+  const q = useQuery({ queryKey: postRegistrationKeys.list({ kind: 'PRIVATE_LIMITED' }), queryFn: () => postRegistrationApi.list({ kind: 'PRIVATE_LIMITED' }) });
   const [filter, setFilter] = useState<Filter>('PENDING');
   const [search, setSearch] = useState('');
 
