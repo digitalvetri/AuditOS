@@ -160,8 +160,10 @@ auditRouter.get('/', handler(async (req, res) => {
     throw ApiError.forbidden('Audit access required.')
   }
 
+  // Older Super Admin sign-in/out rows (no longer written) stay hidden.
   const rows = await prisma.auditLog.findMany({
     where: {
+      NOT: { action: { in: ['auth.login', 'auth.logout'] }, actor: { role: { code: 'md' } } },
       ...(q.entity_type ? { entityType: q.entity_type } : {}),
       ...(q.entity_id ? { entityId: q.entity_id } : {}),
       ...(q.action ? { action: q.action } : {}),
@@ -337,9 +339,13 @@ dashboardRouter.get('/activity', handler(async (req, res) => {
   if (!can(session, 'audit.read.all', 'organisation') && !can(session, 'audit.read.hr', 'organisation')) {
     throw ApiError.forbidden()
   }
-  // Sign-ins are the bulk of the log and say nothing about the firm's work.
+  // Everyone's sign-ins and sign-outs show; failed attempts don't (no actor,
+  // and the email may be anyone's). The Super Admin's own trail never shows.
   const rows = await prisma.auditLog.findMany({
-    where: { NOT: { action: { startsWith: 'auth.' } } },
+    where: {
+      action: { not: 'auth.login_failed' },
+      OR: [{ actorUserId: null }, { actor: { role: { code: { not: 'md' } } } }],
+    },
     orderBy: { createdAt: 'desc' }, take: 20,
   })
   const actorIds = [...new Set(rows.map((r) => r.actorUserId).filter((x): x is string => !!x))]

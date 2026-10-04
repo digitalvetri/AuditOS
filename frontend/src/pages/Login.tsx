@@ -54,7 +54,10 @@ export function LoginPage() {
     <div className="min-h-screen grid grid-cols-1 md:grid-cols-2 bg-white">
       {/* Left: brand panel — deep teal with teal and coral glows (Teal & Coral) */}
       <div
-        className="login-hero hidden md:flex relative overflow-hidden flex-col p-10 lg:p-14 text-white"
+        // Sticky, one viewport tall: when the sign-in column is taller than the
+        // window (demo logins), the hero stays centred in view instead of
+        // drifting down with the taller grid row.
+        className="login-hero hidden md:flex md:sticky md:top-0 md:h-screen self-start relative overflow-hidden flex-col p-10 lg:p-14 text-white"
         style={{ backgroundColor: BRAND.panel }}
       >
         <div className="dash-hero-grid" aria-hidden />

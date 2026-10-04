@@ -72,9 +72,13 @@ authRouter.post('/login', handler(async (req, res) => {
   await prisma.user.update({ where: { id: user.id }, data: { lastLoginAt: new Date() } })
   const [name, value, options] = sessionCookie(signToken(user.id))
   res.cookie(name, value, options)
-  await writeAudit({
-    actorUserId: user.id, action: 'auth.login', entityType: 'User', entityId: user.id, req,
-  })
+  // The Super Admin's sign-ins stay out of everyone's activity feeds.
+  const role = await prisma.role.findUnique({ where: { id: user.roleId }, select: { code: true } })
+  if (role?.code !== 'md') {
+    await writeAudit({
+      actorUserId: user.id, action: 'auth.login', entityType: 'User', entityId: user.id, req,
+    })
+  }
   ok(res, await sessionPayload(user.id))
 }))
 
@@ -86,9 +90,11 @@ authRouter.post('/logout', authenticate, handler(async (req, res) => {
     await prisma.pushSubscription.deleteMany({ where: { endpoint: pushEndpoint, userId: session.userId } })
   }
   res.clearCookie(env.cookieName, { path: '/' })
-  await writeAudit({
-    actorUserId: session.userId, action: 'auth.logout', entityType: 'User', entityId: session.userId, req,
-  })
+  if (session.roleCode !== 'md') {
+    await writeAudit({
+      actorUserId: session.userId, action: 'auth.logout', entityType: 'User', entityId: session.userId, req,
+    })
+  }
   res.status(204).end()
 }))
 

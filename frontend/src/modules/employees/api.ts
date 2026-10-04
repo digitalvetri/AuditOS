@@ -44,6 +44,18 @@ export interface EmployeeCreateInput {
   manager_id?: string | null;
   phone?: string;
   joining_date?: string;
+  /** Role for the login created with the employee (never Super Admin). */
+  role_code?: string;
+  /** Set by the admin; left out, the server generates one. */
+  password?: string;
+}
+
+/** Shown once after the password is set; it can't be fetched again. */
+export interface CreatedLogin {
+  email: string;
+  role: string;
+  password: string;
+  generated: boolean;
 }
 
 export interface EmployeeDetailResponse {
@@ -71,12 +83,15 @@ export const employeeApi = {
   get: (id: string) => api.get<EmployeeDetailResponse>(`/api/employees/${id}`),
 
   /** POST /api/employees — HR/MD only; the server allocates the employee code. */
-  create: (body: EmployeeCreateInput) => api.post<{ employee: Employee }>('/api/employees', body),
+  create: (body: EmployeeCreateInput) => api.post<{ employee: Employee; login: CreatedLogin }>('/api/employees', body),
 
   patch: (id: string, body: Partial<Employee>) =>
     api.patch<{ employee: Employee }>(`/api/employees/${id}`, body),
 
   /** Move the employee's login to another role (Super Admin … Intern). */
+  /** Set or reset the password; creates the login if the employee has none. */
+  setPassword: (id: string, body: { password?: string; role_code?: string }) =>
+    api.put<{ created: boolean; login: CreatedLogin }>(`/api/employees/${id}/password`, body),
   setRole: (id: string, roleId: string) =>
     api.put<{ role: { id: string; code: string; name: string } }>(`/api/employees/${id}/role`, { role_id: roleId }),
 

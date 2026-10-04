@@ -327,7 +327,6 @@ async function main() {
   // ── Leave types, holidays, balances ─────────────────────────────────────
   const leaveTypes = [
     { id: 'lt-casual', code: 'casual', name: 'Casual', entitlement: 12, carry: 0, half: true, notice: 1, probation: true },
-    { id: 'lt-sick', code: 'sick', name: 'Sick', entitlement: 12, carry: 0, half: false, notice: 0, probation: true },
     { id: 'lt-earned', code: 'earned', name: 'Earned', entitlement: 15, carry: 30, half: true, notice: 7, probation: false },
     { id: 'lt-lop', code: 'lop', name: 'Loss of Pay', entitlement: null, carry: 0, half: false, notice: 0, probation: true },
     { id: 'lt-compoff', code: 'comp_off', name: 'Comp Off', entitlement: 0, carry: 0, half: false, notice: 1, probation: true },
@@ -350,6 +349,12 @@ async function main() {
       },
     })
   }
+  // Sick leave was retired. Databases seeded before that still carry the
+  // type; soft-delete it so the leave screens stop offering it. Idempotent.
+  await prisma.leaveType.updateMany({
+    where: { organisationId: org.id, code: 'sick', deletedAt: null },
+    data: { deletedAt: new Date() },
+  })
 
   const year = Number(TODAY.slice(0, 4))
   const holidays = [
@@ -382,13 +387,11 @@ async function main() {
       if (t.code === 'earned' && e.status === 'probation') continue
       const entitled =
         t.code === 'casual' ? 6
-        : t.code === 'sick' ? 6
         : t.code === 'earned' ? 7.5
         : t.code === 'comp_off' ? (e.id === 'emp-mgr' ? 1 : 0)
         : 0
       const availed =
         t.code === 'casual' ? (e.id === 'emp-exec' ? 3 : e.id === 'emp-mgr' ? 1 : 0)
-        : t.code === 'sick' ? (e.id === 'emp-exec' ? 1.5 : 0)
         : t.code === 'earned' ? (e.id === 'emp-md' ? 2 : 0)
         : 0
       await prisma.leaveBalance.upsert({

@@ -9,7 +9,8 @@ import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { Button } from '@/components/Button';
 import { Input } from '@/components/Input';
 import { useToast } from '@/components/Toast';
-import { employeeApi, type EmployeeCreateInput } from './api';
+import { employeeApi, type CreatedLogin, type EmployeeCreateInput } from './api';
+import { LOGIN_ROLE_OPTIONS, LoginDetails } from './LoginDetails';
 import { EMPLOYEE_TYPE_LABEL, SELECTABLE_EMPLOYEE_TYPES, type Employee } from '@/data/models';
 
 interface Props {
@@ -20,32 +21,42 @@ interface Props {
 
 const EMPTY: EmployeeCreateInput = {
   first_name: '', last_name: '', email: '', phone: '',
-  type: 'executive', status: 'probation', joining_date: '',
+  type: 'executive', status: 'probation', joining_date: '', role_code: 'employee', password: '',
 };
+
 
 export function EmployeeCreateModal({ open, onClose, onCreated }: Props) {
   const qc = useQueryClient();
   const toast = useToast();
   const [form, setForm] = useState<EmployeeCreateInput>(EMPTY);
   const [error, setError] = useState<string | null>(null);
+  const [created, setCreated] = useState<{ id: string; name: string; login: CreatedLogin } | null>(null);
 
   useEffect(() => {
     if (!open) return;
     setForm({ ...EMPTY, joining_date: new Date().toISOString().slice(0, 10) });
     setError(null);
+    setCreated(null);
   }, [open]);
 
   const create = useMutation({
     mutationFn: (body: EmployeeCreateInput) => employeeApi.create(body),
-    onSuccess: ({ employee }) => {
+    onSuccess: ({ employee, login }) => {
       toast.push('success', `${employee.full_name} added as ${employee.employee_code}.`);
       qc.invalidateQueries({ queryKey: ['employees'] });
-      onCreated(employee.id);
+      // Hold here so the admin can copy the password before moving on.
+      if (login) setCreated({ id: employee.id, name: employee.full_name, login });
+      else onCreated(employee.id);
     },
     onError: (e: Error) => setError(e.message),
   });
 
   if (!open) return null;
+
+  if (created) {
+    return <LoginDetails name={created.name} login={created.login} title="Login created" onDone={() => onCreated(created.id)} />;
+  }
+
 
   const set = <K extends keyof EmployeeCreateInput>(key: K, value: EmployeeCreateInput[K]) => setForm((f) => ({ ...f, [key]: value }));
   const selectCls = 'h-8 px-2 text-13 bg-white border border-neutral-300 rounded w-full';
@@ -55,6 +66,7 @@ export function EmployeeCreateModal({ open, onClose, onCreated }: Props) {
     setError(null);
     if (!form.first_name.trim() || !form.last_name.trim()) return setError('First and last name are required.');
     if (!form.email.trim()) return setError('Email is required.');
+    if (form.password && form.password.length < 8) return setError('Password must be at least 8 characters.');
     create.mutate({
       ...form,
       first_name: form.first_name.trim(),
@@ -62,6 +74,7 @@ export function EmployeeCreateModal({ open, onClose, onCreated }: Props) {
       email: form.email.trim().toLowerCase(),
       phone: form.phone?.trim() || undefined,
       joining_date: form.joining_date || undefined,
+      password: form.password || undefined,
     });
   };
 
@@ -79,7 +92,7 @@ export function EmployeeCreateModal({ open, onClose, onCreated }: Props) {
           <button type="button" onClick={onClose} className="text-13 text-neutral-500 hover:text-neutral-900">Close</button>
         </div>
         <p className="text-13 text-neutral-500 mt-1">
-          The employee code is allocated automatically. A login is not created here.
+          The employee code is allocated automatically. A login is created for them with the password you set, or a generated one.
         </p>
 
         <form onSubmit={onSubmit} className="mt-4 space-y-3">
@@ -103,7 +116,24 @@ export function EmployeeCreateModal({ open, onClose, onCreated }: Props) {
               </select>
             </label>
           </div>
-          <Input label="Joining date" type="date" value={form.joining_date ?? ''} onChange={(e) => set('joining_date', e.target.value)} />
+          <div className="grid grid-cols-2 gap-3">
+            <Input label="Joining date" type="date" value={form.joining_date ?? ''} onChange={(e) => set('joining_date', e.target.value)} />
+            <label className="block">
+              <span className="block text-11 uppercase tracking-[0.06em] text-neutral-500 mb-1">Login role</span>
+              <select value={form.role_code} onChange={(e) => set('role_code', e.target.value)} className={selectCls} data-testid="employee-create-role">
+                {LOGIN_ROLE_OPTIONS.map((r) => <option key={r.code} value={r.code}>{r.name}</option>)}
+              </select>
+            </label>
+          </div>
+          <Input
+            label="Login password"
+            type="text"
+            autoComplete="new-password"
+            value={form.password ?? ''}
+            onChange={(e) => set('password', e.target.value)}
+            placeholder="Leave blank to generate one"
+            data-testid="employee-create-password"
+          />
           {error ? <div className="text-12 text-red border-l-2 border-red pl-2">{error}</div> : null}
           <div className="flex justify-end gap-2 pt-2">
             <Button variant="ghost" type="button" onClick={onClose}>Cancel</Button>

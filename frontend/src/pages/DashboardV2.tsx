@@ -775,7 +775,8 @@ function TeamToday({ counts, loading, error }: { counts: TodayResponse['counts']
 // ── Activity (side) ───────────────────────────────────────────────────────
 
 function ActivityCard({ data, loading, error }: { data: { items: ActivityRow[] } | undefined; loading: boolean; error: boolean }) {
-  const pretty = (a: string) => a.replace(/[._]/g, ' ').replace(/^\w/, (c) => c.toUpperCase());
+  const named: Record<string, string> = { 'auth.login': 'Logged in', 'auth.logout': 'Logged out' };
+  const pretty = (a: string) => named[a] ?? a.replace(/[._]/g, ' ').replace(/^\w/, (c) => c.toUpperCase());
   const items = data?.items.slice(0, 7) ?? [];
   return (
     <Panel title="Activity"

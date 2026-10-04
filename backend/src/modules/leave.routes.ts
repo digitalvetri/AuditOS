@@ -6,7 +6,7 @@ import { daysBetween, enumerateDates, istToday } from '../lib/dates.js'
 import { computeWorkingDays } from '../domain/leaveDays.js'
 import { can, requireSession, type Session } from '../platform/auth.js'
 import { writeAudit } from '../platform/audit.js'
-import { notifyEmployee, notifyRole } from '../platform/notify.js'
+import { notifyEmployee, notifyPermissionHolders } from '../platform/notify.js'
 import { employeeRef, holidayToApi, leaveRequestToApi, leaveTypeToApi } from '../api/serialize.js'
 import type { Scope } from '../platform/rbac/matrix.js'
 
@@ -234,7 +234,8 @@ leaveRouter.post('/', handler(async (req, res) => {
     throw ApiError.unprocessable('invalid_range', 'End date must be on or after start date.')
   }
   const type = await prisma.leaveType.findUnique({ where: { id: leave_type_id } })
-  if (!type) throw new ApiError(400, 'unknown_type', 'Unknown leave type.')
+  // A retired type (e.g. Sick) can't be applied for, even by a stale form.
+  if (!type || type.deletedAt) throw new ApiError(400, 'unknown_type', 'Unknown leave type.')
 
   if (!type.accrueDuringProbation && employee.status === 'probation') {
     throw ApiError.unprocessable('probation', `${type.name} leave is not available during probation.`)
@@ -399,11 +400,12 @@ leaveRouter.post('/:id/approve', handler(async (req, res) => {
       entityType: 'LeaveRequest', entityId: row.id, actionUrl: '/hrms/leave',
     })
   } else {
-    await notifyRole('hr_admin', {
+    // Everyone who can give the final approval: Admin, Senior Associate, Super Admin.
+    await notifyPermissionHolders('leave.approve', {
       type: 'leave.escalated', module: 'leave', title: 'Leave awaiting HR approval',
       body: `${row.employee.fullName} — ${row.computedWorkingDays.toFixed(1)} day(s), manager approved.`,
       entityType: 'LeaveRequest', entityId: row.id, actionUrl: '/hrms/leave?tab=queue',
-    })
+    }, session.userId)
   }
 
   ok(res, {
