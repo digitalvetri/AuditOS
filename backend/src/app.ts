@@ -22,6 +22,7 @@ import { signedRouter } from './modules/signed.routes.js'
 import { leadsRouter } from './modules/workstation/leads.routes.js'
 import { clientsRouter } from './modules/workstation/clients.routes.js'
 import { clientFoldersRouter, clientFilesSignedRouter } from './modules/workstation/client-folders.routes.js'
+import { organizationsRouter } from './modules/workstation/organizations.routes.js'
 import { clientMergeRouter } from './modules/workstation/client-merge.routes.js'
 import { servicesRouter, serviceCatalogRouter } from './modules/workstation/services.routes.js'
 import { forKind, partnershipRouter, partnershipSignedRouter } from './modules/partnership/routes.js'
@@ -201,6 +202,8 @@ export function createApp() {
   // Every document for one client, grouped into folders.
   app.use('/api/clients', clientFoldersRouter)
   app.use('/api/clients', clientMergeRouter)
+  // Organization clients: overview, consolidated documents, org-level requests.
+  app.use('/api/clients', organizationsRouter)
   app.use('/api/services', servicesRouter)
   app.use('/api/service-catalog', serviceCatalogRouter)
   app.use('/api/follow-ups', followUpsRouter)

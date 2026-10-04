@@ -7,6 +7,7 @@ import {
 } from '../../platform/workstation/scope.js'
 import {
   clientDocumentToApi, clientServiceToApi, clientToApi, employeeMap, followUpToApi, leadToApi,
+  ORGANIZATION_REF,
 } from '../../api/workstation.serialize.js'
 
 /**
@@ -64,7 +65,7 @@ workstationRouter.get('/dashboard', handler(async (req, res) => {
     prisma.lead.groupBy({ by: ['status'], where: leadWhere, _count: { _all: true } }),
     prisma.followUp.findMany({
       where: { ...followWhere, scheduledAt: { gte: start, lt: end } },
-      include: { lead: { include: { service: true } }, client: true },
+      include: { lead: { include: { service: true } }, client: { include: { parentClient: true } } },
       orderBy: { scheduledAt: 'asc' },
     }),
     prisma.client.findMany({
@@ -73,6 +74,7 @@ workstationRouter.get('/dashboard', handler(async (req, res) => {
         services: { where: alive },
         documents: { where: { ...alive, status: { in: ['requested', 'pending'] } }, select: { id: true } },
         followUps: { where: { ...alive, status: 'pending' }, select: { id: true } },
+        parentClient: { select: ORGANIZATION_REF },
       },
       orderBy: { clientCode: 'asc' },
     }),
@@ -159,8 +161,11 @@ workstationRouter.get('/search', handler(async (req, res) => {
         OR: [
           { companyName: { contains: q, mode: 'insensitive' as const } }, { clientCode: { contains: q, mode: 'insensitive' as const } },
           { gstin: { contains: q, mode: 'insensitive' as const } }, { contactPerson: { contains: q, mode: 'insensitive' as const } }, { contactNumber: { contains: q, mode: 'insensitive' as const } },
+          // An organization's name also finds its clients.
+          { parentClient: { companyName: { contains: q, mode: 'insensitive' as const } } },
         ],
       },
+      include: { parentClient: { select: ORGANIZATION_REF } },
       take: 10,
     }),
     prisma.clientService.findMany({
@@ -179,7 +184,7 @@ workstationRouter.get('/search', handler(async (req, res) => {
           { lead: { name: { contains: q, mode: 'insensitive' as const } } },
         ],
       },
-      include: { lead: { include: { service: true } }, client: true }, take: 10,
+      include: { lead: { include: { service: true } }, client: { include: { parentClient: true } } }, take: 10,
     }),
     prisma.clientDocument.findMany({
       where: {

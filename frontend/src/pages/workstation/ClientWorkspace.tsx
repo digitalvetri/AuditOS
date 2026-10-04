@@ -36,6 +36,11 @@ import { useSetDocumentStatus } from '@/modules/workstation/documents/StatusSele
 import {
   SendRequestDialog, type RequestChannel, type RequestTarget,
 } from '@/modules/workstation/documents/SendRequestDialog';
+import { ChevronRight } from 'lucide-react';
+import { OrganizationBadge } from '@/modules/workstation/organization/badges';
+import { LevelBanner, OrganizationOverview } from '@/modules/workstation/organization/OrganizationOverview';
+import { OrganizationClients } from '@/modules/workstation/organization/OrganizationClients';
+import { OrganizationDocuments } from '@/modules/workstation/organization/OrganizationDocuments';
 
 /**
  * THE CLIENT WORKSPACE (§7.3).
@@ -60,6 +65,23 @@ const TABS = [
   { key: 'activity', label: 'Activity', perm: 'workstation.client.read' },
 ] as const;
 
+/**
+ * An organization's workspace adds organization-level tabs in front of its
+ * own client tabs. Its own Documents tab is relabelled so it is never
+ * confused with the combined view of its clients' documents.
+ */
+const ORG_TABS = [
+  { key: 'organization', label: 'Organization Overview', perm: 'workstation.client.read' },
+  { key: 'organization-clients', label: 'Organization Clients', perm: 'workstation.client.read' },
+  { key: 'organization-documents', label: 'All Client Documents', perm: 'workstation.document.read' },
+] as const;
+/** Tabs an organization's client does not have: these live on the organization. */
+const ORG_LEVEL_ONLY = new Set(['quotations', 'engagement']);
+
+const ORG_LABELS: Record<string, string> = {
+  '': 'Profile', documents: 'Organization Documents', activity: 'Organization Activity', details: 'Organization Details',
+};
+
 export function ClientWorkspacePage() {
   const { id = '', tab = '' } = useParams();
   const { session } = useAuth();
@@ -70,39 +92,98 @@ export function ClientWorkspacePage() {
     queryFn: () => workstationApi.getClient(id),
   });
 
-  const visibleTabs = TABS.filter((t) =>
-    can(role, t.perm as Parameters<typeof can>[1], 'self'));
+  const allowed = (perm: string) => can(role, perm as Parameters<typeof can>[1], 'self');
 
   return (
     <div className="">
       <QueryState query={query}>
-        {(client: ClientDetail) => (
+        {(client: ClientDetail) => {
+          const tabs = [
+            ...(client.is_organization ? ORG_TABS : []),
+            ...TABS.map((t) => client.is_organization && ORG_LABELS[t.key] ? { ...t, label: ORG_LABELS[t.key] } : t)
+              // Quotations and engagement letters are agreed with the organization,
+              // so its clients do not get them (invoices stay per client).
+              .filter((t) => !(client.organization && ORG_LEVEL_ONLY.has(t.key))),
+          ].filter((t) => allowed(t.perm));
+          return (
           <>
+            <OrganizationBreadcrumb client={client} />
             <ClientHeader client={client} />
-            <PageTabs tabs={visibleTabs.map((t) => ({
+            <PageTabs tabs={tabs.map((t) => ({
               to: `/workstation/clients/${client.id}${t.key ? `/${t.key}` : ''}`,
               label: t.label,
               end: t.key === '',
-              count: t.key === 'documents' ? client.document_count : t.key === 'follow-ups' ? client.follow_up_count : undefined,
+              count: t.key === 'documents' ? client.document_count
+                : t.key === 'follow-ups' ? client.follow_up_count
+                : t.key === 'organization-clients' ? client.child_client_count
+                : undefined,
             }))} />
 
+            {tab === 'organization' && client.is_organization ? <OrganizationOverview org={client} /> : null}
+            {tab === 'organization-clients' && client.is_organization ? <OrganizationClients org={client} /> : null}
+            {tab === 'organization-documents' && client.is_organization ? <OrganizationDocuments org={client} /> : null}
+            {tab === '' && client.organization ? <div className="mb-4"><LevelBanner level="client" name={client.company_name} org={client.organization} /></div> : null}
             {tab === '' ? <GovernmentPortalsCard clientId={client.id} clientName={client.company_name} /> : null}
             {tab === '' ? <OverviewTab client={client} /> : null}
             {tab === 'details' ? <DetailsTab client={client} /> : null}
             {tab === 'services' ? <ServicesTab client={client} /> : null}
             {tab === 'gst' ? <GstTab client={client} /> : null}
-            {tab === 'quotations' ? <QuotationsTab client={client} /> : null}
+            {tab === 'quotations' && !client.organization ? <QuotationsTab client={client} /> : null}
             {tab === 'invoices' ? <InvoicesTab client={client} /> : null}
-            {tab === 'engagement' ? <EngagementTab client={client} /> : null}
+            {tab === 'engagement' && !client.organization ? <EngagementTab client={client} /> : null}
+            {client.organization && ORG_LEVEL_ONLY.has(tab) ? <OrgLevelOnly client={client} tab={tab} /> : null}
             {tab === 'eway' ? <EwayTab client={client} /> : null}
             {tab === 'documents' ? <DocumentsTab client={client} /> : null}
             {tab === 'follow-ups' ? <FollowUpsTab client={client} /> : null}
             {tab === 'tasks' ? <TasksTab client={client} /> : null}
             {tab === 'activity' ? <ActivityTab client={client} /> : null}
           </>
-        )}
+          );
+        }}
       </QueryState>
     </div>
+  );
+}
+
+/** A deep link to Quotations / Engagement on an organization's client. */
+function OrgLevelOnly({ client, tab }: { client: ClientDetail; tab: string }) {
+  const org = client.organization!;
+  const what = tab === 'quotations' ? 'Quotations' : 'Engagement letters';
+  return (
+    <Card>
+      <div className="p-5 text-13 text-neutral-700">
+        {what} for {client.company_name} are made on its organization.{' '}
+        <Link to={`/workstation/clients/${org.id}/${tab}`} className="text-primary underline">Open {org.name} → {what}</Link>
+      </div>
+    </Card>
+  );
+}
+
+/**
+ * Clients → ABC Business Solutions → ABC DV Client 2. Only organizations
+ * and their clients get one, so a normal client's page is unchanged.
+ */
+function OrganizationBreadcrumb({ client }: { client: ClientDetail }) {
+  if (!client.is_organization && !client.organization) return null;
+  const sep = <ChevronRight size={13} className="text-neutral-400" />;
+  return (
+    <nav aria-label="Breadcrumb" className="mb-3 flex flex-wrap items-center gap-1 text-12 text-neutral-500">
+      <Link to="/workstation/clients" className="hover:text-neutral-900">Clients</Link>
+      {sep}
+      {client.organization ? (
+        <>
+          <Link to={`/workstation/clients/${client.organization.id}/organization`} className="hover:text-neutral-900">{client.organization.name}</Link>
+          {sep}
+          <span className="text-neutral-900 font-medium">{client.company_name}</span>
+          <span className="ml-1 text-11 uppercase tracking-[0.05em] text-neutral-400">client level</span>
+        </>
+      ) : (
+        <>
+          <span className="text-neutral-900 font-medium">{client.company_name}</span>
+          <span className="ml-1 text-11 uppercase tracking-[0.05em] text-primary">organization level</span>
+        </>
+      )}
+    </nav>
   );
 }
 
@@ -164,6 +245,12 @@ function ClientHeader({ client }: { client: ClientDetail }) {
       </>}
       chips={<>
         <Status value={client.status} />
+        {client.is_organization ? <OrganizationBadge count={client.child_client_count} /> : null}
+        {client.organization ? (
+          <Link to={`/workstation/clients/${client.organization.id}/organization`} className="hover:opacity-80">
+            <HeaderTag tone="teal">Organization: {client.organization.name}</HeaderTag>
+          </Link>
+        ) : null}
         {client.business_type ? <HeaderTag>{client.business_type}</HeaderTag> : null}
         {client.onboarding_date ? <HeaderTag>Client since {new Date(client.onboarding_date).getFullYear()}</HeaderTag> : null}
         {m && m.overdue_paise > 0 ? <HeaderTag tone="bad">● Payment overdue</HeaderTag> : null}
@@ -895,8 +982,16 @@ function FollowUpsTab({ client }: { client: ClientDetail }) {
   });
   const navigate = useNavigate();
   return (
+    <>
+    {client.organization ? (
+      <div className="mb-3 rounded-lg bg-primary/5 border border-primary/15 px-3 py-2 text-12 text-neutral-700">
+        Follow-ups for {client.company_name} are sent to its organization,{' '}
+        <Link to={`/workstation/clients/${client.organization.id}/follow-ups`} className="underline">{client.organization.name}</Link>,
+        and are listed there too.
+      </div>
+    ) : null}
     <Card
-      title="Follow-ups"
+      title={client.is_organization ? 'Follow-ups — organization and its clients' : 'Follow-ups'}
       right={
         <button type="button" className="text-12 text-neutral-500 hover:text-neutral-900"
           onClick={() => navigate('/workstation/follow-ups')}>
@@ -906,10 +1001,23 @@ function FollowUpsTab({ client }: { client: ClientDetail }) {
     >
       <QueryState query={query} empty="No follow-ups for this client.">
         {(data: ListResponse<FollowUp>) => (
-          <Table head={['Follow-up', 'Type', 'Date', 'Time', 'Assigned To', 'Status']}>
+          <Table head={client.is_organization
+            ? ['Follow-up', 'For client', 'Contact', 'Type', 'Date', 'Time', 'Assigned To', 'Status']
+            : ['Follow-up', 'Contact', 'Type', 'Date', 'Time', 'Assigned To', 'Status']}>
             {data.items.map((f) => (
               <Row key={f.id} status={f.status}>
                 <Cell className="font-medium">{f.title}</Cell>
+                {client.is_organization ? (
+                  <Cell muted>
+                    {f.client_id === client.id
+                      ? <span className="text-primary font-medium">Organization</span>
+                      : <Link to={`/workstation/clients/${f.client_id}`} className="hover:underline">{f.subject_name}</Link>}
+                  </Cell>
+                ) : null}
+                <Cell muted>
+                  {f.contact_name ?? '—'}{f.contact_number ? ` · ${f.contact_number}` : ''}
+                  {f.sent_to_organization && !client.is_organization ? <span className="block text-11 text-primary">{f.sent_to_organization.name}</span> : null}
+                </Cell>
                 <Cell muted>{f.type.replace(/_/g, ' ')}</Cell>
                 <Cell muted>{fmtDate(f.scheduled_at)}</Cell>
                 <Cell muted>{fmtTime(f.scheduled_at)}</Cell>
@@ -921,6 +1029,7 @@ function FollowUpsTab({ client }: { client: ClientDetail }) {
         )}
       </QueryState>
     </Card>
+    </>
   );
 }
 

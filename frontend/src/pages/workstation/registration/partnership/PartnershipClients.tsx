@@ -14,6 +14,7 @@ import { can } from '@/platform/rbac/can';
 import type { ApiError } from '@/services/api';
 import { CASE_STATUS_OPTIONS, DueChip, EmployeeSelect, ENTITY_TYPE_OPTIONS, ProgressBar, useEmployees, useSvc } from './shared';
 import { recentPeriods, periodLabel } from '@/modules/workstation/gst/api';
+import { clientNameWithOrg } from '@/modules/workstation/organization/badges';
 
 /**
  * Only clients ENROLLED in Partnership Firm Registration — one row per case.
@@ -235,7 +236,7 @@ function AddClientModal({ open, onClose }: { open: boolean; onClose: () => void 
               className={inputClass} size={6} style={{ height: 'auto' }} value={clientId}
               onChange={(e) => { setClientId(e.target.value); setClientLabel(e.target.selectedOptions[0]?.text ?? ''); }}
             >
-              {filtered.map((c) => <option key={c.id} value={c.id}>{c.company_name} · {c.client_id}</option>)}
+              {filtered.map((c) => <option key={c.id} value={c.id}>{clientNameWithOrg(c)} · {c.client_id}</option>)}
             </select>
           </>
         )}

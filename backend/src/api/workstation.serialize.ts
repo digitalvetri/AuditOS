@@ -94,7 +94,9 @@ export function leadToApi(l: Lead & { service?: Service | null }, m: EmployeeLoo
     id: l.id,
     organisation_id: l.organisationId,
     lead_id: l.leadCode,
+    lead_type: l.leadType === 'organization' ? 'organization' : 'individual',
     name: l.name,
+    contact_person: l.contactPerson,
     contact_number: l.contactNumber,
     email: l.email,
     service_id: l.serviceId,
@@ -116,7 +118,12 @@ export function leadToApi(l: Lead & { service?: Service | null }, m: EmployeeLoo
 }
 
 // ── Clients ───────────────────────────────────────────────────────────────
-export function clientToApi(c: Client, m: EmployeeLookup) {
+/** The parent organization as a client list/detail shows it. Load it with
+ *  `include: { parentClient: { select: ORGANIZATION_REF } }`. */
+export const ORGANIZATION_REF = { id: true, companyName: true, clientCode: true } as const
+type OrganizationRef = { id: string; companyName: string; clientCode: string }
+
+export function clientToApi(c: Client & { parentClient?: OrganizationRef | null }, m: EmployeeLookup) {
   return {
     id: c.id,
     organisation_id: c.organisationId,
@@ -138,6 +145,14 @@ export function clientToApi(c: Client, m: EmployeeLookup) {
     onboarding_date: c.onboardingDate,
     notes: c.notes,
     source_lead_id: c.sourceLeadId,
+    /* An organization is a client that other clients sit under. A child's
+       organization is an extra identifier — its own name never changes. */
+    is_organization: c.isOrganization,
+    short_name: c.shortName,
+    organization_id: c.parentClientId,
+    organization: c.parentClient
+      ? { id: c.parentClient.id, name: c.parentClient.companyName, client_id: c.parentClient.clientCode }
+      : null,
     /* Reserved for the Client Portal (§56). Modelled, never surfaced to a client. */
     portal_enabled: c.portalEnabled,
     portal_invite_email: c.portalInviteEmail,
@@ -200,12 +215,16 @@ export function taskToApi(t: Task, m: EmployeeLookup) {
 
 // ── Follow-ups ────────────────────────────────────────────────────────────
 export function followUpToApi(
-  f: FollowUp & { lead?: (Lead & { service?: Service | null }) | null; client?: Client | null },
+  f: FollowUp & { lead?: (Lead & { service?: Service | null }) | null; client?: (Client & { parentClient?: Client | null }) | null },
   m: EmployeeLookup,
 ) {
   /* One entity, two possible subjects (§3). The API flattens the subject so a
      single list can render leads and clients in the same table. */
   const isLead = !!f.leadId
+  /* A follow-up about an organization's client is ABOUT that client but is
+     SENT to the organization: the contact is the organization's. */
+  const org = !isLead ? f.client?.parentClient ?? null : null
+  const reach = org ?? f.client ?? null
   return {
     id: f.id,
     organisation_id: f.organisationId,
@@ -216,7 +235,11 @@ export function followUpToApi(
     subject_id: f.leadId ?? f.clientId,
     subject_name: isLead ? f.lead?.name ?? null : f.client?.companyName ?? null,
     subject_code: isLead ? f.lead?.leadCode ?? null : f.client?.clientCode ?? null,
-    contact_number: isLead ? f.lead?.contactNumber ?? null : f.client?.contactNumber ?? null,
+    contact_number: isLead ? f.lead?.contactNumber ?? null : reach?.contactNumber ?? null,
+    contact_name: isLead ? (f.lead?.contactPerson ?? f.lead?.name ?? null) : reach?.contactPerson ?? null,
+    contact_email: isLead ? f.lead?.email ?? null : reach?.email ?? null,
+    /** Set when the follow-up goes to the client's organization instead of the client. */
+    sent_to_organization: org ? { id: org.id, name: org.companyName, client_id: org.clientCode } : null,
     service_name: isLead ? f.lead?.service?.name ?? null : null,
     title: f.title,
     type: f.type,
@@ -264,6 +287,7 @@ export function clientDocumentToApi(
     verified_at: iso(d.verifiedAt),
     rejection_reason: d.rejectionReason,
     expiry_date: d.expiryDate,
+    source_request_id: d.sourceRequestId,
     versions: (d.versions ?? []).map((v) => documentVersionToApi(v, m)),
     ...auditable(d),
   }

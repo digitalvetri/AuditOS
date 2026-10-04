@@ -16,6 +16,7 @@ import { Field, Modal, fieldErrors, inputClass, textareaClass } from '@/modules/
 import { can } from '@/platform/rbac/can';
 import { useAuth } from '@/platform/auth/AuthContext';
 import { printDocumentOnly } from '@/modules/workstation/print';
+import { clientNameWithOrg } from '@/modules/workstation/organization/badges';
 
 /**
  * INVOICE BUILDER — Workstation → Invoice → Create / Edit.
@@ -595,7 +596,7 @@ function DetailsTab(p: {
         <Field label="Client" error={p.err('client_id')}>
           <select className={inputClass} value={p.clientId} onChange={(e) => p.chooseClient(e.target.value)}>
             <option value="">Select a client…</option>
-            {p.clients.map((c) => <option key={c.id} value={c.id}>{c.company_name}</option>)}
+            {p.clients.map((c) => <option key={c.id} value={c.id}>{clientNameWithOrg(c)}</option>)}
           </select>
         </Field>
       </div>

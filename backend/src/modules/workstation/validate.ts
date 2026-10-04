@@ -155,6 +155,9 @@ export function body(req: { body?: unknown }): Record<string, unknown> {
  * Lead status adjacency (§5.1). An illegal jump is 422, not a silent write —
  * "Quote Sent → New" is a bug in the caller, not a state we should persist.
  */
+/** individual → a normal client on conversion; organization → an organization client. */
+export const LEAD_TYPES = ['individual', 'organization'] as const
+
 export const LEAD_STATUSES = [
   'new', 'contacted', 'requirement_identified', 'quote_sent', 'negotiation', 'won', 'lost',
 ] as const

@@ -1135,7 +1135,13 @@ model Lead {
   /// Human-readable 'LD-1001'. Allocated server-side inside a transaction.
   leadCode       String @unique
 
+  /// individual | organization. An organization lead converts into an
+  /// organization client (Client.isOrganization) instead of a plain client.
+  leadType           String  @default("individual")
+  /// For an individual lead this is the person; for an organization lead,
+  /// the organization's name (contactPerson then names who we deal with).
   name               String
+  contactPerson      String?
   contactNumber      String
   email              String?
   serviceId          String
@@ -1198,6 +1204,17 @@ model Client {
   /// Back-link to the lead this client came from. @unique mirrors
   /// Lead.convertedClientId so the 1:1 holds from both directions.
   sourceLeadId String? @unique
+
+  /// ORGANIZATIONS. An organization is itself a Client (its own workspace,
+  /// documents, services) AND the parent of other, fully ordinary clients.
+  /// One level only: an organization has no parent, a child is never an
+  /// organization. "Organisation" (organisationId) is the firm — unrelated.
+  isOrganization Boolean  @default(false)
+  /// Short label for naming children, e.g. "ABC" → "ABC DV Client 1".
+  shortName      String?
+  parentClientId String?
+  parentClient   Client?  @relation("OrganizationClients", fields: [parentClientId], references: [id])
+  childClients   Client[] @relation("OrganizationClients")
 
   /// RESERVED FOR THE CLIENT PORTAL (§56). Modelled, no client-facing screen.
   portalEnabled     Boolean @default(false)
@@ -1264,6 +1281,7 @@ model Client {
 
   @@index([status])
   @@index([accountManagerId])
+  @@index([parentClientId])
 }
 
 model ClientContact {
@@ -1535,6 +1553,10 @@ model ClientDocument {
   verifiedAt            DateTime?
   rejectionReason       String?
   expiryDate            String?
+  /// Set on a child client's document that was received against a request
+  /// raised on its organization: the request stays on the organization, the
+  /// file lives with the client it belongs to.
+  sourceRequestId       String?
 
   client              Client                         @relation(fields: [clientId], references: [id])
   category            DocumentCategory               @relation(fields: [categoryId], references: [id])

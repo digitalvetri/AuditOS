@@ -201,20 +201,19 @@ function placeholderPage(doc: PDFDocument, fonts: { reg: PDFFont; bold: PDFFont 
   }
 }
 
-clientMergeRouter.post('/:id/document-folders/merge', handler(async (req, res) => {
-  const session = requireSession(req)
-  const scope = requireWorkstation(session, 'workstation.document.read', 'workstation.document.manage')
-  const clientId = req.params.id
-  await assertCanSeeClient(session, scope, clientId)
-
-  const parsed = Body.safeParse(req.body)
-  if (!parsed.success) throw ApiError.badRequest(parsed.error.issues[0]?.message ?? 'Invalid request.')
-  const client = await prisma.client.findFirst({ where: { id: clientId, ...alive } })
-  if (!client) throw ApiError.notFound('Client not found.')
-
+/**
+ * Merge items, each of which names its own client, into one PDF. Used by the
+ * single-client merge and by the organization merge (items across several
+ * clients). Every item goes through `partFor`, which re-checks the module
+ * permission and that `ref` really belongs to that client; the CALLER must
+ * already have checked each client is in the caller's scope.
+ */
+export async function mergeDocuments(
+  session: Session, items: { clientId: string; source: string; ref: string }[], title: string,
+): Promise<{ bytes: Buffer; pageCount: number; skipped: number }> {
   // Sequential: LibreOffice runs one conversion at a time anyway.
   const parts: Part[] = []
-  for (const it of parsed.data.items) parts.push(await partFor(session, clientId, it.source, it.ref))
+  for (const it of items) parts.push(await partFor(session, it.clientId, it.source, it.ref))
 
   const body = await PDFDocument.create()
   const bodyFonts = { reg: await body.embedFont(StandardFonts.Helvetica), bold: await body.embedFont(StandardFonts.HelveticaBold) }
@@ -234,22 +233,40 @@ clientMergeRouter.post('/:id/document-folders/merge', handler(async (req, res) =
     if (note) skipped++
   }
 
-  const out = body
-  const title = parsed.data.title || 'Combined documents'
-  out.setTitle(`${title} - ${client.companyName}`)
-  out.setProducer('Audit OS')
+  body.setTitle(safe(title))
+  body.setProducer('Audit OS')
+  return { bytes: Buffer.from(await body.save()), pageCount: body.getPageCount(), skipped }
+}
 
-  const bytes = Buffer.from(await out.save())
-  await writeAudit({
-    actorUserId: session.userId, action: 'client_document.merge', entityType: 'Client', entityId: clientId,
-    after: { items: parsed.data.items, pages: out.getPageCount(), skipped }, req,
-  })
-
-  const fileName = `${client.clientCode}-combined-${new Date().toISOString().slice(0, 10)}.pdf`
+/** Send a merged PDF as a download. */
+export function sendMergedPdf(res: import('express').Response, bytes: Buffer, fileName: string, skipped: number) {
   res.setHeader('Content-Type', 'application/pdf')
   res.setHeader('Content-Length', String(bytes.length))
   res.setHeader('Content-Disposition', `attachment; filename="${fileName}"`)
   res.setHeader('X-Merged-Skipped', String(skipped))
   res.setHeader('Access-Control-Expose-Headers', 'Content-Disposition, X-Merged-Skipped')
   res.send(bytes)
+}
+
+clientMergeRouter.post('/:id/document-folders/merge', handler(async (req, res) => {
+  const session = requireSession(req)
+  const scope = requireWorkstation(session, 'workstation.document.read', 'workstation.document.manage')
+  const clientId = req.params.id
+  await assertCanSeeClient(session, scope, clientId)
+
+  const parsed = Body.safeParse(req.body)
+  if (!parsed.success) throw ApiError.badRequest(parsed.error.issues[0]?.message ?? 'Invalid request.')
+  const client = await prisma.client.findFirst({ where: { id: clientId, ...alive } })
+  if (!client) throw ApiError.notFound('Client not found.')
+
+  const title = parsed.data.title || 'Combined documents'
+  const { bytes, pageCount, skipped } = await mergeDocuments(
+    session, parsed.data.items.map((it) => ({ clientId, ...it })), `${title} - ${client.companyName}`,
+  )
+  await writeAudit({
+    actorUserId: session.userId, action: 'client_document.merge', entityType: 'Client', entityId: clientId,
+    after: { items: parsed.data.items, pages: pageCount, skipped }, req,
+  })
+
+  sendMergedPdf(res, bytes, `${client.clientCode}-combined-${new Date().toISOString().slice(0, 10)}.pdf`, skipped)
 }))
