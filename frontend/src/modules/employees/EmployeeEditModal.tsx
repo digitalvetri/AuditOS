@@ -1,6 +1,6 @@
 /**
  * Two-mode edit modal:
- *   - self  : contact fields only (phone, address, emergency contact, bank)
+ *   - self  : name and contact fields (no email or password — Admin only)
  *   - hr    : any field on the HR allowlist
  *
  * The server is the source of truth for allowed fields; UI mirrors it.
@@ -30,6 +30,8 @@ export function EmployeeEditModal({ open, onClose, employee, mode }: Props) {
     setForm(
       mode === 'self'
         ? {
+            first_name: employee.first_name,
+            last_name: employee.last_name,
             phone: employee.phone,
             address: employee.address ?? '',
             emergency_contact_name: employee.emergency_contact_name ?? '',
@@ -64,6 +66,10 @@ export function EmployeeEditModal({ open, onClose, employee, mode }: Props) {
 
   const onSubmit = (e: FormEvent) => {
     e.preventDefault();
+    if (mode === 'self' && (!form.first_name?.trim() || !form.last_name?.trim())) {
+      toast.push('error', 'First and last name are required.');
+      return;
+    }
     patch.mutate(form);
   };
 
@@ -80,7 +86,7 @@ export function EmployeeEditModal({ open, onClose, employee, mode }: Props) {
       <div className="w-full max-w-[540px] bg-white border border-neutral-200 rounded shadow-drawer p-6">
         <div className="flex items-baseline justify-between">
           <h2 className="text-20 font-semibold text-neutral-900">
-            {mode === 'self' ? 'Edit contact details' : 'Edit employment'}
+            {mode === 'self' ? 'Edit profile' : 'Edit employment'}
           </h2>
           <button
             type="button"
@@ -92,13 +98,17 @@ export function EmployeeEditModal({ open, onClose, employee, mode }: Props) {
         </div>
         <p className="text-13 text-neutral-500 mt-1">
           {mode === 'self'
-            ? 'Phone, address, emergency contact and bank. Bank changes are pending HR verification.'
+            ? 'Name, phone, address, emergency contact and bank. Admins are notified when you change your name. Ask an Admin to change your email or password.'
             : 'Employment fields — visible to HR/MD only.'}
         </p>
 
         <form onSubmit={onSubmit} className="mt-4 space-y-3">
           {mode === 'self' ? (
             <>
+              <div className="grid grid-cols-2 gap-3">
+                <Input label="First name" value={form.first_name ?? ''} onChange={(e) => setForm({ ...form, first_name: e.target.value })} required />
+                <Input label="Last name" value={form.last_name ?? ''} onChange={(e) => setForm({ ...form, last_name: e.target.value })} required />
+              </div>
               <Input label="Phone" value={form.phone ?? ''} onChange={(e) => setForm({ ...form, phone: e.target.value })} />
               <Input label="Address" value={form.address ?? ''} onChange={(e) => setForm({ ...form, address: e.target.value })} />
               <div className="grid grid-cols-2 gap-3">

@@ -1,10 +1,12 @@
+import { randomInt } from 'node:crypto'
 import { Router } from 'express'
 import { z } from 'zod'
 import { ApiError, handler, ok } from '../lib/http.js'
 import { prisma } from '../lib/prisma.js'
 import { istToday } from '../lib/dates.js'
-import { can, requireSession, type Session } from '../platform/auth.js'
+import { can, hashPassword, requireSession, type Session } from '../platform/auth.js'
 import { writeAudit } from '../platform/audit.js'
+import { notifyPermissionHolders } from '../platform/notify.js'
 import { VISIBLE_ROLE_CODES } from '../platform/rbac/modules.js'
 import type { RoleCode } from '../platform/rbac/matrix.js'
 import {
@@ -37,6 +39,9 @@ function readScope(session: Session): ReadScope {
 const CONTACT_FIELDS = [
   'phone', 'address', 'emergency_contact_name', 'emergency_contact_phone', 'bank_account_masked',
 ] as const
+
+/** What anyone may change on their own profile. Email and password are not here. */
+const SELF_FIELDS = [...CONTACT_FIELDS, 'first_name', 'last_name'] as const
 
 const HR_FIELDS = [
   ...CONTACT_FIELDS,
@@ -183,48 +188,157 @@ employeesRouter.post('/', handler(async (req, res) => {
     joining_date: z.string().optional(),
     notice_period_days: z.number().optional(),
     weekly_capacity_hours: z.number().nullable().optional(),
+    // The login created alongside; Super Admin is never handed out here.
+    role_code: z.string().optional(),
+    // Set by the admin, or generated when left blank.
+    password: z.string().min(8, 'Password must be at least 8 characters.').max(128).optional(),
   }).safeParse(req.body ?? {})
   if (!body.success) {
+    const fields = body.error.flatten().fieldErrors
     throw ApiError.badRequest(
-      'first_name, last_name and email are required.',
+      fields.password?.[0] ?? 'first_name, last_name and email are required.',
       body.error.flatten().fieldErrors,
     )
   }
   const b = body.data
 
+  const email = b.email.trim().toLowerCase()
+  const role = await assignableRole(b.role_code)
+  if (await prisma.user.findUnique({ where: { email } })) {
+    throw ApiError.conflict('email_taken', 'A login with this email already exists.')
+  }
+
   const org = await prisma.organisation.findFirstOrThrow({ where: { deletedAt: null } })
   const defaultSchedule = await prisma.workSchedule.findFirst({ where: { deletedAt: null } })
   const count = await prisma.employee.count()
+  const password = b.password ?? generatePassword()
 
-  const row = await prisma.employee.create({
-    data: {
-      organisationId: org.id,
-      employeeCode: b.employee_code ?? `AO-${String(count + 1).padStart(4, '0')}`,
-      firstName: b.first_name,
-      lastName: b.last_name,
-      fullName: `${b.first_name} ${b.last_name}`,
-      type: b.type ?? 'executive',
-      status: b.status ?? 'probation',
-      designationId: b.designation_id ?? null,
-      departmentId: b.department_id ?? null,
-      managerId: b.manager_id ?? null,
-      workLocationId: b.work_location_id ?? null,
-      workScheduleId: b.work_schedule_id ?? defaultSchedule?.id ?? '',
-      email: b.email,
-      phone: b.phone ?? '',
-      joiningDate: b.joining_date ?? istToday(),
-      noticePeriodDays: b.notice_period_days ?? 30,
-      weeklyCapacityHours: b.weekly_capacity_hours ?? 40,
-      createdBy: session.userId,
-      updatedBy: session.userId,
-    },
+  // Employee and login together: an employee without a login can't sign in.
+  const { row, login } = await prisma.$transaction(async (tx) => {
+    const row = await tx.employee.create({
+      data: {
+        organisationId: org.id,
+        employeeCode: b.employee_code ?? `AO-${String(count + 1).padStart(4, '0')}`,
+        firstName: b.first_name,
+        lastName: b.last_name,
+        fullName: `${b.first_name} ${b.last_name}`,
+        type: b.type ?? 'executive',
+        status: b.status ?? 'probation',
+        designationId: b.designation_id ?? null,
+        departmentId: b.department_id ?? null,
+        managerId: b.manager_id ?? null,
+        workLocationId: b.work_location_id ?? null,
+        workScheduleId: b.work_schedule_id ?? defaultSchedule?.id ?? '',
+        email,
+        phone: b.phone ?? '',
+        joiningDate: b.joining_date ?? istToday(),
+        noticePeriodDays: b.notice_period_days ?? 30,
+        weeklyCapacityHours: b.weekly_capacity_hours ?? 40,
+        createdBy: session.userId,
+        updatedBy: session.userId,
+      },
+    })
+    const login = await tx.user.create({
+      data: {
+        organisationId: org.id, email, passwordHash: hashPassword(password),
+        roleId: role.id, employeeId: row.id, createdBy: session.userId, updatedBy: session.userId,
+      },
+    })
+    return { row, login }
   })
   await writeAudit({
     actorUserId: session.userId, action: 'employee.created', entityType: 'Employee', entityId: row.id,
     after: { code: row.employeeCode, name: row.fullName }, req,
   })
-  ok(res, { employee: employeeToApi(row) })
+  // The password itself is never audited or stored in plain text.
+  await writeAudit({
+    actorUserId: session.userId, action: 'user.created', entityType: 'User', entityId: login.id,
+    after: { email, role: role.code, employee_id: row.id }, req,
+  })
+  // Returned once so the admin can hand it over; it can't be fetched again.
+  ok(res, {
+    employee: employeeToApi(row),
+    login: { email, role: role.name, password, generated: !b.password },
+  })
 }))
+
+// PUT /api/employees/:id/password  { password?, role_code? }
+// The admin sets (or resets) an employee's password; blank generates one.
+// An employee with no login yet gets one here, with role_code (default
+// Associate). Only a Super Admin may set a Super Admin's password.
+employeesRouter.put('/:id/password', handler(async (req, res) => {
+  const session = requireSession(req)
+  if (!can(session, 'employee.manage', 'organisation')) {
+    throw ApiError.forbidden('Only an Admin can set passwords.')
+  }
+  const body = z.object({
+    password: z.string().min(8, 'Password must be at least 8 characters.').max(128).optional(),
+    role_code: z.string().optional(),
+  }).safeParse(req.body ?? {})
+  if (!body.success) {
+    const fields = body.error.flatten().fieldErrors
+    throw ApiError.badRequest(fields.password?.[0] ?? 'Invalid password.', fields)
+  }
+
+  const target = await prisma.employee.findUnique({ where: { id: req.params.id } })
+  if (!target || target.deletedAt) throw ApiError.notFound('Employee not found.')
+  const existing = await prisma.user.findFirst({
+    where: { employeeId: target.id, deletedAt: null }, include: { role: true },
+  })
+  if (existing?.role.code === 'md' && session.roleCode !== 'md') {
+    throw ApiError.forbidden("Only a Super Admin can set a Super Admin's password.")
+  }
+
+  const password = body.data.password ?? generatePassword()
+  let login
+  if (existing) {
+    login = await prisma.user.update({
+      where: { id: existing.id },
+      data: { passwordHash: hashPassword(password), updatedBy: session.userId },
+      include: { role: true },
+    })
+  } else {
+    const role = await assignableRole(body.data.role_code)
+    const email = target.email.trim().toLowerCase()
+    if (await prisma.user.findUnique({ where: { email } })) {
+      throw ApiError.conflict('email_taken', 'Another login already uses this email.')
+    }
+    login = await prisma.user.create({
+      data: {
+        organisationId: target.organisationId, email, passwordHash: hashPassword(password),
+        roleId: role.id, employeeId: target.id, createdBy: session.userId, updatedBy: session.userId,
+      },
+      include: { role: true },
+    })
+  }
+  await writeAudit({
+    actorUserId: session.userId, action: existing ? 'user.password_set' : 'user.created',
+    entityType: 'User', entityId: login.id,
+    after: { email: login.email, role: login.role.code, employee_id: target.id }, req,
+  })
+  ok(res, {
+    created: !existing,
+    login: { email: login.email, role: login.role.name, password, generated: !body.data.password },
+  })
+}))
+
+/** A role a new login may be given; Super Admin is never handed out. */
+async function assignableRole(code: string | undefined) {
+  const roleCode = code ?? 'employee'
+  const role = roleCode === 'md' || !VISIBLE_ROLE_CODES.includes(roleCode as RoleCode)
+    ? null
+    : await prisma.role.findFirst({ where: { code: roleCode, deletedAt: null } })
+  if (!role) throw ApiError.badRequest('Pick a valid role.', { role_code: ['Pick a valid role.'] })
+  return role
+}
+
+/** 12 characters without look-alikes (0/O, 1/l/I), so it can be read out. */
+function generatePassword(): string {
+  const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz23456789'
+  let out = ''
+  for (let i = 0; i < 12; i++) out += chars[randomInt(chars.length)]
+  return out
+}
 
 // GET /api/employees/:id
 employeesRouter.get('/:id', handler(async (req, res) => {
@@ -307,10 +421,10 @@ employeesRouter.patch('/:id', handler(async (req, res) => {
   const keys = Object.keys(body)
 
   if (!canManage) {
-    const disallowed = keys.filter((k) => !(CONTACT_FIELDS as readonly string[]).includes(k))
+    const disallowed = keys.filter((k) => !(SELF_FIELDS as readonly string[]).includes(k))
     if (disallowed.length) {
       throw ApiError.unprocessable(
-        'employment_fields_hr_only', 'Only HR/MD can update employment fields.', { disallowed },
+        'employment_fields_hr_only', 'Only an Admin can change your email, password or employment details.', { disallowed },
       )
     }
   } else {
@@ -320,19 +434,60 @@ employeesRouter.patch('/:id', handler(async (req, res) => {
     }
   }
 
+  for (const k of ['first_name', 'last_name'] as const) {
+    if (k in body && (typeof body[k] !== 'string' || !(body[k] as string).trim())) {
+      throw ApiError.badRequest('First and last name are required.', { [k]: ['Required.'] })
+    }
+    if (k in body) body[k] = (body[k] as string).trim()
+  }
+
+  // The login signs in with this email, so it moves with the employee record.
+  const login = await prisma.user.findFirst({
+    where: { employeeId: target.id, deletedAt: null }, include: { role: true },
+  })
+  let newEmail: string | null = null
+  if ('email' in body) {
+    const parsed = z.string().email().safeParse(typeof body.email === 'string' ? body.email.trim() : body.email)
+    if (!parsed.success) throw ApiError.badRequest('Enter a valid email.', { email: ['Enter a valid email.'] })
+    body.email = parsed.data.toLowerCase()
+    if (login && body.email !== login.email) {
+      if (login.role.code === 'md' && session.roleCode !== 'md') {
+        throw ApiError.forbidden("Only a Super Admin can change a Super Admin's email.")
+      }
+      if (await prisma.user.findUnique({ where: { email: body.email as string } })) {
+        throw ApiError.conflict('email_taken', 'Another login already uses this email.')
+      }
+      newEmail = body.email as string
+    }
+  }
+
   const data: Record<string, unknown> = { updatedBy: session.userId }
   for (const k of keys) data[COLUMN_OF[k]] = body[k]
   if ('first_name' in body || 'last_name' in body) {
     data.fullName = `${(body.first_name as string) ?? target.firstName} ${(body.last_name as string) ?? target.lastName}`
   }
 
-  const updated = await prisma.employee.update({ where: { id: target.id }, data })
+  const updated = await prisma.$transaction(async (tx) => {
+    const emp = await tx.employee.update({ where: { id: target.id }, data })
+    if (login && newEmail) {
+      await tx.user.update({ where: { id: login.id }, data: { email: newEmail, updatedBy: session.userId } })
+    }
+    return emp
+  })
   await writeAudit({
     actorUserId: session.userId,
     action: isOwn && !canManage ? 'employee.self_contact_updated' : 'employee.updated',
     entityType: 'Employee', entityId: target.id,
     before: employeeToApi(target), after: employeeToApi(updated), req,
   })
+  // Someone renamed themselves: tell everyone who manages employees.
+  if (isOwn && updated.fullName !== target.fullName) {
+    await notifyPermissionHolders('employee.manage', {
+      type: 'employee.name_changed', module: 'system', title: 'Profile name changed',
+      body: `${target.fullName} changed their name to ${updated.fullName}.`,
+      entityType: 'Employee', entityId: target.id, actionUrl: `/hrms/employees/${target.id}`,
+    }, session.userId)
+  }
   ok(res, { employee: employeeToApi(updated) })
 }))
 

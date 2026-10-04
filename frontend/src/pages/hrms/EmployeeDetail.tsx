@@ -13,6 +13,7 @@ import { useQuery } from '@tanstack/react-query';
 import { employeeApi, isFullEmployee } from '@/modules/employees/api';
 import { EMPLOYEE_TYPE_LABEL, type EmployeeType } from '@/data/models';
 import { EmployeeEditModal } from '@/modules/employees/EmployeeEditModal';
+import { PasswordField } from '@/modules/employees/PasswordField';
 import { RoleField } from '@/modules/employees/RoleField';
 import { DeactivateButton } from '@/modules/employees/DeactivateButton';
 import { ArticledTrainingTab } from '@/modules/employees/ArticledTrainingTab';
@@ -146,7 +147,7 @@ export function EmployeeDetailPage({ fixedId }: Props) {
             <button type="button" className={headerBtn}
               onClick={() => (canManage ? setEditHr(true) : setEditSelf(true))}
               data-testid="employee-edit-open">
-              <Pencil size={14} />{canManage ? 'Edit' : 'Edit contact'}
+              <Pencil size={14} />{canManage ? 'Edit' : 'Edit profile'}
             </button>
           ) : null}
           {canManage && !isOwn && emp.status !== 'inactive' ? (
@@ -250,6 +251,7 @@ function OverviewTab({
           <>
             <Field label="Type" value={EMPLOYEE_TYPE_LABEL[(emp as { type: EmployeeType }).type]} />
             <RoleField employeeId={emp.id} role={refs.role} />
+            <PasswordField employeeId={emp.id} employeeName={emp.full_name} role={refs.role} />
             <Field label="Manager" value={refs.manager?.full_name ?? '—'} />
             <Field label="Joining date" value={fmtDate((emp as { joining_date: string }).joining_date + 'T00:00:00Z')} />
           </>

@@ -66,6 +66,32 @@ export async function notifyRole(roleCode: string, input: Omit<NotifyInput, 'use
 }
 
 /**
+ * Notify every active login whose role holds a permission at organisation
+ * scope (e.g. employee.manage → Admin, Senior Associate, Super Admin). Follows
+ * Settings → Roles, so a role given the power also gets the alerts. The actor
+ * is skipped. Best effort, like notifyEmployees.
+ */
+export async function notifyPermissionHolders(
+  permission: string,
+  input: Omit<NotifyInput, 'userId'>,
+  actorUserId?: string | null,
+) {
+  try {
+    const users = await prisma.user.findMany({
+      where: {
+        isActive: true, deletedAt: null,
+        ...(actorUserId ? { id: { not: actorUserId } } : {}),
+        role: { permissions: { some: { scope: 'organisation', permission: { code: permission } } } },
+      },
+      select: { id: true },
+    })
+    for (const u of users) await notifyUser({ ...input, userId: u.id })
+  } catch {
+    /* best effort */
+  }
+}
+
+/**
  * Notify several employees about one event: drops blanks and duplicates, and
  * never tells the person who performed the action about their own action.
  * Failures are swallowed — a notification must never fail the business write.
