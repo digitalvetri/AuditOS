@@ -110,6 +110,15 @@ documents are written to the `auditos-uploads` volume with every other client
 document; the "Consolidated" (and, if missing, "TDS") document category is
 created on first use. Nothing to run by hand.
 
+**Client visibility by assigned staff.** `migrate` adds
+`Client.secondaryManagerId` (second staff) and the `clients.view_all`
+permission. The permission joins the HRMS module, so Admin, Senior Associate
+and Super Admin pick it up automatically and keep seeing every client.
+Associates and Interns (no HRMS module) then see only the clients they are
+assigned to — as account manager, second staff, or on one of the client's
+services or its GST profile. Giving a role the HRMS module in Settings →
+Roles & permissions also lets it see every client. Nothing to run by hand.
+
 **Demo logins.** The seed creates one login per role — Super Admin
 `ravi@auditos.local` / `md`, Admin `priya@auditos.local` / `hr`, Senior
 Associate `vikram@auditos.local` / `mgr`, Associate `meera@auditos.local` /
@@ -126,3 +135,8 @@ cd docker && docker compose up -d postgres adminer
 `.env.docker` is git-ignored — never commit real secrets. The project name is
 fixed (`auditos-new`) and the volumes are explicitly named, so moving this
 file did not detach existing containers or data.
+
+**Client document links.** `migrate` creates the `ClientDocumentShareLink`
+table. A client's Documents tab → **Share with client** makes a live,
+read-only link (`/portal/documents/<token>`) that needs no login; set
+`PUBLIC_APP_URL` so the link uses the address clients can reach.
