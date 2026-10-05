@@ -36,6 +36,7 @@ import { DocHomePage } from '@/pages/workstation/doc/DocHome';
 import { DocListPage } from '@/pages/workstation/doc/DocList';
 import { DocBuilderPage } from '@/pages/workstation/doc/DocBuilder';
 import { DocPreviewPage } from '@/pages/workstation/doc/DocPreview';
+import { ClientDocumentsPortalPage } from '@/pages/portal/ClientDocumentsPortal';
 // Tools (Converters & Utilities) — registry-driven; /tools/:toolId is one
 // shared workspace and /tools/documents the output history.
 import { ToolsPage } from '@/pages/tools/Tools';
@@ -179,6 +180,9 @@ export default function App() {
           <BrowserRouter>
             <Routes>
             <Route path="/login" element={<LoginPage />} />
+            {/* Public: a client's live document link. No login — the token in
+                the URL is the authorization, and the firm can turn it off. */}
+            <Route path="/portal/documents/:token" element={<ClientDocumentsPortalPage />} />
 
             {/* The quotation preview is a document, not a screen: it is
                 declared OUTSIDE the AppShell route below so the sidebar,

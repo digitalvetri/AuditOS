@@ -4,6 +4,7 @@ import type {
   ClientService, DashboardResponse, DocumentCategory, EwayResponse, FollowUp,
   GstProfile, Lead, ListResponse, SearchResponse, ServiceCatalogItem, Task,
   ClientDocumentFolders, OrganizationDocuments, OrganizationOverview,
+  ClientShareLink, ClientPortalDocuments,
 } from './types';
 
 /**
@@ -219,6 +220,19 @@ export const workstationApi = {
     );
   },
 
+  // ── Client document link (the client's live, read-only Documents view) ──
+  clientShareLink: (clientId: string) => api.get<ClientShareLink | null>(`/api/clients/${clientId}/share-link`),
+  createClientShareLink: (clientId: string) => api.post<ClientShareLink>(`/api/clients/${clientId}/share-link`, {}),
+  pauseClientShareLink: (clientId: string) => api.delete<ClientShareLink>(`/api/clients/${clientId}/share-link`),
+  resumeClientShareLink: (clientId: string) => api.post<ClientShareLink>(`/api/clients/${clientId}/share-link/resume`, {}),
+  /** Public — no login. `visit` counts this load as a view. */
+  clientPortal: (token: string, visit = false) =>
+    api.get<ClientPortalDocuments>(`/api/client-portal/${encodeURIComponent(token)}${visit ? '?visit=1' : ''}`),
+  clientPortalFileUrl: (token: string, source: string, ref: string, download = false) =>
+    `/api/client-portal/${encodeURIComponent(token)}/open${qs({ source, ref, download: download ? 1 : undefined })}`,
+  /** Every available file (or one folder's) as a ZIP. */
+  clientPortalZipUrl: (token: string, folder?: string) =>
+    `/api/client-portal/${encodeURIComponent(token)}/zip${qs({ folder })}`,
   openClientDocument: (clientId: string, source: string, ref: string) =>
     api.get<{ url: string; expires_at: string }>(
       `/api/clients/${clientId}/document-folders/open${qs({ source, ref })}`,

@@ -32,6 +32,7 @@ import { engagementApi, type EngagementLetter } from '@/modules/workstation/enga
 import { useAuth } from '@/platform/auth/AuthContext';
 import { BillingSliceCard } from '@/modules/zpay/BillingSliceCard';
 import { ClientDocumentFolders } from '@/modules/workstation/documents/ClientDocumentFolders';
+import { ClientShareLinkButton } from '@/modules/workstation/documents/ClientShareLink';
 import { useSetDocumentStatus } from '@/modules/workstation/documents/StatusSelect';
 import {
   SendRequestDialog, type RequestChannel, type RequestTarget,
@@ -861,7 +862,12 @@ function DocumentsTab({ client }: { client: ClientDetail }) {
       {/* Client → Folder → Document: everything the firm holds for this client. */}
       <ClientDocumentFolders
         clientId={client.id}
-        headerRight={canManage ? <Button variant="primary" onClick={() => setRequestOpen(true)}>Request Document</Button> : undefined}
+        headerRight={(
+          <>
+            <ClientShareLinkButton client={client} canManage={canManage} />
+            {canManage ? <Button variant="primary" onClick={() => setRequestOpen(true)}>Request Document</Button> : null}
+          </>
+        )}
         actions={{
           canManage,
           canVerify,
