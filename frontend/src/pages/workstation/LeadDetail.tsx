@@ -333,7 +333,7 @@ function ConvertModal({ lead, open, onClose }: { lead: Lead; open: boolean; onCl
     contact_person: isOrg ? (lead.contact_person ?? '') : lead.name,
     contact_number: lead.contact_number,
     email: lead.email ?? '', gstin: '', pan: '',
-    account_manager_id: lead.assigned_employee_id, due_date: '',
+    account_manager_id: lead.assigned_employee_id, secondary_manager_id: '', due_date: '',
     short_name: isOrg ? deriveShortName(lead.name) : '',
   });
   const set = (k: keyof typeof form, v: string) => setForm((f) => ({ ...f, [k]: v }));
@@ -347,6 +347,7 @@ function ConvertModal({ lead, open, onClose }: { lead: Lead; open: boolean; onCl
       gstin: form.gstin || undefined,
       pan: form.pan || undefined,
       account_manager_id: form.account_manager_id,
+      secondary_manager_id: form.secondary_manager_id || undefined,
       due_date: form.due_date || undefined,
       short_name: isOrg ? form.short_name || undefined : undefined,
     }),
@@ -417,6 +418,14 @@ function ConvertModal({ lead, open, onClose }: { lead: Lead; open: boolean; onCl
         <select className={inputClass} value={form.account_manager_id} onChange={(ev) => set('account_manager_id', ev.target.value)}>
           <option value="">Select an employee…</option>
           {(employees.data?.items ?? []).map((emp) => (
+            <option key={emp.id} value={emp.id}>{emp.full_name} · {emp.designation}</option>
+          ))}
+        </select>
+      </Field>
+      <Field label="Second Staff" error={e.secondary_manager_id} hint="Optional. Also sees and works this client.">
+        <select className={inputClass} value={form.secondary_manager_id} onChange={(ev) => set('secondary_manager_id', ev.target.value)}>
+          <option value="">No second staff</option>
+          {(employees.data?.items ?? []).filter((emp) => emp.id !== form.account_manager_id).map((emp) => (
             <option key={emp.id} value={emp.id}>{emp.full_name} · {emp.designation}</option>
           ))}
         </select>

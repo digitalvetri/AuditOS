@@ -72,6 +72,7 @@ export type PermissionCode =
   | 'audit.read.all'
   // Settings
   | 'settings.manage'
+  | 'clients.view_all'
   // Payment summary (HRMS): client invoices — paid, pending, instalments.
   | 'payment_summary.read' | 'payment_summary.manage'
   // ── Workstation (AUDIT_OS_WORKSTATION.md §6) ─────────────────────────

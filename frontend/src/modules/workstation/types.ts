@@ -122,6 +122,9 @@ export interface Client extends Auditable {
   tan: string | null;
   account_manager_id: string;
   account_manager: EmployeeRef | null;
+  /** Second staff — also sees and works the client. */
+  secondary_manager_id: string | null;
+  secondary_manager: EmployeeRef | null;
   assigned_team: string | null;
   status: ClientStatus;
   onboarding_date: string;

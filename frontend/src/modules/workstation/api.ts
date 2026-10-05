@@ -89,6 +89,7 @@ export interface ConvertLeadInput {
   gstin?: string;
   pan?: string;
   account_manager_id: string;
+  secondary_manager_id?: string;
   due_date?: string;
   /** Organization leads: the label used to name its clients. */
   short_name?: string;
