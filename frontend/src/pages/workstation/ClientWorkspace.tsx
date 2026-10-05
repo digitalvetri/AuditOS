@@ -32,12 +32,14 @@ import { engagementApi, type EngagementLetter } from '@/modules/workstation/enga
 import { useAuth } from '@/platform/auth/AuthContext';
 import { BillingSliceCard } from '@/modules/zpay/BillingSliceCard';
 import { ClientDocumentFolders } from '@/modules/workstation/documents/ClientDocumentFolders';
+import { ClientShareLinkButton } from '@/modules/workstation/documents/ClientShareLink';
 import { useSetDocumentStatus } from '@/modules/workstation/documents/StatusSelect';
 import {
   SendRequestDialog, type RequestChannel, type RequestTarget,
 } from '@/modules/workstation/documents/SendRequestDialog';
 import { ChevronRight } from 'lucide-react';
 import { OrganizationBadge } from '@/modules/workstation/organization/badges';
+import { AssignedStaffDetails } from '@/modules/workstation/AssignedStaff';
 import { LevelBanner, OrganizationOverview } from '@/modules/workstation/organization/OrganizationOverview';
 import { OrganizationClients } from '@/modules/workstation/organization/OrganizationClients';
 import { OrganizationDocuments } from '@/modules/workstation/organization/OrganizationDocuments';
@@ -260,7 +262,10 @@ function ClientHeader({ client }: { client: ClientDetail }) {
         {(primary?.phone ?? client.contact_number) ? <MetaItem icon={<Phone size={14} />} href={`tel:${primary?.phone ?? client.contact_number}`}>{primary?.phone ?? client.contact_number}</MetaItem> : null}
         {(primary?.email ?? client.email) ? <MetaItem icon={<Mail size={14} />} href={`mailto:${primary?.email ?? client.email}`}>{primary?.email ?? client.email}</MetaItem> : null}
         {client.account_manager ? (
-          <span className="inline-flex items-center gap-2"><Avatar name={client.account_manager.full_name} size={20} />Managed by {client.account_manager.full_name}</span>
+          <span className="inline-flex items-center gap-2">
+            <Avatar name={client.account_manager.full_name} size={20} />Managed by {client.account_manager.full_name}
+            {client.secondary_manager ? <span className="text-inkFaint">· second staff {client.secondary_manager.full_name}</span> : null}
+          </span>
         ) : null}
       </>}
       actions={<>
@@ -309,7 +314,7 @@ function OverviewTab({ client }: { client: ClientDetail }) {
           <div className="p-4">
             <Detail label="Status" value={<Status value={client.status} />} />
             <Detail label="Onboarded" value={fmtDate(client.onboarding_date)} />
-            <Detail label="Account Manager" value={client.account_manager?.full_name ?? '—'} />
+            <AssignedStaffDetails client={client} />
             <Detail label="Documents" value={`${client.document_count}`} />
             <Detail label="Follow-ups" value={`${client.follow_up_count}`} />
             {client.source_lead_id ? (
@@ -857,7 +862,12 @@ function DocumentsTab({ client }: { client: ClientDetail }) {
       {/* Client → Folder → Document: everything the firm holds for this client. */}
       <ClientDocumentFolders
         clientId={client.id}
-        headerRight={canManage ? <Button variant="primary" onClick={() => setRequestOpen(true)}>Request Document</Button> : undefined}
+        headerRight={(
+          <>
+            <ClientShareLinkButton client={client} canManage={canManage} />
+            {canManage ? <Button variant="primary" onClick={() => setRequestOpen(true)}>Request Document</Button> : null}
+          </>
+        )}
         actions={{
           canManage,
           canVerify,

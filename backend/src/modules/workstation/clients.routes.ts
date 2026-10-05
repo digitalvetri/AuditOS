@@ -7,7 +7,7 @@ import { notifyEmployee } from '../../platform/notify.js'
 import { writeActivity } from '../../platform/workstation/activity.js'
 import { nextClientCode } from '../../platform/workstation/codes.js'
 import {
-  assertCanSeeClient, assignedClientIds, clientIdWhere, requireWorkstation,
+  assertCanSeeClient, assignedClientIds, clientIdWhere, requireWorkstation, seesAllClients,
 } from '../../platform/workstation/scope.js'
 import { assertCanJoinOrganization, deriveShortName } from '../../platform/workstation/organization.js'
 import {
@@ -46,7 +46,7 @@ clientsRouter.get('/', handler(async (req, res) => {
     ...alive,
     ...(await clientIdWhere(session, scope)),
     ...(status ? { status } : {}),
-    ...(managerId ? { accountManagerId: managerId } : {}),
+    ...(managerId ? { AND: [{ OR: [{ accountManagerId: managerId }, { secondaryManagerId: managerId }] }] } : {}),
     ...(serviceId ? { services: { some: { serviceId, deletedAt: null } } } : {}),
     ...(pendingDocs
       ? { documents: { some: { status: { in: ['requested', 'pending'] }, deletedAt: null } } }
@@ -81,7 +81,7 @@ clientsRouter.get('/', handler(async (req, res) => {
     orderBy: { clientCode: 'asc' },
   })
 
-  const m = await employeeMap(rows.map((r) => r.accountManagerId))
+  const m = await employeeMap(rows.flatMap((r) => [r.accountManagerId, r.secondaryManagerId]))
   ok(res, {
     items: rows.map((r) => ({
       ...clientToApi(r, m),
@@ -109,6 +109,10 @@ clientsRouter.post('/', handler(async (req, res) => {
   const gstin = b.gstin ? v.gstin('gstin', b.gstin) : undefined
   const pan = b.pan ? v.pan('pan', b.pan) : undefined
   const accountManagerId = v.str('account_manager_id', b.account_manager_id)
+  const secondaryManagerId = v.str('secondary_manager_id', b.secondary_manager_id, { required: false })
+  if (secondaryManagerId && secondaryManagerId === accountManagerId) {
+    v.add('secondary_manager_id', 'Choose a different person from the account manager.')
+  }
   const businessType = v.str('business_type', b.business_type, { required: false, max: 80 })
   const address = v.str('address', b.address, { required: false, max: 500 })
   // A new client can be an organization, or be created under one.
@@ -122,6 +126,13 @@ clientsRouter.post('/', handler(async (req, res) => {
 
   const manager = await prisma.employee.findFirst({ where: { id: accountManagerId!, ...alive } })
   if (!manager) v.add('account_manager_id', 'Select a valid employee.')
+  if (secondaryManagerId && !(await prisma.employee.findFirst({ where: { id: secondaryManagerId, ...alive } }))) {
+    v.add('secondary_manager_id', 'Select a valid employee.')
+  }
+  // Staff who see only their assigned clients must stay on a client they create.
+  if (!seesAllClients(session) && session.employeeId && ![accountManagerId, secondaryManagerId].includes(session.employeeId)) {
+    v.add('account_manager_id', 'Assign yourself as account manager or second staff, or the client will not be visible to you.')
+  }
   v.throwIfAny()
   const org = organizationId ? await assertCanJoinOrganization(session, scope, organizationId) : null
 
@@ -141,6 +152,7 @@ clientsRouter.post('/', handler(async (req, res) => {
         gstin: gstin ?? null,
         pan: pan ?? null,
         accountManagerId: accountManagerId!,
+        secondaryManagerId: secondaryManagerId ?? null,
         status: 'onboarding',
         onboardingDate: new Date().toISOString().slice(0, 10),
         isOrganization,
@@ -180,7 +192,18 @@ clientsRouter.post('/', handler(async (req, res) => {
     entityType: 'Client', entityId: client.id, after: client, req,
   })
 
-  const m = await employeeMap([client.accountManagerId])
+  for (const staff of [client.accountManagerId, client.secondaryManagerId]) {
+    if (staff && staff !== session.employeeId) {
+      await notifyEmployee(staff, {
+        type: 'client.assigned', module: 'system',
+        title: staff === client.accountManagerId ? 'Client assigned to you' : 'Client assigned to you as second staff',
+        body: `${client.clientCode} · ${client.companyName}`,
+        entityType: 'Client', entityId: client.id, actionUrl: `/workstation/clients/${client.id}`,
+      })
+    }
+  }
+
+  const m = await employeeMap([client.accountManagerId, client.secondaryManagerId])
   ok(res, clientToApi(client, m), 201)
 }))
 
@@ -209,7 +232,7 @@ clientsRouter.get('/:id', handler(async (req, res) => {
     })
   }
 
-  const m = await employeeMap([client.accountManagerId])
+  const m = await employeeMap([client.accountManagerId, client.secondaryManagerId])
   ok(res, {
     ...clientToApi(client, m),
     contacts: client.contacts.map(clientContactToApi),
@@ -241,7 +264,15 @@ clientsRouter.patch('/:id', handler(async (req, res) => {
   if ('gstin' in b) data.gstin = b.gstin ? v.gstin('gstin', b.gstin) : null
   if ('pan' in b) data.pan = b.pan ? v.pan('pan', b.pan) : null
   if ('tan' in b) data.tan = v.str('tan', b.tan, { required: false, max: 20 }) ?? null
+  // Who a client is assigned to decides who can see it, so only staff who
+  // see every client (Admin, Senior Associate, Super Admin) change it.
+  if (('account_manager_id' in b || 'secondary_manager_id' in b) && !seesAllClients(session)) {
+    throw ApiError.forbidden('Only an Admin, Senior Associate or Super Admin can change who a client is assigned to.')
+  }
   if ('account_manager_id' in b) data.accountManagerId = v.str('account_manager_id', b.account_manager_id)
+  if ('secondary_manager_id' in b) {
+    data.secondaryManagerId = v.str('secondary_manager_id', b.secondary_manager_id, { required: false }) ?? null
+  }
   if ('assigned_team' in b) data.assignedTeam = v.str('assigned_team', b.assigned_team, { required: false, max: 80 }) ?? null
   if ('status' in b) data.status = v.oneOf('status', b.status, CLIENT_STATUSES)
   if ('notes' in b) data.notes = v.str('notes', b.notes, { required: false, max: 2000 }) ?? null
@@ -280,11 +311,43 @@ clientsRouter.patch('/:id', handler(async (req, res) => {
     data.isOrganization = turnOn
     if (turnOn && !before.shortName && !data.shortName) data.shortName = deriveShortName(String(data.companyName ?? before.companyName))
   }
+  const nextPrimary = (data.accountManagerId as string | undefined) ?? before.accountManagerId
+  const nextSecondary = 'secondaryManagerId' in data ? (data.secondaryManagerId as string | null) : before.secondaryManagerId
+  if (nextSecondary && nextSecondary === nextPrimary) {
+    throw ApiError.badRequest('Choose a different person from the account manager.', { secondary_manager_id: 'Choose a different person from the account manager.' })
+  }
+  for (const [field, id] of [['account_manager_id', data.accountManagerId], ['secondary_manager_id', data.secondaryManagerId]] as const) {
+    if (typeof id === 'string' && !(await prisma.employee.findFirst({ where: { id, ...alive } }))) {
+      throw ApiError.badRequest('Select a valid employee.', { [field]: 'Select a valid employee.' })
+    }
+  }
   data.updatedBy = session.userId
 
   const client = await prisma.client.update({
     where: { id: before.id }, data, include: { parentClient: { select: ORGANIZATION_REF } },
   })
+
+  // Assignment changes: say who now has the client, and tell them.
+  if (nextPrimary !== before.accountManagerId || nextSecondary !== before.secondaryManagerId) {
+    const m0 = await employeeMap([nextPrimary, nextSecondary])
+    const name = (id: string | null) => (id ? m0.get(id)?.full_name ?? 'Unknown' : 'none')
+    await writeActivity({
+      session, subjectType: 'client', subjectId: client.id, action: 'client.staff_assigned',
+      description: `Assigned staff: ${name(nextPrimary)} (account manager), second staff ${name(nextSecondary)}.`,
+    })
+    for (const [staff, was, label] of [
+      [nextPrimary, before.accountManagerId, 'Client assigned to you'],
+      [nextSecondary, before.secondaryManagerId, 'Client assigned to you as second staff'],
+    ] as const) {
+      if (staff && staff !== was && staff !== session.employeeId) {
+        await notifyEmployee(staff, {
+          type: 'client.assigned', module: 'system', title: label,
+          body: `${client.clientCode} · ${client.companyName}`,
+          entityType: 'Client', entityId: client.id, actionUrl: `/workstation/clients/${client.id}`,
+        })
+      }
+    }
+  }
 
   if (joined) {
     await writeActivity({
@@ -321,7 +384,7 @@ clientsRouter.patch('/:id', handler(async (req, res) => {
     entityType: 'Client', entityId: client.id, before, after: client, req,
   })
 
-  const m = await employeeMap([client.accountManagerId])
+  const m = await employeeMap([client.accountManagerId, client.secondaryManagerId])
   ok(res, clientToApi(client, m))
 }))
 

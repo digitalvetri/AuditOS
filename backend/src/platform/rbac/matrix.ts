@@ -28,6 +28,7 @@ export type PermissionCode =
   | 'reports.hr' | 'reports.finance' | 'reports.all'
   | 'audit.read.hr' | 'audit.read.finance' | 'audit.read.all'
   | 'settings.manage'
+  | 'clients.view_all'
   // Payment summary (HRMS): client invoices — paid, pending, instalments.
   | 'payment_summary.read' | 'payment_summary.manage'
   // â”€â”€ Workstation (AUDIT_OS_WORKSTATION.md Â§6) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
@@ -241,6 +242,7 @@ export const MATRIX: Record<RoleCode, Grant[]> = {
     { permission: 'document.read', scope: 'department' },
     { permission: 'chat.participate', scope: 'organisation' },
     { permission: 'reports.hr', scope: 'department' },
+    { permission: 'clients.view_all', scope: 'organisation' },
     // Workstation: full operational access (Â§14 Operations Manager / MD).
     { permission: 'workstation.access', scope: 'organisation' },
     { permission: 'workstation.task.read', scope: 'organisation' },
@@ -354,6 +356,7 @@ export const MATRIX: Record<RoleCode, Grant[]> = {
     { permission: 'reports.hr', scope: 'organisation' },
     { permission: 'audit.read.hr', scope: 'organisation' },
     { permission: 'settings.manage', scope: 'organisation' },
+    { permission: 'clients.view_all', scope: 'organisation' },
   ],
   finance_admin: [
     { permission: 'profile.read', scope: 'self' },
@@ -414,6 +417,7 @@ export const MATRIX: Record<RoleCode, Grant[]> = {
     { permission: 'reports.all', scope: 'organisation' },
     { permission: 'audit.read.all', scope: 'organisation' },
     { permission: 'settings.manage', scope: 'organisation' },
+    { permission: 'clients.view_all', scope: 'organisation' },
     // Workstation: full operational access (Â§14 Operations Manager / MD).
     { permission: 'workstation.access', scope: 'organisation' },
     { permission: 'workstation.task.read', scope: 'organisation' },
@@ -560,6 +564,7 @@ export const PERMISSION_DESCRIPTIONS: Record<string, string> = {
   'audit.read.finance': 'Read the finance audit log',
   'audit.read.all': 'Read the full audit log',
   'settings.manage': 'Manage organisation configuration',
+  'clients.view_all': 'See every client, not only the clients assigned to them',
   'workstation.access': 'Open the Workstation module',
   'workstation.task.read': 'View tasks and their tracked work time',
   'workstation.quotation.read': 'View quotations',

@@ -23,6 +23,7 @@ import { leadsRouter } from './modules/workstation/leads.routes.js'
 import { clientsRouter } from './modules/workstation/clients.routes.js'
 import { clientFoldersRouter, clientFilesSignedRouter } from './modules/workstation/client-folders.routes.js'
 import { organizationsRouter } from './modules/workstation/organizations.routes.js'
+import { clientShareLinkRouter, clientPortalPublicRouter } from './modules/workstation/client-portal.routes.js'
 import { clientMergeRouter } from './modules/workstation/client-merge.routes.js'
 import { servicesRouter, serviceCatalogRouter } from './modules/workstation/services.routes.js'
 import { forKind, partnershipRouter, partnershipSignedRouter } from './modules/partnership/routes.js'
@@ -143,6 +144,9 @@ export function createApp() {
   app.use('/api', partnershipSignedRouter)
   // Imported source files listed in a client's Documents folders.
   app.use('/api', clientFilesSignedRouter)
+  // A client's live document link: the random token in the path is the
+  // authorization (revocable — see client-portal.routes.ts).
+  app.use('/api', clientPortalPublicRouter)
 
   // Zoho Payments OAuth callback. Public because the redirect from
   // accounts.zoho.in is a top-level browser navigation and we cannot
@@ -204,6 +208,7 @@ export function createApp() {
   app.use('/api/clients', clientMergeRouter)
   // Organization clients: overview, consolidated documents, org-level requests.
   app.use('/api/clients', organizationsRouter)
+  app.use('/api/clients', clientShareLinkRouter)
   app.use('/api/services', servicesRouter)
   app.use('/api/service-catalog', serviceCatalogRouter)
   app.use('/api/follow-ups', followUpsRouter)

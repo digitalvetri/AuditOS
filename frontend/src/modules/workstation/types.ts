@@ -122,6 +122,9 @@ export interface Client extends Auditable {
   tan: string | null;
   account_manager_id: string;
   account_manager: EmployeeRef | null;
+  /** Second staff — also sees and works the client. */
+  secondary_manager_id: string | null;
+  secondary_manager: EmployeeRef | null;
   assigned_team: string | null;
   status: ClientStatus;
   onboarding_date: string;
@@ -464,6 +467,35 @@ export interface ClientFolderItem {
   document_id: string | null;
   /** An organization request received for one of its clients. */
   stored_for?: { client_id: string; client_name: string; document_id: string } | null;
+}
+
+/** The client's live document link (null when none is active). */
+export interface ClientShareLink {
+  id: string;
+  /** False while turned off — the same URL works again once turned back on. */
+  active: boolean;
+  paused_at: string | null;
+  /** Absolute when the server knows PUBLIC_APP_URL; otherwise a path. */
+  url: string;
+  absolute: boolean;
+  created_at: string;
+  last_viewed_at: string | null;
+  view_count: number;
+}
+
+/** What the client sees through that link — read-only, no internal ids. */
+export interface ClientPortalDocuments {
+  firm: string | null;
+  client: { name: string; code: string; gstin: string | null };
+  folders: {
+    key: string;
+    label: string;
+    group: ClientFolder['group'];
+    count: number;
+    items: Omit<ClientFolderItem, 'document_id' | 'stored_for'>[];
+  }[];
+  total: number;
+  generated_at: string;
 }
 
 export interface ClientFolder {

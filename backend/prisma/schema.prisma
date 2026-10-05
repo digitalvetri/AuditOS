@@ -1195,6 +1195,9 @@ model Client {
   tan   String?
 
   accountManagerId String
+  /// Second staff: sees and works the client too, and covers when the
+  /// account manager cannot. HRMS Employee id, no FK (like accountManagerId).
+  secondaryManagerId String?
   assignedTeam     String?
   /// active | onboarding | pending_documents | service_due | inactive
   status           String  @default("onboarding")
@@ -1233,6 +1236,7 @@ model Client {
   services                ClientService[]
   followUps               FollowUp[]
   documents               ClientDocument[]
+  documentShareLinks      ClientDocumentShareLink[]
   tasks                   Task[]
   quotations              Quotation[]
   invoices                Invoice[]
@@ -1281,6 +1285,7 @@ model Client {
 
   @@index([status])
   @@index([accountManagerId])
+  @@index([secondaryManagerId])
   @@index([parentClientId])
 }
 
@@ -1578,6 +1583,31 @@ model ClientDocument {
   @@index([clientId])
   @@index([categoryId])
   @@index([status])
+}
+
+/// A live link the firm sends a client: anyone holding `token` sees that
+/// client's Documents folders (read-only, always current) and can open or
+/// download them — no login. One live link per client. Turning it off sets
+/// `pausedAt` (reversible); regenerating sets `revokedAt` (permanent).
+model ClientDocumentShareLink {
+  id           String    @id @default(uuid())
+  clientId     String
+  /// 32 random bytes, base64url. The whole authorization — never logged.
+  token        String    @unique
+  createdBy    String
+  createdAt    DateTime  @default(now())
+  /// Replaced by a new link — permanent; the URL never works again.
+  revokedAt    DateTime?
+  revokedBy    String?
+  /// Turned off for now — "Turn on" clears it and the same URL works again.
+  pausedAt     DateTime?
+  pausedBy     String?
+  lastViewedAt DateTime?
+  viewCount    Int       @default(0)
+
+  client Client @relation(fields: [clientId], references: [id])
+
+  @@index([clientId])
 }
 
 /// Never overwrite (§10.6). An upload appends v1 → v2 → v3, each with its own

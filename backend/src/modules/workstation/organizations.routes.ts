@@ -104,7 +104,7 @@ organizationsRouter.get('/:id/organization', handler(async (req, res) => {
     byService.set(s.service.id, row)
   }
 
-  const m = await employeeMap([org.accountManagerId, ...children.map((c) => c.accountManagerId), ...activities.map((a) => a.actorEmployeeId)])
+  const m = await employeeMap([org.accountManagerId, org.secondaryManagerId, ...children.flatMap((c) => [c.accountManagerId, c.secondaryManagerId]), ...activities.map((a) => a.actorEmployeeId)])
   const cards = children.map((c) => {
     const mine = services.filter((s) => s.clientId === c.id)
     return {

@@ -116,14 +116,14 @@ export function ClientsPage() {
     { key: 'status:service_due', label: 'Service due', count: allItems.filter((c) => c.status === 'service_due').length, apply: { status: 'service_due' }, show: true },
     { key: 'view:overdue', label: 'Payment overdue', count: money.data ? money.data.clients.filter((c) => c.overdue_paise > 0).length : null, apply: { view: 'overdue' }, show: seesBilling },
     { key: 'view:organizations', label: 'Organizations', count: allItems.filter((c) => c.is_organization).length, apply: { view: 'organizations' }, show: allItems.some((c) => c.is_organization) },
-    { key: 'view:mine', label: 'My clients', count: myId ? allItems.filter((c) => c.account_manager_id === myId).length : null, apply: { view: 'mine' }, show: !!myId },
+    { key: 'view:mine', label: 'My clients', count: myId ? allItems.filter((c) => c.account_manager_id === myId || c.secondary_manager_id === myId).length : null, apply: { view: 'mine' }, show: !!myId },
     { key: 'status:inactive', label: 'Inactive', count: allItems.filter((c) => c.status === 'inactive').length, apply: { status: 'inactive' }, show: true },
   ];
   const activeView = status ? `status:${status}` : view ? `view:${view}` : '';
 
   const rowsFor = (items: ClientListItem[]) => items.filter((c) => {
     if (view === 'overdue') return (moneyById.get(c.id)?.overdue_paise ?? 0) > 0;
-    if (view === 'mine') return c.account_manager_id === myId;
+    if (view === 'mine') return c.account_manager_id === myId || c.secondary_manager_id === myId;
     if (view === 'organizations') return c.is_organization;
     return true;
   });
@@ -222,9 +222,15 @@ export function ClientsPage() {
                             </td>
                             <td className="cl-hide-sm">
                               {c.account_manager ? (
-                                <span className="flex items-center gap-2 text-inkMuted" title={c.account_manager.full_name}>
-                                  <Avatar name={c.account_manager.full_name} size={24} />
-                                  <span className="truncate max-w-[120px] hidden 2xl:inline">{c.account_manager.full_name}</span>
+                                <span
+                                  className="flex items-center gap-2 text-inkMuted"
+                                  title={c.secondary_manager ? `${c.account_manager.full_name} · second staff ${c.secondary_manager.full_name}` : c.account_manager.full_name}
+                                >
+                                  <span className="flex -space-x-2">
+                                    <Avatar name={c.account_manager.full_name} size={24} />
+                                    {c.secondary_manager ? <Avatar name={c.secondary_manager.full_name} size={24} /> : null}
+                                  </span>
+                                  <span className="truncate max-w-[120px] hidden 2xl:inline">{c.account_manager.full_name}{c.secondary_manager ? ' +1' : ''}</span>
                                 </span>
                               ) : <span className="text-inkFaint">—</span>}
                             </td>
@@ -318,7 +324,7 @@ export function AddClientModal({ open, onClose, organization, defaultName, onCre
 
   const [form, setForm] = useState({
     company_name: defaultName ?? '', business_type: '', contact_person: '', contact_number: '',
-    email: '', gstin: '', pan: '', address: '', account_manager_id: '',
+    email: '', gstin: '', pan: '', address: '', account_manager_id: '', secondary_manager_id: '',
     kind: 'client' as 'client' | 'organization', short_name: '',
   });
   const isOrg = !organization && form.kind === 'organization';
@@ -331,6 +337,7 @@ export function AddClientModal({ open, onClose, organization, defaultName, onCre
       contact_person: form.contact_person,
       contact_number: form.contact_number,
       account_manager_id: form.account_manager_id,
+      secondary_manager_id: form.secondary_manager_id || undefined,
       business_type: form.business_type || undefined,
       email: form.email || undefined,
       // GSTIN and PAN are stored upper-case; normalise here so the value the
@@ -461,6 +468,14 @@ export function AddClientModal({ open, onClose, organization, defaultName, onCre
         <select className={inputClass} value={form.account_manager_id} onChange={(e) => set('account_manager_id', e.target.value)}>
           <option value="">Select an employee…</option>
           {(employees.data?.items ?? []).map((e) => (
+            <option key={e.id} value={e.id}>{e.full_name} · {e.designation}</option>
+          ))}
+        </select>
+      </Field>
+      <Field label="Second Staff" error={err('secondary_manager_id')} hint="Optional. Also sees and works this client, and covers when the account manager cannot.">
+        <select className={inputClass} value={form.secondary_manager_id} onChange={(e) => set('secondary_manager_id', e.target.value)}>
+          <option value="">No second staff</option>
+          {(employees.data?.items ?? []).filter((e) => e.id !== form.account_manager_id).map((e) => (
             <option key={e.id} value={e.id}>{e.full_name} · {e.designation}</option>
           ))}
         </select>
