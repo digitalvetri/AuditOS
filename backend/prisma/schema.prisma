@@ -1195,6 +1195,9 @@ model Client {
   tan   String?
 
   accountManagerId String
+  /// Second staff: sees and works the client too, and covers when the
+  /// account manager cannot. HRMS Employee id, no FK (like accountManagerId).
+  secondaryManagerId String?
   assignedTeam     String?
   /// active | onboarding | pending_documents | service_due | inactive
   status           String  @default("onboarding")
@@ -1281,6 +1284,7 @@ model Client {
 
   @@index([status])
   @@index([accountManagerId])
+  @@index([secondaryManagerId])
   @@index([parentClientId])
 }
 

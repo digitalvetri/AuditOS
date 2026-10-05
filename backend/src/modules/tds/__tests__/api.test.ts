@@ -148,7 +148,13 @@ describe('TDS service API', () => {
     expect((await api(`/api/tds/${c.id}`)).status).toBe(401)
     const hr = await user(org.id, (await seedRole('hr_admin', MATRIX.hr_admin)).id)
     expect((await api(`/api/tds/${c.id}`, { cookie: hr.cookie })).status).toBe(403)
-    const reader = await user(org.id, (await seedRole('tds_reader_test', [{ permission: 'workstation.service.read', scope: 'organisation' }])).id)
+    // Firm-wide scope without clients.view_all sees only assigned clients.
+    const narrow = await user(org.id, (await seedRole('tds_narrow_test', [{ permission: 'workstation.service.read', scope: 'organisation' }])).id)
+    expect((await api(`/api/tds/${c.id}`, { cookie: narrow.cookie })).status).toBe(404)
+    const reader = await user(org.id, (await seedRole('tds_reader_test', [
+      { permission: 'workstation.service.read', scope: 'organisation' },
+      { permission: 'clients.view_all', scope: 'organisation' },
+    ])).id)
     expect((await api(`/api/tds/${c.id}`, { cookie: reader.cookie })).status).toBe(200)
     expect((await api(`/api/tds/${c.id}/records`, { method: 'POST', cookie: reader.cookie, body: { kind: 'notice_check', event_date: '2026-09-01' } })).status).toBe(403)
     const self = await user(org.id, (await seedRole('tds_self_test2', [{ permission: 'workstation.service.manage', scope: 'self' }])).id)

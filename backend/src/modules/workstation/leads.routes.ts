@@ -11,6 +11,7 @@ import {
 } from '../../platform/workstation/scope.js'
 import { activityToApi, clientToApi, employeeMap, leadToApi } from '../../api/workstation.serialize.js'
 import { assertLeadTransition, body, FieldErrors, LEAD_STATUSES, LEAD_TYPES } from './validate.js'
+import { seesAllClients } from '../../platform/workstation/scope.js'
 import { deriveShortName } from '../../platform/workstation/organization.js'
 
 /**
@@ -251,6 +252,14 @@ leadsRouter.post('/:id/convert', handler(async (req, res) => {
   const accountManagerId = v.str('account_manager_id', b.account_manager_id)
   const dueDate = v.date('due_date', b.due_date, false)
   const shortName = v.str('short_name', b.short_name, { required: false, max: 20 })
+  const secondaryManagerId = v.str('secondary_manager_id', b.secondary_manager_id, { required: false })
+  if (secondaryManagerId && secondaryManagerId === accountManagerId) {
+    v.add('secondary_manager_id', 'Choose a different person from the account manager.')
+  }
+  // Staff who see only their assigned clients must stay on the new client.
+  if (!seesAllClients(session) && session.employeeId && ![accountManagerId, secondaryManagerId].includes(session.employeeId)) {
+    v.add('account_manager_id', 'Assign yourself as account manager or second staff, or the new client will not be visible to you.')
+  }
   v.throwIfAny()
 
   /* One transaction. Lead.convertedClientId is @unique, so even a double
@@ -288,6 +297,7 @@ leadsRouter.post('/:id/convert', handler(async (req, res) => {
         gstin: gstin ?? null,
         pan: pan ?? null,
         accountManagerId: accountManagerId!,
+        secondaryManagerId: secondaryManagerId ?? null,
         status: 'onboarding',
         onboardingDate: today,
         sourceLeadId: lead.id,
@@ -363,6 +373,14 @@ leadsRouter.post('/:id/convert', handler(async (req, res) => {
     actionUrl: `/workstation/clients/${result.client.id}`,
   })
 
-  const m = await employeeMap([result.client.accountManagerId])
+  if (result.client.secondaryManagerId && result.client.secondaryManagerId !== session.employeeId) {
+    await notifyEmployee(result.client.secondaryManagerId, {
+      type: 'client.assigned', module: 'system', title: 'Client assigned to you as second staff',
+      body: `${result.client.clientCode} · ${result.client.companyName}`,
+      entityType: 'Client', entityId: result.client.id, actionUrl: `/workstation/clients/${result.client.id}`,
+    })
+  }
+
+  const m = await employeeMap([result.client.accountManagerId, result.client.secondaryManagerId])
   ok(res, { client: clientToApi(result.client, m), lead_id: result.lead.id }, 201)
 }))

@@ -140,6 +140,10 @@ export function clientToApi(c: Client & { parentClient?: OrganizationRef | null 
     tan: c.tan,
     account_manager_id: c.accountManagerId,
     account_manager: ref(m, c.accountManagerId),
+    /* Second staff: sees and works the client too, and covers for the
+       account manager. Null when only one person is assigned. */
+    secondary_manager_id: c.secondaryManagerId,
+    secondary_manager: ref(m, c.secondaryManagerId),
     assigned_team: c.assignedTeam,
     status: c.status,
     onboarding_date: c.onboardingDate,

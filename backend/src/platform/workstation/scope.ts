@@ -16,17 +16,33 @@ import type { PermissionCode, Scope } from '../rbac/matrix.js'
  * "you may ask"), never a 404 (that leaks "this id does not exist").
  */
 
+/**
+ * CLIENT VISIBILITY. Staff see only the clients assigned to them (primary or
+ * second staff, or through a service or GST assignment). Seeing every client
+ * takes `clients.view_all` — Admin, Senior Associate and Super Admin. Every
+ * client-bound Workstation permission therefore resolves to `self` scope
+ * without it, which is the same "assigned to me" rule each module already
+ * applies at self scope. Leads are not clients and keep their own scope.
+ */
+export function seesAllClients(session: Session): boolean {
+  return session.grants.some((g) => g.permission === 'clients.view_all' && g.scope === 'organisation')
+}
+const clientBound = (p: string) =>
+  p.startsWith('workstation.') && !p.startsWith('workstation.lead.') && p !== 'workstation.access'
+
 /** Widest scope the caller holds for any of the given permissions. */
 export function workstationScope(session: Session, ...permissions: PermissionCode[]): Scope | null {
   let best: Scope | null = null
   for (const p of permissions) {
     for (const g of session.grants) {
       if (g.permission !== p) continue
-      if (g.scope === 'organisation') return 'organisation'
+      if (g.scope === 'organisation') { best = 'organisation'; break }
       if (g.scope === 'department') best = 'department'
       else if (best === null) best = 'self'
     }
+    if (best === 'organisation') break
   }
+  if (best && best !== 'self' && permissions.some(clientBound) && !seesAllClients(session)) return 'self'
   return best
 }
 
@@ -43,7 +59,7 @@ export function requireWorkstation(session: Session, ...permissions: PermissionC
 /**
  * The client ids a caller may see at `self` scope.
  *
- *   accountManagerId = me
+ *   accountManagerId = me ∪ secondaryManagerId = me
  * ∪ ClientService.assignedEmployeeId = me
  * ∪ ClientService.managerId = me
  * ∪ GstProfile.assignedEmployeeId = me
@@ -51,12 +67,19 @@ export function requireWorkstation(session: Session, ...permissions: PermissionC
  * 'ALL' short-circuits the IN list for organisation scope.
  */
 export async function assignedClientIds(session: Session, scope: Scope): Promise<string[] | 'ALL'> {
-  if (scope === 'organisation' || scope === 'department') return 'ALL'
+  // The client rule is enforced HERE, whatever permission the caller's scope
+  // came from (a dashboard or search scoped by workstation.access included):
+  // a wide scope only means every client together with clients.view_all.
+  if ((scope === 'organisation' || scope === 'department') && seesAllClients(session)) return 'ALL'
   const me = session.employeeId
   if (!me) return []
 
   const [owned, viaService, viaGst] = await Promise.all([
-    prisma.client.findMany({ where: { accountManagerId: me, deletedAt: null }, select: { id: true } }),
+    // Primary or second staff on the client.
+    prisma.client.findMany({
+      where: { OR: [{ accountManagerId: me }, { secondaryManagerId: me }], deletedAt: null },
+      select: { id: true },
+    }),
     prisma.clientService.findMany({
       where: { deletedAt: null, OR: [{ assignedEmployeeId: me }, { managerId: me }] },
       select: { clientId: true },
@@ -109,10 +132,15 @@ export async function assertCanSeeLead(session: Session, scope: Scope, leadId: s
  * union: mine, or on a client I am assigned to, or on a lead I own.
  */
 export async function followUpScopeWhere(session: Session, scope: Scope) {
-  if (scope === 'organisation' || scope === 'department') return {}
+  const wide = scope === 'organisation' || scope === 'department'
+  if (wide && seesAllClients(session)) return {}
   const me = session.employeeId ?? '__none__'
   const ids = await assignedClientIds(session, scope)
   const clientIds = ids === 'ALL' ? [] : ids
+  // Leads stay firm-wide at a wide scope; only client follow-ups narrow.
+  if (wide) {
+    return { OR: [{ assignedEmployeeId: me }, { clientId: { in: clientIds } }, { leadId: { not: null } }] }
+  }
   return {
     OR: [
       { assignedEmployeeId: me },

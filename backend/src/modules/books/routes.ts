@@ -23,6 +23,7 @@ import { can, requirePermission, requireSession } from '../../platform/auth.js'
 import { writeAudit } from '../../platform/audit.js'
 import { notifyEmployee, notifyRole, notifyUser, type NotifyInput } from '../../platform/notify.js'
 import type { PermissionCode } from '../../platform/rbac/matrix.js'
+import { assignedClientIds } from '../../platform/workstation/scope.js'
 import { BooksNotConfigured, booksConfig, booksConfigured } from './config.js'
 import { toApiError, zohoRequest, ZohoBooksError, type ZohoContext } from './client.js'
 import { addConfiguredConnection, beginConnect, completeConnect, connectWithCode, disconnect, refreshOrganizations } from './connection.js'
@@ -267,7 +268,12 @@ booksRouter.post('/connections/:id/organizations/refresh', h(async (req, res) =>
 booksRouter.get('/clients', h(async (req, res) => {
   need(req, 'books.settings')
   const { organisationId } = await firmOf(req)
-  const rows = await prisma.client.findMany({ where: { organisationId }, select: { id: true, companyName: true, clientCode: true }, orderBy: { companyName: 'asc' } })
+  // Staff who see only their assigned clients get only those to link.
+  const visible = await assignedClientIds(requireSession(req), 'organisation')
+  const rows = await prisma.client.findMany({
+    where: { organisationId, ...(visible === 'ALL' ? {} : { id: { in: visible } }) },
+    select: { id: true, companyName: true, clientCode: true }, orderBy: { companyName: 'asc' },
+  })
   ok(res, { items: rows.map((c) => ({ id: c.id, name: c.companyName, code: c.clientCode })) })
 }))
 

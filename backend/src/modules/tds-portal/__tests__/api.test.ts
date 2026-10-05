@@ -152,7 +152,13 @@ describe('TDS portal credentials API', () => {
     expect((await api(`/api/tds-portal/${c.id}/reveal`, { method: 'POST', cookie: hr.cookie })).status).toBe(403)
 
     // View without reveal: sees the User ID, cannot decrypt
-    const viewer = await user(org.id, (await seedRole('tds_viewer_test', [{ permission: 'workstation.tds.portal.view', scope: 'organisation' }])).id)
+    // Firm-wide scope without clients.view_all sees only assigned clients.
+    const narrow = await user(org.id, (await seedRole('tds_viewer_narrow', [{ permission: 'workstation.tds.portal.view', scope: 'organisation' }])).id)
+    expect((await api(`/api/tds-portal/${c.id}`, { cookie: narrow.cookie })).status).toBe(404)
+    const viewer = await user(org.id, (await seedRole('tds_viewer_test', [
+      { permission: 'workstation.tds.portal.view', scope: 'organisation' },
+      { permission: 'clients.view_all', scope: 'organisation' },
+    ])).id)
     expect((await api(`/api/tds-portal/${c.id}`, { cookie: viewer.cookie })).status).toBe(200)
     expect((await api(`/api/tds-portal/${c.id}/reveal`, { method: 'POST', cookie: viewer.cookie })).status).toBe(403)
 
