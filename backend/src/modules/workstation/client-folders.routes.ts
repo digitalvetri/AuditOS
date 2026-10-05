@@ -156,20 +156,55 @@ clientFoldersRouter.get('/:id/document-folders', handler(async (req, res) => {
  * The CALLER must already have checked the client is in scope — the
  * organization document view reuses this for each of its clients.
  */
-export async function buildClientFolders(session: Session, client: { id: string; organisationId: string }): Promise<Folder[]> {
+/**
+ * Which folders a viewer gets. Staff get theirs from their module
+ * permissions; the client's own portal link (client-portal.routes.ts) gets
+ * CLIENT_VIEW — everything the firm has issued to or received from the
+ * client, never drafts or the firm's internal working imports.
+ */
+export interface FolderAccess {
+  eway: boolean; gst: boolean; invoice: boolean; quotation: boolean
+  engagement: boolean; doc: boolean; service: boolean; aa: boolean
+  /** The client is looking: hide unissued drafts. */
+  clientView: boolean
+}
+
+export function folderAccess(session: Session): FolderAccess {
+  return {
+    eway: has(session, 'workstation.eway.read', 'workstation.eway.generate'),
+    gst: has(session, 'workstation.gst.read', 'workstation.gst.manage'),
+    invoice: has(session, 'workstation.invoice.read'),
+    quotation: has(session, 'workstation.quotation.read'),
+    engagement: has(session, 'workstation.engagement.read'),
+    doc: has(session, 'workstation.doc.read'),
+    service: has(session, 'workstation.service.read', 'workstation.service.manage'),
+    aa: can(session, 'tools.audit_automation.access', 'self'),
+    clientView: false,
+  }
+}
+
+export const CLIENT_VIEW: FolderAccess = {
+  eway: true, gst: true, invoice: true, quotation: true, engagement: true, doc: true,
+  service: false, aa: false, clientView: true,
+}
+
+export async function buildClientFolders(who: Session | FolderAccess, client: { id: string; organisationId: string }): Promise<Folder[]> {
   const clientId = client.id
   const categories = await prisma.documentCategory.findMany({
     where: { organisationId: client.organisationId, ...alive }, orderBy: { sortOrder: 'asc' },
   })
 
-  const canEway = has(session, 'workstation.eway.read', 'workstation.eway.generate')
-  const canGst = has(session, 'workstation.gst.read', 'workstation.gst.manage')
-  const canInvoice = has(session, 'workstation.invoice.read')
-  const canQuote = has(session, 'workstation.quotation.read')
-  const canEngagement = has(session, 'workstation.engagement.read')
-  const canDoc = has(session, 'workstation.doc.read')
-  const canService = has(session, 'workstation.service.read', 'workstation.service.manage')
-  const canAa = can(session, 'tools.audit_automation.access', 'self')
+  const access = 'userId' in who ? folderAccess(who) : who
+  const canEway = access.eway
+  const canGst = access.gst
+  const canInvoice = access.invoice
+  const canQuote = access.quotation
+  const canEngagement = access.engagement
+  const canDoc = access.doc
+  const canService = access.service
+  const canAa = access.aa
+  // Records the firm has not issued yet never reach the client.
+  const issued = access.clientView ? { status: { not: 'draft' } } : {}
 
   const none = Promise.resolve([])
   const [
@@ -178,10 +213,10 @@ export async function buildClientFolders(session: Session, client: { id: string;
   ] = await Promise.all([
     canEway ? prisma.ewayBill.findMany({ where: { clientId, ...alive }, orderBy: { generatedAt: 'desc' } }) : none,
     canEway ? prisma.eInvoiceIrn.findMany({ where: { clientId, ...alive }, orderBy: { documentDate: 'desc' } }) : none,
-    canInvoice ? prisma.invoice.findMany({ where: { clientId, ...alive }, orderBy: { invoiceDate: 'desc' } }) : none,
-    canQuote ? prisma.quotation.findMany({ where: { clientId, ...alive }, orderBy: { quoteDate: 'desc' } }) : none,
-    canEngagement ? prisma.engagementLetter.findMany({ where: { clientId, ...alive }, orderBy: { letterDate: 'desc' } }) : none,
-    canDoc ? prisma.workstationDoc.findMany({ where: { clientId, ...alive }, orderBy: { docDate: 'desc' } }) : none,
+    canInvoice ? prisma.invoice.findMany({ where: { clientId, ...alive, ...issued }, orderBy: { invoiceDate: 'desc' } }) : none,
+    canQuote ? prisma.quotation.findMany({ where: { clientId, ...alive, ...issued }, orderBy: { quoteDate: 'desc' } }) : none,
+    canEngagement ? prisma.engagementLetter.findMany({ where: { clientId, ...alive, ...issued }, orderBy: { letterDate: 'desc' } }) : none,
+    canDoc ? prisma.workstationDoc.findMany({ where: { clientId, ...alive, ...issued }, orderBy: { docDate: 'desc' } }) : none,
     canGst ? prisma.gstFiling.findMany({ where: { gstProfile: { clientId }, ...alive }, orderBy: [{ period: 'desc' }, { returnType: 'asc' }] }) : none,
     prisma.clientDocument.findMany({
       where: { clientId, ...alive },
@@ -379,34 +414,40 @@ clientFoldersRouter.get('/:id/document-folders/open', handler(async (req, res) =
   const scope = requireWorkstation(session, 'workstation.document.read', 'workstation.document.manage')
   const clientId = req.params.id
   await assertCanSeeClient(session, scope, clientId)
+  ok(res, await folderItemLink(folderAccess(session), clientId, String(req.query.source ?? ''), String(req.query.ref ?? ''), session.userId))
+}))
 
-  const source = String(req.query.source ?? '')
-  const ref = String(req.query.ref ?? '')
+/**
+ * A short-lived signed link to one folder item. Re-checks that `ref` belongs
+ * to this client and that `access` covers its module. The caller has already
+ * checked the client itself.
+ */
+export async function folderItemLink(access: FolderAccess, clientId: string, source: string, ref: string, subject: string) {
   if (!ref) throw ApiError.badRequest('ref is required.')
   const notFound = () => ApiError.notFound('Document not found.')
   const need = (allowed: boolean) => { if (!allowed) throw ApiError.forbidden() }
-  const where = { id: ref, clientId, ...alive }
+  const where = { id: ref, clientId, ...alive, ...(access.clientView ? { status: { not: 'draft' } } : {}) }
 
   switch (source) {
     case 'invoice': {
-      need(has(session, 'workstation.invoice.read'))
+      need(access.invoice)
       if (!await prisma.invoice.findFirst({ where, select: { id: true } })) throw notFound()
-      return ok(res, signedLink(`/api/invoices/${ref}/pdf`, `invoice:${ref}`, session.userId))
+      return signedLink(`/api/invoices/${ref}/pdf`, `invoice:${ref}`, subject)
     }
     case 'quotation': {
-      need(has(session, 'workstation.quotation.read'))
+      need(access.quotation)
       if (!await prisma.quotation.findFirst({ where, select: { id: true } })) throw notFound()
-      return ok(res, signedLink(`/api/quotations/${ref}/pdf`, `quotation:${ref}`, session.userId))
+      return signedLink(`/api/quotations/${ref}/pdf`, `quotation:${ref}`, subject)
     }
     case 'engagement': {
-      need(has(session, 'workstation.engagement.read'))
+      need(access.engagement)
       if (!await prisma.engagementLetter.findFirst({ where, select: { id: true } })) throw notFound()
-      return ok(res, signedLink(`/api/engagement-letters/${ref}/pdf`, `engagement:${ref}`, session.userId))
+      return signedLink(`/api/engagement-letters/${ref}/pdf`, `engagement:${ref}`, subject)
     }
     case 'wsdoc': {
-      need(has(session, 'workstation.doc.read'))
+      need(access.doc)
       if (!await prisma.workstationDoc.findFirst({ where, select: { id: true } })) throw notFound()
-      return ok(res, signedLink(`/api/workstation-docs/${ref}/pdf`, `wsdoc:${ref}`, session.userId))
+      return signedLink(`/api/workstation-docs/${ref}/pdf`, `wsdoc:${ref}`, subject)
     }
     case 'upload': {
       const v = await prisma.clientDocumentVersion.findFirst({
@@ -414,36 +455,36 @@ clientFoldersRouter.get('/:id/document-folders/open', handler(async (req, res) =
       })
       if (!v) throw notFound()
       if (!v.mimeType) throw ApiError.notFound('The original file has not been uploaded yet. Use Upload file to add it.')
-      return ok(res, signedLink(`/api/workstation-documents/${ref}/download`, `workstation-document:${ref}`, session.userId))
+      return signedLink(`/api/workstation-documents/${ref}/download`, `workstation-document:${ref}`, subject)
     }
     case 'eway': case 'einvoice': {
-      need(has(session, 'workstation.eway.read', 'workstation.eway.generate'))
+      need(access.eway)
       const row = source === 'eway'
-        ? await prisma.ewayBill.findFirst({ where, select: { id: true } })
-        : await prisma.eInvoiceIrn.findFirst({ where, select: { id: true } })
+        ? await prisma.ewayBill.findFirst({ where: { id: ref, clientId, ...alive }, select: { id: true } })
+        : await prisma.eInvoiceIrn.findFirst({ where: { id: ref, clientId, ...alive }, select: { id: true } })
       if (!row) throw notFound()
       break
     }
     case 'gst_filing': {
-      need(has(session, 'workstation.gst.read', 'workstation.gst.manage'))
+      need(access.gst)
       if (!await prisma.gstFiling.findFirst({ where: { id: ref, gstProfile: { clientId }, ...alive }, select: { id: true } })) throw notFound()
       break
     }
     case 'bk_import': {
-      need(has(session, 'workstation.service.read', 'workstation.service.manage'))
+      need(access.service)
       if (!await prisma.bookkeepingImport.findFirst({ where: { id: ref, clientId }, select: { id: true } })) throw notFound()
       break
     }
     case 'aa_pr': case 'aa_2b': case 'aa_26as': case 'aa_tdsbooks': {
-      need(can(session, 'tools.audit_automation.access', 'self'))
+      need(access.aa)
       if (!await AA_FILE[source](ref, clientId)) throw notFound()
       break
     }
     default:
       throw ApiError.badRequest('Unknown document source.')
   }
-  ok(res, signedLink(`/api/client-files/${source}/${ref}`, `client-file:${source}:${ref}`, session.userId))
-}))
+  return signedLink(`/api/client-files/${source}/${ref}`, `client-file:${source}:${ref}`, subject)
+}
 
 /**
  * POST /api/clients/:id/document-folders/:folder/upload — add a file straight
