@@ -29,7 +29,13 @@
 
 /* ── Brand scene ─────────────────────────────────────────────────────────── */
 .lg-hero {
-  position: relative;
+  /* Pinned, one viewport tall: on a short window the form column scrolls
+     and the scene stays in view instead of drifting with the taller row. */
+  position: sticky;
+  top: 0;
+  align-self: start;
+  height: 100vh;
+  height: 100dvh;
   overflow: hidden;
   isolation: isolate;
   display: flex;
@@ -299,6 +305,8 @@
     grid-template-rows: auto minmax(0, 1fr);
   }
   .lg-hero {
+    position: relative;
+    align-self: stretch;
     height: clamp(116px, 20dvh, 190px);
     min-height: 0;
     margin: max(10px, env(safe-area-inset-top)) 12px 0;
