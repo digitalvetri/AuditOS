@@ -7,6 +7,7 @@ import { isAllowedOrigin } from './lib/origin.js'
 import { authenticate } from './platform/auth.js'
 import { authRouter } from './modules/auth.routes.js'
 import { employeesRouter } from './modules/employees.routes.js'
+import { usersRouter } from './modules/users.routes.js'
 import { attendanceRouter } from './modules/attendance.routes.js'
 import { leaveRouter } from './modules/leave.routes.js'
 import { documentsRouter } from './modules/documents.routes.js'
@@ -174,6 +175,7 @@ export function createApp() {
   app.use('/api', authenticate)
 
   app.use('/api/employees', employeesRouter)
+  app.use('/api/users', usersRouter)
   // Salary lives under an employee but is owned by payroll (§8.4).
   app.use('/api/employees/:id/salary', salaryRouter)
   app.use('/api/attendance', attendanceRouter)

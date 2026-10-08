@@ -11,6 +11,7 @@ import { documentToApi, employeeRef } from '../api/serialize.js'
 import type { Scope } from '../platform/rbac/matrix.js'
 import { sanitizeFilename } from './tools/lib/files.js'
 import { checkEmployeeDocument, employeeDocKey, employeeDocStorage, MAX_EMPLOYEE_DOC_MB } from './documents.storage.js'
+import { USER_LABEL_SELECT, userLabel } from '../platform/userLabel.js'
 
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: MAX_EMPLOYEE_DOC_MB * 1024 * 1024, files: 1 } })
 
@@ -87,12 +88,8 @@ documentsRouter.get('/', handler(async (req, res) => {
   })
 
   const uploaderIds = [...new Set(rows.map((r) => r.uploadedBy))]
-  const uploaders = await prisma.user.findMany({
-    where: { id: { in: uploaderIds } }, include: { employee: true },
-  })
-  const uploaderLabel = new Map(
-    uploaders.map((u) => [u.id, u.employee?.fullName ?? u.email]),
-  )
+  const uploaders = await prisma.user.findMany({ where: { id: { in: uploaderIds } }, select: USER_LABEL_SELECT })
+  const uploaderLabel = new Map(uploaders.map((u) => [u.id, userLabel(u)]))
 
   const items = rows
     .map((r) => ({ row: r, status: derivedStatus(r) }))

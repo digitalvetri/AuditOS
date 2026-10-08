@@ -9,6 +9,7 @@ import { expiringDocuments } from './documents.routes.js'
 import { canApproveCorrection, canApproveExpense, canApproveLeave } from './dashboard-approvable.js'
 import type { Scope } from '../platform/rbac/matrix.js'
 import { pushPublicKey } from '../platform/push.js'
+import { USER_LABEL_SELECT, userLabel } from '../platform/userLabel.js'
 
 /**
  * PLATFORM SURFACES — notifications, audit log, dashboard aggregates (§8.9,
@@ -349,10 +350,8 @@ dashboardRouter.get('/activity', handler(async (req, res) => {
     orderBy: { createdAt: 'desc' }, take: 20,
   })
   const actorIds = [...new Set(rows.map((r) => r.actorUserId).filter((x): x is string => !!x))]
-  const actors = await prisma.user.findMany({
-    where: { id: { in: actorIds } }, include: { employee: true },
-  })
-  const label = new Map(actors.map((a) => [a.id, a.employee?.fullName ?? a.email]))
+  const actors = await prisma.user.findMany({ where: { id: { in: actorIds } }, select: USER_LABEL_SELECT })
+  const label = new Map(actors.map((a) => [a.id, userLabel(a)]))
 
   ok(res, {
     items: rows.map((r) => ({

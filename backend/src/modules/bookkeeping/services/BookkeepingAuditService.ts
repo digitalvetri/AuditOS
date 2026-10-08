@@ -4,6 +4,7 @@ import type { Session } from '../../../platform/auth.js'
 import { BookkeepingCompanyService } from './BookkeepingCompanyService.js'
 import { trialBalance } from '../engine/balances.js'
 import { stockPositions } from '../engine/inventory.js'
+import { USER_LABEL_SELECT, userLabel } from '../../../platform/userLabel.js'
 
 /**
  * BookkeepingAuditService — the verification surface. Audit OS exists to look
@@ -38,9 +39,9 @@ export const BookkeepingAuditService = {
     })
     const actorIds = Array.from(new Set(rows.map((r) => r.actorUserId).filter((x): x is string => Boolean(x))))
     const actors = actorIds.length
-      ? await prisma.user.findMany({ where: { id: { in: actorIds } }, select: { id: true, email: true } })
+      ? await prisma.user.findMany({ where: { id: { in: actorIds } }, select: USER_LABEL_SELECT })
       : []
-    const actorById = new Map(actors.map((a) => [a.id, a.email]))
+    const actorById = new Map(actors.map((a) => [a.id, userLabel(a)]))
     return rows.map((r) => ({
       id: r.id,
       voucher_id: r.voucherId,
@@ -130,8 +131,8 @@ export const BookkeepingAuditService = {
       orderBy: { createdAt: 'desc' }, take: Math.min(limit, 500),
     })
     const actorIds = Array.from(new Set(rows.map((r) => r.actorUserId).filter((x): x is string => Boolean(x))))
-    const actors = actorIds.length ? await prisma.user.findMany({ where: { id: { in: actorIds } }, select: { id: true, email: true } }) : []
-    const byId = new Map(actors.map((a) => [a.id, a.email]))
+    const actors = actorIds.length ? await prisma.user.findMany({ where: { id: { in: actorIds } }, select: USER_LABEL_SELECT }) : []
+    const byId = new Map(actors.map((a) => [a.id, userLabel(a)]))
     return rows.map((r) => ({
       id: r.id, action: r.action, entity_type: r.entityType, entity_id: r.entityId,
       actor_label: r.actorUserId ? byId.get(r.actorUserId) ?? r.actorUserId : 'system',
