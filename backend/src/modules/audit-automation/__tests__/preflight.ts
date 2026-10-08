@@ -88,6 +88,7 @@ async function loadTestSession(): Promise<{ session: Session; client: { id: stri
     employeeId: null,
     departmentId: null,
     employeeFullName: null,
+    mustChangePassword: false,
   }
   const client = await prisma.client.findFirst({
     where: { organisationId: user.organisationId, deletedAt: null },

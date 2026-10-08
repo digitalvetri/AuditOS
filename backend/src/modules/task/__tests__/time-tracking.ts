@@ -66,6 +66,7 @@ async function sessionFor(email: string): Promise<Session> {
     employeeId: user.employeeId,
     departmentId: null,
     employeeFullName: null,
+    mustChangePassword: false,
   }
 }
 

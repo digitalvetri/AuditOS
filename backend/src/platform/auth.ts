@@ -29,6 +29,8 @@ export interface Session {
   employeeId: string | null
   departmentId: string | null
   employeeFullName: string | null
+  /** An Admin-issued password is still in use: only the change-password flow may run. */
+  mustChangePassword: boolean
 }
 
 declare global {
@@ -40,8 +42,9 @@ declare global {
   }
 }
 
-export function signToken(userId: string): string {
-  return jwt.sign({ sub: userId }, env.jwtSecret, { expiresIn: env.sessionTtlSeconds })
+/** `v` is the user's sessionVersion; bumping it ends every older session. */
+export function signToken(userId: string, version = 0): string {
+  return jwt.sign({ sub: userId, v: version }, env.jwtSecret, { expiresIn: env.sessionTtlSeconds })
 }
 
 export function sessionCookie(token: string): [string, string, Record<string, unknown>] {
@@ -62,6 +65,10 @@ export function hashPassword(plain: string): string {
   return bcrypt.hashSync(plain, 10)
 }
 
+export function passwordMatches(hash: string, plain: string): boolean {
+  return bcrypt.compareSync(plain, hash)
+}
+
 /**
  * Verify credentials. Returns null for a bad password, an unknown email, a
  * soft-deleted user OR an inactive one — the caller cannot tell which, which
@@ -72,10 +79,10 @@ export async function verifyCredentials(email: string, password: string) {
     where: { email: email.trim().toLowerCase(), deletedAt: null },
   })
   if (!user || !user.isActive) return null
-  return bcrypt.compareSync(password, user.passwordHash) ? user : null
+  return passwordMatches(user.passwordHash, password) ? user : null
 }
 
-export async function loadSession(userId: string): Promise<Session | null> {
+export async function loadSession(userId: string, tokenVersion?: number): Promise<Session | null> {
   const user = await prisma.user.findFirst({
     where: { id: userId, isActive: true, deletedAt: null },
     include: {
@@ -84,6 +91,9 @@ export async function loadSession(userId: string): Promise<Session | null> {
     },
   })
   if (!user) return null
+  // A password change, admin reset or deactivation bumps sessionVersion:
+  // tokens minted before it no longer resume a session.
+  if (tokenVersion !== undefined && tokenVersion !== user.sessionVersion) return null
   // A deactivated employee cannot act even if a cookie survives.
   if (user.employee && (user.employee.deletedAt || user.employee.status === 'inactive')) return null
 
@@ -100,6 +110,7 @@ export async function loadSession(userId: string): Promise<Session | null> {
     employeeId: user.employeeId,
     departmentId: user.employee?.departmentId ?? null,
     employeeFullName: user.employee?.fullName ?? null,
+    mustChangePassword: user.mustChangePassword,
   }
 }
 
@@ -109,6 +120,9 @@ function tokenFrom(req: Request): string | null {
   const cookie = (req.cookies as Record<string, string> | undefined)?.[env.cookieName]
   return cookie ?? null
 }
+
+/** The only API calls allowed while an Admin-issued password is still in use. */
+const PASSWORD_CHANGE_PATHS = new Set(['/api/auth/me', '/api/auth/logout', '/api/auth/change-password'])
 
 export async function authenticate(req: Request, _res: Response, next: NextFunction) {
   try {
@@ -120,8 +134,12 @@ export async function authenticate(req: Request, _res: Response, next: NextFunct
     } catch {
       throw ApiError.unauthorized('Your session has expired. Sign in again.')
     }
-    const session = await loadSession(String(payload.sub))
-    if (!session) throw ApiError.unauthorized('This account is no longer active.')
+    const version = typeof payload.v === 'number' ? payload.v : 0
+    const session = await loadSession(String(payload.sub), version)
+    if (!session) throw ApiError.unauthorized('Your session has ended. Sign in again.')
+    if (session.mustChangePassword && !PASSWORD_CHANGE_PATHS.has(req.originalUrl.split('?')[0])) {
+      throw new ApiError(403, 'password_change_required', 'Set a new password to continue.')
+    }
     req.session = session
     next()
   } catch (err) {

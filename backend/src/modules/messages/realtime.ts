@@ -52,7 +52,7 @@ export function attachRealtime(http: HttpServer) {
         ?? cookieToken(socket.request.headers.cookie)
       if (!token) return next(new Error('unauthorized'))
       const payload = jwt.verify(token, env.jwtSecret) as jwt.JwtPayload
-      const session = await loadSession(String(payload.sub))
+      const session = await loadSession(String(payload.sub), typeof payload.v === 'number' ? payload.v : 0)
       if (!session) return next(new Error('unauthorized'))
       socket.data.session = session
       next()

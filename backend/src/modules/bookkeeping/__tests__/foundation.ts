@@ -46,6 +46,7 @@ async function loadSession(email: string): Promise<Session> {
     employeeId: null,
     departmentId: null,
     employeeFullName: null,
+    mustChangePassword: false,
   }
 }
 

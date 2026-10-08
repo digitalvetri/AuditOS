@@ -946,7 +946,8 @@ export async function ensureOwners(prisma: PrismaClient, owners: OwnerSpec[], op
  * Creates the Super Admin and Admin logins from env (backend/.env locally,
  * docker/.env.docker in Docker). Passwords never live in the repository.
  */
-import 'dotenv/config'
+// Loads backend/.env (real env vars win), same loader the server uses.
+import '../src/lib/env.js'
 import { PrismaClient } from '@prisma/client'
 import { ensureOwners, type OwnerSpec } from './owners.js'
 
@@ -974,8 +975,6 @@ main()
   .catch((e) => { console.error('[setup-owners]', e instanceof Error ? e.message : e); process.exitCode = 1 })
   .finally(() => prisma.$disconnect())
 ```
-
-(Check `dotenv` is a backend dependency: `grep dotenv backend/package.json`. If it is not, drop the import and run the script with `node --env-file=.env` via `tsx --env-file=.env`.)
 
 `backend/package.json` scripts: `"setup:owners": "tsx prisma/setup-owners.ts"`.
 

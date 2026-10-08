@@ -61,7 +61,7 @@ async function loadSession(): Promise<Session> {
     grants: user.role.permissions.map((rp) => ({
       permission: rp.permission.code, scope: rp.scope as Session['grants'][number]['scope'],
     })),
-    employeeId: null, departmentId: null, employeeFullName: null,
+    employeeId: null, departmentId: null, employeeFullName: null, mustChangePassword: false,
   }
 }
 
