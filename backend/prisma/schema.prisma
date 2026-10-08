@@ -122,16 +122,22 @@ model RolePermission {
 }
 
 model User {
-  id             String    @id @default(uuid())
-  organisationId String
-  email          String    @unique
-  passwordHash   String
-  roleId         String
+  id                 String    @id @default(uuid())
+  organisationId     String
+  email              String    @unique
+  passwordHash       String
+  roleId             String
   // Nullable BOTH ways (Part 1 §4.2): automation users have no employee, and
   // an employee (e.g. an exited one) may have no login.
-  employeeId     String?   @unique
-  isActive       Boolean   @default(true)
-  lastLoginAt    DateTime?
+  employeeId         String?   @unique
+  isActive           Boolean   @default(true)
+  lastLoginAt        DateTime?
+  // Set when an Admin creates this login or resets its password: the user
+  // must choose their own password before the API will serve anything else.
+  mustChangePassword Boolean   @default(false)
+  // Carried in the session JWT as `v`. Bumped on every password change,
+  // admin reset and deactivation, so older sessions stop working everywhere.
+  sessionVersion     Int       @default(0)
 
   organisation Organisation @relation(fields: [organisationId], references: [id])
   role         Role         @relation(fields: [roleId], references: [id])
