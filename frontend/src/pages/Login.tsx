@@ -1,26 +1,29 @@
 import { useState, type FormEvent } from 'react';
 import { Navigate, useNavigate } from 'react-router-dom';
+import { ArrowRight, Eye, EyeOff, FileText, Lock, Mail, ShieldCheck, Users } from 'lucide-react';
 import { useAuth } from '@/platform/auth/AuthContext';
 import { BrandLogo } from '@/components/BrandLogo';
+import { useParallax } from './login/useParallax';
+import './login/login.css';
 
-// Login-page brand blues. Scoped to this file — the rest of the app keeps
-// the sage+gold system from tailwind.config.ts, so we use arbitrary values
-// rather than adding tokens that would leak into other screens.
 /**
- * Read from the platform tokens rather than literals, so the sign-in button
- * is the same navy as the sidebar rail and every other primary action, and a
- * palette change reaches this screen like it reaches the rest of the app.
- * These are inline styles, so they carry the `rgb(var(--x))` form.
+ * Sign-in. Left: the brand scene — the desk illustration with depth motion
+ * (pointer parallax, floating cards, lamp glow; see login.css). Right: the
+ * sign-in card. Below 900px the scene becomes a short banner above the card.
+ *
+ * This is a pre-auth brand screen, so it keeps its light lavender look in the
+ * dark theme too; its colours live in login.css, not in the theme tokens.
  */
-const BRAND = {
-  panel: 'rgb(var(--c-sidebar))',        // deep navy behind the hero artwork
-  primary: 'rgb(var(--c-primary))',      // sign-in button + link
-  primaryHover: 'rgb(var(--c-primary-hover))',
-};
+const FEATURES = [
+  { Icon: ShieldCheck, title: 'GST & TDS', text: 'Every return and challan, with its deadline' },
+  { Icon: FileText, title: 'Clients & billing', text: 'Quotations, invoices and what each client owes' },
+  { Icon: Users, title: 'People', text: 'Attendance, leave, expenses and payroll' },
+];
 
 export function LoginPage() {
   const { login, loading, error, session } = useAuth();
   const navigate = useNavigate();
+  const sceneRef = useParallax<HTMLDivElement>();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
@@ -42,208 +45,145 @@ export function LoginPage() {
   }
 
   return (
-    <div className="min-h-screen grid grid-cols-1 md:grid-cols-2 bg-white">
-      {/* Left: brand panel — deep teal with teal and coral glows (Teal & Coral) */}
-      <div
-        // Sticky, one viewport tall: when the sign-in column is taller than the
-        // window (demo logins), the hero stays centred in view instead of
-        // drifting down with the taller grid row.
-        className="login-hero hidden md:flex md:sticky md:top-0 md:h-screen self-start relative overflow-hidden flex-col p-10 lg:p-14 text-white"
-        style={{ backgroundColor: BRAND.panel }}
-      >
-        <div className="dash-hero-grid" aria-hidden />
-        <div className="relative z-10 flex items-center justify-between">
-          <span className="sb-logo inline-flex items-center justify-center h-11 px-3 rounded-[12px]">
-            <img src="/jns-mark.png" alt="JNS Accounting Solutions" className="sb-logo-img h-7 w-auto" />
-          </span>
-          <a href="#" className="text-white/75 text-13 hover:text-white" onClick={(e) => e.preventDefault()}>Help</a>
+    <div className="lg-page" ref={sceneRef}>
+      {/* ── Brand scene ─────────────────────────────────────────────────── */}
+      <section className="lg-hero" aria-label="JNS Accounting Solutions">
+        <span className="lg-orb lg-orb--a" aria-hidden />
+        <span className="lg-orb lg-orb--b" aria-hidden />
+        <div className="lg-scene" aria-hidden>
+          <img src="/login/desk-scene.jpg" alt="" className="lg-scene-img" draggable={false} />
+          <span className="lg-lamp" />
         </div>
-        <div className="relative z-10 flex-1 flex flex-col justify-center max-w-[520px]">
-          <h2 className="font-serif text-[44px] lg:text-[54px] leading-[1.02] tracking-[-0.02em]">
-            Your whole practice,<br /><em className="dash-hero-name">in one place.</em>
+
+        <header className="lg-brand">
+          <span className="lg-brand-chip">
+            <img src="/jns-mark.png" alt="" />
+          </span>
+          <span className="lg-brand-name">Accounting<br />Solutions</span>
+        </header>
+
+        <div className="lg-copy">
+          <h2 className="lg-title">
+            Your whole practice,<br /><em>in one place.</em>
           </h2>
-          <p className="mt-4 text-15 text-white/70 max-w-[420px]">
+          <p className="lg-lead">
             Clients, compliance, billing and your team — the daily work of JNS Accounting Solutions, together.
           </p>
-          <ul className="mt-8 space-y-3">
-            {[
-              ['GST & TDS', 'Every return and challan, with its deadline'],
-              ['Clients & billing', 'Quotations, invoices and what each client owes'],
-              ['People', 'Attendance, leave, expenses and payroll'],
-            ].map(([t, d]) => (
-              <li key={t} className="dash-insight flex items-center gap-3 rounded-[12px] px-4 py-3">
-                <span className="h-8 w-8 shrink-0 rounded-[9px] grid place-items-center bg-[rgb(122_90_248/0.18)] text-[#c9b8ff]">
-                  <CheckIcon />
-                </span>
-                <span>
-                  <span className="block text-14 font-semibold">{t}</span>
-                  <span className="block text-12 text-white/60">{d}</span>
-                </span>
+          <ul className="lg-features">
+            {FEATURES.map(({ Icon, title, text }, i) => (
+              <li key={title} className="lg-feature" style={{ ['--i' as string]: i }}>
+                <div className="lg-feature-card">
+                  <span className="lg-feature-icon"><Icon size={20} strokeWidth={1.8} /></span>
+                  <span>
+                    <span className="lg-feature-title">{title}</span>
+                    <span className="lg-feature-text">{text}</span>
+                  </span>
+                </div>
               </li>
             ))}
           </ul>
         </div>
-        <div className="relative z-10 text-12 text-white/45">© JNS Accounting Solutions</div>
-      </div>
 
-      {/* Right: sign-in form */}
-      <div className="relative flex items-center justify-center p-6 md:p-12">
-        <div className="w-full max-w-[380px]">
-          <BrandLogo src="/jns-logo-tight.png" alt="JNS Accounting Solutions" className="h-16 mb-8" />
-          <h1 className="text-[30px] font-semibold text-neutral-900 leading-tight tracking-[-0.025em]">
-            Welcome back
-          </h1>
-          <p className="text-14 text-neutral-500 mt-1">Sign in to your workspace</p>
+        <footer className="lg-copyright">© JNS Accounting Solutions</footer>
+      </section>
 
-          <form onSubmit={onSubmit} className="mt-8 space-y-4">
+      {/* ── Sign-in ─────────────────────────────────────────────────────── */}
+      <main className="lg-side">
+        <span className="lg-blob lg-blob--top" aria-hidden />
+        <span className="lg-blob lg-blob--bottom" aria-hidden />
+
+        <div className="lg-card">
+          <BrandLogo src="/jns-logo-tight.png" alt="JNS Accounting Solutions" className="lg-card-logo" />
+          <h1 className="lg-welcome">Welcome back</h1>
+          <p className="lg-sub">Sign in to your workspace and stay productive.</p>
+
+          <form onSubmit={onSubmit} className="lg-form">
             <div>
-              <label
-                htmlFor="email"
-                className="block text-11 uppercase tracking-[0.06em] text-neutral-500 mb-1"
-              >
-                Work email
-              </label>
-              <input
-                id="email"
-                type="email"
-                name="email"
-                autoComplete="email"
-                placeholder="name@company.com"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                required
-                className="block w-full h-11 px-3 text-14 bg-white text-neutral-900 placeholder-neutral-400 border border-neutral-300 rounded-[10px] shadow-card focus:outline-none focus:border-primary"
-              />
+              <label htmlFor="email" className="lg-label">Work email</label>
+              <div className="lg-field">
+                <Mail className="lg-field-icon" size={18} strokeWidth={1.7} aria-hidden />
+                <input
+                  id="email"
+                  type="email"
+                  name="email"
+                  autoComplete="email"
+                  placeholder="name@company.com"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  required
+                  className="lg-input"
+                />
+              </div>
             </div>
 
             <div>
-              <label
-                htmlFor="password"
-                className="block text-11 uppercase tracking-[0.06em] text-neutral-500 mb-1"
-              >
-                Password
-              </label>
-              <div className="relative">
+              <label htmlFor="password" className="lg-label">Password</label>
+              <div className="lg-field">
+                <Lock className="lg-field-icon" size={18} strokeWidth={1.7} aria-hidden />
                 <input
                   id="password"
                   type={showPassword ? 'text' : 'password'}
                   name="password"
                   autoComplete="current-password"
+                  placeholder="Enter your password"
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   required
-                  className="block w-full h-11 pl-3 pr-11 text-14 bg-white text-neutral-900 placeholder-neutral-400 border border-neutral-300 rounded-[10px] shadow-card focus:outline-none focus:border-primary"
+                  className="lg-input lg-input--eye"
                 />
                 <button
                   type="button"
                   onClick={() => setShowPassword((v) => !v)}
                   aria-label={showPassword ? 'Hide password' : 'Show password'}
-                  className="absolute right-2 top-1/2 -translate-y-1/2 h-8 w-8 inline-flex items-center justify-center text-neutral-500 hover:text-neutral-800 rounded"
+                  className="lg-eye"
                 >
-                  {showPassword ? <EyeOffIcon /> : <EyeIcon />}
+                  {showPassword ? <EyeOff size={18} strokeWidth={1.7} /> : <Eye size={18} strokeWidth={1.7} />}
                 </button>
               </div>
             </div>
 
-            <div className="flex items-center justify-between pt-1">
-              <label className="flex items-center gap-2 text-13 text-neutral-700 cursor-pointer select-none">
-                <input
-                  type="checkbox"
-                  checked={remember}
-                  onChange={(e) => setRemember(e.target.checked)}
-                  className="h-4 w-4 rounded border-neutral-300"
-                  style={{ accentColor: BRAND.primary }}
-                />
+            <div className="lg-row">
+              <label className="lg-remember">
+                <input type="checkbox" checked={remember} onChange={(e) => setRemember(e.target.checked)} />
                 Remember me
               </label>
               <a
                 href="#"
                 onClick={(e) => { e.preventDefault(); setForgotOpen((v) => !v); }}
                 aria-expanded={forgotOpen}
-                className="text-13 hover:underline"
-                style={{ color: BRAND.primary }}
+                className="lg-link"
               >
                 Forgot password?
               </a>
             </div>
 
             {forgotOpen ? (
-              <div role="note" className="text-13 text-neutral-700 bg-[#f5f1ff] border border-[#e4dcff] rounded-[10px] px-3 py-2">
+              <div role="note" className="lg-note">
                 Ask your Admin to reset your password. You’ll sign in with the temporary password they give you and then choose a new one.
               </div>
             ) : null}
 
-            {error ? (
-              <div className="text-12 text-red border-l-2 border-red pl-2">{error}</div>
-            ) : null}
+            {error ? <div role="alert" className="lg-error">{error}</div> : null}
 
-            <button
-              type="submit"
-              disabled={loading}
-              className="w-full h-11 inline-flex items-center justify-center gap-2 text-14 font-semibold text-white rounded-[10px] bg-primary transition-colors disabled:cursor-not-allowed disabled:opacity-60"
-            >
-              {loading ? 'Signing in…' : (
-                <>
-                  Sign in
-                  <ArrowRightIcon />
-                </>
-              )}
+            <button type="submit" disabled={loading} className="lg-submit">
+              {loading ? 'Signing in…' : (<>Sign in <ArrowRight size={18} strokeWidth={2} /></>)}
             </button>
           </form>
 
-          <p className="mt-6 text-center text-13 text-neutral-500">
+          <div className="lg-or" aria-hidden><span>or</span></div>
+
+          <p className="lg-access">
+            <ShieldCheck size={18} strokeWidth={1.8} aria-hidden />
             Need access? Contact your administrator
           </p>
-
         </div>
 
-        <div className="absolute bottom-4 right-6 flex items-center gap-3 text-12 text-neutral-400">
-          <a href="#" onClick={(e) => e.preventDefault()} className="hover:text-neutral-600">
-            Privacy
-          </a>
-          <span aria-hidden>·</span>
-          <a href="#" onClick={(e) => e.preventDefault()} className="hover:text-neutral-600">
-            Terms
-          </a>
-        </div>
-      </div>
+        <nav className="lg-legal" aria-label="Legal">
+          <a href="#" onClick={(e) => e.preventDefault()}>Privacy</a>
+          <span aria-hidden>|</span>
+          <a href="#" onClick={(e) => e.preventDefault()}>Terms</a>
+        </nav>
+      </main>
     </div>
-  );
-}
-
-function CheckIcon() {
-  return (
-    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-      <path d="M20 6 9 17l-5-5" />
-    </svg>
-  );
-}
-
-function EyeIcon() {
-  return (
-    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-      <path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12Z" />
-      <circle cx="12" cy="12" r="3" />
-    </svg>
-  );
-}
-
-function EyeOffIcon() {
-  return (
-    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-      <path d="M17.94 17.94A10.94 10.94 0 0 1 12 19c-6.5 0-10-7-10-7a19.7 19.7 0 0 1 4.22-5.19" />
-      <path d="M9.9 4.24A10.94 10.94 0 0 1 12 4c6.5 0 10 7 10 7a19.72 19.72 0 0 1-3.16 4.19" />
-      <path d="M14.12 14.12a3 3 0 1 1-4.24-4.24" />
-      <line x1="2" y1="2" x2="22" y2="22" />
-    </svg>
-  );
-}
-
-function ArrowRightIcon() {
-  return (
-    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-      <line x1="5" y1="12" x2="19" y2="12" />
-      <polyline points="12 5 19 12 12 19" />
-    </svg>
   );
 }
