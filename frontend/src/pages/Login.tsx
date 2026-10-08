@@ -170,12 +170,6 @@ export function LoginPage() {
             </button>
           </form>
 
-          <div className="lg-or" aria-hidden><span>or</span></div>
-
-          <p className="lg-access">
-            <ShieldCheck size={18} strokeWidth={1.8} aria-hidden />
-            Need access? Contact your administrator
-          </p>
         </div>
 
         <nav className="lg-legal" aria-label="Legal">

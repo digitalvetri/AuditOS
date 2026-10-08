@@ -264,24 +264,6 @@
 .lg-submit:disabled { opacity: 0.65; cursor: not-allowed; }
 .lg-submit:focus-visible, .lg-link:focus-visible, .lg-eye:focus-visible { outline: 3px solid rgb(124 92 246 / 0.45); outline-offset: 2px; }
 
-.lg-or { display: flex; align-items: center; gap: 16px; margin: 22px auto 16px; max-width: 280px; font-size: 14px; color: #6b6884; }
-.lg-or::before, .lg-or::after { content: ''; flex: 1; height: 1px; background: var(--line); }
-
-.lg-access {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 10px;
-  min-height: 48px;
-  padding: 10px 14px;
-  border-radius: 12px;
-  background: #f4f1ff;
-  font-size: 14px;
-  font-weight: 500;
-  color: #4b3fd6;
-  text-align: center;
-}
-
 .lg-legal { position: absolute; right: 28px; bottom: 20px; display: flex; gap: 14px; font-size: 13px; color: #8a86a3; }
 .lg-legal a:hover { color: var(--ink); }
 
