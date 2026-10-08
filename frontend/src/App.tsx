@@ -7,6 +7,7 @@ import { ProtectedRoute } from '@/platform/auth/ProtectedRoute';
 // is a swap, not a delete, and old modules render inside the new frame.
 import { AppShellV2 as AppShell } from '@/shell/v2/AppShell';
 import { LoginPage } from '@/pages/Login';
+import { SetPasswordPage } from '@/pages/SetPassword';
 import { DashboardV2Page as DashboardPage } from '@/pages/DashboardV2';
 // Workstation (AUDIT_OS_WORKSTATION.md §4) — replaces the reserved screen.
 import { WorkstationDashboardPage } from '@/pages/workstation/Dashboard';
@@ -183,6 +184,7 @@ export default function App() {
             {/* Public: a client's live document link. No login — the token in
                 the URL is the authorization, and the firm can turn it off. */}
             <Route path="/portal/documents/:token" element={<ClientDocumentsPortalPage />} />
+            <Route path="/set-password" element={<SetPasswordPage />} />
 
             {/* The quotation preview is a document, not a screen: it is
                 declared OUTSIDE the AppShell route below so the sidebar,

@@ -4,19 +4,21 @@
  * unread notifications, and the "My …" shortcuts. Closes on Esc, scrim
  * click, or route change.
  */
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { Avatar } from '@/components/viz';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
-import { LogOut, X } from 'lucide-react';
+import { KeyRound, LogOut, X } from 'lucide-react';
 import { useAuth } from '@/platform/auth/AuthContext';
 import { notificationsApi } from '@/platform/notifications/api';
 import { TodayCard } from '@/modules/attendance/TodayCard';
+import { ChangePasswordModal } from '@/platform/auth/ChangePasswordModal';
 
 export function RightPanel({ open, onClose }: { open: boolean; onClose: () => void }) {
   const { session, logout } = useAuth();
   const location = useLocation();
   const navigate = useNavigate();
+  const [changing, setChanging] = useState(false);
   const unread = useQuery({ queryKey: ['notifications', 'list'], queryFn: () => notificationsApi.list(8), enabled: open });
 
   useEffect(() => { onClose(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [location.pathname]);
@@ -81,6 +83,13 @@ export function RightPanel({ open, onClose }: { open: boolean; onClose: () => vo
           </section>
           <button
             type="button"
+            onClick={() => setChanging(true)}
+            className="w-full flex items-center justify-center gap-2 h-10 text-13 font-medium text-ink border border-border rounded-[12px] hover:bg-canvas"
+          >
+            <KeyRound size={16} strokeWidth={1.75} /> Change password
+          </button>
+          <button
+            type="button"
             onClick={async () => { onClose(); await logout(); navigate('/login', { replace: true }); }}
             className="w-full flex items-center justify-center gap-2 h-10 text-13 font-medium text-ink border border-border rounded-[12px] hover:bg-canvas"
           >
@@ -88,6 +97,7 @@ export function RightPanel({ open, onClose }: { open: boolean; onClose: () => vo
           </button>
         </div>
       </aside>
+      {changing ? <ChangePasswordModal onClose={() => setChanging(false)} /> : null}
     </>
   );
 }

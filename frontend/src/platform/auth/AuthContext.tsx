@@ -35,6 +35,8 @@ interface AuthState {
   error: string | null;
   login: (email: string, password: string) => Promise<void>;
   logout: () => Promise<void>;
+  /** Change the signed-in user's password; this browser stays signed in. */
+  changePassword: (current: string, next: string) => Promise<void>;
   /** The session check could not reach the server (offline / API down). */
   unreachable: boolean;
   /** Try the session check again (after coming back online). */
@@ -117,9 +119,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }, []);
 
+  const changePassword = useCallback(async (current: string, next: string) => {
+    const s = await api.post<Session>('/api/auth/change-password', {
+      current_password: current, new_password: next,
+    });
+    setSession(s);
+  }, [setSession]);
+
   const value = useMemo<AuthState>(
-    () => ({ session, loading, error, login, logout, unreachable, retry }),
-    [session, loading, error, login, logout, unreachable, retry],
+    () => ({ session, loading, error, login, logout, changePassword, unreachable, retry }),
+    [session, loading, error, login, logout, changePassword, unreachable, retry],
   );
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;

@@ -39,5 +39,10 @@ export function ProtectedRoute({ children }: { children: ReactNode }) {
     return <Navigate to="/login" replace state={{ from: location }} />;
   }
 
+  // An Admin-issued password: nothing else works until the user sets their own.
+  if (session.must_change_password) {
+    return <Navigate to="/set-password" replace />;
+  }
+
   return <>{children}</>;
 }
