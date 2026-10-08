@@ -24,6 +24,7 @@
     "prisma:push:safe": "tsx prisma/safe-push.ts",
     "db:drop-legacy-books": "prisma db execute --schema prisma/schema.prisma --file prisma/sql/drop-legacy-books.postgresql.sql",
     "seed": "tsx prisma/seed.ts",
+    "setup:owners": "tsx prisma/setup-owners.ts",
     "seed:tools": "tsx prisma/seed-tools.ts",
     "books:connection": "tsx prisma/books-connection.ts",
     "setup:roles": "tsx prisma/setup-roles.ts",

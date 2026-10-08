@@ -31,10 +31,7 @@ React 18 + Vite  (frontend/src/ — the primary application)
         │  every call goes through one adapter:
         │  frontend/src/services/api.ts  →  fetch('/api/…', { credentials: 'include' })
         │
-        ├───────────────► MSW mock backend        VITE_MOCK_MODE=true
-        │                 frontend/src/data/mock/ (no server needed)
-        │
-        └───────────────► Express API             VITE_MOCK_MODE=false
+        └───────────────► Express API
                           backend/src/
                                 │
                           Prisma ORM
@@ -107,19 +104,15 @@ The development workflow: hot reload on both sides.
 ```bash
 cp docker/.env.docker.example docker/.env.docker   # dev credentials for the DB container
 (cd docker && docker compose up -d postgres adminer)  # Postgres 16 on :55432, Adminer on :58080
-(cd backend && npm install && npm run prisma:generate && npm run prisma:push:safe && npm run seed)
+(cd backend && npm install && npm run prisma:generate && npm run prisma:push:safe && npm run seed && npm run setup:owners)
 (cd frontend && npm install)
 ```
 
-Then either mode:
+Set the `OWNER_*` variables in `backend/.env` before `setup:owners` (see
+[Accounts](#accounts)). Then:
 
 ```bash
 cd frontend
-
-# Mock mode — no backend, MSW serves seeded data in the browser
-npm run dev            # http://localhost:5173
-
-# Real backend mode — set VITE_MOCK_MODE=false in frontend/.env first
 npm run dev:full       # Vite on :5173 and the API together
 ```
 
@@ -132,12 +125,13 @@ Each folder has its own `package.json`; run these inside it.
 
 | Where | Command | What it does |
 |---|---|---|
-| `frontend/` | `npm run dev` | Vite dev server (mock or real depending on `VITE_MOCK_MODE`) |
+| `frontend/` | `npm run dev` | Vite dev server (proxies `/api` to the backend) |
 | `frontend/` | `npm run dev:api` | The backend's API with hot reload |
 | `frontend/` | `npm run dev:full` | Both together |
 | `frontend/` | `npm run build` / `type-check` | Production bundle / TypeScript check |
 | `backend/` | `npm run dev` / `build` / `typecheck` / `test` | API dev server, compile to `backend/dist`, type-check, tests |
-| `backend/` | `npm run prisma:generate` / `prisma:push:safe` / `seed` | Prisma client, non-destructive schema sync, seed |
+| `backend/` | `npm run prisma:generate` / `prisma:push:safe` / `seed` | Prisma client, non-destructive schema sync, reference-data seed |
+| `backend/` | `npm run setup:owners` | Create the Super Admin and Admin logins from `OWNER_*` env (`-- --reset-passwords` to reset them) |
 | `backend/` | `npm run db:reset` | Drop the dev database and rebuild it from the seed |
 | `docker/` | `docker compose up -d --build` | Build and start the full stack (db + api + web + adminer) |
 | `docker/` | `docker compose down` | Stop the stack, keeping the data volumes |
@@ -159,23 +153,9 @@ Two files, both git-ignored, both with a committed `.example`:
 | `.env` | Frontend. Copy from `.env.example`. |
 | `backend/.env` | Backend. Copy from `backend/.env.example`. |
 
-### Mock mode
+### Frontend → backend
 
 ```dotenv
-VITE_MOCK_MODE=true
-```
-
-MSW intercepts every `/api/*` call inside the browser and serves the seeded
-dataset from `src/data/seed/`. No backend, no database. State persists to
-`localStorage`, so a refresh keeps your changes. This is the fastest way to
-work on the UI and it stays fully supported — the mock handlers implement the
-same contract as the server, module for module, including Messages and
-Reports.
-
-### Real backend mode
-
-```dotenv
-VITE_MOCK_MODE=false
 VITE_API_PROXY_TARGET=http://localhost:4000
 ```
 
@@ -196,6 +176,8 @@ cases, and no component changes its URL.
 | `WEB_ORIGIN` | no | Comma-separated allow-list for credentialed CORS. Never `*`. |
 | `PORT` | no | Default 4000. |
 | `NODE_ENV` | no | In `production`, a missing secret aborts startup rather than falling back. |
+| `OWNER_SUPERADMIN_EMAIL` / `_PASSWORD` | for `setup:owners` | The Super Admin login. Hidden from every other user. |
+| `OWNER_ADMIN_EMAIL` / `_PASSWORD` | for `setup:owners` | The Admin login. |
 
 In development a missing secret produces a per-process random value with a
 warning — sessions simply do not survive a restart. There is no well-known
@@ -203,23 +185,25 @@ default secret anywhere in the codebase.
 
 ---
 
-## Demo credentials
+## Accounts
 
-Development seed data only. They exist in `backend/prisma/seed.ts` and in the
-mock seed; never deploy with them.
+There are no demo accounts and no demo data. The seed loads reference data
+only (roles, leave types, holidays, statutory rates, service catalog, GST and
+registration templates).
 
-| Role | Email | Password |
-|---|---|---|
-| Super Admin | ravi@auditos.local | `md` |
-| Admin | priya@auditos.local | `hr` |
-| Admin | anitha@auditos.local | `fin` |
-| Senior Associate | vikram@auditos.local | `mgr` |
-| Associate | meera@auditos.local | `emp` |
-| Intern | karthik@auditos.local | `art` |
-
-The login screen lists them when `VITE_MOCK_MODE=true`, or when
-`VITE_SHOW_DEMO_LOGINS=true` against the seeded dev backend. A production
-build shows nothing.
+- **Owners.** `npm run setup:owners` creates the Super Admin and the Admin from
+  the `OWNER_*` variables in `backend/.env` (Docker: `docker/.env.docker`).
+  Re-running it changes nothing unless you pass `-- --reset-passwords`.
+  Passwords never live in the repository.
+- **Everyone else.** Admin or Super Admin adds users in **Settings → Users**
+  (this creates the employee record and the login together), changes roles,
+  resets passwords and deactivates accounts.
+- **Passwords.** At least 8 characters with letters and numbers. A password
+  set by an Admin is temporary: the user must choose their own at next
+  sign-in. Every user can change theirs from the profile panel. Forgotten
+  passwords are reset by an Admin. Any change or reset signs that account out
+  on every other device.
+- **Super Admin** is invisible to every other user, Admin included.
 
 ---
 
@@ -524,8 +508,6 @@ src/                     Part 1 frontend — the primary application
   components/            shared primitives (Button, Input, StatusRow, Toast)
   data/
     models.ts            TypeScript domain model (snake_case API shapes)
-    mock/                MSW handlers — the full API contract, mocked
-    seed/                seeded dataset shared by mock mode
   design/                design tokens and global styles
   lib/                   pure helpers (dates, money formatting, payroll maths)
   modules/               feature modules; each registers its dashboard widgets

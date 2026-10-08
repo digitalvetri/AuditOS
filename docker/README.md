@@ -72,8 +72,10 @@ nothing to run by hand.
 registration details live in the existing `RegistrationCredential` table
 (secret fields such as Aadhaar, the security answer or a second login are
 encrypted inside it with `PORTAL_ACCESS_ENC_KEY`, so set that key before the
-first run and never change it afterwards). The seed adds sample Partnership /
-LLP / Private Limited cases with filled-in details (`seed-registration-samples.ts`).
+first run and never change it afterwards). Sample Partnership / LLP /
+Private Limited cases (`seed-registration-samples.ts`) are no longer part of
+the seed — the app starts clean; that script is for development databases
+that still hold the old demo staff.
 To autofill portal logins and registration forms, build the Chrome extension
 and load it unpacked:
 
@@ -119,12 +121,11 @@ assigned to — as account manager, second staff, or on one of the client's
 services or its GST profile. Giving a role the HRMS module in Settings →
 Roles & permissions also lets it see every client. Nothing to run by hand.
 
-**Demo logins.** The seed creates one login per role — Super Admin
-`ravi@auditos.local` / `md`, Admin `priya@auditos.local` / `hr`, Senior
-Associate `vikram@auditos.local` / `mgr`, Associate `meera@auditos.local` /
-`emp`, Intern `karthik@auditos.local` / `art`. To list them on the sign-in
-screen, set `VITE_SHOW_DEMO_LOGINS=true` in `docker/.env` and rebuild `web`
-(it is a build-time flag). Development only — never on a real deployment.
+**Accounts.** There are no demo logins. Put `OWNER_SUPERADMIN_EMAIL`,
+`OWNER_SUPERADMIN_PASSWORD`, `OWNER_ADMIN_EMAIL` and `OWNER_ADMIN_PASSWORD` in
+`docker/.env.docker`; `migrate` creates those two logins after the seed (and
+leaves their passwords alone on later runs). The Admin then adds everyone else
+in Settings → Users.
 
 **Database only, for native development** (`npm run dev:full` against it):
 
