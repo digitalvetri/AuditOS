@@ -4,7 +4,7 @@
  */
 import type { ReactNode } from 'react';
 import {
-  BadgePercent, Briefcase, Building2, CalendarDays, CalendarRange, KeyRound, MapPin, Receipt, Settings,
+  BadgePercent, Briefcase, Building2, CalendarDays, CalendarRange, KeyRound, MapPin, Receipt, Settings, Users,
 } from 'lucide-react';
 import { Button } from '@/components/Button';
 
@@ -17,6 +17,7 @@ const LOOK: Record<string, { Icon: typeof Settings; bg: string; fg: string }> = 
   'Leave types': { Icon: CalendarRange, bg: '#e9f9f1', fg: '#047857' },
   'Expense categories': { Icon: Receipt, bg: '#fff7e6', fg: '#b45309' },
   'Statutory rates': { Icon: BadgePercent, bg: '#f5f1ff', fg: '#5b33c4' },
+  'Users': { Icon: Users, bg: '#f5f1ff', fg: '#5b33c4' },
   'Roles & permissions': { Icon: KeyRound, bg: '#efeafd', fg: '#6941d9' },
 };
 

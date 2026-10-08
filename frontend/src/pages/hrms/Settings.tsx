@@ -7,7 +7,7 @@
  */
 import { useSearchParams } from 'react-router-dom';
 import {
-  BadgePercent, Building2, CalendarDays, CalendarRange, KeyRound, Receipt,
+  BadgePercent, Building2, CalendarDays, CalendarRange, KeyRound, Receipt, Users,
 } from 'lucide-react';
 import { useAuth } from '@/platform/auth/AuthContext';
 import { can } from '@/platform/rbac/can';
@@ -16,12 +16,14 @@ import { LeaveTypesSection } from '@/modules/settings/LeaveTypesSection';
 import { ExpenseCategoriesSection } from '@/modules/settings/ExpenseCategoriesSection';
 import { StatutoryRatesSection } from '@/modules/settings/StatutoryRatesSection';
 import { RolesSection } from '@/modules/settings/RolesSection';
+import { UsersSection } from '@/modules/settings/UsersSection';
 
 type Section =
   | 'holidays'
   | 'leave-types'
   | 'expense-categories'
   | 'statutory-rates'
+  | 'users'
   | 'roles';
 
 /** Each group's tint for the menu's icon squares (the dashboard palette). */
@@ -37,6 +39,7 @@ const SECTIONS: { id: Section; label: string; group: string; icon: typeof Buildi
   { id: 'leave-types', label: 'Leave types', group: 'Time & Leave', icon: CalendarRange },
   { id: 'expense-categories', label: 'Expense categories', group: 'Finance', icon: Receipt },
   { id: 'statutory-rates', label: 'Statutory rates', group: 'Finance', icon: BadgePercent },
+  { id: 'users', label: 'Users', group: 'Access', icon: Users },
   { id: 'roles', label: 'Roles & permissions', group: 'Access', icon: KeyRound },
 ];
 
@@ -61,7 +64,10 @@ export function SettingsPage() {
   }
 
   const setSection = (s: Section) => setParams({ section: s });
-  const groups = Array.from(new Set(SECTIONS.map((s) => s.group)));
+  // Users is account administration: Super Admin and Admin only.
+  const isAdmin = session?.role.code === 'md' || session?.role.code === 'hr_admin';
+  const sections = SECTIONS.filter((s) => s.id !== 'users' || isAdmin);
+  const groups = Array.from(new Set(sections.map((s) => s.group)));
 
   return (
     <div className="m-page">
@@ -83,7 +89,7 @@ export function SettingsPage() {
           >
             {groups.map((g) => (
               <optgroup key={g} label={g}>
-                {SECTIONS.filter((x) => x.group === g).map((x) => (
+                {sections.filter((x) => x.group === g).map((x) => (
                   <option key={x.id} value={x.id}>{x.label}</option>
                 ))}
               </optgroup>
@@ -97,7 +103,7 @@ export function SettingsPage() {
           {groups.map((g) => (
             <div key={g} className="mb-3 last:mb-0">
               <div className="text-12 font-semibold text-neutral-500 px-3 mb-1 mt-1">{g}</div>
-              {SECTIONS.filter((s) => s.group === g).map((s) => {
+              {sections.filter((s) => s.group === g).map((s) => {
                 const active = s.id === section;
                 return (
                   <button
@@ -129,6 +135,7 @@ export function SettingsPage() {
           {section === 'leave-types' ? <LeaveTypesSection /> : null}
           {section === 'expense-categories' ? <ExpenseCategoriesSection /> : null}
           {section === 'statutory-rates' ? <StatutoryRatesSection /> : null}
+          {section === 'users' && isAdmin ? <UsersSection /> : null}
           {section === 'roles' ? <RolesSection /> : null}
         </main>
       </div>
