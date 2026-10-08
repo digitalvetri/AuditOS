@@ -94,11 +94,6 @@ services:
     build:
       context: ../frontend
       target: runtime
-      # Baked into the bundle at build time. Compose reads it from the shell or
-      # a ./.env next to this file (frontend/.env is the Vite dev file, which
-      # compose does not read); unset, it stays off.
-      args:
-        VITE_SHOW_DEMO_LOGINS: ${VITE_SHOW_DEMO_LOGINS:-false}
     container_name: auditos-web
     restart: unless-stopped
     ports:

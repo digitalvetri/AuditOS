@@ -30,7 +30,6 @@ interface PwaState {
 }
 
 const Ctx = createContext<PwaState | null>(null);
-const MOCK_MODE = import.meta.env.VITE_MOCK_MODE === 'true';
 
 function isStandalone(): boolean {
   if (typeof window === 'undefined') return false;
@@ -53,7 +52,7 @@ export function PwaProvider({ children }: { children: ReactNode }) {
   const updateSW = useRef<((reload?: boolean) => Promise<void>) | null>(null);
 
   useEffect(() => {
-    if (MOCK_MODE || !('serviceWorker' in navigator)) return;
+    if (!('serviceWorker' in navigator)) return;
     let cancelled = false;
     (async () => {
       const { registerSW } = await import('virtual:pwa-register');

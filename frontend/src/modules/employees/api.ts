@@ -6,7 +6,17 @@
  */
 import { api } from '@/services/api';
 import type { ArticledTraining, AuditLog, Employee } from '@/data/models';
-import type { FinanceProjection } from '@/data/mock/handlers/employees';
+
+/** The reduced employee row a finance-only viewer receives. */
+export interface FinanceProjection {
+  id: string;
+  employee_code: string;
+  full_name: string;
+  department_id: string | null;
+  designation_id: string | null;
+  bank_account_masked: string | null;
+  status: Employee['status'];
+}
 
 export type EmployeeRow = (Employee | FinanceProjection) & {
   today_attendance?: {

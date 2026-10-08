@@ -4,10 +4,9 @@ import { VitePWA } from 'vite-plugin-pwa';
 import path from 'node:path';
 
 /**
- * In mock mode MSW intercepts `/api/*` inside the browser and the proxy is
- * never reached. In real mode the same relative URLs are proxied to the
- * Express backend — which keeps the app same-origin, so the session cookie
- * works without any CORS or SameSite gymnastics and no component changes URL.
+ * `/api/*` and `/socket.io` are proxied to the Express backend — which keeps
+ * the app same-origin, so the session cookie works without any CORS or
+ * SameSite gymnastics and no component changes URL.
  */
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), '');
@@ -25,7 +24,7 @@ export default defineConfig(({ mode }) => {
         filename: 'sw.ts',
         injectRegister: false,
         registerType: 'prompt',
-        devOptions: { enabled: env.VITE_MOCK_MODE !== 'true', type: 'module', navigateFallback: 'index.html' },
+        devOptions: { enabled: true, type: 'module', navigateFallback: 'index.html' },
         injectManifest: {
           globPatterns: ['**/*.{js,css,html,woff2,svg,png,ico,webmanifest}'],
           globIgnores: ['mockServiceWorker.js', 'brand/**', 'login-hero.png', 'jns-logo.png'],

@@ -14,6 +14,8 @@ import { currentSubscription } from '@/platform/pwa/push';
 
 interface Session {
   user: { id: string; email: string };
+  /** Signed in with an Admin-issued password: must set a new one first. */
+  must_change_password?: boolean;
   role: { id: string; code: RoleCode; name: string };
   /** Live grants from the server; drives can() for menus. */
   grants?: Grant[];

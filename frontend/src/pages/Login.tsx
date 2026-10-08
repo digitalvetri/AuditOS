@@ -1,17 +1,7 @@
 import { useState, type FormEvent } from 'react';
 import { Navigate, useNavigate } from 'react-router-dom';
 import { useAuth } from '@/platform/auth/AuthContext';
-import { demoCredentials } from '@/data/seed';
 import { BrandLogo } from '@/components/BrandLogo';
-
-const MOCK_MODE = import.meta.env.VITE_MOCK_MODE === 'true';
-/**
- * The demo list is on by default in mock mode. Against the real backend it is
- * off unless explicitly enabled, so a deployed build never advertises the
- * development logins.
- */
-const SHOW_DEMO_LOGINS =
-  MOCK_MODE || import.meta.env.VITE_SHOW_DEMO_LOGINS === 'true';
 
 // Login-page brand blues. Scoped to this file — the rest of the app keeps
 // the sage+gold system from tailwind.config.ts, so we use arbitrary values
@@ -35,9 +25,10 @@ export function LoginPage() {
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [remember, setRemember] = useState(false);
+  const [forgotOpen, setForgotOpen] = useState(false);
 
   if (session) {
-    return <Navigate to="/" replace />;
+    return <Navigate to={session.must_change_password ? '/set-password' : '/'} replace />;
   }
 
   async function onSubmit(e: FormEvent) {
@@ -167,13 +158,20 @@ export function LoginPage() {
               </label>
               <a
                 href="#"
-                onClick={(e) => e.preventDefault()}
+                onClick={(e) => { e.preventDefault(); setForgotOpen((v) => !v); }}
+                aria-expanded={forgotOpen}
                 className="text-13 hover:underline"
                 style={{ color: BRAND.primary }}
               >
                 Forgot password?
               </a>
             </div>
+
+            {forgotOpen ? (
+              <div role="note" className="text-13 text-neutral-700 bg-[#f5f1ff] border border-[#e4dcff] rounded-[10px] px-3 py-2">
+                Ask your Admin to reset your password. You’ll sign in with the temporary password they give you and then choose a new one.
+              </div>
+            ) : null}
 
             {error ? (
               <div className="text-12 text-red border-l-2 border-red pl-2">{error}</div>
@@ -197,9 +195,6 @@ export function LoginPage() {
             Need access? Contact your administrator
           </p>
 
-          {SHOW_DEMO_LOGINS ? (
-            <DemoCredentials onPick={(e, p) => { setEmail(e); setPassword(p); }} />
-          ) : null}
         </div>
 
         <div className="absolute bottom-4 right-6 flex items-center gap-3 text-12 text-neutral-400">
@@ -212,40 +207,6 @@ export function LoginPage() {
           </a>
         </div>
       </div>
-    </div>
-  );
-}
-
-function DemoCredentials({ onPick }: { onPick: (email: string, password: string) => void }) {
-  return (
-    <div className="mt-8 pt-6 border-t border-neutral-200">
-      <div className="text-11 uppercase tracking-[0.06em] text-neutral-500 mb-2">
-        Demo logins ({MOCK_MODE ? 'mock mode' : 'seeded development backend'})
-      </div>
-      <div className="bg-white border border-neutral-200 rounded-[12px] overflow-hidden shadow-card">
-        {demoCredentials.map((c, i) => (
-          <button
-            key={c.email}
-            type="button"
-            onClick={() => onPick(c.email, c.password)}
-            className={
-              'w-full text-left px-3 py-2 flex items-center justify-between hover:bg-neutral-50 ' +
-              (i > 0 ? 'border-t border-neutral-200' : '')
-            }
-          >
-            <div>
-              <div className="text-13 text-neutral-900 font-medium">{c.role}</div>
-              <div className="text-12 text-neutral-500">{c.email}</div>
-            </div>
-            <div className="text-11 text-neutral-500">pw: {c.password}</div>
-          </button>
-        ))}
-      </div>
-      <p className="text-11 text-neutral-500 mt-3">
-        Shown when <code className="text-neutral-700">VITE_MOCK_MODE=true</code> or
-        {' '}<code className="text-neutral-700">VITE_SHOW_DEMO_LOGINS=true</code>. These are
-        development credentials from the seed — never enable this on a real deployment.
-      </p>
     </div>
   );
 }

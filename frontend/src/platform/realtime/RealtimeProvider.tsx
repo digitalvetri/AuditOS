@@ -20,8 +20,6 @@ import { notificationsApi } from '@/platform/notifications/api';
 import { resyncPush } from '@/platform/pwa/push';
 import type { Notification } from '@/data/models';
 
-const MOCK_MODE = import.meta.env.VITE_MOCK_MODE === 'true';
-
 // ── connection state, readable from any component ─────────────────────────
 let connected = false;
 const listeners = new Set<() => void>();
@@ -74,7 +72,6 @@ export function RealtimeProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     void resyncPush();
-    if (MOCK_MODE) return;
     const socket = io({ path: '/socket.io', withCredentials: true, transports: ['websocket', 'polling'] });
     socketRef.current = socket;
 

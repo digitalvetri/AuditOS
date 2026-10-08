@@ -45,7 +45,7 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
     // no HTTP status here, so status 0 marks "never reached the server" and
     // pages can tell it apart from a real 4xx.
     throw makeError(0, 'network_error',
-      `Could not reach the API (${path}). Is the backend running? In mock mode this path may have no MSW handler.`);
+      `Could not reach the API (${path}). Is the backend running?`);
   }
 
   if (res.status === 204) return undefined as T;
