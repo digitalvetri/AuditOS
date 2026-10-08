@@ -5,6 +5,7 @@ import { ApiError, handler, ok } from '../lib/http.js'
 import { prisma } from '../lib/prisma.js'
 import { istToday } from '../lib/dates.js'
 import { can, hashPassword, requireSession, type Session } from '../platform/auth.js'
+import { passwordProblem } from '../platform/password.js'
 import { writeAudit } from '../platform/audit.js'
 import { notifyPermissionHolders } from '../platform/notify.js'
 import { VISIBLE_ROLE_CODES } from '../platform/rbac/modules.js'
@@ -201,6 +202,9 @@ employeesRouter.post('/', handler(async (req, res) => {
     )
   }
   const b = body.data
+  // Same rule as Settings → Users: letters and numbers, not just length.
+  const typedProblem = b.password ? passwordProblem(b.password) : null
+  if (typedProblem) throw ApiError.badRequest(typedProblem, { password: [typedProblem] })
 
   const email = b.email.trim().toLowerCase()
   const role = await assignableRole(b.role_code)
@@ -241,6 +245,8 @@ employeesRouter.post('/', handler(async (req, res) => {
     const login = await tx.user.create({
       data: {
         organisationId: org.id, email, passwordHash: hashPassword(password),
+        // Admin-issued, so temporary: they choose their own at first sign-in.
+        mustChangePassword: true,
         roleId: role.id, employeeId: row.id, createdBy: session.userId, updatedBy: session.userId,
       },
     })
@@ -279,6 +285,8 @@ employeesRouter.put('/:id/password', handler(async (req, res) => {
     const fields = body.error.flatten().fieldErrors
     throw ApiError.badRequest(fields.password?.[0] ?? 'Invalid password.', fields)
   }
+  const typed = body.data.password ? passwordProblem(body.data.password) : null
+  if (typed) throw ApiError.badRequest(typed, { password: [typed] })
 
   const target = await prisma.employee.findUnique({ where: { id: req.params.id } })
   if (!target || target.deletedAt) throw ApiError.notFound('Employee not found.')
@@ -294,7 +302,11 @@ employeesRouter.put('/:id/password', handler(async (req, res) => {
   if (existing) {
     login = await prisma.user.update({
       where: { id: existing.id },
-      data: { passwordHash: hashPassword(password), updatedBy: session.userId },
+      // Temporary, and every open session of theirs ends (same as Settings → Users).
+      data: {
+        passwordHash: hashPassword(password), mustChangePassword: true,
+        sessionVersion: { increment: 1 }, updatedBy: session.userId,
+      },
       include: { role: true },
     })
   } else {
@@ -306,6 +318,7 @@ employeesRouter.put('/:id/password', handler(async (req, res) => {
     login = await prisma.user.create({
       data: {
         organisationId: target.organisationId, email, passwordHash: hashPassword(password),
+        mustChangePassword: true,
         roleId: role.id, employeeId: target.id, createdBy: session.userId, updatedBy: session.userId,
       },
       include: { role: true },
@@ -335,9 +348,11 @@ async function assignableRole(code: string | undefined) {
 /** 12 characters without look-alikes (0/O, 1/l/I), so it can be read out. */
 function generatePassword(): string {
   const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz23456789'
-  let out = ''
-  for (let i = 0; i < 12; i++) out += chars[randomInt(chars.length)]
-  return out
+  for (;;) {
+    let out = ''
+    for (let i = 0; i < 12; i++) out += chars[randomInt(chars.length)]
+    if (!passwordProblem(out)) return out // always letters and numbers
+  }
 }
 
 // GET /api/employees/:id
