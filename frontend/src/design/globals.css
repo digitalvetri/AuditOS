@@ -1965,3 +1965,19 @@ select[size] option:hover,
 :root:not([data-theme='dark']) .pastel-panel { background: #efe9ff !important; border-color: transparent !important; box-shadow: none !important; }
 :root:not([data-theme='dark']) .pastel-panel .border-border { border-color: rgb(122 90 248 / 0.18); }
 :root:not([data-theme='dark']) .pastel-panel a:hover { background: rgb(255 255 255 / 0.55); }
+
+/* ── No zoom-on-focus on touch devices ──────────────────────────────────────
+   iPhone Safari zooms the whole page into any text field whose font is under
+   16px, and stays zoomed after you leave it. Every field in the app is 13–15px
+   on purpose for desktop density, so on touch screens they all go to 16px.
+   Pinch-zoom is untouched (no `maximum-scale` on the viewport) — people who
+   need larger text can still zoom. !important because the fields carry
+   Tailwind text-size utilities. */
+@media (hover: none) and (pointer: coarse) {
+  input:not([type='checkbox']):not([type='radio']):not([type='range']):not([type='file']):not([type='color']),
+  select,
+  textarea,
+  [contenteditable='true'] {
+    font-size: 16px !important;
+  }
+}

@@ -283,14 +283,27 @@
   .lg-scene { transition: none; animation: lg-drift 16s ease-in-out infinite alternate; }
 }
 
-/* ── Tablet & phone: scene becomes a banner above the card ──────────────── */
+/* ── Tablet & phone: one fixed screen ────────────────────────────────────
+   The page is exactly the viewport tall and never scrolls or bounces: a
+   short scene banner on top, the sign-in card in the remaining space. Only
+   the card area may scroll, and only if something pushes it past the screen
+   (an error, the forgot-password note, a very short phone). */
 @media (max-width: 899px) {
-  .lg-page { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto 1fr; }
+  .lg-page {
+    height: 100vh;
+    height: 100dvh;
+    min-height: 0;
+    overflow: hidden;
+    overscroll-behavior: none;
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: auto minmax(0, 1fr);
+  }
   .lg-hero {
-    margin: 12px 12px 0;
-    min-height: 220px;
-    padding: 22px;
-    border-radius: 24px;
+    height: clamp(116px, 20dvh, 190px);
+    min-height: 0;
+    margin: max(10px, env(safe-area-inset-top)) 12px 0;
+    padding: 16px 18px;
+    border-radius: 22px;
     justify-content: space-between;
   }
   .lg-scene { width: 100%; -webkit-mask-image: linear-gradient(90deg, transparent 0%, #000 60%); mask-image: linear-gradient(90deg, transparent 0%, #000 60%); }
@@ -304,28 +317,43 @@
     pointer-events: none;
     background: linear-gradient(90deg, rgb(240 235 255 / 0.96) 0%, rgb(240 235 255 / 0.82) 48%, rgb(240 235 255 / 0.1) 100%);
   }
-  .lg-brand-name { display: none; }
-  .lg-lamp { display: none; }
-  .lg-brand-chip { height: 48px; padding: 0 14px; border-radius: 14px; }
-  .lg-brand-chip img { height: 26px; }
-  .lg-brand-name { font-size: 15px; }
-  .lg-copy { flex: 0; padding: 18px 0 0; max-width: 62%; }
-  .lg-title { font-size: clamp(26px, 6.4vw, 38px); }
-  .lg-lead, .lg-features, .lg-copyright { display: none; }
-  .lg-side { padding: 20px 16px 72px; justify-content: flex-start; }
-  .lg-blob--top { width: 160px; height: 160px; top: -60px; right: -60px; }
-  .lg-blob--bottom { width: 220px; height: 220px; bottom: -120px; }
-  .lg-card { padding: 28px 22px; border-radius: 20px; }
-  .lg-card-logo { height: 56px; }
-  .lg-welcome { margin-top: 20px; }
-  .lg-legal { right: 50%; transform: translateX(50%); bottom: 24px; }
+  .lg-brand-name, .lg-lamp, .lg-lead, .lg-features, .lg-copyright { display: none; }
+  .lg-brand-chip { height: 40px; padding: 0 12px; border-radius: 12px; }
+  .lg-brand-chip img { height: 22px; }
+  .lg-copy { flex: 0; padding: 0; max-width: 64%; }
+  .lg-title { font-size: clamp(22px, 5.6vw, 34px); }
+
+  .lg-side {
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    -webkit-overflow-scrolling: touch;
+    justify-content: center;
+    padding: 12px 16px max(12px, env(safe-area-inset-bottom));
+  }
+  .lg-blob--top { width: 140px; height: 140px; top: -50px; right: -50px; }
+  .lg-blob--bottom { width: 200px; height: 200px; bottom: -110px; }
+  .lg-card { padding: 22px 20px; border-radius: 20px; }
+  /* The banner already carries the brand. */
+  .lg-card .lg-card-logo { display: none; }
+  .lg-welcome { margin-top: 0; font-size: 26px; }
+  .lg-sub { margin-top: 4px; font-size: 14px; }
+  .lg-form { margin-top: 18px; gap: 12px; }
+  .lg-label { margin-bottom: 6px; font-size: 14px; }
+  .lg-input { height: 48px; }
+  .lg-submit { height: 50px; font-size: 16px; }
+  .lg-legal { position: static; transform: none; justify-content: center; margin-top: 10px; }
 }
 @media (max-width: 899px) and (min-width: 600px) {
-  .lg-card { max-width: 520px; }
-  .lg-hero { min-height: 260px; }
+  .lg-card { max-width: 520px; padding: 32px 30px; }
+  .lg-hero { height: clamp(170px, 26dvh, 260px); padding: 22px; }
   /* Keep the artwork near its native size so it stays sharp. */
   .lg-scene { width: 58%; }
   .lg-hero::after { background: linear-gradient(90deg, rgb(240 235 255 / 0.96) 0%, rgb(240 235 255 / 0.7) 46%, rgb(240 235 255 / 0) 70%); }
+}
+/* Very short screens (small phones, landscape): headline off, banner slimmer. */
+@media (max-width: 899px) and (max-height: 640px) {
+  .lg-hero { height: 76px; padding: 14px 16px; }
+  .lg-copy { display: none; }
 }
 
 /* ── Reduced motion: everything still ───────────────────────────────────── */
