@@ -163,3 +163,51 @@ describe('Settings — roles & permissions API', () => {
   // so their own role always counts as an other-holder — but leaving it in
   // guards a future permission model where a non-holder can also edit grants.
 })
+
+describe('Settings — Super Admin role is invisible to Admin', () => {
+  it('hides the md role from an Admin and refuses changes to it', async () => {
+    const org = await prisma.organisation.create({ data: { id: uid('org'), name: 'Firm' } })
+    const mdRole = await seedRole('md')
+    const admin = await user(org.id, (await seedRole('hr_admin')).id)
+
+    const roles = await api('/api/settings/roles', { cookie: admin.cookie })
+    expect(roles.status).toBe(200)
+    expect(roles.body.data.roles.some((r: { code: string }) => r.code === 'md')).toBe(false)
+    expect(roles.body.data.matrix.md).toBeUndefined()
+    const mods = await api('/api/settings/role-modules', { cookie: admin.cookie })
+    expect(mods.body.data.roles.some((r: { code: string }) => r.code === 'md')).toBe(false)
+
+    expect((await api(`/api/settings/roles/${mdRole.id}/permissions/settings.manage`, {
+      method: 'PUT', cookie: admin.cookie, body: { scope: null },
+    })).status).toBe(404)
+    expect((await api(`/api/settings/roles/${mdRole.id}/modules/hrms`, {
+      method: 'PUT', cookie: admin.cookie, body: { access: 'none' },
+    })).status).toBe(404)
+  })
+
+  it('still shows the md role to Super Admin', async () => {
+    const org = await prisma.organisation.create({ data: { id: uid('org'), name: 'Firm' } })
+    const md = await user(org.id, (await seedRole('md')).id)
+    const roles = await api('/api/settings/roles', { cookie: md.cookie })
+    expect(roles.body.data.roles.some((r: { code: string }) => r.code === 'md')).toBe(true)
+  })
+})
+
+describe('Audit log — Super Admin is invisible to Admin', () => {
+  it('hides Super Admin actions and failed sign-ins for its email', async () => {
+    const org = await prisma.organisation.create({ data: { id: uid('org'), name: 'Firm' } })
+    const md = await user(org.id, (await seedRole('md')).id)
+    const admin = await user(org.id, (await seedRole('hr_admin')).id)
+    await api('/api/auth/login', { method: 'POST', body: { email: md.email, password: 'wrong' } })
+    await prisma.auditLog.create({ data: { actorUserId: md.id, action: 'test.md_action', entityType: 'X', entityId: 'x' } })
+
+    const seenByAdmin = await api('/api/audit-logs?limit=200', { cookie: admin.cookie })
+    expect(seenByAdmin.status).toBe(200)
+    const text = JSON.stringify(seenByAdmin.body)
+    expect(text).not.toContain(md.email)
+    expect(text).not.toContain('test.md_action')
+
+    const seenByMd = await api('/api/audit-logs?limit=200', { cookie: md.cookie })
+    expect(JSON.stringify(seenByMd.body)).toContain('test.md_action')
+  })
+})

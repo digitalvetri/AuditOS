@@ -32,6 +32,13 @@ function requireManage(session: Session) {
   if (!can(session, 'settings.manage', 'organisation')) throw ApiError.forbidden()
 }
 
+/**
+ * The Super Admin role is invisible to everyone but a Super Admin: not
+ * listed, and a 404 as a target, so an Admin can never edit its access.
+ */
+const SUPER_ADMIN_ROLE = 'md'
+const seesRole = (session: Session, code: string) => code !== SUPER_ADMIN_ROLE || session.roleCode === SUPER_ADMIN_ROLE
+
 async function orgId(): Promise<string> {
   const org = await prisma.organisation.findFirstOrThrow({ where: { deletedAt: null } })
   return org.id
@@ -595,10 +602,11 @@ settingsRouter.get('/roles', handler(async (req, res) => {
     prisma.permission.findMany({ where: { deletedAt: null }, orderBy: { code: 'asc' } }),
     loadMatrixFromDb(),
   ])
+  const visible = roles.filter((r) => seesRole(session, r.code))
   ok(res, {
-    roles: roles.map(roleToApi),
+    roles: visible.map(roleToApi),
     permissions: permissions.map(permissionToApi),
-    matrix,
+    matrix: Object.fromEntries(Object.entries(matrix).filter(([code]) => seesRole(session, code))),
   })
 }))
 
@@ -627,7 +635,7 @@ settingsRouter.put('/roles/:roleId/permissions/:permissionCode', handler(async (
     prisma.role.findUnique({ where: { id: req.params.roleId } }),
     prisma.permission.findUnique({ where: { code: req.params.permissionCode } }),
   ])
-  if (!role || role.deletedAt) throw ApiError.notFound('Role not found.')
+  if (!role || role.deletedAt || !seesRole(session, role.code)) throw ApiError.notFound('Role not found.')
   if (!permission || permission.deletedAt) throw ApiError.notFound('Permission not found.')
 
   const before = await prisma.rolePermission.findUnique({
@@ -706,7 +714,7 @@ settingsRouter.get('/role-modules', handler(async (req, res) => {
   const byCode = new Map(roles.map((r) => [r.code, r]))
   const out = VISIBLE_ROLE_CODES.flatMap((code) => {
     const r = byCode.get(code)
-    if (!r) return []
+    if (!r || !seesRole(session, code)) return []
     const held = new Map(r.permissions.map((rp) => [rp.permission.code, rp.scope]))
     const modules = Object.fromEntries(MODULES.map((m) => {
       const codes = moduleCodes(m.code)
@@ -734,7 +742,7 @@ settingsRouter.put('/roles/:roleId/modules/:module', handler(async (req, res) =>
   if (!body.success) throw ApiError.badRequest('access must be full or none.')
 
   const role = await prisma.role.findUnique({ where: { id: req.params.roleId } })
-  if (!role || role.deletedAt) throw ApiError.notFound('Role not found.')
+  if (!role || role.deletedAt || !seesRole(session, role.code)) throw ApiError.notFound('Role not found.')
 
   const codes: string[] = moduleCodes(module)
   if (body.data.access === 'none' && codes.includes('settings.manage')) {

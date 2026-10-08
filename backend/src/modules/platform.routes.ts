@@ -161,10 +161,21 @@ auditRouter.get('/', handler(async (req, res) => {
     throw ApiError.forbidden('Audit access required.')
   }
 
-  // Older Super Admin sign-in/out rows (no longer written) stay hidden.
+  // The Super Admin is invisible to everyone else: hide what it did and what
+  // was done to it (including failed sign-ins, which record the typed email).
+  // Its older sign-in/out rows (no longer written) stay hidden from everyone.
+  const hidden = session.roleCode === 'md' ? [] : await prisma.user.findMany({
+    where: { role: { code: 'md' } }, select: { id: true, email: true },
+  })
+  const hiddenIds = hidden.flatMap((u) => [u.id, u.email])
   const rows = await prisma.auditLog.findMany({
     where: {
-      NOT: { action: { in: ['auth.login', 'auth.logout'] }, actor: { role: { code: 'md' } } },
+      NOT: [
+        { action: { in: ['auth.login', 'auth.logout'] }, actor: { role: { code: 'md' } } },
+        ...(hiddenIds.length
+          ? [{ actorUserId: { in: hiddenIds } }, { entityType: 'User', entityId: { in: hiddenIds } }]
+          : []),
+      ],
       ...(q.entity_type ? { entityType: q.entity_type } : {}),
       ...(q.entity_id ? { entityId: q.entity_id } : {}),
       ...(q.action ? { action: q.action } : {}),
