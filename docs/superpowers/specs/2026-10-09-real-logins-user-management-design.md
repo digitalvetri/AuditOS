@@ -15,7 +15,7 @@ every user can change their own.
 |---|---|
 | Demo data | Full clean start: base reference data only; no fake employees, clients, invoices, payroll. MSW mock mode and the "Demo logins" panel are removed. |
 | Owner accounts | `info@digitalvetri.com` = Super Admin (role `md`), `jnsacctax@gmail.com` = Admin (role `hr_admin`). Both are login-only (no Employee record → no attendance, leave, payroll). |
-| Owner passwords | Read from `backend/.env` (`OWNER_SUPERADMIN_EMAIL/PASSWORD`, `OWNER_ADMIN_EMAIL/PASSWORD`), never committed. Not forced to change. |
+| Owner passwords | Read from `backend/.env` (`OWNER_SUPERADMIN_EMAIL/PASSWORD`, `OWNER_ADMIN_EMAIL/PASSWORD`; in Docker, `docker/.env.docker`), never committed. Not forced to change. |
 | Forgot password | No email. Login page "Forgot password?" explains: ask your Admin to reset it. |
 | Admin reset / new user | Admin sets a temporary password (or generates one). The user must set their own password on next sign-in before using the app. |
 | Self-service | Every user has "Change password" (current + new + confirm) in the profile menu. |
@@ -26,35 +26,36 @@ every user can change their own.
 
 ### Schema (`User`)
 - `mustChangePassword Boolean @default(false)` — set on create and admin reset; cleared when the user sets their own password.
-- `passwordChangedAt DateTime?` — sessions (JWT `iat`) issued before this are rejected, so a reset or change signs the account out everywhere else.
+- `sessionVersion Int @default(0)` — embedded in the session JWT as `v`; bumped on every password change, admin reset and deactivation. A token carrying an older version is rejected, so the account is signed out everywhere else. (A counter rather than a timestamp: JWT `iat` has one-second resolution, which would also reject the fresh cookie issued in the same second.)
 
 Additive columns; applied with `prisma/safe-push.ts`.
 
 ### Auth (`platform/auth.ts`, `modules/auth.routes.ts`)
-- `authenticate` rejects a token whose `iat` is earlier than `passwordChangedAt` (401 "Your password was changed. Sign in again.").
+- `authenticate` (and the Socket.IO handshake) rejects a token whose `v` differs from `sessionVersion` (401 "Your session has ended. Sign in again.").
 - Session payload (`/login`, `/me`) gains `must_change_password`.
 - While `mustChangePassword` is true, every API call except `/auth/me`, `/auth/logout` and `/auth/change-password` returns 403 `password_change_required`.
-- `POST /api/auth/change-password { current_password, new_password }` — verifies current, applies the password policy, refuses reuse of the current password, clears the flag, sets `passwordChangedAt`, re-issues the cookie for this browser, writes audit `auth.password_changed`. Rate limited.
+- `POST /api/auth/change-password { current_password, new_password }` — verifies current, applies the password policy, refuses reuse of the current password, clears the flag, bumps `sessionVersion`, re-issues the cookie for this browser, writes audit `auth.password_changed`. Rate limited.
 
 ### Password policy (`platform/password.ts`)
 At least 8 characters, at least one letter and one digit, at most 128. One
 function used by every endpoint; mirrored on the client for instant feedback.
-`generateTempPassword()` returns a 12-character readable password meeting it.
+The "Generate" button creates a 12-character password in the browser (no look-alike characters); the server only validates.
 
 ### Users API (`modules/users.routes.ts`, mounted at `/api/users`)
 Allowed for roles `md` and `hr_admin` only (checked by role, as these are
 account-administration actions rather than module grants).
 
-- `GET /api/users` — users with name, email, role, active, last login, employee id. Users holding role `md` are omitted unless the caller is `md`.
+- `GET /api/users` — `{ items, employees_without_login }`: users with name, email, role, active, last login, employee id; plus active employees that have no login. Users holding role `md` are omitted unless the caller is `md`.
 - `POST /api/users` — `{ first_name, last_name, email, phone?, joining_date?, role_id, temp_password }` → creates Employee + User in one transaction, `mustChangePassword = true`. Email must be unique across User and Employee.
 - `POST /api/users/from-employee/:employeeId` — `{ role_id, temp_password }` → login for an existing employee.
 - `PATCH /api/users/:id` — `{ role_id?, is_active? }`.
-- `POST /api/users/:id/reset-password` — `{ temp_password }` → new hash, `mustChangePassword = true`, `passwordChangedAt = now`.
+- `GET /api/users/roles` — roles the caller may assign (Super Admin only for Super Admin).
+- `POST /api/users/:id/reset-password` — `{ temp_password }` → new hash, `mustChangePassword = true`, `sessionVersion + 1`.
 
 Guards on every write: target with role `md` is 404 to a non-`md` caller;
 role `md` cannot be assigned by a non-`md` caller; a caller cannot change their
 own role, deactivate themselves, or use admin-reset on themselves (they use
-change-password). Deactivating also sets `passwordChangedAt` so open sessions
+change-password). Deactivating also bumps `sessionVersion` so open sessions
 end. Every action writes an audit row (`user.created`, `user.role_changed`,
 `user.activated`/`user.deactivated`, `user.password_reset`); passwords never
 appear in audit payloads.
@@ -65,8 +66,9 @@ Super Admin has no Employee record, so employee-based lists and pickers
 exclude it. Where an endpoint labels a *user* to the client — dashboard
 activity, the audit log, document uploaders, expense approvers, bookkeeping
 and TDS audit trails — a Super Admin actor is labelled "System administrator"
-for non-`md` viewers instead of showing the email. A shared helper
-`actorLabel(user, viewer)` does this so each endpoint makes one call.
+instead of showing the email (for every viewer — simpler, and Super Admin
+knows who they are). A shared helper `userLabel(user)` with a matching
+`USER_LABEL_SELECT` does this so each endpoint makes one call.
 Notification recipient lookups (`notify.ts`) are internal and unchanged.
 
 ### Seed split
