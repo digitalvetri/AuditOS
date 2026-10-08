@@ -105,9 +105,10 @@ export function StatutoryRatesSection() {
           const isCorrecting = editingId === current.id;
           return (
             <div key={code} className="dash-card p-5" data-testid={`rate-${code}`}>
-              <div className="flex items-baseline justify-between gap-4">
-                <div>
-                  <span className="inline-flex items-center h-6 px-3 rounded-full text-11 font-semibold tracking-[0.04em] bg-[#f5f1ff] text-[#5b33c4]">{code}</span>
+              {/* Wraps on a phone: the actions drop below the value instead of squeezing it. */}
+              <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-3">
+                <div className="min-w-0 flex-1 basis-[220px]">
+                  <span className="inline-flex items-center min-h-[24px] py-0.5 max-w-full break-all px-3 rounded-full text-11 font-semibold tracking-[0.04em] bg-[#f5f1ff] text-[#5b33c4]">{code}</span>
                   <div className="num-display text-20 text-neutral-900 mt-2 break-all">
                     {current.value.length > 60 ? current.value.slice(0, 60) + '…' : current.value}
                   </div>

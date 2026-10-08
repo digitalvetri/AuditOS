@@ -200,7 +200,7 @@ export function BankNewUploadPage() {
               value={accountId}
               onChange={(e) => setAccountId(e.target.value)}
               disabled={!clientId || !bankKey}
-              className="h-9 min-w-[280px] px-2 text-13 border border-neutral-300 rounded bg-white focus:outline-none focus:border-gold disabled:bg-neutral-50 disabled:text-neutral-400"
+              className="h-9 min-w-0 flex-1 md:flex-none md:min-w-[280px] px-2 text-13 border border-neutral-300 rounded bg-white focus:outline-none focus:border-gold disabled:bg-neutral-50 disabled:text-neutral-400"
               data-testid="aa-account-select"
             >
               <option value="">

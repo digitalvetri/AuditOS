@@ -5,7 +5,7 @@ import { ApiError, handler, ok } from '../lib/http.js'
 import { prisma } from '../lib/prisma.js'
 import { rateLimit } from '../lib/rateLimit.js'
 import {
-  authenticate, hashPassword, passwordMatches, requireSession, sessionCookie, signToken, verifyCredentials,
+  authenticate, hashPassword, optionalSession, passwordMatches, requireSession, sessionCookie, signToken, verifyCredentials,
 } from '../platform/auth.js'
 import { writeAudit } from '../platform/audit.js'
 import { passwordProblem } from '../platform/password.js'
@@ -14,7 +14,8 @@ import { passwordProblem } from '../platform/password.js'
  * AUTH (§9)
  *   POST /api/auth/login   { email, password } → { user, role, employee }
  *   POST /api/auth/logout  204
- *   GET  /api/auth/me      current session
+ *   GET  /api/auth/me      current session (401 when signed out)
+ *   GET  /api/auth/session current session or null (always 200 — the app's boot check)
  *   POST /api/auth/change-password  { current_password, new_password }
  *
  * The response shape is exactly what src/platform/auth/AuthContext.tsx
@@ -102,6 +103,13 @@ authRouter.post('/logout', authenticate, handler(async (req, res) => {
     })
   }
   res.status(204).end()
+}))
+
+// The app's boot check. A signed-out visitor is the normal case on the sign-in
+// page, so it is a 200 with null rather than a 401 the browser logs as an error.
+authRouter.get('/session', handler(async (req, res) => {
+  const session = await optionalSession(req)
+  ok(res, session ? await sessionPayload(session.userId) : null)
 }))
 
 authRouter.get('/me', authenticate, handler(async (req, res) => {

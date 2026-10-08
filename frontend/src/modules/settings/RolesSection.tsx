@@ -88,12 +88,15 @@ export function RolesSection() {
                   const saving = savingKey === key;
                   const failed = errorKey === key;
                   return (
-                    <td key={r.id} className="px-3 py-3 text-13">
+                    <td key={r.id} className="px-3 py-3 text-13 whitespace-nowrap">
                       <select
                         aria-label={`${r.name} — ${m.name}`}
                         value={value}
                         disabled={saving || mutation.isPending}
                         onChange={(e) => onChange(r.id, m.code, e.currentTarget.value as 'full' | 'none')}
+                        // Inline so the phone layer's `min-width: 0` can't squeeze it;
+                        // the matrix scrolls sideways inside its card instead.
+                        style={{ minWidth: 116 }}
                         className={`bg-white border rounded-lg h-8 px-2 text-13 focus:outline-none focus:border-primary/60 ${
                           failed
                             ? 'border-red-400 text-red-700'

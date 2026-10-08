@@ -101,3 +101,20 @@ describe('POST /api/auth/change-password', () => {
     expect(relogin.status).toBe(200)
   })
 })
+
+describe('GET /api/auth/session', () => {
+  it('answers 200 with null when signed out, so the sign-in page logs no error', async () => {
+    const r = await api('/api/auth/session')
+    expect(r.status).toBe(200)
+    expect(r.body.data).toBeNull()
+    expect((await api('/api/auth/session', { cookie: 'ao_access=garbage' })).body.data).toBeNull()
+  })
+
+  it('answers with the session when signed in', async () => {
+    const email = await makeUser('Start1234', false)
+    const login = await api('/api/auth/login', { method: 'POST', body: { email, password: 'Start1234' } })
+    const r = await api('/api/auth/session', { cookie: login.cookie! })
+    expect(r.status).toBe(200)
+    expect(r.body.data.user.email).toBe(email)
+  })
+})

@@ -32,7 +32,7 @@ export function GstJobsListPage() {
         </Link>
       </div>
 
-      <header className="flex items-start justify-between gap-4 mb-5">
+      <header className="flex flex-wrap items-start justify-between gap-4 mb-5">
         <div>
           <h1 className="text-20 font-semibold text-neutral-900">GST reconciliation</h1>
           <p className="text-13 text-neutral-500 mt-1">
@@ -40,7 +40,7 @@ export function GstJobsListPage() {
           </p>
         </div>
         <Link to="/audit-automation/gst/new">
-          <Button variant="primary" size="sm">
+          <Button variant="primary" size="sm" className="whitespace-nowrap">
             <Plus size={14} strokeWidth={1.75} className="mr-1" /> New reconciliation
           </Button>
         </Link>
@@ -51,7 +51,7 @@ export function GstJobsListPage() {
         <select
           value={clientId}
           onChange={(e) => setClientId(e.target.value)}
-          className="h-9 min-w-[280px] px-2 text-13 border border-neutral-300 rounded bg-white focus:outline-none focus:border-gold"
+          className="h-9 min-w-0 flex-1 md:flex-none md:min-w-[280px] px-2 text-13 border border-neutral-300 rounded bg-white focus:outline-none focus:border-gold"
         >
           <option value="">Select client…</option>
           {(clientsQ.data?.items ?? []).map((c: ClientListItem) => (
@@ -86,7 +86,7 @@ function EmptyState() {
       <div className="text-14 font-medium text-neutral-900">No reconciliations yet</div>
       <p className="text-13 text-neutral-500 mt-1 mb-4">Upload a GSTR-2B and a purchase register to start.</p>
       <Link to="/audit-automation/gst/new">
-        <Button variant="primary" size="sm">
+        <Button variant="primary" size="sm" className="whitespace-nowrap">
           <Plus size={14} strokeWidth={1.75} className="mr-1" /> New reconciliation
         </Button>
       </Link>

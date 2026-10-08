@@ -66,12 +66,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     let cancelled = false;
     (async () => {
       try {
-        const s = await api.get<Session>('/api/auth/me');
+        // Always a 200 — null when signed out — so the sign-in page logs no
+        // 401 to the console on every visit.
+        const s = await api.get<Session | null>('/api/auth/session');
         if (!cancelled) { setSession(s); setUnreachable(false); }
       } catch (e) {
-        // 401 is the expected first-run state — swallow. No status at all
-        // means the server was never reached (offline): that is not "signed
-        // out", so don't bounce the installed app to the login screen.
+        // No status at all means the server was never reached (offline):
+        // that is not "signed out", so don't bounce the installed app to the
+        // login screen.
         if (!cancelled) setUnreachable((e as ApiError).status === 0);
       } finally {
         if (!cancelled) setLoading(false);

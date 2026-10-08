@@ -121,6 +121,21 @@ function tokenFrom(req: Request): string | null {
   return cookie ?? null
 }
 
+/**
+ * The session this request carries, or null — never throws. For the one
+ * public "am I signed in?" check, so a signed-out visitor is a 200, not a 401.
+ */
+export async function optionalSession(req: Request): Promise<Session | null> {
+  const token = tokenFrom(req)
+  if (!token) return null
+  try {
+    const payload = jwt.verify(token, env.jwtSecret) as jwt.JwtPayload
+    return await loadSession(String(payload.sub), typeof payload.v === 'number' ? payload.v : 0)
+  } catch {
+    return null
+  }
+}
+
 /** The only API calls allowed while an Admin-issued password is still in use. */
 const PASSWORD_CHANGE_PATHS = new Set(['/api/auth/me', '/api/auth/logout', '/api/auth/change-password'])
 

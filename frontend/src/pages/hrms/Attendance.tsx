@@ -20,7 +20,10 @@ type Tab = 'today' | 'records' | 'corrections';
 
 export function AttendancePage() {
   const { session } = useAuth();
-  const [tab, setTab] = useState<Tab>('today');
+  // Login-only accounts (the owner logins) have no attendance of their own:
+  // no Today card, no correction requests — just the team's records.
+  const hasOwn = Boolean(session?.employee);
+  const [tab, setTab] = useState<Tab>(hasOwn ? 'today' : 'records');
   const [openCorrection, setOpenCorrection] = useState(false);
 
   const canSeeOrgRecords = can(session?.role.code, 'attendance.read', 'department');
@@ -31,24 +34,26 @@ export function AttendancePage() {
         <div>
           <h1 className="text-[26px] leading-tight font-semibold tracking-[-0.01em] text-neutral-900">Attendance</h1>
         </div>
-        <div className="flex items-center gap-2">
-          <Button variant="secondary" onClick={() => setOpenCorrection(true)}>
-            Request correction
-          </Button>
-        </div>
+        {hasOwn ? (
+          <div className="flex items-center gap-2">
+            <Button variant="secondary" onClick={() => setOpenCorrection(true)}>
+              Request correction
+            </Button>
+          </div>
+        ) : null}
       </header>
 
       <Tabs
         active={tab}
         onChange={setTab}
         items={[
-          { id: 'today', label: 'Today' },
+          ...(hasOwn ? [{ id: 'today' as const, label: 'Today' }] : []),
           { id: 'records', label: canSeeOrgRecords ? 'Records' : 'My records' },
           { id: 'corrections', label: 'Corrections' },
         ]}
       />
 
-      {tab === 'today' ? <TodayCard /> : null}
+      {tab === 'today' && hasOwn ? <TodayCard /> : null}
       {tab === 'records' ? <RecordsTable /> : null}
       {tab === 'corrections' ? <CorrectionsQueue /> : null}
 
