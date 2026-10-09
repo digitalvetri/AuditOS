@@ -16,7 +16,8 @@
 const TAG: Record<string, string> = { B: 'b', STRONG: 'b', I: 'i', EM: 'i', U: 'u', SUP: 'sup' };
 const BLOCKISH = new Set(['DIV', 'P', 'LI', 'UL', 'OL', 'BLOCKQUOTE', 'H1', 'H2', 'H3', 'H4']);
 
-const esc = (t: string) => t.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+// Quotes too: the output also lands inside attribute values (title, data-ph).
+const esc = (t: string) => t.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
 
 function rebuild(node: Node, out: string[]): void {
   node.childNodes.forEach((n) => {
@@ -25,7 +26,13 @@ function rebuild(node: Node, out: string[]): void {
     if (n.nodeType === Node.TEXT_NODE) { out.push(esc((n.textContent ?? '').replace(/\u00a0/g, ' '))); return; }
     if (n.nodeType !== Node.ELEMENT_NODE) return;
     const el = n as HTMLElement;
-    if (el.dataset?.ph) { out.push(`{{${el.dataset.ph}}}`); return; }
+    // A placeholder atom becomes its {{token}} — but only a plain identifier.
+    // The attribute is attacker-controlled on a saved line; anything else is
+    // dropped rather than emitted, so it can never smuggle markup through.
+    if (el.dataset?.ph !== undefined) {
+      if (/^\w+$/.test(el.dataset.ph)) out.push(`{{${el.dataset.ph}}}`);
+      return;
+    }
     if (el.tagName === 'BR') { out.push('<br>'); return; }
     // A stray block element (from a paste or a browser's own Enter) becomes
     // a line break: a line is ONE paragraph, and its structure lives in data.
