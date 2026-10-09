@@ -5,6 +5,7 @@ import { fiscalYearStartOf, istToday } from '../lib/dates.js'
 import { ensureLeaveBalances } from '../domain/leaveBalances.js'
 import { ApiError, handler, ok } from '../lib/http.js'
 import { prisma } from '../lib/prisma.js'
+import { nextEmployeeCode } from '../lib/sequence.js'
 import { rateLimit } from '../lib/rateLimit.js'
 import { hashPassword, requireSession, type Session } from '../platform/auth.js'
 import { writeAudit } from '../platform/audit.js'
@@ -79,15 +80,6 @@ async function assertEmailFree(email: string, exceptEmployeeId?: string) {
   if (user || employee) throw ApiError.conflict('email_taken', 'A user with this email already exists.')
 }
 
-async function nextEmployeeCode(): Promise<string> {
-  let n = (await prisma.employee.count()) + 1
-  for (;;) {
-    const code = `AO-${String(n).padStart(4, '0')}`
-    if (!(await prisma.employee.findUnique({ where: { employeeCode: code } }))) return code
-    n += 1
-  }
-}
-
 usersRouter.get('/', handler(async (req, res) => {
   const s = requireAdmin(req)
   const users = await prisma.user.findMany({
@@ -137,9 +129,10 @@ usersRouter.post('/', handler(async (req, res) => {
   const org = await prisma.organisation.findFirstOrThrow({ where: { deletedAt: null } })
   const schedule = await prisma.workSchedule.findFirst({ where: { deletedAt: null } })
   if (!schedule) throw ApiError.unprocessable('no_work_schedule', 'Set up a work schedule before adding users.')
-  const employeeCode = await nextEmployeeCode()
-
   const user = await prisma.$transaction(async (tx) => {
+    // Allocated under a lock inside this transaction (lib/sequence.ts); the
+    // old probe ran before it, so two users created at once took one code.
+    const employeeCode = await nextEmployeeCode(tx)
     const employee = await tx.employee.create({
       data: {
         organisationId: org.id, employeeCode,

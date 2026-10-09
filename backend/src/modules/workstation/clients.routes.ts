@@ -1,5 +1,6 @@
 import { Router } from 'express'
 import { prisma, alive } from '../../lib/prisma.js'
+import { lockSequence, maxSuffix } from '../../lib/sequence.js'
 import { ApiError, handler, ok } from '../../lib/http.js'
 import { requireSession } from '../../platform/auth.js'
 import { writeAudit } from '../../platform/audit.js'
@@ -573,26 +574,32 @@ clientsRouter.post('/:id/eway/generate', handler(async (req, res) => {
 
   /* Locally generated number. There is no government call here, and the row
      carries isSimulated: true forever so no later screen can misreport it. */
-  const last = await prisma.ewayBill.findFirst({ orderBy: { ewbNo: 'desc' }, select: { ewbNo: true } })
-  const nextNo = `EWB-${(Number(last?.ewbNo.slice(4) ?? 100000) + 1)}`
   const validUntil = new Date(Date.now() + 15 * 86_400_000).toISOString().slice(0, 10)
 
-  const row = await prisma.ewayBill.create({
-    data: {
-      clientId: req.params.id,
-      ewbNo: nextNo,
-      documentNo: documentNo!,
-      documentDate: documentDate!,
-      fromGstin: client.gstin,
-      toGstin: toGstin ?? null,
-      toPartyName: toPartyName ?? null,
-      valuePaise: valuePaise ?? 0,
-      status: 'generated',
-      validUntil,
-      generatedByEmployeeId: session.employeeId ?? '',
-      isSimulated: true,
-      createdBy: session.userId,
-    },
+  // Number allocated under a lock inside the creating transaction, from the
+  // numeric maximum (a string sort breaks once the number gains a digit).
+  const row = await prisma.$transaction(async (tx) => {
+    await lockSequence(tx, 'code:EWB')
+    const prefix = 'EWB-'
+    const existing = await tx.ewayBill.findMany({ where: { ewbNo: { startsWith: prefix } }, select: { ewbNo: true } })
+    const nextNo = `${prefix}${Math.max(maxSuffix(existing.map((e) => e.ewbNo), prefix), 100000) + 1}`
+    return tx.ewayBill.create({
+      data: {
+        clientId: req.params.id,
+        ewbNo: nextNo,
+        documentNo: documentNo!,
+        documentDate: documentDate!,
+        fromGstin: client.gstin,
+        toGstin: toGstin ?? null,
+        toPartyName: toPartyName ?? null,
+        valuePaise: valuePaise ?? 0,
+        status: 'generated',
+        validUntil,
+        generatedByEmployeeId: session.employeeId ?? '',
+        isSimulated: true,
+        createdBy: session.userId,
+      },
+    })
   })
 
   await writeActivity({

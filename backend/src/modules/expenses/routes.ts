@@ -10,6 +10,7 @@ import {
   employeeRef, employeeRefWithDept, expenseApprovalToApi, expenseToApi,
 } from '../../api/serialize.js'
 import { nextPaymentNo, postJournal } from '../accounts/ledger.js'
+import { lockSequence, maxSuffix } from '../../lib/sequence.js'
 import { CATEGORIES } from '../../platform/constants.js'
 import type { Scope } from '../../platform/rbac/matrix.js'
 
@@ -187,23 +188,34 @@ expensesRouter.post('/', handler(async (req, res) => {
   if (!category || category.deletedAt) throw new ApiError(400, 'invalid_category', 'Unknown expense category.')
   if (!category.isActive) throw ApiError.unprocessable('inactive_category', 'This category is inactive.')
 
-  const count = await prisma.expense.count()
-  const row = await prisma.expense.create({
-    data: {
-      expenseNo: `EXP-${String(count + 1).padStart(5, '0')}`,
-      employeeId: session.employeeId,
-      categoryId: category.id,
-      title: b.data.title,
-      amountPaise: b.data.amount_paise,
-      expenseDate: b.data.expense_date,
-      description: b.data.description ?? '',
-      paymentMethod: b.data.payment_method ?? 'card',
-      receiptFileKey: b.data.receipt_file_key ?? null,
-      notes: b.data.notes ?? null,
-      stage: 'draft',
-      createdBy: session.userId,
-      updatedBy: session.userId,
-    },
+  // Allocate the number under a lock inside the creating transaction: a
+  // count read outside it let two claims filed at once take the same
+  // @unique expenseNo (a 500), and count + 1 reissues after a hard delete.
+  const employeeId = session.employeeId
+  const row = await prisma.$transaction(async (tx) => {
+    await lockSequence(tx, 'expense_no')
+    const prefix = 'EXP-'
+    const existing = await tx.expense.findMany({
+      where: { expenseNo: { startsWith: prefix } }, select: { expenseNo: true },
+    })
+    const next = maxSuffix(existing.map((e) => e.expenseNo), prefix) + 1
+    return tx.expense.create({
+      data: {
+        expenseNo: `${prefix}${String(next).padStart(5, '0')}`,
+        employeeId,
+        categoryId: category.id,
+        title: b.data.title,
+        amountPaise: b.data.amount_paise,
+        expenseDate: b.data.expense_date,
+        description: b.data.description ?? '',
+        paymentMethod: b.data.payment_method ?? 'card',
+        receiptFileKey: b.data.receipt_file_key ?? null,
+        notes: b.data.notes ?? null,
+        stage: 'draft',
+        createdBy: session.userId,
+        updatedBy: session.userId,
+      },
+    })
   })
   await writeAudit({
     actorUserId: session.userId, action: 'expense.created', entityType: 'Expense', entityId: row.id,

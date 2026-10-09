@@ -15,7 +15,10 @@ import {
   type LiabilityCategory,
 } from '../../platform/constants.js'
 import { employeeRef, ledgerToApi, paymentToApi } from '../../api/serialize.js'
-import { heldLiabilityBalances, nextPaymentNo, postJournal, postLedger, reconcile } from './ledger.js'
+import {
+  heldLiabilityBalances, LEDGER_LOCK, liabilityLock, nextPaymentNo, PAYMENT_NO_LOCK, postJournal, postLedger, reconcile,
+} from './ledger.js'
+import { lockSequence } from '../../lib/sequence.js'
 
 /**
  * ACCOUNTS + PAYMENTS (§8.6 / §9)
@@ -403,15 +406,23 @@ accountsRouter.post('/liabilities/remit', handler(async (req, res) => {
   }).safeParse(req.body ?? {})
   if (!b.success) throw ApiError.badRequest('category, positive amount_paise, and reference required.')
 
-  const balances = await heldLiabilityBalances()
   const category = b.data.category as LiabilityCategory
-  if (b.data.amount_paise > balances[category]) {
-    throw ApiError.unprocessable('exceeds_balance',
-      `Cannot remit more than the held balance (${balances[category]} paise).`)
-  }
-
   const date = b.data.date ?? istToday()
   const rows = await prisma.$transaction(async (tx) => {
+    // The cap check must see every remittance and reversal that commits
+    // before ours. Two remittances read outside a transaction would both
+    // pass it and together drive the liability negative. Lock this
+    // category, then the ledger (so a concurrent reversal of a payroll
+    // liability leg cannot slip in either), and only then read the
+    // balance. Lock order: liability → payment_no → ledger.
+    await lockSequence(tx, liabilityLock(category))
+    await lockSequence(tx, PAYMENT_NO_LOCK)
+    await lockSequence(tx, LEDGER_LOCK)
+    const balances = await heldLiabilityBalances(tx)
+    if (b.data.amount_paise > balances[category]) {
+      throw ApiError.unprocessable('exceeds_balance',
+        `Cannot remit more than the held balance (${balances[category]} paise).`)
+    }
     const paymentNo = await nextPaymentNo(tx)
     const payment = await tx.payment.create({
       data: {
@@ -482,31 +493,54 @@ accountsRouter.post('/ledger/:id/reverse', handler(async (req, res) => {
   }
   const reason = b.data.reason
 
-  const original = await prisma.ledgerTransaction.findUnique({ where: { id: req.params.id } })
-  if (!original) throw ApiError.notFound('Ledger row not found.')
-  if (original.status === 'reversed') {
-    throw ApiError.conflict('already_reversed', 'This row has already been reversed.')
-  }
-  if (original.reversesId) {
-    throw ApiError.conflict('is_contra', 'A contra entry cannot itself be reversed.')
-  }
+  const { original, clusterRows, contras, updatedOriginals } = await prisma.$transaction(async (tx) => {
+    // Everything happens under the ledger lock and behind a conditional
+    // claim: the 'already reversed' check used to be a read outside this
+    // transaction, so two reversals of the same row (or two legs of one
+    // payment cluster) would both pass it and post two sets of contras.
+    const peek = await tx.ledgerTransaction.findUnique({ where: { id: req.params.id } })
+    if (!peek) throw ApiError.notFound('Ledger row not found.')
+    if (peek.reversesId) {
+      throw ApiError.conflict('is_contra', 'A contra entry cannot itself be reversed.')
+    }
+    // Reversing a liability leg changes the held balance a remittance is
+    // capped by, so take those locks too — before the ledger lock, in a
+    // fixed order (liability → ledger), like the remit route.
+    const cats = peek.paymentId
+      ? (await tx.ledgerTransaction.findMany({
+        where: { paymentId: peek.paymentId }, select: { category: true },
+      })).map((r) => r.category)
+      : [peek.category]
+    const liabilityCats = [...new Set(cats)]
+      .filter((c): c is string => !!c && (LIABILITY_CATEGORIES as readonly string[]).includes(c))
+      .sort()
+    for (const c of liabilityCats) await lockSequence(tx, liabilityLock(c))
+    await lockSequence(tx, LEDGER_LOCK)
 
-  // If this row is one leg of a payment cluster, reverse them all — every
-  // posted row that shares the paymentId. Otherwise reverse just this row.
-  const clusterRows = original.paymentId
-    ? await prisma.ledgerTransaction.findMany({
-      where: {
-        paymentId: original.paymentId, status: 'posted', reversesId: null,
-      },
-      orderBy: { sequence: 'asc' },
+    const original = await tx.ledgerTransaction.findUniqueOrThrow({ where: { id: peek.id } })
+    if (original.status === 'reversed') {
+      throw ApiError.conflict('already_reversed', 'This row has already been reversed.')
+    }
+    // If this row is one leg of a payment cluster, reverse them all — every
+    // posted row that shares the paymentId. Otherwise reverse just this row.
+    const clusterRows = original.paymentId
+      ? await tx.ledgerTransaction.findMany({
+        where: { paymentId: original.paymentId, status: 'posted', reversesId: null },
+        orderBy: { sequence: 'asc' },
+      })
+      : [original]
+    const ids = clusterRows.map((r) => r.id)
+    // Claim: only one request can move these rows posted → reversed.
+    const claimed = await tx.ledgerTransaction.updateMany({
+      where: { id: { in: ids }, status: 'posted' }, data: { status: 'reversed' },
     })
-    : [original]
+    if (claimed.count !== ids.length) {
+      throw ApiError.conflict('already_reversed', 'This row has already been reversed.')
+    }
 
-  const { contras, updatedOriginals } = await prisma.$transaction(async (tx) => {
     const created: (typeof clusterRows)[number][] = []
-    const marked: (typeof clusterRows)[number][] = []
     for (const row of clusterRows) {
-      const contra = await postLedger(tx, {
+      created.push(await postLedger(tx, {
         date: istToday(),
         type: row.type as LedgerType,
         description: `Reversal — ${row.description}`,
@@ -520,14 +554,12 @@ accountsRouter.post('/ledger/:id/reverse', handler(async (req, res) => {
         reversesId: row.id,
         reversalReason: reason,
         createdBy: session.userId,
-      })
-      const updated = await tx.ledgerTransaction.update({
-        where: { id: row.id }, data: { status: 'reversed' },
-      })
-      created.push(contra)
-      marked.push(updated)
+      }))
     }
-    return { contras: created, updatedOriginals: marked }
+    const marked = await tx.ledgerTransaction.findMany({
+      where: { id: { in: ids } }, orderBy: { sequence: 'asc' },
+    })
+    return { original, clusterRows, contras: created, updatedOriginals: marked }
   })
 
   await writeAudit({

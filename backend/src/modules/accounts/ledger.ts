@@ -1,6 +1,7 @@
 import type { Prisma } from '@prisma/client'
 import { prisma } from '../../lib/prisma.js'
 import { ApiError } from '../../lib/http.js'
+import { lockSequence, maxSuffix } from '../../lib/sequence.js'
 import {
   INTERNAL_NAMESPACE,
   LIABILITY_CATEGORIES,
@@ -24,6 +25,11 @@ import {
  * leaving Audit OS (salary paid, expense reimbursed), so the closing balance
  * equals total disbursed.
  */
+
+/** Advisory-lock names. Order when taking several: liability → payslip → payment → ledger. */
+export const LEDGER_LOCK = 'ledger'
+export const PAYMENT_NO_LOCK = 'payment_no'
+export const liabilityLock = (category: string) => `liability:${category}`
 
 const REF_PREFIX: Record<string, string> = {
   'Payroll': 'LT-PAY',
@@ -53,8 +59,10 @@ export interface PostLedgerInput {
 
 /**
  * Post one append-only row. MUST run inside a transaction: the sequence and
- * the running balance are read-then-written, and two concurrent posts outside
- * a transaction would collide on the unique `sequence`.
+ * the running balance are read-then-written. The `ledger` advisory lock
+ * serialises posts across transactions — without it two concurrent posts
+ * read the same last row, collide on the unique `sequence`, and (worse)
+ * would compute the same running balance.
  */
 export async function postLedger(tx: Prisma.TransactionClient, input: PostLedgerInput) {
   const debit = input.debitPaise ?? 0
@@ -62,6 +70,7 @@ export async function postLedger(tx: Prisma.TransactionClient, input: PostLedger
   if (debit < 0 || credit < 0) throw ApiError.badRequest('Ledger amounts cannot be negative.')
   if (debit === 0 && credit === 0) throw ApiError.badRequest('A ledger row must carry a debit or a credit.')
 
+  await lockSequence(tx, LEDGER_LOCK)
   const last = await tx.ledgerTransaction.findFirst({
     where: { namespace: INTERNAL_NAMESPACE },
     orderBy: { sequence: 'desc' },
@@ -178,8 +187,10 @@ export async function postJournal(tx: Prisma.TransactionClient, input: PostJourn
  * source checks. Counting the contra while dropping the original would
  * reduce the balance twice and corrupt the remittance cap.
  */
-export async function heldLiabilityBalances(): Promise<Record<LiabilityCategory, number>> {
-  const rows = await prisma.ledgerTransaction.groupBy({
+export async function heldLiabilityBalances(
+  db: Prisma.TransactionClient = prisma,
+): Promise<Record<LiabilityCategory, number>> {
+  const rows = await db.ledgerTransaction.groupBy({
     by: ['category'],
     where: {
       namespace: INTERNAL_NAMESPACE,
@@ -200,10 +211,19 @@ export async function heldLiabilityBalances(): Promise<Record<LiabilityCategory,
   return out
 }
 
-/** Next payment number, inside the caller's transaction. */
+/**
+ * Next payment number, inside the caller's transaction. Locked (see
+ * lib/sequence.ts) and taken from the highest existing number rather than
+ * a row count, which would reissue a number after any hard delete.
+ * Take this BEFORE any ledger post in the same transaction.
+ */
 export async function nextPaymentNo(tx: Prisma.TransactionClient): Promise<string> {
-  const count = await tx.payment.count()
-  return `PMT-${String(count + 1).padStart(5, '0')}`
+  await lockSequence(tx, PAYMENT_NO_LOCK)
+  const prefix = 'PMT-'
+  const rows = await tx.payment.findMany({
+    where: { paymentNo: { startsWith: prefix } }, select: { paymentNo: true },
+  })
+  return `${prefix}${String(maxSuffix(rows.map((r) => r.paymentNo), prefix) + 1).padStart(5, '0')}`
 }
 
 export async function ledgerBalancePaise(): Promise<number> {

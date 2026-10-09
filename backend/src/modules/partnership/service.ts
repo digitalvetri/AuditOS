@@ -19,6 +19,7 @@
  */
 import type { Prisma } from '@prisma/client'
 import { prisma } from '../../lib/prisma.js'
+import { lockSequence } from '../../lib/sequence.js'
 import type { Session } from '../../platform/auth.js'
 import { KINDS, PFR_DOC_CATEGORY_CODE, type RegistrationKind } from './constants.js'
 
@@ -51,6 +52,9 @@ export function addDays(date: string, days: number): string {
 /** 'PFR-2026-0001' / 'LLP-2026-0001'. Soft-deleted rows included so a code is never reissued. */
 export async function nextCaseCode(tx: Tx, codePrefix: string, year: number): Promise<string> {
   const prefix = `${codePrefix}-${year}-`
+  // Serialise allocation; see lib/sequence.ts. All case kinds share the
+  // caseCode column, so the lock is keyed on the full prefix.
+  await lockSequence(tx, `code:${prefix}`)
   const rows = await tx.partnershipCase.findMany({
     where: { caseCode: { startsWith: prefix } },
     select: { caseCode: true },

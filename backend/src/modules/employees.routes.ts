@@ -3,6 +3,7 @@ import { Router } from 'express'
 import { z } from 'zod'
 import { ApiError, handler, ok } from '../lib/http.js'
 import { prisma } from '../lib/prisma.js'
+import { nextEmployeeCode } from '../lib/sequence.js'
 import { fiscalYearStartOf, istToday } from '../lib/dates.js'
 import { ensureLeaveBalances } from '../domain/leaveBalances.js'
 import { can, hashPassword, requireSession, type Session } from '../platform/auth.js'
@@ -218,15 +219,17 @@ employeesRouter.post('/', handler(async (req, res) => {
 
   const org = await prisma.organisation.findFirstOrThrow({ where: { deletedAt: null } })
   const defaultSchedule = await prisma.workSchedule.findFirst({ where: { deletedAt: null } })
-  const count = await prisma.employee.count()
   const password = b.password ?? generatePassword()
 
   // Employee and login together: an employee without a login can't sign in.
   const { row, login } = await prisma.$transaction(async (tx) => {
+    // Allocated under a lock inside this transaction: a count read before
+    // it let two hires at once take the same @unique code (a 500).
+    const employeeCode = b.employee_code ?? await nextEmployeeCode(tx)
     const row = await tx.employee.create({
       data: {
         organisationId: org.id,
-        employeeCode: b.employee_code ?? `AO-${String(count + 1).padStart(4, '0')}`,
+        employeeCode,
         firstName: b.first_name,
         lastName: b.last_name,
         fullName: `${b.first_name} ${b.last_name}`,

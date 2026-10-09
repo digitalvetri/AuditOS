@@ -201,4 +201,45 @@ describe('POST /api/payroll/runs/:id/process — concurrency', () => {
     const after = await prisma.payrollRun.findUniqueOrThrow({ where: { id: run.id } })
     expect(after.stage).toBe('processed')
   })
+  it('processes two DIFFERENT runs at once with distinct payment and payslip numbers', async () => {
+    const a = await financeUser()
+    const b = await financeUser()
+    const ctx = await seedOrg()
+    const emp = await makeEmployee(ctx, { withStructure: true, name: 'Bala' })
+    const structure = await prisma.salaryStructure.findFirstOrThrow({ where: { employeeId: emp.id } })
+    const runs = []
+    for (const [start, end] of [['2026-06-01', '2026-06-30'], ['2026-07-01', '2026-07-31']]) {
+      const run = await prisma.payrollRun.create({
+        data: {
+          organisationId: ctx.org.id, periodStart: start, periodEnd: end,
+          stage: 'approved', headcount: 1, grossTotalPaise: 85_000_00, netTotalPaise: 83_200_00,
+        },
+      })
+      createdRuns.push(run.id)
+      await prisma.payrollItem.create({
+        data: {
+          payrollRunId: run.id, employeeId: emp.id, salaryStructureId: structure.id,
+          payableDays: 30, presentDays: 30, onLeaveDays: 0, absentDays: 0, lopDays: 0,
+          earningsJson: '{}', deductionsJson: JSON.stringify({ pf_employee_paise: 1_800_00 }),
+          grossPaise: 85_000_00, totalDeductionsPaise: 1_800_00, netPaise: 83_200_00,
+        },
+      })
+      runs.push(run)
+    }
+
+    const results = await Promise.all([
+      api(`/api/payroll/runs/${runs[0].id}/process`, { method: 'POST', cookie: a.cookie }),
+      api(`/api/payroll/runs/${runs[1].id}/process`, { method: 'POST', cookie: b.cookie }),
+    ])
+    expect(results.map((r) => r.status)).toEqual([200, 200])
+
+    const payments = await prisma.payment.findMany({ where: { payrollRunId: { in: runs.map((r) => r.id) } } })
+    expect(payments).toHaveLength(2)
+    expect(new Set(payments.map((p) => p.paymentNo)).size).toBe(2)
+    const slips = await prisma.payslip.findMany({ where: { payrollRunId: { in: runs.map((r) => r.id) } } })
+    expect(slips).toHaveLength(2)
+    // The payslip counter is global (the month is only a prefix), so the
+    // two numeric suffixes must differ too.
+    expect(new Set(slips.map((s) => s.payslipNo.split('-').pop())).size).toBe(2)
+  })
 })

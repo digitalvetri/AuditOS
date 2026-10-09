@@ -1,4 +1,5 @@
-import type { Prisma, PrismaClient } from '@prisma/client'
+import type { Prisma } from '@prisma/client'
+import { lockSequence } from '../../lib/sequence.js'
 
 /**
  * Human-readable id allocation — 'LD-1001', 'CLI-1001' (§5.2).
@@ -8,10 +9,16 @@ import type { Prisma, PrismaClient } from '@prisma/client'
  * with a soft-deleted row or two concurrent creates that reuses a code, and
  * `leadCode`/`clientCode` are @unique so the second insert would simply fail.
  *
+ * Being inside a transaction is not enough on its own — under READ
+ * COMMITTED two creates still read the same maximum. Every allocator here
+ * first takes a per-sequence advisory lock (lib/sequence.ts), so a second
+ * create waits for the first to commit and then sees its code. That is
+ * also why `tx` must be a transaction client.
+ *
  * Both sequences start at 1001 so the first record reads 'LD-1001', matching
  * the examples in the build prompt.
  */
-type Tx = Prisma.TransactionClient | PrismaClient
+type Tx = Prisma.TransactionClient
 
 const START = 1001
 
@@ -25,6 +32,7 @@ function nextFrom(codes: string[], prefix: string): string {
 }
 
 export async function nextLeadCode(tx: Tx): Promise<string> {
+  await lockSequence(tx, 'code:LD')
   // Soft-deleted rows are INCLUDED deliberately — a retired code must never
   // be handed out again.
   const rows = await tx.lead.findMany({ select: { leadCode: true } })
@@ -32,6 +40,7 @@ export async function nextLeadCode(tx: Tx): Promise<string> {
 }
 
 export async function nextClientCode(tx: Tx): Promise<string> {
+  await lockSequence(tx, 'code:CLI')
   const rows = await tx.client.findMany({ select: { clientCode: true } })
   return nextFrom(rows.map((r) => r.clientCode), 'CLI-')
 }
@@ -43,6 +52,7 @@ export async function nextClientCode(tx: Tx): Promise<string> {
  * be handed out twice and `caseCode` is @unique.
  */
 export async function nextIncorporationCaseCode(tx: Tx, year: number): Promise<string> {
+  await lockSequence(tx, `code:INC-${year}`)
   const prefix = `INC-${year}-`
   const rows = await tx.incorporationCase.findMany({
     where: { caseCode: { startsWith: prefix } },
@@ -63,6 +73,7 @@ export async function nextIncorporationCaseCode(tx: Tx, year: number): Promise<s
  * must never be handed out twice.
  */
 export async function nextRegistrationCode(tx: Tx, year: number): Promise<string> {
+  await lockSequence(tx, `code:REG-${year}`)
   const prefix = `REG-${year}-`
   const rows = await tx.clientRegistration.findMany({
     where: { registrationCode: { startsWith: prefix } },
@@ -83,6 +94,7 @@ export async function nextRegistrationCode(tx: Tx, year: number): Promise<string
  * out twice.
  */
 export async function nextQuotationCode(tx: Tx, year: number): Promise<string> {
+  await lockSequence(tx, `code:QT-${year}`)
   const prefix = `QT-${year}-`
   const rows = await tx.quotation.findMany({
     where: { quotationCode: { startsWith: prefix } },
@@ -98,6 +110,7 @@ export async function nextQuotationCode(tx: Tx, year: number): Promise<string> {
 
 /** 'EL-2026-0001' — per-year, allocated inside the creating transaction. */
 export async function nextEngagementCode(tx: Tx, year: number): Promise<string> {
+  await lockSequence(tx, `code:EL-${year}`)
   const prefix = `EL-${year}-`
   const rows = await tx.engagementLetter.findMany({
     where: { letterCode: { startsWith: prefix } },
@@ -113,6 +126,7 @@ export async function nextEngagementCode(tx: Tx, year: number): Promise<string> 
 
 /** 'DOC-2026-0001' — per-year, allocated inside the creating transaction. */
 export async function nextWorkstationDocCode(tx: Tx, year: number): Promise<string> {
+  await lockSequence(tx, `code:DOC-${year}`)
   const prefix = `DOC-${year}-`
   const rows = await tx.workstationDoc.findMany({
     where: { docCode: { startsWith: prefix } },
@@ -140,6 +154,7 @@ export async function nextWorkstationDocCode(tx: Tx, year: number): Promise<stri
  * a row is soft-deleted, and `invoiceNumber` is @unique so the insert fails.
  */
 export async function nextInvoiceNumber(tx: Tx): Promise<string> {
+  await lockSequence(tx, 'code:INV')
   const prefix = 'INV-'
   const rows = await tx.invoice.findMany({
     where: { invoiceNumber: { startsWith: prefix } },

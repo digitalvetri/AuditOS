@@ -1,6 +1,7 @@
 import type { Prisma } from '@prisma/client'
 import { prisma, alive } from '../../../lib/prisma.js'
 import { ApiError } from '../../../lib/http.js'
+import { lockSequence } from '../../../lib/sequence.js'
 import { assertDate } from './primitives.js'
 
 /**
@@ -116,8 +117,10 @@ export async function resolveFinancialYear(tx: Tx, companyId: string, date: stri
 
 /**
  * Allocate the next number for a voucher type. Runs inside the posting
- * transaction, so two concurrent posts cannot take the same number: the
- * row update serialises them.
+ * transaction. The row update alone did NOT serialise concurrent posts: it
+ * wrote `currentNumber + 1` from the value read before the update, so two
+ * posts both wrote the same number. Take the per-type lock, then re-read
+ * the counter (lib/sequence.ts).
  */
 export async function allocateVoucherNumber(
   tx: Tx,
@@ -135,9 +138,13 @@ export async function allocateVoucherNumber(
     // but never advances the counter.
     return manual.trim()
   }
+  await lockSequence(tx, `voucher_no:${voucherType.id}`)
+  const fresh = await tx.bookkeepingVoucherType.findUniqueOrThrow({
+    where: { id: voucherType.id }, select: { currentNumber: true, startNumber: true },
+  })
   const updated = await tx.bookkeepingVoucherType.update({
     where: { id: voucherType.id },
-    data: { currentNumber: Math.max(voucherType.currentNumber + 1, voucherType.startNumber) },
+    data: { currentNumber: Math.max(fresh.currentNumber + 1, fresh.startNumber) },
     select: { currentNumber: true },
   })
   return `${voucherType.prefix ?? ''}${String(updated.currentNumber).padStart(4, '0')}${voucherType.suffix ?? ''}`

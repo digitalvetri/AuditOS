@@ -18,6 +18,7 @@ import {
   paymentToApi, payslipToApi, salaryStructureToApi,
 } from '../../api/serialize.js'
 import { nextPaymentNo, postJournal, type JournalLeg } from '../accounts/ledger.js'
+import { lockSequence } from '../../lib/sequence.js'
 import { CATEGORIES, TDS_PLAN_GROSS_THRESHOLD_PAISE } from '../../platform/constants.js'
 import type { PayrollDeductions } from '../../domain/payroll/calc.js'
 
@@ -509,7 +510,6 @@ payrollRouter.post('/runs/:id/process', handler(async (req, res) => {
     where: { payrollRunId: run.id, deletedAt: null }, include: { employee: true },
   })
   const now = new Date()
-  const payslipBase = await prisma.payslip.count()
 
   const { fresh, payments, payslips } = await prisma.$transaction(async (tx) => {
     // Claim the run first: only one request can move it approved →
@@ -523,9 +523,21 @@ payrollRouter.post('/runs/:id/process', handler(async (req, res) => {
     })
     if (claimed.count !== 1) throw ApiError.conflict('already_processed', 'Run is Processed — immutable.')
 
+    // Payslip numbers are one global counter (the month is only a prefix).
+    // Allocate under the payslip lock, inside this transaction, from the
+    // highest existing number — a count read outside the transaction let
+    // two runs processed at once hand out the same numbers. Lock order:
+    // payslip_no → payment_no (nextPaymentNo) → ledger (postJournal).
+    await lockSequence(tx, 'payslip_no')
+    const existingSlips = await tx.payslip.findMany({ select: { payslipNo: true } })
+    let n = 0
+    for (const p of existingSlips) {
+      const k = Number(p.payslipNo.slice(p.payslipNo.lastIndexOf('-') + 1))
+      if (Number.isInteger(k) && k > n) n = k
+    }
+
     const createdPayments = []
     const createdPayslips = []
-    let n = payslipBase
 
     for (const item of items) {
       const paymentNo = await nextPaymentNo(tx)
