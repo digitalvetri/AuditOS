@@ -1,0 +1,145 @@
+# AUDIT OS on Coolify (Docker Compose build pack).
+#
+# Coolify → New Resource → (this GitHub repo) → Build pack "Docker Compose"
+#   Base directory:          /docker
+#   Docker Compose location: /docker-compose.coolify.yml
+#
+# Differences from docker-compose.yml (plain Docker on a server):
+#   - Settings come from Coolify's Environment Variables, not .env.docker
+#     (that file is never in Git). Coolify lists every ${VAR} below.
+#   - No Caddy and no published ports: Coolify's own proxy serves the `web`
+#     service on the domain you give it, with HTTPS, on 80/443.
+#   - No Adminer.
+#   - Nightly backups go to /data/auditos/backups on the server, outside the
+#     deploy folder, so a redeploy never removes them.
+#
+# Required variables (the API refuses to boot without them):
+#   POSTGRES_PASSWORD (hex: openssl rand -hex 24), JWT_SECRET,
+#   SIGNED_URL_SECRET, PERMANENT_LINK_SECRET (openssl rand -hex 32 each),
+#   PORTAL_ACCESS_ENC_KEY (openssl rand -base64 32), OWNER_* logins,
+#   WEB_ORIGIN and PUBLIC_APP_URL (the address people open), COOKIE_SECURE
+#   (true once that address is https).
+
+x-app-env: &app-env
+  # Built here from the same variables Postgres uses, so they cannot drift.
+  DATABASE_URL: postgresql://${POSTGRES_USER:-auditos}:${POSTGRES_PASSWORD:?}@postgres:5432/${POSTGRES_DB:-auditos}?schema=public
+  POSTGRES_USER: ${POSTGRES_USER:-auditos}
+  POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?}
+  POSTGRES_DB: ${POSTGRES_DB:-auditos}
+  JWT_SECRET: ${JWT_SECRET:?}
+  SIGNED_URL_SECRET: ${SIGNED_URL_SECRET:?}
+  PERMANENT_LINK_SECRET: ${PERMANENT_LINK_SECRET:?}
+  PORTAL_ACCESS_ENC_KEY: ${PORTAL_ACCESS_ENC_KEY:?}
+  WEB_ORIGIN: ${WEB_ORIGIN:?}
+  PUBLIC_APP_URL: ${PUBLIC_APP_URL:?}
+  COOKIE_SECURE: ${COOKIE_SECURE:-false}
+  SESSION_TTL_SECONDS: ${SESSION_TTL_SECONDS:-28800}
+  SIGNED_URL_TTL_SECONDS: ${SIGNED_URL_TTL_SECONDS:-300}
+  OWNER_SUPERADMIN_EMAIL: ${OWNER_SUPERADMIN_EMAIL:-}
+  OWNER_SUPERADMIN_PASSWORD: ${OWNER_SUPERADMIN_PASSWORD:-}
+  OWNER_ADMIN_EMAIL: ${OWNER_ADMIN_EMAIL:-}
+  OWNER_ADMIN_PASSWORD: ${OWNER_ADMIN_PASSWORD:-}
+  OWNER_ADMIN_NAME: ${OWNER_ADMIN_NAME:-Admin}
+  SMTP_HOST: ${SMTP_HOST:-}
+  SMTP_PORT: ${SMTP_PORT:-587}
+  SMTP_USER: ${SMTP_USER:-}
+  SMTP_PASS: ${SMTP_PASS:-}
+  MAIL_FROM: ${MAIL_FROM:-}
+  VAPID_PUBLIC_KEY: ${VAPID_PUBLIC_KEY:-}
+  VAPID_PRIVATE_KEY: ${VAPID_PRIVATE_KEY:-}
+  VAPID_SUBJECT: ${VAPID_SUBJECT:-}
+  ZBOOKS_CLIENT_ID: ${ZBOOKS_CLIENT_ID:-}
+  ZBOOKS_CLIENT_SECRET: ${ZBOOKS_CLIENT_SECRET:-}
+  ZBOOKS_REDIRECT_URI: ${ZBOOKS_REDIRECT_URI:-}
+  ZBOOKS_ENCRYPTION_KEY: ${ZBOOKS_ENCRYPTION_KEY:-}
+  ZPAY_MODE: ${ZPAY_MODE:-}
+  ZPAY_CLIENT_ID: ${ZPAY_CLIENT_ID:-}
+  ZPAY_CLIENT_SECRET: ${ZPAY_CLIENT_SECRET:-}
+  ZPAY_REDIRECT_URI: ${ZPAY_REDIRECT_URI:-}
+  ZPAY_ENCRYPTION_KEY: ${ZPAY_ENCRYPTION_KEY:-}
+  WHATSAPP_TOKEN: ${WHATSAPP_TOKEN:-}
+  WHATSAPP_PHONE_NUMBER_ID: ${WHATSAPP_PHONE_NUMBER_ID:-}
+  WHATSAPP_TEMPLATE_NAME: ${WHATSAPP_TEMPLATE_NAME:-}
+  WHATSAPP_TEMPLATE_LANG: ${WHATSAPP_TEMPLATE_LANG:-}
+  BACKUP_KEEP_DAYS: ${BACKUP_KEEP_DAYS:-14}
+  BACKUP_HOUR_UTC: ${BACKUP_HOUR_UTC:-21}
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-auditos}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?}
+      POSTGRES_DB: ${POSTGRES_DB:-auditos}
+    volumes:
+      - auditos-pg-data:/var/lib/postgresql/data
+      - ./postgres/init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  # One-shot: widens money columns, syncs the schema, seeds reference data,
+  # creates the owner logins — then exits 0.
+  migrate:
+    build:
+      context: ../backend
+      target: toolchain
+    environment:
+      <<: *app-env
+      NODE_ENV: production
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: "no"
+
+  api:
+    build:
+      context: ../backend
+      target: runtime
+    restart: unless-stopped
+    environment:
+      <<: *app-env
+      NODE_ENV: production
+      PORT: "4000"
+    volumes:
+      - auditos-uploads:/app/uploads
+    depends_on:
+      postgres:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    expose:
+      - "4000"
+
+  # Give THIS service the domain in Coolify (port 80).
+  web:
+    build:
+      context: ../frontend
+      target: runtime
+    restart: unless-stopped
+    expose:
+      - "80"
+    depends_on:
+      api:
+        condition: service_healthy
+
+  backup:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      <<: *app-env
+    command: ["sh", "/backup.sh"]
+    volumes:
+      - ./backup/backup.sh:/backup.sh:ro
+      - auditos-uploads:/uploads:ro
+      - /data/auditos/backups:/backups
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+volumes:
+  auditos-pg-data:
+  auditos-uploads:
