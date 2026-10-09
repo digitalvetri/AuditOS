@@ -12,6 +12,7 @@ import {
   rupeesToPaise, smallBtn, useAudit, useMe,
 } from '@/modules/audit/components';
 import type { AuditFile, AuditStatus, Blocker, MaterialityBenchmark, OpinionType } from '@/modules/audit/types';
+import { confirmAction } from '@/components/ConfirmDialog';
 
 const card = 'dash-card p-5 min-w-0';
 
@@ -182,7 +183,7 @@ function TeamCard({ f }: { f: AuditFile }) {
                   : <Chip value="pending" text="Not declared" tone="amber" />}
                 {a.editable && !isSigner ? (
                   <button type="button" aria-label={`Remove ${m.employee_name ?? 'member'}`} className="h-8 w-8 inline-flex items-center justify-center text-neutral-400 hover:text-danger"
-                    onClick={() => { if (window.confirm(`Remove ${m.employee_name ?? 'this member'} from the team?`)) del.mutate(m.id); }}>
+                    onClick={async () => { if (await confirmAction(`Remove ${m.employee_name ?? 'this member'} from the team?`)) del.mutate(m.id); }}>
                     <Trash2 size={14} />
                   </button>
                 ) : null}
@@ -470,7 +471,7 @@ function SigningCard({ f }: { f: AuditFile }) {
             <p className="text-13 text-neutral-700 inline-flex items-center gap-1"><Lock size={14} /> Locked {f.locked_at ? fmtDay(f.locked_at) : ''}</p>
           ) : a.isLead && me.canSign ? (
             <button type="button" className={primaryBtn} disabled={lock.isPending}
-              onClick={() => { if (window.confirm('Lock this audit file? After this, every change is an addendum.')) lock.mutate(); }}>
+              onClick={async () => { if (await confirmAction('Lock this audit file? After this, every change is an addendum.')) lock.mutate(); }}>
               <Lock size={14} /> Lock file
             </button>
           ) : <p className="text-12 text-neutral-500">The signing partner or manager locks the file.</p>}

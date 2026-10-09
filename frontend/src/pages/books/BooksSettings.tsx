@@ -168,7 +168,7 @@ function AddOrganisationModal({ onClose, onDone }: { onClose: () => void; onDone
           </ol>
           <a href={consoleUrl} target="_blank" rel="noopener noreferrer"
             className="inline-flex items-center h-8 px-3 text-12 font-medium rounded border border-border bg-surface text-primary hover:bg-canvas">Open Zoho API console ↗</a>
-          <Field label="Generated code"><TextInput type="password" value={f.code} onChange={set('code')} placeholder="1000.…" autoComplete="off" spellCheck={false} /></Field>
+          <Field label="Generated code"><TextInput type="password" value={f.code} onChange={set('code')} placeholder="1000.…" autoComplete="new-password" spellCheck={false} /></Field>
         </div>
         {error ? <Notice tone="warn">{error}</Notice> : null}
         <p className="text-12 text-inkMuted">The Client Secret and tokens are encrypted on the server and never shown again. Only Super Admins can add accounts.</p>

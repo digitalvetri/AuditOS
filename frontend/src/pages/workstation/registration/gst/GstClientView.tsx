@@ -224,6 +224,7 @@ export function GstClientView() {
     enabled: !!clientId,
   });
 
+  const toast = useToast();
   const openCase = useMutation({
     mutationFn: async ({ view, kind }: { view: ClientViewResponse; kind: RegistrationKind }) => {
       const svc = SERVICES[kind];
@@ -236,7 +237,7 @@ export function GstClientView() {
       return { url: svc.caseUrl(r.id) };
     },
     onSuccess: (r) => navigate(r.url),
-    onError: (e) => window.alert(e instanceof Error ? e.message : 'Could not open case'),
+    onError: (e) => toast.push('error', e instanceof Error ? e.message : 'Could not open case'),
   });
 
   return (

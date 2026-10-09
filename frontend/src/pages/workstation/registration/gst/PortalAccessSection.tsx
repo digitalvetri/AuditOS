@@ -154,7 +154,7 @@ export function PortalAccessSection({ gstProfileId }: { gstProfileId: string }) 
           <div className="flex items-center gap-2">
             <input
               className={`${inputClass} font-mono flex-1`}
-              type="password"
+              type="password" autoComplete="new-password"
               value={d.portal_password}
               onChange={(e) => set('portal_password', e.target.value)}
               placeholder={portalPasswordStored ? '••••••• (unchanged)' : ''}
@@ -201,7 +201,7 @@ export function PortalAccessSection({ gstProfileId }: { gstProfileId: string }) 
         </Field>
         <Field label="E-Way Bill password" hint={ewbPasswordStored ? 'A password is stored. Leave blank to keep.' : ''}>
           <div className="flex items-center gap-2">
-            <input className={inputClass + ' font-mono flex-1'} type="password" value={d.ewb_password} onChange={(e) => set('ewb_password', e.target.value)} placeholder={ewbPasswordStored ? '••••••• (unchanged)' : ''} />
+            <input className={inputClass + ' font-mono flex-1'} type="password" autoComplete="new-password" value={d.ewb_password} onChange={(e) => set('ewb_password', e.target.value)} placeholder={ewbPasswordStored ? '••••••• (unchanged)' : ''} />
             {ewbPasswordStored ? (
               revealed.ewb_password ? <span className="text-12 font-mono px-2 py-1 bg-neutral-100 rounded">{revealed.ewb_password}</span>
                 : <button type="button" className="text-12 underline text-neutral-500 inline-flex items-center gap-1" disabled={reveal.isPending} onClick={() => reveal.mutate('ewb_password')}><Eye size={12} /> Reveal</button>
@@ -219,7 +219,7 @@ export function PortalAccessSection({ gstProfileId }: { gstProfileId: string }) 
         </Field>
         <Field label="IRP password" hint={irpPasswordStored ? 'A password is stored.' : ''}>
           <div className="flex items-center gap-2">
-            <input className={inputClass + ' font-mono flex-1'} type="password" value={d.irp_password} onChange={(e) => set('irp_password', e.target.value)} placeholder={irpPasswordStored ? '••••••• (unchanged)' : ''} />
+            <input className={inputClass + ' font-mono flex-1'} type="password" autoComplete="new-password" value={d.irp_password} onChange={(e) => set('irp_password', e.target.value)} placeholder={irpPasswordStored ? '••••••• (unchanged)' : ''} />
             {irpPasswordStored ? (
               revealed.irp_password ? <span className="text-12 font-mono px-2 py-1 bg-neutral-100 rounded">{revealed.irp_password}</span>
                 : <button type="button" className="text-12 underline text-neutral-500 inline-flex items-center gap-1" disabled={reveal.isPending} onClick={() => reveal.mutate('irp_password')}><Eye size={12} /> Reveal</button>

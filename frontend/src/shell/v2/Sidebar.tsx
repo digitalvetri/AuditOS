@@ -42,7 +42,7 @@ import {
   ScrollText,
   Wallet,
   Wrench,
-  CalendarClock, FileWarning, GitCompareArrows, KeyRound, GraduationCap,
+  CalendarClock, FileWarning, GitCompareArrows, KeyRound, GraduationCap, X,
   type LucideIcon,
 } from 'lucide-react';
 import { useAuth } from '@/platform/auth/AuthContext';
@@ -297,14 +297,14 @@ export function Sidebar({ mobileOpen, onMobileClose }: Props) {
 
   const nav = useMemo(() => buildNav(role, session, { pendingCount, clientCount }), [role, session, pendingCount, clientCount]);
 
-  const [collapsed, setCollapsed] = useState<boolean>(() => {
+  const [collapsedPref, setCollapsed] = useState<boolean>(() => {
     if (typeof localStorage === 'undefined') return false;
     return localStorage.getItem(COLLAPSED_KEY) === '1';
   });
   useEffect(() => {
     if (typeof localStorage === 'undefined') return;
-    localStorage.setItem(COLLAPSED_KEY, collapsed ? '1' : '0');
-  }, [collapsed]);
+    localStorage.setItem(COLLAPSED_KEY, collapsedPref ? '1' : '0');
+  }, [collapsedPref]);
 
   const location = useLocation();
   // Close the mobile drawer on route change — same pattern the shipped app uses.
@@ -333,7 +333,10 @@ export function Sidebar({ mobileOpen, onMobileClose }: Props) {
     mq.addEventListener('change', onChange);
     return () => mq.removeEventListener('change', onChange);
   }, []);
-  const asideWidth = isDesktop ? (collapsed ? 72 : 264) : 264;
+  // The icon rail is a desktop preference: the phone/tablet drawer always
+  // opens full width with labels, even if the rail was collapsed on desktop.
+  const collapsed = isDesktop && collapsedPref;
+  const asideWidth = collapsed ? 72 : 264;
 
   // ── Modules ───────────────────────────────────────────────────────────
   const home = nav.find((g) => g.label === null);
@@ -395,7 +398,7 @@ export function Sidebar({ mobileOpen, onMobileClose }: Props) {
         style={{ width: asideWidth }}
         aria-label="Primary navigation"
       >
-        <Brand collapsed={collapsed} />
+        <Brand collapsed={collapsed} onClose={mobileOpen ? onMobileClose : undefined} />
 
         <nav className="sidebar-scroll sb-nav-limit flex-1 min-h-0 overflow-y-auto pt-1 pb-2">
           {home ? <Section group={home} collapsed={collapsed} first folded={false} /> : null}
@@ -491,7 +494,7 @@ export function Sidebar({ mobileOpen, onMobileClose }: Props) {
 // Brand text ends up 16px to the right of nav labels — accepted; a brand
 // cluster reads as a header, not another nav row.
 
-function Brand({ collapsed }: { collapsed: boolean }) {
+function Brand({ collapsed, onClose }: { collapsed: boolean; onClose?: () => void }) {
   // Same height as TopBar (h-20) so the brand plate and search bar sit on one
   // line. Divider on the bottom lines up with the TopBar's border so the
   // header reads as one continuous strip across the shell. The brand mark is
@@ -525,6 +528,13 @@ function Brand({ collapsed }: { collapsed: boolean }) {
           <span className="text-14 font-semibold text-sidebarText tracking-tight leading-tight truncate">JNS Accounting</span>
           <span className="text-12 font-medium text-sidebarMuted leading-tight mt-0.5 truncate">Practice workspace</span>
         </div>
+      ) : null}
+      {/* Drawer only (below 1024px): an explicit way out besides the scrim. */}
+      {onClose ? (
+        <button type="button" onClick={onClose} aria-label="Close menu"
+          className="lg:hidden ml-auto shrink-0 h-10 w-10 grid place-items-center rounded-[10px] text-sidebarMuted hover:text-sidebarText hover:bg-white/[0.08] transition-colors">
+          <X size={18} strokeWidth={2} />
+        </button>
       ) : null}
     </div>
   );
@@ -803,7 +813,7 @@ function Profile({ collapsed, onToggle }: { collapsed: boolean; onToggle: () => 
       <button
         type="button"
         onClick={onToggle}
-        className="shrink-0 h-8 w-8 grid place-items-center rounded-[9px] text-white/60 hover:text-white hover:bg-white/[0.08] transition-colors"
+        className="hidden lg:grid shrink-0 h-8 w-8 place-items-center rounded-[9px] text-white/60 hover:text-white hover:bg-white/[0.08] transition-colors"
         aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
         title={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
       >

@@ -289,17 +289,19 @@ export function TD({ children, first, last, right, strong, muted, nowrap, classN
  * person or company name) to lead with an initials avatar.
  */
 export const TwoLine = ({ top, sub, avatar, square }: { top: ReactNode; sub?: ReactNode; avatar?: string | null; square?: boolean }) => {
+  // One block, so a flex parent (a checkbox beside it) cannot split the two
+  // lines into side-by-side columns.
   const text = (
-    <>
+    <div className="min-w-0">
       <div className="font-semibold text-neutral-900">{top}</div>
       {sub ? <div className="text-11 text-neutral-500 mt-px">{sub}</div> : null}
-    </>
+    </div>
   );
   if (avatar === undefined) return text;
   return (
     <div className="flex items-center gap-3 min-w-0">
       <Avatar name={avatar} size={30} square={square} />
-      <div className="min-w-0">{text}</div>
+      {text}
     </div>
   );
 };

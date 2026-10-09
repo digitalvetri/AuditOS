@@ -9,6 +9,7 @@ import { useAuth } from '@/platform/auth/AuthContext';
 import { can } from '@/platform/rbac/can';
 import type { ApiError } from '@/services/api';
 import { useAuditFileOptions } from '@/modules/audit/pickers';
+import { promptText } from '@/components/ConfirmDialog';
 
 /**
  * /workstation/tasks/:id — one task in full.
@@ -94,8 +95,8 @@ export function TaskDetailPage() {
                   {(t.status === 'pending' || t.status === 'paused' || (t.status === 'in_progress' && canManage)) ? (
                     <Action
                       label="Cancel" icon={<Ban size={14} />} busy={act.isPending}
-                      onClick={() => {
-                        const reason = window.prompt('Why is this task being cancelled? (recorded in the history)');
+                      onClick={async () => {
+                        const reason = await promptText('Why is this task being cancelled? (recorded in the history)', { action: 'Cancel task', danger: true });
                         if (reason !== null) act.mutate({ action: 'cancel', reason });
                       }}
                     />
@@ -103,8 +104,8 @@ export function TaskDetailPage() {
                   {canManage && (t.status === 'completed' || t.status === 'cancelled') ? (
                     <Action
                       label="Reopen" icon={<RotateCcw size={14} />} busy={act.isPending}
-                      onClick={() => {
-                        const reason = window.prompt('Why is this task being reopened?');
+                      onClick={async () => {
+                        const reason = await promptText('Why is this task being reopened?', { action: 'Reopen task' });
                         if (reason !== null) act.mutate({ action: 'reopen', reason });
                       }}
                     />

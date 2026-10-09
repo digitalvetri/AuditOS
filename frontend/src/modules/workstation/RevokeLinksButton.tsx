@@ -1,6 +1,7 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '@/services/api';
 import { useToast } from '@/components/Toast';
+import { confirmAction } from '@/components/ConfirmDialog';
 
 /**
  * "Revoke old links" — withdraws every download link already sent for this
@@ -23,8 +24,8 @@ export function RevokeLinksButton({ kind, id }: { kind: 'quotation' | 'invoice' 
     <button
       type="button"
       disabled={revoke.isPending}
-      onClick={() => {
-        if (window.confirm('Revoke every link already sent for this document? Anyone opening an old link will be asked for a new one.')) revoke.mutate();
+      onClick={async () => {
+        if (await confirmAction('Revoke every link already sent for this document? Anyone opening an old link will be asked for a new one.')) revoke.mutate();
       }}
       className="mt-1 text-12 text-neutral-500 underline hover:text-neutral-900 disabled:opacity-50"
     >

@@ -11,6 +11,7 @@ import {
 import { CompanyHeaderBlock } from './CompanyHeader';
 import { DateField, PlainField, RichLine } from '@/pages/workstation/engagement/Editable';
 import { footerReservePx, unitHeights } from '@/modules/workstation/paginate';
+import { useToast } from '@/components/Toast';
 
 /**
  * THE A4 DOCUMENT — rendered, and (given `edit`) edited in place.
@@ -465,6 +466,7 @@ function unitsOf(b: DBlock, doc: DocModel, edit?: DocEditApi): Unit[] {
  */
 function SignatureSlot({ p, live, onPick }: { p: Person; live: boolean; onPick: (d: string) => void }) {
   const input = useRef<HTMLInputElement>(null);
+  const toast = useToast();
   const img = p.sign ? <img src={p.sign} alt="" style={{ maxHeight: 52, maxWidth: '85%', objectFit: 'contain' }} /> : null;
   if (!live) {
     return <div style={{ minHeight: 54, display: 'flex', alignItems: 'flex-end' }}>{img}</div>;
@@ -486,7 +488,7 @@ function SignatureSlot({ p, live, onPick }: { p: Person; live: boolean; onPick: 
           e.target.value = '';
           if (!f) return;
           // Kept small on purpose: the image travels inside the document.
-          if (f.size > 400_000) { window.alert('Use a signature image under 400 KB.'); return; }
+          if (f.size > 400_000) { toast.push('error', 'Use a signature image under 400 KB.'); return; }
           const r = new FileReader();
           r.onload = () => onPick(String(r.result));
           r.readAsDataURL(f);

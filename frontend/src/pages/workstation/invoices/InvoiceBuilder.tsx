@@ -19,6 +19,7 @@ import { can } from '@/platform/rbac/can';
 import { useAuth } from '@/platform/auth/AuthContext';
 import { printDocumentOnly } from '@/modules/workstation/print';
 import { clientNameWithOrg } from '@/modules/workstation/organization/badges';
+import { istToday } from '@/lib/dates';
 
 /**
  * INVOICE BUILDER — Workstation → Invoice → Create / Edit.
@@ -36,7 +37,7 @@ import { clientNameWithOrg } from '@/modules/workstation/organization/badges';
  * document never shows a figure the API did not produce.
  */
 
-const today = () => new Date().toISOString().slice(0, 10);
+const today = () => istToday();
 
 type Tab = 'details' | 'items' | 'payment' | 'layout' | 'blocks';
 const TABS: { id: Tab; label: string }[] = [

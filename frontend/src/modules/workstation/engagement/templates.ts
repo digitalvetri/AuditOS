@@ -21,6 +21,7 @@ import {
   ENGAGEMENT_COMPANY, EMPTY_RECIPIENT, bid, defaultBlocks, DEFAULT_FEES, newFee, newLine,
   type EBlock, type FeeLine, type Line, type Recipient, type TableCell,
 } from './document';
+import { istToday } from '@/lib/dates';
 
 export type EngagementTemplateId =
   | 'jns-accounting'
@@ -483,7 +484,7 @@ function bookkeeping(): TemplatePreset {
 function standard(): TemplatePreset {
   return {
     subject: 'Engagement letter for accounting and compliance services',
-    letterDate: new Date().toISOString().slice(0, 10),
+    letterDate: istToday(),
     company: ENGAGEMENT_COMPANY,
     recipient: EMPTY_RECIPIENT,
     blocks: defaultBlocks(),
@@ -518,7 +519,7 @@ const AUDIT_FEES_NOTE = 'The fees are exclusive of applicable taxes and out-of-p
 function statutoryAudit(): TemplatePreset {
   return {
     subject: 'Terms of engagement for the statutory audit of financial statements',
-    letterDate: new Date().toISOString().slice(0, 10),
+    letterDate: istToday(),
     company: ENGAGEMENT_COMPANY,
     recipient: EMPTY_RECIPIENT,
     blocks: [
@@ -616,7 +617,7 @@ function statutoryAudit(): TemplatePreset {
 function taxAudit(): TemplatePreset {
   return {
     subject: 'Terms of engagement for tax audit under section 44AB of the Income-tax Act, 1961',
-    letterDate: new Date().toISOString().slice(0, 10),
+    letterDate: istToday(),
     company: ENGAGEMENT_COMPANY,
     recipient: EMPTY_RECIPIENT,
     blocks: [

@@ -87,7 +87,7 @@ export function TdsReconPage() {
   });
 
   if (!allowed) {
-    return <div className="max-w-[1400px]"><ListHeader title="26AS vs books" /><ListCard><ListEmpty>You do not have access to TDS reconciliation.</ListEmpty></ListCard></div>;
+    return <div className="max-w-[1400px]"><ListHeader title="26AS reconciliation" /><ListCard><ListEmpty>You do not have access to TDS reconciliation.</ListEmpty></ListCard></div>;
   }
 
   return (
@@ -95,7 +95,7 @@ export function TdsReconPage() {
       <Link to="/workstation/services/tds" className="inline-flex items-center gap-1 text-13 text-neutral-500 hover:text-neutral-900 mb-2">
         <ArrowLeft size={14} /> TDS
       </Link>
-      <ListHeader title="26AS vs books"
+      <ListHeader title="26AS reconciliation"
         meta="Match TDS credits in Form 26AS with the TDS receivable in the books — by TAN and section, then amount within a tolerance." />
 
       <ListCard title={<span className="inline-flex items-center gap-2"><GitCompareArrows size={15} /> New reconciliation</span>}>

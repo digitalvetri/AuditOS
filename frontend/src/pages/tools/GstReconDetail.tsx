@@ -12,6 +12,7 @@ import {
   type ReconRow,
   type ReconRowEntry,
 } from '@/modules/tools/audit-automation/gst';
+import { confirmAction } from '@/components/ConfirmDialog';
 
 /**
  * /audit-automation/gst/jobs/:jobId — one GSTR-2B vs purchase-register
@@ -128,7 +129,7 @@ export function GstReconDetailPage() {
               </>
             ) : null}
             <Button variant="secondary" size="sm" disabled={remove.isPending}
-              onClick={() => { if (window.confirm('Delete this reconciliation and your review on it? The uploaded GSTR-2B and purchase register stay.')) remove.mutate(); }}>
+              onClick={async () => { if (await confirmAction('Delete this reconciliation and your review on it? The uploaded GSTR-2B and purchase register stay.')) remove.mutate(); }}>
               <Trash2 size={14} strokeWidth={1.75} className="mr-1" /> Delete
             </Button>
           </div>
@@ -325,7 +326,7 @@ function RowsTable({ jobId, rows, loading, onChanged }: { jobId: string; rows: R
                         <IconButton title="Pair with an invoice from the books" onClick={() => setPairFor(r)}><Link2 size={14} strokeWidth={1.75} /></IconButton>
                       ) : null}
                       {paired && r.match_status !== 'duplicate' ? (
-                        <IconButton title="Unpair" onClick={() => { if (window.confirm('Split this pair into “missing in books” and “missing in 2B”?')) unpair.mutate(r.id); }}>
+                        <IconButton title="Unpair" onClick={async () => { if (await confirmAction('Split this pair into “missing in books” and “missing in 2B”?')) unpair.mutate(r.id); }}>
                           <Unlink size={14} strokeWidth={1.75} />
                         </IconButton>
                       ) : null}

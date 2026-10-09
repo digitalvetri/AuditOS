@@ -24,6 +24,7 @@ import { QuotationDocument, type DocumentModel, type QuoteEditApi, type QuoteFie
 import { forceSync } from '@/pages/workstation/engagement/Editable';
 import { printDocumentOnly } from '@/modules/workstation/print';
 import { clientNameWithOrg } from '@/modules/workstation/organization/badges';
+import { istToday } from '@/lib/dates';
 
 /**
  * THE QUOTATION BUILDER — /workstation/quotations/new and /:id/edit.
@@ -60,7 +61,7 @@ const newLine = (frequency = 'Monthly'): Line => ({
   feeText: '', qtyText: '1', gstRatePercent: 18, discountPercent: 0,
 });
 
-const today = () => new Date().toISOString().slice(0, 10);
+const today = () => istToday();
 const inDays = (n: number) => new Date(Date.now() + n * 86_400_000).toISOString().slice(0, 10);
 
 export function QuotationBuilderPage() {

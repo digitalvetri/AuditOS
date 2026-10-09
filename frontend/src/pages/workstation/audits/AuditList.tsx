@@ -98,7 +98,7 @@ export function AuditListPage() {
             <ListTable cols={['File', 'Client', 'FY', 'Type', 'Status', 'Signing partner', 'Report by', 'Progress', { label: 'Open notes', align: 'right' }]}>
               {data.items.map((a) => (
                 <ListRow key={a.id} onOpen={() => navigate(`/workstation/audits/${a.id}`)}>
-                  <TD first><TwoLine top={<span className="tracking-[0.02em]">{a.audit_code}</span>} sub={a.title} /></TD>
+                  <TD first><div className="min-w-[150px]"><TwoLine top={<span className="tracking-[0.02em] whitespace-nowrap">{a.audit_code}</span>} sub={a.title} /></div></TD>
                   <TD><TwoLine avatar={a.client?.company_name ?? '—'} square top={a.client?.company_name ?? '—'} /></TD>
                   <TD muted nowrap>{a.financial_year}</TD>
                   <TD muted nowrap>{auditTypeLabel(a.audit_type)}</TD>

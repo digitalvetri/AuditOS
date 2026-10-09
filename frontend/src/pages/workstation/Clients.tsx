@@ -29,6 +29,7 @@ import { clientHealth, gstHistory, lastPeriods, tdsRowsFor, type PeriodState } f
 import { ClientPanel } from './ClientPanel';
 import { deriveShortName, OrganizationBadge, OrganizationOf } from '@/modules/workstation/organization/badges';
 import { gstinError, isPan, normId } from '@/lib/ids';
+import { confirmAction } from '@/components/ConfirmDialog';
 
 /**
  * §7.3 — the client list. Search covers company · Client ID · GSTIN · contact.
@@ -188,14 +189,14 @@ export function ClientsPage() {
     },
     onError: (e) => toast.push('error', (e as Error).message || 'Could not update the clients.'),
   });
-  const assign = (employeeId: string) => {
+  const assign = async (employeeId: string) => {
     const who = employees.data?.items.find((e) => e.id === employeeId)?.full_name ?? 'this employee';
-    if (window.confirm(`Make ${who} the account manager of ${selected.size} client${selected.size === 1 ? '' : 's'}?`)) {
+    if (await confirmAction(`Make ${who} the account manager of ${selected.size} client${selected.size === 1 ? '' : 's'}?`)) {
       bulk.mutate({ ids: [...selected], action: 'assign_account_manager', account_manager_id: employeeId });
     }
   };
-  const restatus = (value: string) => {
-    if (window.confirm(`Change the status of ${selected.size} client${selected.size === 1 ? '' : 's'} to ${statusLabel(value)}?`)) {
+  const restatus = async (value: string) => {
+    if (await confirmAction(`Change the status of ${selected.size} client${selected.size === 1 ? '' : 's'} to ${statusLabel(value)}?`)) {
       bulk.mutate({ ids: [...selected], action: 'set_status', status: value });
     }
   };

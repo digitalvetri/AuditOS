@@ -6,6 +6,7 @@ import { ListCard, ListEmpty, ListRow, ListTable, ListToolbar, Spacer, TD } from
 import { auditApi } from '@/modules/audit/api';
 import { Chip, errText, label, primaryBtn, smallBtn, useAudit, useAuditMutation } from '@/modules/audit/components';
 import type { AuditRisk, RiskLevel } from '@/modules/audit/types';
+import { confirmAction } from '@/components/ConfirmDialog';
 
 /** SA 315 risk register: the risks of material misstatement and the planned response. */
 
@@ -70,7 +71,7 @@ function RiskModal({ risk, onClose }: { risk: AuditRisk | null; onClose: () => v
     <Modal open title={risk ? 'Edit risk' : 'Add risk'} onClose={onClose} width="w-[600px]"
       footer={<>
         {risk && !a.locked ? <button type="button" className={`${smallBtn} mr-auto text-danger`} disabled={remove.isPending}
-          onClick={() => { if (window.confirm('Remove this risk?')) remove.mutate(); }}>Remove</button> : null}
+          onClick={async () => { if (await confirmAction('Remove this risk?')) remove.mutate(); }}>Remove</button> : null}
         <button type="button" className={smallBtn} onClick={onClose}>Cancel</button>
         <button type="button" className={primaryBtn} disabled={!area.trim() || !description.trim() || save.isPending} onClick={() => save.mutate()}>Save</button>
       </>}>

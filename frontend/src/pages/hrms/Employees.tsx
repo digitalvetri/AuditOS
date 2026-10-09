@@ -20,6 +20,7 @@ import { Avatar } from '@/components/viz';
 import { useAuth } from '@/platform/auth/AuthContext';
 import { can } from '@/platform/rbac/can';
 import { styleForStatus as attendanceStyleForStatus } from '@/modules/attendance/statusStyle';
+import { istToday } from '@/lib/dates';
 
 export function EmployeesPage() {
   const { session } = useAuth();
@@ -343,7 +344,7 @@ function exportCsv(rows: EmployeeRow[], columns: string[]) {
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
-  a.download = `employees-${new Date().toISOString().slice(0, 10)}.csv`;
+  a.download = `employees-${istToday()}.csv`;
   a.click();
   URL.revokeObjectURL(url);
 }

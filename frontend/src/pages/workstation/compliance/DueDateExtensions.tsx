@@ -10,6 +10,7 @@ import { Modal, QueryState, fieldErrors } from '@/modules/workstation/components
 import { ListAction, ListCard, ListEmpty, ListHeader, ListRow, ListTable, TD, TwoLine } from '@/modules/workstation/listUi';
 import { complianceApi, complianceKeys, type Extension } from '@/modules/compliance/api';
 import { Chip, Labelled, day, errorText, fieldClass, smallBtn } from '@/modules/compliance/ui';
+import { confirmAction } from '@/components/ConfirmDialog';
 
 const ENTITY_TYPES = ['company', 'llp', 'firm', 'individual', 'huf', 'trust', 'society', 'aop'];
 
@@ -70,7 +71,7 @@ export function DueDateExtensionsPage() {
                   <TD last>
                     {canManage ? (
                       <button type="button" className={smallBtn} disabled={remove.isPending}
-                        onClick={() => { if (window.confirm(`Remove the extension for ${x.form_code} ${x.period_key}? Due dates go back to the statutory date.`)) remove.mutate(x.id); }}>
+                        onClick={async () => { if (await confirmAction(`Remove the extension for ${x.form_code} ${x.period_key}? Due dates go back to the statutory date.`)) remove.mutate(x.id); }}>
                         <Trash2 size={13} /> Delete
                       </button>
                     ) : null}

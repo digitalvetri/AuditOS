@@ -147,7 +147,7 @@ export function ComplianceCalendarPage() {
   if (!canRead) {
     return (
       <div className="max-w-[1400px]">
-        <ListHeader title="Compliance" />
+        <ListHeader title="Compliance calendar" />
         <ListCard><ListEmpty>You do not have access to the compliance calendar.</ListEmpty></ListCard>
       </div>
     );
@@ -173,7 +173,7 @@ export function ComplianceCalendarPage() {
   return (
     <div className="max-w-[1400px]">
       <ListHeader
-        title="Compliance"
+        title="Compliance calendar"
         meta={<>Income tax, GST, MCA and labour due dates for every client{includeOthers ? ' — GST returns and TDS included' : ''}.</>}
         action={canManage ? (
           <div className="flex flex-wrap items-center gap-2">
@@ -318,7 +318,7 @@ function ItemsTable({
           <input type="checkbox" checked={allOn} onChange={(e) => onToggleAll(e.target.checked)} /> Select all editable ({editableIds.length})
         </label>
       ) : null}
-      <ListTable cols={['Client', 'Form', 'Period', 'Due date', 'Days', 'Status', 'Assignee', 'Filing / late fee', '']}>
+      <ListTable cols={['Client', 'Form · period', 'Due date', 'Status', 'Assignee', 'Filing / late fee', '']}>
         {items.map((i) => {
           const form = formByCode.get(i.form_code);
           const ro = !editable(i);
@@ -336,20 +336,23 @@ function ItemsTable({
                     <input type="checkbox" className="mt-1" aria-label={`Select ${i.client_name ?? ''} ${i.form_code}`}
                       checked={selected.has(i.id)} onChange={() => onToggle(i.id)} />
                   ) : null}
-                  <TwoLine top={<Link to={`/workstation/clients/${i.client_id}/compliance`} className="hover:underline">{i.client_name ?? '—'}</Link>}
-                    sub={i.client_code ?? undefined} />
+                  <div className="min-w-[160px]">
+                    <TwoLine top={<Link to={`/workstation/clients/${i.client_id}/compliance`} className="hover:underline">{i.client_name ?? '—'}</Link>}
+                      sub={i.client_code ?? undefined} />
+                  </div>
                 </div>
               </TD>
               <TD>
                 <TwoLine top={i.form_name ?? form?.name ?? i.form_code}
-                  sub={<>{AUTHORITY_LABEL[i.authority ?? form?.authority ?? ''] ?? ''}{ro ? ` · from ${i.source === 'tds' ? 'TDS' : 'GST'}` : ''}</>} />
+                  sub={<>{i.period_label ?? i.period_key}{AUTHORITY_LABEL[i.authority ?? form?.authority ?? ''] ? ` · ${AUTHORITY_LABEL[i.authority ?? form?.authority ?? '']}` : ''}{ro ? ` · from ${i.source === 'tds' ? 'TDS' : 'GST'}` : ''}</>} />
               </TD>
-              <TD nowrap muted>{i.period_label ?? i.period_key}</TD>
               <TD>
-                <DueDate due={i.due_date} statutory={i.statutory_due_date} extension={i.extension} />
-                {i.anchor_missing ? <div className="mt-0.5"><Chip tone="amber" title="Due date assumes an AGM on 30 September">AGM date not entered</Chip></div> : null}
+                <div className="flex flex-col items-start gap-1">
+                  <DueDate due={i.due_date} statutory={i.statutory_due_date} extension={i.extension} />
+                  <DaysChip days={days} done={done} />
+                  {i.anchor_missing ? <Chip tone="amber" title="Due date assumes an AGM on 30 September">AGM date not entered</Chip> : null}
+                </div>
               </TD>
-              <TD nowrap><DaysChip days={days} done={done} /></TD>
               <TD>
                 {ro || !canManage ? <StatusChip value={i.status} /> : (
                   <StatusChipSelect value={i.status} options={ITEM_STATUSES} onChange={(s) => onStatus(i, s)} />
@@ -382,7 +385,7 @@ function ItemsTable({
                     Open <ExternalLink size={13} />
                   </Link>
                 ) : canManage ? (
-                  <div className="flex items-center justify-end gap-1">
+                  <div className="flex flex-col items-end gap-1">
                     {isAgm ? <button type="button" className={smallBtn} onClick={() => onAgm(i)}>AGM date</button> : null}
                     {!done ? <button type="button" className={smallBtn} onClick={() => onFiled(i)}>Mark filed</button> : null}
                   </div>
@@ -453,7 +456,7 @@ function MonthGrid({ month, today, items, compact, picked, onPick }: {
                           : d < today ? 'bg-[#fef2f2] text-[#b91c1c] border-[#fecaca]'
                           : i.extension ? 'bg-[#f5f1ff] text-[#5b33c4] border-[#ddd6fe]'
                           : 'bg-[#f1f5f9] text-[#475569] border-[#e2e8f0]')}>
-                      <b className="font-semibold">{i.form_code}</b> {i.client_name}
+                      <b className="font-semibold">{i.form_code.replace(/_/g, ' ')}</b> {i.client_name}
                     </span>
                   ))}
                   {list.length > 3 ? <span className="text-11 text-neutral-500 px-1">+{list.length - 3} more</span> : null}

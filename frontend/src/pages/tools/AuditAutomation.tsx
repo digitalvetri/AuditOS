@@ -19,7 +19,7 @@ export function AuditAutomationLandingPage() {
   return (
     <div className="max-w-[1400px] mx-auto" data-testid="aa-landing">
       <header className="mb-5">
-        <h1 className="text-20 font-semibold text-neutral-900">Repotic</h1>
+        <h1 className="text-[26px] leading-tight font-semibold tracking-[-0.01em] text-neutral-900">Repotic</h1>
         <p className="text-13 text-neutral-500 mt-1">
           Files in, files out. Bank statements → Tally, ecommerce reports → GSTR-1.
         </p>

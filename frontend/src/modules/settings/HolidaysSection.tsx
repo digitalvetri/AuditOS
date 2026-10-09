@@ -7,6 +7,7 @@ import { Button } from '@/components/Button';
 import { Input } from '@/components/Input';
 import { useToast } from '@/components/Toast';
 import { fmtDate } from '@/lib/format';
+import { confirmAction } from '@/components/ConfirmDialog';
 
 export function HolidaysSection() {
   const qc = useQueryClient();
@@ -83,7 +84,7 @@ export function HolidaysSection() {
                 <td className="px-3 py-2 text-13 font-semibold text-neutral-900">{h.name}</td>
                 <td className="px-3 py-2">{h.is_optional ? <StatusLabel variant="pending" label="Optional" /> : <span className="text-13 text-neutral-500">No</span>}</td>
                 <td className="px-3 py-2">
-                  <Button variant="ghost" onClick={() => { if (confirm(`Remove ${h.name}?`)) del.mutate(h.id); }}>
+                  <Button variant="ghost" onClick={async () => { if (await confirmAction(`Remove ${h.name}?`)) del.mutate(h.id); }}>
                     Delete
                   </Button>
                 </td>

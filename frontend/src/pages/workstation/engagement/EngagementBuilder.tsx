@@ -29,6 +29,7 @@ import { useAuth } from '@/platform/auth/AuthContext';
 import { can } from '@/platform/rbac/can';
 import { printDocumentOnly } from '@/modules/workstation/print';
 import { clientNameWithOrg } from '@/modules/workstation/organization/badges';
+import { istToday } from '@/lib/dates';
 
 /**
  * THE ENGAGEMENT LETTER BUILDER — /workstation/engagement/new and /:id/edit.
@@ -71,7 +72,7 @@ export interface LetterState {
   layout: LayoutConfig;
 }
 
-const today = () => new Date().toISOString().slice(0, 10);
+const today = () => istToday();
 
 const initialState = (): LetterState => ({
   templateId: 'jns-accounting',

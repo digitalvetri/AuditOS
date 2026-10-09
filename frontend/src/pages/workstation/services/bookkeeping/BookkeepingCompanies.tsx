@@ -7,6 +7,7 @@ import { useToast } from '@/components/Toast';
 import { bookkeepingApi, type BookkeepingCompany, type CreateBookkeepingCompanyInput } from '@/modules/tools/audit-automation/bookkeeping';
 import type { ApiError } from '@/services/api';
 import { workstationApi } from '@/modules/workstation/api';
+import { istToday } from '@/lib/dates';
 
 /**
  * /tally/companies — company list + "New company" modal.
@@ -116,7 +117,7 @@ function NewCompanyModal({ onClose, onCreated }: {
 }) {
   const qc = useQueryClient();
   const [form, setForm] = useState<CreateBookkeepingCompanyInput>({
-    name: '', books_begin_from: new Date().toISOString().slice(0, 10).replace(/-\d{2}-\d{2}$/, '-04-01'),
+    name: '', books_begin_from: istToday().replace(/-\d{2}-\d{2}$/, '-04-01'),
     fy_begin_month: 4, gst_registration_type: 'regular',
   });
   const [err, setErr] = useState<string | null>(null);

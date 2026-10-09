@@ -6,6 +6,7 @@ import { Button } from '@/components/Button';
 import { useToast } from '@/components/Toast';
 import type { ApiError } from '@/services/api';
 import { RequirementTag, useSvc } from './shared';
+import { confirmAction } from '@/components/ConfirmDialog';
 
 /**
  * The MASTER checklist. A case copies it when it opens; editing here changes
@@ -49,7 +50,7 @@ export function PartnershipTemplate() {
                   <span className="flex gap-3 text-12">
                     <button className="underline" onClick={() => setEditItem({ categoryId: cat.id, item: null })}>+ Item</button>
                     <button className="underline" onClick={() => setEditCat(cat)}>Edit</button>
-                    <button className="underline text-red" onClick={() => { if (window.confirm(`Remove "${cat.name}" and its items from the master? Existing cases are not affected.`)) del.mutate({ kind: 'cat', id: cat.id }); }}>Remove</button>
+                    <button className="underline text-red" onClick={async () => { if (await confirmAction(`Remove "${cat.name}" and its items from the master? Existing cases are not affected.`)) del.mutate({ kind: 'cat', id: cat.id }); }}>Remove</button>
                   </span>
                 ) : undefined}
               >

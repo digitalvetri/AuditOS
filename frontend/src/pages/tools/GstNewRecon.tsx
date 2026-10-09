@@ -8,6 +8,7 @@ import { workstationApi } from '@/modules/workstation/api';
 import type { ClientListItem } from '@/modules/workstation/types';
 import { gstApi, type ColumnMap, type RegisterPreview, type Filing2BSummary, type RegisterSummary } from '@/modules/tools/audit-automation/gst';
 import type { ApiError } from '@/services/api';
+import { confirmAction } from '@/components/ConfirmDialog';
 
 /**
  * /audit-automation/gst/new — three-step reconciliation wizard.
@@ -74,7 +75,7 @@ export function GstNewReconPage() {
     setChosenPR({ name: r.original_filename, note: `${monthName(r.period_month)} ${r.period_year} · ${r.entry_count} entries · ${r.source_format === 'tally_xml' ? 'Tally XML' : 'Excel'}` });
   }
   async function delete2B(f: Filing2BSummary) {
-    if (!window.confirm(`Delete the GSTR-2B “${f.original_filename}”?`)) return;
+    if (!await confirmAction(`Delete the GSTR-2B “${f.original_filename}”?`)) return;
     try {
       await gstApi.delete2B(f.id);
       if (filing2BId === f.id) { setFiling2BId(null); setFile2B(null); }
@@ -83,7 +84,7 @@ export function GstNewReconPage() {
     } catch (err) { toast.push('error', (err as ApiError).message); }
   }
   async function deletePR(r: RegisterSummary) {
-    if (!window.confirm(`Delete the purchase register “${r.original_filename}”?`)) return;
+    if (!await confirmAction(`Delete the purchase register “${r.original_filename}”?`)) return;
     try {
       await gstApi.deletePR(r.id);
       if (registerId === r.id) { setRegisterId(null); setChosenPR(null); }

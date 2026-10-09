@@ -1390,15 +1390,15 @@ select[size] option:hover,
 @media (max-width: 767px) {
   /* 1 · The page's single primary action floats bottom-right, above the
      bottom bar, as a round + (its label stays for screen readers). */
-  .lh-action:has(> :only-child) { position: fixed; z-index: 35; right: 16px; bottom: calc(var(--m-nav-total, 56px) + 16px); }
-  .lh-action:has(> :only-child) > :is(a, button) {
+  .lh-action:has(> :is(a, button):only-child) { position: fixed; z-index: 35; right: 16px; bottom: calc(var(--m-nav-total, 56px) + 16px); }
+  .lh-action:has(> :is(a, button):only-child) > :is(a, button) {
     width: 56px; height: 56px; padding: 0 !important; border-radius: 9999px !important; justify-content: center;
     font-size: 0 !important; gap: 0 !important;
     box-shadow: 0 10px 24px -6px rgb(45 41 68 / 0.55), 0 2px 6px rgb(15 23 42 / 0.15) !important;
   }
-  .lh-action:has(> :only-child) > :is(a, button) svg { width: 24px; height: 24px; }
-  .lh-action:has(> :only-child) > :is(a, button):not(:has(svg))::before { content: '+'; font-size: 28px; line-height: 1; }
-  .lh-action:has(> :only-child) > :is(a, button):active { transform: scale(0.94); }
+  .lh-action:has(> :is(a, button):only-child) > :is(a, button) svg { width: 24px; height: 24px; }
+  .lh-action:has(> :is(a, button):only-child) > :is(a, button):not(:has(svg))::before { content: '+'; font-size: 28px; line-height: 1; }
+  .lh-action:has(> :is(a, button):only-child) > :is(a, button):active { transform: scale(0.94); }
 
   /* 4 · Search + Filters stick to the top while the list scrolls. */
   .lt-bar {
@@ -1457,7 +1457,7 @@ select[size] option:hover,
   .m-cards tbody td { height: auto !important; min-height: 0 !important; padding-top: 7px !important; padding-bottom: 7px !important; line-height: 20px; }
   .m-cards tbody td:first-child { padding-top: 10px !important; padding-bottom: 10px !important; }
   /* Room at the end of a list so the last card is never under the + button. */
-  .m-main:has(.lh-action > :only-child) { padding-bottom: calc(var(--m-nav-total, 56px) + 88px) !important; }
+  .m-main:has(.lh-action > :is(a, button):only-child) { padding-bottom: calc(var(--m-nav-total, 56px) + 88px) !important; }
 }
 
 /* ── Teal & Coral shell ─────────────────────────────────────────────────
@@ -1980,4 +1980,44 @@ select[size] option:hover,
   [contenteditable='true'] {
     font-size: 16px !important;
   }
+}
+
+/* ── Register cards on phones ───────────────────────────────────────────
+   Below 768px a ListTable is a stack of cards (mobile.css `.m-cards`), but
+   the floating-row rules above still drew a framed, rounded box around the
+   first and last cell of each card. Cells inside a card are plain rows with
+   a hairline between them; the card itself carries the frame. Values that
+   run to two lines (name + sub line, avatar + name) stay right-aligned. */
+@media (max-width: 767px) {
+  .m-cards.ws-float tbody tr { border-radius: 12px; box-shadow: 0 1px 2px rgb(10 15 28 / 0.04); }
+  .m-cards.ws-float tbody td,
+  .m-cards.ws-float tbody td:first-child,
+  .m-cards.ws-float tbody td:last-child {
+    background: transparent; border: 0; border-radius: 0;
+    border-bottom: 1px solid rgb(var(--c-border) / 0.7);
+    padding: 8px 0;
+  }
+  .m-cards.ws-float tbody td:last-child { border-bottom: 0; }
+  .m-cards td > .td-v { min-width: 0; text-align: right; }
+  .m-cards td[data-label=''] > .td-v { text-align: left; }
+  .m-cards td:not([data-label='']) > .td-v .flex.items-center { justify-content: flex-end; }
+}
+
+/* Tablet card grids (portrait `.m-cards`, landscape `.m-cards-tab`): the
+   desktop card-table block above pads the first/last cell 20px and keeps a
+   row-height padding with !important, which indented each card's title and
+   last line. Inside a card every cell sits on the card's own padding. */
+@media (min-width: 768px) and (max-width: 1023px) {
+  .m-cards.ws-float tbody td, .m-cards.ws-float tbody td:first-child, .m-cards.ws-float tbody td:last-child,
+  .m-cards > table.hr-float tbody td, .m-cards > table.hr-float tbody td:first-child, .m-cards > table.hr-float tbody td:last-child {
+    padding: 6px 0 !important; border-left: 0 !important; border-right: 0 !important; box-shadow: none !important;
+  }
+  .m-cards.ws-float tbody td:last-child, .m-cards > table.hr-float tbody td:last-child { border-bottom: 0 !important; }
+}
+@media (min-width: 1024px) and (max-width: 1279px) {
+  .m-cards-tab.ws-float tbody td, .m-cards-tab.ws-float tbody td:first-child, .m-cards-tab.ws-float tbody td:last-child,
+  .m-cards-tab > table.hr-float tbody td, .m-cards-tab > table.hr-float tbody td:first-child, .m-cards-tab > table.hr-float tbody td:last-child {
+    padding: 6px 0 !important; border-left: 0 !important; border-right: 0 !important; box-shadow: none !important;
+  }
+  .m-cards-tab.ws-float tbody td:last-child, .m-cards-tab > table.hr-float tbody td:last-child { border-bottom: 0 !important; }
 }

@@ -14,6 +14,7 @@ import {
 import { messagesApi, type ChatAttachment, type ChatListItem, type ChatMessageWithAuthor } from '@/modules/messages/api';
 import { useToast } from '@/components/Toast';
 import { useAuth } from '@/platform/auth/AuthContext';
+import { confirmAction } from '@/components/ConfirmDialog';
 
 const useMyEmployeeId = () => useAuth().session?.employee?.id ?? '';
 
@@ -351,7 +352,7 @@ function GroupInfo({ chatId, onClose, onGone }: { chatId: string; onClose: () =>
           ) : null}
           {admin ? (
             <button type="button" className="w-full flex items-center gap-2 px-2 py-2 text-13 text-danger hover:bg-canvas rounded"
-              onClick={() => { if (window.confirm('Delete this group for everyone?')) run.mutate(() => messagesApi.deleteGroup(chatId), { onSuccess: () => { onClose(); onGone(); } }); }}>
+              onClick={async () => { if (await confirmAction('Delete this group for everyone?')) run.mutate(() => messagesApi.deleteGroup(chatId), { onSuccess: () => { onClose(); onGone(); } }); }}>
               <Trash2 size={16} /> Delete group for everyone
             </button>
           ) : null}

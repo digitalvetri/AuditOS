@@ -119,7 +119,7 @@ export function MyWorkWeek() {
       days: daysFrom(today, t.due_date), href: `/workstation/tasks/${t.id}`,
     })),
     ...openFilings.map((i) => ({
-      key: `f-${i.id}`, kind: i.form_name ?? i.form_code, title: i.client_name ?? i.form_code, sub: i.period_label ?? i.period_key,
+      key: `f-${i.id}`, kind: 'Filing', title: i.form_name ?? i.form_code, sub: [i.client_name, i.period_label ?? i.period_key].filter(Boolean).join(' · '),
       days: daysFrom(today, i.due_date), href: '/workstation/compliance?mine=1&within=7',
     })),
     ...noticesDue.map((n) => ({

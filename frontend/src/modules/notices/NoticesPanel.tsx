@@ -27,6 +27,7 @@ import {
   type ReplyInputs,
 } from './api';
 import { useAiProcessingEnabled } from '@/modules/dataProtection/api';
+import { confirmAction } from '@/components/ConfirmDialog';
 
 const EMPTY_INPUTS: ReplyInputs = {
   grounds: '',
@@ -326,7 +327,7 @@ function NoticeDetail({ notice, taxpayerName, taxpayerGstin, onDeleted }: {
         </div>
         <button
           type="button"
-          onClick={() => { if (window.confirm('Remove this notice?')) remove.mutate(); }}
+          onClick={async () => { if (await confirmAction('Remove this notice?')) remove.mutate(); }}
           className="inline-flex items-center gap-1 h-8 px-2 text-12 text-neutral-500 hover:text-red"
         >
           <Trash2 size={13} /> Remove

@@ -28,6 +28,8 @@ import { useAuth } from '@/platform/auth/AuthContext';
 import { can } from '@/platform/rbac/can';
 import { printDocumentOnly } from '@/modules/workstation/print';
 import { clientNameWithOrg } from '@/modules/workstation/organization/badges';
+import { confirmAction } from '@/components/ConfirmDialog';
+import { istToday } from '@/lib/dates';
 
 /**
  * THE DOCUMENT BUILDER — /workstation/doc/:typeId/new and /workstation/doc/:id/edit.
@@ -55,7 +57,7 @@ export interface DocState {
 
 const COALESCE_MS = 700;
 const HISTORY_MAX: number = 80;
-const today = () => new Date().toISOString().slice(0, 10);
+const today = () => istToday();
 
 function initialState(t: DocTypeConfig): DocState {
   return {
@@ -532,7 +534,7 @@ export function DocBuilderPage() {
                 type="button"
                 className={btn}
                 onClick={async () => {
-                  if (!window.confirm('Delete this document? This cannot be undone.')) return;
+                  if (!await confirmAction('Delete this document? This cannot be undone.')) return;
                   await docsApi.remove(id!);
                   queryClient.invalidateQueries({ queryKey: ['docs.list'] });
                   queryClient.invalidateQueries({ queryKey: ['docs.counts'] });

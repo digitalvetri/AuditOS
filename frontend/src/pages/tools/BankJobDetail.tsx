@@ -12,6 +12,7 @@ import {
   type AaRule,
 } from '@/modules/tools/audit-automation/api';
 import { fmtDateTime } from '@/lib/format';
+import { confirmAction } from '@/components/ConfirmDialog';
 
 /**
  * /audit-automation/bank/jobs/:jobId — one bank statement, read into
@@ -208,11 +209,11 @@ function JobActions({ detail }: { detail: AaJobDetail }) {
       ) : null}
       <div className="flex-1" />
       {job.status !== 'queued' && job.status !== 'extracting' && !approved ? (
-        <Button variant="secondary" size="sm" onClick={() => { if (window.confirm('Read the statement again? Your edits to its rows will be discarded.')) reprocess.mutate(); }} disabled={reprocess.isPending}>
+        <Button variant="secondary" size="sm" onClick={async () => { if (await confirmAction('Read the statement again? Your edits to its rows will be discarded.')) reprocess.mutate(); }} disabled={reprocess.isPending}>
           <RotateCcw size={13} /> Re-read
         </Button>
       ) : null}
-      <Button variant="secondary" size="sm" onClick={() => { if (window.confirm('Delete this statement and its transactions? The file can be uploaded again afterwards.')) remove.mutate(); }} disabled={remove.isPending}>
+      <Button variant="secondary" size="sm" onClick={async () => { if (await confirmAction('Delete this statement and its transactions? The file can be uploaded again afterwards.')) remove.mutate(); }} disabled={remove.isPending}>
         <Trash2 size={13} /> Delete
       </Button>
     </section>

@@ -28,6 +28,7 @@ import {
 import { workstationApi } from '@/modules/workstation/api';
 import { SERVICES } from '../partnership/shared';
 import type { RegistrationKind } from '@/modules/partnership/api';
+import { useToast } from '@/components/Toast';
 
 type Filter = 'all' | 'monthly' | 'quarterly' | 'needs_action';
 
@@ -70,6 +71,7 @@ export function GstDashboard({ focusKind }: { focusKind?: 'GSTR1' | 'GSTR2B' | '
     return (id: string | null) => (id ? map.get(id) ?? null : null);
   }, [employees.data]);
 
+  const toast = useToast();
   const openCase = useMutation({
     mutationFn: async ({ row, kind }: { row: ClientDashboardRow; kind: RegistrationKind }) => {
       const svc = SERVICES[kind];
@@ -84,7 +86,7 @@ export function GstDashboard({ focusKind }: { focusKind?: 'GSTR1' | 'GSTR2B' | '
       return { url: svc.caseUrl(r.id) };
     },
     onSuccess: (r) => navigate(r.url),
-    onError: (e) => window.alert(e instanceof Error ? e.message : 'Could not open case'),
+    onError: (e) => toast.push('error', e instanceof Error ? e.message : 'Could not open case'),
   });
 
   const shifted = (dir: -1 | 1) => {

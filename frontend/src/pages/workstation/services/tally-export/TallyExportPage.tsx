@@ -28,6 +28,7 @@ import {
   type MatchType, type VoucherType, type Rule, type PreviewRow, type PreflightReport, type Scope,
 } from '@/modules/workstation/tallyExport/api';
 import { useToast } from '@/components/Toast';
+import { istToday } from '@/lib/dates';
 
 const inputCls =
   'h-9 w-full px-2 text-13 border border-neutral-300 rounded bg-white focus:outline-none focus:border-neutral-500';
@@ -265,7 +266,7 @@ function RulesPanel({ companyId }: { companyId: string }) {
 function PreviewPanel({ companyId }: { companyId: string }) {
   const toast = useToast();
   const qc = useQueryClient();
-  const asOf = new Date().toISOString().slice(0, 10);
+  const asOf = istToday();
   const accountsQ = useQuery({
     queryKey: ['tally.bankAccounts', companyId, asOf],
     queryFn: () => bookkeepingAccountingApi.bankAccounts(companyId, asOf),

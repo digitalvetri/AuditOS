@@ -6,6 +6,7 @@ import {
   PageHeader, Card, Table, Row, Cell, FilterBar, Select, SearchInput, Modal, Field,
   inputClass, textareaClass, QueryState, fieldErrors,
 } from '@/modules/workstation/components';
+import { fmtDay } from '@/modules/workstation/listUi';
 import { tasksApi, formatMinutes, formatWorked, type Task, type CreateTaskInput, type TaskFilters } from '@/modules/workstation/tasks/api';
 import { Priority, TaskStatusPill, useLiveMinutes } from '@/modules/workstation/tasks/ui';
 import { useAuth } from '@/platform/auth/AuthContext';
@@ -13,6 +14,7 @@ import { can } from '@/platform/rbac/can';
 import { useClientOptions } from '@/modules/compliance/ui';
 import { useAuditFileOptions } from '@/modules/audit/pickers';
 import type { ApiError } from '@/services/api';
+import { istToday } from '@/lib/dates';
 
 /**
  * /workstation/tasks — the Task dashboard and register.
@@ -55,14 +57,14 @@ export function TaskListPage() {
           ? 'Assign work, and see the time it actually took — tracked by the server, not typed in.'
           : 'Your assigned work. Start the clock when you begin; it runs on the server.'}
         action={canManage ? (
-          <button type="button" onClick={() => setShowCreate(true)} className="h-8 px-3 inline-flex items-center gap-1 text-13 rounded bg-neutral-900 text-white hover:bg-neutral-800">
-            <Plus size={14} strokeWidth={1.75} /> Create task
+          <button type="button" onClick={() => setShowCreate(true)} className="h-9 px-4 inline-flex items-center gap-2 text-13 font-medium rounded-lg bg-primary text-white hover:bg-primaryHover shadow-card transition-colors">
+            <Plus size={14} strokeWidth={2} /> Create task
           </button>
         ) : undefined}
       />
 
       {/* Tiles — every number is a server-side aggregate. */}
-      <div className="grid grid-cols-2 md:grid-cols-4 xl:grid-cols-8 gap-2 mb-4">
+      <div className="grid grid-cols-4 xl:grid-cols-8 gap-2 mb-4">
         <Tile label="Total" value={totals?.total} onClick={() => set('status', 'all')} />
         <Tile label="Pending" value={totals?.pending} onClick={() => set('status', 'pending')} />
         <Tile label="In progress" value={totals?.in_progress} onClick={() => set('status', 'in_progress')} />
@@ -74,7 +76,8 @@ export function TaskListPage() {
       </div>
 
       {canManage && totals ? (
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-2 mb-4">
+        // Team analytics: desktop/tablet only — on a phone the list matters more.
+        <div className="hidden md:grid grid-cols-4 gap-2 mb-4">
           <Tile label="Active employees" value={totals.active_employees} />
           <Tile label="Average completion" text={formatMinutes(totals.average_completion_minutes)} />
           <Tile label="Estimated" text={formatMinutes(dashboardQ.data!.estimated_vs_actual.estimated_minutes)} />
@@ -120,6 +123,7 @@ export function TaskListPage() {
         ) : null}
         <Select
           label="Sort"
+          allLabel={null}
           value={filters.sort ?? 'newest'}
           onChange={(v) => set('sort', v)}
           options={[
@@ -176,15 +180,15 @@ function Tile({ label, value, text, tone, onClick }: {
 }) {
   const body = (
     <>
-      <div className="text-11 uppercase tracking-[0.06em] text-neutral-500">{label}</div>
+      <div className="text-11 md:uppercase md:tracking-[0.06em] text-neutral-500 truncate" title={label}>{label}</div>
       <div className={`num-display text-[24px] leading-tight mt-1 ${tone === 'danger' && (value ?? 0) > 0 ? 'text-red' : 'text-neutral-900'}`}>
         {text ?? (value === undefined ? '—' : value)}
       </div>
     </>
   );
-  if (!onClick) return <div className="bg-white border border-neutral-200 rounded-lg p-3">{body}</div>;
+  if (!onClick) return <div className="min-w-0 bg-white border border-neutral-200 rounded-lg p-2 md:p-3">{body}</div>;
   return (
-    <button type="button" onClick={onClick} className="text-left bg-white border border-neutral-200 rounded-lg p-3 hover:border-gold transition-colors">
+    <button type="button" onClick={onClick} className="min-w-0 text-left bg-white border border-neutral-200 rounded-lg p-2 md:p-3 hover:border-gold transition-colors">
       {body}
     </button>
   );
@@ -220,7 +224,7 @@ function TaskRow({ task, onOpen }: { task: Task; onOpen: () => void }) {
       <Cell>
         <span className={task.running ? 'text-blue-700 tabular-nums' : 'tabular-nums'}>{formatWorked(live, task.running ? undefined : task.actual_seconds)}</span>
       </Cell>
-      <Cell muted>{task.due_date ?? '—'}</Cell>
+      <Cell muted className="whitespace-nowrap">{fmtDay(task.due_date)}</Cell>
       <Cell>
         <span className="flex items-center gap-1" onClick={(e) => e.stopPropagation()}>
           {task.status === 'pending' ? (
@@ -267,7 +271,7 @@ function CreateTaskModal({ employees, onClose }: {
   const qc = useQueryClient();
   const [form, setForm] = useState<CreateTaskInput>({
     title: '', description: '', assigned_employee_id: '', priority: 'medium',
-    due_date: new Date().toISOString().slice(0, 10),
+    due_date: istToday(),
   });
   const [estimateHours, setEstimateHours] = useState('');
   const clients = useClientOptions();

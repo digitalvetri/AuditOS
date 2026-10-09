@@ -20,6 +20,7 @@ import {
   RequestButtons, SendRequestDialog, needsRequest, type RequestChannel, type RequestTarget,
 } from '@/modules/workstation/documents/SendRequestDialog';
 import { clientOptionLabel } from '@/modules/workstation/organization/badges';
+import { istToday } from '@/lib/dates';
 
 /**
  * §7.6 — the document list, grouped BY CLIENT.
@@ -182,7 +183,7 @@ function AddDocumentModal({ open, onClose, defaultClientId, clients, categories 
 }) {
   const qc = useQueryClient();
   const toast = useToast();
-  const today = new Date().toISOString().slice(0, 10);
+  const today = istToday();
   const blank = {
     client: defaultClientId, category_id: '', name: '', financial_year: '2026-27', received: true, notes: '',
     version: '1', document_date: '',

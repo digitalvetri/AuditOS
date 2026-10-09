@@ -18,12 +18,17 @@ import { NavLink, useLocation } from 'react-router-dom';
 import { useMemo } from 'react';
 import {
   BarChart3,
-  Briefcase,
+  CalendarClock,
+  CalendarDays,
   ClipboardCheck,
+  Clock,
+  Handshake,
   Home,
   LayoutGrid,
+  ListChecks,
   MessageSquare,
   MoreHorizontal,
+  ReceiptText,
   Settings,
   Users,
   type LucideIcon,
@@ -51,13 +56,61 @@ export function MobileNav({ onOpenMore }: Props) {
   const location = useLocation();
 
   const tabs = useMemo<Tab[]>(() => {
+    // Priority order: the first four visible tabs fill the bar. A practice's
+    // day runs on clients, tasks and due dates, so those come first; the
+    // fallbacks keep a narrowly-scoped role (HR, articles) with a full bar.
     const all: Tab[] = [
       { to: '/', label: 'Home', icon: Home, end: true, visible: true },
+      {
+        to: '/workstation/clients',
+        label: 'Clients',
+        icon: Handshake,
+        visible: can(role, 'workstation.client.read', 'self'),
+      },
+      {
+        to: '/workstation/tasks',
+        label: 'Tasks',
+        icon: ListChecks,
+        visible: can(role, 'workstation.task.read', 'self'),
+      },
+      {
+        to: '/workstation/compliance',
+        label: 'Due dates',
+        icon: CalendarClock,
+        visible: can(role, 'workstation.compliance.read', 'self'),
+      },
       {
         to: '/workstation',
         label: 'Work',
         icon: LayoutGrid,
+        end: true,
         visible: can(role, 'workstation.access', 'self'),
+      },
+      // Audit files: a slot when there is room, and always while the user
+      // is inside one (see "current" below).
+      {
+        to: '/workstation/audits',
+        label: 'Audits',
+        icon: ClipboardCheck,
+        visible: can(role, 'workstation.audit.read', 'self'),
+      },
+      {
+        to: '/workstation/invoices',
+        label: 'Invoices',
+        icon: ReceiptText,
+        visible: can(role, 'workstation.invoice.read', 'self'),
+      },
+      {
+        to: '/hrms/attendance',
+        label: 'Attendance',
+        icon: Clock,
+        visible: can(role, 'attendance.read', 'self'),
+      },
+      {
+        to: '/hrms/leave',
+        label: 'Leave',
+        icon: CalendarDays,
+        visible: can(role, 'leave.read', 'self'),
       },
       {
         to: '/hrms/messages',
@@ -65,6 +118,12 @@ export function MobileNav({ onOpenMore }: Props) {
         icon: MessageSquare,
         // Chats are between staff; the owner logins have no staff record.
         visible: can(role, 'chat.participate', 'organisation') && hasStaffRecord,
+      },
+      {
+        to: '/hrms/employees',
+        label: 'People',
+        icon: Users,
+        visible: can(role, 'employee.read', 'department'),
       },
       {
         to: '/hrms/reports',
@@ -80,28 +139,6 @@ export function MobileNav({ onOpenMore }: Props) {
         label: 'Settings',
         icon: Settings,
         visible: can(role, 'settings.manage', 'organisation'),
-      },
-      // Audit files: a slot when there is room, and always while the user
-      // is inside one (see "current" below).
-      {
-        to: '/workstation/audits',
-        label: 'Audits',
-        icon: ClipboardCheck,
-        visible: can(role, 'workstation.audit.read', 'self'),
-      },
-      // Fallbacks so a narrowly-scoped role still gets a populated bar
-      // rather than one lonely Home tab.
-      {
-        to: '/hrms/employees',
-        label: 'People',
-        icon: Users,
-        visible: can(role, 'employee.read', 'department'),
-      },
-      {
-        to: '/workstation/services',
-        label: 'Services',
-        icon: Briefcase,
-        visible: can(role, 'workstation.service.read', 'self'),
       },
     ];
     const visible = all.filter((t) => t.visible);
@@ -151,7 +188,9 @@ export function MobileNav({ onOpenMore }: Props) {
           </NavLink>
         );
       })}
-      <button type="button" onClick={onOpenMore} className="m-nav-item" data-active={false}>
+      {/* Standing on a page the bar has no slot for: More carries the active
+          state, so the bar never reads "you are nowhere". */}
+      <button type="button" onClick={onOpenMore} className="m-nav-item" data-active={activeTo === null}>
         <MoreHorizontal size={20} strokeWidth={1.75} aria-hidden />
         <span className="m-nav-label">More</span>
       </button>

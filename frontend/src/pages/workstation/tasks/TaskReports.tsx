@@ -5,6 +5,7 @@ import { ArrowLeft, Download } from 'lucide-react';
 import { PageHeader, Card, Table, Row, Cell, FilterBar, Select, QueryState } from '@/modules/workstation/components';
 import { tasksApi, formatMinutes } from '@/modules/workstation/tasks/api';
 import { Variance } from '@/modules/workstation/tasks/ui';
+import { istToday } from '@/lib/dates';
 
 /**
  * /workstation/tasks/reports — employee work time and the period reports.
@@ -22,7 +23,7 @@ const TABS: [Tab, string][] = [
   ['timesheet', 'Daily / weekly'],
 ];
 
-const today = () => new Date().toISOString().slice(0, 10);
+const today = () => istToday();
 const daysAgo = (n: number) => new Date(Date.now() - n * 86_400_000).toISOString().slice(0, 10);
 
 export function TaskReportsPage() {
@@ -43,6 +44,7 @@ export function TaskReportsPage() {
       <FilterBar>
         <Select
           label="Period"
+          allLabel={null}
           value={preset}
           onChange={setPreset}
           options={[
@@ -53,7 +55,7 @@ export function TaskReportsPage() {
             { value: 'all', label: 'All time' },
           ]}
         />
-        <Select label="Report" value={tab} onChange={(v) => setTab(v as Tab)} options={TABS.map(([v, l]) => ({ value: v, label: l }))} />
+        <Select label="Report" allLabel={null} value={tab} onChange={(v) => setTab(v as Tab)} options={TABS.map(([v, l]) => ({ value: v, label: l }))} />
       </FilterBar>
 
       {tab === 'employee' ? <EmployeeReport range={range} /> : null}

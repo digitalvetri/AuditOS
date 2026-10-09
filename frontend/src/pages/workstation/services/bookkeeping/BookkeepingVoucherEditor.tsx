@@ -10,6 +10,7 @@ import {
 } from '@/modules/tools/audit-automation/bookkeeping';
 import { Money, Panel, Loading, usePeriod, ErrorNote } from '@/modules/tools/bookkeeping/ui';
 import type { ApiError } from '@/services/api';
+import { istToday } from '@/lib/dates';
 
 /**
  * Voucher entry — /vouchers/new and /vouchers/:voucherId/edit.
@@ -71,7 +72,7 @@ export function BookkeepingVoucherEditor() {
   });
 
   const [typeId, setTypeId] = useState('');
-  const [date, setDate] = useState(() => params.get('date') || new Date().toISOString().slice(0, 10));
+  const [date, setDate] = useState(() => params.get('date') || istToday());
   const [voucherNumber, setVoucherNumber] = useState('');
   const [reference, setReference] = useState('');
   const [narration, setNarration] = useState('');

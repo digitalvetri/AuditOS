@@ -12,7 +12,7 @@ import { inrAmount } from '@/modules/workstation/invoices/document';
 import {
   Card, Detail, Field, Modal, QueryState, QuerySkeleton, fieldErrors, inputClass, textareaClass,
 } from '@/modules/workstation/components';
-import { ListTable, ListRow, TD, Money, StatusChip, fmtDay } from '@/modules/workstation/listUi';
+import { ListAction, ListHeader, ListTable, ListRow, TD, Money, StatusChip, fmtDay } from '@/modules/workstation/listUi';
 import { EntityHeader } from '@/components/EntityHeader';
 import { Button } from '@/components/Button';
 import { useToast } from '@/components/Toast';
@@ -47,12 +47,17 @@ export function CreditNoteEditorPage() {
 
   if (isNew && !invoiceId) {
     return (
-      <Card title="New credit note">
-        <p className="p-4 text-13 text-neutral-700">
-          A credit note is raised against an invoice. Open the invoice and choose <b>Actions → Issue credit note</b>.{' '}
-          <Link to="/workstation/invoices" className="text-primary hover:underline">Go to invoices</Link>
-        </p>
-      </Card>
+      <div className="max-w-[1400px]">
+        <ListHeader title="New credit note" meta="A credit note is always raised against an invoice." />
+        <Card>
+          <div className="p-5 flex items-center gap-4 flex-wrap">
+            <p className="text-13 text-neutral-700 flex-1 min-w-[240px]">
+              Open the invoice you want to credit and choose <b>Actions → Issue credit note</b>. The note copies its client, tax split and lines.
+            </p>
+            <ListAction to="/workstation/invoices">Go to invoices</ListAction>
+          </div>
+        </Card>
+      </div>
     );
   }
   if (!isNew && !cnQ.data) return <QueryState query={cnQ}>{() => <QuerySkeleton />}</QueryState>;

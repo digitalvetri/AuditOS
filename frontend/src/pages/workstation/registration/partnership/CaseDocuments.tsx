@@ -11,6 +11,7 @@ import { fmtDate, fmtDateTime } from '@/lib/format';
 import { RequirementTag, fmtSize, useSvc } from './shared';
 import { useCaseMutation } from './PartnershipCase';
 import { AddCategoryModal } from './CaseChecklist';
+import { confirmAction } from '@/components/ConfirmDialog';
 
 const ACCEPT = '.pdf,.doc,.docx,.jpg,.jpeg,.png';
 const OTHER = 'Additional Documents';
@@ -306,7 +307,7 @@ function FileActionButtons({ a, c, r, onUpload }: { a: ReturnType<typeof useFile
         <Act icon={File} label={r.not_applicable ? 'Mark applicable' : 'Not applicable'} onClick={() => a.patch.mutate({ not_applicable: !r.not_applicable })} />
       ) : null}
       {v && c.permissions.verify ? (
-        <Act icon={Trash2} label="Delete" tone="text-red" onClick={() => { if (window.confirm(`Delete the uploaded file(s) for "${r.name}"?`)) a.del.mutate(undefined); }} />
+        <Act icon={Trash2} label="Delete" tone="text-red" onClick={async () => { if (await confirmAction(`Delete the uploaded file(s) for "${r.name}"?`)) a.del.mutate(undefined); }} />
       ) : null}
     </>
   );

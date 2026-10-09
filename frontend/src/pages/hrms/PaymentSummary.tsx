@@ -89,7 +89,7 @@ export function PaymentSummaryPage() {
   return (
     <div className="max-w-[1400px] space-y-5">
       <ListHeader
-        title="Payment summary"
+        title="Collections"
         meta={<>What each client has been invoiced, has paid and still owes. Open a client to record a payment or a split.</>}
         action={summary.data ? (
           <button type="button" onClick={() => exportCsv(summary.data!.clients)}
@@ -179,7 +179,9 @@ function ClientTable({ clients, open, onToggle, canManage }: {
         <tbody>
           {clients.map((c) => {
             const isOpen = open === c.client_id;
-            const pct = c.invoiced_paise ? Math.round((c.paid_paise / c.invoiced_paise) * 100) : 0;
+            // Settled share: cash, TDS deducted and credit notes all close an invoice,
+            // so a fully settled client reads 100% even when TDS was deducted.
+            const pct = c.invoiced_paise ? Math.min(100, Math.max(0, Math.round(((c.invoiced_paise - c.pending_paise) / c.invoiced_paise) * 100))) : 0;
             return (
               <ClientRows key={c.client_id} c={c} isOpen={isOpen} pct={pct} onToggle={() => onToggle(c.client_id)} canManage={canManage} />
             );
@@ -220,7 +222,7 @@ function ClientRows({ c, isOpen, pct, onToggle, canManage }: {
         </td>
         <td className="py-3 px-4 hidden lg:table-cell">
           <div className="flex items-center gap-2 w-[120px]">
-            <div className="flex-1 h-1.5 rounded-full bg-neutral-100 overflow-hidden" aria-label={`${pct}% received`}>
+            <div className="flex-1 h-1.5 rounded-full bg-neutral-100 overflow-hidden" aria-label={`${pct}% settled`}>
               <div className="h-full rounded-full" style={{ width: `${pct}%`, background: pct === 100 ? '#10b981' : '#7a5af8' }} />
             </div>
             <span className="text-11 text-neutral-500 tabular-nums w-8 text-right">{pct}%</span>

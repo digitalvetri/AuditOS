@@ -7,6 +7,7 @@ import { useToast } from '@/components/Toast';
 import { bookkeepingAccountingApi } from '@/modules/tools/audit-automation/bookkeeping';
 import { Money, Panel, Loading, ErrorNote, StatusPill, qty } from '@/modules/tools/bookkeeping/ui';
 import type { ApiError } from '@/services/api';
+import { promptText } from '@/components/ConfirmDialog';
 
 /**
  * One voucher, in full: the header, the accounting lines, the stock
@@ -89,8 +90,8 @@ export function BookkeepingVoucherDetail() {
               <Link to={`${base}/vouchers/${v.id}/edit`}><Button size="sm" variant="secondary"><Pencil size={13} className="mr-1" /> Alter</Button></Link>
               <Button
                 size="sm" variant="secondary"
-                onClick={() => {
-                  const reason = window.prompt('Why is this voucher being cancelled? (recorded in the audit trail)');
+                onClick={async () => {
+                  const reason = await promptText('Why is this voucher being cancelled? (recorded in the audit trail)', { action: 'Cancel voucher', danger: true });
                   if (reason !== null) cancel.mutate(reason);
                 }}
                 disabled={cancel.isPending}

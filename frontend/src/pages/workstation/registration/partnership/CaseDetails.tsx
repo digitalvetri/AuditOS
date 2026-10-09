@@ -4,6 +4,7 @@ import { Card, Field, Modal, fieldErrors, inputClass, textareaClass } from '@/mo
 import { Button } from '@/components/Button';
 import { ENTITY_TYPE_OPTIONS, useSvc } from './shared';
 import { useCaseMutation } from './PartnershipCase';
+import { confirmAction } from '@/components/ConfirmDialog';
 
 /**
  * Sticky "Save details" bar. <main> has bottom padding (p-3 / md:p-5 / lg:p-6),
@@ -508,7 +509,7 @@ function Partners({ c }: { c: CaseDetail }) {
                     {c.permissions.manage ? (
                       <>
                         <button className="underline mr-3" onClick={() => setEditing(p)}>Edit</button>
-                        <button className="underline text-red" onClick={() => { if (window.confirm(`Remove ${p.name}? Uploaded files are kept.`)) remove.mutate(p.id); }}>Remove</button>
+                        <button className="underline text-red" onClick={async () => { if (await confirmAction(`Remove ${p.name}? Uploaded files are kept.`)) remove.mutate(p.id); }}>Remove</button>
                       </>
                     ) : null}
                   </td>

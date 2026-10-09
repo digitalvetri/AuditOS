@@ -10,6 +10,7 @@ import {
 import { engagementApi, type EngagementLetter } from '@/modules/workstation/engagement/api';
 import { useAuth } from '@/platform/auth/AuthContext';
 import { can } from '@/platform/rbac/can';
+import { confirmAction } from '@/components/ConfirmDialog';
 
 /**
  * /workstation/engagement — every engagement letter, and the way to start one.
@@ -54,7 +55,7 @@ export function EngagementListPage() {
   return (
     <div className="max-w-[1400px]">
       <ListHeader
-        title="Engagement Letters"
+        title="Engagement letters"
         meta={total === undefined ? 'Loading…' : `${total} letter${total === 1 ? '' : 's'} · newest first`}
         action={mayWrite ? (
           <ListAction onClick={() => navigate('/workstation/engagement/new')} icon={<Plus size={15} />}>New engagement letter</ListAction>
@@ -96,10 +97,10 @@ export function EngagementListPage() {
                       <select
                         value=""
                         onClick={(e) => e.stopPropagation()}
-                        onChange={(e) => {
+                        onChange={async (e) => {
                           const op = e.target.value as ReturnType<typeof opsFor>[number]['op'];
                           if (!op) return;
-                          if (op === 'remove' && !window.confirm(`Delete ${l.letter_code}? This cannot be undone.`)) return;
+                          if (op === 'remove' && !(await confirmAction(`Delete ${l.letter_code}? This cannot be undone.`))) return;
                           act.mutate({ id: l.id, op });
                         }}
                         className="h-8 px-2 text-12 text-neutral-700 border border-neutral-200 rounded-lg bg-white hover:border-neutral-300 focus:outline-none focus:border-primary/60"

@@ -12,6 +12,7 @@ import { useToast } from '@/components/Toast';
 import { employeeApi, type CreatedLogin, type EmployeeCreateInput } from './api';
 import { LOGIN_ROLE_OPTIONS, LoginDetails } from './LoginDetails';
 import { EMPLOYEE_TYPE_LABEL, SELECTABLE_EMPLOYEE_TYPES, type Employee } from '@/data/models';
+import { istToday } from '@/lib/dates';
 
 interface Props {
   open: boolean;
@@ -34,7 +35,7 @@ export function EmployeeCreateModal({ open, onClose, onCreated }: Props) {
 
   useEffect(() => {
     if (!open) return;
-    setForm({ ...EMPTY, joining_date: new Date().toISOString().slice(0, 10) });
+    setForm({ ...EMPTY, joining_date: istToday() });
     setError(null);
     setCreated(null);
   }, [open]);

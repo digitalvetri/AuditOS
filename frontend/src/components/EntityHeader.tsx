@@ -8,8 +8,8 @@
  *
  * Presentation only: every value and action comes from the page.
  */
-import { NavLink } from 'react-router-dom';
-import type { ReactNode } from 'react';
+import { NavLink, useLocation } from 'react-router-dom';
+import { useEffect, useRef, type ReactNode } from 'react';
 import { Avatar } from '@/components/viz';
 
 export interface HeaderStat { label: string; value: ReactNode; tone?: 'bad' | 'ok' | 'warn'; hint?: string }
@@ -83,8 +83,17 @@ export const headerBtnPrimary = 'inline-flex items-center gap-[6px] h-9 px-3 rou
 
 /** Underlined page tabs (the Clients-page view tabs), as router links. */
 export function PageTabs({ tabs }: { tabs: { to: string; label: string; end?: boolean; count?: number }[] }) {
+  const ref = useRef<HTMLElement>(null);
+  const { pathname } = useLocation();
+  // Below desktop the strip scrolls sideways: keep the open tab in view.
+  useEffect(() => {
+    const on = ref.current?.querySelector<HTMLElement>('[aria-current="page"]');
+    on?.scrollIntoView?.({ block: 'nearest', inline: 'nearest' });
+  }, [pathname]);
   return (
-    <nav className="cl-views flex gap-1 border-b border-border mb-4 overflow-x-auto" aria-label="Sections">
+    // Scrolls sideways on phones/tablets; from 1280px up the tabs wrap onto
+    // a second line instead of hiding off the right edge.
+    <nav ref={ref} className="cl-views flex gap-1 border-b border-border mb-4 overflow-x-auto xl:flex-wrap xl:overflow-x-visible" aria-label="Sections">
       {tabs.map((t) => (
         <NavLink key={t.to} to={t.to} end={t.end}
           className={({ isActive }) => 'cl-view relative flex items-center gap-2 px-3 pt-2 pb-[10px] text-13 font-medium whitespace-nowrap transition-colors ' + (isActive ? 'is-on text-ink' : 'text-inkMuted hover:text-ink')}>

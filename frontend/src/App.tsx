@@ -1,6 +1,7 @@
 import { lazy, Suspense, type ReactNode } from 'react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { BrowserRouter, Route, Routes, Navigate, useLocation, useParams } from 'react-router-dom';
+import { ConfirmHost } from '@/components/ConfirmDialog';
 import { AuthProvider } from '@/platform/auth/AuthContext';
 import { ProtectedRoute } from '@/platform/auth/ProtectedRoute';
 // New shell + dashboard per UI-BUILD-PROMPT.md. The v1 shell/dashboard still
@@ -209,7 +210,7 @@ export default function App() {
       <ToastProvider>
         <PwaProvider>
         <AuthProvider>
-          <BrowserRouter>
+          <BrowserRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
             {/* Pages are code-split; the shell has its own boundary around <Outlet/>. */}
             <Suspense fallback={<QuerySkeleton />}>
             <Routes>
@@ -572,6 +573,7 @@ export default function App() {
             </Routes>
             </Suspense>
           </BrowserRouter>
+          <ConfirmHost />
         </AuthProvider>
         </PwaProvider>
       </ToastProvider>

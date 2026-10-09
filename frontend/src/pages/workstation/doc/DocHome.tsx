@@ -89,7 +89,7 @@ export function DocHomePage() {
     <div className="max-w-[1400px] mx-auto">
       <header className="flex flex-col md:flex-row md:items-start gap-3 md:gap-4 mb-5">
         <div className="min-w-0 flex-1">
-          <h1 className="text-[26px] leading-tight font-semibold tracking-[-0.01em] text-neutral-900">Format</h1>
+          <h1 className="text-[26px] leading-tight font-semibold tracking-[-0.01em] text-neutral-900">Document formats</h1>
           <p className="text-13 text-neutral-500 mt-1">
             Statutory and secretarial documents — pick a type to create one, or open what has already been drafted.
           </p>

@@ -16,6 +16,7 @@ import { Card, Field, inputClass } from '@/modules/workstation/components';
 import { Button } from '@/components/Button';
 import { useToast } from '@/components/Toast';
 import { api } from '@/services/api';
+import { confirmAction } from '@/components/ConfirmDialog';
 
 type Provider = 'groq';
 
@@ -58,7 +59,7 @@ export function AiProviderIntegrationPage() {
     <div className="m-page">
       <header>
         <div className="text-11 uppercase tracking-[0.06em] text-neutral-500">Integrations</div>
-        <h1 className="text-20 font-semibold text-neutral-900 mt-1">AI provider</h1>
+        <h1 className="text-[26px] leading-tight font-semibold tracking-[-0.01em] text-neutral-900 mt-1">AI provider</h1>
         <p className="text-13 text-neutral-500 mt-1 max-w-[640px]">
           The LLM used by the GST Notices → Reply drafter. Add your firm's own Groq
           key here; it is encrypted at rest and never returned by the API after
@@ -125,7 +126,7 @@ function GroqSection() {
             </div>
             <button
               type="button"
-              onClick={() => { if (window.confirm('Remove the Groq key for this organisation?')) remove.mutate(); }}
+              onClick={async () => { if (await confirmAction('Remove the Groq key for this organisation?')) remove.mutate(); }}
               disabled={remove.isPending}
               className="inline-flex items-center gap-1 h-8 px-2 text-12 text-neutral-500 hover:text-red disabled:opacity-60"
             >
@@ -163,7 +164,7 @@ function GroqSection() {
         >
           <input
             type="password"
-            autoComplete="off"
+            autoComplete="new-password"
             spellCheck={false}
             className={inputClass}
             placeholder={existing ? 'Enter a new key to replace the existing one' : 'gsk_...'}

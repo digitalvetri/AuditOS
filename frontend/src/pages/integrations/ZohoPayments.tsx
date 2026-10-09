@@ -36,7 +36,7 @@ export function ZohoPaymentsIntegrationPage() {
     <div className="m-page">
       <header>
         <div className="text-11 uppercase tracking-[0.06em] text-neutral-500">Integrations</div>
-        <h1 className="text-20 font-semibold text-neutral-900 mt-1">Zoho Payments</h1>
+        <h1 className="text-[26px] leading-tight font-semibold tracking-[-0.01em] text-neutral-900 mt-1">Zoho Payments</h1>
         <p className="text-13 text-neutral-500 mt-1">
           Firm-collections integration — the firm's own two Zoho Payments
           accounts. Credentials sit encrypted at rest.

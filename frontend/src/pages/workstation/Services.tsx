@@ -6,6 +6,7 @@ import {
 } from '@/modules/workstation/components';
 import type { ClientService, ListResponse } from '@/modules/workstation/types';
 import { fmtDate } from '@/lib/format';
+import { istToday } from '@/lib/dates';
 
 /** §7.4 — every service the caller may see, across all their clients. */
 export function ServicesPage() {
@@ -34,7 +35,7 @@ export function ServicesPage() {
   const catalog = useQuery({ queryKey: ['workstation', 'catalog'], queryFn: workstationApi.serviceCatalog });
   const employees = useQuery({ queryKey: ['workstation', 'employees'], queryFn: workstationApi.assignableEmployees });
 
-  const today = new Date().toISOString().slice(0, 10);
+  const today = istToday();
 
   return (
     <div className="">

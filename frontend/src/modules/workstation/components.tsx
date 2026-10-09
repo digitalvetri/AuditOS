@@ -324,9 +324,14 @@ export function Cell({ children, className = '', muted = false, label = '' }: {
 
 // ── Filters ───────────────────────────────────────────────────────────────
 export function FilterBar({ children }: { children: ReactNode }) {
-  return <div className="flex flex-wrap items-end gap-2 mb-3">{children}</div>;
+  return <div className="flex flex-wrap items-center gap-2 mb-4">{children}</div>;
 }
 
+/**
+ * A labelled filter select drawn as one 36px pill ("Status  All ▾") — the
+ * same height, border and radius as the register toolbar (listUi), so older
+ * pages that still use FilterBar read the same as the newer registers.
+ */
 export function Select({
   label, value, onChange, options, allLabel = 'All',
 }: {
@@ -334,17 +339,22 @@ export function Select({
   value: string;
   onChange: (v: string) => void;
   options: { value: string; label: string }[];
-  allLabel?: string;
+  /** The "no filter" option's text; null for selects that always hold a value (sort, period). */
+  allLabel?: string | null;
 }) {
+  // Callers that list their own "all" choice don't get a second one.
+  const ownAll = options.some((o) => o.value === '' || o.value === 'all');
   return (
-    <label className="block">
-      <span className="block text-12 font-medium text-neutral-500 mb-1">{label}</span>
+    <label className={'inline-flex items-center h-9 max-w-full pl-3 bg-white border rounded-lg transition-colors focus-within:border-primary/60 focus-within:ring-2 focus-within:ring-primary/10 '
+      + (value && value !== 'all' && allLabel !== null ? 'border-primary/40' : 'border-neutral-200')}>
+      <span className="text-12 text-neutral-500 whitespace-nowrap pr-1">{label}</span>
       <select
         value={value}
         onChange={(e) => onChange(e.target.value)}
-        className="h-8 px-2 text-13 bg-white text-neutral-900 border border-neutral-300 rounded focus:outline-none focus:border-gold"
+        className={'h-full min-w-0 max-w-[220px] pl-1 pr-2 text-13 bg-transparent border-0 rounded-lg focus:outline-none cursor-pointer '
+          + (value && value !== 'all' && allLabel !== null ? 'text-primary font-medium' : 'text-neutral-900')}
       >
-        <option value="">{allLabel}</option>
+        {allLabel === null || ownAll ? null : <option value="">{allLabel}</option>}
         {options.map((o) => (
           <option key={o.value} value={o.value}>{o.label}</option>
         ))}
@@ -357,13 +367,14 @@ export function SearchInput({
   value, onChange, placeholder,
 }: { value: string; onChange: (v: string) => void; placeholder: string }) {
   return (
-    <label className="block">
-      <span className="block text-11 uppercase tracking-[0.06em] text-neutral-500 mb-1">Search</span>
+    <label className="relative block w-full sm:w-[260px]">
+      <span className="sr-only">Search</span>
+      <svg aria-hidden viewBox="0 0 24 24" className="absolute left-3 top-1/2 -translate-y-1/2 h-[15px] w-[15px] text-neutral-400 pointer-events-none" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="8" /><path d="m21 21-4.3-4.3" /></svg>
       <input
         value={value}
         onChange={(e) => onChange(e.target.value)}
         placeholder={placeholder}
-        className="h-8 px-3 w-[240px] max-w-full text-13 bg-white text-neutral-900 border border-neutral-300 rounded focus:outline-none focus:border-gold"
+        className="h-9 w-full pl-9 pr-3 text-13 bg-white text-neutral-900 border border-neutral-200 rounded-lg placeholder:text-neutral-400 focus:outline-none focus:border-primary/60 focus:ring-2 focus:ring-primary/10"
       />
     </label>
   );

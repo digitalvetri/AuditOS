@@ -16,6 +16,7 @@ import { Chip, Labelled, day, daysUntil, errorText, fieldClass, smallBtn, useCli
 import {
   DSC_CLASSES, DSC_CUSTODY, DSC_ROLES, DSC_USAGES, dscApi, dscKeys, type Dsc, type DscInput,
 } from '@/modules/dsc/api';
+import { confirmAction } from '@/components/ConfirmDialog';
 
 const labelOf = (opts: { value: string; label: string }[], v: string | null | undefined) =>
   v ? opts.find((o) => o.value === v)?.label ?? v : '—';
@@ -111,7 +112,7 @@ export function DscRegisterPage() {
                         <div className="flex items-center justify-end gap-1">
                           <button type="button" className={smallBtn} onClick={() => setEditing(d)}><Pencil size={13} /> Edit</button>
                           <button type="button" className={smallBtn} aria-label="Delete DSC" disabled={remove.isPending}
-                            onClick={() => { if (window.confirm(`Remove ${d.holder_name}'s DSC from the register?`)) remove.mutate(d.id); }}>
+                            onClick={async () => { if (await confirmAction(`Remove ${d.holder_name}'s DSC from the register?`)) remove.mutate(d.id); }}>
                             <Trash2 size={13} />
                           </button>
                         </div>

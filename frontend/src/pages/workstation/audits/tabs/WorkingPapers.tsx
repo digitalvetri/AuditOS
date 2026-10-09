@@ -13,6 +13,7 @@ import {
 } from '@/modules/audit/components';
 import type { ReviewNote, WorkingPaper } from '@/modules/audit/types';
 import { NoteItem, RaiseNoteModal } from './ReviewNotes';
+import { confirmAction } from '@/components/ConfirmDialog';
 
 /**
  * The working-paper index, grouped by its letter (A Planning … E Reporting,
@@ -285,7 +286,7 @@ function PaperDrawer({ wp, notes, papers, onClose }: { wp: WorkingPaper; notes: 
                   </button>
                   {canEdit && !a.locked ? (
                     <button type="button" aria-label={`Remove ${f.original_name}`} className="h-8 w-8 inline-flex items-center justify-center text-neutral-400 hover:text-danger"
-                      onClick={() => { if (window.confirm(`Remove ${f.original_name}? The record of it stays in the audit trail.`)) del.mutate(f.id); }}>
+                      onClick={async () => { if (await confirmAction(`Remove ${f.original_name}? The record of it stays in the audit trail.`)) del.mutate(f.id); }}>
                       <Trash2 size={14} />
                     </button>
                   ) : null}

@@ -22,6 +22,7 @@ import {
   COMMON_SECTIONS, NOTICE_AUTHORITIES, NOTICE_STATUSES, NOTICE_STATUS_LABEL, gstNoticePage, noticesRegisterApi,
   noticesRegisterKeys, type NoticePatch, type RegisterNotice,
 } from '@/modules/noticesRegister/api';
+import { confirmAction } from '@/components/ConfirmDialog';
 
 const isGst = (n: RegisterNotice) => n.source === 'gst' || (n.source === undefined && n.authority === 'gst' && !!n.kind);
 const isClosed = (n: RegisterNotice) => n.status === 'closed';
@@ -155,7 +156,7 @@ export function NoticesRegisterPage() {
                       ) : (
                         <select aria-label="Status" value={n.status}
                           onChange={(e) => { if (e.target.value !== n.status) patch.mutate({ n, body: { status: e.target.value } }); }}
-                          className="h-8 px-2 text-13 bg-white border border-neutral-200 rounded-lg">
+                          className="h-8 px-2 text-13 bg-white border border-neutral-200 rounded-lg whitespace-nowrap">
                           {nextStatuses.map((s) => <option key={s} value={s}>{s === n.status ? NOTICE_STATUS_LABEL[s] : `→ ${NOTICE_STATUS_LABEL[s]}`}</option>)}
                         </select>
                       )}
@@ -163,7 +164,7 @@ export function NoticesRegisterPage() {
                     <TD muted>{assignee ?? '—'}</TD>
                     <TD right nowrap>{demand ? inr(demand) : <span className="text-neutral-400">—</span>}</TD>
                     <TD last>
-                      <div className="flex items-center justify-end gap-1 flex-wrap">
+                      <div className="flex items-center justify-end gap-1">
                         {gst ? (
                           <Link to={gstNoticePage(n.client_id)} className={smallBtn} title="Open the GST notice and its drafted reply">
                             Draft reply <ExternalLink size={13} />
@@ -180,7 +181,7 @@ export function NoticesRegisterPage() {
                         ) : null}
                         {canManage && !gst ? (
                           <button type="button" className={smallBtn} aria-label="Delete notice" disabled={remove.isPending}
-                            onClick={() => { if (window.confirm('Remove this notice from the register?')) remove.mutate(n.id); }}>
+                            onClick={async () => { if (await confirmAction('Remove this notice from the register?')) remove.mutate(n.id); }}>
                             <Trash2 size={13} />
                           </button>
                         ) : null}
