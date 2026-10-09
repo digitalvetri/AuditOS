@@ -60,6 +60,7 @@ import { TOOLS } from '@/modules/tools/registry';
 import { REGISTRATION_SERVICES } from '@/pages/workstation/registration/services';
 
 const COLLAPSED_KEY = 'audit-os:sidebar-collapsed';
+const FOLDED_KEY = 'audit-os:sidebar-folded-sections';
 
 /**
  * A row below the icon level. A child may carry its own children — Services →
@@ -82,6 +83,9 @@ export interface NavItem {
   /** Service categories nested under Workstation → Services. Names only —
       each row deep-links to the Services page scoped by its slug. */
   children?: NavChild[];
+  /** Sub-heading the row sits under inside its module ("Clients", "Billing"…).
+      Rows keep the order given; a heading shows once, before its first row. */
+  section?: string;
 }
 export interface NavGroup {
   label: string | null; // null = no section header (Dashboard row)
@@ -158,45 +162,33 @@ export function buildNav(
     || can(role, 'expense.submit', 'self')
     || can(role, 'expense.approve', 'department')
   const auditItems: NavItem[] = [
-    { to: '/hrms/employees',  label: 'Employees',  icon: Users,                visible: can(role, 'employee.read', 'department') },
-    { to: '/hrms/attendance', label: 'Attendance', icon: Clock,                visible: can(role, 'attendance.read', 'self') },
-    { to: '/hrms/leave',      label: 'Leave',      icon: CalendarDays,         visible: can(role, 'leave.read', 'self') },
-    { to: '/hrms/articleship', label: 'Articleship', icon: GraduationCap,      visible: can(role, 'employee.manage', 'organisation') || can(role, 'employee.read', 'organisation') },
-    { to: '/hrms/accounts',   label: 'Accounts',   icon: BookOpen,             visible: canAccountsRead },
-    { to: '/hrms/payment-summary', label: 'Payment summary', icon: IndianRupee, visible: can(role, 'payment_summary.read', 'organisation') },
+    { section: 'People', to: '/hrms/employees',  label: 'Employees',  icon: Users,                visible: can(role, 'employee.read', 'department') },
+    { section: 'People', to: '/hrms/attendance', label: 'Attendance', icon: Clock,                visible: can(role, 'attendance.read', 'self') },
+    { section: 'People', to: '/hrms/leave',      label: 'Leave',      icon: CalendarDays,         visible: can(role, 'leave.read', 'self') },
+    { section: 'People', to: '/hrms/articleship', label: 'Articleship', icon: GraduationCap,      visible: can(role, 'employee.manage', 'organisation') || can(role, 'employee.read', 'organisation') },
+    { section: 'People', to: '/hrms/documents',  label: 'Employee records', icon: FileText,       visible: can(role, 'document.read', 'self') },
     // Chats are between staff; the owner logins have no staff record.
-    { to: '/hrms/messages',   label: 'Messages',   icon: MessageSquare,        visible: can(role, 'chat.participate', 'organisation') && Boolean(session?.employee) },
-    { to: '/hrms/documents',  label: 'Employee Data', icon: FileText,             visible: can(role, 'document.read', 'self') },
-    { to: '/hrms/reports',    label: 'Reports',    icon: BarChart3,            visible: can(role, 'reports.hr', 'department') || can(role, 'reports.finance', 'organisation') || can(role, 'reports.all', 'organisation') },
-    { to: '/hrms/audit-log',  label: 'Audit log',  icon: ScrollText,           visible: can(role, 'audit.read.all', 'organisation') || can(role, 'audit.read.hr', 'organisation') || can(role, 'audit.read.finance', 'organisation') },
-    { to: '/hrms/settings',   label: 'Settings',   icon: Settings,             visible: can(role, 'settings.manage', 'organisation') },
+    { section: 'People', to: '/hrms/messages',   label: 'Messages',   icon: MessageSquare,        visible: can(role, 'chat.participate', 'organisation') && Boolean(session?.employee) },
+    { section: 'Finance', to: '/hrms/accounts',   label: 'Payroll & expenses', icon: BookOpen,     visible: canAccountsRead },
+    { section: 'Finance', to: '/hrms/reports',    label: 'Reports',    icon: BarChart3,            visible: can(role, 'reports.hr', 'department') || can(role, 'reports.finance', 'organisation') || can(role, 'reports.all', 'organisation') },
+    { section: 'Admin', to: '/hrms/audit-log',  label: 'Audit log',  icon: ScrollText,           visible: can(role, 'audit.read.all', 'organisation') || can(role, 'audit.read.hr', 'organisation') || can(role, 'audit.read.finance', 'organisation') },
+    { section: 'Admin', to: '/hrms/settings',   label: 'Settings',   icon: Settings,             visible: can(role, 'settings.manage', 'organisation') },
   ];
   // Workstation (teammate's module, per AUDIT_OS_WORKSTATION.md §4).
   // Sub-items follow the same can(role, ...) pattern; roles without a
   // workstation.access grant see nothing here.
   const workstationItems: NavItem[] = [
     { to: '/workstation',             label: 'Overview',   icon: LayoutGrid,    end: true, visible: can(role, 'workstation.access', 'self') },
-    /* Quotation is its own module. Billing — invoices, receipts, what is
-       actually charged — is a separate thing and gets its own row when it
-       exists; a quotation is a proposal and is not billing. */
-    { to: '/workstation/quotations',  label: 'Quotation',  icon: FileSignature, end: true, visible: can(role, 'workstation.quotation.read', 'self') },
-    { to: '/workstation/invoices',    label: 'Invoice',    icon: ReceiptText,   end: true, visible: can(role, 'workstation.invoice.read', 'self') },
-    { to: '/workstation/credit-notes', label: 'Credit notes', icon: IndianRupee, visible: can(role, 'workstation.invoice.read', 'self') },
-    { to: '/workstation/recurring-invoices', label: 'Recurring', icon: Wallet, visible: can(role, 'workstation.invoice.read', 'self') },
-    { to: '/workstation/engagement',  label: 'Engagement', icon: ScrollText,    visible: can(role, 'workstation.engagement.read', 'self') },
-    /* Audit files (SA 230): one per client × FY × type, plus the firm's UDIN register. */
-    { to: '/workstation/audits',      label: 'Audits',     icon: ClipboardCheck, visible: can(role, 'workstation.audit.read', 'self'),
-      children: [{ to: '/workstation/audits/udins', label: 'UDIN register' }] },
-    { to: '/workstation/doc',         label: 'Format',     icon: FileText,      visible: can(role, 'workstation.doc.read', 'self') },
-    { to: '/workstation/leads',       label: 'Leads',      icon: PhoneCall,     visible: can(role, 'workstation.lead.read', 'self') },
-    { to: '/workstation/clients',     label: 'Clients',    icon: Handshake,     visible: can(role, 'workstation.client.read', 'self'), badge: clientCount },
-    { to: '/workstation/follow-ups',  label: 'Follow-ups', icon: Clock,         visible: can(role, 'workstation.followup.read', 'self') },
-    { to: '/workstation/calendar',    label: 'Calendar',   icon: CalendarDays,  visible: can(role, 'workstation.followup.read', 'self') },
-    { to: '/workstation/compliance',  label: 'Compliance', icon: CalendarClock, visible: can(role, 'workstation.compliance.read', 'self') },
-    { to: '/workstation/notices',     label: 'Notices',    icon: FileWarning,   visible: can(role, 'workstation.notice.read', 'self') || can(role, 'workstation.notice.manage', 'self') },
-    { to: '/workstation/dsc',         label: 'DSC register', icon: KeyRound,    visible: can(role, 'workstation.dsc.read', 'self') || can(role, 'workstation.dsc.manage', 'self') },
-    { to: '/workstation/tds-recon',   label: '26AS reconciliation', icon: GitCompareArrows, visible: can(role, 'workstation.service.read', 'self') || can(role, 'tools.audit_automation.access', 'self') },
-    { to: '/workstation/services',    label: 'Services',   icon: Briefcase,     end: true, visible: can(role, 'workstation.service.read', 'self'),
+    // ── Clients and day-to-day work ──
+    { section: 'Clients & work', to: '/workstation/clients',    label: 'Clients',    icon: Handshake,     visible: can(role, 'workstation.client.read', 'self'), badge: clientCount },
+    { section: 'Clients & work', to: '/workstation/tasks',      label: 'Tasks',      icon: ListChecks,    visible: can(role, 'workstation.task.read', 'self') },
+    { section: 'Clients & work', to: '/workstation/calendar',   label: 'Calendar',   icon: CalendarDays,  visible: can(role, 'workstation.followup.read', 'self') },
+    { section: 'Clients & work', to: '/workstation/follow-ups', label: 'Follow-ups', icon: Clock,         visible: can(role, 'workstation.followup.read', 'self') },
+    { section: 'Clients & work', to: '/workstation/leads',      label: 'Leads',      icon: PhoneCall,     visible: can(role, 'workstation.lead.read', 'self') },
+    { section: 'Clients & work', to: '/workstation/documents',  label: 'Documents',  icon: FolderKanban,  visible: can(role, 'workstation.document.read', 'self') },
+    // ── Statutory compliance ──
+    { section: 'Compliance', to: '/workstation/compliance', label: 'Compliance calendar', icon: CalendarClock, visible: can(role, 'workstation.compliance.read', 'self') },
+    { section: 'Compliance', to: '/workstation/services',   label: 'Services',   icon: Briefcase,     end: true, visible: can(role, 'workstation.service.read', 'self'),
       children: [
         { to: '/workstation/services/tds',           label: 'TDS' },
         /* BOOKKEEPING-REBUILD §7 renames "Bookkeeping" (the
@@ -209,8 +201,20 @@ export function buildNav(
             label: r.name,
           })) },
       ] },
-    { to: '/workstation/tasks',       label: 'Task',       icon: ListChecks,    visible: can(role, 'workstation.task.read', 'self') },
-    { to: '/workstation/documents',   label: 'Documents',  icon: FolderKanban,  visible: can(role, 'workstation.document.read', 'self') },
+    { section: 'Compliance', to: '/workstation/notices',    label: 'Notices',    icon: FileWarning,   visible: can(role, 'workstation.notice.read', 'self') || can(role, 'workstation.notice.manage', 'self') },
+    { section: 'Compliance', to: '/workstation/dsc',        label: 'DSC register', icon: KeyRound,    visible: can(role, 'workstation.dsc.read', 'self') || can(role, 'workstation.dsc.manage', 'self') },
+    { section: 'Compliance', to: '/workstation/tds-recon',  label: '26AS reconciliation', icon: GitCompareArrows, visible: can(role, 'workstation.service.read', 'self') || can(role, 'tools.audit_automation.access', 'self') },
+    // ── Audit (SA 230 files, UDINs, engagement letters) ──
+    { section: 'Audit', to: '/workstation/audits',      label: 'Audit files', icon: ClipboardCheck, visible: can(role, 'workstation.audit.read', 'self'),
+      children: [{ to: '/workstation/audits/udins', label: 'UDIN register' }] },
+    { section: 'Audit', to: '/workstation/engagement',  label: 'Engagement letters', icon: ScrollText, visible: can(role, 'workstation.engagement.read', 'self') },
+    // ── Billing ──
+    { section: 'Billing', to: '/workstation/quotations',  label: 'Quotations', icon: FileSignature, end: true, visible: can(role, 'workstation.quotation.read', 'self') },
+    { section: 'Billing', to: '/workstation/invoices',    label: 'Invoices',   icon: ReceiptText,   end: true, visible: can(role, 'workstation.invoice.read', 'self') },
+    { section: 'Billing', to: '/workstation/credit-notes', label: 'Credit notes', icon: IndianRupee, visible: can(role, 'workstation.invoice.read', 'self') },
+    { section: 'Billing', to: '/workstation/recurring-invoices', label: 'Recurring invoices', icon: Wallet, visible: can(role, 'workstation.invoice.read', 'self') },
+    { section: 'Billing', to: '/hrms/payment-summary', label: 'Collections', icon: BarChart3, visible: can(role, 'payment_summary.read', 'organisation') },
+    { section: 'Templates', to: '/workstation/doc',     label: 'Document formats', icon: FileText,  visible: can(role, 'workstation.doc.read', 'self') },
   ];
   // TOOLS is one labelled section — a sibling of Workstation — holding
   // three tool modules as siblings inside it: Tools (converters), Repotic
@@ -242,6 +246,18 @@ export function buildNav(
     { label: 'TOOLS', items: toolsItems.filter((i) => i.visible) },
     { label: 'INTEGRATIONS', items: integrationsItems.filter((i) => i.visible) },
   ].filter((g) => g.items.length > 0);
+}
+
+/** Split a module's rows into its sub-headed runs, keeping their order. */
+function sectionsOf(items: NavItem[]): { title: string | null; items: NavItem[] }[] {
+  const out: { title: string | null; items: NavItem[] }[] = [];
+  for (const it of items) {
+    const title = it.section ?? null;
+    const last = out[out.length - 1];
+    if (last && last.title === title) last.items.push(it);
+    else out.push({ title, items: [it] });
+  }
+  return out;
 }
 
 interface Props {
@@ -331,6 +347,15 @@ export function Sidebar({ mobileOpen, onMobileClose }: Props) {
   useEffect(() => { if (here?.module) setChosen(here.module); }, [here?.module]);
   useEffect(() => { try { if (chosen) localStorage.setItem(MODULE_KEY, chosen); } catch { /* ignore */ } }, [chosen]);
   const active = modules.find((m) => m.label === chosen) ?? modules[0];
+  // Sub-groups the user folded ("HRMS:Admin"), remembered per browser.
+  const [foldedSecs, setFoldedSecs] = useState<string[]>(() => {
+    try { return JSON.parse(localStorage.getItem(FOLDED_KEY) ?? '[]') as string[]; } catch { return []; }
+  });
+  const toggleSec = (key: string) => setFoldedSecs((cur) => {
+    const next = cur.includes(key) ? cur.filter((k) => k !== key) : [...cur, key];
+    try { localStorage.setItem(FOLDED_KEY, JSON.stringify(next)); } catch { /* ignore */ }
+    return next;
+  });
 
   const stat = (key: ModuleKey, g: NavGroup): string => {
     const pages = `${g.items.length} page${g.items.length === 1 ? '' : 's'}`;
@@ -421,7 +446,24 @@ export function Sidebar({ mobileOpen, onMobileClose }: Props) {
                   <span className="tabular-nums normal-case tracking-normal">{active.items.length}</span>
                 </div>
               ) : null}
-              <Section group={{ label: null, items: active.items }} collapsed={collapsed} first={false} folded={false} />
+              {sectionsOf(active.items).map((sec, i) => {
+                const key = `${active.label}:${sec.title}`;
+                // The group holding the current page never folds away.
+                const holdsHere = sec.items.some((it) => it.to === here?.to || (it.children ?? []).some((c) => c.to === here?.to || (c.children ?? []).some((l) => l.to === here?.to)));
+                const isFolded = !!sec.title && !collapsed && foldedSecs.includes(key) && !holdsHere;
+                return (
+                  <div key={sec.title ?? `s${i}`} className={i > 0 && collapsed ? 'mt-1 pt-1 border-t border-white/[0.07]' : ''}>
+                    {sec.title && !collapsed ? (
+                      <button type="button" onClick={() => toggleSec(key)} aria-expanded={!isFolded}
+                        className="group/sub flex w-full items-center justify-between pl-5 pr-4 pt-3 pb-1 text-[11px] font-medium text-sidebarMuted/80 hover:text-white transition-colors">
+                        <span>{sec.title}</span>
+                        <ChevronDown size={12} strokeWidth={2.5} className={'opacity-0 group-hover/sub:opacity-80 transition-[transform,opacity] ' + (isFolded ? '-rotate-90 opacity-60' : '')} />
+                      </button>
+                    ) : null}
+                    {isFolded ? null : <Section group={{ label: null, items: sec.items }} collapsed={collapsed} first={false} folded={false} />}
+                  </div>
+                );
+              })}
             </div>
           ) : null}
 
