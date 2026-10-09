@@ -478,6 +478,17 @@ function snapshotOf(v: { voucherNumber: string; date: string; narration: string 
 }
 
 /**
+ * Refuse to touch a voucher whose own financial year is closed. Altering
+ * or cancelling it would rewrite figures already reported for that year.
+ */
+async function assertVoucherYearOpen(tx: Tx, financialYearId: string) {
+  const fy = await tx.bookkeepingFinancialYear.findUnique({ where: { id: financialYearId } })
+  if (fy?.closed) {
+    throw ApiError.unprocessable('financial_year_closed', `Financial year ${fy.label} is closed. Reopen it to change this voucher.`)
+  }
+}
+
+/**
  * Alter a posted voucher. The old lines are replaced wholesale (a voucher
  * is its lines), the before/after pair is written to TallyVoucherRevision,
  * and `version` is bumped — so "altered transactions" is a query, not a
@@ -499,6 +510,7 @@ export async function alterVoucher(
     if (existing.status === 'cancelled') {
       throw ApiError.unprocessable('cancelled', 'A cancelled voucher cannot be altered. Restore it first.')
     }
+    await assertVoucherYearOpen(tx, existing.financialYearId)
     const type = existing.voucherType
     const fy = await resolveFinancialYear(tx, companyId, input.date)
     const rolled = await validateAndRollUp(tx, companyId, type, input)
@@ -572,6 +584,7 @@ export async function cancelVoucher(
     const v = await tx.bookkeepingVoucher.findFirst({ where: { id: voucherId, tallyCompanyId: companyId, ...alive } })
     if (!v) throw ApiError.notFound('No such voucher.')
     if (v.status === 'cancelled') return v
+    await assertVoucherYearOpen(tx, v.financialYearId)
     const updated = await tx.bookkeepingVoucher.update({
       where: { id: voucherId },
       data: {

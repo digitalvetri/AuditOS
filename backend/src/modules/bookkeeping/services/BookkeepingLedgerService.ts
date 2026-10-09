@@ -5,9 +5,11 @@ import { BookkeepingCompanyService } from './BookkeepingCompanyService.js'
 
 /**
  * BookkeepingLedgerService — the ledgers under a company. Opening balances
- * are captured in paise (Int); every voucher line written in Slice 2+
- * will reference these rows. Soft-delete is blocked in Slice 2+ once
- * posted voucher lines exist (spec §2.1 rule 8).
+ * are captured in paise (Int); every voucher line references these rows.
+ * A ledger that carries money (postings, an opening balance, bills or
+ * bank lines) cannot be deleted — only marked inactive (spec §2.1 rule 8).
+ * Once any financial year is closed, the opening balance and group are
+ * frozen, because both feed every historical report.
  */
 
 export interface LedgerApi {
@@ -176,6 +178,23 @@ export const BookkeepingLedgerService = {
       if (patch.openingBalanceAsOfFyId) await assertFyInCompany(companyId, patch.openingBalanceAsOfFyId)
       data.openingBalanceAsOfFyId = patch.openingBalanceAsOfFyId
     }
+    // Only a real change counts — an edit form re-sending the same values
+    // alongside a rename must still go through.
+    const changesHistory =
+      (data.groupId !== undefined && data.groupId !== existing.groupId) ||
+      (data.openingBalancePaise !== undefined && data.openingBalancePaise !== existing.openingBalancePaise) ||
+      (data.openingBalanceType !== undefined && data.openingBalanceType !== existing.openingBalanceType)
+    if (changesHistory) {
+      const closed = await prisma.bookkeepingFinancialYear.findFirst({
+        where: { tallyCompanyId: companyId, closed: true }, select: { label: true },
+      })
+      if (closed) {
+        throw ApiError.unprocessable(
+          'financial_year_closed',
+          `Financial year ${closed.label} is closed. A ledger's opening balance and group feed every report for that year, so they cannot change now — reopen the year first.`,
+        )
+      }
+    }
     for (const k of ['address', 'contact', 'gstin', 'pan', 'state', 'gstRegistrationType', 'bankAccountName', 'bankAccountNumber', 'bankIfsc'] as const) {
       if ((patch as Record<string, unknown>)[k] !== undefined) {
         const v = (patch as Record<string, string | null | undefined>)[k]
@@ -196,8 +215,27 @@ export const BookkeepingLedgerService = {
       where: { id, tallyCompanyId: companyId, ...alive },
     })
     if (!existing) throw ApiError.notFound('No such ledger.')
-    // Slice 2+ will block this if any posted voucher lines reference the ledger.
-    // For Slice 1 there are no vouchers yet, so soft-delete is unconditional.
+    // Reports read only live ledgers, so deleting one that carries money
+    // would silently drop that money from every statement. Cancelled
+    // vouchers count too — restoring one would bring its lines back.
+    const [entries, partyVouchers, allocations, statementLines] = await Promise.all([
+      prisma.bookkeepingVoucherEntry.count({ where: { ledgerId: id, voucher: alive } }),
+      prisma.bookkeepingVoucher.count({ where: { partyLedgerId: id, ...alive } }),
+      prisma.bookkeepingBillAllocation.count({ where: { ledgerId: id } }),
+      prisma.bookkeepingBankStatementLine.count({ where: { bankLedgerId: id, ...alive } }),
+    ])
+    const reasons: string[] = []
+    if (entries || partyVouchers) reasons.push('vouchers posted to it')
+    if (existing.openingBalancePaise !== 0) reasons.push('an opening balance')
+    if (allocations) reasons.push('bill allocations')
+    if (statementLines) reasons.push('bank statement lines')
+    if (reasons.length) {
+      throw ApiError.conflict(
+        'ledger_in_use',
+        `"${existing.name}" has ${reasons.join(', ')}, so deleting it would drop that money from every report. Mark it inactive instead.`,
+        { entries, party_vouchers: partyVouchers, allocations, statement_lines: statementLines, opening_balance_paise: existing.openingBalancePaise },
+      )
+    }
     await prisma.bookkeepingLedger.update({ where: { id }, data: { deletedAt: new Date(), active: false } })
   },
 }

@@ -330,7 +330,11 @@ export interface BalanceSheetGroup {
 export interface BalanceSheet {
   assets: { groups: BalanceSheetGroup[]; totalPaise: number };
   liabilities: { groups: BalanceSheetGroup[]; totalPaise: number };
-  netProfitPaise: number; differencePaise: number; balanced: boolean; asOf: string | null;
+  /** Profit & Loss A/c brought forward from before fyStart (+ profit / − loss). */
+  retainedEarningsPaise: number;
+  /** Profit from fyStart (start of the FY containing asOf) to asOf. */
+  netProfitPaise: number; fyStart: string;
+  differencePaise: number; balanced: boolean; asOf: string | null;
 }
 
 export interface LedgerStatement {

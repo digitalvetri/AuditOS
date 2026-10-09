@@ -361,11 +361,20 @@ function BalanceSheetReport() {
         </div>
       ) : null}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        <Panel title={`Liabilities — ₹${((bs.liabilities.totalPaise + bs.netProfitPaise) / 100).toLocaleString('en-IN', { minimumFractionDigits: 2 })}`}>
+        <Panel title={`Liabilities — ₹${((bs.liabilities.totalPaise + bs.retainedEarningsPaise + bs.netProfitPaise) / 100).toLocaleString('en-IN', { minimumFractionDigits: 2 })}`}>
           {sideList(bs.liabilities.groups)}
+          {/* All accumulated profit sits here: earlier years brought forward, then this year to date. */}
+          {bs.retainedEarningsPaise !== 0 ? (
+            <div className="px-3 py-2 border-t border-neutral-100 flex items-center justify-between">
+              <span className="text-13 text-neutral-900">
+                {`Profit & Loss A/c — ${bs.retainedEarningsPaise >= 0 ? 'profit' : 'loss'} brought forward`}
+              </span>
+              <Money paise={bs.retainedEarningsPaise} signed bold />
+            </div>
+          ) : null}
           <div className="px-3 py-2 border-t border-neutral-100 flex items-center justify-between">
-            <Link to={`${base}/reports/profit-and-loss?from=${from}&to=${to}`} className="text-13 text-neutral-900 hover:text-gold">
-              {bs.netProfitPaise >= 0 ? 'Profit for the period' : 'Loss for the period'}
+            <Link to={`${base}/reports/profit-and-loss?from=${bs.fyStart}&to=${to}`} className="text-13 text-neutral-900 hover:text-gold">
+              {`${bs.netProfitPaise >= 0 ? 'Profit' : 'Loss'} for the year to date (from ${bs.fyStart})`}
             </Link>
             <Money paise={bs.netProfitPaise} signed bold />
           </div>

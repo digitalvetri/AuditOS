@@ -255,22 +255,61 @@ export interface BalanceSheetGroup {
 export interface BalanceSheet {
   assets: { groups: BalanceSheetGroup[]; totalPaise: number }
   liabilities: { groups: BalanceSheetGroup[]; totalPaise: number }
+  /**
+   * Profit & Loss A/c, opening: every P&L movement before the start of
+   * the financial year containing asOf, plus P&L-ledger master openings.
+   * Positive = accumulated profit, negative = accumulated loss.
+   */
+  retainedEarningsPaise: number
+  /** Profit from fyStart to asOf. Positive = profit, negative = loss. */
   netProfitPaise: number
-  /** assets − (liabilities + profit). Zero on a healthy set of books. */
+  /** Start of the financial year containing asOf — where netProfitPaise begins. */
+  fyStart: string
+  /** assets − (liabilities + retained earnings + profit). Zero on a healthy set of books. */
   differencePaise: number
   balanced: boolean
   asOf: string | null
 }
 
 /**
- * Balance sheet as at a date. Current-period profit is carried to the
- * liabilities side (as it would be to Capital) so the two sides agree —
- * the difference field makes any imbalance visible instead of hiding it.
+ * Start of the financial year that contains `date`: the company's own FY
+ * row when one covers it, otherwise derived from fyBeginMonth.
+ */
+export async function fyStartFor(companyId: string, date: string): Promise<string> {
+  const [company, fy] = await Promise.all([
+    prisma.bookkeepingCompany.findUnique({ where: { id: companyId }, select: { fyBeginMonth: true } }),
+    prisma.bookkeepingFinancialYear.findFirst({
+      where: { tallyCompanyId: companyId, startDate: { lte: date }, endDate: { gte: date } },
+      select: { startDate: true },
+    }),
+  ])
+  if (fy) return fy.startDate
+  const month = company?.fyBeginMonth ?? 4
+  const y = Number(date.slice(0, 4))
+  const m = Number(date.slice(5, 7))
+  const startYear = m >= month ? y : y - 1
+  return `${startYear}-${String(month).padStart(2, '0')}-01`
+}
+
+/**
+ * Balance sheet as at a date. Nothing closes P&L ledgers into Capital at
+ * year end, so ALL accumulated profit up to asOf is carried to the
+ * liabilities side: this year's profit (from the start of the FY that
+ * contains asOf, never the screen's period start) plus an opening
+ * Profit & Loss A/c line for everything before it. The two sides then
+ * agree whatever period the user is looking at — the difference field
+ * still makes any genuine imbalance (e.g. unbalanced openings) visible.
  */
 export async function balanceSheet(companyId: string, opts: { asOf?: string | null; fyStart?: string | null } = {}): Promise<BalanceSheet> {
   const asOf = opts.asOf ?? null
+  // opts.fyStart is deliberately ignored: callers pass the UI period start.
+  const fyStart = await fyStartFor(companyId, asOf ?? new Date().toISOString().slice(0, 10))
   const rows = await ledgerBalances(companyId, { to: asOf })
-  const pl = await profitAndLoss(companyId, { from: opts.fyStart ?? null, to: asOf })
+  const pl = await profitAndLoss(companyId, { from: fyStart, to: asOf })
+
+  // Everything every P&L ledger holds up to asOf (credit = profit).
+  const accumulatedProfit = -rows.filter((r) => r.affectsPL).reduce((s, r) => s + r.closingPaise, 0)
+  const retainedEarnings = accumulatedProfit - pl.netProfitPaise
 
   const bsRows = rows.filter((r) => !r.affectsPL)
   const byPrimary = new Map<string, BalanceSheetGroup & { nature: string }>()
@@ -293,12 +332,14 @@ export async function balanceSheet(companyId: string, opts: { asOf?: string | nu
 
   const assetsTotal = assetGroups.reduce((s, g) => s + g.amountPaise, 0)
   const liabilitiesTotal = liabilityGroups.reduce((s, g) => s + g.amountPaise, 0)
-  const difference = assetsTotal - (liabilitiesTotal + pl.netProfitPaise)
+  const difference = assetsTotal - (liabilitiesTotal + retainedEarnings + pl.netProfitPaise)
 
   return {
     assets: { groups: assetGroups, totalPaise: assetsTotal },
     liabilities: { groups: liabilityGroups, totalPaise: liabilitiesTotal },
+    retainedEarningsPaise: retainedEarnings,
     netProfitPaise: pl.netProfitPaise,
+    fyStart,
     differencePaise: difference,
     balanced: difference === 0,
     asOf,
