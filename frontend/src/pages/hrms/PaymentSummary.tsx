@@ -17,8 +17,8 @@ import {
   ChevronDown, ChevronRight, Download, MessageCircle, Plus, Trash2, Wallet,
 } from 'lucide-react';
 import {
-  paymentSummaryApi, PAYMENT_MODE_LABEL,
-  type ClientInvoice, type ClientSummary, type PayState, type PaymentMode, type SummaryResponse,
+  paymentSummaryApi, PAYMENT_MODE_LABEL, TDS_SECTIONS,
+  type ClientInvoice, type ClientSummary, type PayState, type PaymentMode, type SummaryResponse, type TdsSection,
 } from '@/modules/paymentSummary/api';
 import {
   ListCard, ListEmpty, ListHeader, ListToolbar, Money, SearchBox, Spacer, StatusPills, fmtDay,
@@ -283,6 +283,8 @@ function ClientInvoices({ clientId, canManage }: { clientId: string; canManage: 
             </div>
             <Amount label="Total" paise={inv.total_paise} />
             <Amount label="Received" paise={inv.paid_paise} tone="text-[#047857]" />
+            {inv.tds_deducted_paise ? <Amount label="TDS" paise={inv.tds_deducted_paise} tone="text-neutral-700" /> : null}
+            {inv.credited_paise ? <Amount label="Credit notes" paise={inv.credited_paise} tone="text-neutral-700" /> : null}
             <Amount label="Pending" paise={inv.pending_paise} tone={inv.pending_paise ? 'text-[#b45309] font-semibold' : 'text-neutral-400'} />
             <StateChip state={inv.state} />
             <Spacer />
@@ -302,12 +304,22 @@ function ClientInvoices({ clientId, canManage }: { clientId: string; canManage: 
                   {inv.payments.map((p, i) => (
                     <tr key={p.id} className="border-t border-neutral-100 first:border-t-0">
                       <td className="py-2 pr-4 text-neutral-500 w-8 tabular-nums">{i + 1}.</td>
-                      <td className="py-2 pr-4 whitespace-nowrap">{fmtDay(p.paid_on)}</td>
+                      <td className="py-2 pr-4 whitespace-nowrap">
+                        {fmtDay(p.paid_on)}
+                        {p.receipt_number ? <div className="text-11 text-neutral-500">{p.receipt_number}</div> : null}
+                      </td>
                       <td className="py-2 pr-4">{PAYMENT_MODE_LABEL[p.mode] ?? p.mode}</td>
                       <td className="py-2 pr-4 text-neutral-600 truncate max-w-[260px]" title={[p.reference, p.note].filter(Boolean).join(' · ')}>
                         {[p.reference, p.note].filter(Boolean).join(' · ') || '—'}
                       </td>
-                      <td className="py-2 pr-2 text-right tabular-nums font-medium whitespace-nowrap"><M paise={p.amount_paise} /></td>
+                      <td className="py-2 pr-2 text-right tabular-nums font-medium whitespace-nowrap">
+                        <M paise={p.amount_paise} />
+                        {p.tds_paise ? (
+                          <div className="text-11 font-normal text-neutral-500" title={p.tds_certificate_received ? 'TDS certificate received' : 'TDS certificate pending'}>
+                            + TDS <M paise={p.tds_paise} />{p.tds_section ? ` · ${p.tds_section}` : ''}{p.tds_certificate_received ? ' · cert. received' : ' · cert. pending'}
+                          </div>
+                        ) : null}
+                      </td>
                       <td className="py-2 w-8 text-right">
                         {canManage ? (
                           <button type="button" title="Remove this payment (entered by mistake)"
@@ -350,14 +362,31 @@ function PaymentModal({ inv, onClose }: { inv: ClientInvoice; onClose: () => voi
   const [mode, setMode] = useState<PaymentMode>('bank_transfer');
   const [reference, setReference] = useState('');
   const [note, setNote] = useState('');
+  const [tds, setTds] = useState('');
+  const [tdsSection, setTdsSection] = useState<TdsSection>('194J');
+  const [tdsCert, setTdsCert] = useState(false);
 
   const amountPaise = Math.round((Number(amount) || 0) * 100);
-  const after = inv.pending_paise - amountPaise;
+  const tdsPaise = Math.max(0, Math.round((Number(tds) || 0) * 100));
+  const settled = amountPaise + tdsPaise;
+  const after = inv.pending_paise - settled;
+
+  // Typing TDS while the cash field still holds "the rest of the balance"
+  // moves the cash down with it, so the common "client paid net of TDS"
+  // case needs one field, not two.
+  const changeTds = (v: string) => {
+    const nextPaise = Math.max(0, Math.round((Number(v) || 0) * 100));
+    if (amountPaise === inv.pending_paise - tdsPaise && nextPaise <= inv.pending_paise) {
+      setAmount(String((inv.pending_paise - nextPaise) / 100));
+    }
+    setTds(v);
+  };
 
   const save = useMutation({
     mutationFn: () => paymentSummaryApi.record(inv.id, {
       amount_paise: amountPaise, paid_on: paidOn, mode,
       reference: reference.trim() || undefined, note: note.trim() || undefined,
+      ...(tdsPaise > 0 ? { tds_paise: tdsPaise, tds_section: tdsSection, tds_certificate_received: tdsCert } : {}),
     }),
     onSuccess: () => {
       toast.push('success', after === 0 ? `${inv.invoice_number} is fully paid.` : `Recorded. ${rupees(after)} still pending.`);
@@ -368,7 +397,7 @@ function PaymentModal({ inv, onClose }: { inv: ClientInvoice; onClose: () => voi
     onError: (e: Error) => toast.push('error', e.message),
   });
 
-  const quick = (fraction: number) => setAmount(String(Math.round(inv.pending_paise * fraction) / 100));
+  const quick = (fraction: number) => setAmount(String(Math.max(0, Math.round(inv.pending_paise * fraction) - tdsPaise) / 100));
 
   return (
     <Modal
@@ -376,8 +405,8 @@ function PaymentModal({ inv, onClose }: { inv: ClientInvoice; onClose: () => voi
       footer={
         <>
           <Button onClick={onClose}>Cancel</Button>
-          <Button variant="primary" disabled={save.isPending || amountPaise <= 0 || after < 0} onClick={() => save.mutate()}>
-            Record {amountPaise > 0 ? rupees(amountPaise) : ''}
+          <Button variant="primary" disabled={save.isPending || amountPaise < 0 || settled <= 0 || after < 0} onClick={() => save.mutate()}>
+            Record {settled > 0 ? rupees(settled) : ''}
           </Button>
         </>
       }
@@ -387,7 +416,7 @@ function PaymentModal({ inv, onClose }: { inv: ClientInvoice; onClose: () => voi
         <Amount label="Received so far" paise={inv.paid_paise} tone="text-[#047857]" />
         <Amount label="Pending" paise={inv.pending_paise} tone="text-[#b45309] font-semibold" />
       </div>
-      <Field label="Amount received (₹)" hint={after > 0 ? `${rupees(after)} will still be pending — record the rest as another instalment later.` : after === 0 ? 'This clears the invoice.' : `At most ${rupees(inv.pending_paise)}.`}>
+      <Field label="Amount received (₹)" hint={after > 0 ? `${rupees(after)} will still be pending — record the rest as another instalment later.` : after === 0 ? 'This clears the invoice.' : `Cash + TDS can be at most ${rupees(inv.pending_paise)}.`}>
         <input className={inputClass} type="number" step="0.01" min="0" value={amount} onChange={(e) => setAmount(e.target.value)} autoFocus />
       </Field>
       <div className="flex gap-2 -mt-1 mb-3">
@@ -408,6 +437,22 @@ function PaymentModal({ inv, onClose }: { inv: ClientInvoice; onClose: () => voi
           </select>
         </Field>
       </div>
+      <div className="grid grid-cols-2 gap-3">
+        <Field label="TDS deducted (₹)" hint={tdsPaise > 0 ? `Cash ${rupees(amountPaise)} + TDS ${rupees(tdsPaise)} = ${rupees(settled)}` : 'If the client deducted TDS'}>
+          <input className={inputClass} type="number" step="0.01" min="0" value={tds} onChange={(e) => changeTds(e.target.value)} placeholder="0" data-testid="ps-tds" />
+        </Field>
+        <Field label="TDS section">
+          <select className={inputClass} value={tdsSection} onChange={(e) => setTdsSection(e.target.value as TdsSection)} disabled={tdsPaise <= 0}>
+            {TDS_SECTIONS.map((t) => <option key={t.value} value={t.value}>{t.label}</option>)}
+          </select>
+        </Field>
+      </div>
+      {tdsPaise > 0 ? (
+        <label className="flex items-center gap-2 text-13 text-neutral-700 -mt-1 mb-3">
+          <input type="checkbox" checked={tdsCert} onChange={(e) => setTdsCert(e.target.checked)} />
+          TDS certificate (Form 16A) received
+        </label>
+      ) : null}
       <Field label="Reference (UTR, cheque no., UPI ID…)">
         <input className={inputClass} value={reference} onChange={(e) => setReference(e.target.value)} maxLength={120} />
       </Field>

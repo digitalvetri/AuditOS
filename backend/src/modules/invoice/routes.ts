@@ -6,7 +6,9 @@ import { requireWorkstation } from '../../platform/workstation/scope.js'
 import { signedLink } from '../../platform/signedUrl.js'
 import { InvoiceService, QR_MODES, TERMS, type ItemInput } from './service.js'
 import { GST_RATES } from './totals.js'
-import { listPayments, notifyPaymentRecorded, paymentBodySchema, toPaymentInput } from './payments.js'
+import { listPayments, notifyPaymentRecorded, paymentBodySchema, paymentToApi, receiptNumberFor, setTdsCertificate, toPaymentInput } from './payments.js'
+import { listReminders, sendInvoiceReminder } from './reminders.js'
+import { prisma } from '../../lib/prisma.js'
 import { isAccountAdmin } from '../../platform/roleRank.js'
 import { writeAudit } from '../../platform/audit.js'
 import { GSTIN_RE } from '../gst/validate.js'
@@ -105,6 +107,9 @@ const bodySchema = z.object({
   layout_config: z.record(z.unknown()).nullish(),
   block_config: z.array(z.record(z.unknown())).nullish(),
 
+  client_service_id: z.string().max(64).nullish(),
+  audit_engagement_id: z.string().max(64).nullish(),
+
   items: z.array(itemSchema).min(1, 'An invoice needs at least one item.').max(200),
 })
 
@@ -138,6 +143,8 @@ function toInput(b: z.infer<typeof bodySchema>) {
     qrMode: b.qr_mode,
     qrValue: b.qr_value ?? null,
     qrImage: b.qr_image ?? null,
+    clientServiceId: b.client_service_id,
+    auditEngagementId: b.audit_engagement_id,
     items: b.items.map<ItemInput>((i) => ({
       serviceId: i.service_id ?? null,
       itemName: i.item_name,
@@ -291,14 +298,63 @@ invoicesRouter.post('/:id/payments', handler(async (req, res) => {
   const body = parse(paymentBodySchema, req.body, 'Check the payment.')
   const input = toPaymentInput(body)
   const invoice = await InvoiceService.recordPayment(session, scope, req.params.id, input)
-  await notifyPaymentRecorded(req.params.id, input.amountPaise, session)
+  await writeAudit({
+    actorUserId: session.userId, action: 'invoice_payment.recorded', entityType: 'Invoice', entityId: req.params.id,
+    after: { amount_paise: input.amountPaise, tds_paise: input.tdsPaise ?? 0, tds_section: input.tdsSection ?? null, paid_on: input.paidOn, mode: input.mode, reference: input.reference ?? null },
+    req,
+  })
+  await notifyPaymentRecorded(req.params.id, input.amountPaise + (input.tdsPaise ?? 0), session)
   ok(res, invoice)
 }))
 
 invoicesRouter.delete('/:id/payments/:paymentId', handler(async (req, res) => {
   const session = requireSession(req)
   const scope = requireWorkstation(session, 'workstation.invoice.manage')
-  ok(res, await InvoiceService.removePayment(session, scope, req.params.id, req.params.paymentId))
+  const invoice = await InvoiceService.removePayment(session, scope, req.params.id, req.params.paymentId)
+  await writeAudit({
+    actorUserId: session.userId, action: 'invoice_payment.removed', entityType: 'Invoice', entityId: req.params.id,
+    after: { payment_id: req.params.paymentId }, req,
+  })
+  ok(res, invoice)
+}))
+
+/** Form 16A arrives after the payment — mark the TDS certificate received (or not). */
+invoicesRouter.patch('/:id/payments/:paymentId', handler(async (req, res) => {
+  const session = requireSession(req)
+  const scope = requireWorkstation(session, 'workstation.invoice.manage')
+  await InvoiceService.get(session, scope, req.params.id)
+  const b = parse(z.object({ tds_certificate_received: formBool }), req.body, 'Check the payment.')
+  const row = await setTdsCertificate(req.params.id, req.params.paymentId, b.tds_certificate_received, session.userId)
+  await writeAudit({
+    actorUserId: session.userId, action: 'invoice_payment.tds_certificate', entityType: 'InvoicePayment', entityId: row.id,
+    after: { tds_certificate_received: b.tds_certificate_received }, req,
+  })
+  ok(res, { payment: { ...paymentToApi(row), receipt_number: await receiptNumberFor(row) } })
+}))
+
+/** Signed link to the payment receipt PDF (served by billing-signed.ts). */
+invoicesRouter.get('/:id/payments/:paymentId/receipt-url', handler(async (req, res) => {
+  const session = requireSession(req)
+  const scope = requireWorkstation(session, 'workstation.invoice.read')
+  await InvoiceService.get(session, scope, req.params.id)
+  const row = await prisma.invoicePayment.findFirst({ where: { id: req.params.paymentId, invoiceId: req.params.id, deletedAt: null }, select: { id: true } })
+  if (!row) throw ApiError.notFound('Payment not found.')
+  ok(res, signedLink(`/api/invoice-payments/${row.id}/receipt`, `receipt:${row.id}`, session.userId))
+}))
+
+/** Email the client a reminder for an overdue invoice, with its PDF link. */
+invoicesRouter.post('/:id/remind', handler(async (req, res) => {
+  const session = requireSession(req)
+  const scope = requireWorkstation(session, 'workstation.invoice.manage')
+  await InvoiceService.get(session, scope, req.params.id)
+  ok(res, await sendInvoiceReminder(req.params.id, { actorUserId: session.userId, stage: 'manual', replyTo: session.email, req }))
+}))
+
+invoicesRouter.get('/:id/reminders', handler(async (req, res) => {
+  const session = requireSession(req)
+  const scope = requireWorkstation(session, 'workstation.invoice.read')
+  await InvoiceService.get(session, scope, req.params.id)
+  ok(res, { items: await listReminders(req.params.id) })
 }))
 
 invoicesRouter.post('/:id/cancel', handler(async (req, res) => {

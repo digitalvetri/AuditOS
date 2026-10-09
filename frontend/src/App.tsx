@@ -1,3 +1,4 @@
+import { lazy, Suspense, type ReactNode } from 'react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { BrowserRouter, Route, Routes, Navigate, useLocation, useParams } from 'react-router-dom';
 import { AuthProvider } from '@/platform/auth/AuthContext';
@@ -27,6 +28,9 @@ import { InvoiceListPage } from '@/pages/workstation/invoices/InvoiceList';
 import { InvoiceBuilderPage } from '@/pages/workstation/invoices/InvoiceBuilder';
 import { InvoiceDetailPage } from '@/pages/workstation/invoices/InvoiceDetail';
 import { InvoicePreviewPage } from '@/pages/workstation/invoices/InvoicePreview';
+import { CreditNoteListPage } from '@/pages/workstation/creditNotes/CreditNoteList';
+import { CreditNoteEditorPage } from '@/pages/workstation/creditNotes/CreditNoteEditor';
+import { RecurringInvoicesPage } from '@/pages/workstation/recurring/RecurringInvoices';
 import { QuotationBuilderPage } from '@/pages/workstation/quotations/QuotationBuilder';
 import { QuotationDetailPage } from '@/pages/workstation/quotations/QuotationDetail';
 import { QuotationPreviewPage } from '@/pages/workstation/quotations/QuotationPreview';
@@ -107,6 +111,8 @@ import { RegistrationServiceDetail } from '@/pages/workstation/registration/Regi
 import { TdsServicesLanding } from '@/pages/workstation/tds/TdsServicesLanding';
 import { TdsServiceHandoff } from '@/pages/workstation/tds/TdsServiceHandoff';
 import { TdsRegisterPage } from '@/pages/workstation/tds/TdsRegisterPage';
+// Compliance calendar, notices, DSC register, 26AS recon (docs/compliance) — code-split.
+import { ComplianceCalendarRoute, DueDateExtensionsRoute, NoticesRegisterRoute, DscRegisterRoute, TdsReconRoute } from '@/modules/compliance/lazyPages';
 
 // Books — Tools → Books, an Audit OS UI over Zoho Books (docs/books-zoho).
 import { BooksShell } from '@/pages/books/BooksShell';
@@ -143,6 +149,14 @@ import { ErrorBoundary } from '@/components/ErrorBoundary';
 import { NotificationsPage } from '@/pages/Notifications';
 import { ToastProvider } from '@/components/Toast';
 import { PwaProvider } from '@/platform/pwa/PwaProvider';
+import { QuerySkeleton } from '@/modules/workstation/components';
+
+// Audit files (docs/audit-files/README.md) — loaded on first visit, so the
+// module adds nothing to the initial bundle.
+const AuditListPage = lazy(() => import('@/pages/workstation/audits/AuditList').then((m) => ({ default: m.AuditListPage })));
+const AuditFilePage = lazy(() => import('@/pages/workstation/audits/AuditFile').then((m) => ({ default: m.AuditFilePage })));
+const UdinRegisterPage = lazy(() => import('@/pages/workstation/audits/UdinRegister').then((m) => ({ default: m.UdinRegisterPage })));
+const Lazy = ({ children }: { children: ReactNode }) => <Suspense fallback={<QuerySkeleton />}>{children}</Suspense>;
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -407,6 +421,11 @@ export default function App() {
               <Route path="workstation/services/:category" element={<ServicesPage />} />
               <Route path="workstation/follow-ups" element={<FollowUpsPage />} />
               <Route path="workstation/calendar" element={<WorkstationCalendarPage />} />
+              <Route path="workstation/compliance" element={<ComplianceCalendarRoute />} />
+              <Route path="workstation/compliance/extensions" element={<DueDateExtensionsRoute />} />
+              <Route path="workstation/notices" element={<NoticesRegisterRoute />} />
+              <Route path="workstation/dsc" element={<DscRegisterRoute />} />
+              <Route path="workstation/tds-recon" element={<TdsReconRoute />} />
               <Route path="workstation/documents" element={<WorkstationDocumentsPage />} />
 
               {/* Workstation → Task: assignment plus server-tracked work time. */}
@@ -418,6 +437,10 @@ export default function App() {
               <Route path="workstation/invoices/new" element={<InvoiceBuilderPage />} />
               <Route path="workstation/invoices/:id/edit" element={<InvoiceBuilderPage />} />
               <Route path="workstation/invoices/:id" element={<InvoiceDetailPage />} />
+              <Route path="workstation/credit-notes" element={<CreditNoteListPage />} />
+              <Route path="workstation/credit-notes/new" element={<CreditNoteEditorPage />} />
+              <Route path="workstation/credit-notes/:id" element={<CreditNoteEditorPage />} />
+              <Route path="workstation/recurring-invoices" element={<RecurringInvoicesPage />} />
               <Route path="workstation/quotations/new" element={<QuotationBuilderPage />} />
               <Route path="workstation/quotations/:id/edit" element={<QuotationBuilderPage />} />
               <Route path="workstation/quotations/:id" element={<QuotationDetailPage />} />
@@ -428,6 +451,10 @@ export default function App() {
               <Route path="workstation/engagement" element={<EngagementListPage />} />
               <Route path="workstation/engagement/new" element={<EngagementBuilderPage />} />
               <Route path="workstation/engagement/:id/edit" element={<EngagementBuilderPage />} />
+              {/* Audit files — one per client × FY × audit type (SA 230). */}
+              <Route path="workstation/audits" element={<Lazy><AuditListPage /></Lazy>} />
+              <Route path="workstation/audits/udins" element={<Lazy><UdinRegisterPage /></Lazy>} />
+              <Route path="workstation/audits/:id" element={<Lazy><AuditFilePage /></Lazy>} />
               <Route path="workstation/tasks" element={<TaskListPage />} />
               <Route path="workstation/tasks/reports" element={<TaskReportsPage />} />
               <Route path="workstation/tasks/:taskId" element={<TaskDetailPage />} />

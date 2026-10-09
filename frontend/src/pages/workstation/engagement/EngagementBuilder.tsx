@@ -117,7 +117,8 @@ export function applyTemplate(x: LetterState, id: EngagementTemplateId): LetterS
     clientSignatoryDesignation: keepParty ? x.clientSignatoryDesignation : t.clientSignatoryDesignation,
     recipient: keepParty ? x.recipient : t.recipient,
     letterDate: keepParty ? x.letterDate : t.letterDate,
-    sample: !keepParty && id !== 'jns-accounting',
+    // Only the Word originals carry a sample recipient; classic templates start blank.
+    sample: !keepParty && skinOf(id) !== null,
     layout: ENGAGEMENT_LAYOUT,
   };
 }
@@ -699,7 +700,7 @@ export function EngagementBuilderPage() {
 }
 
 /**
- * The five templates. Choosing one rewrites the letter from it (one undo
+ * The templates. Choosing one rewrites the letter from it (one undo
  * step); the recipient stays once a client or lead has been chosen.
  */
 function TemplatePicker({ value, onPick }: { value: EngagementTemplateId; onPick: (t: EngagementTemplateId) => void }) {
@@ -716,7 +717,7 @@ function TemplatePicker({ value, onPick }: { value: EngagementTemplateId; onPick
               style={{ padding: '8px 10px' }} className={`text-left rounded border transition-colors ${on ? 'border-primary bg-primary text-white' : 'border-neutral-200 hover:border-primary/50 hover:bg-neutral-50'}`}>
               <span className="block text-13 font-medium leading-tight">{t.name}</span>
               <span className={`block text-11 mt-0.5 leading-snug ${on ? 'text-white/75' : 'text-neutral-500'}`}>
-                {t.pages} pages · {t.id === 'jns-accounting' ? 'adjustable layout' : 'Word original'}
+                {t.pages} pages · {skinOf(t.id) ? 'Word original' : 'adjustable layout'}
               </span>
             </button>
           );

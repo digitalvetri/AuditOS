@@ -11,6 +11,10 @@ import { startTdsReminderScheduler } from './modules/tds/reminders.js'
 import { startGstReminderScheduler } from './modules/gst/reminders.js'
 import { startPostRegistrationReminderScheduler } from './modules/partnership/postRegReminders.js'
 import { startBooksSyncScheduler } from './modules/books/scheduler.js'
+import { startRecurringInvoiceScheduler } from './modules/recurring/scheduler.js'
+import { startDunningScheduler } from './modules/invoice/reminders.js'
+import { startComplianceScheduler } from './modules/compliance/scheduler.js'
+import { startAuditReminderScheduler } from './modules/audit/reminders.js'
 import { AaExtractService } from './modules/audit-automation/services/AaExtractService.js'
 import { reportError } from './lib/errorReport.js'
 
@@ -49,6 +53,11 @@ startTdsReminderScheduler(prisma)
 startGstReminderScheduler(prisma)
 startPostRegistrationReminderScheduler(prisma)
 startBooksSyncScheduler()
+// Retainer invoices (each run under an advisory lock) and, when INVOICE_DUNNING=on, overdue reminders.
+startRecurringInvoiceScheduler()
+startDunningScheduler()
+startComplianceScheduler(prisma)
+startAuditReminderScheduler(prisma)
 
 http.listen(env.port, () => {
   // Bank statements a restart interrupted mid-read are read again, not left "queued".

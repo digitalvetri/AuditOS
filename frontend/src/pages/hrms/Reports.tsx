@@ -12,21 +12,26 @@ import { Input } from '@/components/Input';
 import { useAuth } from '@/platform/auth/AuthContext';
 import { can } from '@/platform/rbac/can';
 import { reportsApi, type ReportType, type AttendanceReport, type LeaveReport, type PayrollReport, type ExpenseReport } from '@/modules/reports/api';
+import { FinanceMisSection } from '@/modules/reports/FinanceMisSection';
 import { addDays, istToday } from '@/lib/dates';
 import { inr } from '@/lib/format';
 import {
-  CalendarCheck, CalendarDays, Download, Receipt, ShieldAlert, Wallet, type LucideIcon,
+  CalendarCheck, CalendarDays, Download, LineChart, Receipt, ShieldAlert, Wallet, type LucideIcon,
 } from 'lucide-react';
 
+/** The HR/payroll reports plus the server-described Finance MIS panel. */
+type ActiveType = ReportType | 'finance-mis';
+
 /** Each report's icon and tint — the dashboard's tinted icon squares. */
-const REPORT_META: Record<ReportType, { icon: LucideIcon; bg: string; fg: string; blurb: string }> = {
+const REPORT_META: Record<ActiveType, { icon: LucideIcon; bg: string; fg: string; blurb: string }> = {
   attendance: { icon: CalendarCheck, bg: '#e9f9f1', fg: '#047857', blurb: 'Days present, late, on leave and hours, per employee.' },
   leave: { icon: CalendarDays, bg: '#efeafd', fg: '#6941d9', blurb: 'Entitlement, availed and balance, by leave type.' },
   payroll: { icon: Wallet, bg: '#f5f1ff', fg: '#5b33c4', blurb: 'Earnings, deductions and net pay for a run.' },
   expenses: { icon: Receipt, bg: '#fff7e6', fg: '#b45309', blurb: 'Claims and reimbursements, per employee and category.' },
+  'finance-mis': { icon: LineChart, bg: '#e9f9f1', fg: '#047857', blurb: 'Revenue, collections, profitability, utilisation and TDS receivable.' },
 };
 
-function IconSquare({ type, size = 36 }: { type: ReportType; size?: number }) {
+function IconSquare({ type, size = 36 }: { type: ActiveType; size?: number }) {
   const m = REPORT_META[type];
   const Icon = m.icon;
   return (
@@ -72,11 +77,12 @@ export function ReportsPage() {
   // Which reports this caller may actually run. Declared BEFORE the initial
   // type is chosen: a role without `reports.hr` (Finance, for one) must not
   // land on Attendance and fire a request the API answers with 403.
-  const availableTypes: { id: ReportType; label: string; group: string; visible: boolean }[] = [
+  const availableTypes: { id: ActiveType; label: string; group: string; visible: boolean }[] = [
     { id: 'attendance', label: 'Attendance', group: 'People', visible: canHrSelf },
     { id: 'leave', label: 'Leave utilisation', group: 'People', visible: canHrSelf },
     { id: 'payroll', label: 'Payroll summary', group: 'Finance', visible: canPayrollOwn },
     { id: 'expenses', label: 'Expenses', group: 'Finance', visible: canExpenseOwn },
+    { id: 'finance-mis', label: 'Finance MIS', group: 'Finance', visible: canFinance },
   ];
   const visibleTypes = availableTypes.filter((t) => t.visible);
   const groups = Array.from(new Set(visibleTypes.map((t) => t.group)));
@@ -86,8 +92,8 @@ export function ReportsPage() {
   // null = this role has no reports at all; the panel says so and asks for
   // nothing. ProtectedRoute guarantees a session here, so these grants are
   // already settled on first render.
-  const requestedType = params.get('type') as ReportType | null;
-  const [type, setType] = useState<ReportType | null>(() =>
+  const requestedType = params.get('type') as ActiveType | null;
+  const [type, setType] = useState<ActiveType | null>(() =>
     requestedType && visibleTypes.some((t) => t.id === requestedType)
       ? requestedType
       : visibleTypes[0]?.id ?? null,
@@ -102,7 +108,7 @@ export function ReportsPage() {
     runId: '',
   });
 
-  const setActive = (t: ReportType) => {
+  const setActive = (t: ActiveType) => {
     setType(t);
     setParams({ type: t }, { replace: true });
   };
@@ -177,7 +183,7 @@ export function ReportsPage() {
                   <p className="text-12 text-neutral-500">{REPORT_META[type].blurb}</p>
                 </div>
               </div>
-              <FiltersBar type={type} filters={filters} onChange={setFilters} />
+              {type === 'finance-mis' ? <FinanceMisSection /> : <FiltersBar type={type} filters={filters} onChange={setFilters} />}
               {type === 'attendance' ? <AttendanceReportView filters={filters} /> : null}
               {type === 'leave' ? <LeaveReportView filters={filters} /> : null}
               {type === 'payroll' ? <PayrollReportView filters={filters} /> : null}

@@ -82,7 +82,15 @@ export function InvoiceListPage() {
                     <TD muted nowrap>{fmtDay(inv.due_date)}</TD>
                     <TD><StatusChip value={inv.status} /></TD>
                     <TD right strong nowrap className="tabular-nums"><Money value={`₹${inrAmount(inv.total_paise)}`} /></TD>
-                    <TD right nowrap className="tabular-nums"><Money value={`₹${inrAmount(inv.balance_due_paise)}`} /></TD>
+                    <TD right nowrap className="tabular-nums">
+                      <Money value={`₹${inrAmount(inv.balance_due_paise)}`} />
+                      {(inv.tds_deducted_paise ?? 0) > 0 || (inv.credited_paise ?? 0) > 0 ? (
+                        <span className="block text-11 text-neutral-500"
+                          title={`TDS ₹${inrAmount(inv.tds_deducted_paise ?? 0)} · Credit notes ₹${inrAmount(inv.credited_paise ?? 0)}`}>
+                          {[(inv.tds_deducted_paise ?? 0) > 0 ? 'TDS' : '', (inv.credited_paise ?? 0) > 0 ? 'CN' : ''].filter(Boolean).join(' + ')} adjusted
+                        </span>
+                      ) : null}
+                    </TD>
                     <TD>
                       <button
                         type="button"

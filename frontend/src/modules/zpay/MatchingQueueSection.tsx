@@ -20,6 +20,7 @@ import { Input } from '@/components/Input';
 import { useToast } from '@/components/Toast';
 import { inr, fmtDate } from '@/lib/format';
 import { workstationApi } from '@/modules/workstation/api';
+import { invoicesApi, type Invoice } from '@/modules/workstation/invoices/api';
 import {
   zpayApi,
   type EntityFilter,
@@ -48,6 +49,7 @@ export function MatchingQueueSection() {
   const [entity, setEntity] = useState<EntityFilter>('all');
   const [filter, setFilter] = useState<MatchFilter>('unmatched');
   const [matching, setMatching] = useState<QueuePayment | null>(null);
+  const [linking, setLinking] = useState<QueuePayment | null>(null);
 
   const q = useQuery({
     queryKey: ['zpay', 'queue', period, entity, filter],
@@ -138,10 +140,15 @@ export function MatchingQueueSection() {
               payment={p}
               filter={filter}
               onMatch={() => setMatching(p)}
+              onLinkInvoice={() => setLinking(p)}
             />
           ))}
         </ol>
       )}
+
+      {linking ? (
+        <LinkInvoiceModal payment={linking} onClose={() => setLinking(null)} />
+      ) : null}
 
       {matching ? (
         <MatchModal
@@ -157,10 +164,12 @@ function QueueRow({
   payment,
   filter,
   onMatch,
+  onLinkInvoice,
 }: {
   payment: QueuePayment;
   filter: MatchFilter;
   onMatch: () => void;
+  onLinkInvoice: () => void;
 }) {
   const qc = useQueryClient();
   const toast = useToast();
@@ -208,6 +217,12 @@ function QueueRow({
               ) : null}
             </>
           ) : null}
+          {payment.posted_invoice_number ? (
+            <>
+              {' · posted to '}
+              <span className="text-emerald-700">{payment.posted_invoice_number}</span>
+            </>
+          ) : null}
         </div>
         {payment.matchType === 'probable' && payment.candidateInvoice ? (
           <div className="mt-2 text-12 bg-amber-50 border border-amber-200 rounded p-2">
@@ -222,12 +237,16 @@ function QueueRow({
       </div>
       <div className="flex items-center gap-2">
         {filter === 'unmatched' ? (
-          <Button variant="primary" onClick={onMatch}>Link manually ▸</Button>
+          <>
+            <Button variant="primary" onClick={onLinkInvoice}>Link to invoice</Button>
+            <Button variant="secondary" onClick={onMatch}>Link manually ▸</Button>
+          </>
         ) : filter === 'proposed' ? (
           <>
             <Button variant="primary" onClick={() => confirm.mutate()} disabled={confirm.isPending}>
               {confirm.isPending ? 'Confirming…' : 'Confirm'}
             </Button>
+            <Button variant="secondary" onClick={onLinkInvoice}>Link to invoice</Button>
             <Button variant="secondary" onClick={onMatch}>Choose other</Button>
           </>
         ) : (
@@ -390,6 +409,133 @@ function MatchModal({
             </Button>
           </div>
         </form>
+      </div>
+    </div>
+  );
+}
+
+/** Invoices a receipt can still be posted against. */
+const OPEN_STATUSES = new Set(['sent', 'partially_paid', 'overdue']);
+
+function LinkInvoiceModal({
+  payment,
+  onClose,
+}: {
+  payment: QueuePayment;
+  onClose: () => void;
+}) {
+  const qc = useQueryClient();
+  const toast = useToast();
+  const [query, setQuery] = useState(payment.customerName ?? '');
+  const [picked, setPicked] = useState<Invoice | null>(null);
+
+  // `status` filters to a single value server-side, so ask for the matching
+  // invoices once and keep the open ones (sent / partly paid / overdue) here.
+  const search = useQuery({
+    queryKey: ['zpay', 'link-invoice-search', query.trim()],
+    queryFn: () => invoicesApi.list({ q: query.trim() || undefined, limit: 100 }),
+  });
+  const open = (search.data?.items ?? []).filter(
+    (i) => OPEN_STATUSES.has(i.status) && i.balance_due_paise > 0,
+  );
+
+  const link = useMutation({
+    mutationFn: (inv: Invoice) => zpayApi.linkInvoice(payment.id, inv.id),
+    onSuccess: (r) => {
+      if (r.posted) {
+        toast.push('success', `Linked and posted to ${r.invoice_number}.`);
+      } else {
+        toast.push('info', `Linked to ${r.invoice_number}, not posted${r.reason ? `: ${r.reason}` : '.'}`);
+      }
+      qc.invalidateQueries({ queryKey: ['zpay'] });
+      qc.invalidateQueries({ queryKey: ['payment-summary'] });
+      qc.invalidateQueries({ predicate: (q) => String(q.queryKey[0]).startsWith('invoices.') });
+      onClose();
+    },
+    onError: (e: Error) => toast.push('error', e.message),
+  });
+
+  return (
+    <div className="fixed inset-0 z-40 bg-black/40 flex items-center justify-center p-4" onClick={onClose}>
+      <div
+        className="bg-white rounded shadow-lg max-w-[560px] w-full p-5"
+        onClick={(e) => e.stopPropagation()}
+        role="dialog"
+        aria-label="Link to invoice"
+      >
+        <div className="text-11 uppercase tracking-[0.06em] text-neutral-500">
+          Link to invoice
+        </div>
+        <h3 className="text-16 font-medium text-neutral-900 mt-1">
+          {inr(payment.amountPaise)} · {payment.customerName ?? '(no payer name)'}
+        </h3>
+        <div className="text-12 text-neutral-500 mt-1">
+          Posts this payment as a receipt on the chosen invoice and reduces its balance.
+        </div>
+
+        <div className="mt-4">
+          <Input
+            autoFocus
+            value={query}
+            onChange={(e) => { setQuery(e.target.value); setPicked(null); }}
+            placeholder="Search invoice number or client…"
+          />
+        </div>
+
+        <div className="mt-3 border border-neutral-200 rounded max-h-64 overflow-auto">
+          {search.isLoading ? (
+            <div className="px-3 py-2 text-12 text-neutral-500">Searching…</div>
+          ) : search.error ? (
+            <div className="px-3 py-2 text-12 text-red-700">{(search.error as Error).message}</div>
+          ) : open.length === 0 ? (
+            <div className="px-3 py-2 text-12 text-neutral-500">
+              No open invoices (sent, partly paid or overdue) match.
+            </div>
+          ) : (
+            open.map((inv) => (
+              <button
+                key={inv.id}
+                type="button"
+                onClick={() => setPicked(inv)}
+                className={
+                  'w-full text-left px-3 py-2 flex items-center gap-3 border-b border-neutral-100 last:border-b-0 ' +
+                  (picked?.id === inv.id ? 'bg-emerald-50' : 'hover:bg-neutral-50')
+                }
+              >
+                <div className="min-w-0 flex-1">
+                  <div className="text-13 text-neutral-900 font-mono">{inv.display_number}</div>
+                  <div className="text-11 text-neutral-500 truncate">
+                    {inv.client_name ?? '—'} · {fmtDate(inv.invoice_date)} · {inv.status.replace('_', ' ')}
+                  </div>
+                </div>
+                <div className="text-right">
+                  <div className="text-13 tabular-nums text-neutral-900">{inr(inv.balance_due_paise)}</div>
+                  <div className="text-11 text-neutral-500">balance</div>
+                </div>
+              </button>
+            ))
+          )}
+        </div>
+
+        {picked && payment.amountPaise > picked.balance_due_paise ? (
+          <p className="text-12 text-amber-900 bg-amber-50 border border-amber-200 rounded p-2 mt-3">
+            The payment is more than this invoice's balance ({inr(picked.balance_due_paise)}). The server may link it without posting.
+          </p>
+        ) : null}
+
+        <div className="flex justify-end gap-2 pt-4">
+          <Button variant="secondary" type="button" onClick={onClose}>
+            Cancel
+          </Button>
+          <Button
+            variant="primary"
+            type="button"
+            disabled={!picked || link.isPending}
+            onClick={() => picked && link.mutate(picked)}
+          >
+            {link.isPending ? 'Linking…' : picked ? `Link to ${picked.display_number}` : 'Link'}
+          </Button>
+        </div>
       </div>
     </div>
   );

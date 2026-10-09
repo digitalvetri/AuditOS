@@ -105,6 +105,19 @@ export interface QueuePayment {
     invoiceSeriesPrefix: string;
   };
   candidateInvoice: CandidateInvoice | null;
+  /** The app invoice this payment was posted to as a receipt (null when not posted). */
+  posted_invoice_id?: string | null;
+  posted_invoice_number?: string | null;
+}
+
+export interface LinkInvoiceResult {
+  paymentId: string;
+  matchType: 'manual';
+  invoice_number: string;
+  /** True when a receipt was posted against the app invoice. */
+  posted: boolean;
+  /** Why it was not posted (e.g. already paid), when `posted` is false. */
+  reason: string | null;
 }
 
 export interface QueueResponse {
@@ -230,6 +243,9 @@ export const zpayApi = {
       form,
     );
   },
+  /** Link to an app invoice and post the payment to its receivables ledger. */
+  linkInvoice: (paymentId: string, invoiceId: string) =>
+    api.post<LinkInvoiceResult>(`/api/zpay/payments/${paymentId}/link-invoice`, { invoice_id: invoiceId }),
   confirmProbable: (paymentId: string) =>
     api.post<{ paymentId: string; matchType: 'manual' }>(
       `/api/zpay/payments/${paymentId}/confirm-probable`,

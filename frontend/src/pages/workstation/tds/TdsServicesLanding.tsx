@@ -249,14 +249,11 @@ export function TdsServicesLanding() {
               disabled={!effectiveTan}
               disabledReason="Record the TAN under TDS Registration first."
             />
-            {/* Not built yet — shown as coming soon rather than linking to a page that sends you back here. */}
             <ToolCard
-              to=""
+              to={`/workstation/tds-recon?client=${selectedClient.id}&fy=${fyLabel}`}
               icon={<GitCompareArrows size={16} strokeWidth={1.75} />}
-              title="26AS vs books reconciliation — coming soon"
-              body=""
-              disabled
-              disabledReason="Matching the books and deductee records against 26AS / TRACES is not available yet."
+              title="26AS vs books reconciliation"
+              body="Upload the client's Form 26AS and the TDS receivable from the books: credits are matched by TAN and section, then amount — matched, only in 26AS, only in books and differences, with reviewer notes and an Excel export."
             />
           </div>
 

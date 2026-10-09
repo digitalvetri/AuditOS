@@ -8,6 +8,7 @@ import { notifyEmployees } from '../../platform/notify.js'
 import { prisma } from '../../lib/prisma.js'
 import { QuotationService, type ItemInput } from './service.js'
 import { GST_RATES } from './totals.js'
+import { writeAudit } from '../../platform/audit.js'
 import { formBool } from '../invoice/supply.js'
 
 /**
@@ -257,6 +258,15 @@ quotationsRouter.post('/:id/revise', handler(async (req, res) => {
 }))
 
 /** Accepted → work. Requires task manage as well: it creates a Task. */
+/** Accepted quotation → draft invoice (lines, client, place of supply copied). */
+quotationsRouter.post('/:id/convert-to-invoice', handler(async (req, res) => {
+  const session = requireSession(req)
+  const scope = requireWorkstation(session, 'workstation.invoice.manage')
+  const r = await QuotationService.convertToInvoice(session, scope, req.params.id)
+  await writeAudit({ actorUserId: session.userId, action: 'quotation.converted_to_invoice', entityType: 'Quotation', entityId: req.params.id, after: r, req })
+  ok(res, r, 201)
+}))
+
 quotationsRouter.post('/:id/convert-to-task', handler(async (req, res) => {
   const session = requireSession(req)
   const scope = requireWorkstation(session, 'workstation.quotation.approve')

@@ -9,7 +9,7 @@ import { useAuth } from '@/platform/auth/AuthContext';
  * Per REPOTIC-MODULE.md §0, Repotic is EXACTLY two tools: the bank
  * statement → Tally pipeline (shipped) and the ecommerce seller's
  * GSTR-1 pipeline (built across the Phase 1+ PRs). The TDS tab was
- * removed per spec — 26AS vs books reconciliation is not built yet.
+ * removed per spec; 26AS vs books reconciliation is /workstation/tds-recon.
  */
 export function AuditAutomationLandingPage() {
   const { session } = useAuth();
@@ -43,6 +43,12 @@ export function AuditAutomationLandingPage() {
             description="Amazon · Flipkart · Meesho · Myntra · … → one normalised set of rows → GSTR-1 tables → JSON for the portal, Tally XML or CSV"
             status="active"
           />
+          <PipelineCard
+            to="/workstation/tds-recon"
+            title="26AS vs books reconciliation"
+            description="Form 26AS + TDS receivable from the books → matched by TAN and section, then amount → matched, only in 26AS, only in books, differences → Excel"
+            status="active"
+          />
         </div>
       )}
 
@@ -50,7 +56,7 @@ export function AuditAutomationLandingPage() {
         <Info size={14} strokeWidth={1.75} className="mt-0.5 flex-shrink-0" />
         <div>
           GST reconciliation (GSTR-2B vs Purchase Register) lives in the GST module.
-          26AS vs books reconciliation — coming soon.
+          26AS vs books reconciliation lives under <Link to="/workstation/tds-recon" className="text-primary underline">Workstation → 26AS reconciliation</Link>.
           Repotic itself is file-in / file-out only.
         </div>
       </div>

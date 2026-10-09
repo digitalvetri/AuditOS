@@ -1,9 +1,11 @@
 /**
- * ENGAGEMENT LETTER TEMPLATES — the five starting points a letter can be
+ * ENGAGEMENT LETTER TEMPLATES — the starting points a letter can be
  * switched between.
  *
  * `jns-accounting` is the original builder template, drawn in the builder's
- * own "classic" look. The other four reproduce the firm's Word letters
+ * own "classic" look; so are the two audit letters (`audit-statutory`,
+ * `audit-tax`), which have no Word original and therefore no skin — the
+ * server's PDF draws them classic too, as skinOf() returns null for both. The other four reproduce the firm's Word letters
  * (Enagement form/*.pdf) exactly: the same words, the same fonts and sizes,
  * the same spacing and the same page breaks. Their look is a WORD SKIN —
  * page geometry, line pitch, letterhead and footer measured off the PDFs —
@@ -25,7 +27,12 @@ export type EngagementTemplateId =
   | 'jns-compliance'
   | 'jns-epr'
   | 'jns-accounting-services'
-  | 'jns-bookkeeping';
+  | 'jns-bookkeeping'
+  | 'audit-statutory'
+  | 'audit-tax';
+
+/** Templates drawn in the builder's classic look — no Word skin. */
+type ClassicTemplateId = 'jns-accounting' | 'audit-statutory' | 'audit-tax';
 
 // ── Word skins ────────────────────────────────────────────────────────────
 
@@ -82,7 +89,7 @@ const NAVY = '#002060';
 const addr = (font: FontKey, size: number, baselines: number[]): HeadLine[] =>
   baselines.map((baseline) => ({ font, size, bold: true, color: '#000000', baseline }));
 
-export const WORD_SKINS: Record<Exclude<EngagementTemplateId, 'jns-accounting'>, WordSkin> = {
+export const WORD_SKINS: Record<Exclude<EngagementTemplateId, ClassicTemplateId>, WordSkin> = {
   'jns-compliance': {
     size: 11, pitch: 13.63, gap: 2.03, blank: 17.7,
     top: [115.57, 93.67], bottom: 770, margin: 72,
@@ -488,12 +495,195 @@ function standard(): TemplatePreset {
   };
 }
 
+// ── Audit engagement letters (classic look) ───────────────────────────────
+
+/** Prose in the classic look: justified paragraphs, left-aligned list items. */
+const jp = (html: string): Line => newLine({ html });
+const bullet = (html: string): Line => newLine({ kind: 'bullet', align: 'left', html });
+const num = (html: string): Line => newLine({ kind: 'number', align: 'left', html });
+
+const AUDIT_CONFIDENTIAL = 'Information obtained in the course of this engagement will be kept confidential and will '
+  + 'not be disclosed except where required by law or regulation, or in a quality or peer review by the Institute of '
+  + 'Chartered Accountants of India (ICAI). Our working papers are our property and are retained as the Standards on '
+  + 'Quality Control require.';
+const AUDIT_LIABILITY = 'To the extent permitted by law and the pronouncements of the ICAI, our aggregate liability '
+  + 'arising out of or in connection with this engagement, whether in contract, tort or otherwise, shall not exceed '
+  + 'the fees paid to us for this engagement. Nothing in this clause limits any liability that cannot by law be limited, '
+  + 'including liability for fraud or wilful misconduct.';
+const AUDIT_FEES_NOTE = 'The fees are exclusive of applicable taxes and out-of-pocket expenses. They assume that the '
+  + 'books of account are complete and ready for audit and that the information we request is provided on time; '
+  + 'any other service, including certification, will be billed separately.';
+
+/** Statutory audit of financial statements under the Companies Act, 2013 — terms per SA 210. */
+function statutoryAudit(): TemplatePreset {
+  return {
+    subject: 'Terms of engagement for the statutory audit of financial statements',
+    letterDate: new Date().toISOString().slice(0, 10),
+    company: ENGAGEMENT_COMPANY,
+    recipient: EMPTY_RECIPIENT,
+    blocks: [
+      blk('letterhead'),
+      blk('date'),
+      blk('recipient'),
+      blk('subject'),
+      blk('salutation', { body: 'Dear Sirs,' }),
+      para([jp('You have requested that we audit the financial statements of {{company_name}}, which comprise the '
+        + 'Balance Sheet as at the end of the financial year {{financial_year}}, the Statement of Profit and Loss, the '
+        + 'Cash Flow Statement and, where applicable, the Statement of Changes in Equity for the year then ended, and '
+        + 'the notes to the financial statements, including a summary of significant accounting policies. We are '
+        + 'pleased to confirm our acceptance and our understanding of this audit engagement by means of this letter, '
+        + 'as required by SA 210, <i>Agreeing the Terms of Audit Engagements</i>.')]),
+      section('Objective and scope of the audit:', [
+        jp('Our audit will be conducted with the objective of expressing an opinion on whether the financial '
+          + 'statements give a true and fair view in conformity with the accounting principles generally accepted in '
+          + 'India and comply with the Companies Act, 2013 (“the Act”). We will conduct the audit in accordance with '
+          + 'the Standards on Auditing (SAs) issued by the ICAI. Those Standards require that we comply with ethical '
+          + 'requirements and plan and perform the audit to obtain reasonable assurance about whether the financial '
+          + 'statements as a whole are free from material misstatement, whether due to fraud or error.'),
+      ]),
+      section('Our responsibilities:', [
+        jp('As part of an audit in accordance with the SAs, we exercise professional judgment and maintain '
+          + 'professional skepticism throughout the audit. We will:'),
+        bullet('identify and assess the risks of material misstatement, whether due to fraud or error, and design and '
+          + 'perform audit procedures responsive to those risks;'),
+        bullet('obtain an understanding of internal control relevant to the audit and, where the Act requires, report '
+          + 'on the adequacy and operating effectiveness of the internal financial controls with reference to the '
+          + 'financial statements;'),
+        bullet('evaluate the appropriateness of the accounting policies used and the reasonableness of accounting '
+          + 'estimates and related disclosures made by management;'),
+        bullet('conclude on the appropriateness of management’s use of the going concern basis of accounting; and'),
+        bullet('evaluate the overall presentation, structure and content of the financial statements.'),
+        jp('Because of the inherent limitations of an audit, together with the inherent limitations of internal '
+          + 'control, there is an unavoidable risk that some material misstatements may not be detected, even though '
+          + 'the audit is properly planned and performed in accordance with the SAs.'),
+      ]),
+      section('Responsibilities of management (SA 210, para 6(b)):', [
+        jp('Our audit will be conducted on the basis that the Board of Directors and management acknowledge and '
+          + 'understand that they have responsibility:'),
+        num('for the preparation of financial statements that give a true and fair view in accordance with the '
+          + 'applicable financial reporting framework and the provisions of the Act, including the maintenance of '
+          + 'proper books of account;'),
+        num('for such internal control as management determines is necessary to enable the preparation of financial '
+          + 'statements that are free from material misstatement, whether due to fraud or error; and'),
+        num('to provide us with access to all information of which management is aware that is relevant to the '
+          + 'preparation of the financial statements, such as records, documentation and other matters; additional '
+          + 'information that we may request from management for the purpose of the audit; and unrestricted access to '
+          + 'persons within the entity from whom we determine it necessary to obtain audit evidence.'),
+      ]),
+      section('Reporting under CARO 2020:', [
+        jp('Where the Companies (Auditor’s Report) Order, 2020 applies to the Company, our report will include a '
+          + 'statement on the matters specified in that Order. Management will provide the information and records '
+          + 'needed to report on each clause, including those on property, plant and equipment, inventories, loans '
+          + 'and advances, investments, guarantees, deposits, statutory dues and related party transactions.'),
+      ]),
+      section('Written representations:', [
+        jp('As part of our audit process we will request from management and, where appropriate, those charged with '
+          + 'governance, written confirmation of the representations made to us in connection with the audit, as '
+          + 'required by SA 580, <i>Written Representations</i>.'),
+      ]),
+      section('Access to records:', [
+        jp('Management will make available to us, in good time, the books of account, vouchers, minutes, statutory '
+          + 'registers, returns and other records, and the explanations we consider necessary. Any restriction on '
+          + 'access, or any limitation on the scope of our work, may require us to modify our opinion.'),
+      ]),
+      blk('fees', { title: 'Fees:', lines: [jp(AUDIT_FEES_NOTE)] }),
+      section('Our report:', [
+        jp('We will report to the members of the Company as required by the Act. The form and content of our report '
+          + 'may need to be amended in the light of our audit findings; if we conclude that a modified opinion or an '
+          + 'emphasis of matter is required, we will discuss the reasons with you before the report is issued.'),
+      ]),
+      section('Confidentiality:', [jp(AUDIT_CONFIDENTIAL)]),
+      section('Limitation of liability:', [jp(AUDIT_LIABILITY)]),
+      blk('closing', { lines: [
+        jp('Please sign and return the attached copy of this letter to indicate your acknowledgement of, and '
+          + 'agreement with, the arrangements for our audit of the financial statements, including our respective '
+          + 'responsibilities.'),
+        jp('This letter will be effective for future years unless it is terminated, amended or superseded.'),
+        jp('Thanking you,'),
+      ] }),
+      blk('signature'),
+      blk('confirmation', { body: CONFIRM }),
+    ],
+    fees: [newFee({ service: 'Statutory audit, including reporting under CARO 2020', frequency: 'per year', amountText: '' })],
+    signatoryName: '',
+    signatoryDesignation: 'Partner',
+    clientSignatoryName: '',
+    clientSignatoryDesignation: 'Director',
+  };
+}
+
+/** Tax audit under section 44AB — report in Form 3CA / 3CB with the particulars in Form 3CD. */
+function taxAudit(): TemplatePreset {
+  return {
+    subject: 'Terms of engagement for tax audit under section 44AB of the Income-tax Act, 1961',
+    letterDate: new Date().toISOString().slice(0, 10),
+    company: ENGAGEMENT_COMPANY,
+    recipient: EMPTY_RECIPIENT,
+    blocks: [
+      blk('letterhead'),
+      blk('date'),
+      blk('recipient'),
+      blk('subject'),
+      blk('salutation', { body: 'Dear Sir / Madam,' }),
+      para([jp('You have requested that we carry out the tax audit of {{company_name}} under section 44AB of the '
+        + 'Income-tax Act, 1961 (“the Act”) for the financial year {{financial_year}}, and furnish our report in Form '
+        + 'No. 3CA (where the accounts are required to be audited under any other law) or Form No. 3CB (in any other '
+        + 'case), together with the statement of particulars in Form No. 3CD. We are pleased to confirm our acceptance '
+        + 'of this engagement on the terms set out below.')]),
+      section('Scope:', [
+        jp('We will examine the books of account and other relevant documents and report whether, in our opinion, '
+          + 'the particulars furnished in Form No. 3CD are true and correct, having regard to the Guidance Note on Tax '
+          + 'Audit under section 44AB issued by the ICAI. Where Form No. 3CB applies, our report will also state '
+          + 'whether the accounts give a true and fair view. Where we are unable to verify a particular, or hold a '
+          + 'different view, we will say so in our report as an observation or qualification.'),
+      ]),
+      section('Responsibilities of the assessee:', [
+        jp('Our engagement is conducted on the basis that you acknowledge and understand your responsibility for:'),
+        bullet('maintaining the books of account and other documents required under the Act, and preparing the '
+          + 'financial statements;'),
+        bullet('preparing the particulars required in Form No. 3CD, with the supporting records, reconciliations '
+          + 'and computations;'),
+        bullet('providing complete information on matters such as payments to related persons, amounts inadmissible '
+          + 'under sections 40, 40A and 43B, tax deducted or collected at source, loans and deposits accepted or '
+          + 'repaid, and quantitative details, where applicable; and'),
+        bullet('giving us written representations on the matters reported.'),
+      ]),
+      section('Timelines:', [
+        jp('The report must be uploaded on the income-tax e-filing portal and accepted by you on the portal before '
+          + 'the due date specified under the Act. Please make the complete books and particulars available to us in '
+          + 'good time; a delay in providing them may delay the report.'),
+      ]),
+      section('Use of our report:', [
+        jp('Our report is issued to be furnished to the income-tax authorities as the Act requires and is not '
+          + 'intended for any other purpose.'),
+      ]),
+      blk('fees', { title: 'Fees:', lines: [jp(AUDIT_FEES_NOTE)] }),
+      section('Confidentiality:', [jp(AUDIT_CONFIDENTIAL)]),
+      section('Limitation of liability:', [jp(AUDIT_LIABILITY)]),
+      blk('closing', { lines: [
+        jp('Please sign and return the attached copy of this letter to confirm your agreement to these terms.'),
+        jp('This letter will be effective for future years unless it is terminated, amended or superseded.'),
+        jp('Thanking you,'),
+      ] }),
+      blk('signature'),
+      blk('confirmation', { body: CONFIRM }),
+    ],
+    fees: [newFee({ service: 'Tax audit under section 44AB (Form 3CA/3CB and 3CD)', frequency: 'per year', amountText: '' })],
+    signatoryName: '',
+    signatoryDesignation: 'Partner',
+    clientSignatoryName: '',
+    clientSignatoryDesignation: '',
+  };
+}
+
 export const TEMPLATES: TemplateDef[] = [
   { id: 'jns-accounting', name: 'Standard', description: 'The builder’s original letter — accounting, GST and TDS, with a fee schedule.', pages: 2, build: standard },
   { id: 'jns-compliance', name: 'Accounting & compliance', description: 'Accounting, GST and TDS filing — as the Celestivox Technologies letter.', pages: 2, build: compliance },
   { id: 'jns-epr', name: 'EPR registration', description: 'Plastic-waste EPR registration, with document list and fee tables — as the SPM Substrates letter.', pages: 3, build: epr },
   { id: 'jns-accounting-services', name: 'Accounting services', description: 'Accounting only, with required documents and advance — as the Nellai Agro Tech Farms letter.', pages: 2, build: accountingServices },
   { id: 'jns-bookkeeping', name: 'Bookkeeping services', description: 'Bookkeeping for GST records, letterhead on every page — as the Nirmala Traders letter.', pages: 2, build: bookkeeping },
+  { id: 'audit-statutory', name: 'Statutory audit (SA 210)', description: 'Terms of engagement for the audit of financial statements under the Companies Act, 2013 — scope, responsibilities, CARO 2020, representations, fees, liability.', pages: 3, build: statutoryAudit },
+  { id: 'audit-tax', name: 'Tax audit (Form 3CA/3CB)', description: 'Tax audit under section 44AB, reported in Form 3CA / 3CB with the particulars in Form 3CD.', pages: 2, build: taxAudit },
 ];
 
 export const templateOf = (id: string | null | undefined): TemplateDef =>

@@ -99,6 +99,14 @@ async function todayAttendanceFor(employeeIds: string[]) {
   )
 }
 
+/**
+ * An hour of a person's time, for profitability (Finance MIS). Derived from
+ * pay, so it is shown to and editable by payroll / finance roles only.
+ */
+function canSeeCostRate(session: Session): boolean {
+  return can(session, 'payroll.view', 'organisation') || can(session, 'reports.finance', 'organisation') || can(session, 'reports.all', 'organisation')
+}
+
 type EmployeeRow = Awaited<ReturnType<typeof prisma.employee.findMany>>[number]
 
 function project(scope: ReadScope, e: EmployeeRow, today: ReturnType<typeof todayAttendanceFor> extends Promise<infer M> ? M : never) {
@@ -392,7 +400,9 @@ employeesRouter.get('/:id', handler(async (req, res) => {
   const today = scope === 'finance' ? new Map() : await todayAttendanceFor([target.id])
 
   ok(res, {
-    employee: project(scope, target, today),
+    employee: canSeeCostRate(session)
+      ? { ...project(scope, target, today), cost_rate_paise_per_hour: target.costRatePaisePerHour }
+      : project(scope, target, today),
     // Reference joins are display labels — safe at every scope.
     refs: {
       department: dept ? { id: dept.id, name: dept.name } : null,
@@ -451,6 +461,16 @@ employeesRouter.patch('/:id', handler(async (req, res) => {
   }
 
   const body = (req.body ?? {}) as Record<string, unknown>
+  // Cost per hour: payroll / finance only, handled apart from the HR fields.
+  let costRate: number | null | undefined
+  if ('cost_rate_paise_per_hour' in body) {
+    if (!canSeeCostRate(session)) throw ApiError.forbidden('Only payroll or finance can set the cost per hour.')
+    const raw = body.cost_rate_paise_per_hour
+    const parsed = z.union([z.null(), z.literal('').transform(() => null), z.coerce.number().int().min(0).max(100_000_00)]).safeParse(raw)
+    if (!parsed.success) throw ApiError.badRequest('Cost per hour must be a whole number of paise, or blank.', { cost_rate_paise_per_hour: ['Invalid.'] })
+    costRate = parsed.data
+    delete body.cost_rate_paise_per_hour
+  }
   const keys = Object.keys(body)
 
   if (!canManage) {
@@ -502,6 +522,7 @@ employeesRouter.patch('/:id', handler(async (req, res) => {
 
   const data: Record<string, unknown> = { updatedBy: session.userId }
   for (const k of keys) data[COLUMN_OF[k]] = body[k]
+  if (costRate !== undefined) data.costRatePaisePerHour = costRate
   if ('first_name' in body || 'last_name' in body) {
     data.fullName = `${(body.first_name as string) ?? target.firstName} ${(body.last_name as string) ?? target.lastName}`
   }
@@ -517,7 +538,9 @@ employeesRouter.patch('/:id', handler(async (req, res) => {
     actorUserId: session.userId,
     action: isOwn && !canManage ? 'employee.self_contact_updated' : 'employee.updated',
     entityType: 'Employee', entityId: target.id,
-    before: employeeToApi(target), after: employeeToApi(updated), req,
+    before: { ...employeeToApi(target), ...(costRate !== undefined ? { cost_rate_paise_per_hour: target.costRatePaisePerHour } : {}) },
+    after: { ...employeeToApi(updated), ...(costRate !== undefined ? { cost_rate_paise_per_hour: updated.costRatePaisePerHour } : {}) },
+    req,
   })
   // Someone renamed themselves: tell everyone who manages employees.
   if (isOwn && updated.fullName !== target.fullName) {
@@ -527,7 +550,7 @@ employeesRouter.patch('/:id', handler(async (req, res) => {
       entityType: 'Employee', entityId: target.id, actionUrl: `/hrms/employees/${target.id}`,
     }, session.userId)
   }
-  ok(res, { employee: employeeToApi(updated) })
+  ok(res, { employee: canSeeCostRate(session) ? { ...employeeToApi(updated), cost_rate_paise_per_hour: updated.costRatePaisePerHour } : employeeToApi(updated) })
 }))
 
 // POST /api/employees/:id/deactivate

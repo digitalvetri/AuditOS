@@ -9,6 +9,9 @@ import { nextQuotationCode } from '../../platform/workstation/codes.js'
 import { employeeMap, type EmployeeLookup } from '../../api/workstation.serialize.js'
 import { computeTotals, type LineInput } from './totals.js'
 import { resolveInterState } from '../invoice/supply.js'
+import { createInvoiceRecord, invoiceHouseStyle } from '../invoice/service.js'
+import { lockSequence } from '../../lib/sequence.js'
+import { istToday } from '../../lib/dates.js'
 
 /**
  * QUOTATION SERVICE — Workstation → Quotation.
@@ -716,6 +719,50 @@ export const QuotationService = {
     })
 
     return { task_id: task.id, quotation: await this.get(session, scope, id) }
+  },
+
+  /**
+   * ACCEPTED quotation → DRAFT invoice: client, place of supply, the tax split
+   * and every priced line copied over, so billing what was agreed is one
+   * click. The draft is then reviewed and sent like any invoice. Once only:
+   * the invoice carries "Raised from quotation QT-…" and the check for it
+   * runs under a per-quotation lock in the creating transaction.
+   */
+  async convertToInvoice(session: Session, scope: Scope, id: string): Promise<{ invoice_id: string }> {
+    const q = await loadOrThrow(id, await quotationScopeWhere(session, scope))
+    if (q.status !== 'accepted') throw ApiError.conflict('quotation_not_accepted', 'Only an accepted quotation can be invoiced.')
+    if (!q.clientId) throw ApiError.conflict('quotation_has_no_client', 'Convert the lead to a client first — an invoice is raised to a client.')
+    await assertCanSeeClient(session, scope, q.clientId)
+    if (q.items.length === 0) throw ApiError.badRequest('This quotation has no priced lines to invoice.')
+    const marker = `Raised from quotation ${q.quotationCode}.`
+    const invoiceId = await prisma.$transaction(async (tx) => {
+      await lockSequence(tx, `quotation-invoice:${id}`)
+      const prior = await tx.invoice.findFirst({ where: { clientId: q.clientId!, deletedAt: null, notes: { contains: marker } }, select: { id: true } })
+      if (prior) throw new ApiError(409, 'already_converted', 'This quotation has already been invoiced.', { invoice_id: prior.id })
+      const style = await invoiceHouseStyle(tx)
+      return createInvoiceRecord(tx, {
+        ...style,
+        clientId: q.clientId!,
+        invoiceDate: istToday(),
+        terms: 'due_on_receipt',
+        placeOfSupply: q.placeOfSupply,
+        isInterState: q.isInterState,
+        discountPaise: q.discountPaise,
+        notes: [q.subject, marker].filter(Boolean).join('\n'),
+        items: q.items.map((i) => ({
+          serviceId: i.serviceId,
+          itemName: i.description,
+          description: i.detail ?? null,
+          hsnSac: null,
+          quantityCenti: i.quantityCenti,
+          unit: 'Nos',
+          ratePaise: i.unitRatePaise,
+          discountPercent: i.discountPercent,
+          gstRatePercent: i.gstRatePercent,
+        })),
+      }, { userId: session.userId, employeeId: session.employeeId ?? null })
+    })
+    return { invoice_id: invoiceId }
   },
 
   /** Soft delete, drafts only — a sent quotation is a record of what was said. */

@@ -17,11 +17,29 @@ export const PAYMENT_MODE_LABEL: Record<PaymentMode, string> = {
   other: 'Other',
 };
 
+export type TdsSection = '194J' | '194C' | '194H' | '194I' | '194-O' | 'other';
+
+export const TDS_SECTIONS: { value: TdsSection; label: string }[] = [
+  { value: '194J', label: '194J — Professional / technical fees' },
+  { value: '194C', label: '194C — Contracts' },
+  { value: '194H', label: '194H — Commission / brokerage' },
+  { value: '194I', label: '194I — Rent' },
+  { value: '194-O', label: '194-O — E-commerce' },
+  { value: 'other', label: 'Other' },
+];
+
 export interface InvoicePayment {
   id: string;
   invoice_id: string;
   client_id: string;
+  /** Cash received (excludes TDS). */
   amount_paise: number;
+  /** TDS the client deducted against this receipt. */
+  tds_paise?: number;
+  tds_section?: TdsSection | null;
+  tds_certificate_received?: boolean;
+  /** 'RCT-000123' */
+  receipt_number?: string | null;
   paid_on: string;
   mode: PaymentMode;
   reference: string | null;
@@ -72,6 +90,10 @@ export interface ClientInvoice {
   total_paise: number;
   paid_paise: number;
   pending_paise: number;
+  /** TDS deducted by the client (counts towards settlement, not cash). */
+  tds_deducted_paise?: number;
+  /** Issued credit notes against this invoice. */
+  credited_paise?: number;
   state: PayState;
   days_overdue: number;
   payments: InvoicePayment[];
@@ -98,6 +120,9 @@ export interface PaymentBody {
   mode: PaymentMode;
   reference?: string;
   note?: string;
+  tds_paise?: number;
+  tds_section?: TdsSection;
+  tds_certificate_received?: boolean;
 }
 
 export const paymentSummaryApi = {

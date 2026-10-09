@@ -122,8 +122,17 @@ export interface Invoice {
   igst_paise: number;
   round_off_paise: number;
   total_paise: number;
+  /** CASH received only — TDS and credit notes are separate. */
   amount_paid_paise: number;
+  /** TDS the client deducted, recorded against payments. */
+  tds_deducted_paise: number;
+  /** Issued credit notes against this invoice. */
+  credited_paise: number;
+  /** total − (cash + TDS + issued credit notes). */
   balance_due_paise: number;
+  recurring_profile_id: string | null;
+  client_service_id: string | null;
+  audit_engagement_id: string | null;
   payment_state: 'unpaid' | 'partially_paid' | 'paid';
   /** Generated server-side, so the document and the PDF cannot disagree. */
   total_in_words: string;
@@ -188,6 +197,8 @@ export interface InvoiceInput {
   qr_image?: string | null;
   layout_config?: Record<string, unknown> | null;
   block_config?: Record<string, unknown>[] | null;
+  client_service_id?: string | null;
+  audit_engagement_id?: string | null;
   items: InvoiceItemInput[];
 }
 
@@ -206,6 +217,46 @@ export interface InvoiceSummary {
   outstanding_paise: number;
   overdue_paise: number;
   total: number;
+}
+
+export type TdsSection = '194J' | '194C' | '194H' | '194I' | '194-O' | 'other';
+
+export const TDS_SECTIONS: { value: TdsSection; label: string }[] = [
+  { value: '194J', label: '194J — Professional / technical fees' },
+  { value: '194C', label: '194C — Contractors' },
+  { value: '194H', label: '194H — Commission / brokerage' },
+  { value: '194I', label: '194I — Rent' },
+  { value: '194-O', label: '194-O — E-commerce' },
+  { value: 'other', label: 'Other' },
+];
+
+export interface InvoicePayment {
+  id: string;
+  invoice_id: string;
+  client_id: string;
+  /** Cash received. */
+  amount_paise: number;
+  tds_paise: number;
+  tds_section: TdsSection | null;
+  tds_certificate_received: boolean;
+  /** Cash + TDS — what this payment settled. */
+  settled_paise: number;
+  external_payment_id: string | null;
+  paid_on: string;
+  mode: string | null;
+  reference: string | null;
+  note: string | null;
+  created_at: string;
+  created_by: string | null;
+  /** 'RCT-000123' */
+  receipt_number: string;
+}
+
+export interface InvoiceReminder {
+  at: string;
+  to: string[];
+  stage: 'manual' | 'd7' | 'd15' | 'd30';
+  by: string | null;
 }
 
 function qs(f: Record<string, unknown>): string {
@@ -232,8 +283,21 @@ export const invoicesApi = {
   /** One payment or one instalment of a split; it lands in the invoice's payment history. */
   recordPayment: (id: string, amount_paise: number, details: {
     paid_on?: string; mode?: string; reference?: string; note?: string;
+    tds_paise?: number; tds_section?: TdsSection; tds_certificate_received?: boolean;
   } = {}) =>
     api.post<Invoice>(`/api/invoices/${id}/payments`, { amount_paise, ...details }),
+  payments: (id: string) =>
+    api.get<{ items: InvoicePayment[] }>(`/api/invoices/${id}/payments`),
+  setTdsCertificate: (id: string, paymentId: string, received: boolean) =>
+    api.patch<{ payment: InvoicePayment }>(`/api/invoices/${id}/payments/${paymentId}`, { tds_certificate_received: received }),
+  /** A signed link to the payment receipt PDF. */
+  receiptUrl: (id: string, paymentId: string) =>
+    api.get<{ url: string; expires_at: string }>(`/api/invoices/${id}/payments/${paymentId}/receipt-url`),
+  /** Email the client a payment reminder now (overdue invoices only). */
+  remind: (id: string) =>
+    api.post<{ sent: true; to: string[]; link: string }>(`/api/invoices/${id}/remind`),
+  reminders: (id: string) =>
+    api.get<{ items: InvoiceReminder[] }>(`/api/invoices/${id}/reminders`),
   cancel: (id: string, reason?: string) =>
     api.post<Invoice>(`/api/invoices/${id}/cancel`, { reason }),
   remove: (id: string) => api.delete<void>(`/api/invoices/${id}`),

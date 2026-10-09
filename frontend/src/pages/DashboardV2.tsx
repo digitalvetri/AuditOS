@@ -20,6 +20,8 @@ import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { Link } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { PostRegistrationDashboardSection } from '@/modules/postRegistration/DashboardSection';
+import { DashboardComplianceCard } from '@/modules/compliance/DashboardComplianceCard';
+import { MyAuditWork } from '@/modules/audit/MyAuditWork';
 import {
   AlertTriangle, ArrowUpRight, CalendarClock, CalendarDays, Check, CheckCircle2, ChevronRight, ClockAlert,
   FileText, FileWarning, Inbox, Landmark, Plane, Receipt, Users, Wallet,
@@ -82,6 +84,7 @@ export function DashboardV2Page() {
   const seesBilling = can(role, 'payment_summary.read', 'organisation');
   const seesGst = can(role, 'workstation.gst.read', 'self');
   const seesTds = can(role, 'workstation.service.read', 'self');
+  const seesAudits = can(role, 'workstation.audit.read', 'self');
 
   const attendance = useQuery({ queryKey: ['attendance', 'today'], queryFn: attendanceApi.today, enabled: seesTeam });
   const pending = useQuery({ queryKey: ['dashboard', 'pending'], queryFn: dashboardApi.pending, enabled: approves });
@@ -155,6 +158,11 @@ export function DashboardV2Page() {
 
       {/* Private Limited post-registration compliance (INC-20A, ADTC) — hidden until there is any. */}
       {seesTds ? <PostRegistrationDashboardSection /> : null}
+      {/* Compliance calendar, notices and DSCs — each tile shown only with its read permission. */}
+      <DashboardComplianceCard />
+
+      {/* Audit files the user is on: papers to prepare, notes waiting, assembly due. */}
+      {seesAudits ? <MyAuditWork /> : null}
 
       {seesBilling || gauge ? (
         <div className={`grid gap-5 grid-cols-1 ${seesBilling && gauge ? 'xl:grid-cols-[minmax(0,1.55fr)_minmax(320px,1fr)]' : ''}`}>

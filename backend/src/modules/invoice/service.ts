@@ -135,6 +135,9 @@ export interface InvoiceInput {
   qrMode?: QrMode | null
   qrValue?: string | null
   qrImage?: string | null
+  /** What the invoice bills, for fee-vs-time profitability. Optional. */
+  clientServiceId?: string | null
+  auditEngagementId?: string | null
   items: ItemInput[]
 }
 
@@ -198,9 +201,15 @@ function serialize(inv: Row, emp: Map<string, { id: string; full_name: string; e
     igst_paise: inv.igstPaise,
     round_off_paise: inv.roundOffPaise,
     total_paise: inv.totalPaise,
+    /** Cash received. TDS and credit notes are separate — all three settle it. */
     amount_paid_paise: inv.amountPaidPaise,
+    tds_deducted_paise: inv.tdsDeductedPaise,
+    credited_paise: inv.creditedPaise,
     balance_due_paise: inv.balanceDuePaise,
-    payment_state: paymentState(inv.totalPaise, inv.amountPaidPaise),
+    payment_state: paymentState(inv.totalPaise, inv.amountPaidPaise + inv.tdsDeductedPaise + inv.creditedPaise),
+    recurring_profile_id: inv.recurringProfileId,
+    client_service_id: inv.clientServiceId,
+    audit_engagement_id: inv.auditEngagementId,
     /** Generated server-side so the document and the PDF cannot disagree. */
     total_in_words: invoiceAmountInWords(inv.totalPaise),
     notes: inv.notes,
@@ -374,70 +383,10 @@ export const InvoiceService = {
    * so the document is reproducible from this row alone.
    */
   async create(session: Session, scope: Scope, input: InvoiceInput): Promise<SerializedInvoice> {
-    input = withDerivedSplit(input)
     await assertCanSeeClient(session, scope, input.clientId)
-    const client = await prisma.client.findFirst({
-      where: { id: input.clientId, deletedAt: null },
-    })
-    if (!client) throw ApiError.notFound('No such client.')
-
-    /* Three cases, and they are not the same:
-         a chosen id  -> that account
-         undefined    -> nothing was said, so the firm's default applies
-         null         -> "None" was chosen, so no bank block prints
-       Treating null as "unspecified" is what made None fall back to the
-       default and print a bank block the user had switched off. */
-    const bank = input.bankAccountId
-      ? await prisma.firmBankAccount.findFirst({ where: { id: input.bankAccountId, organisationId: await orgId() } })
-      : input.bankAccountId === undefined
-        ? await prisma.firmBankAccount.findFirst({ where: { organisationId: await orgId(), isActive: true, isDefault: true } })
-        : null
-
-    const totals = computeTotals(toLineInputs(input.items), {
-      invoiceDiscountPaise: input.discountPaise,
-      isInterState: input.isInterState,
-      amountPaidPaise: 0,
-    })
-    const dueDate = dueDateFor(input.invoiceDate, input.terms, input.dueDate)
-
-    const org = await orgId()
-    const id = await prisma.$transaction(async (tx) => {
-      const created = await tx.invoice.create({
-        data: {
-          organisationId: org,
-          invoiceNumber: null,
-          clientId: input.clientId,
-          invoiceDate: input.invoiceDate,
-          terms: input.terms,
-          dueDate,
-          placeOfSupply: input.placeOfSupply ?? null,
-          isInterState: input.isInterState ?? false,
-          status: 'draft',
-          ...partySnapshot(input, client),
-          ...totalsData(totals),
-          notes: input.notes ?? null,
-          templateId: input.templateId ?? 'tax-invoice',
-          layoutConfig: (input.layoutConfig ?? undefined) as Prisma.InputJsonValue,
-          blockConfig: (input.blockConfig ?? undefined) as Prisma.InputJsonValue,
-          bankAccountId: bank?.id ?? null,
-          /* Prisma reads `undefined` as "leave this column alone", which is
-             exactly wrong when clearing: the previous snapshot would survive
-             being switched to None. DbNull writes an actual NULL. */
-          bankSnapshot: bank ? (bankSnapshotOf(bank) as Prisma.InputJsonValue) : Prisma.DbNull,
-          signatoryName: input.signatoryName ?? null,
-          signatoryDesignation: input.signatoryDesignation ?? null,
-          footerNote: input.footerNote ?? null,
-          qrMode: input.qrMode ?? 'upi_amount',
-          qrValue: input.qrValue ?? null,
-          qrImage: input.qrImage ?? null,
-          preparedById: session.employeeId ?? null,
-          createdBy: session.userId,
-          updatedBy: session.userId,
-          items: { create: itemRows(input.items, totals) },
-        },
-      })
-      return created.id
-    })
+    const id = await prisma.$transaction((tx) => createInvoiceRecord(tx, input, {
+      userId: session.userId, employeeId: session.employeeId ?? null,
+    }))
     return this.get(session, scope, id)
   },
 
@@ -493,6 +442,8 @@ export const InvoiceService = {
           qrMode: input.qrMode ?? 'upi_amount',
           qrValue: input.qrValue ?? null,
           qrImage: input.qrImage ?? null,
+          ...(input.clientServiceId !== undefined ? { clientServiceId: input.clientServiceId } : {}),
+          ...(input.auditEngagementId !== undefined ? { auditEngagementId: input.auditEngagementId } : {}),
           updatedBy: session.userId,
           items: { create: itemRows(input.items, totals) },
         },
@@ -512,18 +463,7 @@ export const InvoiceService = {
     const inv = await this.get(session, scope, id)
     assertTransition(inv.stored_status as InvoiceStatus, 'sent', inv.invoice_number)
     if (inv.items.length === 0) throw ApiError.badRequest('An invoice needs at least one item before it is sent.')
-    await prisma.$transaction(async (tx) => {
-      const invoiceNumber = inv.invoice_number ?? await nextInvoiceNumber(tx)
-      // Conditional on still being a draft: a concurrent send that got here
-      // first has already numbered it, and this one must not renumber it.
-      const r = await tx.invoice.updateMany({
-        where: { id, status: 'draft', deletedAt: null },
-        data: { status: 'sent', invoiceNumber, sentAt: new Date(), updatedBy: session.userId },
-      })
-      if (r.count === 0) {
-        throw ApiError.conflict('invalid_transition', 'This invoice has already been sent.')
-      }
-    })
+    await prisma.$transaction((tx) => sendInvoiceTx(tx, id, session.userId))
     return this.get(session, scope, id)
   },
 
@@ -555,6 +495,13 @@ export const InvoiceService = {
       throw ApiError.conflict(
         'invoice_has_payments',
         'This invoice has payments recorded. Remove the payments first, or issue a credit note.',
+      )
+    }
+    const credits = await prisma.creditNote.count({ where: { invoiceId: id, deletedAt: null, status: 'issued' } })
+    if (credits > 0) {
+      throw ApiError.conflict(
+        'invoice_has_credit_notes',
+        'Credit notes have been issued against this invoice. Cancel them first.',
       )
     }
     await prisma.invoice.update({
@@ -635,6 +582,112 @@ export const InvoiceService = {
     })
     return { items: rows.map(bankSnapshotOf) }
   },
+}
+
+
+// ── Internal writers (no session) ─────────────────────────────────────────
+
+/**
+ * Insert a DRAFT inside the caller's transaction. The one place an invoice
+ * row is created — InvoiceService.create, the recurring scheduler and the
+ * quotation conversion all come through here, so totals, snapshots and the
+ * default bank account are applied the same way every time. Visibility is
+ * the CALLER's job (create() checks the client scope first).
+ */
+export async function createInvoiceRecord(
+  tx: Prisma.TransactionClient,
+  rawInput: InvoiceInput,
+  meta: {
+    userId: string | null
+    employeeId: string | null
+    recurringProfileId?: string | null
+    clientServiceId?: string | null
+    auditEngagementId?: string | null
+  },
+): Promise<string> {
+  const input = withDerivedSplit(rawInput)
+  const client = await tx.client.findFirst({ where: { id: input.clientId, deletedAt: null } })
+  if (!client) throw ApiError.notFound('No such client.')
+  const org = await orgId()
+
+  /* Three cases, and they are not the same:
+       a chosen id  -> that account
+       undefined    -> nothing was said, so the firm's default applies
+       null         -> "None" was chosen, so no bank block prints
+     Treating null as "unspecified" is what made None fall back to the
+     default and print a bank block the user had switched off. */
+  const bank = input.bankAccountId
+    ? await tx.firmBankAccount.findFirst({ where: { id: input.bankAccountId, organisationId: org } })
+    : input.bankAccountId === undefined
+      ? await tx.firmBankAccount.findFirst({ where: { organisationId: org, isActive: true, isDefault: true } })
+      : null
+
+  const totals = computeTotals(toLineInputs(input.items), {
+    invoiceDiscountPaise: input.discountPaise,
+    isInterState: input.isInterState,
+    amountPaidPaise: 0,
+  })
+  const dueDate = dueDateFor(input.invoiceDate, input.terms, input.dueDate)
+
+  const created = await tx.invoice.create({
+    data: {
+      organisationId: org,
+      invoiceNumber: null,
+      clientId: input.clientId,
+      invoiceDate: input.invoiceDate,
+      terms: input.terms,
+      dueDate,
+      placeOfSupply: input.placeOfSupply ?? null,
+      isInterState: input.isInterState ?? false,
+      status: 'draft',
+      ...partySnapshot(input, client),
+      ...totalsData(totals),
+      notes: input.notes ?? null,
+      templateId: input.templateId ?? 'tax-invoice',
+      layoutConfig: (input.layoutConfig ?? undefined) as Prisma.InputJsonValue,
+      blockConfig: (input.blockConfig ?? undefined) as Prisma.InputJsonValue,
+      bankAccountId: bank?.id ?? null,
+      /* Prisma reads `undefined` as "leave this column alone", which is
+         exactly wrong when clearing: the previous snapshot would survive
+         being switched to None. DbNull writes an actual NULL. */
+      bankSnapshot: bank ? (bankSnapshotOf(bank) as Prisma.InputJsonValue) : Prisma.DbNull,
+      signatoryName: input.signatoryName ?? null,
+      signatoryDesignation: input.signatoryDesignation ?? null,
+      footerNote: input.footerNote ?? null,
+      qrMode: input.qrMode ?? 'upi_amount',
+      qrValue: input.qrValue ?? null,
+      qrImage: input.qrImage ?? null,
+      recurringProfileId: meta.recurringProfileId ?? null,
+      clientServiceId: meta.clientServiceId ?? input.clientServiceId ?? null,
+      auditEngagementId: meta.auditEngagementId ?? input.auditEngagementId ?? null,
+      preparedById: meta.employeeId,
+      createdBy: meta.userId,
+      updatedBy: meta.userId,
+      items: { create: itemRows(input.items, totals) },
+    },
+  })
+  return created.id
+}
+
+/**
+ * draft → sent inside the caller's transaction: the number is allocated under
+ * the sequence lock in the same transaction that flips the status, so the
+ * series has no gaps and two sends of one draft cannot take two numbers.
+ */
+export async function sendInvoiceTx(tx: Prisma.TransactionClient, id: string, userId: string | null): Promise<string> {
+  const inv = await tx.invoice.findFirst({ where: { id, deletedAt: null }, select: { invoiceNumber: true, status: true } })
+  if (!inv) throw ApiError.notFound('No such invoice.')
+  const invoiceNumber = inv.invoiceNumber ?? await nextInvoiceNumber(tx)
+  // Conditional on still being a draft: a concurrent send that got here
+  // first has already numbered it, and this one must not renumber it.
+  const r = await tx.invoice.updateMany({
+    where: { id, status: 'draft', deletedAt: null },
+    data: { status: 'sent', invoiceNumber, sentAt: new Date(), updatedBy: userId },
+  })
+  if (r.count === 0) {
+    throw ApiError.conflict('invalid_transition', 'This invoice has already been sent.')
+  }
+  return invoiceNumber
 }
 
 function assertTransition(from: InvoiceStatus, to: InvoiceStatus, number: string | null) {
@@ -729,4 +782,31 @@ function itemRows(items: ItemInput[], t: ReturnType<typeof computeTotals>) {
       totalAmountPaise: line.totalAmountPaise,
     }
   })
+}
+
+/**
+ * The firm's house style for an invoice raised WITHOUT the builder (recurring
+ * retainers, quotation conversion): the letterhead, block layout, signatory,
+ * footer and QR mode of the most recent invoice. The builder snapshots the
+ * company block onto every invoice, so this is the firm's current letterhead;
+ * with no prior invoice the document falls back to the firm record.
+ */
+export async function invoiceHouseStyle(tx: Prisma.TransactionClient): Promise<Partial<InvoiceInput>> {
+  const last = await tx.invoice.findFirst({
+    where: { deletedAt: null, layoutConfig: { not: Prisma.DbNull } },
+    orderBy: { createdAt: 'desc' },
+    select: { layoutConfig: true, blockConfig: true, signatoryName: true, signatoryDesignation: true, footerNote: true, qrMode: true, qrValue: true, qrImage: true, templateId: true },
+  })
+  if (!last) return {}
+  return {
+    layoutConfig: (last.layoutConfig ?? null) as Prisma.InputJsonValue | null,
+    blockConfig: (last.blockConfig ?? null) as Prisma.InputJsonValue | null,
+    signatoryName: last.signatoryName,
+    signatoryDesignation: last.signatoryDesignation,
+    footerNote: last.footerNote,
+    qrMode: last.qrMode as QrMode,
+    qrValue: last.qrValue,
+    qrImage: last.qrImage,
+    templateId: last.templateId,
+  }
 }

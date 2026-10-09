@@ -1,11 +1,13 @@
 import { useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { Ban, ChevronDown, Download, Mail, MessageCircle, Pencil, Printer, Send, Trash2, Wallet } from 'lucide-react';
+import { Ban, BellRing, ChevronDown, Download, FileMinus, Mail, MessageCircle, Pencil, Printer, Receipt, Repeat, Send, Trash2, Wallet } from 'lucide-react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useNavigate, useParams } from 'react-router-dom';
 import {
-  invoicesApi, TERM_LABEL, type Invoice,
+  invoicesApi, TERM_LABEL, TDS_SECTIONS, type Invoice, type InvoicePayment, type TdsSection,
 } from '@/modules/workstation/invoices/api';
+import { creditNotesApi, CREDIT_NOTE_REASON_LABEL, type CreditNote } from '@/modules/workstation/creditNotes/api';
+import { ListTable, ListRow, TD, StatusChip, Money, fmtDay } from '@/modules/workstation/listUi';
 import { downloadFile } from '@/modules/workstation/invoices/download';
 import {
   DEFAULT_COMPANY, DEFAULT_LAYOUT, computeTotals, defaultBlocks, inrAmount, lineKey, stateName,
@@ -86,7 +88,9 @@ export function docFromInvoice(inv: Invoice): InvoiceDoc {
     totals: computeTotals(lines, {
       invoiceDiscountPaise: inv.discount_paise,
       isInterState: inv.is_inter_state,
-      amountPaidPaise: inv.amount_paid_paise,
+      // Settled = cash + TDS + credit notes, so the balance (and a UPI QR
+      // carrying it) matches the server's balance_due_paise.
+      amountPaidPaise: inv.amount_paid_paise + (inv.tds_deducted_paise ?? 0) + (inv.credited_paise ?? 0),
     }),
     notes: inv.notes ?? '',
     bank: inv.bank_snapshot,
@@ -157,6 +161,19 @@ function Body({ inv }: { inv: Invoice }) {
     + ` has a balance of ₹${inrAmount(inv.balance_due_paise)}${inv.due_date ? `, which was due on ${fmtDate(inv.due_date)}` : ''}.`
     + `\nYou can download the invoice from the link below. Kindly arrange the payment at the earliest, or let us know if it has already been made.\n\nThank you,\nRegards`;
   const canRemind = mayWrite && inv.balance_due_paise > 0 && inv.stored_status !== 'draft' && inv.stored_status !== 'cancelled';
+  // The server-sent reminder email (with the PDF link), logged in the reminder history.
+  const canServerRemind = canRemind && inv.status === 'overdue' && Boolean(inv.party_email);
+  const remind = useMutation({
+    mutationFn: () => invoicesApi.remind(inv.id),
+    onSuccess: (r) => {
+      setReminding(null);
+      void qc.invalidateQueries({ queryKey: ['invoices.reminders', inv.id] });
+      toast.push('success', `Reminder emailed to ${r.to.join(', ')}.`);
+    },
+    onError: (e: Error) => { setReminding(null); toast.push('error', e.message); },
+  });
+  const mayCredit = mayWrite && ['sent', 'partially_paid', 'paid'].includes(inv.stored_status);
+  const settledPaise = inv.total_paise - inv.balance_due_paise;
 
   return (
     <>
@@ -196,6 +213,11 @@ function Body({ inv }: { inv: Invoice }) {
           chips={<>
             <StatusPill status={inv.status} />
             {inv.is_overdue ? <HeaderTag tone="bad">● {daysLate(inv.due_date)} days overdue</HeaderTag> : null}
+            {inv.recurring_profile_id ? (
+              <Link to="/workstation/recurring-invoices" title="Raised by a recurring retainer profile">
+                <HeaderTag tone="teal"><Repeat size={12} />From recurring profile</HeaderTag>
+              </Link>
+            ) : null}
           </>}
           stats={[
             { label: 'Total', value: `₹${inrAmount(inv.total_paise)}` },
@@ -213,7 +235,12 @@ function Body({ inv }: { inv: Invoice }) {
                     <Send size={14} />Send reminder
                   </button>
                   {reminding === 'menu' ? (
-                    <span role="menu" className="gs-panel absolute right-0 top-11 z-30 w-[200px] p-1 bg-surface border border-border rounded-[12px] shadow-drawer flex flex-col">
+                    <span role="menu" className="gs-panel absolute right-0 top-11 z-30 w-[220px] p-1 bg-surface border border-border rounded-[12px] shadow-drawer flex flex-col">
+                      {canServerRemind ? (
+                        <button type="button" role="menuitem" disabled={remind.isPending} onClick={() => remind.mutate()}
+                          title={`Emails ${inv.party_email} a reminder with the invoice link`}
+                          className="flex items-center gap-2 h-9 px-3 rounded-md text-13 text-ink hover:bg-canvas disabled:opacity-50"><BellRing size={15} />{remind.isPending ? 'Sending…' : 'Email reminder now'}</button>
+                      ) : null}
                       <button type="button" role="menuitem" onClick={() => setReminding('whatsapp')} className="flex items-center gap-2 h-9 px-3 rounded-md text-13 text-ink hover:bg-canvas"><MessageCircle size={15} />On WhatsApp</button>
                       <button type="button" role="menuitem" onClick={() => setReminding('email')} className="flex items-center gap-2 h-9 px-3 rounded-md text-13 text-ink hover:bg-canvas"><Mail size={15} />By email</button>
                     </span>
@@ -230,7 +257,7 @@ function Body({ inv }: { inv: Invoice }) {
                 inv={inv} mayWrite={mayWrite} pdfBusy={pdf.isPending}
                 onDownload={() => pdf.mutate()} onWhatsApp={() => setWhatsapping(true)} onEmail={() => setEmailing(true)}
                 onSend={() => send.mutate()} onPay={() => setPayOpen(true)} onCancel={() => setCancelOpen(true)}
-                onDelete={() => setDeleting(true)}
+                onDelete={() => setDeleting(true)} mayCredit={mayCredit}
               />
             </span>
           }
@@ -238,11 +265,11 @@ function Body({ inv }: { inv: Invoice }) {
           {inv.total_paise > 0 && inv.stored_status !== 'draft' ? (
             <div className="mt-5">
               <div className="flex justify-between text-12 text-inkMuted mb-[6px]">
-                <span>Paid {Math.round((inv.amount_paid_paise / inv.total_paise) * 100)}%</span>
-                <span>{inv.balance_due_paise > 0 ? `₹${inrAmount(inv.balance_due_paise)} to collect` : 'Fully paid'}</span>
+                <span>Settled {Math.round((settledPaise / inv.total_paise) * 100)}%</span>
+                <span>{inv.balance_due_paise > 0 ? `₹${inrAmount(inv.balance_due_paise)} to collect` : 'Fully settled'}</span>
               </div>
               <div className="h-2 rounded-full bg-neutral-100 overflow-hidden">
-                <i className="block h-full rounded-full bg-success transition-[width]" style={{ width: `${Math.min(100, (inv.amount_paid_paise / inv.total_paise) * 100)}%` }} />
+                <i className="block h-full rounded-full bg-success transition-[width]" style={{ width: `${Math.min(100, Math.max(0, (settledPaise / inv.total_paise) * 100))}%` }} />
               </div>
             </div>
           ) : null}
@@ -271,6 +298,8 @@ function Body({ inv }: { inv: Invoice }) {
               {inv.round_off_paise !== 0 ? <Detail label="Round off" value={`₹ ${inrAmount(inv.round_off_paise)}`} /> : null}
               <Detail label="Total" value={`₹ ${inrAmount(inv.total_paise)}`} />
               <Detail label="Paid" value={`₹ ${inrAmount(inv.amount_paid_paise)}`} />
+              {inv.tds_deducted_paise > 0 ? <Detail label="TDS deducted" value={`₹ ${inrAmount(inv.tds_deducted_paise)}`} /> : null}
+              {inv.credited_paise > 0 ? <Detail label="Credit notes" value={`- ₹ ${inrAmount(inv.credited_paise)}`} /> : null}
               <Detail label="Balance due" value={`₹ ${inrAmount(inv.balance_due_paise)}`} />
             </div>
           </Card>
@@ -289,6 +318,16 @@ function Body({ inv }: { inv: Invoice }) {
             </div>
           </Card>
         </div>
+
+        {inv.stored_status !== 'draft' ? (
+          <>
+            <PaymentsCard inv={inv} mayWrite={mayWrite} />
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-4">
+              <CreditNotesCard inv={inv} mayCredit={mayCredit} />
+              <RemindersCard inv={inv} />
+            </div>
+          </>
+        ) : null}
 
         <div className="text-11 uppercase tracking-[0.06em] text-neutral-500 mb-2">Document</div>
       </div>
@@ -316,6 +355,9 @@ function PaymentModal({ inv, open, onClose, onDone }: {
   const toast = useToast();
   const qc = useQueryClient();
   const [amount, setAmount] = useState('');
+  const [tds, setTds] = useState('');
+  const [tdsSection, setTdsSection] = useState<TdsSection>('194J');
+  const [certReceived, setCertReceived] = useState(false);
   const [paidOn, setPaidOn] = useState(istToday());
   const [mode, setMode] = useState<PaymentMode>('bank_transfer');
   const [reference, setReference] = useState('');
@@ -324,46 +366,68 @@ function PaymentModal({ inv, open, onClose, onDone }: {
   useEffect(() => {
     if (!open) return;
     setAmount(String(inv.balance_due_paise / 100));
+    setTds('');
+    setTdsSection('194J');
+    setCertReceived(false);
     setPaidOn(istToday());
     setMode('bank_transfer');
     setReference('');
     setNote('');
   }, [open, inv.balance_due_paise]);
 
-  const amountPaise = Math.round((Number(amount) || 0) * 100);
-  const after = inv.balance_due_paise - amountPaise;
+  const toPaise = (v: string) => Math.max(0, Math.round((Number(v) || 0) * 100));
+  const amountPaise = toPaise(amount);
+  const tdsPaise = toPaise(tds);
+  const after = inv.balance_due_paise - amountPaise - tdsPaise;
+  // Typing a TDS figure while the cash amount still settles the whole balance
+  // takes the TDS out of the cash, so the pair keeps settling the invoice.
+  const changeTds = (v: string) => {
+    const next = toPaise(v);
+    if (amountPaise + tdsPaise === inv.balance_due_paise) {
+      setAmount(String(Math.max(0, inv.balance_due_paise - next) / 100));
+    }
+    setTds(v);
+  };
   const pay = useMutation({
     mutationFn: () => invoicesApi.recordPayment(inv.id, amountPaise, {
       paid_on: paidOn, mode, reference: reference.trim() || undefined, note: note.trim() || undefined,
+      ...(tdsPaise > 0 ? { tds_paise: tdsPaise, tds_section: tdsSection, tds_certificate_received: certReceived } : {}),
     }),
     onSuccess: (i) => {
       void qc.invalidateQueries({ queryKey: ['payment-summary'] });
+      void qc.invalidateQueries({ queryKey: ['invoices.payments', inv.id] });
       onDone(i);
       onClose();
     },
     onError: (e: Error) => toast.push('error', e.message),
   });
-  const quick = (fraction: number) => setAmount(String(Math.round(inv.balance_due_paise * fraction) / 100));
+  const quick = (fraction: number) => setAmount(String(Math.max(0, Math.round(inv.balance_due_paise * fraction) - tdsPaise) / 100));
+  const errs = fieldErrors(pay.error);
   return (
     <Modal
       open={open} title="Record a payment" onClose={onClose}
       footer={
         <>
           <Button onClick={onClose}>Cancel</Button>
-          <Button variant="primary" disabled={pay.isPending || amountPaise <= 0 || after < 0} onClick={() => pay.mutate()}>Record</Button>
+          <Button variant="primary" disabled={pay.isPending || amountPaise + tdsPaise <= 0 || after < 0} onClick={() => pay.mutate()}>Record</Button>
         </>
       }
     >
-      <Field
-        label="Amount received (₹)"
-        error={fieldErrors(pay.error).amount_paise}
-        hint={after > 0
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+        <Field label="Amount received (₹)" error={errs.amount_paise}>
+          <input className={inputClass} type="number" step="0.01" min="0" value={amount} onChange={(e) => setAmount(e.target.value)} />
+        </Field>
+        <Field label="TDS deducted (₹, optional)" error={errs.tds_paise}>
+          <input className={inputClass} type="number" step="0.01" min="0" value={tds} placeholder="0.00" onChange={(e) => changeTds(e.target.value)} />
+        </Field>
+      </div>
+      <p className={'text-12 -mt-1 mb-3 ' + (after < 0 ? 'text-red' : 'text-neutral-500')}>
+        Amount + TDS settles the invoice.{' '}
+        {after > 0
           ? `₹ ${inrAmount(after)} will still be pending — record the rest as another instalment later.`
-          : after === 0 ? 'This clears the invoice.' : `At most ₹ ${inrAmount(inv.balance_due_paise)}.`}
-      >
-        <input className={inputClass} type="number" step="0.01" min="0" value={amount} onChange={(e) => setAmount(e.target.value)} />
-      </Field>
-      <div className="flex gap-2 -mt-1 mb-3">
+          : after === 0 ? 'This clears the invoice.' : `Amount + TDS can be at most ₹ ${inrAmount(inv.balance_due_paise)}.`}
+      </p>
+      <div className="flex gap-2 -mt-1 mb-3 flex-wrap">
         {([['Full', 1], ['Half', 0.5], ['A third', 1 / 3], ['A quarter', 0.25]] as const).map(([label, f]) => (
           <button key={label} type="button" onClick={() => quick(f)}
             className="h-7 px-3 text-12 rounded-full border border-neutral-200 bg-white text-neutral-700 hover:bg-neutral-50">
@@ -371,6 +435,19 @@ function PaymentModal({ inv, open, onClose, onDone }: {
           </button>
         ))}
       </div>
+      {tdsPaise > 0 ? (
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <Field label="TDS section" error={errs.tds_section}>
+            <select className={inputClass} value={tdsSection} onChange={(e) => setTdsSection(e.target.value as TdsSection)}>
+              {TDS_SECTIONS.map((t) => <option key={t.value} value={t.value}>{t.label}</option>)}
+            </select>
+          </Field>
+          <label className="flex items-center gap-2 text-13 text-neutral-700 mb-3 sm:mt-6">
+            <input type="checkbox" checked={certReceived} onChange={(e) => setCertReceived(e.target.checked)} />
+            TDS certificate (Form 16A) received
+          </label>
+        </div>
+      ) : null}
       <div className="grid grid-cols-2 gap-3">
         <Field label="Received on">
           <input className={inputClass} type="date" max={istToday()} value={paidOn} onChange={(e) => setPaidOn(e.target.value)} />
@@ -388,9 +465,128 @@ function PaymentModal({ inv, open, onClose, onDone }: {
         <input className={inputClass} value={note} onChange={(e) => setNote(e.target.value)} maxLength={500} placeholder="e.g. 1st of 3 agreed instalments" />
       </Field>
       <p className="text-12 text-neutral-500">
-        Each payment is kept as an instalment — see them all under HRMS → Payment summary. Overpayment is refused.
+        Each payment is kept as an instalment with its own receipt — see them all under HRMS → Payment summary. Overpayment is refused.
       </p>
     </Modal>
+  );
+}
+
+/** Every payment against the invoice, with its receipt and the TDS it carried. */
+function PaymentsCard({ inv, mayWrite }: { inv: Invoice; mayWrite: boolean }) {
+  const toast = useToast();
+  const qc = useQueryClient();
+  const q = useQuery({ queryKey: ['invoices.payments', inv.id], queryFn: () => invoicesApi.payments(inv.id) });
+  const cert = useMutation({
+    mutationFn: (p: { id: string; on: boolean }) => invoicesApi.setTdsCertificate(inv.id, p.id, p.on),
+    onSuccess: (_r, p) => {
+      void qc.invalidateQueries({ queryKey: ['invoices.payments', inv.id] });
+      toast.push('success', p.on ? 'Form 16A marked received.' : 'Form 16A marked not received.');
+    },
+    onError: (e: Error) => toast.push('error', e.message),
+  });
+  const receipt = useMutation({
+    mutationFn: (p: InvoicePayment) => invoicesApi.receiptUrl(inv.id, p.id),
+    onSuccess: (r, p) => downloadFile(r.url, `${p.receipt_number}.pdf`),
+    onError: (e: Error) => toast.push('error', e.message),
+  });
+  return (
+    <div className="mb-4">
+      <Card title="Payments">
+        <QueryState query={q} empty={<>No payments recorded yet.</>}>
+          {(data) => (
+            <ListTable float={false} cols={[
+              'Receipt', 'Received on', 'Mode', { label: 'Cash', align: 'right' }, { label: 'TDS', align: 'right' },
+              'Form 16A', { label: '', key: 'dl' },
+            ]}>
+              {data.items.map((p) => (
+                <ListRow key={p.id}>
+                  <TD first strong nowrap className="tracking-[0.02em]">{p.receipt_number}</TD>
+                  <TD muted nowrap>{fmtDay(p.paid_on)}</TD>
+                  <TD muted>
+                    {p.mode ? (PAYMENT_MODE_LABEL[p.mode as PaymentMode] ?? p.mode) : '—'}
+                    {p.reference ? <span className="block text-11 text-neutral-500">{p.reference}</span> : null}
+                  </TD>
+                  <TD right nowrap className="tabular-nums"><Money value={`₹${inrAmount(p.amount_paise)}`} /></TD>
+                  <TD right nowrap className="tabular-nums">
+                    {p.tds_paise > 0 ? <><Money value={`₹${inrAmount(p.tds_paise)}`} />{p.tds_section ? <span className="text-11 text-neutral-500"> · {p.tds_section}</span> : null}</> : '—'}
+                  </TD>
+                  <TD>
+                    {p.tds_paise > 0 ? (
+                      <label className="inline-flex items-center gap-2 text-13 text-neutral-700 whitespace-nowrap">
+                        <input type="checkbox" checked={p.tds_certificate_received} disabled={!mayWrite || cert.isPending}
+                          onChange={(e) => cert.mutate({ id: p.id, on: e.target.checked })} />
+                        {p.tds_certificate_received ? 'Received' : 'Pending'}
+                      </label>
+                    ) : <span className="text-neutral-500">—</span>}
+                  </TD>
+                  <TD last>
+                    <button type="button" disabled={receipt.isPending} onClick={() => receipt.mutate(p)}
+                      className="inline-flex items-center gap-1 text-13 text-primary hover:underline whitespace-nowrap disabled:opacity-50">
+                      <Receipt size={13} /> Receipt
+                    </button>
+                  </TD>
+                </ListRow>
+              ))}
+            </ListTable>
+          )}
+        </QueryState>
+      </Card>
+    </div>
+  );
+}
+
+/** Credit notes raised against this invoice. */
+function CreditNotesCard({ inv, mayCredit }: { inv: Invoice; mayCredit: boolean }) {
+  const q = useQuery({
+    queryKey: ['creditNotes.list', { invoice_id: inv.id }],
+    queryFn: () => creditNotesApi.list({ invoice_id: inv.id }),
+  });
+  return (
+    <Card title="Credit notes" right={mayCredit ? (
+      <Link to={`/workstation/credit-notes/new?invoice=${inv.id}`} className="text-13 text-primary hover:underline whitespace-nowrap">Issue credit note</Link>
+    ) : undefined}>
+      <QueryState query={q} empty={<>No credit notes against this invoice.</>}>
+        {(data) => (
+          <div>
+            {data.items.map((cn: CreditNote) => (
+              <Link key={cn.id} to={`/workstation/credit-notes/${cn.id}`}
+                className="flex items-center gap-3 px-5 py-3 border-b border-neutral-100 last:border-b-0 hover:bg-neutral-50">
+                <span className="min-w-0 flex-1">
+                  <span className="block text-13 font-semibold text-neutral-900">{cn.display_number}</span>
+                  <span className="block text-11 text-neutral-500 truncate">{fmtDay(cn.note_date)} · {CREDIT_NOTE_REASON_LABEL[cn.reason] ?? cn.reason}</span>
+                </span>
+                <span className="text-13 tabular-nums text-neutral-900 whitespace-nowrap"><Money value={`₹${inrAmount(cn.total_paise)}`} /></span>
+                <StatusChip value={cn.status} />
+              </Link>
+            ))}
+          </div>
+        )}
+      </QueryState>
+    </Card>
+  );
+}
+
+const REMINDER_STAGE: Record<string, string> = { manual: 'Manual', d7: '7 days overdue', d15: '15 days overdue', d30: '30 days overdue' };
+
+/** The reminder emails sent for this invoice (manual and automatic). */
+function RemindersCard({ inv }: { inv: Invoice }) {
+  const q = useQuery({ queryKey: ['invoices.reminders', inv.id], queryFn: () => invoicesApi.reminders(inv.id) });
+  return (
+    <Card title="Reminders sent">
+      <QueryState query={q} empty={<>No reminder emails sent yet.</>}>
+        {(data) => (
+          <div>
+            {data.items.map((r, i) => (
+              <div key={`${r.at}:${i}`} className="flex items-baseline gap-3 px-5 py-2 border-b border-neutral-100 last:border-b-0 text-13">
+                <span className="text-neutral-900 whitespace-nowrap">{fmtDate(r.at)}</span>
+                <span className="text-neutral-500 min-w-0 flex-1 truncate" title={r.to.join(', ')}>{r.to.join(', ')}</span>
+                <span className="text-11 text-neutral-500 whitespace-nowrap">{REMINDER_STAGE[r.stage] ?? r.stage}{r.by ? ` · ${r.by}` : ''}</span>
+              </div>
+            ))}
+          </div>
+        )}
+      </QueryState>
+    </Card>
   );
 }
 
@@ -430,8 +626,8 @@ function CancelModal({ inv, open, onClose, onDone }: {
  * quotation's Actions menu. Each item is enabled only in the states the
  * server accepts it.
  */
-function InvoiceActionsMenu({ inv, mayWrite, pdfBusy, onDownload, onWhatsApp, onEmail, onSend, onPay, onCancel, onDelete }: {
-  inv: Invoice; mayWrite: boolean; pdfBusy: boolean;
+function InvoiceActionsMenu({ inv, mayWrite, pdfBusy, onDownload, onWhatsApp, onEmail, onSend, onPay, onCancel, onDelete, mayCredit }: {
+  inv: Invoice; mayWrite: boolean; pdfBusy: boolean; mayCredit: boolean;
   onDownload: () => void; onWhatsApp: () => void; onEmail: () => void;
   onSend: () => void; onPay: () => void; onCancel: () => void; onDelete: () => void;
 }) {
@@ -490,6 +686,15 @@ function InvoiceActionsMenu({ inv, mayWrite, pdfBusy, onDownload, onWhatsApp, on
             title={canPay ? undefined : st === 'draft' ? 'Send the invoice first' : 'Nothing is due on this invoice'} onClick={act(onPay)}>
             <Wallet size={14} /> Record payment
           </button>
+          {mayCredit ? (
+            <Link to={`/workstation/credit-notes/new?invoice=${inv.id}`} className={item()} onClick={() => setOpen(false)}>
+              <FileMinus size={14} /> Issue credit note
+            </Link>
+          ) : (
+            <button type="button" className={item(true)} disabled title={mayWrite ? 'Only a sent or paid invoice can be credited' : 'Your role cannot issue credit notes'}>
+              <FileMinus size={14} /> Issue credit note
+            </button>
+          )}
           <button type="button" className={item(!mayWrite || st === 'cancelled' || st === 'paid')} disabled={!mayWrite || st === 'cancelled' || st === 'paid'}
             title={st === 'cancelled' ? 'Already cancelled' : st === 'paid' ? 'A paid invoice cannot be cancelled' : undefined} onClick={act(onCancel)}>
             <Ban size={14} /> Cancel invoice

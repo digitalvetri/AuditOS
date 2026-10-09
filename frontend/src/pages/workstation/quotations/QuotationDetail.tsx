@@ -3,7 +3,7 @@ import { Link, useNavigate, useParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   FileText, Pencil, Send, Check, X, Copy, ListChecks, ChevronDown, Printer, Mail,
-  MessageCircle, Receipt, Trash2, Download,
+  MessageCircle, Receipt, Trash2, Download, ReceiptText,
 } from 'lucide-react';
 import {
   Modal, Field, Status, QueryState, inputClass, textareaClass,
@@ -16,6 +16,8 @@ import { SendEmailDialog } from '@/modules/workstation/SendEmailDialog';
 import { SendWhatsAppDialog } from '@/modules/workstation/SendWhatsAppDialog';
 import { QuotationDocument, documentFromApi } from './QuotationDocument';
 import { useAuth } from '@/platform/auth/AuthContext';
+import { useToast } from '@/components/Toast';
+import type { ApiError } from '@/services/api';
 import { can } from '@/platform/rbac/can';
 
 /**
@@ -35,6 +37,8 @@ export function QuotationDetailPage() {
   const canManage = can(session?.role.code, 'workstation.quotation.manage', 'self');
   const canApprove = can(session?.role.code, 'workstation.quotation.approve', 'self');
   const canAssign = can(session?.role.code, 'workstation.task.manage', 'self');
+  const canInvoice = can(session?.role.code, 'workstation.invoice.manage', 'self');
+  const toast = useToast();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
 
@@ -78,6 +82,26 @@ export function QuotationDetailPage() {
     mutationFn: () => quotationsApi.convertToTask(id!, assignee, dueDate || undefined),
     onSuccess: (r) => { setConverting(false); refresh(); navigate(`/workstation/tasks/${r.task_id}`); },
     onError,
+  });
+  const toInvoice = useMutation({
+    mutationFn: () => quotationsApi.convertToInvoice(id!),
+    onSuccess: (r) => {
+      refresh();
+      queryClient.invalidateQueries({ queryKey: ['invoices.list'] });
+      queryClient.invalidateQueries({ queryKey: ['invoices.summary'] });
+      toast.push('success', 'Draft invoice raised from this quotation — review and send it.');
+      navigate(`/workstation/invoices/${r.invoice_id}/edit`);
+    },
+    onError: (e) => {
+      const err = e as ApiError;
+      const existing = (err.details as { invoice_id?: string } | undefined)?.invoice_id;
+      if (err.status === 409 && err.code === 'already_converted' && existing) {
+        toast.push('info', 'This quotation was already converted — opening its invoice.');
+        navigate(`/workstation/invoices/${existing}`);
+        return;
+      }
+      toast.push('error', err.message);
+    },
   });
   const remove = useMutation({
     mutationFn: () => quotationsApi.remove(id!),
@@ -170,6 +194,17 @@ export function QuotationDetailPage() {
                   className="h-8 px-3 inline-flex items-center gap-1.5 text-13 rounded bg-neutral-900 text-white hover:bg-neutral-800"
                 >
                   <ListChecks size={14} /> Create the work
+                </button>
+              ) : null}
+
+              {doc.stored_status === 'accepted' && canInvoice ? (
+                <button
+                  type="button"
+                  onClick={() => toInvoice.mutate()}
+                  disabled={toInvoice.isPending}
+                  className="h-8 px-3 inline-flex items-center gap-1.5 text-13 rounded border border-neutral-300 bg-white hover:bg-neutral-50 disabled:opacity-50"
+                >
+                  <ReceiptText size={14} /> {toInvoice.isPending ? 'Converting…' : 'Convert to invoice'}
                 </button>
               ) : null}
 

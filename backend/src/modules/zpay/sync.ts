@@ -35,6 +35,7 @@ import { notifyEmployee } from '../../platform/notify.js'
 import { zpayConfig, type ZpayConfig } from './config.js'
 import { decryptToken, encryptToken } from './crypto.js'
 import { classify, proposeProbableForPayment } from './matcher.js'
+import { autoMatchAppInvoice, tryPostCollection } from './ledger.js'
 import { assertTransition } from './state.js'
 import {
   ZohoOAuthError,
@@ -457,6 +458,12 @@ async function upsertPayment(
     if (matched.count > 0 && recent && outcome.matchedInvoiceRef) {
       await notifyMatched(account.id, outcome.matchedInvoiceRef, amountPaise, data.customerName)
     }
+    // Into the receivables ledger when the ref is one of our invoices.
+    // Idempotent (externalPaymentId), so a re-sync of a matched row is safe.
+    const row = await prisma.zpayPayment.findUnique({
+      where: { accountRowId_zohoPaymentId: { accountRowId: account.id, zohoPaymentId } }, select: { id: true },
+    })
+    if (row) await tryPostCollection(row.id)
     return
   }
 
@@ -471,7 +478,15 @@ async function upsertPayment(
     select: { id: true, matchType: true },
   })
   if (created?.matchType === 'unmatched') {
+    // The reference names one of OUR invoices (INV-000123) even though the
+    // account's own series did not match: match and post it.
+    if (await autoMatchAppInvoice(created.id)) {
+      await tryPostCollection(created.id)
+      return
+    }
     await proposeProbableForPayment(created.id)
+  } else if (created && created.matchType !== 'probable') {
+    await tryPostCollection(created.id)
   }
 }
 

@@ -168,3 +168,19 @@ export async function nextInvoiceNumber(tx: Tx): Promise<string> {
   }
   return `${prefix}${String(max + 1).padStart(6, '0')}`
 }
+
+/** 'AUD-2026-0001' — audit files, per-year, allocated inside the creating transaction. */
+export async function nextAuditCode(tx: Tx, year: number): Promise<string> {
+  await lockSequence(tx, `code:AUD-${year}`)
+  const prefix = `AUD-${year}-`
+  const rows = await tx.auditEngagement.findMany({
+    where: { auditCode: { startsWith: prefix } },
+    select: { auditCode: true },
+  })
+  let max = 0
+  for (const r of rows) {
+    const n = Number(r.auditCode.slice(prefix.length))
+    if (Number.isFinite(n) && n > max) max = n
+  }
+  return `${prefix}${String(max + 1).padStart(4, '0')}`
+}

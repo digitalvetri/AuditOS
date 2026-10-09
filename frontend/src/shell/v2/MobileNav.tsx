@@ -19,6 +19,7 @@ import { useMemo } from 'react';
 import {
   BarChart3,
   Briefcase,
+  ClipboardCheck,
   Home,
   LayoutGrid,
   MessageSquare,
@@ -80,6 +81,14 @@ export function MobileNav({ onOpenMore }: Props) {
         icon: Settings,
         visible: can(role, 'settings.manage', 'organisation'),
       },
+      // Audit files: a slot when there is room, and always while the user
+      // is inside one (see "current" below).
+      {
+        to: '/workstation/audits',
+        label: 'Audits',
+        icon: ClipboardCheck,
+        visible: can(role, 'workstation.audit.read', 'self'),
+      },
       // Fallbacks so a narrowly-scoped role still gets a populated bar
       // rather than one lonely Home tab.
       {
@@ -101,15 +110,13 @@ export function MobileNav({ onOpenMore }: Props) {
     // A page the user is standing on must be represented in the bar, or the
     // active state reads as "you are nowhere". If the current section was cut
     // by the slice, it takes the last slot.
-    const onShown = shown.some((t) =>
-      t.end ? location.pathname === t.to : location.pathname.startsWith(t.to),
-    );
-    if (!onShown) {
-      const current = visible
-        .slice(4)
-        .find((t) => (t.end ? location.pathname === t.to : location.pathname.startsWith(t.to)));
-      if (current) shown[shown.length - 1] = current;
-    }
+    // The MOST specific matching tab is the current section: '/workstation'
+    // is a prefix of every Workstation page, so it must not count as
+    // representing '/workstation/audits/…' when an Audits tab exists.
+    const matches = (t: Tab) =>
+      t.end ? location.pathname === t.to : location.pathname === t.to || location.pathname.startsWith(t.to + '/');
+    const current = visible.filter(matches).sort((a, b) => b.to.length - a.to.length)[0];
+    if (current && !shown.includes(current)) shown[shown.length - 1] = current;
     return shown;
   }, [role, hasStaffRecord, location.pathname]);
 

@@ -190,6 +190,9 @@ export const quotationsApi = {
     api.post<{ task_id: string; quotation: Quotation }>(`/api/quotations/${id}/convert-to-task`, {
       assigned_employee_id, due_date,
     }),
+  /** Raise a draft invoice from an accepted quotation. 409 `already_converted` carries details.invoice_id. */
+  convertToInvoice: (id: string) =>
+    api.post<{ invoice_id: string }>(`/api/quotations/${id}/convert-to-invoice`),
   remove: (id: string) => api.delete<void>(`/api/quotations/${id}`),
   /** A signed, public link to the quotation PDF — for WhatsApp and email. */
   pdfUrl: (id: string) =>

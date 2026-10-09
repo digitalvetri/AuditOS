@@ -10,7 +10,8 @@ import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { Button } from '@/components/Button';
 import { Input } from '@/components/Input';
 import { useToast } from '@/components/Toast';
-import { employeeApi } from './api';
+import { useAuth } from '@/platform/auth/AuthContext';
+import { canSeeCostRate, employeeApi, rupeesToPaise, type EmployeeCostRate } from './api';
 import { EMPLOYEE_TYPE_LABEL, SELECTABLE_EMPLOYEE_TYPES, type Employee } from '@/data/models';
 
 interface Props {
@@ -24,9 +25,16 @@ export function EmployeeEditModal({ open, onClose, employee, mode }: Props) {
   const qc = useQueryClient();
   const toast = useToast();
 
+  const { session } = useAuth();
   const [form, setForm] = useState<Partial<Employee>>({});
+  // Hourly cost rate: shown when the server sent the key (payroll/finance
+  // callers only) or the viewer holds those grants.
+  const initialCost = (employee as Employee & EmployeeCostRate).cost_rate_paise_per_hour ?? null;
+  const showCost = mode === 'hr' && ('cost_rate_paise_per_hour' in employee || canSeeCostRate(session?.role.code));
+  const [costRate, setCostRate] = useState('');
   useEffect(() => {
     if (!open) return;
+    setCostRate(initialCost == null ? '' : String(initialCost / 100));
     setForm(
       mode === 'self'
         ? {
@@ -50,10 +58,10 @@ export function EmployeeEditModal({ open, onClose, employee, mode }: Props) {
             pf_applicable: employee.pf_applicable ?? true,
           },
     );
-  }, [open, employee, mode]);
+  }, [open, employee, mode, initialCost]);
 
   const patch = useMutation({
-    mutationFn: (body: Partial<Employee>) => employeeApi.patch(employee.id, body),
+    mutationFn: (body: Partial<Employee> & EmployeeCostRate) => employeeApi.patch(employee.id, body),
     onSuccess: () => {
       toast.push('success', 'Saved.');
       qc.invalidateQueries({ queryKey: ['employees'] });
@@ -71,7 +79,14 @@ export function EmployeeEditModal({ open, onClose, employee, mode }: Props) {
       toast.push('error', 'First and last name are required.');
       return;
     }
-    patch.mutate(form);
+    const nextCost = rupeesToPaise(costRate);
+    if (showCost && costRate.trim() && nextCost === null) {
+      toast.push('error', 'Cost per hour must be a positive amount.');
+      return;
+    }
+    // Only send the rate when it changed, so a viewer without the grant
+    // never trips the server's field allowlist.
+    patch.mutate(showCost && nextCost !== initialCost ? { ...form, cost_rate_paise_per_hour: nextCost } : form);
   };
 
   return (
@@ -181,6 +196,24 @@ export function EmployeeEditModal({ open, onClose, employee, mode }: Props) {
                 Covered under PF
                 {form.type === 'articled' ? <span className="text-12 text-neutral-500">— not for articled assistants</span> : null}
               </label>
+              {showCost ? (
+                <div>
+                  <Input
+                    label="Cost per hour (₹)"
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    inputMode="decimal"
+                    value={costRate}
+                    onChange={(e) => setCostRate(e.target.value)}
+                    placeholder="Optional"
+                    data-testid="employee-cost-rate"
+                  />
+                  <span className="block text-12 text-neutral-500 mt-1">
+                    Used for profitability. Blank = monthly CTC ÷ 200 hours.
+                  </span>
+                </div>
+              ) : null}
             </>
           )}
           <div className="flex justify-end gap-2 pt-2">

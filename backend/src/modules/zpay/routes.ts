@@ -31,7 +31,10 @@ import { importInvoicesCsv, parseCsv, xlsxRows } from './invoice-import.js'
 import { createPaymentLink, invoicePaymentState, refreshPaymentLink } from './payment-links.js'
 import { pdfInvoiceRows } from './invoice-pdf.js'
 import { runProbableForAccount } from './matcher.js'
+import { postCollectionToInvoice, postedInvoices, unpostCollection } from './ledger.js'
 import { collectedWhere } from './statuses.js'
+import { writeAudit } from '../../platform/audit.js'
+import { requireWorkstation } from '../../platform/workstation/scope.js'
 
 export const zpayRouter = Router()
 
@@ -417,8 +420,12 @@ zpayRouter.get('/payments', handler(async (req, res) => {
   const invoiceMap = new Map(
     invoices.map((i) => [`${i.billingAccountId}::${i.invoiceNumber}`, i]),
   )
+  const posted = await postedInvoices(rows.map((r) => r.id))
   const enriched = rows.map((r) => ({
     ...r,
+    // The app invoice this collection was posted to (receivables ledger).
+    posted_invoice_id: posted.get(r.id)?.id ?? null,
+    posted_invoice_number: posted.get(r.id)?.number ?? null,
     candidateInvoice: r.matchedInvoiceRef
       ? invoiceMap.get(`${r.account.id}::${r.matchedInvoiceRef}`) ?? null
       : null,
@@ -481,7 +488,11 @@ zpayRouter.post('/payments/:id/confirm-probable', handler(async (req, res) => {
       matchConfirmedAt: new Date(),
     },
   })
-  ok(res, { paymentId: payment.id, matchType: 'manual' })
+  const post = await postCollectionToInvoice(payment.id, { actorUserId: session.userId })
+  if (post.posted) {
+    await writeAudit({ actorUserId: session.userId, action: 'zpay.payment_posted', entityType: 'Invoice', entityId: post.invoiceId!, after: { zpay_payment_id: payment.id }, req })
+  }
+  ok(res, { paymentId: payment.id, matchType: 'manual', posted: post.posted, invoice_number: post.invoiceNumber, reason: post.reason })
 }))
 
 // POST /api/zpay/payments/:id/match  { invoiceRef, clientId? }
@@ -499,7 +510,35 @@ zpayRouter.post('/payments/:id/match', handler(async (req, res) => {
     invoiceRef,
     clientId,
   })
-  ok(res, { paymentId: req.params.id, matchType: 'manual', invoiceRef })
+  const post = await postCollectionToInvoice(req.params.id, { actorUserId: session.userId })
+  if (post.posted) {
+    await writeAudit({ actorUserId: session.userId, action: 'zpay.payment_posted', entityType: 'Invoice', entityId: post.invoiceId!, after: { zpay_payment_id: req.params.id }, req })
+  }
+  ok(res, { paymentId: req.params.id, matchType: 'manual', invoiceRef, posted: post.posted, invoice_number: post.invoiceNumber, reason: post.reason })
+}))
+
+// POST /api/zpay/payments/:id/link-invoice  { invoice_id }
+// Link an unmatched collection to one of OUR invoices and post it to that
+// invoice's payment history (never twice — externalPaymentId is unique).
+zpayRouter.post('/payments/:id/link-invoice', handler(async (req, res) => {
+  const session = requireSession(req)
+  requireWorkstation(session, 'workstation.invoice.manage')
+  const orgId = await orgIdFor(session.userId)
+  const body = (req.body ?? {}) as { invoice_id?: unknown }
+  const invoiceId = typeof body.invoice_id === 'string' ? body.invoice_id : ''
+  if (!invoiceId) throw ApiError.badRequest('Choose the invoice.')
+  const inv = await prisma.invoice.findFirst({ where: { id: invoiceId, deletedAt: null }, select: { id: true, invoiceNumber: true, clientId: true, status: true } })
+  if (!inv) throw ApiError.notFound('No such invoice.')
+  if (!inv.invoiceNumber || inv.status === 'draft' || inv.status === 'cancelled') {
+    throw ApiError.conflict('invoice_not_open', 'Only a sent, unpaid invoice can take a collection.')
+  }
+  await manuallyMatch({ paymentId: req.params.id, organisationId: orgId, actorUserId: session.userId, invoiceRef: inv.invoiceNumber, clientId: inv.clientId })
+  const post = await postCollectionToInvoice(req.params.id, { invoiceId: inv.id, actorUserId: session.userId })
+  await writeAudit({
+    actorUserId: session.userId, action: 'zpay.payment_linked', entityType: 'Invoice', entityId: inv.id,
+    after: { zpay_payment_id: req.params.id, posted: post.posted, reason: post.reason }, req,
+  })
+  ok(res, { paymentId: req.params.id, matchType: 'manual', invoice_number: inv.invoiceNumber, posted: post.posted, reason: post.reason })
 }))
 
 // POST /api/zpay/payments/:id/unmatch
@@ -511,6 +550,10 @@ zpayRouter.post('/payments/:id/unmatch', handler(async (req, res) => {
     organisationId: orgId,
     actorUserId: session.userId,
   })
+  // Take the collection back off the invoice it was posted to.
+  if (await unpostCollection(req.params.id, session.userId)) {
+    await writeAudit({ actorUserId: session.userId, action: 'zpay.payment_unposted', entityType: 'ZpayPayment', entityId: req.params.id, req })
+  }
   ok(res, { paymentId: req.params.id, matchType: 'unmatched' })
 }))
 

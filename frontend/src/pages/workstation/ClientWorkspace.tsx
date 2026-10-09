@@ -43,6 +43,7 @@ import { AssignedStaffDetails } from '@/modules/workstation/AssignedStaff';
 import { LevelBanner, OrganizationOverview } from '@/modules/workstation/organization/OrganizationOverview';
 import { OrganizationClients } from '@/modules/workstation/organization/OrganizationClients';
 import { OrganizationDocuments } from '@/modules/workstation/organization/OrganizationDocuments';
+import { ClientObligationsTab } from '@/modules/compliance/ClientObligationsTab';
 
 /**
  * THE CLIENT WORKSPACE (§7.3).
@@ -57,6 +58,7 @@ const TABS = [
   { key: 'details', label: 'Company Details', perm: 'workstation.client.read' },
   { key: 'services', label: 'Services', perm: 'workstation.service.read' },
   { key: 'gst', label: 'GST', perm: 'workstation.gst.read' },
+  { key: 'compliance', label: 'Compliance', perm: 'workstation.compliance.read' },
   { key: 'quotations', label: 'Quotations', perm: 'workstation.quotation.read' },
   { key: 'invoices', label: 'Invoices', perm: 'workstation.invoice.read' },
   { key: 'engagement', label: 'Engagement', perm: 'workstation.engagement.read' },
@@ -130,6 +132,7 @@ export function ClientWorkspacePage() {
             {tab === 'details' ? <DetailsTab client={client} /> : null}
             {tab === 'services' ? <ServicesTab client={client} /> : null}
             {tab === 'gst' ? <GstTab client={client} /> : null}
+            {tab === 'compliance' ? <ClientObligationsTab clientId={client.id} entityType={client.business_type} /> : null}
             {tab === 'quotations' && !client.organization ? <QuotationsTab client={client} /> : null}
             {tab === 'invoices' ? <InvoicesTab client={client} /> : null}
             {tab === 'engagement' && !client.organization ? <EngagementTab client={client} /> : null}

@@ -54,7 +54,11 @@ import { tasksRouter } from './modules/task/routes.js'
 import { quotationsRouter } from './modules/quotation/routes.js'
 import { invoicesRouter } from './modules/invoice/routes.js'
 import { paymentSummaryRouter } from './modules/payment-summary/routes.js'
+import { creditNotesRouter } from './modules/credit-note/routes.js'
+import { recurringInvoicesRouter } from './modules/recurring/routes.js'
+import { billingSignedRouter } from './modules/invoice/billing-signed.js'
 import { engagementRouter } from './modules/engagement/routes.js'
+import { auditFilesRouter } from './modules/audit/routes.js'
 import { docsRouter } from './modules/docs/routes.js'
 import { checklistRouter } from './modules/checklist/routes.js'
 // GST compliance — Workstation → Services → Registration → GST Registration.
@@ -66,6 +70,11 @@ import { registrationCredentialsRouter } from './modules/registration/credential
 // the module folder to drop the feature.
 import { portalAutofillRouter, extensionCredentialsRouter } from './modules/portal-autofill/routes.js'
 import { tdsServiceRouter } from './modules/tds/routes.js'
+// Compliance calendar, notices register, DSC register, 26AS recon (docs/compliance/README.md).
+import { complianceRouter } from './modules/compliance/routes.js'
+import { noticesRegisterRouter } from './modules/notices-register/routes.js'
+import { dscRouter } from './modules/dsc/routes.js'
+import { tdsReconRouter } from './modules/tds-recon/routes.js'
 // GST departmental notices (DRC-07 / DRC-01 / ASMT-10 / GSTR-3A) — upload the
 // scanned notice, OCR + Groq extract the facts, practitioner enters grounds,
 // Groq drafts the reply letter. Needs GROQ_API_KEY in the environment, OR the
@@ -161,6 +170,8 @@ export function createApp() {
   // Public: signed-URL downloads. The HMAC in the query string IS the
   // authorization, which is what lets a browser navigation fetch the file.
   app.use('/api', signedRouter)
+  // Credit note PDFs and payment receipts — signed links, like the invoice PDF.
+  app.use('/api', billingSignedRouter)
   // Workstation document downloads authorise via the HMAC in the query
   // string, so they mount alongside the other signed routes — before
   // `authenticate`, which a browser navigation cannot satisfy.
@@ -300,9 +311,12 @@ export function createApp() {
   // Invoice — Workstation → Invoice. Mounted beside Quotation on purpose:
   // the two are one pipeline, a priced proposal and the demand that follows.
   app.use('/api/invoices', invoicesRouter)
+  app.use('/api/credit-notes', creditNotesRouter)
+  app.use('/api/recurring-invoices', recurringInvoicesRouter)
   // HRMS → Payment summary: per-client paid / pending over those invoices.
   app.use('/api/payment-summary', paymentSummaryRouter)
   app.use('/api/engagement-letters', engagementRouter)
+  app.use('/api/audits', auditFilesRouter)
   app.use('/api/share', shareRouter)
   app.use('/api/workstation-docs', docsRouter)
   // Client compliance checklists (GST today). Master catalogue + client work.
@@ -316,6 +330,10 @@ export function createApp() {
   app.use('/api/registration-credentials', registrationCredentialsRouter)
   app.use('/api/portal-autofill', portalAutofillRouter)
   app.use('/api/tds', tdsServiceRouter)
+  app.use('/api/compliance', complianceRouter)
+  app.use('/api/notices-register', noticesRegisterRouter)
+  app.use('/api/dsc', dscRouter)
+  app.use('/api/tds-recon', tdsReconRouter)
   // GST notices — upload + LLM-drafted reply. The /:clientId/notices list hangs
   // off the clients router so it reaches the same scope guards as other
   // client-scoped resources (einvoice, folders).

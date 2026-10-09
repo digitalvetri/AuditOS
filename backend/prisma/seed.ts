@@ -26,6 +26,8 @@ import { seedRegistration } from './seed-registration.js'
 import { seedPartnership } from './seed-partnership.js'
 import { migrateGstReturnCases } from './seed-gst-return-cases.js'
 import { seedGst } from './seed-gst.js'
+import { seedCompliance } from './seed-compliance.js'
+import { seedAudit } from './seed-audit.js'
 
 const prisma = new PrismaClient()
 
@@ -264,6 +266,8 @@ async function main() {
   // only opens what is still missing.
   const returnCases = await migrateGstReturnCases(prisma)
   const gst = await seedGst(prisma)
+  console.log('Compliance catalogue:', await seedCompliance(prisma))
+  const audit = await seedAudit(prisma)
 
   console.log('Seed complete (reference data only):', {
     roles: await prisma.role.count(),
@@ -275,6 +279,7 @@ async function main() {
   console.log('Registration:', registration)
   console.log('GST return cases:', returnCases)
   console.log('GST reference:', gst)
+  console.log('Audit checklists:', audit)
   console.log('Next: npm run setup:owners')
 }
 

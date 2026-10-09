@@ -102,6 +102,13 @@ export type PermissionCode =
   | 'workstation.quotation.approve'
   | 'workstation.engagement.read'
   | 'workstation.engagement.manage'
+  // Audit files (docs/audit-files/README.md): read · manage (create, edit,
+  // prepare) · review (review sign-off, clear notes) · sign (sign and lock,
+  // only as the file's signing partner — the API checks that part).
+  | 'workstation.audit.read'
+  | 'workstation.audit.manage'
+  | 'workstation.audit.review'
+  | 'workstation.audit.sign'
   | 'workstation.doc.read'
   | 'workstation.doc.manage'
   | 'workstation.gst.read'
@@ -113,6 +120,13 @@ export type PermissionCode =
   | 'workstation.eway.read'
   | 'workstation.eway.generate'
   | 'workstation.eway.cancel'
+  // Compliance calendar, notices register, DSC register (docs/compliance/README.md).
+  | 'workstation.compliance.read'
+  | 'workstation.compliance.manage'
+  | 'workstation.notice.read'
+  | 'workstation.notice.manage'
+  | 'workstation.dsc.read'
+  | 'workstation.dsc.manage'
   // ── Tools (Converters & Utilities) ────────────────────────────────────
   // One code per tool (registry `permission`), plus module access and the
   // Documents view. Compliance converters carry a code already so flipping
@@ -214,6 +228,8 @@ export const MATRIX: Record<RoleCode, Grant[]> = {
     { permission: 'workstation.invoice.manage', scope: 'self' },
     { permission: 'workstation.engagement.read', scope: 'self' },
     { permission: 'workstation.engagement.manage', scope: 'self' },
+    { permission: 'workstation.audit.read', scope: 'self' },
+    { permission: 'workstation.audit.manage', scope: 'self' },
     { permission: 'workstation.doc.read', scope: 'self' },
     { permission: 'workstation.doc.manage', scope: 'self' },
     { permission: 'workstation.lead.read', scope: 'self' },
@@ -229,6 +245,12 @@ export const MATRIX: Record<RoleCode, Grant[]> = {
     { permission: 'workstation.gst.manage', scope: 'self' },
     { permission: 'workstation.eway.read', scope: 'self' },
     { permission: 'workstation.eway.generate', scope: 'self' },
+    { permission: 'workstation.compliance.read', scope: 'self' },
+    { permission: 'workstation.compliance.manage', scope: 'self' },
+    { permission: 'workstation.notice.read', scope: 'self' },
+    { permission: 'workstation.notice.manage', scope: 'self' },
+    { permission: 'workstation.dsc.read', scope: 'self' },
+    { permission: 'workstation.dsc.manage', scope: 'self' },
     // Tools: own documents only.
     { permission: 'tools.access', scope: 'self' },
     { permission: 'tools.documents.read', scope: 'self' },
@@ -302,6 +324,9 @@ export const MATRIX: Record<RoleCode, Grant[]> = {
     { permission: 'workstation.invoice.manage', scope: 'organisation' },
     { permission: 'workstation.engagement.read', scope: 'organisation' },
     { permission: 'workstation.engagement.manage', scope: 'organisation' },
+    { permission: 'workstation.audit.read', scope: 'organisation' },
+    { permission: 'workstation.audit.manage', scope: 'organisation' },
+    { permission: 'workstation.audit.review', scope: 'organisation' },
     { permission: 'workstation.doc.read', scope: 'organisation' },
     { permission: 'workstation.doc.manage', scope: 'organisation' },
     { permission: 'workstation.quotation.approve', scope: 'organisation' },
@@ -322,6 +347,12 @@ export const MATRIX: Record<RoleCode, Grant[]> = {
     { permission: 'workstation.gst.manage', scope: 'organisation' },
     { permission: 'workstation.eway.read', scope: 'organisation' },
     { permission: 'workstation.eway.generate', scope: 'organisation' },
+    { permission: 'workstation.compliance.read', scope: 'organisation' },
+    { permission: 'workstation.compliance.manage', scope: 'organisation' },
+    { permission: 'workstation.notice.read', scope: 'organisation' },
+    { permission: 'workstation.notice.manage', scope: 'organisation' },
+    { permission: 'workstation.dsc.read', scope: 'organisation' },
+    { permission: 'workstation.dsc.manage', scope: 'organisation' },
     { permission: 'workstation.eway.cancel', scope: 'organisation' },
     // Tools: every document in the firm.
     { permission: 'tools.access', scope: 'organisation' },
@@ -473,6 +504,10 @@ export const MATRIX: Record<RoleCode, Grant[]> = {
     { permission: 'workstation.invoice.manage', scope: 'organisation' },
     { permission: 'workstation.engagement.read', scope: 'organisation' },
     { permission: 'workstation.engagement.manage', scope: 'organisation' },
+    { permission: 'workstation.audit.read', scope: 'organisation' },
+    { permission: 'workstation.audit.manage', scope: 'organisation' },
+    { permission: 'workstation.audit.review', scope: 'organisation' },
+    { permission: 'workstation.audit.sign', scope: 'organisation' },
     { permission: 'workstation.doc.read', scope: 'organisation' },
     { permission: 'workstation.doc.manage', scope: 'organisation' },
     { permission: 'workstation.quotation.approve', scope: 'organisation' },
@@ -493,6 +528,12 @@ export const MATRIX: Record<RoleCode, Grant[]> = {
     { permission: 'workstation.gst.manage', scope: 'organisation' },
     { permission: 'workstation.eway.read', scope: 'organisation' },
     { permission: 'workstation.eway.generate', scope: 'organisation' },
+    { permission: 'workstation.compliance.read', scope: 'organisation' },
+    { permission: 'workstation.compliance.manage', scope: 'organisation' },
+    { permission: 'workstation.notice.read', scope: 'organisation' },
+    { permission: 'workstation.notice.manage', scope: 'organisation' },
+    { permission: 'workstation.dsc.read', scope: 'organisation' },
+    { permission: 'workstation.dsc.manage', scope: 'organisation' },
     { permission: 'workstation.eway.cancel', scope: 'organisation' },
     // Tools: every document in the firm.
     { permission: 'tools.access', scope: 'organisation' },

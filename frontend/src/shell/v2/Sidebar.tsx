@@ -7,7 +7,7 @@
  * Order (top → bottom):
  *   Dashboard (no section label)
  *   HRMS        — 10 items
- *   WORKSTATION — 6 items
+ *   WORKSTATION — Overview, Quotation, Invoice, Engagement, Audits, …
  *   TOOLS       — 3 items: Tools (converters), Repotic (bank/GST/TDS),
  *                 Books (Zoho Books). One section, sibling rows.
  */
@@ -22,6 +22,7 @@ import {
   ChevronDown,
   ChevronsLeft,
   ChevronsRight,
+  ClipboardCheck,
   Clock,
   FileSignature,
   ReceiptText,
@@ -41,6 +42,7 @@ import {
   ScrollText,
   Wallet,
   Wrench,
+  CalendarClock, FileWarning, GitCompareArrows, KeyRound,
   type LucideIcon,
 } from 'lucide-react';
 import { useAuth } from '@/platform/auth/AuthContext';
@@ -204,12 +206,21 @@ export function Sidebar({ mobileOpen, onMobileClose }: Props) {
          exists; a quotation is a proposal and is not billing. */
       { to: '/workstation/quotations',  label: 'Quotation',  icon: FileSignature, end: true, visible: can(role, 'workstation.quotation.read', 'self') },
       { to: '/workstation/invoices',    label: 'Invoice',    icon: ReceiptText,   end: true, visible: can(role, 'workstation.invoice.read', 'self') },
+      { to: '/workstation/credit-notes', label: 'Credit notes', icon: IndianRupee, visible: can(role, 'workstation.invoice.read', 'self') },
+      { to: '/workstation/recurring-invoices', label: 'Recurring', icon: Wallet, visible: can(role, 'workstation.invoice.read', 'self') },
       { to: '/workstation/engagement',  label: 'Engagement', icon: ScrollText,    visible: can(role, 'workstation.engagement.read', 'self') },
+      /* Audit files (SA 230): one per client × FY × type, plus the firm's UDIN register. */
+      { to: '/workstation/audits',      label: 'Audits',     icon: ClipboardCheck, visible: can(role, 'workstation.audit.read', 'self'),
+        children: [{ to: '/workstation/audits/udins', label: 'UDIN register' }] },
       { to: '/workstation/doc',         label: 'Format',     icon: FileText,      visible: can(role, 'workstation.doc.read', 'self') },
       { to: '/workstation/leads',       label: 'Leads',      icon: PhoneCall,     visible: can(role, 'workstation.lead.read', 'self') },
       { to: '/workstation/clients',     label: 'Clients',    icon: Handshake,     visible: can(role, 'workstation.client.read', 'self'), badge: clientCount },
       { to: '/workstation/follow-ups',  label: 'Follow-ups', icon: Clock,         visible: can(role, 'workstation.followup.read', 'self') },
       { to: '/workstation/calendar',    label: 'Calendar',   icon: CalendarDays,  visible: can(role, 'workstation.followup.read', 'self') },
+      { to: '/workstation/compliance',  label: 'Compliance', icon: CalendarClock, visible: can(role, 'workstation.compliance.read', 'self') },
+      { to: '/workstation/notices',     label: 'Notices',    icon: FileWarning,   visible: can(role, 'workstation.notice.read', 'self') || can(role, 'workstation.notice.manage', 'self') },
+      { to: '/workstation/dsc',         label: 'DSC register', icon: KeyRound,    visible: can(role, 'workstation.dsc.read', 'self') || can(role, 'workstation.dsc.manage', 'self') },
+      { to: '/workstation/tds-recon',   label: '26AS reconciliation', icon: GitCompareArrows, visible: can(role, 'workstation.service.read', 'self') || can(role, 'tools.audit_automation.access', 'self') },
       { to: '/workstation/services',    label: 'Services',   icon: Briefcase,     end: true, visible: can(role, 'workstation.service.read', 'self'),
         children: [
           { to: '/workstation/services/tds',           label: 'TDS' },

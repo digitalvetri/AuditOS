@@ -58,10 +58,24 @@ export type PermissionCode =
   | 'workstation.quotation.approve'
   | 'workstation.engagement.read'
   | 'workstation.engagement.manage'
+  // Audit files (docs/audit-files/README.md): read, manage (create, edit,
+  // prepare), review (review sign-off, clear notes), sign (sign and lock —
+  // only the file's signing partner, checked in the route).
+  | 'workstation.audit.read'
+  | 'workstation.audit.manage'
+  | 'workstation.audit.review'
+  | 'workstation.audit.sign'
   | 'workstation.doc.read'
   | 'workstation.doc.manage'
   | 'workstation.gst.read'
   | 'workstation.gst.manage'
+  // Compliance calendar, notices register, DSC register (docs/compliance/README.md).
+  | 'workstation.compliance.read'
+  | 'workstation.compliance.manage'
+  | 'workstation.notice.read'
+  | 'workstation.notice.manage'
+  | 'workstation.dsc.read'
+  | 'workstation.dsc.manage'
   // GST portal credentials — own permission per GST-RETURNS-CASE-SCREEN
   // §5.3 / §9-5. `.view` shows the record with passwords masked; `.reveal`
   // decrypts one field at a time and writes an audit row per reveal.
@@ -169,6 +183,10 @@ export const MATRIX: Record<RoleCode, Grant[]> = {
     { permission: 'workstation.invoice.manage', scope: 'self' },
     { permission: 'workstation.engagement.read', scope: 'self' },
     { permission: 'workstation.engagement.manage', scope: 'self' },
+    { permission: 'workstation.audit.read', scope: 'self' },
+    { permission: 'workstation.audit.manage', scope: 'self' },
+    { permission: 'workstation.audit.review', scope: 'self' },
+    { permission: 'workstation.audit.sign', scope: 'self' },
     { permission: 'workstation.doc.read', scope: 'self' },
     { permission: 'workstation.doc.manage', scope: 'self' },
     { permission: 'workstation.lead.read', scope: 'self' },
@@ -182,6 +200,12 @@ export const MATRIX: Record<RoleCode, Grant[]> = {
     { permission: 'workstation.document.manage', scope: 'self' },
     { permission: 'workstation.gst.read', scope: 'self' },
     { permission: 'workstation.gst.manage', scope: 'self' },
+    { permission: 'workstation.compliance.read', scope: 'self' },
+    { permission: 'workstation.compliance.manage', scope: 'self' },
+    { permission: 'workstation.notice.read', scope: 'self' },
+    { permission: 'workstation.notice.manage', scope: 'self' },
+    { permission: 'workstation.dsc.read', scope: 'self' },
+    { permission: 'workstation.dsc.manage', scope: 'self' },
     { permission: 'workstation.eway.read', scope: 'self' },
     { permission: 'workstation.eway.generate', scope: 'self' },
     // Tools: own documents only.
@@ -254,6 +278,10 @@ export const MATRIX: Record<RoleCode, Grant[]> = {
     { permission: 'workstation.invoice.manage', scope: 'organisation' },
     { permission: 'workstation.engagement.read', scope: 'organisation' },
     { permission: 'workstation.engagement.manage', scope: 'organisation' },
+    { permission: 'workstation.audit.read', scope: 'organisation' },
+    { permission: 'workstation.audit.manage', scope: 'organisation' },
+    { permission: 'workstation.audit.review', scope: 'organisation' },
+    { permission: 'workstation.audit.sign', scope: 'organisation' },
     { permission: 'workstation.doc.read', scope: 'organisation' },
     { permission: 'workstation.doc.manage', scope: 'organisation' },
     { permission: 'workstation.quotation.approve', scope: 'organisation' },
@@ -272,6 +300,12 @@ export const MATRIX: Record<RoleCode, Grant[]> = {
     { permission: 'workstation.registration.template.manage', scope: 'organisation' },
     { permission: 'workstation.gst.read', scope: 'organisation' },
     { permission: 'workstation.gst.manage', scope: 'organisation' },
+    { permission: 'workstation.compliance.read', scope: 'organisation' },
+    { permission: 'workstation.compliance.manage', scope: 'organisation' },
+    { permission: 'workstation.notice.read', scope: 'organisation' },
+    { permission: 'workstation.notice.manage', scope: 'organisation' },
+    { permission: 'workstation.dsc.read', scope: 'organisation' },
+    { permission: 'workstation.dsc.manage', scope: 'organisation' },
     // Portal credentials — this role sees + reveals firm-wide. Junior
     // roles do not carry either grant by default; add them per-role when
     // the firm decides who fills at 6pm needs the OTP contact.
@@ -429,6 +463,10 @@ export const MATRIX: Record<RoleCode, Grant[]> = {
     { permission: 'workstation.invoice.manage', scope: 'organisation' },
     { permission: 'workstation.engagement.read', scope: 'organisation' },
     { permission: 'workstation.engagement.manage', scope: 'organisation' },
+    { permission: 'workstation.audit.read', scope: 'organisation' },
+    { permission: 'workstation.audit.manage', scope: 'organisation' },
+    { permission: 'workstation.audit.review', scope: 'organisation' },
+    { permission: 'workstation.audit.sign', scope: 'organisation' },
     { permission: 'workstation.doc.read', scope: 'organisation' },
     { permission: 'workstation.doc.manage', scope: 'organisation' },
     { permission: 'workstation.quotation.approve', scope: 'organisation' },
@@ -447,6 +485,12 @@ export const MATRIX: Record<RoleCode, Grant[]> = {
     { permission: 'workstation.registration.template.manage', scope: 'organisation' },
     { permission: 'workstation.gst.read', scope: 'organisation' },
     { permission: 'workstation.gst.manage', scope: 'organisation' },
+    { permission: 'workstation.compliance.read', scope: 'organisation' },
+    { permission: 'workstation.compliance.manage', scope: 'organisation' },
+    { permission: 'workstation.notice.read', scope: 'organisation' },
+    { permission: 'workstation.notice.manage', scope: 'organisation' },
+    { permission: 'workstation.dsc.read', scope: 'organisation' },
+    { permission: 'workstation.dsc.manage', scope: 'organisation' },
     // Portal credentials — this role sees + reveals firm-wide. Junior
     // roles do not carry either grant by default; add them per-role when
     // the firm decides who fills at 6pm needs the OTP contact.
@@ -571,6 +615,10 @@ export const PERMISSION_DESCRIPTIONS: Record<string, string> = {
   'workstation.quotation.manage': 'Create and edit quotations',
   'workstation.invoice.read': 'View invoices',
   'workstation.invoice.manage': 'Create and edit invoices',
+  'workstation.audit.read': 'View audit files, working papers, checklists and the UDIN register',
+  'workstation.audit.manage': 'Create and edit audit files; prepare working papers and checklists',
+  'workstation.audit.review': 'Review working papers and checklist items; clear review notes',
+  'workstation.audit.sign': 'Sign and lock an audit file (only as its signing partner)',
   'workstation.quotation.approve': 'Mark a quotation accepted or rejected',
   'workstation.task.manage': 'Create, edit, assign, reassign and cancel tasks',
   'workstation.task.report': 'View task reports and employee work-time summaries',
@@ -589,6 +637,12 @@ export const PERMISSION_DESCRIPTIONS: Record<string, string> = {
   'workstation.registration.template.manage': 'Edit the master checklist a new registration case starts from',
   'workstation.gst.read': 'View GST profiles and filings',
   'workstation.gst.manage': 'Update GST filing status',
+  'workstation.compliance.read': 'View the compliance calendar',
+  'workstation.compliance.manage': 'Manage compliance obligations, items and due-date extensions',
+  'workstation.notice.read': 'View the notices register',
+  'workstation.notice.manage': 'Record and update client notices',
+  'workstation.dsc.read': 'View the DSC register',
+  'workstation.dsc.manage': 'Manage the DSC register',
   'workstation.gst.portal.view': 'See a client’s GST portal credentials record (passwords stay masked)',
   'workstation.tds.portal.view': 'See a client’s TDS portal User ID (TAN) and whether a password is saved; add / edit / delete the record',
   'workstation.tds.portal.reveal': 'Decrypt a client’s TDS portal password — writes an audit row per reveal',

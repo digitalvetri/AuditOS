@@ -7,6 +7,7 @@ import { can, requireSession, type Session } from '../../platform/auth.js'
 import type { Scope } from '../../platform/rbac/matrix.js'
 import type { PayrollDeductions, PayrollEarnings } from '../../domain/payroll/calc.js'
 import { ensureLeaveBalances, fiscalYearWindow } from '../../domain/leaveBalances.js'
+import { financeReportsRouter } from './finance.js'
 
 /**
  * REPORTS (§8.10)
@@ -70,6 +71,10 @@ const querySchema = z.object({
   employeeId: z.string().optional(),
   runId: z.string().optional(),
 })
+
+// Finance MIS (/api/reports/finance, /api/reports/finance/:report) — mounted
+// before '/:type' so 'finance' is never read as a report type.
+reportsRouter.use('/finance', financeReportsRouter)
 
 reportsRouter.get('/:type', handler(async (req, res) => {
   const session = requireSession(req)

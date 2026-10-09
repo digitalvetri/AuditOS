@@ -21,7 +21,7 @@ import { requirePermission, requireSession } from '../../platform/auth.js'
 import { writeAudit } from '../../platform/audit.js'
 import { avgDaysToCollect, bucketMonthly, monthWindow } from './monthly.js'
 import {
-  addPayment, listPayments, notifyPaymentRecorded, paymentBodySchema, paymentToApi, removePayment, toPaymentInput,
+  addPayment, listPayments, notifyPaymentRecorded, paymentBodySchema, paymentToApi, receiptNumberFor, removePayment, toPaymentInput,
 } from '../invoice/payments.js'
 
 export const paymentSummaryRouter = Router()
@@ -52,6 +52,7 @@ paymentSummaryRouter.get('/', handler(async (req, res) => {
     },
     select: {
       id: true, clientId: true, totalPaise: true, amountPaidPaise: true, balanceDuePaise: true, dueDate: true,
+      tdsDeductedPaise: true, creditedPaise: true,
       client: { select: { companyName: true, clientCode: true, contactNumber: true, email: true } },
     },
   })
@@ -60,6 +61,7 @@ paymentSummaryRouter.get('/', handler(async (req, res) => {
   const byClient = new Map<string, {
     client_id: string; client_name: string; client_code: string | null; contact_number: string | null; email: string | null
     invoices: number; open_invoices: number; invoiced_paise: number; paid_paise: number; pending_paise: number; overdue_paise: number
+    tds_paise: number; credited_paise: number
     oldest_due_date: string | null; last_payment_on: string | null
   }>()
 
@@ -80,11 +82,15 @@ paymentSummaryRouter.get('/', handler(async (req, res) => {
       contact_number: inv.client.contactNumber,
       email: inv.client.email,
       invoices: 0, open_invoices: 0, invoiced_paise: 0, paid_paise: 0, pending_paise: 0, overdue_paise: 0,
+      tds_paise: 0, credited_paise: 0,
       oldest_due_date: null, last_payment_on: null,
     }
     row.invoices++
     row.invoiced_paise += inv.totalPaise
     row.paid_paise += inv.amountPaidPaise
+    // Pending is AFTER TDS and credit notes — both settle the invoice.
+    row.tds_paise += inv.tdsDeductedPaise
+    row.credited_paise += inv.creditedPaise
     row.pending_paise += inv.balanceDuePaise
     if (inv.balanceDuePaise > 0) {
       row.open_invoices++
@@ -121,21 +127,25 @@ paymentSummaryRouter.get('/', handler(async (req, res) => {
   const clients = [...byClient.values()]
     .map((c) => ({
       ...c,
-      status: (c.pending_paise === 0 ? 'paid' : c.overdue_paise > 0 ? 'overdue' : c.paid_paise > 0 ? 'partial' : 'unpaid') as ClientStatus,
+      status: (c.pending_paise === 0 ? 'paid' : c.overdue_paise > 0 ? 'overdue' : c.paid_paise + c.tds_paise + c.credited_paise > 0 ? 'partial' : 'unpaid') as ClientStatus,
     }))
     .sort((a, b) => b.pending_paise - a.pending_paise || a.client_name.localeCompare(b.client_name))
 
-  const sum = (k: 'invoiced_paise' | 'paid_paise' | 'pending_paise' | 'overdue_paise') => clients.reduce((t, c) => t + c[k], 0)
+  const sum = (k: 'invoiced_paise' | 'paid_paise' | 'pending_paise' | 'overdue_paise' | 'tds_paise' | 'credited_paise') => clients.reduce((t, c) => t + c[k], 0)
   const invoiced = sum('invoiced_paise')
   const paid = sum('paid_paise')
+  const settled = paid + sum('tds_paise') + sum('credited_paise')
   ok(res, {
     totals: {
       invoiced_paise: invoiced,
       paid_paise: paid,
       pending_paise: sum('pending_paise'),
       overdue_paise: sum('overdue_paise'),
+      tds_paise: sum('tds_paise'),
+      credited_paise: sum('credited_paise'),
       collected_this_month_paise: collectedThisMonth._sum.amountPaise ?? 0,
-      collection_rate: invoiced > 0 ? Math.round((paid / invoiced) * 1000) / 10 : null,
+      // Settled share: cash, TDS deducted and credit notes all close an invoice.
+      collection_rate: invoiced > 0 ? Math.round((settled / invoiced) * 1000) / 10 : null,
       invoices: invoices.length,
       clients: clients.length,
       clients_with_dues: clients.filter((c) => c.pending_paise > 0).length,
@@ -192,7 +202,7 @@ paymentSummaryRouter.get('/clients/:clientId', handler(async (req, res) => {
       id: client.id, name: client.companyName, code: client.clientCode,
       contact_number: client.contactNumber, email: client.email,
     },
-    invoices: invoices.map((inv) => {
+    invoices: await Promise.all(invoices.map(async (inv) => {
       const s = invoiceState(inv, today)
       return {
         id: inv.id,
@@ -201,12 +211,15 @@ paymentSummaryRouter.get('/clients/:clientId', handler(async (req, res) => {
         due_date: inv.dueDate,
         total_paise: inv.totalPaise,
         paid_paise: inv.amountPaidPaise,
+        tds_paise: inv.tdsDeductedPaise,
+        tds_deducted_paise: inv.tdsDeductedPaise,
+        credited_paise: inv.creditedPaise,
         pending_paise: inv.balanceDuePaise,
         state: s.state,
         days_overdue: s.daysOverdue,
-        payments: inv.payments.map(paymentToApi),
+        payments: await Promise.all(inv.payments.map(async (p) => ({ ...paymentToApi(p), receipt_number: await receiptNumberFor(p) }))),
       }
-    }),
+    })),
   })
 }))
 

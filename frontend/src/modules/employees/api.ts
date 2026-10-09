@@ -5,7 +5,31 @@
  * (Finance receives a strict 6-field projection). We type as a union.
  */
 import { api } from '@/services/api';
-import type { ArticledTraining, AuditLog, Employee } from '@/data/models';
+import { can } from '@/platform/rbac/can';
+import type { ArticledTraining, AuditLog, Employee, RoleCode } from '@/data/models';
+
+/**
+ * Hourly staff cost for profitability (paise). Returned by GET / accepted by
+ * PATCH only for payroll/finance callers — absent from the payload otherwise.
+ */
+export interface EmployeeCostRate {
+  cost_rate_paise_per_hour?: number | null;
+}
+
+/** May this role see/set an employee's hourly cost rate? */
+export function canSeeCostRate(roleCode: RoleCode | undefined): boolean {
+  return can(roleCode, 'payroll.view', 'organisation')
+    || can(roleCode, 'reports.finance', 'organisation')
+    || can(roleCode, 'reports.all', 'organisation');
+}
+
+/** Rupee text field → paise (blank → null). NaN-safe: bad input → null. */
+export function rupeesToPaise(v: string): number | null {
+  const t = v.trim();
+  if (!t) return null;
+  const n = Number(t);
+  return Number.isFinite(n) && n >= 0 ? Math.round(n * 100) : null;
+}
 
 /** The reduced employee row a finance-only viewer receives. */
 export interface FinanceProjection {
@@ -97,7 +121,7 @@ export const employeeApi = {
   /** POST /api/employees — HR/MD only; the server allocates the employee code. */
   create: (body: EmployeeCreateInput) => api.post<{ employee: Employee; login: CreatedLogin }>('/api/employees', body),
 
-  patch: (id: string, body: Partial<Employee>) =>
+  patch: (id: string, body: Partial<Employee> & EmployeeCostRate) =>
     api.patch<{ employee: Employee }>(`/api/employees/${id}`, body),
 
   /** Move the employee's login to another role (Super Admin … Intern). */
