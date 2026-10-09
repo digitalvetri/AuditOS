@@ -186,6 +186,14 @@ describe('A closed financial year cannot be changed', () => {
     expect(row.openingBalancePaise).toBe(100_000)
     expect(row.name).toBe('Cash Box')
   })
+
+  it('an opening-balance import cannot change openings either', async () => {
+    const r = await api(`${C()}/data/import/commit`, { method: 'POST', body: { entity: 'opening_balances', rows: [{ ledger: 'Owner Capital', amount: 2_000, dr_cr: 'cr' }] } })
+    expect(r.status, JSON.stringify(r.body)).toBe(422)
+    expect(r.body.error?.code).toBe('financial_year_closed')
+    const row = await prisma.bookkeepingLedger.findUniqueOrThrow({ where: { id: L.capital } })
+    expect(row.openingBalancePaise).toBe(100_000)
+  })
 })
 
 describe('A ledger carrying money cannot be deleted', () => {

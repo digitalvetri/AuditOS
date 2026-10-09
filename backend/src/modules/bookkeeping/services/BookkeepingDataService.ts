@@ -246,13 +246,30 @@ export const BookkeepingDataService = {
     }
 
     if (entity === 'opening_balances') {
-      const ledgers = new Map((await prisma.bookkeepingLedger.findMany({ where: { tallyCompanyId: companyId, ...alive }, select: { id: true, name: true } })).map((l) => [l.name.toLowerCase(), l.id]))
+      const all = await prisma.bookkeepingLedger.findMany({ where: { tallyCompanyId: companyId, ...alive }, select: { id: true, name: true, openingBalancePaise: true, openingBalanceType: true } })
+      const ledgers = new Map(all.map((l) => [l.name.toLowerCase(), l]))
+      const planned = usable.map((r) => ({
+        ledger: ledgers.get(String(r.ledger ?? r.name).trim().toLowerCase())!,
+        paise: Math.round(Number(r.amount) * 100),
+        type: String(r.dr_cr).toLowerCase(),
+      }))
+      // Openings feed every report of a closed year — same rule as a ledger edit.
+      const changed = planned.filter((p) => p.paise !== p.ledger.openingBalancePaise || p.type !== p.ledger.openingBalanceType)
+      if (changed.length) {
+        const closed = await prisma.bookkeepingFinancialYear.findFirst({ where: { tallyCompanyId: companyId, closed: true }, select: { label: true } })
+        if (closed) {
+          throw ApiError.unprocessable(
+            'financial_year_closed',
+            `Financial year ${closed.label} is closed, so opening balances cannot change now — reopen the year first.`,
+            { ledgers: changed.slice(0, 50).map((p) => p.ledger.name) },
+          )
+        }
+      }
       let updated = 0
-      for (const r of usable) {
-        const id = ledgers.get(String(r.ledger ?? r.name).trim().toLowerCase())!
+      for (const p of planned) {
         await prisma.bookkeepingLedger.update({
-          where: { id },
-          data: { openingBalancePaise: Math.round(Number(r.amount) * 100), openingBalanceType: String(r.dr_cr).toLowerCase() },
+          where: { id: p.ledger.id },
+          data: { openingBalancePaise: p.paise, openingBalanceType: p.type },
         })
         updated++
       }
