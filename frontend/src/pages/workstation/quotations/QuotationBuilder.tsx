@@ -5,7 +5,7 @@ import {
   ArrowDown, ArrowUp, Copy, Download, Eye, GripVertical, Minus, MoveVertical, Plus, Printer, Redo2, Save,
   Send, Trash2, Undo2, X,
 } from 'lucide-react';
-import { fieldErrors, inputClass, textareaClass } from '@/modules/workstation/components';
+import { RecordLoadGate, fieldErrors, inputClass, textareaClass } from '@/modules/workstation/components';
 import { workstationApi } from '@/modules/workstation/api';
 import type { ClientListItem, Lead } from '@/modules/workstation/types';
 import {
@@ -112,10 +112,14 @@ export function QuotationBuilderPage() {
   const [tab, setTab] = useState<'details' | 'layout' | 'blocks'>('details');
   const [mobileView, setMobileView] = useState<'edit' | 'preview'>('edit');
   const [errors, setErrors] = useState<Record<string, string>>({});
-  const [loaded, setLoaded] = useState(false);
+  // Which saved quotation is in the state above (null: none, a new one).
+  const [loadedId, setLoadedId] = useState<string | null>(null);
+  // In edit mode the editor opens only once THIS quotation is in state (see
+  // the gate below the hooks); until then the state is the starter template.
+  const ready = !isEdit || loadedId === id;
 
-  // Hydrate once when editing — a second pass would stamp on typing.
-  if (isEdit && existingQ.data && !loaded) {
+  // Hydrate once per quotation — a second pass would stamp on typing.
+  if (isEdit && existingQ.data && existingQ.data.id === id && loadedId !== id) {
     const q = existingQ.data;
     const tpl = (q.template_id as TemplateId) ?? 'gst-line-item';
     const cfg = (q.layout_config ?? {}) as Partial<LayoutConfig> & { company?: Partial<CompanyInfo> };
@@ -159,7 +163,7 @@ export function QuotationBuilderPage() {
     setSections((q.work_sections ?? []).map((w) => ({
       key: key(), title: w.title, description: w.description ?? '', items: w.items.map((it) => it.content),
     })));
-    setLoaded(true);
+    setLoadedId(q.id);
   }
 
   const compliance = templateId === 'jns-compliance';
@@ -230,6 +234,8 @@ export function QuotationBuilderPage() {
   const err = (k: string) => errors[k] ?? serverErrors[k];
 
   function submit() {
+    // Never write the starter template over a quotation that has not loaded.
+    if (!ready) return;
     const next: Record<string, string> = {};
     if (!partyId) next.party = `Choose the ${partyKind}.`;
     if (!quoteDate) next.quote_date = 'A quotation needs a date.';
@@ -422,10 +428,10 @@ export function QuotationBuilderPage() {
 
   // Loading a saved quotation is not an edit: it starts a fresh history.
   useEffect(() => {
-    if (!loaded) return;
+    if (!loadedId) return;
     hist.current = { past: [], future: [], last: 0, prev: null, restoring: false };
     histTick((n) => n + 1);
-  }, [loaded]);
+  }, [loadedId]);
 
   const restore = (x: Snap) => {
     hist.current.restoring = true;
@@ -472,6 +478,9 @@ export function QuotationBuilderPage() {
   const liveEdit = existingQ.data && !existingQ.data.is_editable ? undefined : edit;
 
   const status = existingQ.data?.status ?? 'draft';
+
+  // Loading / failed / not yet in state: no editor, so nothing can be saved.
+  if (!ready) return <RecordLoadGate query={existingQ} />;
 
   return (
     <div className="qb-root" ref={rootRef}>

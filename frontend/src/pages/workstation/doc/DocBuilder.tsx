@@ -7,7 +7,7 @@ import {
   ArrowDown, ArrowUp, Copy, Download, FileText, Lock, Pencil, Plus, Printer,
   Redo2, Save, Trash2, Undo2,
 } from 'lucide-react';
-import { inputClass } from '@/modules/workstation/components';
+import { RecordLoadGate, inputClass } from '@/modules/workstation/components';
 import { workstationApi } from '@/modules/workstation/api';
 import { pageGeometry, type LayoutConfig } from '@/modules/workstation/quotations/document';
 import { clientHeader, type CompanyHeader, type HeaderField, type HeaderSource } from '@/modules/workstation/docs/model';
@@ -142,9 +142,11 @@ const swap = <T,>(arr: T[], i: number, j: number): T[] => {
  * Measured, not guessed: the column is a grid track whose width depends on
  * the window, the sidebar and the zoom level. 1 means no scaling at all.
  */
-function useFitToWidth(pageWidthPx: number) {
+function useFitToWidth(pageWidthPx: number, mounted: boolean) {
   const paneRef = useRef<HTMLDivElement>(null);
   const [fit, setFit] = useState(1);
+  // `mounted`: the pane is not in the DOM while a saved document is still
+  // loading, so measuring has to start again once it is.
   useEffect(() => {
     const el = paneRef.current;
     if (!el) return;
@@ -160,7 +162,7 @@ function useFitToWidth(pageWidthPx: number) {
     const ro = new ResizeObserver(read);
     ro.observe(el);
     return () => ro.disconnect();
-  }, [pageWidthPx]);
+  }, [pageWidthPx, mounted]);
   return { paneRef, fit };
 }
 
@@ -415,7 +417,10 @@ export function DocBuilderPage() {
   // The page is a fixed 210mm wide; the column it sits in is not. Scale it
   // DOWN to fit (never up), so the document is whole on any width instead of
   // having its right edge cut off.
-  const { paneRef, fit } = useFitToWidth(pageGeometry(s.layout).widthPx);
+  // In edit mode the editor opens only once THIS document is in state (see
+  // the gate below the hooks); until then the state is the blank template.
+  const ready = !isEdit || loadedId === id;
+  const { paneRef, fit } = useFitToWidth(pageGeometry(s.layout).widthPx, ready);
 
   const input = (): DocInput => ({
     doc_type: s.typeId,
@@ -432,7 +437,11 @@ export function DocBuilderPage() {
   });
 
   const save = useMutation({
-    mutationFn: () => (isEdit ? docsApi.update(id!, input()) : docsApi.create(input())),
+    mutationFn: () => {
+      // Never write the blank template over a document that has not loaded.
+      if (!ready) return Promise.reject(new Error('The document has not finished loading.'));
+      return isEdit ? docsApi.update(id!, input()) : docsApi.create(input());
+    },
     onSuccess: (d) => {
       setError(null);
       queryClient.invalidateQueries({ queryKey: ['docs.list'] });
@@ -479,6 +488,13 @@ export function DocBuilderPage() {
   if (!type && !isEdit) {
     return <div className="text-13 text-neutral-600">That document type does not exist. <Link className="underline" to="/workstation/doc">Back to Doc</Link>.</div>;
   }
+  // A saved document whose type is no longer registered can never be loaded
+  // into the editor; say so rather than wait forever.
+  if (isEdit && existingQ.data && !type) {
+    return <div className="text-13 text-neutral-600">This document&apos;s type is no longer available, so it cannot be edited. <Link className="underline" to="/workstation/doc">Back to Doc</Link>.</div>;
+  }
+  // Loading / failed / not yet in state: no editor, so nothing can be saved.
+  if (!ready) return <RecordLoadGate query={existingQ} />;
 
   return (
     <div className="qb-root">

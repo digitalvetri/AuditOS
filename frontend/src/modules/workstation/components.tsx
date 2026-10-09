@@ -147,6 +147,35 @@ export function SimulatedNotice({ children }: { children: ReactNode }) {
 }
 
 // ── Query states (§20: loading · empty · error · permission-denied) ───────
+/** The pending placeholder every QueryState shows while there is no data yet. */
+export function QuerySkeleton() {
+  return (
+    <div className="px-4 py-5 space-y-3" aria-busy="true">
+      <span className="sr-only">Loading…</span>
+      <div className="h-4 w-1/3 rounded" aria-label="Loading" />
+      <div className="h-10 rounded-lg" aria-label="Loading" />
+      <div className="h-10 rounded-lg" aria-label="Loading" />
+      <div className="h-10 w-5/6 rounded-lg" aria-label="Loading" />
+    </div>
+  );
+}
+
+/**
+ * Stands in for an editor over a SAVED record (an `:id/edit` route) until that
+ * record is in the editor's state. Before then the editor holds its blank
+ * starting template, and a Save from that screen would write the template over
+ * the real record — so the editor, and its Save, are not shown at all.
+ * Loading, permission-denied and error-with-retry come from QueryState; once
+ * the data has arrived but is not yet in the editor it stays on the skeleton.
+ */
+export function RecordLoadGate<T>({ query }: { query: UseQueryResult<T, unknown> }) {
+  return (
+    <div className="qdoc-screen-only" data-testid="record-load-gate">
+      <QueryState query={query}>{() => <QuerySkeleton />}</QueryState>
+    </div>
+  );
+}
+
 export function QueryState<T>({
   query, empty, children,
 }: {
@@ -155,15 +184,7 @@ export function QueryState<T>({
   children: (data: T) => ReactNode;
 }) {
   if (query.isLoading) {
-    return (
-      <div className="px-4 py-5 space-y-3" aria-busy="true">
-        <span className="sr-only">Loading…</span>
-        <div className="h-4 w-1/3 rounded" aria-label="Loading" />
-        <div className="h-10 rounded-lg" aria-label="Loading" />
-        <div className="h-10 rounded-lg" aria-label="Loading" />
-        <div className="h-10 w-5/6 rounded-lg" aria-label="Loading" />
-      </div>
-    );
+    return <QuerySkeleton />;
   }
   if (query.isError) {
     const err = query.error as ApiError | undefined;
@@ -209,15 +230,7 @@ export function QueryState<T>({
   // unmounting the tree and blanking the entire page instead of showing the
   // one section that was not ready.
   if (query.data === undefined) {
-    return (
-      <div className="px-4 py-5 space-y-3" aria-busy="true">
-        <span className="sr-only">Loading…</span>
-        <div className="h-4 w-1/3 rounded" aria-label="Loading" />
-        <div className="h-10 rounded-lg" aria-label="Loading" />
-        <div className="h-10 rounded-lg" aria-label="Loading" />
-        <div className="h-10 w-5/6 rounded-lg" aria-label="Loading" />
-      </div>
-    );
+    return <QuerySkeleton />;
   }
   const data = query.data as T;
   const isEmptyList =

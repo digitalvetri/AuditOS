@@ -12,7 +12,7 @@ import {
 import { InvoiceDocument, type InvoiceDoc } from './InvoiceDocument';
 import { Button } from '@/components/Button';
 import { useToast } from '@/components/Toast';
-import { Field, Modal, fieldErrors, inputClass, textareaClass } from '@/modules/workstation/components';
+import { Field, Modal, RecordLoadGate, fieldErrors, inputClass, textareaClass } from '@/modules/workstation/components';
 import { can } from '@/platform/rbac/can';
 import { useAuth } from '@/platform/auth/AuthContext';
 import { printDocumentOnly } from '@/modules/workstation/print';
@@ -93,14 +93,18 @@ export function InvoiceBuilderPage() {
   const [tab, setTab] = useState<Tab>('details');
   const [mobileView, setMobileView] = useState<'edit' | 'preview'>('edit');
   const [errors, setErrors] = useState<Record<string, string>>({});
-  const [loaded, setLoaded] = useState(false);
+  // Which saved invoice is in the state above (null: none, a new one).
+  const [loadedId, setLoadedId] = useState<string | null>(null);
   const [previewOpen, setPreviewOpen] = useState(false);
 
   const saved = existingQ.data;
   const frozen = Boolean(saved && !saved.is_editable);
+  // In edit mode the editor opens only once THIS invoice is in state (see the
+  // gate below the hooks); until then the state is the blank new invoice.
+  const ready = !isEdit || loadedId === id;
 
-  // Hydrate once when editing — a second pass would stamp on typing.
-  if (isEdit && saved && !loaded) {
+  // Hydrate once per invoice — a second pass would stamp on typing.
+  if (isEdit && saved && saved.id === id && loadedId !== id) {
     const cfg = (saved.layout_config ?? {}) as Partial<LayoutConfig> & { company?: Partial<CompanyInfo> };
     setClientId(saved.client_id);
     setInvoiceDate(saved.invoice_date);
@@ -139,7 +143,7 @@ export function InvoiceBuilderPage() {
       discountPercent: i.discount_percent,
       gstRatePercent: i.gst_rate_percent,
     })));
-    setLoaded(true);
+    setLoadedId(saved.id);
   }
 
   /** New invoice from a client workspace arrives as ?client_id=…. */
@@ -299,8 +303,15 @@ export function InvoiceBuilderPage() {
   }
 
   const save = useMutation({
-    mutationFn: () => (isEdit ? invoicesApi.update(id!, payload()) : invoicesApi.create(payload())),
+    mutationFn: () => {
+      // Never write the blank new invoice over one that has not loaded.
+      if (!ready) return Promise.reject(new Error('The invoice has not finished loading.'));
+      return isEdit ? invoicesApi.update(id!, payload()) : invoicesApi.create(payload());
+    },
     onSuccess: (inv: Invoice) => {
+      // Seed the edit route's query, so moving there from /new opens the
+      // editor straight away instead of passing through the loading gate.
+      if (!isEdit) qc.setQueryData(['invoices.get', inv.id], inv);
       void qc.invalidateQueries({ queryKey: ['invoices.get', inv.id] });
       void qc.invalidateQueries({ queryKey: ['workstation'] });
       toast.push('success', `Invoice ${inv.invoice_number} saved.`);
@@ -332,6 +343,9 @@ export function InvoiceBuilderPage() {
 
   const serverErrors = fieldErrors(save.error);
   const err = (k: string) => errors[k] ?? serverErrors[k];
+
+  // Loading / failed / not yet in state: no editor, so nothing can be saved.
+  if (!ready) return <RecordLoadGate query={existingQ} />;
 
   return (
     <>

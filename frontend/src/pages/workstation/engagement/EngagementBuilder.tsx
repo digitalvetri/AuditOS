@@ -4,7 +4,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   ArrowDown, ArrowUp, FileText, LayoutTemplate, Minus, MoveVertical, Pencil, Plus, Printer, Redo2, Save, Trash2, Undo2,
 } from 'lucide-react';
-import { inputClass } from '@/modules/workstation/components';
+import { RecordLoadGate, inputClass } from '@/modules/workstation/components';
 import { workstationApi } from '@/modules/workstation/api';
 import {
   SPACE_MAX_PX, SPACE_MIN_PX, SPACE_STEP_PX, clampSpace, pageGeometry,
@@ -532,7 +532,13 @@ export function EngagementBuilderPage() {
     onError: (e) => setError((e as { message?: string })?.message ?? 'The letter could not be reopened.'),
   });
 
+  // In edit mode the editor opens only once THIS letter is in state (see the
+  // gate below); until then the state is the blank starting letter.
+  const ready = !isEdit || loadedId === id;
+
   function submit() {
+    // Never write the blank starting letter over one that has not loaded.
+    if (!ready) return;
     if (!s.partyId) { setError('Choose the client or lead this letter is for.'); return; }
     if (!s.subject.trim()) { setError('Give the letter a subject.'); return; }
     save.mutate();
@@ -546,6 +552,9 @@ export function EngagementBuilderPage() {
   const frozen = isEdit && existingQ.data ? !existingQ.data.is_editable : false;
   const liveEdit = frozen ? undefined : edit;
   const vars = varsOf(doc);
+
+  // Loading / failed / not yet in state: no editor, so nothing can be saved.
+  if (!ready) return <RecordLoadGate query={existingQ} />;
 
   return (
     <div className="qb-root" ref={rootRef}>
