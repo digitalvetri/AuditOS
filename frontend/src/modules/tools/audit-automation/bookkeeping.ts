@@ -9,6 +9,7 @@ import { api } from '@/services/api';
 export interface BookkeepingCompany {
   id: string;
   name: string;
+  client_id: string | null;
   mailing_name: string | null;
   address: string | null;
   country: string;
@@ -86,6 +87,8 @@ export interface CreateBookkeepingCompanyInput {
   tan?: string;
   fy_begin_month?: number;
   books_begin_from: string;
+  /** The client whose books these are; empty = the firm's own (Admin only). */
+  client_id?: string | null;
 }
 
 export interface CreateBookkeepingLedgerInput {

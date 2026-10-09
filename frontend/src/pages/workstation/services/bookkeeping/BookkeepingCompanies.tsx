@@ -6,6 +6,7 @@ import { Button } from '@/components/Button';
 import { useToast } from '@/components/Toast';
 import { bookkeepingApi, type BookkeepingCompany, type CreateBookkeepingCompanyInput } from '@/modules/tools/audit-automation/bookkeeping';
 import type { ApiError } from '@/services/api';
+import { workstationApi } from '@/modules/workstation/api';
 
 /**
  * /tally/companies — company list + "New company" modal.
@@ -119,6 +120,9 @@ function NewCompanyModal({ onClose, onCreated }: {
     fy_begin_month: 4, gst_registration_type: 'regular',
   });
   const [err, setErr] = useState<string | null>(null);
+  // Only the clients this person may see — books are opened by the staff
+  // assigned to the client (or anyone who sees every client).
+  const clients = useQuery({ queryKey: ['clients', 'for-books'], queryFn: () => workstationApi.listClients() });
 
   const create = useMutation({
     mutationFn: (input: CreateBookkeepingCompanyInput) => bookkeepingApi.createCompany(input),
@@ -142,10 +146,11 @@ function NewCompanyModal({ onClose, onCreated }: {
       state: form.state?.trim() || undefined,
       pan: form.pan?.trim() || undefined,
       gstin: form.gstin?.trim() || undefined,
+      client_id: form.client_id || null,
     });
   }
 
-  const set = (k: keyof CreateBookkeepingCompanyInput, v: string | number | undefined) =>
+  const set = (k: keyof CreateBookkeepingCompanyInput, v: string | number | null | undefined) =>
     setForm((f) => ({ ...f, [k]: v }));
 
   return (
@@ -158,6 +163,26 @@ function NewCompanyModal({ onClose, onCreated }: {
           </button>
         </div>
         <div className="px-5 py-4 space-y-3">
+          <Field label="Client">
+            <select
+              value={form.client_id ?? ''}
+              onChange={(e) => {
+                const id = e.target.value || null;
+                const c = clients.data?.items.find((x) => x.id === id);
+                setForm((f) => ({ ...f, client_id: id, name: f.name || c?.company_name || '' }));
+              }}
+              className="h-9 w-full px-2 text-13 border border-neutral-300 rounded bg-white focus:outline-none focus:border-gold"
+              data-testid="tally-company-client"
+            >
+              <option value="">— The firm's own books (Admin only) —</option>
+              {(clients.data?.items ?? []).map((c) => (
+                <option key={c.id} value={c.id}>{c.company_name} · {c.client_id}</option>
+              ))}
+            </select>
+            <span className="text-11 text-neutral-500 mt-1 block">
+              The client's assigned staff can open these books.
+            </span>
+          </Field>
           <Field label="Company name" required>
             <input
               value={form.name}
