@@ -97,11 +97,13 @@ beforeAll(async () => {
   const a = server.address()
   base = `http://127.0.0.1:${typeof a === 'object' && a ? a.port : 0}`
   firmId = (await prisma.organisation.create({ data: { id: uid('org'), name: 'Firm' } })).id
-  // An Associate: Books via the Tools module, no special rights.
+  // Staff with Books via the Tools module who see every client (clients.view_all) —
+  // these organisations are not mapped to a client, and assignment-scoped
+  // staff only see their own clients' books (client-assignment-scope.test.ts).
   for (const g of MATRIX.employee) await prisma.permission.upsert({ where: { code: g.permission }, update: {}, create: { id: `perm-${g.permission}`, code: g.permission, description: g.permission } })
   const role = await prisma.role.upsert({ where: { code: 'employee' }, update: {}, create: { id: 'role-employee', code: 'employee', name: 'employee' } })
   await prisma.rolePermission.deleteMany({ where: { roleId: role.id } })
-  for (const code of ['books.access', 'books.manage', 'books.reports', 'books.settings']) {
+  for (const code of ['books.access', 'books.manage', 'books.reports', 'books.settings', 'clients.view_all']) {
     await prisma.permission.upsert({ where: { code }, update: {}, create: { id: `perm-${code}`, code, description: code } })
     await prisma.rolePermission.create({ data: { roleId: role.id, permissionId: `perm-${code}`, scope: 'organisation' } })
   }
@@ -109,7 +111,7 @@ beforeAll(async () => {
   staff = `ao_access=${signToken(u.id)}`
   const mdRole = await prisma.role.upsert({ where: { code: 'md' }, update: {}, create: { id: 'role-md', code: 'md', name: 'md' } })
   await prisma.rolePermission.deleteMany({ where: { roleId: mdRole.id } })
-  for (const code of ['books.access', 'books.settings']) await prisma.rolePermission.create({ data: { roleId: mdRole.id, permissionId: `perm-${code}`, scope: 'organisation' } })
+  for (const code of ['books.access', 'books.settings', 'clients.view_all']) await prisma.rolePermission.create({ data: { roleId: mdRole.id, permissionId: `perm-${code}`, scope: 'organisation' } })
   const md = await prisma.user.create({ data: { id: uid('u'), organisationId: firmId, email: `${uid('e')}@x.local`, passwordHash: 'x', roleId: mdRole.id } })
   superAdmin = `ao_access=${signToken(md.id)}`
 

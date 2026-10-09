@@ -23,7 +23,7 @@ import { can, requirePermission, requireSession } from '../../platform/auth.js'
 import { writeAudit } from '../../platform/audit.js'
 import { notifyEmployee, notifyRole, notifyUser, type NotifyInput } from '../../platform/notify.js'
 import type { PermissionCode } from '../../platform/rbac/matrix.js'
-import { assignedClientIds } from '../../platform/workstation/scope.js'
+import { assignedClientIds, seesAllClients } from '../../platform/workstation/scope.js'
 import { BooksNotConfigured, booksConfig, booksConfigured } from './config.js'
 import { toApiError, zohoRequest, ZohoBooksError, type ZohoContext } from './client.js'
 import { addConfiguredConnection, beginConnect, completeConnect, connectWithCode, disconnect, refreshOrganizations } from './connection.js'
@@ -110,12 +110,24 @@ booksCallbackRouter.get('/callback', async (req, res) => {
 // ── connection & organisations ───────────────────────────────────────────
 booksRouter.use(requirePermission('books.access', 'organisation'))
 
+/**
+ * Client visibility for Books. A Zoho organisation belongs to a client; staff
+ * without clients.view_all see only organisations mapped to a client they
+ * are assigned to (unmapped ones are firm-level, so hidden from them too).
+ */
+async function visibleOrgWhere(req: Request): Promise<{ clientId?: { in: string[] } }> {
+  const session = requireSession(req)
+  if (seesAllClients(session)) return {}
+  const ids = await assignedClientIds(session, 'self')
+  return { clientId: { in: ids === 'ALL' ? [] : ids } }
+}
+
 booksRouter.get('/status', h(async (req, res) => {
   const { organisationId } = await firmOf(req)
   const session = requireSession(req)
   const [connections, orgs] = await Promise.all([
     prisma.booksZohoConnection.findMany({ where: { organisationId, deletedAt: null }, orderBy: { createdAt: 'asc' } }),
-    prisma.booksZohoOrganization.findMany({ where: { organisationId }, orderBy: { name: 'asc' } }),
+    prisma.booksZohoOrganization.findMany({ where: { organisationId, ...(await visibleOrgWhere(req)) }, orderBy: { name: 'asc' } }),
   ])
   const clientIds = orgs.flatMap((o) => (o.clientId ? [o.clientId] : []))
   const clients = clientIds.length ? await prisma.client.findMany({ where: { id: { in: clientIds } }, select: { id: true, companyName: true } }) : []
@@ -279,6 +291,9 @@ booksRouter.get('/clients', h(async (req, res) => {
 
 booksRouter.patch('/organizations/:id', h(async (req, res) => {
   need(req, 'books.settings')
+  // Mapping an organisation to a client, or switching it on/off, is firm-level
+  // configuration: only staff who see every client.
+  if (!seesAllClients(requireSession(req))) throw ApiError.forbidden('Only staff who see every client can change Zoho Books organisations.')
   const { userId, organisationId } = await firmOf(req)
   const org = await prisma.booksZohoOrganization.findFirst({ where: { id: req.params.id, organisationId }, include: { connection: true } })
   if (!org) throw ApiError.notFound('No such Zoho Books organisation.')
@@ -324,6 +339,12 @@ booksRouter.use('/o/:ref', h(async (req, res) => {
   const { organisationId, userId } = await firmOf(req)
   const org = await loadOrg(organisationId, req.params.ref)
   if (!org || !org.isActive) throw ApiError.notFound('This Zoho Books organisation is not active in Audit OS.')
+  // Only the books of a client the caller is assigned to (or every client
+  // with clients.view_all) — reads and writes alike.
+  const visible = await visibleOrgWhere(req)
+  if (visible.clientId && !(org.clientId && visible.clientId.in.includes(org.clientId))) {
+    throw ApiError.forbidden('You are not assigned to this client.')
+  }
   if (org.connection.status !== 'connected') throw ApiError.conflict('books_reconnect_required', 'The Zoho Books connection has expired or was revoked. Reconnect it in Books → Settings.')
   res.locals.books = { org, userId, ctx: { conn: org.connection, zohoOrgId: org.zohoOrgId } } satisfies Loc
 }, true), orgRouter)

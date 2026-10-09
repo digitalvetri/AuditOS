@@ -145,7 +145,7 @@ beforeEach(async () => {
   clearBooksCacheForTests()
   const firm = await prisma.organisation.create({ data: { id: uid('firm'), name: 'Firm' } })
   firmId = firm.id
-  admin = await mkUser((await seedRole('finance_admin')).id)
+  admin = await mkUser((await seedRole('md')).id)
   employee = await mkUser((await seedRole('employee')).id)
 })
 
