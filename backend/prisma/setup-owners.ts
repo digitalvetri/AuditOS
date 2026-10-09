@@ -16,7 +16,7 @@ function owner(prefix: string, roleCode: OwnerSpec['roleCode']): OwnerSpec | nul
   const password = process.env[`${prefix}_PASSWORD`]
   if (!email && !password) return null
   if (!email || !password) throw new Error(`Set both ${prefix}_EMAIL and ${prefix}_PASSWORD.`)
-  return { email, password, roleCode }
+  return { email, password, roleCode, name: process.env[`${prefix}_NAME`] }
 }
 
 async function main() {

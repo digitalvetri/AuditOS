@@ -9,7 +9,7 @@ import { Avatar } from '@/components/viz';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { KeyRound, LogOut, X } from 'lucide-react';
-import { useAuth } from '@/platform/auth/AuthContext';
+import { tracksHr, useAuth } from '@/platform/auth/AuthContext';
 import { notificationsApi } from '@/platform/notifications/api';
 import { TodayCard } from '@/modules/attendance/TodayCard';
 import { ChangePasswordModal } from '@/platform/auth/ChangePasswordModal';
@@ -58,7 +58,7 @@ export function RightPanel({ open, onClose }: { open: boolean; onClose: () => vo
           <button type="button" onClick={onClose} aria-label="Close panel" className="inline-flex items-center justify-center w-8 h-8 text-inkMuted hover:text-ink"><X size={16} strokeWidth={1.75} /></button>
         </div>
         <div className="flex-1 min-h-0 overflow-y-auto p-4 space-y-5">
-          {session?.employee ? (
+          {tracksHr(session) ? (
             <section>
               <h3 className="text-[10.5px] font-semibold uppercase tracking-[0.08em] text-inkFaint mb-2">Today</h3>
               <TodayCard />
@@ -76,7 +76,7 @@ export function RightPanel({ open, onClose }: { open: boolean; onClose: () => vo
           <section>
             <h3 className="text-[10.5px] font-semibold uppercase tracking-[0.08em] text-inkFaint mb-2">Shortcuts</h3>
             <ul className="divide-y divide-border border border-border rounded-[12px] overflow-hidden shadow-card">
-              {links.filter((l) => l.to === '/notifications' || session?.employee).map((l) => (
+              {links.filter((l) => l.to === '/notifications' || (l.to === '/me/profile' ? session?.employee : tracksHr(session))).map((l) => (
                 <li key={l.to}><Link to={l.to} className="flex items-center justify-between h-10 px-3 text-13 font-medium text-ink hover:bg-canvas">{l.label}</Link></li>
               ))}
             </ul>

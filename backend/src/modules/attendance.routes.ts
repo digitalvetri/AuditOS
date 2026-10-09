@@ -37,6 +37,9 @@ async function requireOwnEmployee(session: Session) {
   if (emp.deletedAt || emp.status === 'inactive') {
     throw new ApiError(403, 'inactive', 'This employee account is inactive.')
   }
+  if (emp.excludeFromHr) {
+    throw ApiError.unprocessable('hr_exempt', 'Attendance is not tracked for this account.')
+  }
   return emp
 }
 
@@ -162,7 +165,7 @@ attendanceRouter.get('/today', handler(async (req, res) => {
   if (scope === 'organisation' || scope === 'department') {
     const eligible = await prisma.employee.findMany({
       where: {
-        status: 'active', deletedAt: null,
+        status: 'active', deletedAt: null, excludeFromHr: false,
         ...(scope === 'department' ? { departmentId: session.departmentId ?? '__none__' } : {}),
       },
       select: { id: true },

@@ -33,6 +33,8 @@ export function employmentWindow(
 export function payrollEmployeeWhere(periodStart: string, periodEnd: string) {
   return {
     joiningDate: { lte: periodEnd },
+    // Owner staff records (the Admin login) are never on payroll.
+    excludeFromHr: false,
     OR: [
       {
         deletedAt: null,

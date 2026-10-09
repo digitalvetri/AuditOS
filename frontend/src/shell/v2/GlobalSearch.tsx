@@ -22,7 +22,7 @@ import {
   ReceiptText, ScrollText, Search, UserPlus, Users, Wrench, type LucideIcon,
 } from 'lucide-react';
 import { Avatar } from '@/components/viz';
-import { useAuth } from '@/platform/auth/AuthContext';
+import { tracksHr, useAuth } from '@/platform/auth/AuthContext';
 import { can } from '@/platform/rbac/can';
 import { employeeApi, isFullEmployee } from '@/modules/employees/api';
 import { workstationApi } from '@/modules/workstation/api';
@@ -107,7 +107,7 @@ export const GlobalSearch = forwardRef<GlobalSearchHandle>(function GlobalSearch
       { label: 'Converted documents', to: '/tools/documents', visible: can(role, 'tools.documents.read', 'self'), hint: 'Tools' },
       { label: 'Notifications', to: '/notifications', visible: true, hint: 'Platform' },
       { label: 'My profile', to: '/me/profile', visible: Boolean(session?.employee), hint: 'Me' },
-      { label: 'My payslips', to: '/me/payslips', visible: Boolean(session?.employee), hint: 'Me' },
+      { label: 'My payslips', to: '/me/payslips', visible: tracksHr(session), hint: 'Me' },
     ];
     const needle = q.toLowerCase();
     return all.filter((p) => p.visible && needle && p.label.toLowerCase().includes(needle)).slice(0, 5).map((p) => ({ group: 'Pages', label: p.label, hint: p.hint, to: p.to, icon: LayoutGrid }));

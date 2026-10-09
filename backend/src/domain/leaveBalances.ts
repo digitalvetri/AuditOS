@@ -25,9 +25,11 @@ type Db = Prisma.TransactionClient | typeof prisma
  */
 export async function ensureLeaveBalances(
   db: Db,
-  employees: { id: string; organisationId: string; joiningDate?: string | null }[],
+  employees: { id: string; organisationId: string; joiningDate?: string | null; excludeFromHr?: boolean }[],
   fiscalYearStart: string,
 ): Promise<void> {
+  // Owner staff records take no leave and get no balance.
+  employees = employees.filter((e) => !e.excludeFromHr)
   if (employees.length === 0) return
   const orgIds = [...new Set(employees.map((e) => e.organisationId))]
   const types = await db.leaveType.findMany({

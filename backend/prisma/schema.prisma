@@ -362,6 +362,9 @@ model Employee {
   exitDate         String?
   exitReason       String?
   noticePeriodDays Int     @default(30)
+  /// An owner's staff record (the Admin login): a member of the team for
+  /// Messages, but never tracked for attendance, leave or payroll.
+  excludeFromHr    Boolean @default(false)
 
   // RESERVED FOR WORKSTATION — nullable from day one, no UI in this phase.
   weeklyCapacityHours Float?
@@ -2732,7 +2735,7 @@ model EwayBill {
   fromGstin             String?
   toGstin               String?
   toPartyName           String?
-  valuePaise            BigInt       @default(0)
+  valuePaise            BigInt    @default(0)
   /// generated | active | cancelled | expired
   status                String    @default("generated")
   generatedAt           DateTime  @default(now())
@@ -2827,7 +2830,7 @@ model EInvoiceIrn {
   buyerGstin      String?
   buyerName       String?
   placeOfSupply   String? // mandatory in INV-01 — validation surfaces if missing
-  totalValuePaise BigInt     @default(0)
+  totalValuePaise BigInt  @default(0)
 
   /// pending | reported | cancelled | expired (past 30-day rule)
   status       String    @default("pending")
@@ -3254,10 +3257,10 @@ model AaGstFiling2BEntry {
   invoiceDate           String
   /// Amounts in paise (INR minor units) — Int for exact arithmetic.
   taxableValue          BigInt
-  igst                  BigInt     @default(0)
-  cgst                  BigInt     @default(0)
-  sgst                  BigInt     @default(0)
-  cess                  BigInt     @default(0)
+  igst                  BigInt  @default(0)
+  cgst                  BigInt  @default(0)
+  sgst                  BigInt  @default(0)
+  cess                  BigInt  @default(0)
   /// GSTN's own "ITC Available" flag from the 2B row.
   itcAvailable          Boolean @default(true)
   /// INV | CRN (credit note) | DBN (debit note) | BOE (import) | ISD
@@ -3322,10 +3325,10 @@ model AaPurchaseRegisterEntry {
   invoiceNumber String
   invoiceDate   String
   taxableValue  BigInt
-  igst          BigInt     @default(0)
-  cgst          BigInt     @default(0)
-  sgst          BigInt     @default(0)
-  cess          BigInt     @default(0)
+  igst          BigInt  @default(0)
+  cgst          BigInt  @default(0)
+  sgst          BigInt  @default(0)
+  cess          BigInt  @default(0)
   /// Ledger / GL code from the register (optional).
   glCode        String?
   invoiceValue  BigInt?
@@ -3471,8 +3474,8 @@ model AaTds26ASEntry {
   /// Q1 | Q2 | Q3 | Q4
   quarter      String
   /// Amounts in paise (INR minor units) for exact arithmetic.
-  amountPaid   BigInt     @default(0)
-  tdsAmount    BigInt     @default(0)
+  amountPaid   BigInt  @default(0)
+  tdsAmount    BigInt  @default(0)
   /// Date TDS was deducted / booked (YYYY-MM-DD, IST calendar).
   tdsDate      String
   /// TRACES status of booking: F (final) | P (provisional) | U (unmatched) | O (overbooked) | Z (mismatched) | M (matched).
@@ -3480,7 +3483,7 @@ model AaTds26ASEntry {
   /// Date the deductor's statement was booked against the challan (YYYY-MM-DD).
   bookingDate  String?
   /// TDS actually deposited by the deductor — paise. Less than tdsAmount means a short deposit.
-  tdsDeposited BigInt     @default(0)
+  tdsDeposited BigInt  @default(0)
   remarks      String?
   rawJson      String?
 
@@ -3530,8 +3533,8 @@ model AaTdsBooksEntry {
   deductorTan  String
   deductorName String?
   quarter      String
-  amountPaid   BigInt     @default(0)
-  tdsAmount    BigInt     @default(0)
+  amountPaid   BigInt  @default(0)
+  tdsAmount    BigInt  @default(0)
   tdsDate      String
   glCode       String?
   /// Voucher / invoice number in the books.
@@ -3823,7 +3826,7 @@ model BookkeepingImportRun {
   vouchersUpdated Int     @default(0)
   ledgersCreated  Int     @default(0)
   /// Sum of created vouchers' totals, INR paise. Skipped rows excluded.
-  totalPaise      BigInt     @default(0)
+  totalPaise      BigInt  @default(0)
   currenciesJson  Json
   /// A brief JSON summary the History tab renders: { flags: {…}, changed_rows: [...] }.
   /// Kept small — the details are recoverable by re-running derive on the
@@ -3936,7 +3939,7 @@ model BookkeepingLedger {
   name                   String
   groupId                String
   /// Amount in PAISE — never floats.
-  openingBalancePaise    BigInt     @default(0)
+  openingBalancePaise    BigInt  @default(0)
   /// dr | cr — which side the opening balance sits on.
   openingBalanceType     String  @default("dr")
   /// FY the opening balance applies to.
@@ -4057,15 +4060,15 @@ model BookkeepingVoucher {
   /// active | cancelled
   status            String   @default("active")
   /// Denormalised roll-ups, always written from the lines by the engine.
-  totalDebitPaise   BigInt      @default(0)
-  totalCreditPaise  BigInt      @default(0)
-  taxableValuePaise BigInt      @default(0)
-  cgstPaise         BigInt      @default(0)
-  sgstPaise         BigInt      @default(0)
-  igstPaise         BigInt      @default(0)
-  cessPaise         BigInt      @default(0)
-  roundOffPaise     BigInt      @default(0)
-  grandTotalPaise   BigInt      @default(0)
+  totalDebitPaise   BigInt   @default(0)
+  totalCreditPaise  BigInt   @default(0)
+  taxableValuePaise BigInt   @default(0)
+  cgstPaise         BigInt   @default(0)
+  sgstPaise         BigInt   @default(0)
+  igstPaise         BigInt   @default(0)
+  cessPaise         BigInt   @default(0)
+  roundOffPaise     BigInt   @default(0)
+  grandTotalPaise   BigInt   @default(0)
   dueDate           String?
   /// Header-level currency for the source document. Every posting amount
   /// on this voucher (totalDebitPaise, taxableValuePaise, etc.) is INR
@@ -4199,18 +4202,18 @@ model BookkeepingVoucherItem {
   /// in | out
   direction      String
   qtyMilli       Int
-  ratePaise      BigInt     @default(0)
+  ratePaise      BigInt  @default(0)
   discountPct    Int     @default(0)
-  discountPaise  BigInt     @default(0)
+  discountPaise  BigInt  @default(0)
   /// Taxable value of the line after discount.
-  amountPaise    BigInt     @default(0)
+  amountPaise    BigInt  @default(0)
   hsnCode        String?
   /// GST rate in basis points (1800 = 18%).
   gstRateBp      Int     @default(0)
-  cgstPaise      BigInt     @default(0)
-  sgstPaise      BigInt     @default(0)
-  igstPaise      BigInt     @default(0)
-  cessPaise      BigInt     @default(0)
+  cgstPaise      BigInt  @default(0)
+  sgstPaise      BigInt  @default(0)
+  igstPaise      BigInt  @default(0)
+  cessPaise      BigInt  @default(0)
   /// Sales / purchase ledger the line's value was posted to.
   salesLedgerId  String?
   description    String?
@@ -4335,8 +4338,8 @@ model BookkeepingStockItem {
   gstRateBp          Int     @default(0)
   /// Reorder level in milli-units.
   reorderLevelMilli  Int     @default(0)
-  standardCostPaise  BigInt     @default(0)
-  standardPricePaise BigInt     @default(0)
+  standardCostPaise  BigInt  @default(0)
+  standardPricePaise BigInt  @default(0)
   /// fifo | avg — valuation method for closing stock.
   valuationMethod    String  @default("avg")
   batchTracking      Boolean @default(false)
@@ -4369,8 +4372,8 @@ model BookkeepingStockOpening {
   batchId         String?
   financialYearId String?
   qtyMilli        Int     @default(0)
-  ratePaise       BigInt     @default(0)
-  valuePaise      BigInt     @default(0)
+  ratePaise       BigInt  @default(0)
+  valuePaise      BigInt  @default(0)
 
   stockItem BookkeepingStockItem   @relation(fields: [stockItemId], references: [id], onDelete: Cascade)
   godown    BookkeepingGodown?     @relation(fields: [godownId], references: [id])
@@ -4412,8 +4415,8 @@ model BookkeepingBankStatementLine {
   date            String
   description     String
   refNumber       String?
-  debitPaise      BigInt       @default(0)
-  creditPaise     BigInt       @default(0)
+  debitPaise      BigInt    @default(0)
+  creditPaise     BigInt    @default(0)
   balancePaise    BigInt?
   importBatch     String?
   /// unmatched | matched | ignored
@@ -4583,7 +4586,7 @@ model BookkeepingPayHead {
   headType       String
   /// flat | percent_of_basic | attendance
   calcType       String  @default("flat")
-  valuePaise     BigInt     @default(0)
+  valuePaise     BigInt  @default(0)
   percentBp      Int     @default(0)
   /// pf | esi | pt | income_tax | null
   statutory      String?
@@ -4608,7 +4611,7 @@ model BookkeepingSalaryStructureLine {
   tallyCompanyId String
   employeeId     String
   payHeadId      String
-  valuePaise     BigInt     @default(0)
+  valuePaise     BigInt  @default(0)
   percentBp      Int     @default(0)
   effectiveFrom  String?
 
@@ -4648,9 +4651,9 @@ model BookkeepingPayrollRun {
   period            String
   /// draft | processed | posted
   status            String  @default("draft")
-  grossPaise        BigInt     @default(0)
-  deductionsPaise   BigInt     @default(0)
-  netPaise          BigInt     @default(0)
+  grossPaise        BigInt  @default(0)
+  deductionsPaise   BigInt  @default(0)
+  netPaise          BigInt  @default(0)
   /// The salary journal this run posted, once posted.
   voucherId         String?
   processedByUserId String?

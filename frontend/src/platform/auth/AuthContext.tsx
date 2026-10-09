@@ -27,6 +27,8 @@ interface Session {
     designation_id: string;
     photo_url: string | null;
     employee_code: string;
+    /** An owner's staff record: in Messages, never in attendance/leave/payroll. */
+    exclude_from_hr?: boolean;
   } | null;
 }
 
@@ -141,6 +143,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   );
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
+}
+
+/** True when the signed-in person is tracked for attendance, leave and payroll. */
+export function tracksHr(session: { employee: { exclude_from_hr?: boolean } | null } | null | undefined): boolean {
+  return Boolean(session?.employee && !session.employee.exclude_from_hr);
 }
 
 export function useAuth(): AuthState {

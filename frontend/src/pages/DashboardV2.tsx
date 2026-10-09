@@ -24,7 +24,7 @@ import {
   AlertTriangle, ArrowUpRight, CalendarClock, CalendarDays, Check, CheckCircle2, ChevronRight, ClockAlert,
   FileText, FileWarning, Inbox, Landmark, Plane, Receipt, Users, Wallet,
 } from 'lucide-react';
-import { useAuth } from '@/platform/auth/AuthContext';
+import { tracksHr, useAuth } from '@/platform/auth/AuthContext';
 import { can } from '@/platform/rbac/can';
 import { api } from '@/services/api';
 import { useToast } from '@/components/Toast';
@@ -72,7 +72,7 @@ export function DashboardV2Page() {
   const today = istToday();
   const period = previousPeriod(today);
 
-  const checksIn = !!session?.employee && !NO_CHECK_IN_ROLES.includes(role ?? '');
+  const checksIn = tracksHr(session) && !NO_CHECK_IN_ROLES.includes(role ?? '');
   const seesTeam = can(role, 'attendance.read', 'department');
   const approves = can(role, 'leave.approve', 'department') || can(role, 'expense.approve', 'department')
     || can(role, 'attendance.correct.approve', 'department');

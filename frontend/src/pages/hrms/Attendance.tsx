@@ -13,7 +13,7 @@ import { RecordsTable } from '@/modules/attendance/RecordsTable';
 import { CorrectionsQueue } from '@/modules/attendance/CorrectionsQueue';
 import { CorrectionRequestModal } from '@/modules/attendance/CorrectionRequestModal';
 import { Button } from '@/components/Button';
-import { useAuth } from '@/platform/auth/AuthContext';
+import { tracksHr, useAuth } from '@/platform/auth/AuthContext';
 import { can } from '@/platform/rbac/can';
 
 type Tab = 'today' | 'records' | 'corrections';
@@ -22,7 +22,7 @@ export function AttendancePage() {
   const { session } = useAuth();
   // Login-only accounts (the owner logins) have no attendance of their own:
   // no Today card, no correction requests — just the team's records.
-  const hasOwn = Boolean(session?.employee);
+  const hasOwn = tracksHr(session);
   const [tab, setTab] = useState<Tab>(hasOwn ? 'today' : 'records');
   const [openCorrection, setOpenCorrection] = useState(false);
 

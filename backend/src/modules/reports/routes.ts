@@ -49,11 +49,11 @@ function financeScope(session: Session): ReportScope {
 /** Employee ids the caller may report on, before explicit filters. */
 async function employeesInScope(scope: ReportScope, session: Session) {
   if (scope === 'organisation') {
-    return prisma.employee.findMany({ where: { deletedAt: null }, orderBy: { employeeCode: 'asc' } })
+    return prisma.employee.findMany({ where: { deletedAt: null, excludeFromHr: false }, orderBy: { employeeCode: 'asc' } })
   }
   if (scope === 'department') {
     return prisma.employee.findMany({
-      where: { deletedAt: null, departmentId: session.departmentId ?? '__none__' },
+      where: { deletedAt: null, excludeFromHr: false, departmentId: session.departmentId ?? '__none__' },
       orderBy: { employeeCode: 'asc' },
     })
   }

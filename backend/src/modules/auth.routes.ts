@@ -50,6 +50,8 @@ async function sessionPayload(userId: string) {
           designation_id: user.employee.designationId,
           photo_url: user.employee.photoUrl,
           employee_code: user.employee.employeeCode,
+          // An owner's staff record: in Messages, never in attendance/leave/payroll.
+          exclude_from_hr: user.employee.excludeFromHr,
         }
       : null,
   }

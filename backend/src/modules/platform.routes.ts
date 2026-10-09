@@ -216,7 +216,7 @@ dashboardRouter.get('/departments', handler(async (req, res) => {
     orderBy: { name: 'asc' },
   })
   const employees = await prisma.employee.findMany({
-    where: { deletedAt: null, status: { not: 'inactive' } },
+    where: { deletedAt: null, status: { not: 'inactive' }, excludeFromHr: false },
     select: { id: true, departmentId: true },
   })
   const attendance = await prisma.attendance.findMany({
