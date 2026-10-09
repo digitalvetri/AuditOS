@@ -116,14 +116,19 @@ async function suite() {
   await prisma.partnershipCase.update({ where: { id: g1Case!.id }, data: { status: 'IN_PROGRESS' } })
 
   // Scheduler path writes org-wide; filter result by our dedupe key prefix.
-  const beforeCount = await prisma.notification.count({ where: { entityType: 'gst_reminder', entityId: { contains: `:${client.id}:` } } })
+  // It also looks at last month (whose returns fall due this month), so
+  // count only this period's keys to keep the check date-independent.
+  const countOurs = () => prisma.notification.count({
+    where: { entityType: 'gst_reminder', AND: [{ entityId: { contains: `:${client.id}:` } }, { entityId: { contains: `:${period}:` } }] },
+  })
+  const beforeCount = await countOurs()
   await sendGstReminders(prisma)
-  const afterCount = await prisma.notification.count({ where: { entityType: 'gst_reminder', entityId: { contains: `:${client.id}:` } } })
+  const afterCount = await countOurs()
   check('Scheduler writes one notification per item (2 new)', afterCount - beforeCount, 2)
 
   // Second tick is a no-op.
   await sendGstReminders(prisma)
-  const afterCount2 = await prisma.notification.count({ where: { entityType: 'gst_reminder', entityId: { contains: `:${client.id}:` } } })
+  const afterCount2 = await countOurs()
   check('Second tick creates no duplicates', afterCount2, afterCount)
 
   // sendClientReminder refuses when SMTP is unconfigured in this test env.

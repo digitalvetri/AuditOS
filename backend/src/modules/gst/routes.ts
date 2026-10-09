@@ -1259,20 +1259,23 @@ gstRouter.patch('/clients/:id', handler(async (req, res) => {
 }))
 
 /**
- * GET /api/gst/reminders/upcoming?period=YYYY-MM
+ * GET /api/gst/reminders/upcoming
  *
  * Dashboard panel feed — every return in `due` (within 3 days) or `overdue`
  * state for the operator's visible clients. The scheduler emits the same
  * list to bell notifications; this endpoint powers the inline panel so the
  * operator sees both in context.
+ *
+ * The list is anchored to today, exactly like the scheduler. A `?period=`
+ * query (the dashboard still sends its selected month) is ignored: the
+ * selected month's returns fall due next month, so narrowing to it would
+ * leave the panel empty.
  */
 gstRouter.get('/reminders/upcoming', handler(async (req, res) => {
   const session = requireSession(req)
   const scope = requireWorkstation(session, 'workstation.gst.read', 'workstation.gst.manage')
   const scopedClients = await assignedClientIds(session, scope)
-  const period = typeof req.query.period === 'string' && /^\d{4}-\d{2}$/.test(req.query.period) ? req.query.period : undefined
   const items = await computeUpcoming(prisma, {
-    period,
     clientIdFilter: scopedClients === 'ALL' ? undefined : scopedClients,
   })
   ok(res, {

@@ -39,6 +39,11 @@ function addDays(iso: string, days: number): string {
   d.setUTCDate(d.getUTCDate() + days)
   return d.toISOString().slice(0, 10)
 }
+/** `YYYY-MM` of the month before the one `iso` (YYYY-MM-DD) falls in. */
+function previousPeriod(iso: string): string {
+  const d = new Date(Date.UTC(Number(iso.slice(0, 4)), Number(iso.slice(5, 7)) - 2, 1))
+  return d.toISOString().slice(0, 7)
+}
 function fmt(iso: string): string {
   return new Date(`${iso}T00:00:00Z`).toLocaleDateString('en-IN', {
     day: 'numeric', month: 'short', year: 'numeric', timeZone: 'UTC',
@@ -62,11 +67,18 @@ export interface UpcomingItem {
 }
 
 /**
- * Walk every active GST profile for a given period, resolve each return's
- * (status, due date) via the shared rule resolver, and return the rows that
- * are either `due` within DUE_SOON_DAYS or already `overdue`. Called by
- * both the HTTP endpoint (which filters by the operator's visible clients)
- * and the scheduler (which runs org-wide).
+ * Walk every active GST profile, resolve each return's (status, due date)
+ * via the shared rule resolver, and return the rows that are either `due`
+ * within DUE_SOON_DAYS or already `overdue`. Called by both the HTTP
+ * endpoint (which filters by the operator's visible clients) and the
+ * scheduler (which runs org-wide).
+ *
+ * Periods: a return is FOR period M and falls due in M+1 (see applyDay),
+ * so without an explicit `period` we evaluate the previous month — whose
+ * returns fall due this month — plus the current month (hand-set or
+ * CBIC-overridden case dates). The current month alone could never reach
+ * the window. A quarterly filer's period is the quarter-end month, so the
+ * previous month also covers the quarter that just closed.
  *
  * The `clientIdFilter` is applied by the caller — the compute step is
  * scope-agnostic so the scheduler can reach every client even when no
@@ -77,7 +89,7 @@ export async function computeUpcoming(
   opts: { period?: string; today?: string; clientIdFilter?: string[] } = {},
 ): Promise<UpcomingItem[]> {
   const today = opts.today ?? todayIst()
-  const period = opts.period ?? today.slice(0, 7)
+  const periods = opts.period ? [opts.period] : [previousPeriod(today), today.slice(0, 7)]
   const windowEnd = addDays(today, DUE_SOON_DAYS)
 
   const profiles = await prisma.gstProfile.findMany({
@@ -94,19 +106,19 @@ export async function computeUpcoming(
     where: {
       deletedAt: null,
       kind: { in: ['GSTR1', 'GSTR2B', 'GSTR3B'] },
-      period,
+      period: { in: periods },
       clientId: { in: profiles.map((p) => p.clientId) },
     },
-    select: { id: true, clientId: true, kind: true, status: true, dueDate: true },
+    select: { id: true, clientId: true, kind: true, period: true, status: true, dueDate: true },
   })
   const caseByKey = new Map<string, (typeof cases)[number]>()
-  for (const c of cases) caseByKey.set(`${c.clientId}::${c.kind}`, c)
+  for (const c of cases) caseByKey.set(`${c.clientId}::${c.kind}::${c.period}`, c)
 
   const resolver = await createRuleResolver(prisma)
   const kinds: ReturnKind[] = ['GSTR1', 'GSTR2B', 'GSTR3B']
   const out: UpcomingItem[] = []
 
-  for (const p of profiles) {
+  for (const period of periods) for (const p of profiles) {
     const freq = p.filingFrequency as FilingFrequency
     // Quarterly clients don't owe anything outside quarter-end months.
     if (freq === 'quarterly') {
@@ -114,7 +126,7 @@ export async function computeUpcoming(
       if (![3, 6, 9, 12].includes(mo)) continue
     }
     for (const kind of kinds) {
-      const c = caseByKey.get(`${p.clientId}::${kind}`)
+      const c = caseByKey.get(`${p.clientId}::${kind}::${period}`)
       if (c?.status === 'COMPLETED') continue
       const due = c?.dueDate ?? await resolver.dueDateFor(period, kind, freq)
       if (!due) continue
@@ -154,8 +166,11 @@ export async function computeUpcoming(
  * so repeated ticks never fire a second time for the same (client, kind,
  * period, state) pair. Returns the count actually fired.
  */
-export async function sendGstReminders(prisma: PrismaClient): Promise<number> {
-  const items = await computeUpcoming(prisma)
+export async function sendGstReminders(
+  prisma: PrismaClient,
+  opts: { today?: string } = {},
+): Promise<number> {
+  const items = await computeUpcoming(prisma, { today: opts.today })
   if (items.length === 0) return 0
 
   const existing = new Set(
