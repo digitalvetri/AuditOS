@@ -46,6 +46,7 @@ interface Tab {
 export function MobileNav({ onOpenMore }: Props) {
   const { session } = useAuth();
   const role = session?.role.code;
+  const hasStaffRecord = Boolean(session?.employee);
   const location = useLocation();
 
   const tabs = useMemo<Tab[]>(() => {
@@ -61,7 +62,8 @@ export function MobileNav({ onOpenMore }: Props) {
         to: '/hrms/messages',
         label: 'Messages',
         icon: MessageSquare,
-        visible: can(role, 'chat.participate', 'organisation'),
+        // Chats are between staff; the owner logins have no staff record.
+        visible: can(role, 'chat.participate', 'organisation') && hasStaffRecord,
       },
       {
         to: '/hrms/reports',
@@ -109,7 +111,7 @@ export function MobileNav({ onOpenMore }: Props) {
       if (current) shown[shown.length - 1] = current;
     }
     return shown;
-  }, [role, location.pathname]);
+  }, [role, hasStaffRecord, location.pathname]);
 
   // Exactly one tab may be active. `/workstation` and `/workstation/services`
   // are both prefixes of `/workstation/services/tds`, so "does the path

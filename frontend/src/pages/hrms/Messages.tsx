@@ -217,6 +217,24 @@ function MyPhoto() {
 // ── Page ──────────────────────────────────────────────────────────────────
 
 export function MessagesPage() {
+  const { session } = useAuth();
+  // Chats are between staff members. The owner logins (Super Admin, Admin)
+  // have no staff record, so they get an explanation instead of an error.
+  if (session && !session.employee) {
+    return (
+      <div className="w-full max-w-[560px] mx-auto dash-card p-6 text-center" data-testid="messages-no-staff">
+        <h1 className="text-[22px] font-semibold text-ink">Messages is for staff accounts</h1>
+        <p className="text-13 text-inkMuted mt-2">
+          Chats are between team members, and this login is an owner account without a staff record.
+          Use a staff login to chat with the team.
+        </p>
+      </div>
+    );
+  }
+  return <MessagesInbox />;
+}
+
+function MessagesInbox() {
   const [params, setParams] = useSearchParams();
   const activeChatId = params.get('chat');
   const isMobile = useIsMobile();

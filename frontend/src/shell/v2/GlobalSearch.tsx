@@ -92,7 +92,7 @@ export const GlobalSearch = forwardRef<GlobalSearchHandle>(function GlobalSearch
       { label: 'Payroll', to: '/hrms/accounts/payroll', visible: can(role, 'payroll.view.own', 'self') || can(role, 'payroll.view', 'organisation'), hint: 'HRMS · Accounts' },
       { label: 'Expenses', to: '/hrms/accounts/expenses', visible: can(role, 'expense.submit', 'self') || can(role, 'expense.approve', 'department'), hint: 'HRMS · Accounts' },
       { label: 'Accounts', to: '/hrms/accounts', visible: can(role, 'accounts.read', 'organisation') || can(role, 'accounts.manage', 'organisation'), hint: 'HRMS' },
-      { label: 'Messages', to: '/hrms/messages', visible: can(role, 'chat.participate', 'organisation'), hint: 'HRMS' },
+      { label: 'Messages', to: '/hrms/messages', visible: can(role, 'chat.participate', 'organisation') && Boolean(session?.employee), hint: 'HRMS' },
       { label: 'Employee Data', to: '/hrms/documents', visible: can(role, 'document.read', 'self'), hint: 'HRMS' },
       { label: 'Payment summary', to: '/hrms/payment-summary', visible: can(role, 'payment_summary.read', 'organisation'), hint: 'HRMS' },
       { label: 'Reports', to: '/hrms/reports', visible: can(role, 'reports.hr', 'department') || can(role, 'reports.finance', 'organisation') || can(role, 'reports.all', 'organisation'), hint: 'HRMS' },
