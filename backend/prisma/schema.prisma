@@ -1784,6 +1784,10 @@ model GstNotice {
   /// draft | review | sent | closed
   status String @default("draft")
 
+  /// The date the reply must reach the officer by, and who owns it.
+  responseDueDate    String?
+  assignedEmployeeId String?
+
   // Extracted / entered facts about the notice.
   referenceNo        String?
   noticeDate         String?
@@ -8172,5 +8176,196 @@ model AuditUdin {
   createdBy String?
 
   @@index([organisationId, documentDate])
+  @@index([clientId])
+}
+
+// ============================================================
+// COMPLIANCE CALENDAR (one calendar for every statutory obligation)
+// ============================================================
+//
+// ComplianceForm is the catalogue (data, seeded by prisma/seed-compliance.ts
+// and editable): what the form is and how its due date is worked out.
+// ClientObligation switches a form on for a client. ComplianceItem is one
+// period of one obligation — the row people work, file and tick off.
+// GST returns (GSTR-1/2B/3B) and TDS keep their own richer modules; the
+// calendar shows them alongside, it does not duplicate them.
+
+model ComplianceForm {
+  id           String  @id @default(uuid())
+  /// 'ITR_NON_AUDIT', 'TAX_AUDIT', 'AOC4', 'CMP08', …
+  code         String  @unique
+  name         String
+  /// income_tax | gst | mca | labour | other
+  authority    String
+  /// monthly | quarterly | half_yearly | annual | event
+  frequency    String
+  /// Entity types it normally applies to, comma-separated:
+  /// company | llp | firm | individual | huf | trust | society | aop | any
+  entityTypes  String  @default("any")
+  /// Due-date rule. anchor: period_end | fy_end | fy_start | agm | event
+  /// due = anchor + offsetMonths, on `dueDay` (31 = month end), + offsetDays.
+  anchor       String
+  offsetMonths Int     @default(0)
+  dueDay       Int?
+  offsetDays   Int     @default(0)
+  /// For a fixed set of months in the year (advance tax, half-yearly forms):
+  /// the period-end months as '6,9,12,3'. Null = every period of `frequency`.
+  months       String?
+  /// Late fee / interest note shown beside an overdue item.
+  lateFeeNote  String?
+  description  String?
+  sourceUrl    String?
+  isActive     Boolean @default(true)
+  sortOrder    Int     @default(0)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model ClientObligation {
+  id                 String  @id @default(uuid())
+  organisationId     String
+  clientId           String
+  formCode           String
+  assignedEmployeeId String?
+  /// Email/WhatsApp the client before the due date, listing what is pending.
+  remindClient       Boolean @default(true)
+  isActive           Boolean @default(true)
+  notes              String?
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  createdBy String?
+  deletedAt DateTime?
+
+  @@unique([clientId, formCode])
+  @@index([organisationId, formCode])
+}
+
+model ComplianceItem {
+  id                   String    @id @default(uuid())
+  organisationId       String
+  clientId             String
+  formCode             String
+  /// '2025-26' (annual), '2025-26-Q1', '2026-04' (month), '2025-26-H1'
+  periodKey            String
+  periodLabel          String
+  /// Statutory due date from the rule; the extension (if any) is applied on read.
+  dueDate              String
+  /// Event-anchored forms (AGM): the event date this period's due date came from.
+  anchorDate           String?
+  /// not_started | documents_pending | in_progress | filed | not_applicable
+  status               String    @default("not_started")
+  assignedEmployeeId   String?
+  filedOn              String?
+  /// Acknowledgement / SRN / ARN as issued by the portal.
+  acknowledgementNo    String?
+  filedBy              String?
+  /// Late fee, interest or penalty actually paid, paise.
+  lateFeePaidPaise     BigInt?
+  notes                String?
+  lastClientReminderAt DateTime?
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  createdBy String?
+  updatedBy String?
+  deletedAt DateTime?
+
+  @@unique([clientId, formCode, periodKey])
+  @@index([organisationId, dueDate])
+  @@index([assignedEmployeeId, status])
+  @@index([formCode, periodKey])
+}
+
+/// A CBDT / CBIC / MCA extension, entered once for every client.
+model DueDateExtension {
+  id             String  @id @default(uuid())
+  organisationId String
+  formCode       String
+  periodKey      String
+  newDueDate     String
+  /// e.g. 'CBDT Circular 9/2026'
+  reference      String
+  sourceUrl      String?
+  /// Comma-separated entity types it is limited to; null = all.
+  entityTypes    String?
+
+  createdAt DateTime  @default(now())
+  createdBy String?
+  deletedAt DateTime?
+
+  @@index([formCode, periodKey])
+}
+
+/// Income-tax, MCA and other notices (GST notices keep GstNotice, which has
+/// the AI drafting; both share the reply-deadline reminders).
+model ClientNotice {
+  id                 String  @id @default(uuid())
+  organisationId     String
+  clientId           String
+  /// income_tax | mca | gst | tds | labour | other
+  authority          String
+  /// e.g. '143(1)', '143(2)', '148A(b)', '139(9)', '245', '142(1)', 'ASMT-10'
+  section            String
+  referenceNo        String?
+  /// Income-tax Document Identification Number
+  din                String?
+  noticeDate         String
+  assessmentYear     String?
+  /// The date the reply must reach the department by.
+  responseDueDate    String?
+  hearingDate        String?
+  demandPaise        BigInt?
+  /// received | in_progress | replied | hearing | order_received | appeal | closed
+  status             String  @default("received")
+  assignedEmployeeId String?
+  replyFiledOn       String?
+  replyAckNo         String?
+  summary            String?
+  outcome            String?
+  fileKey            String?
+  fileName           String?
+  fileMime           String?
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  createdBy String?
+  updatedBy String?
+  deletedAt DateTime?
+
+  @@index([organisationId, responseDueDate])
+  @@index([clientId])
+}
+
+/// Firm-wide digital signature register (clients' directors / partners and
+/// the firm's own DSCs). Expiry alerts at 30, 15 and 7 days.
+model DigitalSignature {
+  id             String  @id @default(uuid())
+  organisationId String
+  clientId       String?
+  holderName     String
+  holderPan      String?
+  /// director | partner | proprietor | authorised_signatory | trustee | firm
+  holderRole     String?
+  /// class3 | dgft | other
+  dscClass       String  @default("class3")
+  /// signing | encryption | combo
+  usage          String  @default("signing")
+  provider       String?
+  tokenSerial    String?
+  validFrom      String?
+  expiryDate     String
+  /// with_firm | with_client
+  custody        String  @default("with_client")
+  notes          String?
+  lastAlertDays  Int?
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  createdBy String?
+  deletedAt DateTime?
+
+  @@index([organisationId, expiryDate])
   @@index([clientId])
 }
