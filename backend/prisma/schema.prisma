@@ -7955,6 +7955,8 @@ model AuditWorkingPaper {
   conclusion     String?
   /// not_started | in_progress | prepared | reviewed
   status         String    @default("not_started")
+  /// Team member expected to prepare it.
+  assignedTo     String?
   preparedBy     String?
   preparedAt     DateTime?
   reviewedBy     String?
@@ -7975,6 +7977,7 @@ model AuditWorkingPaper {
 
   @@unique([engagementId, ref])
   @@index([engagementId, section])
+  @@index([assignedTo])
 }
 
 model AuditWorkingPaperFile {
