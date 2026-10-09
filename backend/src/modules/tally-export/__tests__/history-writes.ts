@@ -13,7 +13,7 @@
 import { createHash } from 'node:crypto'
 import '../../../lib/env.js'
 import { PrismaClient } from '@prisma/client'
-import type { Session } from '../../../platform/auth.js'
+import { loadSession as loadUserSession, type Session } from '../../../platform/auth.js'
 import { BookkeepingCompanyService } from '../../bookkeeping/services/BookkeepingCompanyService.js'
 import { BookkeepingBankingService } from '../../bookkeeping/services/BookkeepingBankingService.js'
 import { bulkCreateRules, computePreflight, listExportHistory } from '../service.js'
@@ -31,15 +31,12 @@ function check(name: string, actual: unknown, expected: unknown) {
 }
 
 async function loadSession(): Promise<Session> {
-  const user = await prisma.user.findFirst({
-    where: { role: { code: 'md' } },
-    include: { role: { include: { permissions: { include: { permission: true } } } } },
-  })
+  const user = await prisma.user.findFirst({ where: { role: { code: 'md' }, isActive: true, deletedAt: null } })
   if (!user) throw new Error('No MD-role user available for the fixture suite.')
-  return {
-    userId: user.id, role: user.role.code, organisationId: user.organisationId,
-    permissions: user.role.permissions.map((p) => p.permission.code),
-  } as unknown as Session
+  // The real loader, so the session carries grants like every request's does.
+  const session = await loadUserSession(user.id)
+  if (!session) throw new Error('Could not load the MD session.')
+  return session
 }
 
 async function cleanupByName(organisationId: string) {
