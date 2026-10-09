@@ -21,7 +21,7 @@
     "test:scripts": "npm run test:audit-automation && npm run test:bookkeeping && npm run test:notifications-snooze && npm run test:gst-reminders && npm run test:tally-export && npm run test:repotic && npm run test:tasks && npm run test:zpay",
     "prisma:generate": "prisma generate",
     "prisma:push": "prisma db push --skip-generate",
-    "prisma:push:safe": "tsx prisma/safe-push.ts",
+    "prisma:push:safe": "prisma db execute --schema prisma/schema.prisma --file prisma/sql/widen-paise-bigint.postgresql.sql && tsx prisma/safe-push.ts",
     "db:drop-legacy-books": "prisma db execute --schema prisma/schema.prisma --file prisma/sql/drop-legacy-books.postgresql.sql",
     "seed": "tsx prisma/seed.ts",
     "setup:owners": "tsx prisma/setup-owners.ts",

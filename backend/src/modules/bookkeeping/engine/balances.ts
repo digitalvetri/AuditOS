@@ -1,6 +1,7 @@
 import { prisma, alive } from '../../../lib/prisma.js'
 import { stockValueAsAt, openingStockValue } from './inventory.js'
 import { fyStartFor } from './fiscalYear.js'
+import { toNum } from '../../../lib/money.js'
 
 /**
  * DERIVED BALANCES — every report in the Tally module is built on this
@@ -120,18 +121,18 @@ export async function ledgerBalances(companyId: string, filter: PeriodFilter = {
 
   const prior = new Map<string, number>()
   for (const r of priorAgg) {
-    const signed = (r.entryType === 'dr' ? 1 : -1) * (r._sum.amountPaise ?? 0)
+    const signed = (r.entryType === 'dr' ? 1 : -1) * toNum(r._sum.amountPaise ?? 0)
     prior.set(r.ledgerId, (prior.get(r.ledgerId) ?? 0) + signed)
   }
   const drIn = new Map<string, number>()
   const crIn = new Map<string, number>()
   for (const r of periodAgg) {
     const m = r.entryType === 'dr' ? drIn : crIn
-    m.set(r.ledgerId, (m.get(r.ledgerId) ?? 0) + (r._sum.amountPaise ?? 0))
+    m.set(r.ledgerId, (m.get(r.ledgerId) ?? 0) + toNum(r._sum.amountPaise ?? 0))
   }
 
   return ledgers.map((l) => {
-    const masterOpening = (l.openingBalanceType === 'cr' ? -1 : 1) * l.openingBalancePaise
+    const masterOpening = (l.openingBalanceType === 'cr' ? -1 : 1) * toNum(l.openingBalancePaise)
     const opening = masterOpening + (prior.get(l.id) ?? 0)
     const debit = drIn.get(l.id) ?? 0
     const credit = crIn.get(l.id) ?? 0

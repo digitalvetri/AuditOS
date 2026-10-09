@@ -4,6 +4,7 @@ import type { Session } from '../../../platform/auth.js'
 import { BookkeepingCompanyService } from './BookkeepingCompanyService.js'
 import { trialBalance } from '../engine/balances.js'
 import { stockPositions } from '../engine/inventory.js'
+import { toNum } from '../../../lib/money.js'
 import { USER_LABEL_SELECT, userLabel } from '../../../platform/userLabel.js'
 
 /**
@@ -95,7 +96,7 @@ export const BookkeepingAuditService = {
     return rows.map((v) => ({
       voucher_id: v.id, voucher_number: v.voucherNumber, voucher_type_code: v.voucherTypeCode,
       date: v.date, status: v.status, version: v.version, revision_count: v._count.revisions,
-      party_name: v.partyLedger?.name ?? null, grand_total_paise: v.grandTotalPaise,
+      party_name: v.partyLedger?.name ?? null, grand_total_paise: toNum(v.grandTotalPaise),
       last_modified_at: v.updatedAt.toISOString(), last_modified_by: v.modifiedByUserId,
     }))
   },
@@ -118,7 +119,7 @@ export const BookkeepingAuditService = {
     })
     return rows.map((v) => ({
       voucher_id: v.id, voucher_number: v.voucherNumber, voucher_type_code: v.voucherTypeCode,
-      date: v.date, grand_total_paise: v.grandTotalPaise, party_name: v.partyLedger?.name ?? null,
+      date: v.date, grand_total_paise: toNum(v.grandTotalPaise), party_name: v.partyLedger?.name ?? null,
       cancelled_at: v.cancelledAt?.toISOString() ?? null, cancelled_by: v.cancelledByUserId, reason: v.cancelReason,
     }))
   },

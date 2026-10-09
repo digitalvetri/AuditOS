@@ -2,6 +2,7 @@ import { prisma, alive } from '../../../lib/prisma.js'
 import { ledgerBalances } from './balances.js'
 import { parseTaxConfig } from './posting.js'
 import { applyBp } from './primitives.js'
+import { numify, toNum } from '../../../lib/money.js'
 
 /**
  * GST — every figure here is derived from posted vouchers and from the
@@ -105,8 +106,8 @@ export async function gstSummary(companyId: string, filter: { from?: string | nu
       totalPaise: output.totalPaise - input.totalPaise,
     },
     ledgers: ledgers.sort((a, b) => a.direction.localeCompare(b.direction) || a.ledgerName.localeCompare(b.ledgerName)),
-    outwardTaxableValuePaise: outward._sum.taxableValuePaise ?? 0,
-    inwardTaxableValuePaise: inward._sum.taxableValuePaise ?? 0,
+    outwardTaxableValuePaise: toNum(outward._sum.taxableValuePaise ?? 0),
+    inwardTaxableValuePaise: toNum(inward._sum.taxableValuePaise ?? 0),
   }
 }
 
@@ -160,7 +161,7 @@ const B2CL_THRESHOLD_PAISE = 250_000_00
  * are surfaced rather than silently defaulted.
  */
 export async function gstr1(companyId: string, from: string, to: string): Promise<Gstr1> {
-  const vouchers = await prisma.bookkeepingVoucher.findMany({
+  const loaded = await prisma.bookkeepingVoucher.findMany({
     where: {
       tallyCompanyId: companyId, status: 'active', ...alive,
       voucherTypeCode: { in: ['sales', 'credit_note'] },
@@ -174,6 +175,10 @@ export async function gstr1(companyId: string, from: string, to: string): Promis
     },
     orderBy: { date: 'asc' },
   })
+  const vouchers = loaded.map((v) => ({
+    ...numify(v, 'taxableValuePaise', 'cgstPaise', 'sgstPaise', 'igstPaise', 'cessPaise', 'grandTotalPaise'),
+    items: v.items.map((it) => numify(it, 'amountPaise', 'cgstPaise', 'sgstPaise', 'igstPaise', 'cessPaise')),
+  }))
 
   const map = (v: typeof vouchers[number]): Gstr1Invoice => ({
     voucherId: v.id,

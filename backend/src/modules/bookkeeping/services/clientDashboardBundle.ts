@@ -16,6 +16,8 @@
 import type { PrismaClient } from '@prisma/client'
 import { ledgerBalances } from '../engine/balances.js'
 import { alive } from '../../../lib/prisma.js'
+import { entryNums, itemNums, voucherNums } from '../engine/paise.js'
+import { numify } from '../../../lib/money.js'
 
 /** Most vouchers carried for the Journal Entries view; the oldest are dropped past this. */
 export const MAX_VOUCHERS = 3000
@@ -135,7 +137,7 @@ export async function buildClientDashboardBundle(prisma: PrismaClient, input: Bu
         orderBy: { position: 'asc' },
       },
     },
-  })
+  }).then((rs) => rs.map((v) => ({ ...voucherNums(v), entries: v.entries.map(entryNums), items: v.items.map(itemNums) })))
 
   const bankLedgers = new Set(balances.filter((b) => b.primaryGroupName === 'Bank Accounts').map((b) => b.ledgerId))
   const bankRows = new Map<number, BundleBankRow[]>()
@@ -183,7 +185,7 @@ export async function buildClientDashboardBundle(prisma: PrismaClient, input: Bu
     where: { tallyCompanyId: company.id, ledgerId: { in: partyIds }, date: { lte: fyEnd }, voucher: { status: 'active', ...alive } },
     select: { ledgerId: true, billRef: true, method: true, amountPaise: true, dueDate: true, date: true },
     orderBy: { date: 'asc' },
-  }) : []
+  }).then((rs) => rs.map((a) => numify(a, 'amountPaise'))) : []
   const billMap = new Map<string, BundleBill>()
   for (const a of allocations) {
     const li = ledgerIdx.get(a.ledgerId)

@@ -4,6 +4,8 @@ import type { Session } from '../../../platform/auth.js'
 import { BookkeepingCompanyService } from './BookkeepingCompanyService.js'
 import { ledgerBalances } from '../engine/balances.js'
 import { daysBetween } from '../engine/primitives.js'
+import { entryNums, statementLineNums } from '../engine/paise.js'
+import { toNum } from '../../../lib/money.js'
 
 /**
  * BookkeepingBankingService — bank accounts, the bank book, statement import
@@ -78,7 +80,7 @@ export const BookkeepingBankingService = {
         voucher: { select: { id: true, date: true, voucherNumber: true, voucherTypeCode: true, narration: true, partyLedger: { select: { name: true } } } },
       },
       orderBy: [{ voucher: { date: 'asc' } }],
-    })
+    }).then((rs) => rs.map(entryNums))
     let running = balance.openingPaise
     const rows = entries.map((e) => {
       running += e.entryType === 'dr' ? e.amountPaise : -e.amountPaise
@@ -117,7 +119,7 @@ export const BookkeepingBankingService = {
     const existing = await prisma.bookkeepingBankStatementLine.findMany({
       where: { tallyCompanyId: companyId, bankLedgerId, ...alive },
       select: { date: true, refNumber: true, debitPaise: true, creditPaise: true, description: true },
-    })
+    }).then((rs) => rs.map(statementLineNums))
     const seen = new Set(existing.map((e) => `${e.date}|${e.refNumber ?? ''}|${e.debitPaise}|${e.creditPaise}|${e.description}`))
     const fresh: typeof rows = []
     let duplicates = 0
@@ -155,7 +157,7 @@ export const BookkeepingBankingService = {
     })
     return rows.map((r) => ({
       id: r.id, date: r.date, description: r.description, ref_number: r.refNumber,
-      debit_paise: r.debitPaise, credit_paise: r.creditPaise, balance_paise: r.balancePaise,
+      debit_paise: toNum(r.debitPaise), credit_paise: toNum(r.creditPaise), balance_paise: toNum(r.balancePaise),
       status: r.status, matched_entry_id: r.entry?.id ?? null,
       matched_voucher_id: r.entry?.voucherId ?? null,
       matched_voucher_number: r.entry?.voucher.voucherNumber ?? null,
@@ -168,8 +170,9 @@ export const BookkeepingBankingService = {
    */
   async suggestMatches(session: Session, companyId: string, statementLineId: string, windowDays = 7) {
     await BookkeepingCompanyService.requireOwned(session, companyId)
-    const line = await prisma.bookkeepingBankStatementLine.findFirst({ where: { id: statementLineId, tallyCompanyId: companyId, ...alive } })
-    if (!line) throw ApiError.notFound('No such statement line.')
+    const row = await prisma.bookkeepingBankStatementLine.findFirst({ where: { id: statementLineId, tallyCompanyId: companyId, ...alive } })
+    if (!row) throw ApiError.notFound('No such statement line.')
+    const line = statementLineNums(row)
     const wantType = line.debitPaise > 0 ? 'cr' : 'dr' // a bank debit is money leaving = credit in books
     const amount = line.debitPaise > 0 ? line.debitPaise : line.creditPaise
     const candidates = await prisma.bookkeepingVoucherEntry.findMany({
@@ -191,7 +194,7 @@ export const BookkeepingBankingService = {
         date: c.voucher.date,
         party_name: c.voucher.partyLedger?.name ?? null,
         narration: c.voucher.narration,
-        amount_paise: c.amountPaise,
+        amount_paise: toNum(c.amountPaise),
         day_gap: Math.abs(daysBetween(c.voucher.date, line.date)),
       }))
       .filter((c) => c.day_gap <= windowDays)
@@ -207,8 +210,8 @@ export const BookkeepingBankingService = {
       const entry = await tx.bookkeepingVoucherEntry.findFirst({ where: { id: entryId, tallyCompanyId: companyId, ledgerId: line.bankLedgerId } })
       if (!entry) throw ApiError.notFound('No such bank entry on this account.')
       if (entry.bankStatementLineId) throw ApiError.conflict('already_matched', 'That book entry is already reconciled.')
-      const bookAmount = entry.entryType === 'dr' ? entry.amountPaise : -entry.amountPaise
-      const stmtAmount = line.creditPaise - line.debitPaise
+      const bookAmount = toNum(entry.entryType === 'dr' ? entry.amountPaise : -entry.amountPaise)
+      const stmtAmount = toNum(line.creditPaise - line.debitPaise)
       if (bookAmount !== stmtAmount) {
         throw ApiError.unprocessable('amount_mismatch', 'The statement line and the book entry are for different amounts.')
       }
@@ -248,7 +251,7 @@ export const BookkeepingBankingService = {
       where: { tallyCompanyId: companyId, bankLedgerId, ...alive, date: { lte: statementDate } },
       select: { id: true, status: true, debitPaise: true, creditPaise: true, balancePaise: true, date: true, description: true },
       orderBy: { date: 'asc' },
-    })
+    }).then((rs) => rs.map(statementLineNums))
     const statementMovement = lines.reduce((s, l) => s + l.creditPaise - l.debitPaise, 0)
     const latestWithBalance = [...lines].reverse().find((l) => l.balancePaise !== null)
     const statementBalance = latestWithBalance?.balancePaise ?? statementMovement
@@ -285,7 +288,7 @@ export const BookkeepingBankingService = {
         reconciledByUserId: session.userId,
       },
     })
-    return { id: row.id, statement_date: row.statementDate, difference_paise: row.differencePaise, created_at: row.createdAt.toISOString() }
+    return { id: row.id, statement_date: row.statementDate, difference_paise: toNum(row.differencePaise), created_at: row.createdAt.toISOString() }
   },
 
   async listReconciliations(session: Session, companyId: string, bankLedgerId?: string) {
@@ -297,8 +300,8 @@ export const BookkeepingBankingService = {
     })
     return rows.map((r) => ({
       id: r.id, bank_ledger_id: r.bankLedgerId, bank_ledger_name: r.bankLedger.name,
-      statement_date: r.statementDate, book_balance_paise: r.bookBalancePaise,
-      statement_balance_paise: r.statementBalancePaise, difference_paise: r.differencePaise,
+      statement_date: r.statementDate, book_balance_paise: toNum(r.bookBalancePaise),
+      statement_balance_paise: toNum(r.statementBalancePaise), difference_paise: toNum(r.differencePaise),
       matched_count: r.matchedCount, unmatched_count: r.unmatchedCount,
       notes: r.notes, created_at: r.createdAt.toISOString(),
     }))

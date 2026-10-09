@@ -1,5 +1,6 @@
 import { prisma } from '../../lib/prisma.js'
 import type { Session } from '../auth.js'
+import { stringifyJson } from '../../lib/json.js'
 
 /**
  * THE ACTIVITY TIMELINE (AUDIT_OS_WORKSTATION.md §11).
@@ -38,7 +39,7 @@ export async function writeActivity(input: ActivityInput): Promise<void> {
         actorEmployeeId: input.session.employeeId,
         entityType: input.entityType ?? null,
         entityId: input.entityId ?? null,
-        metaJson: input.meta === undefined ? null : JSON.stringify(input.meta),
+        metaJson: input.meta === undefined ? null : stringifyJson(input.meta),
       },
     })
   } catch (err) {

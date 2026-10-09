@@ -84,6 +84,7 @@ import { shareRouter } from './modules/share/routes.js'
 import { zpayRouter, zpayCallbackRouter } from './modules/zpay/routes.js'
 import { createFakeZohoRouter } from './modules/zpay/fake-zoho.js'
 import { zpayConfig, zpayShouldMountFake } from './modules/zpay/config.js'
+import { bigintReplacer } from './lib/json.js'
 
 /**
  * The HTTP surface. Every route below /api answers in the Part 1 envelope
@@ -98,6 +99,9 @@ export function createApp() {
   const app = express()
   app.disable('x-powered-by')
   app.set('trust proxy', 1)
+  // Safety net: a bigint (client-books money is int8) must never turn a
+  // response into a 500. Services convert paise to numbers themselves.
+  app.set('json replacer', bigintReplacer)
 
   // Credentialed CORS: an explicit origin allow-list, never '*'. Note that
   // this applies to proxied dev traffic too — Vite forwards the browser's

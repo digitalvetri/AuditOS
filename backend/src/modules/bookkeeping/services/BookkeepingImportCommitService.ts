@@ -32,6 +32,7 @@ import { ApiError } from '../../../lib/http.js'
 import { prisma as defaultPrisma } from '../../../lib/prisma.js'
 import { postVoucher } from '../engine/posting.js'
 import { normalizeParty } from '../engine/partyMatch.js'
+import { voucherNums } from '../engine/paise.js'
 import type {
   DerivedBatch,
   DerivedVoucher,
@@ -90,7 +91,7 @@ export async function classifyExistence(
         select: { id: true, voucherNumber: true, grandTotalPaise: true, date: true },
       })
     : []
-  const salesByNumber = new Map(existingSales.map((v) => [v.voucherNumber, v]))
+  const salesByNumber = new Map(existingSales.map((v) => [v.voucherNumber, voucherNums(v)]))
 
   // Purchases are keyed on (referenceNumber == bill_no, date, partyLedgerId).
   // referenceNumber can be null on old rows but any imported row that
@@ -115,8 +116,9 @@ export async function classifyExistence(
         },
       })
     : []
-  const purchByKey = new Map<string, (typeof existingPurch)[number]>()
-  for (const p of existingPurch) {
+  const purchByKey = new Map<string, ReturnType<typeof voucherNums<(typeof existingPurch)[number]>>>()
+  for (const row of existingPurch) {
+    const p = voucherNums(row)
     const key = `${p.referenceNumber ?? ''}|${p.date}|${p.partyLedgerId ?? ''}`
     purchByKey.set(key, p)
   }

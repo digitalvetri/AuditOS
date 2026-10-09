@@ -2,10 +2,11 @@ import { prisma, alive } from '../../../lib/prisma.js'
 import { ApiError } from '../../../lib/http.js'
 import type { Session } from '../../../platform/auth.js'
 import { BookkeepingCompanyService } from './BookkeepingCompanyService.js'
+import { toNum } from '../../../lib/money.js'
 
 /**
  * BookkeepingLedgerService — the ledgers under a company. Opening balances
- * are captured in paise (Int); every voucher line references these rows.
+ * are captured in paise (BigInt column, number in the API); every voucher line references these rows.
  * A ledger that carries money (postings, an opening balance, bills or
  * bank lines) cannot be deleted — only marked inactive (spec §2.1 rule 8).
  * Once any financial year is closed, the opening balance and group are
@@ -34,7 +35,7 @@ export interface LedgerApi {
 }
 
 function toApi(row: {
-  id: string; name: string; groupId: string; openingBalancePaise: number;
+  id: string; name: string; groupId: string; openingBalancePaise: bigint | number;
   openingBalanceType: string; openingBalanceAsOfFyId: string | null;
   address: string | null; contact: string | null; gstin: string | null;
   pan: string | null; state: string | null; gstRegistrationType: string | null;
@@ -46,7 +47,7 @@ function toApi(row: {
   if (row.taxConfigJson) { try { tax = JSON.parse(row.taxConfigJson) } catch { tax = null } }
   return {
     id: row.id, name: row.name, group_id: row.groupId,
-    opening_balance_paise: row.openingBalancePaise,
+    opening_balance_paise: toNum(row.openingBalancePaise),
     opening_balance_type: row.openingBalanceType === 'cr' ? 'cr' : 'dr',
     opening_balance_as_of_fy_id: row.openingBalanceAsOfFyId,
     address: row.address, contact: row.contact,
@@ -182,7 +183,7 @@ export const BookkeepingLedgerService = {
     // alongside a rename must still go through.
     const changesHistory =
       (data.groupId !== undefined && data.groupId !== existing.groupId) ||
-      (data.openingBalancePaise !== undefined && data.openingBalancePaise !== existing.openingBalancePaise) ||
+      (data.openingBalancePaise !== undefined && data.openingBalancePaise !== toNum(existing.openingBalancePaise)) ||
       (data.openingBalanceType !== undefined && data.openingBalanceType !== existing.openingBalanceType)
     if (changesHistory) {
       const closed = await prisma.bookkeepingFinancialYear.findFirst({
@@ -226,14 +227,14 @@ export const BookkeepingLedgerService = {
     ])
     const reasons: string[] = []
     if (entries || partyVouchers) reasons.push('vouchers posted to it')
-    if (existing.openingBalancePaise !== 0) reasons.push('an opening balance')
+    if (toNum(existing.openingBalancePaise) !== 0) reasons.push('an opening balance')
     if (allocations) reasons.push('bill allocations')
     if (statementLines) reasons.push('bank statement lines')
     if (reasons.length) {
       throw ApiError.conflict(
         'ledger_in_use',
         `"${existing.name}" has ${reasons.join(', ')}, so deleting it would drop that money from every report. Mark it inactive instead.`,
-        { entries, party_vouchers: partyVouchers, allocations, statement_lines: statementLines, opening_balance_paise: existing.openingBalancePaise },
+        { entries, party_vouchers: partyVouchers, allocations, statement_lines: statementLines, opening_balance_paise: toNum(existing.openingBalancePaise) },
       )
     }
     await prisma.bookkeepingLedger.update({ where: { id }, data: { deletedAt: new Date(), active: false } })

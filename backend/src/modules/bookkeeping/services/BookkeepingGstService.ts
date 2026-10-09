@@ -6,6 +6,8 @@ import { gstSummary, gstr1, gstr3b } from '../engine/gst.js'
 import { parseTaxConfig } from '../engine/posting.js'
 import { ledgerBalances } from '../engine/balances.js'
 import { bpToPct } from '../engine/primitives.js'
+import { itemNums, voucherNums } from '../engine/paise.js'
+import { toNum } from '../../../lib/money.js'
 
 /**
  * BookkeepingGstService — GST and other statutory reporting.
@@ -58,7 +60,7 @@ export const BookkeepingGstService = {
     return rows.map((r) => ({
       id: r.id, tax_type: r.taxType, name: r.name, hsn_code: r.hsnCode, sac_code: r.sacCode,
       section: r.section, rate_bp: r.rateBp, rate_pct: bpToPct(r.rateBp), cess_bp: r.cessBp,
-      threshold_paise: r.thresholdPaise, effective_from: r.effectiveFrom, active: r.active,
+      threshold_paise: toNum(r.thresholdPaise), effective_from: r.effectiveFrom, active: r.active,
     }))
   },
 
@@ -120,7 +122,7 @@ export const BookkeepingGstService = {
         paid_paise: rows.reduce((s, r) => s + r.paid_paise, 0),
         payable_paise: rows.reduce((s, r) => s + r.payable_paise, 0),
       },
-      configured_rates: rates.map((r) => ({ id: r.id, name: r.name, section: r.section, rate_pct: bpToPct(r.rateBp), threshold_paise: r.thresholdPaise })),
+      configured_rates: rates.map((r) => ({ id: r.id, name: r.name, section: r.section, rate_pct: bpToPct(r.rateBp), threshold_paise: toNum(r.thresholdPaise) })),
       note: rows.length === 0
         ? `No ledger is configured for ${taxType.toUpperCase()}. Tag a Duties & Taxes ledger with {"tax_type":"${taxType}","section":"..."} to report on it.`
         : 'Rates and sections come from the tax-rate masters; nothing is assumed by the code.',
@@ -134,14 +136,15 @@ export const BookkeepingGstService = {
    */
   async eInvoicePayload(session: Session, companyId: string, voucherId: string) {
     const company = await BookkeepingCompanyService.requireOwned(session, companyId)
-    const v = await prisma.bookkeepingVoucher.findFirst({
+    const row = await prisma.bookkeepingVoucher.findFirst({
       where: { id: voucherId, tallyCompanyId: companyId, ...alive, voucherTypeCode: 'sales' },
       include: {
         partyLedger: true,
         items: { include: { stockItem: { include: { unit: true } } } },
       },
     })
-    if (!v) throw ApiError.notFound('No such sales voucher.')
+    if (!row) throw ApiError.notFound('No such sales voucher.')
+    const v = { ...voucherNums(row), items: row.items.map(itemNums) }
     const missing: string[] = []
     if (!company.gstin) missing.push('Company GSTIN')
     if (!v.partyLedger?.gstin) missing.push('Buyer GSTIN')
@@ -207,11 +210,12 @@ export const BookkeepingGstService = {
     transportMode?: string | null; distanceKm?: number | null
   } = {}) {
     const company = await BookkeepingCompanyService.requireOwned(session, companyId)
-    const v = await prisma.bookkeepingVoucher.findFirst({
+    const row = await prisma.bookkeepingVoucher.findFirst({
       where: { id: voucherId, tallyCompanyId: companyId, ...alive },
       include: { partyLedger: true, items: { include: { stockItem: true } } },
     })
-    if (!v) throw ApiError.notFound('No such voucher.')
+    if (!row) throw ApiError.notFound('No such voucher.')
+    const v = { ...voucherNums(row), items: row.items.map(itemNums) }
     const blockers: string[] = []
     if (!company.gstin) blockers.push('Company GSTIN')
     if (!v.placeOfSupply) blockers.push('Place of supply')

@@ -5,6 +5,7 @@ import { can, type Session } from '../../../platform/auth.js'
 import { writeAudit } from '../../../platform/audit.js'
 import { runMatcher, compare, itcFor, type MatchStatus, type ItcClassification, type Entry } from './GstMatchingService.js'
 import { isValidGstin } from '../parsers/types.js'
+import { toNum } from '../../../lib/money.js'
 
 /**
  * A GST reconciliation run: load both sides, match, persist rows and
@@ -67,14 +68,14 @@ type E2B = Awaited<ReturnType<typeof prisma.aaGstFiling2BEntry.findMany>>[number
 type EPR = Awaited<ReturnType<typeof prisma.aaPurchaseRegisterEntry.findMany>>[number]
 const from2B = (e: E2B): Entry => ({
   id: e.id, section: e.section, docType: e.docType as Entry['docType'], supplierGstin: e.supplierGstin, supplierName: e.supplierName ?? undefined,
-  invoiceNumber: e.invoiceNumber, invoiceDate: e.invoiceDate, taxableValue: e.taxableValue, igst: e.igst, cgst: e.cgst, sgst: e.sgst, cess: e.cess,
-  invoiceValue: e.invoiceValue ?? undefined, reverseCharge: e.reverseCharge, originalInvoiceNumber: e.originalInvoiceNumber ?? undefined,
+  invoiceNumber: e.invoiceNumber, invoiceDate: e.invoiceDate, taxableValue: toNum(e.taxableValue), igst: toNum(e.igst), cgst: toNum(e.cgst), sgst: toNum(e.sgst), cess: toNum(e.cess),
+  invoiceValue: toNum(e.invoiceValue) ?? undefined, reverseCharge: e.reverseCharge, originalInvoiceNumber: e.originalInvoiceNumber ?? undefined,
   itcAvailable: e.itcAvailable, itcReason: e.itcReason ?? undefined,
 })
 const fromPR = (e: EPR): Entry => ({
   id: e.id, docType: e.docType as Entry['docType'], supplierGstin: e.supplierGstin, supplierName: e.supplierName ?? undefined,
-  invoiceNumber: e.invoiceNumber, invoiceDate: e.invoiceDate, taxableValue: e.taxableValue, igst: e.igst, cgst: e.cgst, sgst: e.sgst, cess: e.cess,
-  invoiceValue: e.invoiceValue ?? undefined, reverseCharge: e.reverseCharge, glCode: e.glCode ?? undefined,
+  invoiceNumber: e.invoiceNumber, invoiceDate: e.invoiceDate, taxableValue: toNum(e.taxableValue), igst: toNum(e.igst), cgst: toNum(e.cgst), sgst: toNum(e.sgst), cess: toNum(e.cess),
+  invoiceValue: toNum(e.invoiceValue) ?? undefined, reverseCharge: e.reverseCharge, glCode: e.glCode ?? undefined,
 })
 const periodOf = (m: number, y: number) => `${y}-${String(m).padStart(2, '0')}`
 
@@ -86,7 +87,7 @@ async function reroll(jobId: string) {
     const e = r.filing2BEntry ?? r.purchaseRegisterEntry
     const t = totals[r.matchStatus as MatchStatus]
     if (!e || !t) continue
-    t.taxable += e.taxableValue; t.igst += e.igst; t.cgst += e.cgst; t.sgst += e.sgst; t.cess += e.cess; t.count += 1
+    t.taxable += toNum(e.taxableValue); t.igst += toNum(e.igst); t.cgst += toNum(e.cgst); t.sgst += toNum(e.sgst); t.cess += toNum(e.cess); t.count += 1
   }
   await prisma.aaGstReconJob.update({
     where: { id: jobId },
@@ -191,8 +192,8 @@ export const GstReconJobService = {
     const side = (e: E2B | EPR | null, is2B: boolean) => e ? {
       id: e.id, doc_type: e.docType, supplier_gstin: e.supplierGstin, supplier_name: e.supplierName,
       gstin_valid: e.supplierGstin === 'IMPORT' || isValidGstin(e.supplierGstin),
-      invoice_number: e.invoiceNumber, invoice_date: e.invoiceDate, invoice_value: e.invoiceValue,
-      taxable_value: e.taxableValue, igst: e.igst, cgst: e.cgst, sgst: e.sgst, cess: e.cess, reverse_charge: e.reverseCharge,
+      invoice_number: e.invoiceNumber, invoice_date: e.invoiceDate, invoice_value: toNum(e.invoiceValue),
+      taxable_value: toNum(e.taxableValue), igst: toNum(e.igst), cgst: toNum(e.cgst), sgst: toNum(e.sgst), cess: toNum(e.cess), reverse_charge: e.reverseCharge,
       ...(is2B ? { section: (e as E2B).section, itc_available: (e as E2B).itcAvailable, itc_reason: (e as E2B).itcReason, original_invoice_number: (e as E2B).originalInvoiceNumber }
         : { gl_code: (e as EPR).glCode }),
     } : null

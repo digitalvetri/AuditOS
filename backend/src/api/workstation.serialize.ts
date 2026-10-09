@@ -21,6 +21,7 @@ import type {
   ClientService, EwayBill, FollowUp, GstFiling, GstProfile, Lead, Service, Task,
 } from '@prisma/client'
 import { prisma } from '../lib/prisma.js'
+import { toNum } from '../lib/money.js'
 
 const iso = (d: Date | null | undefined): string | null => (d ? d.toISOString() : null)
 const isoReq = (d: Date): string => d.toISOString()
@@ -364,7 +365,7 @@ export function ewayBillToApi(e: EwayBill, m: EmployeeLookup) {
     from_gstin: e.fromGstin,
     to_gstin: e.toGstin,
     to_party_name: e.toPartyName,
-    value_paise: e.valuePaise,
+    value_paise: toNum(e.valuePaise),
     status: e.status,
     generated_at: isoReq(e.generatedAt),
     valid_until: e.validUntil,

@@ -1,5 +1,6 @@
 import type { Request } from 'express'
 import { prisma } from '../lib/prisma.js'
+import { stringifyJson } from '../lib/json.js'
 
 /**
  * AuditLog primitive (§8.9 / §10). Append-only: there is no update and no
@@ -24,8 +25,8 @@ export async function writeAudit(input: {
         action: input.action,
         entityType: input.entityType,
         entityId: input.entityId,
-        beforeJson: input.before === undefined ? null : JSON.stringify(input.before),
-        afterJson: input.after === undefined ? null : JSON.stringify(input.after),
+        beforeJson: input.before === undefined ? null : stringifyJson(input.before),
+        afterJson: input.after === undefined ? null : stringifyJson(input.after),
         ip: input.req?.ip ?? null,
         userAgent: input.req?.headers['user-agent'] ?? null,
       },

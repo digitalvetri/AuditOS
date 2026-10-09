@@ -24,6 +24,7 @@ import { loadEinvEwbRates } from './config.js'
 import { deriveApplicability, parseAatoByYear } from './applicability.js'
 import { buildAlerts, type AlertItemMissingIrn } from './alerts.js'
 import { profileToApi, irnToApi, ewbAlertItemToApi, monitorsSummary, setupSummary } from './serialize.js'
+import { toNum } from '../../../lib/money.js'
 
 export const einvoiceEwbRouter = Router()
 
@@ -136,7 +137,7 @@ einvoiceEwbRouter.get('/:id/einvoice-ewb', handler(async (req, res) => {
       documentNo: r.documentNo,
       documentDate: r.documentDate,
       documentType: r.documentType,
-      totalValuePaise: r.totalValuePaise,
+      totalValuePaise: toNum(r.totalValuePaise),
       status: r.status,
       reportedAt: r.reportedAt,
     })),
@@ -150,7 +151,7 @@ einvoiceEwbRouter.get('/:id/einvoice-ewb', handler(async (req, res) => {
       generatedAt: r.generatedAt,
       expiresAt: r.expiresAt,
       status: r.status,
-      valuePaise: r.valuePaise,
+      valuePaise: toNum(r.valuePaise),
     })),
     missingIrnDocuments: missingIrns,
     now,

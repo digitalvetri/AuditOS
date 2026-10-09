@@ -4,6 +4,8 @@ import type { Session } from '../../../platform/auth.js'
 import { BookkeepingCompanyService } from './BookkeepingCompanyService.js'
 import { BookkeepingBootstrapService } from './BookkeepingBootstrapService.js'
 import { postVoucher, alterVoucher, cancelVoucher, restoreVoucher, type PostVoucherInput } from '../engine/posting.js'
+import { entryNums, itemNums, voucherNums } from '../engine/paise.js'
+import { toNum } from '../../../lib/money.js'
 
 /**
  * BookkeepingVoucherService — the HTTP-facing shape of a voucher. All the
@@ -220,12 +222,12 @@ export const BookkeepingVoucherService = {
       }),
       prisma.bookkeepingVoucher.count({ where }),
     ])
-    return { items: rows.map(toApi), total, limit: take, offset: filter.offset ?? 0 }
+    return { items: rows.map((r) => toApi(voucherNums(r))), total, limit: take, offset: filter.offset ?? 0 }
   },
 
   async get(session: Session, companyId: string, voucherId: string): Promise<VoucherApi> {
     await BookkeepingCompanyService.requireOwned(session, companyId)
-    const v = await prisma.bookkeepingVoucher.findFirst({
+    const row = await prisma.bookkeepingVoucher.findFirst({
       where: { id: voucherId, tallyCompanyId: companyId, ...alive },
       include: {
         partyLedger: { select: { name: true } },
@@ -240,9 +242,10 @@ export const BookkeepingVoucherService = {
         },
       },
     })
-    if (!v) throw ApiError.notFound('No such voucher.')
+    if (!row) throw ApiError.notFound('No such voucher.')
+    const v = { ...voucherNums(row), entries: row.entries.map(entryNums), items: row.items.map(itemNums) }
     return {
-      ...toApi(v as unknown as ListRow),
+      ...toApi(v),
       entries: v.entries.map((e) => ({
         id: e.id,
         ledger_id: e.ledgerId,
@@ -255,7 +258,7 @@ export const BookkeepingVoucherService = {
         bank_date: e.bankDate,
         reconciled_at: e.reconciledAt?.toISOString() ?? null,
         bill_allocations: e.allocations.map((a) => ({
-          bill_ref: a.billRef, method: a.method, amount_paise: a.amountPaise, due_date: a.dueDate,
+          bill_ref: a.billRef, method: a.method, amount_paise: toNum(a.amountPaise), due_date: a.dueDate,
         })),
       })),
       items: v.items.map((i) => ({

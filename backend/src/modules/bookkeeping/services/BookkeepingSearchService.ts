@@ -1,6 +1,7 @@
 import { prisma, alive } from '../../../lib/prisma.js'
 import type { Session } from '../../../platform/auth.js'
 import { BookkeepingCompanyService } from './BookkeepingCompanyService.js'
+import { toNum } from '../../../lib/money.js'
 
 /**
  * BookkeepingSearchService — one query across a company's masters and
@@ -63,7 +64,7 @@ export const BookkeepingSearchService = {
       ...vouchers.map((v) => ({
         type: 'voucher' as const, id: v.id,
         label: `${v.voucherTypeCode.replace(/_/g, ' ')} ${v.voucherNumber}`,
-        sublabel: `${v.date}${v.partyLedger ? ` · ${v.partyLedger.name}` : ''} · ₹${(v.grandTotalPaise / 100).toFixed(2)}`,
+        sublabel: `${v.date}${v.partyLedger ? ` · ${v.partyLedger.name}` : ''} · ₹${(toNum(v.grandTotalPaise) / 100).toFixed(2)}`,
         route: `${base}/vouchers/${v.id}`,
       })),
       ...items.map((i) => ({

@@ -2,6 +2,7 @@ import ExcelJS from 'exceljs'
 import { prisma, alive } from '../../../lib/prisma.js'
 import { ApiError } from '../../../lib/http.js'
 import { can, type Session } from '../../../platform/auth.js'
+import { numify } from '../../../lib/money.js'
 
 /**
  * Export a completed GST reconciliation to a 5-sheet XLSX workbook:
@@ -53,9 +54,10 @@ const SHEETS: { status: string; name: string; paired: boolean }[] = [
 ]
 
 /** One flat record per row — the same columns for the workbook sheets and the CSV. */
+const AMOUNTS = ['taxableValue', 'igst', 'cgst', 'sgst', 'cess', 'invoiceValue'] as const
 function flat(r: Row) {
-  const a = r.filing2BEntry
-  const b = r.purchaseRegisterEntry
+  const a = r.filing2BEntry && numify(r.filing2BEntry, ...AMOUNTS)
+  const b = r.purchaseRegisterEntry && numify(r.purchaseRegisterEntry, ...AMOUNTS)
   const e = a ?? b
   const d = (x: number | undefined | null, y: number | undefined | null) => (x == null || y == null ? null : paiseToRupees(x - y))
   return {

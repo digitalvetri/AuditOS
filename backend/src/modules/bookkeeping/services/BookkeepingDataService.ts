@@ -7,6 +7,8 @@ import { postVoucher } from '../engine/posting.js'
 import { ledgerBalances, trialBalance } from '../engine/balances.js'
 import { formatPaise } from '../engine/primitives.js'
 import { assertOpeningStockEditable } from './BookkeepingInventoryService.js'
+import { entryNums, itemNums, ledgerNums, voucherNums } from '../engine/paise.js'
+import { numify, toNum } from '../../../lib/money.js'
 
 /**
  * BookkeepingDataService — import, export, backup and restore.
@@ -258,7 +260,7 @@ export const BookkeepingDataService = {
         type: String(r.dr_cr).toLowerCase(),
       }))
       // Openings feed every report of a closed year — same rule as a ledger edit.
-      const changed = planned.filter((p) => p.paise !== p.ledger.openingBalancePaise || p.type !== p.ledger.openingBalanceType)
+      const changed = planned.filter((p) => p.paise !== toNum(p.ledger.openingBalancePaise) || p.type !== p.ledger.openingBalanceType)
       if (changed.length) {
         const closed = await prisma.bookkeepingFinancialYear.findFirst({ where: { tallyCompanyId: companyId, closed: true }, select: { label: true } })
         if (closed) {
@@ -330,19 +332,26 @@ export const BookkeepingDataService = {
       prisma.bookkeepingTaxRate.findMany({ where: { tallyCompanyId: companyId, ...alive } }),
       prisma.bookkeepingSetting.findMany({ where: { tallyCompanyId: companyId } }),
     ])
-    const vouchers = opts.includeVouchers === false ? [] : await prisma.bookkeepingVoucher.findMany({
+    const voucherRows = opts.includeVouchers === false ? [] : await prisma.bookkeepingVoucher.findMany({
       where: { tallyCompanyId: companyId, ...alive },
       include: { entries: { include: { allocations: true } }, items: true },
       orderBy: { date: 'asc' },
     })
+    // Paise as plain JSON numbers — the backup format predates the BigInt columns.
+    const vouchers = voucherRows.map((v) => ({
+      ...voucherNums(v),
+      entries: v.entries.map((e) => ({ ...entryNums(e), allocations: e.allocations.map((a) => numify(a, 'amountPaise')) })),
+      items: v.items.map(itemNums),
+    }))
     return {
       format: 'auditos.tally.company.v1',
       exported_at: new Date().toISOString(),
       company,
       financial_years: financialYears,
-      groups, ledgers, voucher_types: voucherTypes,
-      stock_items: stockItems, units, godowns, stock_openings: openings,
-      tax_rates: taxRates, settings,
+      groups, ledgers: ledgers.map(ledgerNums), voucher_types: voucherTypes,
+      stock_items: stockItems.map((s) => numify(s, 'standardCostPaise', 'standardPricePaise')), units, godowns,
+      stock_openings: openings.map((o) => numify(o, 'ratePaise', 'valuePaise')),
+      tax_rates: taxRates.map((t) => numify(t, 'thresholdPaise')), settings,
       vouchers,
       counts: { groups: groups.length, ledgers: ledgers.length, vouchers: vouchers.length, stock_items: stockItems.length },
     }
@@ -373,7 +382,7 @@ export const BookkeepingDataService = {
       },
       include: { entries: { include: { ledger: { select: { name: true } } } }, voucherType: true },
       orderBy: { date: 'asc' },
-    })
+    }).then((rs) => rs.map((v) => ({ ...v, entries: v.entries.map(entryNums) })))
     const esc = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
     const ymd = (iso: string) => iso.replace(/-/g, '')
     const body = vouchers.map((v) => `

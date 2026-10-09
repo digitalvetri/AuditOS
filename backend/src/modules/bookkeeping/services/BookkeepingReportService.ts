@@ -7,6 +7,8 @@ import {
   type PeriodFilter,
 } from '../engine/balances.js'
 import { ageingBucketFor, daysBetween, AGEING_BUCKETS } from '../engine/primitives.js'
+import { entryNums, voucherNums } from '../engine/paise.js'
+import { numify, toNum } from '../../../lib/money.js'
 
 /**
  * BookkeepingReportService — every accounting, outstanding and financial report.
@@ -64,8 +66,8 @@ export const BookkeepingReportService = {
       voucher_number: v.voucherNumber,
       party_name: v.partyLedger?.name ?? null,
       narration: v.narration,
-      debit_paise: v.totalDebitPaise,
-      credit_paise: v.totalCreditPaise,
+      debit_paise: toNum(v.totalDebitPaise),
+      credit_paise: toNum(v.totalCreditPaise),
       status: v.status,
       ledgers: v.entries.map((e) => e.ledger.name),
     }))
@@ -113,7 +115,7 @@ export const BookkeepingReportService = {
         },
       },
       orderBy: [{ voucher: { date: 'asc' } }, { position: 'asc' }],
-    })
+    }).then((rs) => rs.map(entryNums))
 
     let running = balance.openingPaise
     const rows = entries.map((e) => {
@@ -182,7 +184,7 @@ export const BookkeepingReportService = {
         partyLedger: { select: { id: true, name: true, gstin: true } },
       },
       orderBy: [{ date: 'asc' }, { voucherNumber: 'asc' }],
-    })
+    }).then((rs) => rs.map(voucherNums))
     const items = rows.map((v) => ({
       voucher_id: v.id,
       date: v.date,
@@ -239,7 +241,7 @@ export const BookkeepingReportService = {
         voucher: ACTIVE,
       },
       select: { ledgerId: true, billRef: true, method: true, amountPaise: true, dueDate: true, date: true, voucherId: true },
-    })
+    }).then((rs) => rs.map((a) => numify(a, 'amountPaise')))
 
     const byLedger = new Map<string, typeof allocations>()
     for (const a of allocations) {
@@ -344,7 +346,7 @@ export const BookkeepingReportService = {
         entryType: true, amountPaise: true,
         voucher: { select: { id: true, entries: { select: { ledgerId: true, entryType: true, amountPaise: true } } } },
       },
-    })
+    }).then((rs) => rs.map((e) => ({ ...entryNums(e), voucher: { ...e.voucher, entries: e.voucher.entries.map(entryNums) } })))
 
     const natureOf = new Map(balances.map((b) => [b.ledgerId, b.primaryGroupName]))
     const inflow = new Map<string, number>()

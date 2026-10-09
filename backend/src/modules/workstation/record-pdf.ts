@@ -165,7 +165,7 @@ export function streamEwayBillPdf(res: Response, e: EwayBill & { client: Client 
       ] },
       { heading: 'Cancellation', rows: [['Cancelled on', e.cancelledAt ? day(e.cancelledAt) : null], ['Reason', e.cancelReason]] },
     ],
-    amount: { label: 'Consignment value', paise: e.valuePaise },
+    amount: { label: 'Consignment value', paise: Number(e.valuePaise) },
   }, download)
 }
 
@@ -181,7 +181,7 @@ export function streamEInvoicePdf(res: Response, e: EInvoiceIrn & { client: Clie
       { heading: 'Buyer', rows: [['Name', e.buyerName], ['GSTIN', e.buyerGstin], ['Place of supply', e.placeOfSupply]] },
       { heading: 'Cancellation', rows: [['Cancelled on', e.cancelledAt ? day(e.cancelledAt) : null], ['Reason', e.cancelReason]] },
     ],
-    amount: { label: 'Total invoice value', paise: e.totalValuePaise },
+    amount: { label: 'Total invoice value', paise: Number(e.totalValuePaise) },
   }, download)
 }
 

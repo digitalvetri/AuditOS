@@ -5,6 +5,7 @@ import { ApiError, handler, ok } from '../../lib/http.js'
 import { can, requireSession, type Session } from '../../platform/auth.js'
 import { writeAudit } from '../../platform/audit.js'
 import { prisma } from '../../lib/prisma.js'
+import { numify } from '../../lib/money.js'
 import ExcelJS from 'exceljs'
 import {
   previewWorkbook,
@@ -396,7 +397,7 @@ export function registerBookkeepingImportRoutes(router: Router): void {
         orderBy: { createdAt: 'desc' },
         take: 50,
       })
-      ok(res, { items })
+      ok(res, { items: items.map((r) => numify(r, 'totalPaise')) })
     }),
   )
 }

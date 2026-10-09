@@ -1,5 +1,6 @@
 import { prisma, alive } from '../../../lib/prisma.js'
 import { fyStartFor } from './fiscalYear.js'
+import { toNum } from '../../../lib/money.js'
 
 /**
  * INVENTORY — closing stock is opening stock plus every inward line
@@ -95,13 +96,13 @@ export async function stockPositions(companyId: string, filter: StockFilter = {}
 
   const key = (id: string, d: string) => `${id}|${d}`
   const prior = new Map<string, { qty: number; value: number }>()
-  for (const r of priorLines) prior.set(key(r.stockItemId, r.direction), { qty: r._sum.qtyMilli ?? 0, value: r._sum.amountPaise ?? 0 })
+  for (const r of priorLines) prior.set(key(r.stockItemId, r.direction), { qty: r._sum.qtyMilli ?? 0, value: toNum(r._sum.amountPaise ?? 0) })
   const period = new Map<string, { qty: number; value: number }>()
-  for (const r of periodLines) period.set(key(r.stockItemId, r.direction), { qty: r._sum.qtyMilli ?? 0, value: r._sum.amountPaise ?? 0 })
+  for (const r of periodLines) period.set(key(r.stockItemId, r.direction), { qty: r._sum.qtyMilli ?? 0, value: toNum(r._sum.amountPaise ?? 0) })
 
   return items.map((item) => {
     const openMaster = item.openings.reduce(
-      (a, o) => ({ qty: a.qty + o.qtyMilli, value: a.value + o.valuePaise }),
+      (a, o) => ({ qty: a.qty + o.qtyMilli, value: a.value + toNum(o.valuePaise) }),
       { qty: 0, value: 0 },
     )
     const pIn = prior.get(key(item.id, 'in')) ?? { qty: 0, value: 0 }
@@ -188,8 +189,8 @@ export async function stockMovement(companyId: string, stockItemId: string, filt
     godownName: r.godown?.name ?? null,
     batchName: r.batch?.name ?? null,
     qtyMilli: r.qtyMilli,
-    ratePaise: r.ratePaise,
-    amountPaise: r.amountPaise,
+    ratePaise: toNum(r.ratePaise),
+    amountPaise: toNum(r.amountPaise),
     partyName: r.voucher.partyLedger?.name ?? null,
   }))
 }
@@ -290,7 +291,7 @@ async function holdingsAsAt(
   })
   const moved = new Map<string, Holding>()
   for (const l of lines) {
-    moved.set(`${l.stockItemId}|${l.direction}`, { qty: l._sum.qtyMilli ?? 0, value: l._sum.amountPaise ?? 0 })
+    moved.set(`${l.stockItemId}|${l.direction}`, { qty: l._sum.qtyMilli ?? 0, value: toNum(l._sum.amountPaise ?? 0) })
   }
 
   const out = new Map<string, Holding>()
@@ -338,7 +339,7 @@ export async function stockValueAsAt(companyId: string, asOf: string | null): Pr
   const holdings = await holdingsAsAt(companyId, date, company?.booksBeginFrom ?? null, items.map((i) => ({
     id: i.id,
     openQty: i.openings.reduce((s, o) => s + o.qtyMilli, 0),
-    openValue: i.openings.reduce((s, o) => s + o.valuePaise, 0),
+    openValue: i.openings.reduce((s, o) => s + toNum(o.valuePaise), 0),
   })))
   let total = 0
   for (const h of holdings.values()) total += h.value

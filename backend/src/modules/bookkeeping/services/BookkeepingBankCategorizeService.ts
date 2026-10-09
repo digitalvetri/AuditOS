@@ -3,6 +3,7 @@ import { ApiError } from '../../../lib/http.js'
 import type { Session } from '../../../platform/auth.js'
 import { BookkeepingCompanyService } from './BookkeepingCompanyService.js'
 import { postVoucher } from '../engine/posting.js'
+import { statementLineNums } from '../engine/paise.js'
 
 /**
  * BookkeepingBankCategorizeService — auto-categorize unmatched statement
@@ -321,10 +322,10 @@ export const BookkeepingBankCategorizeService = {
     })
     if (!bank) throw ApiError.notFound('No such bank ledger.')
 
-    const lines = await prisma.bookkeepingBankStatementLine.findMany({
+    const lines = (await prisma.bookkeepingBankStatementLine.findMany({
       where: { tallyCompanyId: companyId, bankLedgerId, status: 'unmatched', ...alive },
       orderBy: [{ date: 'asc' }, { createdAt: 'asc' }],
-    })
+    })).map(statementLineNums)
     if (lines.length === 0) return { proposals: [], unresolvedCount: 0 }
 
     const dbRules = await loadDbRules(companyId)
@@ -447,9 +448,10 @@ export const BookkeepingBankCategorizeService = {
       try {
         // 1) Pre-flight read. Re-check status so a second commit skips lines
         //    already matched by a prior partial run.
-        const line = await prisma.bookkeepingBankStatementLine.findFirst({
+        const row = await prisma.bookkeepingBankStatementLine.findFirst({
           where: { id: p.lineId, tallyCompanyId: companyId, bankLedgerId, ...alive },
         })
+        const line = row && statementLineNums(row)
         if (!line) throw ApiError.notFound('No such statement line.')
         if (line.status === 'matched') { skipped++; continue }
         const counter = await prisma.bookkeepingLedger.findFirst({

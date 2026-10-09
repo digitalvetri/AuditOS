@@ -4,6 +4,7 @@ import type { Session } from '../../../platform/auth.js'
 import { BookkeepingCompanyService } from './BookkeepingCompanyService.js'
 import { BookkeepingBootstrapService } from './BookkeepingBootstrapService.js'
 import { stockPositions, stockMovement, godownStock, type StockFilter } from '../engine/inventory.js'
+import { toNum } from '../../../lib/money.js'
 
 /**
  * BookkeepingInventoryService — inventory MASTERS (stock groups, categories,
@@ -127,10 +128,10 @@ export const BookkeepingInventoryService = {
       id: r.id, name: r.name, stock_group_id: r.stockGroupId, stock_group_name: r.stockGroup?.name ?? null,
       category_id: r.categoryId, unit_id: r.unitId, unit_name: r.unit?.name ?? null,
       hsn_code: r.hsnCode, gst_rate_bp: r.gstRateBp, reorder_level_milli: r.reorderLevelMilli,
-      standard_cost_paise: r.standardCostPaise, standard_price_paise: r.standardPricePaise,
+      standard_cost_paise: toNum(r.standardCostPaise), standard_price_paise: toNum(r.standardPricePaise),
       valuation_method: r.valuationMethod, batch_tracking: r.batchTracking, active: r.active,
       opening_qty_milli: r.openings.reduce((s, o) => s + o.qtyMilli, 0),
-      opening_value_paise: r.openings.reduce((s, o) => s + o.valuePaise, 0),
+      opening_value_paise: r.openings.reduce((s, o) => s + toNum(o.valuePaise), 0),
     }))
   },
 
@@ -197,7 +198,7 @@ export const BookkeepingInventoryService = {
     const value = Math.round((input.qtyMilli * input.ratePaise) / 1000)
     // Only a real change counts — re-saving the same opening is fine.
     const unchanged = existing
-      ? existing.qtyMilli === input.qtyMilli && existing.ratePaise === input.ratePaise
+      ? existing.qtyMilli === input.qtyMilli && toNum(existing.ratePaise) === input.ratePaise
       : input.qtyMilli === 0
     if (!unchanged) await assertOpeningStockEditable(companyId)
     if (existing) {

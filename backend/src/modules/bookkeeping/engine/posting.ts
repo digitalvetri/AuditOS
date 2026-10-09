@@ -3,6 +3,7 @@ import { prisma, alive } from '../../../lib/prisma.js'
 import { ApiError } from '../../../lib/http.js'
 import { lockSequence } from '../../../lib/sequence.js'
 import { assertDate } from './primitives.js'
+import { toNum } from '../../../lib/money.js'
 
 /**
  * THE POSTING ENGINE — the single writer of Tally financial state.
@@ -473,12 +474,12 @@ async function writeLines(tx: Tx, companyId: string, voucherId: string, date: st
   }
 }
 
-function snapshotOf(v: { voucherNumber: string; date: string; narration: string | null; grandTotalPaise: number }, rolled: ValidatedLines) {
+function snapshotOf(v: { voucherNumber: string; date: string; narration: string | null; grandTotalPaise: bigint | number }, rolled: ValidatedLines) {
   return {
     voucher_number: v.voucherNumber,
     date: v.date,
     narration: v.narration,
-    grand_total_paise: v.grandTotalPaise,
+    grand_total_paise: toNum(v.grandTotalPaise),
     entries: rolled.entries.map((e) => ({ ledger_id: e.ledgerId, type: e.entryType, amount_paise: e.amountPaise })),
     items: rolled.items.map((i) => ({ stock_item_id: i.stockItemId, direction: i.direction, qty_milli: i.qtyMilli, rate_paise: i.ratePaise ?? 0 })),
   }
@@ -526,9 +527,9 @@ export async function alterVoucher(
       voucher_number: existing.voucherNumber,
       date: existing.date,
       narration: existing.narration,
-      grand_total_paise: existing.grandTotalPaise,
-      entries: existing.entries.map((e) => ({ ledger_id: e.ledgerId, type: e.entryType, amount_paise: e.amountPaise })),
-      items: existing.items.map((i) => ({ stock_item_id: i.stockItemId, direction: i.direction, qty_milli: i.qtyMilli, rate_paise: i.ratePaise })),
+      grand_total_paise: toNum(existing.grandTotalPaise),
+      entries: existing.entries.map((e) => ({ ledger_id: e.ledgerId, type: e.entryType, amount_paise: toNum(e.amountPaise) })),
+      items: existing.items.map((i) => ({ stock_item_id: i.stockItemId, direction: i.direction, qty_milli: i.qtyMilli, rate_paise: toNum(i.ratePaise) })),
     }
 
     await tx.bookkeepingBillAllocation.deleteMany({ where: { voucherId } })

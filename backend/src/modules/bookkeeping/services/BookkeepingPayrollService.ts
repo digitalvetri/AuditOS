@@ -5,6 +5,7 @@ import { BookkeepingCompanyService } from './BookkeepingCompanyService.js'
 import { BookkeepingSettingsService } from './BookkeepingSettingsService.js'
 import { postVoucher, type EntryInput } from '../engine/posting.js'
 import { applyBp } from '../engine/primitives.js'
+import { toNum } from '../../../lib/money.js'
 
 /**
  * BookkeepingPayrollService — employees, pay heads, salary structures,
@@ -35,7 +36,7 @@ export const BookkeepingPayrollService = {
       date_of_joining: e.dateOfJoining, date_of_leaving: e.dateOfLeaving, active: e.active,
       structure: e.structureLines.map((s) => ({
         pay_head_id: s.payHeadId, pay_head_name: s.payHead.name, head_type: s.payHead.headType,
-        value_paise: s.valuePaise, percent_bp: s.percentBp,
+        value_paise: toNum(s.valuePaise), percent_bp: s.percentBp,
       })),
     }))
   },
@@ -68,7 +69,7 @@ export const BookkeepingPayrollService = {
     })
     return rows.map((p) => ({
       id: p.id, name: p.name, head_type: p.headType, calc_type: p.calcType,
-      value_paise: p.valuePaise, percent_bp: p.percentBp, statutory: p.statutory,
+      value_paise: toNum(p.valuePaise), percent_bp: p.percentBp, statutory: p.statutory,
       ledger_id: p.ledgerId, ledger_name: p.ledger?.name ?? null, active: p.active,
     }))
   },
@@ -177,7 +178,7 @@ export const BookkeepingPayrollService = {
       const att = attendanceBy.get(e.id)
       const ratio = att && att.payableDays > 0 ? att.presentDays / att.payableDays : 1
       const basicLine = e.structureLines.find((s) => s.payHead.name.toLowerCase().includes('basic'))
-      const basic = basicLine ? basicLine.valuePaise || basicLine.payHead.valuePaise : 0
+      const basic = basicLine ? toNum(basicLine.valuePaise || basicLine.payHead.valuePaise) : 0
 
       for (const s of e.structureLines) {
         const head = s.payHead
@@ -187,7 +188,7 @@ export const BookkeepingPayrollService = {
         if (head.calcType === 'percent_of_basic' || (percentBp && !s.valuePaise && !head.valuePaise)) {
           amount = applyBp(basic, percentBp)
         } else {
-          amount = s.valuePaise || head.valuePaise
+          amount = toNum(s.valuePaise || head.valuePaise)
         }
         if (head.calcType === 'attendance') amount = Math.round(amount * ratio)
         else if (head.headType === 'earning') amount = Math.round(amount * ratio)
@@ -232,7 +233,8 @@ export const BookkeepingPayrollService = {
     })
     if (!run) throw ApiError.notFound('No such payroll run.')
     const byEmployee = new Map<string, { employee_id: string; employee_name: string; earnings: { name: string; amount_paise: number }[]; deductions: { name: string; amount_paise: number }[]; gross_paise: number; deductions_paise: number; net_paise: number }>()
-    for (const l of run.lines) {
+    for (const row of run.lines) {
+      const l = { ...row, amountPaise: toNum(row.amountPaise) }
       if (!byEmployee.has(l.employeeId)) {
         byEmployee.set(l.employeeId, {
           employee_id: l.employeeId, employee_name: l.employee.name,
@@ -246,7 +248,7 @@ export const BookkeepingPayrollService = {
     for (const s of byEmployee.values()) s.net_paise = s.gross_paise - s.deductions_paise
     return {
       id: run.id, period: run.period, status: run.status,
-      gross_paise: run.grossPaise, deductions_paise: run.deductionsPaise, net_paise: run.netPaise,
+      gross_paise: toNum(run.grossPaise), deductions_paise: toNum(run.deductionsPaise), net_paise: toNum(run.netPaise),
       voucher_id: run.voucherId, created_at: run.createdAt.toISOString(),
       payslips: Array.from(byEmployee.values()).sort((a, b) => a.employee_name.localeCompare(b.employee_name)),
     }
@@ -256,8 +258,8 @@ export const BookkeepingPayrollService = {
     await BookkeepingCompanyService.requireOwned(session, companyId)
     const rows = await prisma.bookkeepingPayrollRun.findMany({ where: { tallyCompanyId: companyId, ...alive }, orderBy: { period: 'desc' } })
     return rows.map((r) => ({
-      id: r.id, period: r.period, status: r.status, gross_paise: r.grossPaise,
-      deductions_paise: r.deductionsPaise, net_paise: r.netPaise, voucher_id: r.voucherId,
+      id: r.id, period: r.period, status: r.status, gross_paise: toNum(r.grossPaise),
+      deductions_paise: toNum(r.deductionsPaise), net_paise: toNum(r.netPaise), voucher_id: r.voucherId,
     }))
   },
 
@@ -288,10 +290,10 @@ export const BookkeepingPayrollService = {
       if (!ledgerId) {
         throw ApiError.unprocessable('unmapped_pay_head', `Pay head "${l.payHead.name}" has no ledger. Map it, or supply a default expense ledger.`)
       }
-      if (l.headType === 'earning' || l.headType === 'employer_contribution') add(ledgerId, 'dr', l.amountPaise)
-      else add(ledgerId, 'cr', l.amountPaise)
+      if (l.headType === 'earning' || l.headType === 'employer_contribution') add(ledgerId, 'dr', toNum(l.amountPaise))
+      else add(ledgerId, 'cr', toNum(l.amountPaise))
     }
-    add(input.paymentLedgerId, 'cr', run.netPaise)
+    add(input.paymentLedgerId, 'cr', toNum(run.netPaise))
 
     const entries: EntryInput[] = []
     for (const [ledgerId, sides] of byLedger) {

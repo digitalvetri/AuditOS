@@ -72,3 +72,32 @@ export function amountInWords(paise: number): string {
   if (paiseRemainder) words += ` and ${twoDigits(paiseRemainder)} Paise`
   return `${words} Only`
 }
+
+/**
+ * A paise value read from a BigInt (int8) column, or an aggregate over one,
+ * as a plain number. Integer paise are exact in a double up to 2^53
+ * (≈ ₹90 lakh crore), so the engines keep their arithmetic in `number` and
+ * only the Prisma boundary converts. Anything beyond that is refused, never
+ * silently rounded.
+ */
+export function toNum(v: bigint | number): number
+export function toNum(v: bigint | number | null): number | null
+export function toNum(v: bigint | number | null | undefined): number | null | undefined
+export function toNum(v: bigint | number | null | undefined): number | null | undefined {
+  if (v == null || typeof v === 'number') return v
+  if (v > MAX_EXACT || v < -MAX_EXACT) throw new RangeError(`Amount ${v} paise is beyond exact range.`)
+  return Number(v)
+}
+const MAX_EXACT = BigInt(Number.MAX_SAFE_INTEGER)
+
+/** `T` with the named BigInt fields typed as number (null stays null). */
+export type Numified<T, K extends keyof T> = Omit<T, K> & {
+  [P in K]: Exclude<T[P], bigint> | (bigint extends T[P] ? number : never)
+}
+
+/** Copy of a loaded row with the named BigInt paise fields converted by toNum. */
+export function numify<T extends object, K extends keyof T>(row: T, ...keys: K[]): Numified<T, K> {
+  const out = { ...row } as Record<keyof T, unknown>
+  for (const k of keys) out[k] = toNum(row[k] as bigint | number | null | undefined)
+  return out as Numified<T, K>
+}

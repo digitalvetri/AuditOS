@@ -11,6 +11,7 @@
 import type { Prisma, PrismaClient } from '@prisma/client'
 import { prisma } from '../../lib/prisma.js'
 import { ApiError } from '../../lib/http.js'
+import { statementLineNums } from '../bookkeeping/engine/paise.js'
 import {
   MATCH_TYPES, VOUCHER_TYPES,
   type MatchType, type PreflightReport, type PreviewRow, type RuleApi, type VoucherType,
@@ -343,7 +344,7 @@ export async function buildPreview(opts: BuildOptions): Promise<PreviewResult> {
         date: { gte: opts.periodFrom, lte: opts.periodTo },
       },
       orderBy: [{ date: 'asc' }, { createdAt: 'asc' }],
-    }),
+    }).then((rs) => rs.map(statementLineNums)),
     ownBankAndCashLedgerNames(opts.companyId),
     priorLedgerNamesForClient(opts.companyId),
   ])

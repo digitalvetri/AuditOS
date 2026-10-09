@@ -183,7 +183,7 @@ describe('A closed financial year cannot be changed', () => {
     const rename = await api(`${C()}/ledgers/${L.cash}`, { method: 'PATCH', body: { name: 'Cash Box', opening_balance_paise: 100_000, opening_balance_type: 'dr' } })
     expect(rename.status, JSON.stringify(rename.body)).toBe(200)
     const row = await prisma.bookkeepingLedger.findUniqueOrThrow({ where: { id: L.cash } })
-    expect(row.openingBalancePaise).toBe(100_000)
+    expect(Number(row.openingBalancePaise)).toBe(100_000)
     expect(row.name).toBe('Cash Box')
   })
 
@@ -241,7 +241,7 @@ describe('A closed financial year cannot be changed', () => {
     expect(r.status, JSON.stringify(r.body)).toBe(422)
     expect(r.body.error?.code).toBe('financial_year_closed')
     const row = await prisma.bookkeepingLedger.findUniqueOrThrow({ where: { id: L.capital } })
-    expect(row.openingBalancePaise).toBe(100_000)
+    expect(Number(row.openingBalancePaise)).toBe(100_000)
   })
 })
 
@@ -441,11 +441,13 @@ describe('Closing stock reaches the P&L and the balance sheet', () => {
   })
 })
 
-describe('amounts above the 32-bit paise limit', () => {
-  it('a ₹30 crore opening balance gets a clear 422, not a 500', async () => {
+describe('amounts above the old 32-bit paise limit', () => {
+  it('a ₹30 crore opening balance saves and reads back exactly', async () => {
     const g = (await api(`${C()}/groups`)).body.data.items.find((x: { name: string }) => x.name === 'Capital Account')
     const r = await api(`${C()}/ledgers`, { method: 'POST', body: { name: 'Big Capital', group_id: g.id, opening_balance_paise: 30_00_00_000_00, opening_balance_type: 'cr' } })
-    expect(r.status).toBe(422)
-    expect(r.body.error.code).toBe('amount_too_large')
+    expect(r.status, JSON.stringify(r.body)).toBe(201)
+    expect(r.body.data.opening_balance_paise).toBe(30_00_00_000_00)
+    const back = await api(`${C()}/ledgers/${r.body.data.id}`)
+    expect(back.body.data.opening_balance_paise).toBe(30_00_00_000_00)
   })
 })

@@ -17,6 +17,7 @@ import { bookkeepingImportStorage } from './bookkeepingImportStorage.js'
 import { partnershipStorage } from '../partnership/storage.js'
 import { streamEInvoicePdf, streamEwayBillPdf, streamGstFilingPdf } from './record-pdf.js'
 import { setUploadedFileHeaders } from '../../lib/fileResponse.js'
+import { toNum } from '../../lib/money.js'
 
 /**
  * CLIENT DOCUMENT FOLDERS — every document the firm holds for one client,
@@ -239,11 +240,11 @@ export async function buildClientFolders(who: Session | FolderAccess, client: { 
       items: ewbs.map((e) => item({
         id: e.id, source: 'eway', openable: 'pdf',
         title: e.ewbNo, subtitle: [e.documentNo, e.toPartyName].filter(Boolean).join(' · ') || null,
-        date: iso(e.generatedAt), status: e.status, amount_paise: e.valuePaise,
+        date: iso(e.generatedAt), status: e.status, amount_paise: toNum(e.valuePaise),
         fields: fields([
           ['E-way bill no', e.ewbNo], ['Document no', e.documentNo], ['Document date', e.documentDate],
           ['From GSTIN', e.fromGstin], ['To GSTIN', e.toGstin], ['To party', e.toPartyName],
-          ['Value', rupees(e.valuePaise)], ['Status', e.status], ['Valid until', e.validUntil],
+          ['Value', rupees(toNum(e.valuePaise))], ['Status', e.status], ['Valid until', e.validUntil],
           ['Extensions', e.extensionCount ? String(e.extensionCount) : null],
           ['Cancel reason', e.cancelReason], ['Simulated', e.isSimulated ? 'Yes' : null],
         ]),
@@ -254,11 +255,11 @@ export async function buildClientFolders(who: Session | FolderAccess, client: { 
       items: irns.map((e) => item({
         id: e.id, source: 'einvoice', openable: 'pdf',
         title: e.documentNo, subtitle: e.buyerName ?? e.buyerGstin,
-        date: e.documentDate, status: e.status, amount_paise: e.totalValuePaise,
+        date: e.documentDate, status: e.status, amount_paise: toNum(e.totalValuePaise),
         fields: fields([
           ['Document no', e.documentNo], ['Document date', e.documentDate], ['Type', e.documentType],
           ['IRN', e.irn], ['Buyer', e.buyerName], ['Buyer GSTIN', e.buyerGstin],
-          ['Place of supply', e.placeOfSupply], ['Total value', rupees(e.totalValuePaise)],
+          ['Place of supply', e.placeOfSupply], ['Total value', rupees(toNum(e.totalValuePaise))],
           ['Status', e.status], ['Reported at', iso(e.reportedAt)], ['Cancel reason', e.cancelReason],
           ['Simulated', e.isSimulated ? 'Yes' : null],
         ]),
