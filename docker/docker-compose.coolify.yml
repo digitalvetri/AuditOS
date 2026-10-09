@@ -72,9 +72,10 @@ services:
       POSTGRES_USER: ${POSTGRES_USER:-auditos}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?}
       POSTGRES_DB: ${POSTGRES_DB:-auditos}
+    # No ./postgres/init mount: it only creates a test database for local
+    # development, and Coolify does not ship repo files for bind mounts.
     volumes:
       - auditos-pg-data:/var/lib/postgresql/data
-      - ./postgres/init:/docker-entrypoint-initdb.d:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
       interval: 5s
@@ -126,14 +127,15 @@ services:
       api:
         condition: service_healthy
 
+  # Built (not bind-mounted): Coolify keeps only this file on the server, so a
+  # mounted ./backup/backup.sh would arrive as an empty directory.
   backup:
-    image: postgres:16-alpine
+    build:
+      context: ./backup
     restart: unless-stopped
     environment:
       <<: *app-env
-    command: ["sh", "/backup.sh"]
     volumes:
-      - ./backup/backup.sh:/backup.sh:ro
       - auditos-uploads:/uploads:ro
       - /data/auditos/backups:/backups
     depends_on:
