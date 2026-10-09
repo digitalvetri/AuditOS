@@ -403,6 +403,16 @@ expensesRouter.post('/:id/pay', handler(async (req, res) => {
 
   const now = new Date()
   const { updated, payment } = await prisma.$transaction(async (tx) => {
+    // Claim the row first: only one request can move it approved → paid.
+    // The stage check above is a read outside this transaction, so a
+    // double-click or two Finance users would both pass it; the
+    // conditional update makes the loser see count 0 and abort before any
+    // Payment or journal is written.
+    const claimed = await tx.expense.updateMany({
+      where: { id: row.id, stage: 'approved' },
+      data: { stage: 'paid', paidAt: now, paidBy: session.userId, updatedBy: session.userId },
+    })
+    if (claimed.count !== 1) throw ApiError.conflict('already_paid', 'Expense is already Paid.')
     const paymentNo = await nextPaymentNo(tx)
     const created = await tx.payment.create({
       data: {
@@ -434,12 +444,7 @@ expensesRouter.post('/:id/pay', handler(async (req, res) => {
     })
     const exp = await tx.expense.update({
       where: { id: row.id },
-      data: {
-        stage: 'paid', paidAt: now,
-        paidBy: session.userId,
-        paymentId: created.id,
-        updatedBy: session.userId,
-      },
+      data: { paymentId: created.id },
     })
     return { updated: exp, payment: created }
   })

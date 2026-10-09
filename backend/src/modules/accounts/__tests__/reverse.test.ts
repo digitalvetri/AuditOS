@@ -4,7 +4,7 @@ import { createApp } from '../../../app.js'
 import { signToken } from '../../../platform/auth.js'
 import { MATRIX } from '../../../platform/rbac/matrix.js'
 import { prisma, uid } from '../../../__tests__/helpers.js'
-import { postJournal } from '../ledger.js'
+import { heldLiabilityBalances, postJournal } from '../ledger.js'
 import { CATEGORIES } from '../../../platform/constants.js'
 
 /**
@@ -172,6 +172,70 @@ describe('POST /api/accounts/ledger/:id/reverse', () => {
     })
     expect(second.status).toBe(409)
     expect(second.body.error.code).toBe('already_reversed')
+  })
+})
+
+describe('reversal and "Held, not yet remitted" balances', () => {
+  // A reversal marks the original 'reversed' and posts a contra in the
+  // same category. Held balances must see the pair as netting to zero —
+  // not drop the original AND count the contra (a double reduction).
+  async function seedHeldPf(amount: number) {
+    await prisma.$transaction((tx) => postJournal(tx, {
+      date: '2026-08-31', type: 'Payroll', description: 'Salary — August 2026',
+      referenceId: uid('ref'), referenceType: 'PayrollItem', createdBy: null,
+      legs: [
+        { category: CATEGORIES.SALARIES, debitPaise: amount },
+        { category: CATEGORIES.PF_PAYABLE, creditPaise: amount },
+      ],
+    }))
+  }
+
+  it('returns the held PF balance to its pre-posting value after reversing a deduction', async () => {
+    const { cookie } = await financeUser()
+    await seedHeldPf(30_000)
+    const before = (await heldLiabilityBalances())[CATEGORIES.PF_PAYABLE]
+    expect(before).toBe(30_000)
+
+    const [, , pf] = await prisma.$transaction((tx) => postJournal(tx, {
+      date: '2026-09-30', type: 'Payroll', description: 'Salary — September 2026',
+      referenceId: uid('ref'), referenceType: 'PayrollItem', createdBy: null,
+      legs: [
+        { category: CATEGORIES.SALARIES, debitPaise: 60_000 },
+        { category: CATEGORIES.BANK, creditPaise: 50_000 },
+        { category: CATEGORIES.PF_PAYABLE, creditPaise: 10_000 },
+      ],
+    }))
+    expect((await heldLiabilityBalances())[CATEGORIES.PF_PAYABLE]).toBe(40_000)
+
+    const res = await api(`/api/accounts/ledger/${pf.id}/reverse`, {
+      method: 'POST', cookie, body: { reason: 'Wrong PF deduction' },
+    })
+    expect(res.status).toBe(200)
+
+    expect((await heldLiabilityBalances())[CATEGORIES.PF_PAYABLE]).toBe(before)
+    const held = await api('/api/accounts/liabilities/held', { cookie })
+    const row = held.body.data.items.find((i: { category: string }) => i.category === CATEGORIES.PF_PAYABLE)
+    expect(row.balance_paise).toBe(before)
+  })
+
+  it('restores the held balance after reversing a remittance (un-remit)', async () => {
+    const { cookie } = await financeUser()
+    await seedHeldPf(30_000)
+    const [pfDr] = await prisma.$transaction((tx) => postJournal(tx, {
+      date: '2026-09-15', type: 'Liability Remittance', description: 'Remittance — PF',
+      referenceId: uid('ref'), referenceType: 'LiabilityRemittance', createdBy: null,
+      legs: [
+        { category: CATEGORIES.PF_PAYABLE, debitPaise: 12_000 },
+        { category: CATEGORIES.BANK, creditPaise: 12_000 },
+      ],
+    }))
+    expect((await heldLiabilityBalances())[CATEGORIES.PF_PAYABLE]).toBe(18_000)
+
+    const res = await api(`/api/accounts/ledger/${pfDr.id}/reverse`, {
+      method: 'POST', cookie, body: { reason: 'Remitted to wrong establishment' },
+    })
+    expect(res.status).toBe(200)
+    expect((await heldLiabilityBalances())[CATEGORIES.PF_PAYABLE]).toBe(30_000)
   })
 })
 

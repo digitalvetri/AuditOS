@@ -171,6 +171,12 @@ export async function postJournal(tx: Prisma.TransactionClient, input: PostJourn
  * "Held, not yet remitted." Sums credits minus debits per liability
  * category — a payroll run credits the payable, a remittance debits it, so
  * the balance is what the firm is still holding from staff and owes out.
+ *
+ * Reversals: a reversed original is marked 'reversed' and its contra is
+ * posted with `reversesId` set. Both sides of that pair are excluded, so
+ * only live entries count — the same basis reconcile() uses for its
+ * source checks. Counting the contra while dropping the original would
+ * reduce the balance twice and corrupt the remittance cap.
  */
 export async function heldLiabilityBalances(): Promise<Record<LiabilityCategory, number>> {
   const rows = await prisma.ledgerTransaction.groupBy({
@@ -178,6 +184,7 @@ export async function heldLiabilityBalances(): Promise<Record<LiabilityCategory,
     where: {
       namespace: INTERNAL_NAMESPACE,
       status: 'posted',
+      reversesId: null,
       category: { in: LIABILITY_CATEGORIES as unknown as string[] },
     },
     _sum: { debitPaise: true, creditPaise: true },

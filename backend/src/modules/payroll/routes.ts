@@ -534,6 +534,17 @@ payrollRouter.post('/runs/:id/process', handler(async (req, res) => {
   const payslipBase = await prisma.payslip.count()
 
   const { fresh, payments, payslips } = await prisma.$transaction(async (tx) => {
+    // Claim the run first: only one request can move it approved →
+    // processed. The stage check above is a read outside this transaction,
+    // so two concurrent requests would both pass it and pay everyone twice.
+    const claimed = await tx.payrollRun.updateMany({
+      where: { id: run.id, stage: 'approved' },
+      data: {
+        stage: 'processed', processedBy: session.userId, processedAt: now, updatedBy: session.userId,
+      },
+    })
+    if (claimed.count !== 1) throw ApiError.conflict('already_processed', 'Run is Processed — immutable.')
+
     const createdPayments = []
     const createdPayslips = []
     let n = payslipBase
@@ -585,12 +596,7 @@ payrollRouter.post('/runs/:id/process', handler(async (req, res) => {
       })
     }
 
-    const updated = await tx.payrollRun.update({
-      where: { id: run.id },
-      data: {
-        stage: 'processed', processedBy: session.userId, processedAt: now, updatedBy: session.userId,
-      },
-    })
+    const updated = await tx.payrollRun.findUniqueOrThrow({ where: { id: run.id } })
     return { fresh: updated, payments: createdPayments, payslips: createdPayslips }
   })
 
