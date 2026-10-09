@@ -35,6 +35,34 @@ are defined next to their code (`../frontend/Dockerfile`,
 
 Start order is enforced: `postgres` healthy → `migrate` completes → `api` → `web`.
 
+## Going live — checklist
+
+Do these before real client data goes in. The API refuses to boot in
+production with a missing or placeholder secret, so most mistakes fail loudly.
+
+1. **Secrets** — in `.env.docker`, generate every value, each separately:
+   `POSTGRES_PASSWORD` (and the same password inside `DATABASE_URL`),
+   `JWT_SECRET`, `SIGNED_URL_SECRET`, `PERMANENT_LINK_SECRET`
+   (`openssl rand -hex 32`), `PORTAL_ACCESS_ENC_KEY` (`openssl rand -base64 32`).
+2. **Owner logins** — `OWNER_SUPERADMIN_*` and `OWNER_ADMIN_*`. Without them a
+   fresh database has no login and `migrate` stops with an error.
+3. **HTTPS** — point DNS for your domain at the server, set `DOMAIN`,
+   `WEB_BIND_ADDRESS=127.0.0.1`, `WEB_ORIGIN=https://DOMAIN`,
+   `PUBLIC_APP_URL=https://DOMAIN`, `COOKIE_SECURE=true`, then
+   `docker compose --profile https up -d --build`. PWA install, offline mode
+   and push notifications only work over HTTPS.
+4. **Backups** — the `backup` service writes nightly dumps to `docker/backups/`.
+   Copy that folder off the server (rclone to Google Drive / S3 / B2), and
+   **test a restore** once (steps in `backup/backup.sh`). Store `.env.docker`
+   — especially `PORTAL_ACCESS_ENC_KEY` — in your password manager: a backup
+   cannot be decrypted without it.
+5. **Firewall** — only 80 and 443 open. Postgres and Adminer are bound to
+   127.0.0.1 and must stay that way; never run Adminer on a public server.
+6. **Old demo data** — a database that was ever seeded with demo data still
+   has the demo logins (e.g. `ravi@auditos.local`). Start production from a
+   fresh volume (`docker compose down -v` on that server, then `up`), or
+   deactivate every demo login in Settings → Users.
+
 ## Using it
 
 ```bash

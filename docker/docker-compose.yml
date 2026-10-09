@@ -101,11 +101,47 @@ services:
       target: runtime
     container_name: auditos-web
     restart: unless-stopped
+    # Production behind the https profile: set WEB_BIND_ADDRESS=127.0.0.1 so
+    # plain HTTP is reachable only through Caddy on this machine.
     ports:
-      - "${WEB_HOST_PORT:-8080}:80"
+      - "${WEB_BIND_ADDRESS:-0.0.0.0}:${WEB_HOST_PORT:-8080}:80"
     depends_on:
       api:
         condition: service_healthy
+
+  # Nightly pg_dump + uploads archive into docker/backups/ (BACKUP_HOST_DIR),
+  # 14 days kept. Copy that folder off this machine. See backup/backup.sh.
+  backup:
+    image: postgres:16-alpine
+    container_name: auditos-backup
+    restart: unless-stopped
+    env_file: .env.docker
+    command: ["sh", "/backup.sh"]
+    volumes:
+      - ./backup/backup.sh:/backup.sh:ro
+      - auditos-uploads:/uploads:ro
+      - ${BACKUP_HOST_DIR:-./backups}:/backups
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  # HTTPS with automatic Let's Encrypt certificates for DOMAIN (in .env.docker):
+  #   docker compose --profile https up -d --build
+  caddy:
+    profiles: ["https"]
+    image: caddy:2.8-alpine
+    container_name: auditos-caddy
+    restart: unless-stopped
+    env_file: .env.docker
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./caddy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - auditos-caddy-data:/data
+      - auditos-caddy-config:/config
+    depends_on:
+      - web
 
   # Database UI — opt-in and local-only. Never run it on a server facing the
   # internet:  docker compose --profile tools up -d adminer
@@ -140,3 +176,7 @@ volumes:
     name: auditos-pg-data
   auditos-uploads:
     name: auditos-uploads
+  auditos-caddy-data:
+    name: auditos-caddy-data
+  auditos-caddy-config:
+    name: auditos-caddy-config

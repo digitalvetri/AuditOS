@@ -2,3 +2,5 @@
 .env.docker
 .env.*
 !.env.docker.example
+# Local backup output (backup service) — copy off-host, never commit.
+backups/
