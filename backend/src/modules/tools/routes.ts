@@ -5,7 +5,7 @@ import { ApiError, handler, ok } from '../../lib/http.js'
 import { can, requireSession, type Session } from '../../platform/auth.js'
 import { verifyResourceToken } from '../../platform/signedUrl.js'
 import { getTool, TOOLS, TOOL_CATEGORIES, TOOL_GROUPS, type ToolDef } from './registry.js'
-import { extensionOf, headerFilename, sanitizeFilename, sniffMime } from './lib/files.js'
+import { extensionOf, sanitizeFilename, sniffMime } from './lib/files.js'
 import { DocumentService } from './services/DocumentService.js'
 import { ToolJobService } from './services/ToolJobService.js'
 import { AuditLogService } from './services/AuditLogService.js'
@@ -288,6 +288,7 @@ toolDocumentsRouter.delete('/:id', handler(async (req, res) => {
 
 // ── Signed byte routes ───────────────────────────────────────────────────
 import { signResource } from '../../platform/signedUrl.js'
+import { setUploadedFileHeaders } from '../../lib/fileResponse.js'
 function signThumb(docId: string, page: number, userId: string) {
   return signResource(`tool-thumb:${docId}:${page}`, userId)
 }
@@ -298,12 +299,7 @@ toolsSignedRouter.get('/tool-documents/:id/download', handler(async (req, res) =
   const doc = await prisma.toolDocument.findFirst({ where: { id, deletedAt: null } })
   if (!doc || !doc.storagePath) throw ApiError.notFound('Document not found.')
   const bytes = await DocumentService.readBytes(doc)
-  const inline = req.query.inline === '1'
-  res.setHeader('Content-Type', doc.mimeType)
-  res.setHeader('Content-Length', String(bytes.length))
-  res.setHeader('X-Content-Type-Options', 'nosniff')
-  res.setHeader('Cache-Control', 'private, no-store')
-  res.setHeader('Content-Disposition', `${inline ? 'inline' : 'attachment'}; filename="${headerFilename(doc.originalFilename)}"; filename*=UTF-8''${encodeURIComponent(doc.originalFilename)}`)
+  setUploadedFileHeaders(res, { mime: doc.mimeType, filename: doc.originalFilename, inline: req.query.inline === '1', size: bytes.length })
   res.send(bytes)
 }))
 

@@ -14,10 +14,7 @@
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-title" content="JNS AuditOS" />
     <meta name="apple-mobile-web-app-status-bar-style" content="default" />
-    <script>
-      // Apply the saved theme before first paint so a dark session never flashes light.
-      try { var t = localStorage.getItem('audit-os:theme'); if (t === 'dark') document.documentElement.setAttribute('data-theme', 'dark'); } catch (e) {}
-    </script>
+    <script src="/theme-init.js"></script>
     <title>JNS Accounting Solutions</title>
   </head>
   <body>

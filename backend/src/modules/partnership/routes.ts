@@ -25,6 +25,7 @@ import {
   ALLOWED_EXTENSIONS, MAX_UPLOAD_MB, MIME_BY_EXT, fileKey, partnershipStorage,
 } from './storage.js'
 import { ensurePostRegistrationCompliances, hasCompliance, rulesFor } from './compliance.js'
+import { setUploadedFileHeaders } from '../../lib/fileResponse.js'
 
 /**
  * PARTNERSHIP FIRM REGISTRATION — Workstation → Services → Registration.
@@ -1338,12 +1339,7 @@ partnershipSignedRouter.get('/partnership-files/:versionId', handler(async (req,
   if (!v || !v.mimeType) throw ApiError.notFound('File not found.')
   const bytes = await partnershipStorage.get(v.fileKey)
   const nameOut = v.originalName ?? `document-v${v.version}`
-  const inline = req.query.inline === '1'
-  res.setHeader('Content-Type', v.mimeType)
-  res.setHeader('Content-Length', String(bytes.length))
-  res.setHeader('X-Content-Type-Options', 'nosniff')
-  res.setHeader('Cache-Control', 'private, no-store')
-  res.setHeader('Content-Disposition', `${inline ? 'inline' : 'attachment'}; filename="${nameOut.replace(/[^\x20-\x7e]|"/g, '_')}"; filename*=UTF-8''${encodeURIComponent(nameOut)}`)
+  setUploadedFileHeaders(res, { mime: v.mimeType, filename: nameOut, inline: req.query.inline === '1', size: bytes.length })
   res.send(bytes)
 }))
 

@@ -37,6 +37,7 @@ import { LocalStorageAdapter } from '../tools/storage/LocalStorageAdapter.js'
 import { fyMonths, fyOf, monthStart, quarterEnd, todayIst, type Quarter } from './calendar.js'
 import { buildOverview, DUE_SOON_DAYS } from './overview.js'
 import { registerDeductionRoutes } from './deductions.js'
+import { setUploadedFileHeaders } from '../../lib/fileResponse.js'
 
 /** Resolved per call so TDS_STORAGE_ROOT can be set after import (tests, ops). */
 const tdsStorage = () => new LocalStorageAdapter(process.env.TDS_STORAGE_ROOT
@@ -622,10 +623,6 @@ tdsServiceRouter.get('/:clientId/records/:id/file', handler(async (req, res) => 
   if (!v?.mimeType) throw ApiError.notFound('No file attached.')
   const bytes = await tdsStorage().get(v.fileKey)
   const nameOut = v.originalName ?? `tds-document-v${v.version}`
-  res.setHeader('Content-Type', v.mimeType)
-  res.setHeader('Content-Length', String(bytes.length))
-  res.setHeader('X-Content-Type-Options', 'nosniff')
-  res.setHeader('Cache-Control', 'private, no-store')
-  res.setHeader('Content-Disposition', `${req.query.inline === '1' ? 'inline' : 'attachment'}; filename="${nameOut.replace(/[^\x20-\x7e]|"/g, '_')}"; filename*=UTF-8''${encodeURIComponent(nameOut)}`)
+  setUploadedFileHeaders(res, { mime: v.mimeType, filename: nameOut, inline: req.query.inline === '1', size: bytes.length })
   res.send(bytes)
 }))

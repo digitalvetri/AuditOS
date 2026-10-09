@@ -16,6 +16,7 @@ import { aaStorage } from '../audit-automation/storage.js'
 import { bookkeepingImportStorage } from './bookkeepingImportStorage.js'
 import { partnershipStorage } from '../partnership/storage.js'
 import { streamEInvoicePdf, streamEwayBillPdf, streamGstFilingPdf } from './record-pdf.js'
+import { setUploadedFileHeaders } from '../../lib/fileResponse.js'
 
 /**
  * CLIENT DOCUMENT FOLDERS — every document the firm holds for one client,
@@ -587,11 +588,9 @@ export const AA_FILE: Record<string, (id: string, clientId?: string) => Promise<
 
 /** Send bytes inline (open in a browser tab) or as an attachment (?download=1). */
 export function sendFile(res: import('express').Response, bytes: Buffer, name: string, mime: string, download: boolean) {
-  res.setHeader('Content-Type', mime)
-  res.setHeader('Content-Length', String(bytes.length))
-  res.setHeader('X-Content-Type-Options', 'nosniff')
-  res.setHeader('Cache-Control', 'private, no-store')
-  res.setHeader('Content-Disposition', `${download ? 'attachment' : 'inline'}; filename="${name.replace(/[^\x20-\x7e]|"/g, '_')}"; filename*=UTF-8''${encodeURIComponent(name)}`)
+  // Only PDFs and images open in the tab; anything that could carry script
+  // (xml, json, txt…) always downloads — see lib/fileResponse.ts.
+  setUploadedFileHeaders(res, { mime, filename: name, inline: !download, size: bytes.length })
   res.send(bytes)
 }
 
