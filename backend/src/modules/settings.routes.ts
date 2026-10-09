@@ -4,6 +4,7 @@ import { ApiError, handler, ok } from '../lib/http.js'
 import { prisma } from '../lib/prisma.js'
 import { addDays } from '../lib/dates.js'
 import { can, requireSession, type Session } from '../platform/auth.js'
+import { canEditRole } from '../platform/roleRank.js'
 import { writeAudit } from '../platform/audit.js'
 import type { Scope } from '../platform/rbac/matrix.js'
 import { MODULES, moduleCodes, VISIBLE_ROLE_CODES } from '../platform/rbac/modules.js'
@@ -635,7 +636,8 @@ settingsRouter.put('/roles/:roleId/permissions/:permissionCode', handler(async (
     prisma.role.findUnique({ where: { id: req.params.roleId } }),
     prisma.permission.findUnique({ where: { code: req.params.permissionCode } }),
   ])
-  if (!role || role.deletedAt || !seesRole(session, role.code)) throw ApiError.notFound('Role not found.')
+  // Only roles the caller outranks (Admin: every role but Super Admin).
+  if (!role || role.deletedAt || !canEditRole(session, role.code)) throw ApiError.notFound('Role not found.')
   if (!permission || permission.deletedAt) throw ApiError.notFound('Permission not found.')
 
   const before = await prisma.rolePermission.findUnique({
@@ -742,7 +744,7 @@ settingsRouter.put('/roles/:roleId/modules/:module', handler(async (req, res) =>
   if (!body.success) throw ApiError.badRequest('access must be full or none.')
 
   const role = await prisma.role.findUnique({ where: { id: req.params.roleId } })
-  if (!role || role.deletedAt || !seesRole(session, role.code)) throw ApiError.notFound('Role not found.')
+  if (!role || role.deletedAt || !canEditRole(session, role.code)) throw ApiError.notFound('Role not found.')
 
   const codes: string[] = moduleCodes(module)
   if (body.data.access === 'none' && codes.includes('settings.manage')) {

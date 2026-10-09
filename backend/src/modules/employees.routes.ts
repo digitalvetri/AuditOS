@@ -6,6 +6,7 @@ import { prisma } from '../lib/prisma.js'
 import { istToday } from '../lib/dates.js'
 import { can, hashPassword, requireSession, type Session } from '../platform/auth.js'
 import { passwordProblem } from '../platform/password.js'
+import { assertCanAssignRole, assertCanManageLogin } from '../platform/roleRank.js'
 import { writeAudit } from '../platform/audit.js'
 import { notifyPermissionHolders } from '../platform/notify.js'
 import { VISIBLE_ROLE_CODES } from '../platform/rbac/modules.js'
@@ -208,6 +209,8 @@ employeesRouter.post('/', handler(async (req, res) => {
 
   const email = b.email.trim().toLowerCase()
   const role = await assignableRole(b.role_code)
+  // A Senior Associate may only hand out roles below their own.
+  assertCanAssignRole(session, role.code)
   if (await prisma.user.findUnique({ where: { email } })) {
     throw ApiError.conflict('email_taken', 'A login with this email already exists.')
   }
@@ -293,9 +296,9 @@ employeesRouter.put('/:id/password', handler(async (req, res) => {
   const existing = await prisma.user.findFirst({
     where: { employeeId: target.id, deletedAt: null }, include: { role: true },
   })
-  if (existing?.role.code === 'md' && session.roleCode !== 'md') {
-    throw ApiError.forbidden("Only a Super Admin can set a Super Admin's password.")
-  }
+  // Only logins the caller outranks (Super Admin: only by a Super Admin). 404
+  // rather than 403 so the hidden Super Admin is never confirmed to exist.
+  if (existing) assertCanManageLogin(session, existing.role.code)
 
   const password = body.data.password ?? generatePassword()
   let login
@@ -311,6 +314,7 @@ employeesRouter.put('/:id/password', handler(async (req, res) => {
     })
   } else {
     const role = await assignableRole(body.data.role_code)
+    assertCanAssignRole(session, role.code)
     const email = target.email.trim().toLowerCase()
     if (await prisma.user.findUnique({ where: { email } })) {
       throw ApiError.conflict('email_taken', 'Another login already uses this email.')
@@ -406,10 +410,14 @@ employeesRouter.put('/:id/role', handler(async (req, res) => {
   if (login.id === session.userId) {
     throw ApiError.conflict('self_role', 'You cannot change your own role.')
   }
+  // Only logins the caller outranks, and only to roles the caller may hand
+  // out — never Super Admin unless the caller is one.
+  assertCanManageLogin(session, login.role.code)
   const role = await prisma.role.findUnique({ where: { id: body.data.role_id } })
   if (!role || role.deletedAt || !VISIBLE_ROLE_CODES.includes(role.code as RoleCode)) {
     throw ApiError.notFound('Role not found.')
   }
+  assertCanAssignRole(session, role.code)
 
   await prisma.user.update({ where: { id: login.id }, data: { roleId: role.id, updatedBy: session.userId } })
   await writeAudit({
