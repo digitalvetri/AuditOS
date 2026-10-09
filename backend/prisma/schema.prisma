@@ -340,19 +340,22 @@ model StatutoryRate {
 // ============================================================
 
 model Employee {
-  id             String  @id @default(uuid())
-  organisationId String
-  employeeCode   String  @unique
-  firstName      String
-  lastName       String
-  fullName       String
+  id                   String  @id @default(uuid())
+  organisationId       String
+  employeeCode         String  @unique
+  firstName            String
+  lastName             String
+  fullName             String
   // partner | manager | executive | articled | support
-  type           String  @default("executive")
+  type                 String  @default("executive")
   /// False for staff not under PF (articled assistants are never under PF;
   /// others may have opted out under para 26A when wages exceed the ceiling).
-  pfApplicable   Boolean @default(true)
+  pfApplicable         Boolean @default(true)
+  /// Cost of one hour of this person's time, paise. Null = derived from the
+  /// salary structure (monthly CTC ÷ standard hours) for profitability.
+  costRatePaisePerHour Int?
   // active | on_leave | probation | notice_period | inactive
-  status         String  @default("active")
+  status               String  @default("active")
 
   // Department + Designation were removed as concepts; FKs kept nullable so
   // historical rows aren't lost but new employees never set them.
@@ -439,16 +442,30 @@ model Employee {
 }
 
 model ArticledTraining {
-  id                  String @id @default(uuid())
-  employeeId          String @unique
+  id                  String  @id @default(uuid())
+  employeeId          String  @unique
   icaiRegistrationNo  String
   principalEmployeeId String
   trainingStart       String
   trainingEnd         String
-  currentYear         Int    @default(1)
-  stipendSlab         String @default("")
+  currentYear         Int     @default(1)
+  stipendSlab         String  @default("")
+  /// Monthly stipend, paise (ICAI minimum by city class and year).
+  stipendPaise        Int?
+  /// ICAI regional office / branch the articles are registered with.
+  icaiRegion          String?
+  /// Leave beyond the permitted 1/6th of the training period extends it.
+  excessLeaveDays     Int     @default(0)
+  /// trainingEnd plus the extension for excess leave, once computed.
+  extendedTrainingEnd String?
+  /// ICAI forms: 102 (registration), 103 (commencement), 108 (completion /
+  /// termination), 109 (transfer) — the date each was filed.
+  form102Date         String?
+  form103Date         String?
+  form108Date         String?
+  form109Date         String?
   // active | transferred | completed | terminated
-  status              String @default("active")
+  status              String  @default("active")
 
   employee  Employee @relation("TrainingSubject", fields: [employeeId], references: [id])
   principal Employee @relation("TrainingPrincipal", fields: [principalEmployeeId], references: [id])
@@ -6992,20 +7009,30 @@ model Invoice {
 
   // ── Derived money (paise). Never written from a request body. ──────────
   /// Sum of the line taxable amounts — the printed "Sub Total".
-  subtotalPaise   Int @default(0)
+  subtotalPaise    Int @default(0)
   /// A flat discount on the whole invoice, spread across lines pro rata.
-  discountPaise   Int @default(0)
-  taxablePaise    Int @default(0)
-  cgstPaise       Int @default(0)
-  sgstPaise       Int @default(0)
-  igstPaise       Int @default(0)
+  discountPaise    Int @default(0)
+  taxablePaise     Int @default(0)
+  cgstPaise        Int @default(0)
+  sgstPaise        Int @default(0)
+  igstPaise        Int @default(0)
   /// Difference between the exact total and the whole rupee it is printed as.
-  roundOffPaise   Int @default(0)
-  totalPaise      Int @default(0)
+  roundOffPaise    Int @default(0)
+  totalPaise       Int @default(0)
   /// Sum of payments recorded against this invoice. Drives balanceDuePaise
   /// and the partially_paid / paid statuses.
-  amountPaidPaise Int @default(0)
-  balanceDuePaise Int @default(0)
+  amountPaidPaise  Int @default(0)
+  balanceDuePaise  Int @default(0)
+  /// TDS deducted by the client (sum of payments' tdsPaise) and credit notes
+  /// issued against this invoice — both reduce the balance due.
+  tdsDeductedPaise Int @default(0)
+  creditedPaise    Int @default(0)
+
+  /// The recurring profile that generated it, and the engagement it bills
+  /// (for fee vs time-cost profitability).
+  recurringProfileId String?
+  clientServiceId    String?
+  auditEngagementId  String?
 
   notes String?
 
@@ -7058,6 +7085,7 @@ model Invoice {
   client        Client           @relation(fields: [clientId], references: [id])
   items         InvoiceItem[]
   payments      InvoicePayment[]
+  creditNotes   CreditNote[]
 
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt
@@ -7070,6 +7098,8 @@ model Invoice {
   @@index([invoiceDate])
   @@index([dueDate])
   @@index([createdAt])
+  @@index([recurringProfileId])
+  @@index([clientServiceId])
 }
 
 /// One payment received against an invoice. A client paying in instalments
@@ -7077,19 +7107,27 @@ model Invoice {
 /// of the live rows. Removing a wrong entry soft-deletes the row and the
 /// invoice's paid / balance / status are recomputed from what remains.
 model InvoicePayment {
-  id             String  @id @default(uuid())
-  organisationId String
-  invoiceId      String
+  id                     String  @id @default(uuid())
+  organisationId         String
+  invoiceId              String
   /// Denormalised from the invoice so per-client sums need no join.
-  clientId       String
-  amountPaise    Int
+  clientId               String
+  amountPaise            Int
   /// 'YYYY-MM-DD' — the day the money was received, not the day it was typed in.
-  paidOn         String
+  paidOn                 String
   /// cash | bank_transfer | upi | cheque | card | other
-  mode           String  @default("bank_transfer")
+  mode                   String  @default("bank_transfer")
   /// UTR, cheque number, UPI reference…
-  reference      String?
-  note           String?
+  reference              String?
+  note                   String?
+  /// Tax the client deducted from our fee (s.194J etc.). Settles the invoice
+  /// together with amountPaise; reconciled against Form 26AS / 16A.
+  tdsPaise               Int     @default(0)
+  tdsSection             String?
+  tdsCertificateReceived Boolean @default(false)
+  /// Set when this row came from an online collection (Zoho Payments), so the
+  /// same payment is never recorded twice.
+  externalPaymentId      String? @unique
 
   invoice Invoice @relation(fields: [invoiceId], references: [id])
 
@@ -8367,5 +8405,85 @@ model DigitalSignature {
   deletedAt DateTime?
 
   @@index([organisationId, expiryDate])
+  @@index([clientId])
+}
+
+// ============================================================
+// CREDIT NOTES AND RECURRING BILLING
+// ============================================================
+
+/// GST credit note against an issued invoice (s.34 CGST Act). Own number
+/// series 'CN-000001', taken when issued, like invoices.
+model CreditNote {
+  id               String    @id @default(uuid())
+  organisationId   String
+  creditNoteNumber String?   @unique
+  invoiceId        String
+  clientId         String
+  /// YYYY-MM-DD
+  noteDate         String
+  /// rate_change | deficiency | discount | return | fee_reduction | other
+  reason           String
+  reasonNote       String?
+  /// draft | issued | cancelled
+  status           String    @default("draft")
+  isInterState     Boolean   @default(false)
+  placeOfSupply    String?
+  taxablePaise     Int       @default(0)
+  cgstPaise        Int       @default(0)
+  sgstPaise        Int       @default(0)
+  igstPaise        Int       @default(0)
+  totalPaise       Int       @default(0)
+  /// [{ description, sac_code, taxable_paise, gst_rate }] — the lines
+  /// credited, snapshotted.
+  linesJson        Json
+  issuedAt         DateTime?
+  cancelledAt      DateTime?
+
+  invoice Invoice @relation(fields: [invoiceId], references: [id])
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  createdBy String?
+  updatedBy String?
+  deletedAt DateTime?
+
+  @@index([invoiceId])
+  @@index([clientId])
+  @@index([noteDate])
+}
+
+/// A monthly / quarterly retainer: each run creates a draft invoice (or sends
+/// it when autoSend) from these lines.
+model RecurringInvoiceProfile {
+  id              String    @id @default(uuid())
+  organisationId  String
+  clientId        String
+  name            String
+  /// monthly | quarterly | half_yearly | annual
+  frequency       String
+  /// Day of the month the invoice is dated (1–28; 31 = month end).
+  dayOfMonth      Int       @default(1)
+  startDate       String
+  endDate         String?
+  nextIssueDate   String
+  terms           String    @default("net_15")
+  placeOfSupply   String?
+  clientServiceId String?
+  /// Invoice items to copy: [{ description, sac_code, quantity_centi,
+  /// unit_rate_paise, gst_rate, discount_paise }]
+  linesJson       Json
+  autoSend        Boolean   @default(false)
+  isActive        Boolean   @default(true)
+  lastGeneratedAt DateTime?
+  lastInvoiceId   String?
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  createdBy String?
+  updatedBy String?
+  deletedAt DateTime?
+
+  @@index([organisationId, nextIssueDate])
   @@index([clientId])
 }
