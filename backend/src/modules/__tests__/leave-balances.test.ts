@@ -83,7 +83,9 @@ describe('Leave balances', () => {
     const email = `${uid('e')}@x.local`
     const created = await api('/api/employees', {
       method: 'POST', cookie: `ao_access=${signToken(hr.id)}`,
-      body: { first_name: 'Asha', last_name: 'K', email, password: 'Temp2026x' },
+      // Joined on the first day of the fiscal year, so the whole year's quota
+      // applies (mid-year joiners are pro-rated: domain/__tests__/leaveBalances.test.ts).
+      body: { first_name: 'Asha', last_name: 'K', email, password: 'Temp2026x', joining_date: fyOf(istToday()) },
     })
     expect(created.status).toBe(200)
     const emp = await prisma.employee.findFirstOrThrow({ where: { email } })

@@ -12,7 +12,10 @@ type Db = Prisma.TransactionClient | typeof prisma
  * balance is read or used, which also covers people who existed before this
  * and the first touch of each new fiscal year.
  *
- * `entitled` is the type's full annual entitlement. The `accrual` field says
+ * `entitled` is the type's annual entitlement — pro-rated for someone who
+ * joins during the year by the months left, joining month included, rounded
+ * to half a day (12 days a year, joined in February → Feb + Mar → 2 days).
+ * The `accrual` field says
  * 'monthly', but nothing accrues month by month today, so the year's quota
  * is available from day one. Carry-forward stays 0: no year-end close
  * computes it yet. Existing rows are never overwritten (skipDuplicates), so
@@ -22,7 +25,7 @@ type Db = Prisma.TransactionClient | typeof prisma
  */
 export async function ensureLeaveBalances(
   db: Db,
-  employees: { id: string; organisationId: string }[],
+  employees: { id: string; organisationId: string; joiningDate?: string | null }[],
   fiscalYearStart: string,
 ): Promise<void> {
   if (employees.length === 0) return
@@ -35,7 +38,8 @@ export async function ensureLeaveBalances(
     types
       .filter((t) => t.organisationId === e.organisationId)
       .map((t) => ({
-        employeeId: e.id, leaveTypeId: t.id, fiscalYearStart, entitled: t.annualEntitlement ?? 0,
+        employeeId: e.id, leaveTypeId: t.id, fiscalYearStart,
+        entitled: proRated(t.annualEntitlement ?? 0, fiscalYearStart, e.joiningDate),
       })),
   )
   if (data.length > 0) await db.leaveBalance.createMany({ data, skipDuplicates: true })
@@ -48,4 +52,15 @@ export async function ensureLeaveBalances(
 export function fiscalYearWindow(isoDate: string) {
   const fiscalYearStart = fiscalYearStartOf(isoDate)
   return { fiscalYearStart, startDate: { gte: fiscalYearStart, lt: nextFiscalYearStart(fiscalYearStart) } }
+}
+
+/** The year's entitlement scaled by the months the employee is in it. */
+function proRated(annual: number, fiscalYearStart: string, joiningDate?: string | null): number {
+  if (!joiningDate || joiningDate <= fiscalYearStart) return annual
+  const [fy, fm] = fiscalYearStart.split('-').map(Number)
+  const [jy, jm] = joiningDate.split('-').map(Number)
+  const monthIndex = (jy - fy) * 12 + (jm - fm) // 0 = first month of the year
+  if (monthIndex >= 12) return 0 // joins after this year
+  const months = 12 - monthIndex
+  return Math.round((annual * months / 12) * 2) / 2
 }
