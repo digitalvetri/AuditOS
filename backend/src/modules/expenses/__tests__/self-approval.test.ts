@@ -110,8 +110,10 @@ beforeEach(async () => {
   await prisma.payment.deleteMany({})
   await prisma.expense.deleteMany({})
   await prisma.notification.deleteMany({})
-  await prisma.user.deleteMany({})
-  await prisma.employee.deleteMany({})
+  // Other test files leave rows that point at employees and users (salary
+  // structures, leave balances, payslips…). Test files run one at a time on
+  // a throwaway database, so clear both tables and everything hanging off them.
+  await prisma.$executeRawUnsafe('TRUNCATE "Employee", "User" CASCADE')
   await prisma.expenseCategory.deleteMany({})
 })
 
