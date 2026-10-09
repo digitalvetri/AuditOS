@@ -83,3 +83,20 @@ describe('Employees → passwords set by an Admin', () => {
     expect((await api('/api/auth/me', { cookie: theirs })).status).toBe(401)
   })
 })
+
+describe('Deactivating an employee', () => {
+  it('records today as the exit date when none was set, so payroll pays their last part-month', async () => {
+    const cookie = await admin()
+    const emp = await prisma.employee.create({ data: { organisationId: orgId, employeeCode: uid('AO'), firstName: 'L', lastName: 'V', fullName: 'L V', email: `${uid('e')}@x.local`, joiningDate: '2026-01-01', workScheduleId: (await prisma.workSchedule.findFirstOrThrow()).id } })
+    const r = await api(`/api/employees/${emp.id}/deactivate`, { method: 'POST', cookie })
+    expect(r.status).toBe(200)
+    const after = await prisma.employee.findUniqueOrThrow({ where: { id: emp.id } })
+    expect(after.exitDate).toMatch(/^\d{4}-\d{2}-\d{2}$/)
+  })
+  it('keeps an exit date HR already set', async () => {
+    const cookie = await admin()
+    const emp = await prisma.employee.create({ data: { organisationId: orgId, employeeCode: uid('AO'), firstName: 'L', lastName: 'W', fullName: 'L W', email: `${uid('e')}@x.local`, joiningDate: '2026-01-01', exitDate: '2026-09-10', workScheduleId: (await prisma.workSchedule.findFirstOrThrow()).id } })
+    await api(`/api/employees/${emp.id}/deactivate`, { method: 'POST', cookie })
+    expect((await prisma.employee.findUniqueOrThrow({ where: { id: emp.id } })).exitDate).toBe('2026-09-10')
+  })
+})

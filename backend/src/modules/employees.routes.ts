@@ -534,7 +534,9 @@ employeesRouter.post('/:id/deactivate', handler(async (req, res) => {
   const updated = await prisma.$transaction(async (tx) => {
     const emp = await tx.employee.update({
       where: { id: target.id },
-      data: { status: 'inactive', deletedAt: now, updatedBy: session.userId },
+      // Payroll pays a leaver up to their exit date; without one, a
+      // deactivated employee would drop out of the run unpaid for the month.
+      data: { status: 'inactive', deletedAt: now, exitDate: target.exitDate ?? istToday(), updatedBy: session.userId },
     })
     // Session revocation: the linked login stops working immediately.
     await tx.user.updateMany({ where: { employeeId: target.id }, data: { isActive: false } })
