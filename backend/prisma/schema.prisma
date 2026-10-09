@@ -138,6 +138,10 @@ model User {
   // Carried in the session JWT as `v`. Bumped on every password change,
   // admin reset and deactivation, so older sessions stop working everywhere.
   sessionVersion     Int       @default(0)
+  // Per-account brute-force guard: consecutive failed sign-ins, and the time
+  // before which this account refuses sign-in (growing delay).
+  failedLoginCount   Int       @default(0)
+  lockedUntil        DateTime?
 
   organisation Organisation @relation(fields: [organisationId], references: [id])
   role         Role         @relation(fields: [roleId], references: [id])
@@ -336,16 +340,19 @@ model StatutoryRate {
 // ============================================================
 
 model Employee {
-  id             String @id @default(uuid())
+  id             String  @id @default(uuid())
   organisationId String
-  employeeCode   String @unique
+  employeeCode   String  @unique
   firstName      String
   lastName       String
   fullName       String
   // partner | manager | executive | articled | support
-  type           String @default("executive")
+  type           String  @default("executive")
+  /// False for staff not under PF (articled assistants are never under PF;
+  /// others may have opted out under para 26A when wages exceed the ceiling).
+  pfApplicable   Boolean @default(true)
   // active | on_leave | probation | notice_period | inactive
-  status         String @default("active")
+  status         String  @default("active")
 
   // Department + Designation were removed as concepts; FKs kept nullable so
   // historical rows aren't lost but new employees never set them.
@@ -1094,14 +1101,42 @@ model AuditLog {
   afterJson   String?
   ip          String?
   userAgent   String?
+  /// Tamper evidence: `hash` = sha256(prevHash + this row's content). Each row
+  /// chains to the one written before it, so editing or deleting any row
+  /// breaks every hash after it (GET /api/platform/audit-log/verify).
+  seq         Int     @default(autoincrement())
+  prevHash    String?
+  hash        String?
 
   actor User? @relation(fields: [actorUserId], references: [id])
 
   createdAt DateTime @default(now())
 
+  @@unique([seq])
   @@index([entityType, entityId])
   @@index([action])
   @@index([createdAt])
+  @@index([actorUserId])
+}
+
+/// Revokes every emailed / WhatsApp link to one document issued before
+/// `revokedBefore`. Keyed by the signed resource ('invoice:<id>', …).
+model SharedLinkRevocation {
+  resource      String   @id
+  revokedBefore DateTime
+  revokedBy     String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+}
+
+/// Portal-autofill launch tokens already redeemed. Insert-once (primary key)
+/// is what makes a token single-use across restarts and API processes.
+model AutofillTokenUse {
+  jti       String   @id
+  usedAt    DateTime @default(now())
+  expiresAt DateTime
+
+  @@index([expiresAt])
 }
 
 // ============================================================
@@ -1353,6 +1388,7 @@ model ClientService {
   @@index([clientId])
   @@index([assignedEmployeeId])
   @@index([status])
+  @@index([managerId])
 }
 
 model Task {
@@ -1699,6 +1735,8 @@ model GstProfile {
   createdBy String?
   updatedBy String?
   deletedAt DateTime?
+
+  @@index([assignedEmployeeId])
 }
 
 /// Per-organisation LLM provider credentials. One row per org per provider —
@@ -6910,12 +6948,14 @@ model WorkstationDoc {
 // ═══════════════════════════════════════════════════════════════════════════
 
 model Invoice {
-  id             String @id @default(uuid())
+  id             String  @id @default(uuid())
   organisationId String
   /// Human-readable 'INV-000001'. A single flat sequence, not per-year: an
   /// invoice number must be unique and gapless for GST, and restarting it
   /// every April would reissue numbers that already exist.
-  invoiceNumber  String @unique
+  /// Null while a draft: the number is taken when the invoice is sent, so an
+  /// abandoned draft never leaves a gap in the GST series.
+  invoiceNumber  String? @unique
 
   clientId String
 
