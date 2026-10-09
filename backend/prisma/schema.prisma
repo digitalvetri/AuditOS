@@ -38,11 +38,19 @@ datasource db {
 // ============================================================
 
 model Organisation {
-  id                   String @id @default(uuid())
-  name                 String
-  timezone             String @default("Asia/Kolkata")
-  currency             String @default("INR")
-  fiscalYearStartMonth Int    @default(4)
+  id                    String    @id @default(uuid())
+  name                  String
+  timezone              String    @default("Asia/Kolkata")
+  currency              String    @default("INR")
+  fiscalYearStartMonth  Int       @default(4)
+  /// Firm switch for features that send client text to an outside AI
+  /// service (notice reply drafting). PAN/GSTIN are masked before sending.
+  aiExternalProcessing  Boolean   @default(true)
+  /// Years a former client's records are kept after they leave before the
+  /// purge job may remove them (SQC 1: at least 7 years from the report).
+  dataRetentionYears    Int       @default(8)
+  /// The first-run setup checklist was dismissed.
+  onboardingDismissedAt DateTime?
 
   departments         Department[]
   designations        Designation[]
@@ -1263,6 +1271,9 @@ model Client {
   /// active | onboarding | pending_documents | service_due | inactive
   status             String  @default("onboarding")
   onboardingDate     String
+  /// YYYY-MM-DD the firm stopped acting for the client; starts the
+  /// retention period after which the purge job may remove its records.
+  exitDate           String?
   notes              String?
 
   /// Back-link to the lead this client came from. @unique mirrors
@@ -1416,6 +1427,8 @@ model Task {
   clientId            String?
   /// The engagement a task belongs to — Workstation's "project".
   clientServiceId     String?
+  /// Time on this task counts toward that audit file's cost.
+  auditEngagementId   String?
   /// Set when the task was raised from an Incorporation case. Nullable, so
   /// every existing Task row is untouched — this EXTENDS the one task engine
   /// rather than standing a second one up beside it.
@@ -1477,6 +1490,7 @@ model Task {
   @@index([dueDate])
   @@index([assignedEmployeeId, status])
   @@index([createdAt])
+  @@index([auditEngagementId])
 }
 
 /// One stretch of work on a task. A task accumulates many of these; the
@@ -7125,6 +7139,8 @@ model InvoicePayment {
   tdsPaise               Int     @default(0)
   tdsSection             String?
   tdsCertificateReceived Boolean @default(false)
+  /// 'RCT-000001', taken when the payment is recorded.
+  receiptNumber          String? @unique
   /// Set when this row came from an online collection (Zoho Payments), so the
   /// same payment is never recorded twice.
   externalPaymentId      String? @unique
