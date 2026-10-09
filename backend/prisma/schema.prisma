@@ -7841,3 +7841,333 @@ model PostRegistrationCompliance {
   @@index([clientId])
   @@index([dueDate])
 }
+
+// ============================================================
+// AUDIT FILES (SA 230 documentation, SQC 1 / SQM 1 quality control)
+// ============================================================
+//
+// One AuditEngagement per client × financial year × audit type. Everything
+// below hangs off it, and `lockedAt` freezes all of it: after the file is
+// assembled (SA 230: within 60 days of the report date) nothing changes
+// except an addendum, which is recorded as one. Client and employee ids are
+// plain ids (no FK), like Client.accountManagerId.
+
+model AuditEngagement {
+  id                 String  @id @default(uuid())
+  organisationId     String
+  /// 'AUD-2026-0001'
+  auditCode          String  @unique
+  clientId           String
+  /// '2025-26'
+  financialYear      String
+  /// statutory | tax | internal | stock | bank | gst | concurrent | other
+  auditType          String
+  title              String
+  /// Optional link to the signed engagement letter (SA 210).
+  engagementLetterId String?
+
+  signingPartnerId    String?
+  /// ICAI membership number of the signing partner, as printed on the report.
+  partnerMembershipNo String?
+  managerId           String?
+
+  /// planning | fieldwork | review | reporting | signed | archived
+  status            String  @default("planning")
+  plannedStartDate  String?
+  plannedReportDate String?
+  /// YYYY-MM-DD the report was signed. Starts the 60-day assembly clock.
+  reportDate        String?
+  /// unmodified | qualified | adverse | disclaimer (SA 700/705)
+  opinionType       String?
+  reportPlace       String?
+
+  // ── Materiality (SA 320), money in paise ──
+  materialityBenchmark        String? // profit_before_tax | revenue | total_assets | equity | expenses | other
+  materialityBasePaise        BigInt?
+  /// Percentage applied to the base, e.g. "5" or "0.5".
+  materialityPercent          String?
+  overallMaterialityPaise     BigInt?
+  performanceMaterialityPaise BigInt?
+  clearlyTrivialPaise         BigInt?
+  materialityRationale        String?
+
+  /// Client acceptance / continuance completed (SQC 1), and by whom.
+  acceptanceApprovedBy String?
+  acceptanceApprovedAt DateTime?
+
+  /// Date the file must be assembled by (reportDate + 60 days).
+  assemblyDueDate String?
+  lockedAt        DateTime?
+  lockedBy        String?
+
+  team          AuditTeamMember[]
+  workingPapers AuditWorkingPaper[]
+  reviewNotes   AuditReviewNote[]
+  risks         AuditRisk[]
+  observations  AuditObservation[]
+  checklists    AuditChecklistResponse[]
+  udins         AuditUdin[]
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  createdBy String?
+  updatedBy String?
+  deletedAt DateTime?
+
+  @@index([organisationId, status])
+  @@index([clientId, financialYear])
+  @@index([signingPartnerId])
+}
+
+model AuditTeamMember {
+  id                     String    @id @default(uuid())
+  engagementId           String
+  employeeId             String
+  /// partner | manager | senior | assistant | article | eqcr
+  role                   String
+  /// Independence and confidentiality declaration for this engagement.
+  independenceDeclaredAt DateTime?
+  independenceNote       String?
+
+  engagement AuditEngagement @relation(fields: [engagementId], references: [id])
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  @@unique([engagementId, employeeId])
+  @@index([employeeId])
+}
+
+model AuditWorkingPaper {
+  id             String    @id @default(uuid())
+  engagementId   String
+  /// Index reference shown on the file, e.g. 'A-1', 'C-3.2'. Unique per file.
+  ref            String
+  /// planning | risk | execution | completion | reporting | permanent
+  section        String
+  /// Financial statement area, e.g. 'Revenue', 'Trade receivables'.
+  area           String?
+  title          String
+  objective      String?
+  procedure      String?
+  /// What was found, and the conclusion reached.
+  conclusion     String?
+  /// not_started | in_progress | prepared | reviewed
+  status         String    @default("not_started")
+  preparedBy     String?
+  preparedAt     DateTime?
+  reviewedBy     String?
+  reviewedAt     DateTime?
+  /// Added after the file was locked (SA 230 para A24): who, when, why.
+  isAddendum     Boolean   @default(false)
+  addendumReason String?
+
+  engagement AuditEngagement         @relation(fields: [engagementId], references: [id])
+  files      AuditWorkingPaperFile[]
+  notes      AuditReviewNote[]
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  createdBy String?
+  updatedBy String?
+  deletedAt DateTime?
+
+  @@unique([engagementId, ref])
+  @@index([engagementId, section])
+}
+
+model AuditWorkingPaperFile {
+  id             String   @id @default(uuid())
+  workingPaperId String
+  fileKey        String
+  originalName   String
+  mimeType       String?
+  sizeBytes      Int      @default(0)
+  /// sha256 of the bytes, so the evidence can be shown unaltered.
+  sha256         String
+  uploadedBy     String
+  uploadedAt     DateTime @default(now())
+  isAddendum     Boolean  @default(false)
+
+  workingPaper AuditWorkingPaper @relation(fields: [workingPaperId], references: [id])
+
+  deletedAt DateTime?
+  deletedBy String?
+
+  @@index([workingPaperId])
+}
+
+/// Reviewer's points. A working paper cannot be signed off as reviewed while
+/// any of its notes is open or responded-but-not-cleared.
+model AuditReviewNote {
+  id             String    @id @default(uuid())
+  engagementId   String
+  workingPaperId String?
+  note           String
+  raisedBy       String
+  raisedAt       DateTime  @default(now())
+  response       String?
+  respondedBy    String?
+  respondedAt    DateTime?
+  /// open | responded | cleared
+  status         String    @default("open")
+  clearedBy      String?
+  clearedAt      DateTime?
+
+  engagement   AuditEngagement    @relation(fields: [engagementId], references: [id])
+  workingPaper AuditWorkingPaper? @relation(fields: [workingPaperId], references: [id])
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  @@index([engagementId, status])
+  @@index([workingPaperId])
+}
+
+/// SA 315 risk register.
+model AuditRisk {
+  id               String  @id @default(uuid())
+  engagementId     String
+  area             String
+  /// existence | completeness | accuracy | cut_off | classification | valuation | rights | presentation | occurrence
+  assertion        String?
+  description      String
+  /// low | medium | high | significant
+  level            String  @default("medium")
+  fraudRisk        Boolean @default(false)
+  /// Planned audit response; the working papers that carry it out.
+  response         String?
+  workingPaperRefs String?
+
+  engagement AuditEngagement @relation(fields: [engagementId], references: [id])
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  createdBy String?
+  deletedAt DateTime?
+
+  @@index([engagementId])
+}
+
+/// Points raised with the client (queries, observations, management letter).
+model AuditObservation {
+  id                 String    @id @default(uuid())
+  engagementId       String
+  /// 'OBS-01', per file
+  ref                String
+  title              String
+  description        String
+  area               String?
+  /// low | medium | high | critical
+  severity           String    @default("medium")
+  /// query | observation | misstatement | control_deficiency
+  kind               String    @default("query")
+  /// Adjusted / unadjusted misstatement amount, if any (SA 450).
+  amountPaise        BigInt?
+  adjusted           Boolean?
+  managementResponse String?
+  /// none | caro | emphasis_of_matter | qualification | management_letter
+  reportImpact       String    @default("none")
+  /// open | sent_to_client | responded | resolved | carried_forward
+  status             String    @default("open")
+  ownerId            String?
+  dueDate            String?
+  resolvedBy         String?
+  resolvedAt         DateTime?
+
+  engagement AuditEngagement @relation(fields: [engagementId], references: [id])
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  createdBy String?
+  deletedAt DateTime?
+
+  @@unique([engagementId, ref])
+  @@index([engagementId, status])
+}
+
+/// Checklist definitions as editable data: 'caro_2020', 'form_3cd',
+/// 'acceptance', 'completion'. A new form version (e.g. the tax audit form
+/// under the Income-tax Act, 2025) is a new template, not a code change.
+model AuditChecklistTemplate {
+  id          String  @id @default(uuid())
+  code        String  @unique
+  name        String
+  /// Audit types it is offered for, comma-separated ('statutory', 'tax').
+  appliesTo   String
+  description String?
+  source      String?
+  isActive    Boolean @default(true)
+
+  items AuditChecklistItem[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model AuditChecklistItem {
+  id         String  @id @default(uuid())
+  templateId String
+  /// Clause reference as printed, e.g. '3(i)(a)(A)', '21(a)'.
+  clause     String
+  heading    String
+  guidance   String?
+  sortOrder  Int
+
+  template AuditChecklistTemplate @relation(fields: [templateId], references: [id])
+
+  @@unique([templateId, clause])
+}
+
+model AuditChecklistResponse {
+  id              String    @id @default(uuid())
+  engagementId    String
+  templateCode    String
+  clause          String
+  /// yes | no | na | qualified | adverse | pending
+  answer          String    @default("pending")
+  /// The text that goes into the report / the auditor's remark.
+  remarks         String?
+  workingPaperRef String?
+  preparedBy      String?
+  preparedAt      DateTime?
+  reviewedBy      String?
+  reviewedAt      DateTime?
+
+  engagement AuditEngagement @relation(fields: [engagementId], references: [id])
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([engagementId, templateCode, clause])
+}
+
+/// ICAI UDIN register: one row per attested document.
+model AuditUdin {
+  id                  String    @id @default(uuid())
+  organisationId      String
+  engagementId        String?
+  clientId            String
+  /// 18 characters: 2-digit year + 6-digit membership no + 10 alphanumerics
+  udin                String    @unique
+  /// audit_report | tax_audit_report | certificate | caro | other
+  documentType        String
+  documentDescription String?
+  documentDate        String
+  partnerId           String?
+  membershipNo        String?
+  generatedOn         String
+  revokedAt           DateTime?
+  revokedReason       String?
+
+  engagement AuditEngagement? @relation(fields: [engagementId], references: [id])
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  createdBy String?
+
+  @@index([organisationId, documentDate])
+  @@index([clientId])
+}
