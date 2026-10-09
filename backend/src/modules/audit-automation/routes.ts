@@ -13,6 +13,7 @@ import { AaTxnService } from './services/AaTxnService.js'
 import { AaRuleService } from './services/AaRuleService.js'
 import { writeAudit } from '../../platform/audit.js'
 import { readStatementTable } from './lib/tableFile.js'
+import { assertClientVisible, assignedClientIds, seesAllClients } from '../../platform/workstation/scope.js'
 
 /**
  * AUDIT AUTOMATION HTTP SURFACE.
@@ -85,6 +86,7 @@ auditAutomationRouter.get('/accounts', handler(async (req, res) => {
     bank_id: z.string().optional(),
   }).safeParse(req.query)
   if (!q.success) throw ApiError.badRequest('client_id is required.')
+  await assertClientVisible(session, q.data.client_id)
   const items = await AaAccountService.listForClient(session, q.data.client_id, q.data.bank_id)
   ok(res, { items, count: items.length })
 }))
@@ -100,6 +102,7 @@ auditAutomationRouter.post('/accounts', handler(async (req, res) => {
     currency: z.string().length(3).optional(),
   }).safeParse(req.body)
   if (!b.success) throw ApiError.badRequest('client_id, bank_id and account_number_masked are required.')
+  await assertClientVisible(session, b.data.client_id)
   const account = await AaAccountService.create(session, {
     clientId: b.data.client_id,
     bankId: b.data.bank_id,
@@ -133,6 +136,7 @@ auditAutomationRouter.post('/uploads', (req, res, next) => {
     override_adapter_mismatch: z.string().optional(),
   }).safeParse(req.body)
   if (!body.success) throw ApiError.badRequest('client_id, bank_key and bank_account_id are required.')
+  await assertClientVisible(session, body.data.client_id)
 
   const file = req.file
   if (!file) throw ApiError.unprocessable('empty', 'Choose a file to upload.')
@@ -184,6 +188,7 @@ auditAutomationRouter.get('/jobs', handler(async (req, res) => {
   requireAaView(session)
   const q = z.object({ client_id: z.string().min(1) }).safeParse(req.query)
   if (!q.success) throw ApiError.badRequest('client_id is required.')
+  await assertClientVisible(session, q.data.client_id)
   const items = await AaJobService.listForClient(session, q.data.client_id)
   ok(res, { items, count: items.length })
 }))
@@ -310,6 +315,7 @@ auditAutomationRouter.get('/clients/:clientId/ledger-master', handler(async (req
   requireAaView(session)
   const organisationId = await orgIdOf(session.userId)
   const clientId = req.params.clientId
+  await assertClientVisible(session, clientId)
   const [rules, approvedRows, approvedJobs] = await Promise.all([
     prisma.aaLedgerRule.findMany({
       where: { organisationId, deletedAt: null, OR: [{ clientId }, { clientId: null }] },
@@ -344,9 +350,16 @@ auditAutomationRouter.get('/rules', handler(async (req, res) => {
   const session = requireSession(req)
   requireAaView(session)
   const q = z.object({ client_id: z.string().optional() }).parse(req.query)
+  if (q.client_id) await assertClientVisible(session, q.client_id)
   const organisationId = await orgIdOf(session.userId)
+  // Firm-wide rules plus the rules of clients the caller may see.
+  const visible = seesAllClients(session) ? null : await assignedClientIds(session, 'self')
   const rows = await prisma.aaLedgerRule.findMany({
-    where: { organisationId, deletedAt: null, ...(q.client_id ? { OR: [{ clientId: q.client_id }, { clientId: null }] } : {}) },
+    where: {
+      organisationId, deletedAt: null,
+      ...(q.client_id ? { OR: [{ clientId: q.client_id }, { clientId: null }] } : {}),
+      ...(visible && visible !== 'ALL' ? { AND: [{ OR: [{ clientId: null }, { clientId: { in: visible } }] }] } : {}),
+    },
     orderBy: [{ priority: 'asc' }, { createdAt: 'asc' }],
   })
   ok(res, { items: rows.map((r) => ({ id: r.id, client_id: r.clientId, match_type: r.matchType, pattern: r.pattern, direction: r.direction, ledger_name: r.ledgerName, voucher_type: r.voucherType, priority: r.priority })) })
@@ -357,6 +370,9 @@ auditAutomationRouter.post('/rules', handler(async (req, res) => {
   requireAaUpload(session)
   const b = (req.body ?? {}) as Record<string, string | null | undefined>
   const v = AaRuleService.validate({ match_type: b.match_type ?? undefined, pattern: b.pattern ?? undefined, direction: b.direction ?? undefined, ledger_name: b.ledger_name ?? undefined, voucher_type: b.voucher_type ?? null })
+  // A client's rule: that client must be visible. A firm-wide rule (no client)
+  // changes every client's statements: staff who see every client only.
+  await assertClientVisible(session, b.client_id || null)
   const organisationId = await orgIdOf(session.userId)
   if (b.client_id) {
     const c = await prisma.client.findFirst({ where: { id: b.client_id, organisationId, deletedAt: null }, select: { id: true } })
@@ -373,6 +389,7 @@ auditAutomationRouter.patch('/rules/:id', handler(async (req, res) => {
   const organisationId = await orgIdOf(session.userId)
   const rule = await prisma.aaLedgerRule.findFirst({ where: { id: req.params.id, organisationId, deletedAt: null } })
   if (!rule) throw ApiError.notFound('No such rule.')
+  await assertClientVisible(session, rule.clientId)
   const b = (req.body ?? {}) as Record<string, string | null | undefined>
   const v = AaRuleService.validate({
     match_type: b.match_type ?? rule.matchType, pattern: b.pattern ?? rule.pattern, direction: b.direction ?? rule.direction,
@@ -389,6 +406,7 @@ auditAutomationRouter.delete('/rules/:id', handler(async (req, res) => {
   const organisationId = await orgIdOf(session.userId)
   const rule = await prisma.aaLedgerRule.findFirst({ where: { id: req.params.id, organisationId, deletedAt: null } })
   if (!rule) throw ApiError.notFound('No such rule.')
+  await assertClientVisible(session, rule.clientId)
   await prisma.aaLedgerRule.update({ where: { id: rule.id }, data: { deletedAt: new Date() } })
   await writeAudit({ actorUserId: session.userId, action: 'aa.rule_deleted', entityType: 'AaLedgerRule', entityId: rule.id, req })
   ok(res, { deleted: true })

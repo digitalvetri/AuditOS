@@ -151,3 +151,17 @@ export async function followUpScopeWhere(session: Session, scope: Scope) {
 }
 
 export { can }
+
+/**
+ * 403 unless the caller may see this client — for modules that take a
+ * client id directly (Audit Automation, Repotic) rather than a workstation
+ * scope. Staff with clients.view_all see every client; everyone else only
+ * the clients assigned to them. A record with no client is firm-level and
+ * needs clients.view_all.
+ */
+export async function assertClientVisible(session: Session, clientId: string | null | undefined): Promise<void> {
+  if (seesAllClients(session)) return
+  if (!clientId) throw ApiError.forbidden('Only staff who see every client can use this.')
+  const ids = await assignedClientIds(session, 'self')
+  if (ids !== 'ALL' && !ids.includes(clientId)) throw ApiError.forbidden('You are not assigned to this client.')
+}

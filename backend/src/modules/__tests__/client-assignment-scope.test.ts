@@ -76,3 +76,28 @@ describe('Zoho Books', () => {
     expect((await api(`/api/books/organizations/${zohoOrg}`, { method: 'PATCH', cookie: assigned.cookie, body: { is_active: false } })).status).toBe(403)
   })
 })
+
+describe('Audit Automation and Repotic', () => {
+  const q = () => `client_id=${clientId}`
+  it('the assigned Associate reaches the client; an unassigned one gets 403', async () => {
+    for (const path of [
+      `/api/audit-automation/gst/2b?${q()}`,
+      `/api/audit-automation/gst/purchase-registers?${q()}`,
+      `/api/audit-automation/gst/recon?${q()}`,
+      `/api/audit-automation/jobs?${q()}`,
+      `/api/audit-automation/accounts?${q()}`,
+      `/api/audit-automation/clients/${clientId}/ledger-master`,
+      `/api/repotic/ecommerce/uploads?${q()}&gstin=33ABCDE1234F1Z5&period=2026-09`,
+    ]) {
+      expect((await api(path, { cookie: assigned.cookie })).status, `assigned ${path}`).toBe(200)
+      expect((await api(path, { cookie: other.cookie })).status, `unassigned ${path}`).toBe(403)
+    }
+  })
+  it('a firm-wide ledger rule needs an Admin; a rule for an assigned client does not', async () => {
+    const rule = { match_type: 'contains', pattern: 'ZOMATO', direction: 'withdrawal', ledger_name: 'Staff Welfare' }
+    expect((await api('/api/audit-automation/rules', { method: 'POST', cookie: assigned.cookie, body: rule })).status).toBe(403)
+    expect((await api('/api/audit-automation/rules', { method: 'POST', cookie: assigned.cookie, body: { ...rule, client_id: clientId } })).status).toBe(201)
+    expect((await api('/api/audit-automation/rules', { method: 'POST', cookie: other.cookie, body: { ...rule, client_id: clientId } })).status).toBe(403)
+    expect((await api('/api/audit-automation/rules', { method: 'POST', cookie: admin.cookie, body: rule })).status).toBe(201)
+  })
+})

@@ -4,6 +4,7 @@ import { ApiError } from '../../../lib/http.js'
 import { can, type Session } from '../../../platform/auth.js'
 import { writeAudit } from '../../../platform/audit.js'
 import { aaStorage } from '../storage.js'
+import { assignedClientIds, seesAllClients } from '../../../platform/workstation/scope.js'
 
 /**
  * AaJob — the pipeline row for one uploaded statement. Status walks
@@ -100,9 +101,14 @@ async function scopedWhere(session: Session, base: object) {
     where: { id: session.userId },
     select: { organisationId: true },
   })
-  // Organisation scope reads everyone's jobs; self scope reads own only.
+  // Organisation scope reads everyone's jobs — but only for clients the
+  // caller may see (every client with clients.view_all, else the assigned
+  // ones); self scope reads own only. Every job and row route goes through
+  // here (AaTxnService.jobFor), so this is the one place the rule lives.
   if (can(session, 'tools.audit_automation.access', 'organisation')) {
-    return { ...base, organisationId }
+    if (seesAllClients(session)) return { ...base, organisationId }
+    const ids = await assignedClientIds(session, 'self')
+    return { ...base, organisationId, AND: [{ clientId: { in: ids === 'ALL' ? [] : ids } }] }
   }
   return { ...base, organisationId, createdByUserId: session.userId }
 }

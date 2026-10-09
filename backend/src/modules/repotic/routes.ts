@@ -35,6 +35,7 @@ import { detect, fingerprintOf } from './fingerprint.js'
 import { parseFromBuffer, readRowsFromBuffer } from './parser.js'
 import { buildGstr1Preview } from './gstr1-builder.js'
 import { autoMap } from './auto-mapper.js'
+import { assertClientVisible } from '../../platform/workstation/scope.js'
 
 export const repoticRouter = Router()
 
@@ -70,6 +71,7 @@ repoticRouter.get('/marketplaces', handler(async (req, res) => {
   requireAaView(session)
   const organisationId = await orgIdOf(session.userId)
   const clientId = typeof req.query.client_id === 'string' ? req.query.client_id : undefined
+  if (clientId) await assertClientVisible(session, clientId)
   const gstin = typeof req.query.gstin === 'string' ? req.query.gstin : undefined
   const period = typeof req.query.period === 'string' && ISO_PERIOD.test(req.query.period) ? req.query.period : undefined
   // Count how many active adapter versions exist per (marketplace, report_kind).
@@ -158,6 +160,7 @@ repoticRouter.post('/ecommerce/uploads', (req, res, next) => {
         const marketplace = typeof b.marketplace === 'string' ? b.marketplace : ''
         const reportKind = typeof b.report_kind === 'string' ? b.report_kind : ''
         if (!clientId || !gstin || !period) throw ApiError.badRequest('client_id, gstin and period (YYYY-MM) are required.')
+        await assertClientVisible(session, clientId)
         if (!isMarketplaceKey(marketplace)) throw ApiError.badRequest('Unknown marketplace.')
         const report = findReportKind(marketplace, reportKind)
         if (!report) throw ApiError.badRequest('Unknown report_kind for this marketplace.')
@@ -309,6 +312,7 @@ repoticRouter.get('/ecommerce/uploads', handler(async (req, res) => {
   const gstin = typeof req.query.gstin === 'string' ? req.query.gstin.toUpperCase() : null
   const period = typeof req.query.period === 'string' && ISO_PERIOD.test(req.query.period) ? req.query.period : null
   if (!clientId || !gstin || !period) throw ApiError.badRequest('client_id, gstin and period (YYYY-MM) are required.')
+  await assertClientVisible(session, clientId)
   const rows = await prisma.rpEcommerceUpload.findMany({
     where: { organisationId, clientId, gstin, period, deletedAt: null },
     orderBy: { uploadedAt: 'desc' },
@@ -343,6 +347,7 @@ repoticRouter.get('/ecommerce/gstr1', handler(async (req, res) => {
   const period = typeof req.query.period === 'string' && ISO_PERIOD.test(req.query.period) ? req.query.period : null
   const download = req.query.download === '1' || req.query.download === 'true'
   if (!clientId || !gstin || !period) throw ApiError.badRequest('client_id, gstin and period (YYYY-MM) are required.')
+  await assertClientVisible(session, clientId)
   const { preview, counts } = await buildGstr1Preview({ organisationId, clientId, gstin, period }, prisma)
 
   if (download) {
