@@ -51,11 +51,17 @@ production with a missing or placeholder secret, so most mistakes fail loudly.
    `PUBLIC_APP_URL=https://DOMAIN`, `COOKIE_SECURE=true`, then
    `docker compose --profile https up -d --build`. PWA install, offline mode
    and push notifications only work over HTTPS.
-4. **Backups** — the `backup` service writes nightly dumps to `docker/backups/`.
-   Copy that folder off the server (rclone to Google Drive / S3 / B2), and
-   **test a restore** once (steps in `backup/backup.sh`). Store `.env.docker`
-   — especially `PORTAL_ACCESS_ENC_KEY` — in your password manager: a backup
-   cannot be decrypted without it.
+4. **Backups** — the `backup` service writes nightly dumps to `docker/backups/`
+   and checks each one. Set, in this order:
+   `BACKUP_PASSPHRASE` (encrypts every backup; keep it in your password
+   manager), `BACKUP_RCLONE_REMOTE=offsite:<bucket>` plus the
+   `RCLONE_CONFIG_OFFSITE_*` keys (copies each backup off the server — S3,
+   Backblaze B2, Google Drive…), and `BACKUP_PING_URL` (a healthchecks.io
+   check, which emails you when a night's backup fails or never runs). On
+   day `BACKUP_RESTORE_TEST_DAY` (default the 1st) the backup is restored into
+   a scratch database and checked. Store `.env.docker` — especially
+   `PORTAL_ACCESS_ENC_KEY` — in your password manager: a backup cannot be
+   decrypted without it.
 5. **Firewall** — only 80 and 443 open. Postgres and Adminer are bound to
    127.0.0.1 and must stay that way; never run Adminer on a public server.
 6. **Old demo data** — a database that was ever seeded with demo data still

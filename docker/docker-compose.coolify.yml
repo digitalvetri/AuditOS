@@ -39,7 +39,7 @@ x-app-env: &app-env
   PORTAL_ACCESS_ENC_KEY: ${PORTAL_ACCESS_ENC_KEY:?}
   WEB_ORIGIN: ${WEB_ORIGIN:?}
   PUBLIC_APP_URL: ${PUBLIC_APP_URL:?}
-  COOKIE_SECURE: ${COOKIE_SECURE:-false}
+  COOKIE_SECURE: ${COOKIE_SECURE:-true}
   SESSION_TTL_SECONDS: ${SESSION_TTL_SECONDS:-28800}
   SIGNED_URL_TTL_SECONDS: ${SIGNED_URL_TTL_SECONDS:-300}
   OWNER_SUPERADMIN_EMAIL: ${OWNER_SUPERADMIN_EMAIL:-}
@@ -70,6 +70,17 @@ x-app-env: &app-env
   WHATSAPP_TEMPLATE_LANG: ${WHATSAPP_TEMPLATE_LANG:-}
   BACKUP_KEEP_DAYS: ${BACKUP_KEEP_DAYS:-14}
   BACKUP_HOUR_UTC: ${BACKUP_HOUR_UTC:-21}
+  # Optional (see docker/backup/backup.sh): encryption, off-site copy, alerts.
+  BACKUP_PASSPHRASE: ${BACKUP_PASSPHRASE:-}
+  BACKUP_RCLONE_REMOTE: ${BACKUP_RCLONE_REMOTE:-}
+  BACKUP_PING_URL: ${BACKUP_PING_URL:-}
+  BACKUP_RESTORE_TEST_DAY: ${BACKUP_RESTORE_TEST_DAY:-1}
+  RCLONE_CONFIG_OFFSITE_TYPE: ${RCLONE_CONFIG_OFFSITE_TYPE:-}
+  RCLONE_CONFIG_OFFSITE_PROVIDER: ${RCLONE_CONFIG_OFFSITE_PROVIDER:-}
+  RCLONE_CONFIG_OFFSITE_ACCESS_KEY_ID: ${RCLONE_CONFIG_OFFSITE_ACCESS_KEY_ID:-}
+  RCLONE_CONFIG_OFFSITE_SECRET_ACCESS_KEY: ${RCLONE_CONFIG_OFFSITE_SECRET_ACCESS_KEY:-}
+  RCLONE_CONFIG_OFFSITE_ENDPOINT: ${RCLONE_CONFIG_OFFSITE_ENDPOINT:-}
+  RCLONE_CONFIG_OFFSITE_REGION: ${RCLONE_CONFIG_OFFSITE_REGION:-}
 
 services:
   # One-shot: widens money columns, syncs the schema, seeds reference data,
@@ -88,6 +99,9 @@ services:
       context: ../backend
       target: runtime
     restart: unless-stopped
+    # OCR, image and office conversions share this container on a 4 GB server:
+    # cap it so one heavy job cannot starve the database.
+    mem_limit: 1536m
     environment:
       <<: *app-env
       NODE_ENV: production
