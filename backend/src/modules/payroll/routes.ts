@@ -6,6 +6,9 @@ import { addDays, istToday, monthLabel, monthlyPayrollPeriod } from '../../lib/d
 import { calculatePayrollItem, type CustomComponent } from '../../domain/payroll/calc.js'
 import { summarize } from '../../domain/payroll/attendanceSummary.js'
 import { snapshotAt, type StatutorySnapshot } from '../../domain/payroll/statutory.js'
+import {
+  employmentWindow, payrollEmployeeWhere, periodStructureWhere, pickStructure,
+} from '../../domain/payroll/employment.js'
 import { can, requireSession, type Session } from '../../platform/auth.js'
 import { writeAudit } from '../../platform/audit.js'
 import { notifyEmployee } from '../../platform/notify.js'
@@ -52,9 +55,10 @@ function requireView(session: Session) {
  *
  * Gross is already LOP-adjusted (calc subtracts LOP before returning gross),
  * so lop_paise is NOT re-added here — that would double-count. Zero legs
- * are dropped by postJournal.
+ * are dropped by postJournal. Calc caps deductions at gross, so
+ * gross = net + Σ credits always holds.
  */
-function payrollJournalLegs(
+export function payrollJournalLegs(
   grossPaise: number,
   netPaise: number,
   deductionsJson: string,
@@ -74,14 +78,23 @@ function payrollJournalLegs(
   ]
 }
 
-async function structureEffectiveOn(employeeId: string, onDate: string) {
-  return prisma.salaryStructure.findFirst({
-    where: {
-      employeeId, deletedAt: null,
-      effectiveFrom: { lte: onDate },
-      OR: [{ effectiveTo: null }, { effectiveTo: { gte: onDate } }],
+/**
+ * Employees on a run with their employment window and the structure that
+ * pays it (undefined → blocker). Shared by calculate and both blocker checks.
+ */
+async function payrollHeadcount(run: { periodStart: string; periodEnd: string }) {
+  const employees = await prisma.employee.findMany({
+    where: payrollEmployeeWhere(run.periodStart, run.periodEnd),
+    include: {
+      department: true,
+      salaryStructures: { where: periodStructureWhere(run.periodStart, run.periodEnd) },
     },
-    orderBy: { effectiveFrom: 'desc' },
+    orderBy: { employeeCode: 'asc' },
+  })
+  return employees.flatMap((e) => {
+    const window = employmentWindow(run.periodStart, run.periodEnd, e.joiningDate, e.exitDate)
+    if (!window) return []
+    return [{ employee: e, window, structure: pickStructure(e.salaryStructures, window) }]
   })
 }
 
@@ -188,26 +201,8 @@ payrollRouter.get('/runs/:id', handler(async (req, res) => {
   // who would silently reduce gross by "one whole person" (Bug 3) if the
   // run were processed as-is. Draft and hr_review runs surface them so
   // Finance can either add a structure or take them out of the headcount.
-  const [activeEmployees, previousRun] = await Promise.all([
-    prisma.employee.findMany({
-      where: {
-        deletedAt: null,
-        status: { not: 'inactive' },
-        joiningDate: { lte: run.periodEnd },
-      },
-      include: {
-        department: true,
-        salaryStructures: {
-          where: {
-            deletedAt: null,
-            effectiveFrom: { lte: run.periodStart },
-            OR: [{ effectiveTo: null }, { effectiveTo: { gte: run.periodStart } }],
-          },
-          take: 1,
-        },
-      },
-      orderBy: { employeeCode: 'asc' },
-    }),
+  const [headcount, previousRun] = await Promise.all([
+    payrollHeadcount(run),
     // The immediately preceding month's run, for the variance banner.
     prisma.payrollRun.findFirst({
       where: {
@@ -224,8 +219,8 @@ payrollRouter.get('/runs/:id', handler(async (req, res) => {
     reason: 'no_salary_structure' | 'tds_plan_missing'
     message: string
   }[] = []
-  for (const e of activeEmployees) {
-    if (e.salaryStructures.length === 0) {
+  for (const { employee: e, structure: s } of headcount) {
+    if (!s) {
       blockers.push({
         employee: employeeRefWithDept(e),
         reason: 'no_salary_structure',
@@ -237,7 +232,6 @@ payrollRouter.get('/runs/:id', handler(async (req, res) => {
     // if one exists (post-calculate); fall back to structure sum for the
     // pre-calculate preview.
     const item = items.find((i) => i.employeeId === e.id)
-    const s = e.salaryStructures[0]
     const grossForCheck = item?.grossPaise
       ?? (s.basicPaise + s.hraPaise + s.conveyancePaise + s.specialAllowancePaise)
     const exempt = (e.tdsExemptReason ?? '').trim().length > 0
@@ -305,9 +299,8 @@ payrollRouter.post('/runs/:id/calculate', handler(async (req, res) => {
   }
   const periodStartMonth = Number(run.periodStart.split('-')[1])
 
-  const employees = await prisma.employee.findMany({
-    where: { deletedAt: null, status: { not: 'inactive' }, joiningDate: { lte: run.periodEnd } },
-  })
+  const headcount = await payrollHeadcount(run)
+  const periodDays = summarize([], [], run.periodStart, run.periodEnd).payable_days
 
   const prepared: {
     employeeId: string
@@ -316,12 +309,13 @@ payrollRouter.post('/runs/:id/calculate', handler(async (req, res) => {
     calc: ReturnType<typeof calculatePayrollItem>
   }[] = []
 
-  for (const emp of employees) {
-    const structure = await structureEffectiveOn(emp.id, run.periodStart)
+  for (const { employee: emp, window, structure } of headcount) {
     if (!structure) continue // no salary on file for this period — not payable
+    // Attendance, leave and payable days are all over the days actually
+    // employed; calc pro-rates the month by payable_days / periodDays.
     const [attendance, leaves] = await Promise.all([
       prisma.attendance.findMany({
-        where: { employeeId: emp.id, deletedAt: null, date: { gte: run.periodStart, lte: run.periodEnd } },
+        where: { employeeId: emp.id, deletedAt: null, date: { gte: window.start, lte: window.end } },
         select: { date: true, status: true },
       }),
       prisma.leaveRequest.findMany({
@@ -329,7 +323,7 @@ payrollRouter.post('/runs/:id/calculate', handler(async (req, res) => {
         select: { startDate: true, endDate: true, status: true },
       }),
     ])
-    const summary = summarize(attendance, leaves, run.periodStart, run.periodEnd)
+    const summary = summarize(attendance, leaves, window.start, window.end)
     // Monthly TDS = annual plan ÷ 12, rounded to nearest paise. Not a
     // slab calculator — the spec deliberately keeps the number the firm's
     // decision. Zero plan means zero deducted this month; the process
@@ -346,6 +340,7 @@ payrollRouter.post('/runs/:id/calculate', handler(async (req, res) => {
       attendance: summary,
       snap,
       periodStartMonth,
+      period_days: periodDays,
       tds_paise: monthlyTds,
     })
     prepared.push({ employeeId: emp.id, salaryStructureId: structure.id, summary, calc })
@@ -477,36 +472,19 @@ payrollRouter.post('/runs/:id/process', handler(async (req, res) => {
   // employee has (a) no salary structure covering this period, or (b)
   // gross above the TDS threshold with a zero annual TDS plan and no
   // exempt reason. Both classes surface as UI blocker rows too.
-  const activeEmployees = await prisma.employee.findMany({
-    where: {
-      deletedAt: null,
-      status: { not: 'inactive' },
-      joiningDate: { lte: run.periodEnd },
-    },
-    include: {
-      salaryStructures: {
-        where: {
-          deletedAt: null,
-          effectiveFrom: { lte: run.periodStart },
-          OR: [{ effectiveTo: null }, { effectiveTo: { gte: run.periodStart } }],
-        },
-        take: 1,
-      },
-    },
-  })
+  const headcount = await payrollHeadcount(run)
   const missingStructures: string[] = []
   const missingTdsPlan: string[] = []
   const itemsForCheck = await prisma.payrollItem.findMany({
     where: { payrollRunId: run.id, deletedAt: null },
     select: { employeeId: true, grossPaise: true },
   })
-  for (const e of activeEmployees) {
-    if (e.salaryStructures.length === 0) {
+  for (const { employee: e, structure: s } of headcount) {
+    if (!s) {
       missingStructures.push(e.fullName)
       continue
     }
     const item = itemsForCheck.find((i) => i.employeeId === e.id)
-    const s = e.salaryStructures[0]
     const grossForCheck = item?.grossPaise
       ?? (s.basicPaise + s.hraPaise + s.conveyancePaise + s.specialAllowancePaise)
     const exempt = (e.tdsExemptReason ?? '').trim().length > 0
@@ -583,7 +561,9 @@ payrollRouter.post('/runs/:id/process', handler(async (req, res) => {
       })
       createdPayslips.push(payslip)
 
-      await postJournal(tx, {
+      // A zero-gross item (whole month LOP) has nothing to post: calc caps
+      // every deduction to zero, so all legs would be zero.
+      if (item.grossPaise > 0) await postJournal(tx, {
         date: run.periodEnd,
         type: 'Payroll',
         description: `Salary — ${monthLabel(run.periodStart)}`,
