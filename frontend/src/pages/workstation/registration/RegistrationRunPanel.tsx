@@ -21,7 +21,7 @@ import { Check, ExternalLink, FileText, FileUp, Search } from 'lucide-react';
 import { workstationApi } from '@/modules/workstation/api';
 import { useToast } from '@/components/Toast';
 import { fmtDate } from '@/lib/format';
-import { MINIMAL_REGISTRATION_PAGES, type RegistrationService } from './services';
+import { type RegistrationService } from './services';
 import { CREDENTIAL_REGISTRATIONS } from '@/modules/registrationCredentials/api';
 import { RegistrationCredentialsCard } from './RegistrationCredentialsCard';
 // Government-portal autofill (Phase 1) — remove with src/modules/portalAutofill.
@@ -39,6 +39,8 @@ export function RegistrationRunPanel({ service }: { service: RegistrationService
   const [query, setQuery] = useState('');
   const [clientId, setClientId] = useState('');
   const [notes, setNotes] = useState('');
+  const [file, setFile] = useState<File | null>(null);
+  const [fileInputKey, setFileInputKey] = useState(0);
   const [pickerOpen, setPickerOpen] = useState(false);
 
   const clientsQ = useQuery({
@@ -80,6 +82,7 @@ export function RegistrationRunPanel({ service }: { service: RegistrationService
 
   const record = useMutation({
     mutationFn: async () => {
+      if (!file) throw new Error('Attach the file the portal returned.');
       let doc = existing;
       if (!doc) {
         const cats = categoriesQ.data?.items ?? [];
@@ -97,10 +100,12 @@ export function RegistrationRunPanel({ service }: { service: RegistrationService
       // A document starts at version 0; the version is what carries the file.
       // On an existing record this bumps it and resets it to unverified, which
       // is correct — a re-issued certificate has not been checked either.
-      return workstationApi.addDocumentVersion(doc.id, { notes: notes.trim() || undefined });
+      return workstationApi.uploadDocumentFile(doc.id, file, { notes: notes.trim() || undefined });
     },
     onSuccess: (doc) => {
       setNotes('');
+      setFile(null);
+      setFileInputKey((k) => k + 1);
       qc.invalidateQueries({ queryKey: ['workstation', 'client-documents', clientId] });
       qc.invalidateQueries({ queryKey: ['workstation', 'documents'] });
       toast.push(
@@ -262,6 +267,16 @@ export function RegistrationRunPanel({ service }: { service: RegistrationService
               </>
             ) : null}
           </p>
+          <label className="block mb-3">
+            <span className="block text-12 font-medium text-neutral-500 mb-1">File</span>
+            <input
+              type="file"
+              key={fileInputKey}
+              accept=".pdf,.png,.jpg,.jpeg,.webp,.doc,.docx,.zip"
+              onChange={(e) => setFile(e.target.files?.[0] ?? null)}
+              className="w-full text-13 text-neutral-900"
+            />
+          </label>
           <label className="block">
             <span className="block text-12 font-medium text-neutral-500 mb-1">
               Reference or note (optional)
@@ -276,7 +291,7 @@ export function RegistrationRunPanel({ service }: { service: RegistrationService
           <button
             type="button"
             onClick={() => record.mutate()}
-            disabled={!client || record.isPending}
+            disabled={!client || !file || record.isPending}
             className={
               'mt-3 inline-flex items-center gap-2 h-10 px-5 text-14 font-medium rounded-lg shadow-card ' +
               'text-white bg-primary hover:bg-primaryHover disabled:opacity-50 disabled:cursor-not-allowed'
@@ -287,13 +302,6 @@ export function RegistrationRunPanel({ service }: { service: RegistrationService
               : existing ? `Record re-issue as v${existing.version + 1}`
               : 'Add to client documents'}
           </button>
-          {MINIMAL_REGISTRATION_PAGES.has(service.slug) ? null : (
-            <p className="text-12 text-neutral-500 mt-2">
-              This build stores no file bytes — the document and its version are recorded as metadata,
-              the same as everywhere else in Workstation. Attaching the actual PDF needs file storage,
-              which is not built yet.
-            </p>
-          )}
 
           {client ? (
             <div className="mt-5">

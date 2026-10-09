@@ -149,9 +149,10 @@ export async function nextWorkstationDocCode(tx: Tx, year: number): Promise<stri
  * sequence does not take a year at all. Six digits because the reference
  * document is already at INV-000188 and four would not hold a busy decade.
  *
- * Allocated inside the creating transaction by reading the current maximum,
- * for the reason the header gives: `count() + 1` reuses a number the moment
- * a row is soft-deleted, and `invoiceNumber` is @unique so the insert fails.
+ * Allocated when the invoice is SENT (drafts carry no number), inside that
+ * transaction, by reading the current maximum — soft-deleted rows included,
+ * because `invoiceNumber` is @unique and an older deleted draft may still
+ * hold one.
  */
 export async function nextInvoiceNumber(tx: Tx): Promise<string> {
   await lockSequence(tx, 'code:INV')
@@ -162,7 +163,7 @@ export async function nextInvoiceNumber(tx: Tx): Promise<string> {
   })
   let max = 0
   for (const r of rows) {
-    const n = Number(r.invoiceNumber.slice(prefix.length))
+    const n = Number((r.invoiceNumber ?? '').slice(prefix.length))
     if (Number.isFinite(n) && n > max) max = n
   }
   return `${prefix}${String(max + 1).padStart(6, '0')}`

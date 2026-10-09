@@ -91,7 +91,10 @@ export interface BankAccountInput {
 
 export interface Invoice {
   id: string;
-  invoice_number: string;
+  /** Null while a draft — the number is allocated when the invoice is sent. */
+  invoice_number: string | null;
+  /** The number, or 'Draft'. */
+  display_number: string;
   client_id: string;
   client_name: string | null;
   party_email: string | null;

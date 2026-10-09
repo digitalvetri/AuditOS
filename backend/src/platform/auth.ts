@@ -61,6 +61,7 @@ export function sessionCookie(token: string): [string, string, Record<string, un
   ]
 }
 
+/** Sync variants: seeds, tests and admin tools. Request paths use the async ones. */
 export function hashPassword(plain: string): string {
   return bcrypt.hashSync(plain, 10)
 }
@@ -69,17 +70,111 @@ export function passwordMatches(hash: string, plain: string): boolean {
   return bcrypt.compareSync(plain, hash)
 }
 
+/** Off the event loop's critical path: bcrypt's async API yields between rounds. */
+export function hashPasswordAsync(plain: string): Promise<string> {
+  return bcrypt.hash(plain, 10)
+}
+
+export function passwordMatchesAsync(hash: string, plain: string): Promise<boolean> {
+  return bcrypt.compare(plain, hash)
+}
+
+/**
+ * A real bcrypt hash of a random string, at the same cost as stored hashes.
+ * Unknown emails and locked accounts are compared against it so every path
+ * spends about the same time in bcrypt — response timing does not reveal
+ * whether an account exists.
+ */
+const DUMMY_HASH = bcrypt.hashSync(`dummy-${Math.random().toString(36)}-${Date.now()}`, 10)
+
+// ── Per-account lockout ────────────────────────────────────────────────────
+/** Consecutive failures before the account locks. */
+export const LOCKOUT_THRESHOLD = 5
+const LOCK_BASE_MS = 60_000
+const LOCK_MAX_MS = 30 * 60_000
+
+/** 1 min at the threshold, doubling for each further failure, capped at 30 min. */
+export function lockDurationMs(failures: number): number {
+  if (failures < LOCKOUT_THRESHOLD) return 0
+  return Math.min(LOCK_MAX_MS, LOCK_BASE_MS * 2 ** (failures - LOCKOUT_THRESHOLD))
+}
+
+/**
+ * Failures against emails with no account, kept in memory and on the same
+ * schedule, so "locked" is not a tell that an account exists.
+ */
+const ghostFailures = new Map<string, { count: number; lockedUntil: number; at: number }>()
+setInterval(() => {
+  const cutoff = Date.now() - LOCK_MAX_MS * 2
+  for (const [k, v] of ghostFailures) if (v.at < cutoff && v.lockedUntil < Date.now()) ghostFailures.delete(k)
+}, 60_000).unref()
+
+export type LoginAttempt =
+  | { ok: true; user: NonNullable<Awaited<ReturnType<typeof findLoginUser>>> }
+  | { ok: false; lockedForMs: number }
+
+function findLoginUser(email: string) {
+  return prisma.user.findFirst({ where: { email, deletedAt: null } })
+}
+
+/**
+ * One sign-in attempt with the brute-force guard applied. While an account is
+ * locked its password is not even checked. `lockedForMs > 0` means "locked,
+ * try again in that long"; 0 means just "wrong credentials".
+ */
+export async function attemptLogin(rawEmail: string, password: string, now = Date.now()): Promise<LoginAttempt> {
+  const email = rawEmail.trim().toLowerCase()
+  const user = await findLoginUser(email)
+
+  if (!user) {
+    await passwordMatchesAsync(DUMMY_HASH, password)
+    const g = ghostFailures.get(email) ?? { count: 0, lockedUntil: 0, at: now }
+    if (g.lockedUntil > now) return { ok: false, lockedForMs: g.lockedUntil - now }
+    if (ghostFailures.size > 50_000) ghostFailures.clear()
+    g.count += 1
+    g.at = now
+    g.lockedUntil = now + lockDurationMs(g.count)
+    ghostFailures.set(email, g)
+    return { ok: false, lockedForMs: 0 }
+  }
+
+  if (user.lockedUntil && user.lockedUntil.getTime() > now) {
+    await passwordMatchesAsync(DUMMY_HASH, password)
+    return { ok: false, lockedForMs: user.lockedUntil.getTime() - now }
+  }
+
+  const matches = await passwordMatchesAsync(user.passwordHash, password)
+  if (matches && user.isActive) {
+    if (user.failedLoginCount !== 0 || user.lockedUntil) {
+      await prisma.user.update({ where: { id: user.id }, data: { failedLoginCount: 0, lockedUntil: null } })
+    }
+    return { ok: true, user }
+  }
+
+  // Atomic increment, so parallel guesses cannot each read the same count.
+  const bumped = await prisma.user.update({
+    where: { id: user.id }, data: { failedLoginCount: { increment: 1 } }, select: { failedLoginCount: true },
+  })
+  const lockMs = lockDurationMs(bumped.failedLoginCount)
+  if (lockMs > 0) {
+    await prisma.user.update({ where: { id: user.id }, data: { lockedUntil: new Date(now + lockMs) } })
+  }
+  return { ok: false, lockedForMs: 0 }
+}
+
 /**
  * Verify credentials. Returns null for a bad password, an unknown email, a
  * soft-deleted user OR an inactive one — the caller cannot tell which, which
- * is the point.
+ * is the point. No lockout bookkeeping; sign-in uses `attemptLogin`.
  */
 export async function verifyCredentials(email: string, password: string) {
-  const user = await prisma.user.findFirst({
-    where: { email: email.trim().toLowerCase(), deletedAt: null },
-  })
-  if (!user || !user.isActive) return null
-  return passwordMatches(user.passwordHash, password) ? user : null
+  const user = await findLoginUser(email.trim().toLowerCase())
+  if (!user) {
+    await passwordMatchesAsync(DUMMY_HASH, password)
+    return null
+  }
+  const matches = await passwordMatchesAsync(user.passwordHash, password)
+  return matches && user.isActive ? user : null
 }
 
 export async function loadSession(userId: string, tokenVersion?: number): Promise<Session | null> {

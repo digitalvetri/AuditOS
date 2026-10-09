@@ -249,11 +249,14 @@ export function TdsServicesLanding() {
               disabled={!effectiveTan}
               disabledReason="Record the TAN under TDS Registration first."
             />
+            {/* Not built yet — shown as coming soon rather than linking to a page that sends you back here. */}
             <ToolCard
-              to="/audit-automation/tds"
+              to=""
               icon={<GitCompareArrows size={16} strokeWidth={1.75} />}
-              title="Reconcile with 26AS / TRACES"
-              body="Match the books and deductee records against 26AS / TRACES in Repotic, to catch credits the government shows differently before the client’s return is filed."
+              title="26AS vs books reconciliation — coming soon"
+              body=""
+              disabled
+              disabledReason="Matching the books and deductee records against 26AS / TRACES is not available yet."
             />
           </div>
 

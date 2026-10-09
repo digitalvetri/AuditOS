@@ -11,6 +11,7 @@ import {
   type AaTxnStatus,
   type AaRule,
 } from '@/modules/tools/audit-automation/api';
+import { fmtDateTime } from '@/lib/format';
 
 /**
  * /audit-automation/bank/jobs/:jobId — one bank statement, read into
@@ -101,7 +102,7 @@ function JobDetail({ detail }: { detail: AaJobDetail }) {
             <h1 className="text-14 font-semibold text-neutral-900 truncate">{doc?.original_filename ?? job.id.slice(0, 8)}</h1>
             <div className="text-12 text-neutral-500 mt-1">
               {doc ? `${doc.bank.name} · ${doc.bank_account.account_number_masked} · ` : ''}
-              {job.period_from ? `${job.period_from} to ${job.period_to}` : `Uploaded ${new Date(job.created_at).toLocaleString()}`}
+              {job.period_from ? `${job.period_from} to ${job.period_to}` : `Uploaded ${fmtDateTime(job.created_at)}`}
               {job.fy ? ` · FY ${job.fy}` : ''}
             </div>
           </div>
@@ -150,7 +151,7 @@ function JobDetail({ detail }: { detail: AaJobDetail }) {
             <Fact label="Pages" value={`${doc.page_count}${doc.declared_page_count && doc.declared_page_count !== doc.page_count ? ` (declared ${doc.declared_page_count})` : ''}`} />
             <Fact label="Encrypted" value={doc.encrypted ? 'Yes — decrypted with the uploader’s authorisation' : 'No'} />
             <Fact label="Uploaded by" value={doc.uploaded_by.label} />
-            <Fact label="Uploaded at" value={new Date(doc.uploaded_at).toLocaleString()} />
+            <Fact label="Uploaded at" value={fmtDateTime(doc.uploaded_at)} />
           </dl>
         </section>
       ) : null}

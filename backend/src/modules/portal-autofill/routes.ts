@@ -25,7 +25,7 @@ import { assignedClientIds, workstationScope } from '../../platform/workstation/
 import { decryptPortalSecret } from '../../platform/portalCrypto.js'
 import { body } from '../workstation/validate.js'
 import { PORTAL_REGISTRY, byRegistrationId, hostAllowed, type PortalConfig } from './registry.js'
-import { consumeLaunchToken, issueLaunchToken, verifyLaunchToken } from './launchToken.js'
+import { burnLaunchToken, issueLaunchToken, verifyLaunchToken, type LaunchClaims, type LaunchPurpose } from './launchToken.js'
 
 export const portalAutofillRouter = Router()
 export const extensionCredentialsRouter = Router()
@@ -207,8 +207,10 @@ portalAutofillRouter.post('/launch', handler(async (req, res) => {
   })
 }))
 
-// Redeemed by the extension's service worker. No session cookie: the signed,
-// single-use token is the authority — and the user it names is re-checked.
+// Redeemed by the extension's service worker. No session cookie: the signed
+// token is the authority, and the user it names is re-checked. Single use is
+// enforced by `burnLaunchToken` (a database insert) immediately before any
+// data is released — two racing redemptions cannot both get it.
 extensionCredentialsRouter.post('/credentials/request', handler(async (req, res) => {
   res.setHeader('Cache-Control', 'no-store')
   const b = body(req)
@@ -219,11 +221,17 @@ extensionCredentialsRouter.post('/credentials/request', handler(async (req, res)
   // Which fill this is: the login, or the registration form (GST New Registration
   // is told apart by its page; others by the extension, which sees the form).
   const purpose = b.purpose === 'registration' || isGstNewRegistrationPage(b.pageUrl) ? 'registration' : 'login'
-  const v = verifyLaunchToken(b.launchToken, Date.now(), purpose)
+  const v = verifyLaunchToken(b.launchToken, Date.now())
   if (!v.ok) {
-    return fail(v.reason, v.reason === 'expired' || v.reason === 'used'
+    return fail(v.reason, v.reason === 'expired'
       ? 'CRM session expired. Please reopen this service from the CRM.'
       : 'Credential authorization failed.')
+  }
+  /** Burn now; a token already burned for this fill is a 409, not a release. */
+  const burn = async (claims: LaunchClaims, p: LaunchPurpose) => {
+    if (await burnLaunchToken(claims, p)) return
+    await writeAudit({ actorUserId: claims.uid, action: 'portal_autofill.credential_denied', entityType: 'client', entityId: claims.cid, after: { reason: 'used', registration_id: claims.rid, portal_id: claims.pid }, req }).catch(() => undefined)
+    throw new ApiError(409, 'token_used', 'This launch was already used — CRM session expired. Please reopen this service from the CRM.')
   }
   const c = v.claims
   // The request must name exactly what the token was issued for.
@@ -235,11 +243,14 @@ extensionCredentialsRouter.post('/credentials/request', handler(async (req, res)
   if (!session) return fail('user_inactive', 'Credential authorization failed.', c as unknown as Record<string, unknown>)
   const client = await authorise(session, entry, c.cid)
   if (!client) return fail('not_authorised', 'Credential authorization failed.', c as unknown as Record<string, unknown>)
-  // A registration form: hand over the saved first-time details (never a password).
+  // A registration form: hand over the saved first-time details. These can
+  // include secrets the form needs (an encrypted field such as Aadhaar, or
+  // the portal password where a form asks for it), so this path is gated and
+  // audited exactly like the login.
   if (purpose === 'registration') {
     const r = await registrationDetails(entry.slug, client.id)
     if (!r) return fail('no_details', `No first-time registration details are saved for this client. Add them in Registration → ${entry.name} → First-time registration.`, c as unknown as Record<string, unknown>)
-    consumeLaunchToken(c, 'registration')
+    await burn(c, 'registration')
     await writeAudit({
       actorUserId: c.uid, action: 'portal_autofill.registration_details_issued', entityType: 'client', entityId: client.id,
       after: { client_id: client.id, registration_id: c.rid, portal_id: c.pid, form: r.kind }, req,
@@ -256,7 +267,7 @@ extensionCredentialsRouter.post('/credentials/request', handler(async (req, res)
   if (ip && !cred) return fail('no_credential', 'No Insured Person login is saved for this client. Add it in Registration → ESI.', c as unknown as Record<string, unknown>)
   if (uan && !cred) return fail('no_credential', 'No Employee (UAN) login is saved for this client. Add it in Registration → PF.', c as unknown as Record<string, unknown>)
   if (!cred || !cred.username || (!cred.password && !entry.passwordless)) return fail('no_credential', 'No credential configured for this client.', c as unknown as Record<string, unknown>)
-  consumeLaunchToken(c, 'login')
+  await burn(c, 'login')
   await writeAudit({
     actorUserId: c.uid, action: 'portal_autofill.credential_issued', entityType: 'client', entityId: client.id,
     after: { client_id: client.id, registration_id: c.rid, portal_id: c.pid }, req,

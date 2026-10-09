@@ -4,6 +4,7 @@ import type { Prisma } from '@prisma/client'
 import QRCode from 'qrcode'
 import { invoiceAmountInWords } from './totals.js'
 import { resolveLogoBuffer } from '../pdf/logo.js'
+import { prisma } from '../../lib/prisma.js'
 
 /**
  * INVOICE PDF — the file a client actually receives.
@@ -87,8 +88,9 @@ export interface Company {
 }
 
 /**
- * Used only when an invoice stored no company block. Not a hardcoded
- * letterhead: anything the invoice carries wins, field by field.
+ * The record PDFs' letterhead (workstation/record-pdf.ts). Invoices do NOT
+ * use it — see firmCompany(). It carries no email, website or GSTIN: a
+ * hard-coded tax identity would print one firm's GSTIN on another's paper.
  */
 export const FALLBACK_COMPANY: Company = {
   name: 'JNS Accounting Solutions',
@@ -98,12 +100,20 @@ export const FALLBACK_COMPANY: Company = {
   state: 'Tamil Nadu',
   pin: '641038',
   phone: '+91 93639 93765',
-  email: 'jnsacctax@gmail.com',
-  website: 'www.jnsacctax.in',
-  gstin: '33AWHPN2628Q1Z2',
   // Matches the frontend DEFAULT_COMPANY so a fresh invoice with no stored
   // layoutConfig still renders with the firm's logo.
   logo: '/jns-logo-tight.png',
+}
+
+/**
+ * The issuer details the server itself holds, used only where an invoice
+ * stored no company block. The organisation record carries the firm's name
+ * and nothing else, so everything else is blank rather than invented —
+ * anything the invoice carries wins, field by field.
+ */
+export async function firmCompany(): Promise<Company> {
+  const org = await prisma.organisation.findFirst({ where: { deletedAt: null }, select: { name: true } })
+  return org?.name ? { name: org.name } : {}
 }
 
 interface Bank {
@@ -120,7 +130,7 @@ export async function streamInvoicePdf(res: Response, inv: InvoicePdfRow) {
    * firm's own details are the floor, overridden field by field by whatever
    * the invoice actually stored.
    */
-  const company: Company = { ...FALLBACK_COMPANY, ...(layout.company ?? {}) }
+  const company: Company = { ...(await firmCompany()), ...(layout.company ?? {}) }
   const bank = (inv.bankSnapshot ?? null) as Bank | null
   const blocks = readBlocks(inv.blockConfig)
   const on = (k: string) => blocks.some((b) => b.key === k && b.enabled !== false)
@@ -134,7 +144,7 @@ export async function streamInvoicePdf(res: Response, inv: InvoicePdfRow) {
   const bottom = doc.page.height - margin
 
   res.setHeader('Content-Type', 'application/pdf')
-  res.setHeader('Content-Disposition', `inline; filename="${inv.invoiceNumber}.pdf"`)
+  res.setHeader('Content-Disposition', `inline; filename="${inv.invoiceNumber ?? 'draft-invoice'}.pdf"`)
   doc.pipe(res)
 
   // ── Company header + TAX INVOICE ────────────────────────────────────────
@@ -181,7 +191,7 @@ export async function streamInvoicePdf(res: Response, inv: InvoicePdfRow) {
     const top = doc.y + 6
     const colW = width / 2
     const pairs: [string, string][] = [
-      ['Invoice #', inv.invoiceNumber],
+      ['Invoice #', inv.invoiceNumber ?? 'DRAFT'],
       ['Invoice Date', fmtDay(inv.invoiceDate)],
       ['Terms', termLabel(inv.terms)],
       ['Due Date', fmtDay(inv.dueDate)],

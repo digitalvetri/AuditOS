@@ -25,6 +25,7 @@ import { formatINR } from '@/modules/dashboardV2/format';
 import { clientHealth, gstHistory, lastPeriods, tdsRowsFor, type PeriodState } from '@/modules/workstation/clientInsights';
 import { ClientPanel } from './ClientPanel';
 import { deriveShortName, OrganizationBadge, OrganizationOf } from '@/modules/workstation/organization/badges';
+import { gstinError, isPan, normId } from '@/lib/ids';
 
 /**
  * §7.3 — the client list. Search covers company · Client ID · GSTIN · contact.
@@ -128,6 +129,20 @@ export function ClientsPage() {
     return true;
   });
   const opened = (clients.data?.items ?? []).find((c) => c.id === openId) ?? allItems.find((c) => c.id === openId);
+  // A firm with no clients at all gets a way in; a filter that matches
+  // nothing says so instead.
+  const filtered = !!(q || status || view || managerId || serviceId || pendingDocs);
+  const emptyState = !filtered ? (
+    <ListEmpty>
+      <div className="text-14 font-semibold text-neutral-900">No clients yet</div>
+      <div className="mt-1">Every service, document and invoice hangs off a client — start with one.</div>
+      {canManage ? (
+        <div className="mt-4 flex justify-center">
+          <ListAction onClick={() => setAddOpen(true)} icon={<Plus size={15} />}>Add your first client</ListAction>
+        </div>
+      ) : null}
+    </ListEmpty>
+  ) : <ListEmpty>No clients match these filters.</ListEmpty>;
 
   return (
     <div className="max-w-[1480px]">
@@ -168,10 +183,10 @@ export function ClientsPage() {
 
       <div className={'cl-split grid gap-4 items-start ' + (opened ? 'is-open' : '')}>
         <ListCard>
-          <QueryState query={clients} empty={<ListEmpty>No clients match these filters.</ListEmpty>}>
+          <QueryState query={clients} empty={emptyState}>
             {(data: ListResponse<ClientListItem>) => {
               const items = rowsFor(data.items);
-              if (items.length === 0) return <ListEmpty>No clients match these filters.</ListEmpty>;
+              if (items.length === 0) return emptyState;
               return (
                 <div className="overflow-x-auto">
                   <table className="cl-table w-full text-13">
@@ -371,10 +386,13 @@ export function AddClientModal({ open, onClose, organization, defaultName, onCre
     if (form.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email)) {
       e.email = 'Enter a valid email address.';
     }
-    if (form.gstin && !/^\d{2}[A-Z]{5}\d{4}[A-Z]\d[A-Z]\d$/.test(form.gstin.toUpperCase())) {
-      e.gstin = 'Enter a valid 15-character GSTIN.';
+    const gstin = normId(form.gstin);
+    const pan = normId(form.pan);
+    if (gstin) {
+      const ge = gstinError(gstin, pan);
+      if (ge) e.gstin = ge;
     }
-    if (form.pan && !/^[A-Z]{5}\d{4}[A-Z]$/.test(form.pan.toUpperCase())) {
+    if (pan && !isPan(pan)) {
       e.pan = 'Enter a valid 10-character PAN.';
     }
     if (!form.account_manager_id) e.account_manager_id = 'Select an employee.';

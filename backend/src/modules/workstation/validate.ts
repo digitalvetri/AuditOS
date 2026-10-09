@@ -112,7 +112,8 @@ export class FieldErrors {
     const raw = this.str(field, value, { required })
     if (raw === undefined) return undefined
     const up = raw.toUpperCase()
-    if (!/^\d{2}[A-Z]{5}\d{4}[A-Z]\d[A-Z]\d$/.test(up)) {
+    // Same shape as gst/validate.ts GSTIN_RE: the entity and check characters may be letters.
+    if (!/^\d{2}[A-Z]{5}\d{4}[A-Z][1-9A-Z]Z[0-9A-Z]$/.test(up)) {
       this.add(field, 'Enter a valid 15-character GSTIN.')
       return undefined
     }

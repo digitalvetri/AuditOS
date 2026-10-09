@@ -16,6 +16,12 @@ describe('errorMiddleware', () => {
     expect(r.body.error.code).toBe('amount_too_large')
     expect(r.body.error.message).toMatch(/2,14,74,836/)
   })
+  it('a BIGINT overflow is a 422 without the 32-bit figure', () => {
+    const r = run(new Error('bigint out of range'))
+    expect(r.status).toBe(422)
+    expect(r.body.error.code).toBe('amount_too_large')
+    expect(r.body.error.message).not.toMatch(/2,14,74,836/)
+  })
   it('also catches Postgres integer out of range', () => {
     expect(run(Object.assign(new Error('integer out of range'), { code: '22003' })).status).toBe(422)
   })

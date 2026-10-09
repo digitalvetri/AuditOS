@@ -71,7 +71,7 @@ export function docFromInvoice(inv: Invoice): InvoiceDoc {
     layout: { ...DEFAULT_LAYOUT, ...cfg },
     blocks,
     company: { ...DEFAULT_COMPANY, ...(cfg.company ?? {}) },
-    invoiceNumber: inv.invoice_number,
+    invoiceNumber: inv.invoice_number ?? 'DRAFT',
     invoiceDate: inv.invoice_date,
     termsLabel: TERM_LABEL[inv.terms] ?? inv.terms,
     dueDate: inv.due_date,
@@ -145,7 +145,7 @@ function Body({ inv }: { inv: Invoice }) {
   // in the message body; the recipient opens the PDF from any device.
   const [emailing, setEmailing] = useState(false);
   const note =
-    `Dear ${inv.billing_name || inv.client_name || 'Sir/Madam'},\n\nPlease download invoice ${inv.invoice_number} dated ${fmtDate(inv.invoice_date)} from the link below.\n`
+    `Dear ${inv.billing_name || inv.client_name || 'Sir/Madam'},\n\nPlease download invoice ${inv.invoice_number ?? 'Draft'} dated ${fmtDate(inv.invoice_date)} from the link below.\n`
     + `Amount: ₹${inrAmount(inv.total_paise)}`
     + (inv.balance_due_paise > 0 && inv.due_date ? `\nBalance due: ₹${inrAmount(inv.balance_due_paise)} by ${fmtDate(inv.due_date)}` : '')
     + `\n\nRegards`;
@@ -153,7 +153,7 @@ function Body({ inv }: { inv: Invoice }) {
   // Payment reminder — same email / WhatsApp dialogs, with a reminder note.
   const [reminding, setReminding] = useState<null | 'menu' | 'email' | 'whatsapp'>(null);
   const reminder =
-    `Dear ${inv.billing_name || inv.client_name || 'Sir/Madam'},\n\nThis is a gentle reminder that invoice ${inv.invoice_number} dated ${fmtDate(inv.invoice_date)}`
+    `Dear ${inv.billing_name || inv.client_name || 'Sir/Madam'},\n\nThis is a gentle reminder that invoice ${inv.invoice_number ?? 'Draft'} dated ${fmtDate(inv.invoice_date)}`
     + ` has a balance of ₹${inrAmount(inv.balance_due_paise)}${inv.due_date ? `, which was due on ${fmtDate(inv.due_date)}` : ''}.`
     + `\nYou can download the invoice from the link below. Kindly arrange the payment at the earliest, or let us know if it has already been made.\n\nThank you,\nRegards`;
   const canRemind = mayWrite && inv.balance_due_paise > 0 && inv.stored_status !== 'draft' && inv.stored_status !== 'cancelled';
@@ -170,7 +170,7 @@ function Body({ inv }: { inv: Invoice }) {
       </Modal>
       <SendEmailDialog
         open={emailing} onClose={() => setEmailing(false)} kind="invoice" id={inv.id}
-        to={inv.party_email} subject={`Invoice ${inv.invoice_number} from ${docFromInvoice(inv).company.name}`} message={note}
+        to={inv.party_email} subject={`Invoice ${inv.invoice_number ?? 'Draft'} from ${docFromInvoice(inv).company.name}`} message={note}
       />
       <SendWhatsAppDialog
         open={whatsapping} onClose={() => setWhatsapping(false)} kind="invoice" id={inv.id} phone={inv.party_contact_number}
@@ -178,7 +178,7 @@ function Body({ inv }: { inv: Invoice }) {
       />
       <SendEmailDialog
         open={reminding === 'email'} onClose={() => setReminding(null)} kind="invoice" id={inv.id}
-        to={inv.party_email} subject={`Payment reminder — invoice ${inv.invoice_number}`} message={reminder}
+        to={inv.party_email} subject={`Payment reminder — invoice ${inv.invoice_number ?? 'Draft'}`} message={reminder}
       />
       <SendWhatsAppDialog
         open={reminding === 'whatsapp'} onClose={() => setReminding(null)} kind="invoice" id={inv.id} phone={inv.party_contact_number}
@@ -406,7 +406,7 @@ function CancelModal({ inv, open, onClose, onDone }: {
   });
   return (
     <Modal
-      open={open} title={`Cancel ${inv.invoice_number}?`} onClose={onClose}
+      open={open} title={`Cancel ${inv.invoice_number ?? 'Draft'}?`} onClose={onClose}
       footer={
         <>
           <Button onClick={onClose}>Keep it</Button>

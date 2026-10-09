@@ -214,6 +214,7 @@ export function employeeToApi(e: Employee) {
     exit_reason: e.exitReason,
     notice_period_days: e.noticePeriodDays,
     weekly_capacity_hours: e.weeklyCapacityHours,
+    pf_applicable: e.pfApplicable,
     photo_url: e.photoUrl,
     address: e.address,
     emergency_contact_name: e.emergencyContactName,

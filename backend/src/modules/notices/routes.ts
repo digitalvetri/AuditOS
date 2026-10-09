@@ -27,6 +27,7 @@ import crypto from 'node:crypto'
 import { prisma, alive } from '../../lib/prisma.js'
 import { ApiError, handler, noContent, ok } from '../../lib/http.js'
 import { requireSession } from '../../platform/auth.js'
+import { writeAudit } from '../../platform/audit.js'
 import { assertCanSeeClient, requireWorkstation } from '../../platform/workstation/scope.js'
 import { LocalStorageAdapter } from '../tools/storage/LocalStorageAdapter.js'
 import { sniffImage } from '../messages/attachments.js'
@@ -47,6 +48,11 @@ import {
 
 const READ = ['workstation.gst.read', 'workstation.gst.manage'] as const
 const MANAGE = ['workstation.gst.manage'] as const
+
+const NOTICE_STATUSES = ['draft', 'review', 'sent', 'closed'] as const
+type NoticeStatus = (typeof NOTICE_STATUSES)[number]
+/** The reply has gone out: its text is frozen and the status only moves between these. */
+const isReplySent = (s: string) => s === 'sent' || s === 'closed'
 
 const MAX_UPLOAD_MB = 15
 const upload = multer({
@@ -284,9 +290,13 @@ noticesRouter.post('/', upload.single('file'), handler(async (req, res) => {
       llmModel,
       generatedAt: autoDraft || clientLetter ? new Date() : null,
       status: autoDraft ? 'review' : 'draft',
-      createdBy: session.employeeId ?? null,
-      updatedBy: session.employeeId ?? null,
+      createdBy: session.userId,
+      updatedBy: session.userId,
     },
+  })
+  await writeAudit({
+    actorUserId: session.userId, action: 'gst_notice.create', entityType: 'GstNotice', entityId: row.id,
+    after: { client_id: row.clientId, kind: row.kind, reference_no: row.referenceNo, status: row.status, file: row.uploadedFileName }, req,
   })
   ok(res, serialize(row), 201)
 }))
@@ -315,7 +325,7 @@ noticesRouter.patch('/:id', handler(async (req, res) => {
     return undefined
   }
   const updates: Parameters<typeof prisma.gstNotice.update>[0]['data'] = {
-    updatedBy: session.employeeId ?? null,
+    updatedBy: session.userId,
   }
   if ('reference_no' in b) updates.referenceNo = str('reference_no')
   if ('notice_date' in b) updates.noticeDate = str('notice_date')
@@ -329,14 +339,39 @@ noticesRouter.patch('/:id', handler(async (req, res) => {
   if ('total_demand' in b) updates.totalDemand = num('total_demand') as number | null | undefined
   if ('status' in b && typeof b.status === 'string') {
     const s = b.status as string
-    if (!['draft', 'review', 'sent', 'closed'].includes(s)) throw ApiError.badRequest('Invalid status.')
+    if (!NOTICE_STATUSES.includes(s as NoticeStatus)) throw ApiError.badRequest('Invalid status.')
+    // Once the reply has gone to the department it is a record: the notice
+    // moves between sent and closed, never back to draft or review.
+    if (isReplySent(existing.status) && !isReplySent(s)) {
+      throw ApiError.conflict('reply_sent', `This reply is already marked ${existing.status}; it cannot go back to ${s}.`)
+    }
     updates.status = s
   }
   if ('reply_inputs' in b) updates.replyInputs = toReplyInputs(b.reply_inputs) as unknown as object
-  if ('draft_content' in b) updates.draftContent = typeof b.draft_content === 'string' ? b.draft_content : null
+  if ('draft_content' in b) {
+    const next = typeof b.draft_content === 'string' ? b.draft_content : null
+    // Judged on the status BEFORE this request, so one PATCH cannot reopen
+    // and rewrite at once.
+    if (isReplySent(existing.status) && next !== existing.draftContent) {
+      throw ApiError.conflict('reply_sent', 'The reply has been marked sent, so its text can no longer be edited.')
+    }
+    updates.draftContent = next
+  }
   if ('client_letter' in b) updates.clientLetter = typeof b.client_letter === 'string' ? b.client_letter : null
 
   const row = await prisma.gstNotice.update({ where: { id: existing.id }, data: updates })
+  const changed = Object.keys(updates).filter((k) => k !== 'updatedBy')
+  await writeAudit({
+    actorUserId: session.userId, action: 'gst_notice.update', entityType: 'GstNotice', entityId: row.id,
+    before: Object.fromEntries(changed.map((k) => [k, (existing as Record<string, unknown>)[k]])),
+    after: Object.fromEntries(changed.map((k) => [k, (row as Record<string, unknown>)[k]])), req,
+  })
+  if (row.status !== existing.status) {
+    await writeAudit({
+      actorUserId: session.userId, action: 'gst_notice.status', entityType: 'GstNotice', entityId: row.id,
+      before: { status: existing.status }, after: { status: row.status }, req,
+    })
+  }
   ok(res, serialize(row))
 }))
 
@@ -350,6 +385,9 @@ noticesRouter.post('/:id/generate', handler(async (req, res) => {
   // Caller may send fresh replyInputs with the generate call OR rely on what
   // was saved by a prior PATCH. Fresh inputs win and are persisted so the next
   // "Regenerate" uses the same seed.
+  if (isReplySent(existing.status)) {
+    throw ApiError.conflict('reply_sent', 'The reply has been marked sent, so it cannot be regenerated.')
+  }
   const freshInputs = req.body?.reply_inputs ? toReplyInputs(req.body.reply_inputs) : null
   const reply = freshInputs ?? toReplyInputs(existing.replyInputs)
   if (!reply.grounds.trim() && !reply.facts.trim()) {
@@ -386,8 +424,12 @@ noticesRouter.post('/:id/generate', handler(async (req, res) => {
       generatedAt: new Date(),
       replyInputs: reply as unknown as object,
       status: existing.status === 'draft' ? 'review' : existing.status,
-      updatedBy: session.employeeId ?? null,
+      updatedBy: session.userId,
     },
+  })
+  await writeAudit({
+    actorUserId: session.userId, action: 'gst_notice.draft_generated', entityType: 'GstNotice', entityId: row.id,
+    before: { status: existing.status }, after: { status: row.status, llm_model: row.llmModel }, req,
   })
   ok(res, serialize(row))
 }))
@@ -429,7 +471,7 @@ noticesRouter.post('/:id/client-letter', handler(async (req, res) => {
       clientLetter: r.content,
       llmProvider: 'groq',
       llmModel: r.model,
-      updatedBy: session.employeeId ?? null,
+      updatedBy: session.userId,
     },
   })
   ok(res, serialize(row))
@@ -443,7 +485,11 @@ noticesRouter.delete('/:id', handler(async (req, res) => {
   await assertCanSeeClient(session, scope, existing.clientId)
   await prisma.gstNotice.update({
     where: { id: existing.id },
-    data: { deletedAt: new Date(), updatedBy: session.employeeId ?? null },
+    data: { deletedAt: new Date(), updatedBy: session.userId },
+  })
+  await writeAudit({
+    actorUserId: session.userId, action: 'gst_notice.delete', entityType: 'GstNotice', entityId: existing.id,
+    before: { client_id: existing.clientId, kind: existing.kind, reference_no: existing.referenceNo, status: existing.status }, req,
   })
   noContent(res)
 }))

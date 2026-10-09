@@ -262,8 +262,15 @@ async function itemFile(clientId: string, source: string, ref: string): Promise<
 // GET /api/client-portal/:token/open?source=…&ref=…[&download=1]
 clientPortalPublicRouter.get('/client-portal/:token/open', handler(async (req, res) => {
   const link = await resolveToken(req.params.token)
-  const f = await itemFile(link.client.id, String(req.query.source ?? ''), String(req.query.ref ?? ''))
+  const source = String(req.query.source ?? '')
+  const ref = String(req.query.ref ?? '')
+  const f = await itemFile(link.client.id, source, ref)
   if (!f) throw ApiError.notFound('This document is not available.')
+  // The client has no login: the share link is the "who".
+  await writeAudit({
+    actorUserId: null, action: 'document.download', entityType: 'Client', entityId: link.client.id,
+    after: { via: 'client_portal', link_id: link.id, source, ref }, req,
+  })
   sendFile(res, f.bytes, f.name, f.mime, req.query.download === '1')
 }))
 
@@ -284,6 +291,10 @@ clientPortalPublicRouter.get('/client-portal/:token/zip', handler(async (req, re
   if (items.length > ZIP_MAX_FILES) {
     throw ApiError.unprocessable('too_many', `That is more than ${ZIP_MAX_FILES} files — download one folder at a time.`)
   }
+  await writeAudit({
+    actorUserId: null, action: 'document.download', entityType: 'Client', entityId: client.id,
+    after: { via: 'client_portal', link_id: link.id, zip: true, folder: only, files: items.length }, req,
+  })
 
   const zip = new JSZip()
   const used = new Set<string>()

@@ -313,6 +313,13 @@ export function documentVersionToApi(v: ClientDocumentVersion, m: EmployeeLookup
     uploaded_at: isoReq(v.uploadedAt),
     size_bytes: v.sizeBytes,
     notes: v.notes,
+    /** Date printed on the document, as entered — not when it was uploaded. */
+    document_date: v.documentDate,
+    /** False for older metadata-only versions with no stored file. */
+    has_file: v.mimeType !== null,
+    review_status: v.reviewStatus,
+    reviewed_at: iso(v.reviewedAt),
+    review_note: v.reviewNote,
     previous_version_id: v.previousVersionId,
     created_at: isoReq(v.createdAt),
   }

@@ -4,6 +4,7 @@ import { Check, Copy, Link as LinkIcon } from 'lucide-react';
 import { api } from '@/services/api';
 import { Button } from '@/components/Button';
 import { useToast } from '@/components/Toast';
+import { RevokeLinksButton } from './RevokeLinksButton';
 import { Field, Modal, inputClass, textareaClass } from './components';
 import { waNumber, waNumberProblem } from './share';
 import type { EmailKind } from './SendEmailDialog';
@@ -137,6 +138,7 @@ export function SendWhatsAppDialog({ open, onClose, kind, id, phone, note }: {
               {copied ? <><Check size={12} /> Copied</> : <><Copy size={12} /> Copy</>}
             </button>
           </div>
+          <RevokeLinksButton kind={kind} id={id} />
         </div>
       </div>
     </Modal>

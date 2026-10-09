@@ -21,27 +21,24 @@ import type { PrismaClient } from '@prisma/client'
 import { notifyEmployee } from '../../platform/notify.js'
 import { mailConfigured, sendMail } from '../../lib/mailer.js'
 import { ApiError } from '../../lib/http.js'
-import { createRuleResolver, type FilingFrequency, type ReturnKind } from './dueDate.js'
+import { addDays, istToday } from '../../lib/dates.js'
+import {
+  createRuleResolver, kindsOwed, stateGroupOf, type FilingFrequency, type ReturnKind,
+} from './dueDate.js'
 
-const DUE_SOON_DAYS = 3
+export const DUE_SOON_DAYS = 3
+/** How far back an unfinished return can still surface as overdue. */
+const OVERDUE_LOOKBACK_MONTHS = 12
+const MAX_CC = 5
 const TICK_MS = 6 * 60 * 60 * 1000
 
 const KIND_LABEL: Record<ReturnKind, string> = {
   GSTR1: 'GSTR-1', GSTR2B: 'GSTR-2B / IMS', GSTR3B: 'GSTR-3B',
 }
 
-/** YYYY-MM-DD in IST, independent of the host timezone. */
-function todayIst(): string {
-  return new Date(Date.now() + 330 * 60 * 1000).toISOString().slice(0, 10)
-}
-function addDays(iso: string, days: number): string {
-  const d = new Date(`${iso}T00:00:00Z`)
-  d.setUTCDate(d.getUTCDate() + days)
-  return d.toISOString().slice(0, 10)
-}
-/** `YYYY-MM` of the month before the one `iso` (YYYY-MM-DD) falls in. */
-function previousPeriod(iso: string): string {
-  const d = new Date(Date.UTC(Number(iso.slice(0, 4)), Number(iso.slice(5, 7)) - 2, 1))
+/** `YYYY-MM` that is `back` months before the month `iso` (YYYY-MM-DD) falls in. */
+function periodBefore(iso: string, back: number): string {
+  const d = new Date(Date.UTC(Number(iso.slice(0, 4)), Number(iso.slice(5, 7)) - 1 - back, 1))
   return d.toISOString().slice(0, 7)
 }
 function fmt(iso: string): string {
@@ -76,9 +73,20 @@ export interface UpcomingItem {
  * Periods: a return is FOR period M and falls due in M+1 (see applyDay),
  * so without an explicit `period` we evaluate the previous month — whose
  * returns fall due this month — plus the current month (hand-set or
- * CBIC-overridden case dates). The current month alone could never reach
- * the window. A quarterly filer's period is the quarter-end month, so the
- * previous month also covers the quarter that just closed.
+ * CBIC-overridden case dates). A quarterly filer's period is the
+ * quarter-end month, so the previous month also covers the quarter that
+ * just closed.
+ *
+ * Older periods (up to OVERDUE_LOOKBACK_MONTHS back) stay on the list while
+ * their case is still open — an overdue return must not silently drop out
+ * just because the month rolled over. Older periods WITHOUT a case are not
+ * guessed at: nothing records whether they were filed (the client may
+ * predate the firm), and flagging all of them would flood every bell.
+ * Nothing before the profile's registration date is ever flagged.
+ *
+ * Which returns are owed per period comes from `kindsOwed`: GSTR-2B every
+ * month for everyone, GSTR-1/3B only in quarter-end months for QRMP filers,
+ * none of the three for composition dealers.
  *
  * The `clientIdFilter` is applied by the caller — the compute step is
  * scope-agnostic so the scheduler can reach every client even when no
@@ -88,8 +96,11 @@ export async function computeUpcoming(
   prisma: PrismaClient,
   opts: { period?: string; today?: string; clientIdFilter?: string[] } = {},
 ): Promise<UpcomingItem[]> {
-  const today = opts.today ?? todayIst()
-  const periods = opts.period ? [opts.period] : [previousPeriod(today), today.slice(0, 7)]
+  const today = opts.today ?? istToday()
+  const recent = opts.period ? [opts.period] : [periodBefore(today, 1), today.slice(0, 7)]
+  const older = opts.period
+    ? []
+    : Array.from({ length: OVERDUE_LOOKBACK_MONTHS - 1 }, (_, i) => periodBefore(today, i + 2))
   const windowEnd = addDays(today, DUE_SOON_DAYS)
 
   const profiles = await prisma.gstProfile.findMany({
@@ -106,7 +117,7 @@ export async function computeUpcoming(
     where: {
       deletedAt: null,
       kind: { in: ['GSTR1', 'GSTR2B', 'GSTR3B'] },
-      period: { in: periods },
+      period: { in: [...recent, ...older] },
       clientId: { in: profiles.map((p) => p.clientId) },
     },
     select: { id: true, clientId: true, kind: true, period: true, status: true, dueDate: true },
@@ -115,43 +126,45 @@ export async function computeUpcoming(
   for (const c of cases) caseByKey.set(`${c.clientId}::${c.kind}::${c.period}`, c)
 
   const resolver = await createRuleResolver(prisma)
-  const kinds: ReturnKind[] = ['GSTR1', 'GSTR2B', 'GSTR3B']
   const out: UpcomingItem[] = []
 
-  for (const period of periods) for (const p of profiles) {
+  for (const p of profiles) {
     const freq = p.filingFrequency as FilingFrequency
-    // Quarterly clients don't owe anything outside quarter-end months.
-    if (freq === 'quarterly') {
-      const mo = Number(period.slice(5, 7))
-      if (![3, 6, 9, 12].includes(mo)) continue
-    }
-    for (const kind of kinds) {
-      const c = caseByKey.get(`${p.clientId}::${kind}::${period}`)
-      if (c?.status === 'COMPLETED') continue
-      const due = c?.dueDate ?? await resolver.dueDateFor(period, kind, freq)
-      if (!due) continue
-      // In window = (due in [today, today+N]) OR overdue (due < today).
-      let state: 'due' | 'overdue' | null = null
-      if (due < today) state = 'overdue'
-      else if (due <= windowEnd) state = 'due'
-      if (!state) continue
-      // Days remaining — negative for overdue, 0 for today, 1-N for due.
-      const daysToDue = Math.round((Date.parse(`${due}T00:00:00Z`) - Date.parse(`${today}T00:00:00Z`)) / 86_400_000)
-      out.push({
-        key: `gst:${p.clientId}:${kind}:${period}:${state}`,
-        caseId: c?.id ?? null,
-        clientId: p.clientId,
-        clientName: p.client.companyName,
-        clientEmail: p.client.email ?? null,
-        gstin: p.gstin,
-        assignedEmployeeId: p.assignedEmployeeId ?? null,
-        reviewerEmployeeId: p.reviewerEmployeeId ?? null,
-        kind,
-        period,
-        dueDate: due,
-        state,
-        daysToDue,
-      })
+    const group = stateGroupOf(p)
+    const regPeriod = p.registrationDate && /^\d{4}-\d{2}/.test(p.registrationDate)
+      ? p.registrationDate.slice(0, 7) : null
+    for (const period of [...recent, ...older]) {
+      if (regPeriod && period < regPeriod) continue
+      const isOlder = !recent.includes(period)
+      for (const kind of kindsOwed(p, period)) {
+        const c = caseByKey.get(`${p.clientId}::${kind}::${period}`)
+        if (c?.status === 'COMPLETED') continue
+        if (isOlder && !c) continue // no open case → nothing to say it is unfiled
+        const due = c?.dueDate ?? resolver.resolve(period, kind, freq, group)
+        if (!due) continue
+        // In window = (due in [today, today+N]) OR overdue (due < today).
+        let state: 'due' | 'overdue' | null = null
+        if (due < today) state = 'overdue'
+        else if (due <= windowEnd) state = 'due'
+        if (!state) continue
+        // Days remaining — negative for overdue, 0 for today, 1-N for due.
+        const daysToDue = Math.round((Date.parse(`${due}T00:00:00Z`) - Date.parse(`${today}T00:00:00Z`)) / 86_400_000)
+        out.push({
+          key: `gst:${p.clientId}:${kind}:${period}:${state}`,
+          caseId: c?.id ?? null,
+          clientId: p.clientId,
+          clientName: p.client.companyName,
+          clientEmail: p.client.email ?? null,
+          gstin: p.gstin,
+          assignedEmployeeId: p.assignedEmployeeId ?? null,
+          reviewerEmployeeId: p.reviewerEmployeeId ?? null,
+          kind,
+          period,
+          dueDate: due,
+          state,
+          daysToDue,
+        })
+      }
     }
   }
 
@@ -226,9 +239,16 @@ export function startGstReminderScheduler(prisma: PrismaClient): void {
 /**
  * Fire an email reminder to the client. Uses the firm's SMTP config
  * (see mailer.ts). The subject + body are templated here and the operator
- * can override before sending — the UI sends whatever text comes back on
- * the request. `email` defaults to the client record's email; the UI can
- * override it per send for one-off addresses.
+ * can override before sending.
+ *
+ * Recipients are LOCKED so this can never act as an open mail relay:
+ *   - `to` must be an address the firm already holds for this client — the
+ *     client record's email, the GST profile's contact email, or a live
+ *     client contact's email. Blank → the client record's email.
+ *   - `cc` is at most MAX_CC addresses, each either one of those client
+ *     addresses or a staff member (user / employee) of the client's firm.
+ * Anything else is refused with 422 BEFORE the SMTP check, so the lock
+ * holds whether or not mail is configured.
  */
 export interface SendClientReminderInput {
   caseId?: string | null
@@ -244,7 +264,85 @@ export interface SendClientReminderInput {
 export interface SendClientReminderResult {
   messageId: string
   to: string
+  cc: string[]
   sentAt: string
+}
+
+const norm = (e: string) => e.trim().toLowerCase()
+const EMAIL_RE = /^[^@\s,;<>]+@[^@\s,;<>]+\.[^@\s,;<>]+$/
+
+/** Every address on record for a client, normalised. */
+async function clientAddresses(prisma: PrismaClient, clientId: string): Promise<{ primary: string | null; all: Set<string> }> {
+  const [client, profile, contacts] = await Promise.all([
+    prisma.client.findFirst({ where: { id: clientId, deletedAt: null }, select: { email: true } }),
+    prisma.gstProfile.findFirst({ where: { clientId, deletedAt: null }, select: { contactEmail: true } }),
+    prisma.clientContact.findMany({ where: { clientId, deletedAt: null, email: { not: null } }, select: { email: true } }),
+  ])
+  const all = new Set<string>()
+  for (const e of [client?.email, profile?.contactEmail, ...contacts.map((c) => c.email)]) {
+    if (e && EMAIL_RE.test(e.trim())) all.add(norm(e))
+  }
+  return { primary: client?.email ? norm(client.email) : null, all }
+}
+
+/**
+ * Validate (and default) the recipients of a client reminder. Exported so
+ * the route and tests can exercise the lock without sending mail.
+ */
+export async function resolveReminderRecipients(
+  prisma: PrismaClient,
+  clientId: string,
+  toInput: string,
+  ccInput: string[] | undefined,
+): Promise<{ to: string; cc: string[] }> {
+  const client = await prisma.client.findFirst({
+    where: { id: clientId, deletedAt: null },
+    select: { id: true, organisationId: true },
+  })
+  if (!client) throw ApiError.notFound('No such client.')
+  const { primary, all } = await clientAddresses(prisma, clientId)
+
+  const to = toInput.trim() ? norm(toInput) : primary
+  if (!to) {
+    throw ApiError.unprocessable('no_client_email', 'This client has no email address on record. Add one to the client before sending reminders.')
+  }
+  if (!EMAIL_RE.test(to) || !all.has(to)) {
+    throw ApiError.unprocessable(
+      'recipient_not_on_record',
+      'Reminders can only be sent to an email address on record for this client (client, GST contact or client contact).',
+    )
+  }
+
+  const cc = Array.from(new Set((ccInput ?? []).map(norm).filter(Boolean))).filter((e) => e !== to)
+  if (cc.length > MAX_CC) {
+    throw ApiError.unprocessable('too_many_cc', `At most ${MAX_CC} cc addresses are allowed.`)
+  }
+  const notClient = cc.filter((e) => !all.has(e))
+  if (notClient.length) {
+    if (notClient.some((e) => !EMAIL_RE.test(e))) {
+      throw ApiError.unprocessable('cc_not_allowed', 'A cc address is not a valid email.')
+    }
+    const [users, employees] = await Promise.all([
+      prisma.user.findMany({
+        where: { organisationId: client.organisationId, email: { in: notClient, mode: 'insensitive' } },
+        select: { email: true },
+      }),
+      prisma.employee.findMany({
+        where: { organisationId: client.organisationId, email: { in: notClient, mode: 'insensitive' } },
+        select: { email: true },
+      }),
+    ])
+    const staff = new Set([...users, ...employees].map((r) => norm(r.email)))
+    const rejected = notClient.filter((e) => !staff.has(e))
+    if (rejected.length) {
+      throw ApiError.unprocessable(
+        'cc_not_allowed',
+        "cc may only include this client's contacts or staff of the firm.",
+        { rejected },
+      )
+    }
+  }
+  return { to, cc }
 }
 
 export async function sendClientReminder(
@@ -252,6 +350,8 @@ export async function sendClientReminder(
   input: SendClientReminderInput,
   actorUserId: string | null,
 ): Promise<SendClientReminderResult> {
+  // Recipient lock first — refuses foreign addresses even with SMTP off.
+  const { to, cc } = await resolveReminderRecipients(prisma, input.clientId, input.to, input.cc)
   if (!mailConfigured()) {
     throw ApiError.unprocessable(
       'mail_not_configured',
@@ -260,24 +360,20 @@ export async function sendClientReminder(
   }
   const client = await prisma.client.findFirst({
     where: { id: input.clientId, deletedAt: null },
-    select: { id: true, companyName: true, email: true, organisationId: true },
+    select: { id: true, companyName: true },
   })
   if (!client) throw ApiError.notFound('No such client.')
-  const to = (input.to || client.email || '').trim()
-  if (!to || !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(to)) {
-    throw ApiError.badRequest('Recipient email is missing or invalid.')
-  }
   const subject = input.subject?.trim() || defaultReminderSubject({ clientName: client.companyName, kind: input.kind, period: input.period, dueDate: input.dueDate })
   const body = input.body?.trim() || defaultReminderBody({ clientName: client.companyName, kind: input.kind, period: input.period, dueDate: input.dueDate })
 
   const messageId = await sendMail({
     to: [to],
-    cc: input.cc?.filter(Boolean),
+    cc: cc.length ? cc : undefined,
     subject,
     text: body,
   })
 
-  // Audit-stamp: a notification row with a stable key so a second send to
+  // History stamp: a notification row with a stable key so a second send to
   // the same (case/kind/period) is distinguishable in history. Not deduped —
   // the operator may legitimately send a second nudge later.
   const sentAtIso = new Date().toISOString()
@@ -294,7 +390,7 @@ export async function sendClientReminder(
     },
   }).catch(() => undefined) // best-effort — the mail already went out
 
-  return { messageId, to, sentAt: sentAtIso }
+  return { messageId, to, cc, sentAt: sentAtIso }
 }
 
 export function defaultReminderSubject(opts: { clientName: string; kind: ReturnKind; period: string; dueDate: string }): string {

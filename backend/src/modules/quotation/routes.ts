@@ -8,6 +8,7 @@ import { notifyEmployees } from '../../platform/notify.js'
 import { prisma } from '../../lib/prisma.js'
 import { QuotationService, type ItemInput } from './service.js'
 import { GST_RATES } from './totals.js'
+import { formBool } from '../invoice/supply.js'
 
 /**
  * Quotation HTTP surface — mounted at /api/quotations.
@@ -67,7 +68,9 @@ const bodySchema = z.object({
   quote_date: ISO_DATE,
   valid_until: ISO_DATE,
   place_of_supply: z.string().trim().max(100).nullish(),
-  is_inter_state: z.coerce.boolean().default(false),
+  /* A hint only: the service derives the split from the place of supply and
+     the firm's state whenever it can see both (invoice/supply.ts). */
+  is_inter_state: formBool.default(false),
   discount_paise: z.coerce.number().int().nonnegative().max(1_000_000_000).default(0),
   notes: z.string().trim().max(2000).nullish(),
   terms: z.string().trim().max(4000).nullish(),

@@ -154,13 +154,13 @@ export const workstationApi = {
     api.post<ClientDocument>(`/api/clients/${clientId}/documents`, input),
   updateDocument: (id: string, patch: Record<string, unknown>) =>
     api.patch<ClientDocument>(`/api/client-documents/${id}`, patch),
-  addDocumentVersion: (id: string, input: Record<string, unknown> = {}) =>
-    api.post<ClientDocument>(`/api/client-documents/${id}/versions`, input),
   verifyDocument: (id: string, approve: boolean, rejection_reason?: string) =>
     api.post<ClientDocument>(`/api/client-documents/${id}/verify`, { approve, rejection_reason }),
-  uploadDocumentFile: (id: string, file: File) => {
+  /** A new version always carries the file. `document_date` is the date printed on it. */
+  uploadDocumentFile: (id: string, file: File, fields: { notes?: string; version?: number; document_date?: string } = {}) => {
     const form = new FormData();
     form.append('file', file);
+    for (const [k, v] of Object.entries(fields)) if (v !== undefined && v !== '') form.append(k, String(v));
     return api.postForm<ClientDocument>(`/api/client-documents/${id}/versions`, form);
   },
   uploadToFolder: (clientId: string, folderKey: string, file: File, name?: string) => {

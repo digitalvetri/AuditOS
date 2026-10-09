@@ -35,7 +35,7 @@
     --c-border: 238 232 251;
     --c-ink: 31 29 43;
     --c-inkMuted: 108 104 137;
-    --c-inkFaint: 154 150 180;
+    --c-inkFaint: 110 106 138; /* #6E6A8A — 4.7:1 on canvas (was #9A96B4, 2.8:1) */
     --c-danger: 224 69 104;
     --c-warning: 214 128 32;
     --c-success: 31 157 90;
@@ -83,7 +83,7 @@
     --c-border: 44 41 62;
     --c-ink: 244 242 252;
     --c-inkMuted: 160 156 186;
-    --c-inkFaint: 108 104 134;
+    --c-inkFaint: 138 134 166; /* 5:1 on the dark surface */
     --c-danger: 255 133 160;
     --c-warning: 255 193 92;
     --c-success: 110 220 160;

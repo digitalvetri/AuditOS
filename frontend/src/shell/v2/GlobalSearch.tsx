@@ -103,6 +103,14 @@ export const GlobalSearch = forwardRef<GlobalSearchHandle>(function GlobalSearch
       { label: 'Follow-ups', to: '/workstation/follow-ups', visible: can(role, 'workstation.followup.read', 'self'), hint: 'Workstation' },
       { label: 'Services', to: '/workstation/services', visible: can(role, 'workstation.service.read', 'self'), hint: 'Workstation' },
       { label: 'Client documents', to: '/workstation/documents', visible: can(role, 'workstation.document.read', 'self'), hint: 'Workstation' },
+      { label: 'Invoices', to: '/workstation/invoices', visible: can(role, 'workstation.invoice.read', 'self'), hint: 'Workstation' },
+      { label: 'Quotations', to: '/workstation/quotations', visible: can(role, 'workstation.quotation.read', 'self'), hint: 'Workstation' },
+      { label: 'Engagement letters', to: '/workstation/engagement', visible: can(role, 'workstation.engagement.read', 'self'), hint: 'Workstation' },
+      { label: 'Tasks', to: '/workstation/tasks', visible: can(role, 'workstation.task.read', 'self'), hint: 'Workstation' },
+      { label: 'Calendar', to: '/workstation/calendar', visible: can(role, 'workstation.followup.read', 'self'), hint: 'Workstation' },
+      { label: 'TDS', to: '/workstation/services/tds', visible: can(role, 'workstation.service.read', 'self'), hint: 'Workstation · Services' },
+      { label: 'Registration', to: '/workstation/services/registration', visible: can(role, 'workstation.service.read', 'self'), hint: 'Workstation · Services' },
+      { label: 'Books', to: '/books', visible: can(role, 'books.access', 'organisation'), hint: 'Tools' },
       { label: 'Tools & Converters', to: '/tools', visible: canTools, hint: 'Tools' },
       { label: 'Converted documents', to: '/tools/documents', visible: can(role, 'tools.documents.read', 'self'), hint: 'Tools' },
       { label: 'Notifications', to: '/notifications', visible: true, hint: 'Platform' },
@@ -153,7 +161,7 @@ export const GlobalSearch = forwardRef<GlobalSearchHandle>(function GlobalSearch
         out.push({ group: 'Client actions', label: `New invoice for ${top.company_name}`, to: `/workstation/invoices/new?client_id=${top.id}`, icon: Plus });
       }
       if (top && can(role, 'workstation.invoice.read', 'self')) {
-        out.push({ group: 'Client actions', label: `Record payment for ${top.company_name}`, hint: 'Opens the client’s invoices', to: `/workstation/clients/${top.id}/invoices`, icon: IndianRupee });
+        out.push({ group: 'Client actions', label: `Open invoices for ${top.company_name}`, hint: 'The client’s invoices', to: `/workstation/clients/${top.id}/invoices`, icon: IndianRupee });
       }
       for (const l of ws.leads.slice(0, 4)) out.push({ group: 'Leads', label: l.name, hint: `${l.lead_id}${l.service_name ? ` · ${l.service_name}` : ''}`, to: `/workstation/leads/${l.id}`, icon: PhoneCall });
       for (const s of ws.services.slice(0, 3)) out.push({ group: 'Services', label: s.service_name ?? 'Service', hint: s.client_name ?? undefined, to: `/workstation/clients/${s.client_id}/services`, icon: LayoutGrid });

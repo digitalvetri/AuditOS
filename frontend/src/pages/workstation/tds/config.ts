@@ -1,3 +1,4 @@
+import { TAN_RE } from '@/lib/ids';
 /**
  * TDS config rows.
  *
@@ -74,7 +75,7 @@ export const FORM_49B_LIMITS = {
 } as const;
 
 /** TAN format: 4 letters, 5 digits, 1 letter — e.g. CHEK09876B. */
-export const TAN_PATTERN = /^[A-Z]{4}[0-9]{5}[A-Z]$/;
+export const TAN_PATTERN = TAN_RE;
 
 /** Registration acknowledgement is a 14-digit number. */
 export const REG_ACK_PATTERN = /^[0-9]{14}$/;

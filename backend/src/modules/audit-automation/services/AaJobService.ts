@@ -162,6 +162,14 @@ export const AaJobService = {
    */
   async remove(session: Session, id: string, req?: Request): Promise<void> {
     const job = await AaJobService.get(session, id)
+    // An approved or exported statement is the record behind vouchers already
+    // in (or headed for) Tally — deleting it would orphan them.
+    if (job.review_status === 'approved') {
+      throw ApiError.conflict('job_approved', 'This statement is approved. Reopen it before deleting.')
+    }
+    if (await prisma.aaExport.count({ where: { jobId: job.id } })) {
+      throw ApiError.conflict('job_exported', 'This statement has been exported, so it is kept as the record of that export.')
+    }
     const doc = await prisma.aaSourceDocument.findUniqueOrThrow({ where: { id: job.source_document_id } })
     await prisma.$transaction([
       prisma.aaBankTxn.deleteMany({ where: { job: { sourceDocumentId: doc.id } } }),

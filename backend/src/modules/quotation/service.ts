@@ -8,6 +8,7 @@ import { assignedClientIds, assertCanSeeClient, assertCanSeeLead } from '../../p
 import { nextQuotationCode } from '../../platform/workstation/codes.js'
 import { employeeMap, type EmployeeLookup } from '../../api/workstation.serialize.js'
 import { computeTotals, type LineInput } from './totals.js'
+import { resolveInterState } from '../invoice/supply.js'
 
 /**
  * QUOTATION SERVICE — Workstation → Quotation.
@@ -247,6 +248,11 @@ export interface QuotationInput {
   workSections?: WorkSectionInput[]
 }
 
+/** The tax split follows the place of supply when the server can tell (invoice/supply.ts). */
+function withDerivedSplit(input: QuotationInput): QuotationInput {
+  return { ...input, isInterState: resolveInterState(input.placeOfSupply, input.layoutConfig, input.isInterState) }
+}
+
 /**
  * The document fields, shaped for Prisma. `undefined` means "leave alone",
  * which is what lets the same helper serve create and update.
@@ -446,6 +452,7 @@ export const QuotationService = {
   },
 
   async create(session: Session, scope: Scope, input: QuotationInput) {
+    input = withDerivedSplit(input)
     await assertParty(session, scope, input)
     assertDates(input.quoteDate, input.validUntil)
     if (input.items.length === 0) throw ApiError.badRequest('A quotation needs at least one line.')
@@ -518,6 +525,7 @@ export const QuotationService = {
    * worse than rewriting it.
    */
   async update(session: Session, scope: Scope, id: string, input: QuotationInput) {
+    input = withDerivedSplit(input)
     const existing = await loadOrThrow(id, await quotationScopeWhere(session, scope))
     if (existing.status !== 'draft') {
       throw ApiError.badRequest(`A ${existing.status} quotation cannot be edited. Revise it instead.`)

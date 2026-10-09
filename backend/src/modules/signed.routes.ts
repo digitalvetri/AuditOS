@@ -1,7 +1,9 @@
 import { Router } from 'express'
 import { ApiError, handler } from '../lib/http.js'
 import { prisma } from '../lib/prisma.js'
-import { verifyResourceToken } from '../platform/signedUrl.js'
+import type { Request } from 'express'
+import { verifyLinkToken } from '../platform/signedUrl.js'
+import { writeAudit } from '../platform/audit.js'
 import { employeeDocStorage } from './documents.storage.js'
 import { streamPayslipPdf } from './payroll/pdf.js'
 import { streamQuotationPdf, QUOTATION_PDF_INCLUDE } from './quotation/pdf.js'
@@ -22,12 +24,27 @@ import { INCLUDE as DOC_INCLUDE } from './docs/service.js'
  *
  * Authorization to *issue* a link still happens on the authenticated
  * `…/download-url` endpoint. This router only honours a link already issued.
+ *
+ * Every successful open writes one `document.download` audit row naming the
+ * user the link was issued to (and whether it was a shared link), so who
+ * read what stays answerable. A shared (permanent) link is accepted only if
+ * it has not been revoked — see `verifyLinkToken`.
  */
 export const signedRouter = Router()
 
+/** Verify the link and record the read. Returns the subject user id. */
+async function openLink(req: Request, resource: string, entityType: string, entityId: string): Promise<string> {
+  const t = await verifyLinkToken(resource, req.query.t as string | undefined)
+  await writeAudit({
+    actorUserId: t.subject, action: 'document.download', entityType, entityId,
+    after: { via: t.permanent ? 'shared_link' : 'signed_link', resource }, req,
+  })
+  return t.subject
+}
+
 signedRouter.get('/documents/:id/download', handler(async (req, res) => {
   const id = req.params.id
-  const subject = verifyResourceToken(`document:${id}`, req.query.t as string | undefined)
+  const subject = await openLink(req, `document:${id}`, 'EmployeeDocument', id)
   const doc = await prisma.employeeDocument.findUnique({ where: { id } })
   if (!doc || doc.deletedAt) throw ApiError.notFound('Document not found.')
 
@@ -59,7 +76,7 @@ signedRouter.get('/documents/:id/download', handler(async (req, res) => {
 
 signedRouter.get('/payroll/payslips/:id/pdf', handler(async (req, res) => {
   const id = req.params.id
-  verifyResourceToken(`payslip:${id}`, req.query.t as string | undefined)
+  await openLink(req, `payslip:${id}`, 'Payslip', id)
   const payslip = await prisma.payslip.findUnique({
     where: { id },
     include: {
@@ -79,7 +96,7 @@ signedRouter.get('/payroll/payslips/:id/pdf', handler(async (req, res) => {
  */
 signedRouter.get('/quotations/:id/pdf', handler(async (req, res) => {
   const id = req.params.id
-  verifyResourceToken(`quotation:${id}`, req.query.t as string | undefined)
+  await openLink(req, `quotation:${id}`, 'Quotation', id)
   const q = await prisma.quotation.findFirst({
     where: { id, deletedAt: null },
     include: QUOTATION_PDF_INCLUDE,
@@ -95,7 +112,7 @@ signedRouter.get('/quotations/:id/pdf', handler(async (req, res) => {
  */
 signedRouter.get('/invoices/:id/pdf', handler(async (req, res) => {
   const id = req.params.id
-  verifyResourceToken(`invoice:${id}`, req.query.t as string | undefined)
+  await openLink(req, `invoice:${id}`, 'Invoice', id)
   const inv = await prisma.invoice.findFirst({
     where: { id, deletedAt: null },
     include: INVOICE_PDF_INCLUDE,
@@ -107,7 +124,7 @@ signedRouter.get('/invoices/:id/pdf', handler(async (req, res) => {
 /** The engagement letter PDF — public by signed token, like the quotation. */
 signedRouter.get('/engagement-letters/:id/pdf', handler(async (req, res) => {
   const id = req.params.id
-  verifyResourceToken(`engagement:${id}`, req.query.t as string | undefined)
+  await openLink(req, `engagement:${id}`, 'EngagementLetter', id)
   const l = await prisma.engagementLetter.findFirst({
     where: { id, deletedAt: null },
     include: ENGAGEMENT_INCLUDE,
@@ -119,7 +136,7 @@ signedRouter.get('/engagement-letters/:id/pdf', handler(async (req, res) => {
 /** A Workstation document's PDF — public by signed token, like the two above. */
 signedRouter.get('/workstation-docs/:id/pdf', handler(async (req, res) => {
   const id = req.params.id
-  verifyResourceToken(`wsdoc:${id}`, req.query.t as string | undefined)
+  await openLink(req, `wsdoc:${id}`, 'WorkstationDoc', id)
   const d = await prisma.workstationDoc.findFirst({ where: { id, deletedAt: null }, include: DOC_INCLUDE })
   if (!d) throw ApiError.notFound('Document not found.')
   streamDocPdf(res, d)

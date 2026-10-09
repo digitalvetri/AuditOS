@@ -6,6 +6,7 @@ import { Button } from '@/components/Button';
 import { workstationApi } from '@/modules/workstation/api';
 import type { ClientListItem } from '@/modules/workstation/types';
 import { auditAutomationApi, type AaJob } from '@/modules/tools/audit-automation/api';
+import { fmtDateTime } from '@/lib/format';
 
 /**
  * /audit-automation/bank — jobs list for a chosen client. The auditor
@@ -115,7 +116,7 @@ function JobsTable({ jobs }: { jobs: AaJob[] }) {
         <tbody>
           {jobs.map((j) => (
             <tr key={j.id} className="border-t border-neutral-100">
-              <td className="px-3 py-2 text-neutral-900">{new Date(j.created_at).toLocaleString()}</td>
+              <td className="px-3 py-2 text-neutral-900">{fmtDateTime(j.created_at)}</td>
               <td className="px-3 py-2 text-neutral-700 whitespace-nowrap">{j.period_from ? `${j.period_from} → ${j.period_to}` : '—'}{j.fy ? <span className="text-neutral-400"> · FY {j.fy}</span> : null}</td>
               <td className="px-3 py-2 text-right tabular-nums">{j.status === 'extracted' ? j.row_count : '—'}</td>
               <td className="px-3 py-2">

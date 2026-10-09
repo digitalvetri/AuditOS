@@ -12,6 +12,21 @@ import { startGstReminderScheduler } from './modules/gst/reminders.js'
 import { startPostRegistrationReminderScheduler } from './modules/partnership/postRegReminders.js'
 import { startBooksSyncScheduler } from './modules/books/scheduler.js'
 import { AaExtractService } from './modules/audit-automation/services/AaExtractService.js'
+import { reportError } from './lib/errorReport.js'
+
+// A stray rejection or throw outside a request must leave a trace with a
+// stack, not vanish (or kill the process with nothing in the log).
+process.on('unhandledRejection', (reason) => {
+  console.error('[process] unhandledRejection', reason instanceof Error ? (reason.stack ?? reason.message) : reason)
+  reportError(reason, 'unhandledRejection')
+})
+process.on('uncaughtException', (err) => {
+  console.error('[process] uncaughtException', err.stack ?? err.message)
+  reportError(err, 'uncaughtException')
+  // State after an uncaught throw is unknown: exit (the container restarts
+  // us) after a moment for the log line and report to flush.
+  setTimeout(() => process.exit(1), 1000).unref()
+})
 
 const app = createApp()
 const http = createServer(app)
@@ -41,3 +56,27 @@ http.listen(env.port, () => {
   console.log(`Audit OS HRMS API on http://localhost:${env.port} (${env.nodeEnv})`)
   console.log(`CORS origins: ${env.webOrigins.join(', ')}`)
 })
+
+// Graceful shutdown (a deploy or `docker stop` sends SIGTERM): stop taking
+// new connections, let in-flight requests finish, close the pool. Socket.IO
+// and keep-alive connections can hold server.close() open indefinitely, so a
+// force-exit timer caps the wait.
+let shuttingDown = false
+function shutdown(signal: string) {
+  if (shuttingDown) return
+  shuttingDown = true
+  console.log(`[process] ${signal} received — shutting down`)
+  setTimeout(() => {
+    console.warn('[process] forced exit after 10s')
+    process.exit(1)
+  }, 10_000).unref()
+  http.close(() => {
+    prisma.$disconnect()
+      .catch((e) => console.error('[process] prisma disconnect', e instanceof Error ? e.message : e))
+      .finally(() => process.exit(0))
+  })
+  // Idle keep-alive sockets would otherwise keep close() waiting.
+  http.closeIdleConnections?.()
+}
+process.on('SIGTERM', () => shutdown('SIGTERM'))
+process.on('SIGINT', () => shutdown('SIGINT'))

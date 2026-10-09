@@ -21,7 +21,7 @@ interface Props {
 
 const EMPTY: EmployeeCreateInput = {
   first_name: '', last_name: '', email: '', phone: '',
-  type: 'executive', status: 'probation', joining_date: '', role_code: 'employee', password: '',
+  type: 'executive', status: 'probation', joining_date: '', role_code: 'employee', password: '', pf_applicable: true,
 };
 
 
@@ -116,6 +116,16 @@ export function EmployeeCreateModal({ open, onClose, onCreated }: Props) {
               </select>
             </label>
           </div>
+          <label className="flex items-center gap-2 text-13 text-neutral-700">
+            <input
+              type="checkbox"
+              checked={form.type !== 'articled' && form.pf_applicable !== false}
+              disabled={form.type === 'articled'}
+              onChange={(e) => set('pf_applicable', e.target.checked)}
+            />
+            Covered under PF
+            {form.type === 'articled' ? <span className="text-12 text-neutral-500">— not for articled assistants</span> : null}
+          </label>
           <div className="grid grid-cols-2 gap-3">
             <Input label="Joining date" type="date" value={form.joining_date ?? ''} onChange={(e) => set('joining_date', e.target.value)} />
             <label className="block">

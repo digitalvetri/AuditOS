@@ -7,6 +7,7 @@
  * stage rows every time they are asked for.
  */
 import { prisma } from '../../lib/prisma.js'
+import { istToday } from '../../lib/dates.js'
 
 /** India's financial year runs April → March. '2026-09' → '2026-27'. */
 export function financialYearOf(period: string): string {
@@ -21,26 +22,14 @@ function quarterStartMonth(q: string): number {
   return { Q1: 4, Q2: 7, Q3: 10, Q4: 1 }[q] ?? 4
 }
 
-/**
- * DUE-DATE CONFIGURATION (§20). Server-side and in one place, so a statutory
- * change is a single edit here and never a frontend release. Day-of-month
- * for the month AFTER the period closes.
- */
-export const DUE_DAY: Record<string, Record<string, number>> = {
-  monthly:   { 'GSTR-1': 11, 'GSTR-3B': 20, 'GSTR-2B': 14 },
-  quarterly: { 'GSTR-1': 13, 'GSTR-3B': 22, 'GSTR-2B': 14 },
-}
+// Due dates are NOT computed here. The single engine is `dueDate.ts`
+// (GstDueDateRule + GstDueDateOverride + QRMP state groups); callers pass
+// a `dueFor` function built from it. A second hard-coded table used to live
+// here with different numbers (2B = 14 vs the seeded 16) and no overrides.
 
-/** 'YYYY-MM' + a day → the ISO date in the FOLLOWING month. */
-export function dueDateFor(period: string, returnType: string, periodType = 'monthly'): string | null {
-  const day = DUE_DAY[periodType]?.[returnType]
-  if (!day || !/^\d{4}-\d{2}$/.test(period)) return null
-  const [y, m] = period.split('-').map(Number)
-  const d = new Date(Date.UTC(y, m, day))          // m (1-based) == next month 0-based
-  return d.toISOString().slice(0, 10)
-}
-
-export const today = () => new Date().toISOString().slice(0, 10)
+/** Today's calendar date in IST — never the UTC date, which is still
+ *  "yesterday" between 00:00 and 05:30 IST. */
+export const today = () => istToday()
 
 /** Whole days from today to `date`. Negative = overdue. §30. */
 export function daysRemaining(date: string | null, from = today()): number | null {
@@ -98,17 +87,17 @@ export function deriveOverall(
   return started ? 'in_progress' : 'not_started'
 }
 
-/** The earliest unmet stage due date — what the calendar and lists sort on. */
+/** The earliest unmet stage due date — what the calendar and lists sort on.
+ *  `dueFor(returnType)` comes from the rule resolver (dueDate.ts). */
 export function nextDueOf(
-  period: string,
-  periodType: string,
   stages: StageView,
+  dueFor: (returnType: 'GSTR-1' | 'GSTR-3B') => string | null,
 ): string | null {
-  const pending: string[] = []
+  const pending: ('GSTR-1' | 'GSTR-3B')[] = []
   if (!GSTR1_DONE.includes(stages.gstr1)) pending.push('GSTR-1')
   if (!GSTR3B_DONE.includes(stages.gstr3b)) pending.push('GSTR-3B')
   const dates = pending
-    .map((rt) => dueDateFor(period, rt, periodType))
+    .map((rt) => dueFor(rt))
     .filter((d): d is string => !!d)
     .sort()
   return dates[0] ?? null

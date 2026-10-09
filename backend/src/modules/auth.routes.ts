@@ -5,7 +5,7 @@ import { ApiError, handler, ok } from '../lib/http.js'
 import { prisma } from '../lib/prisma.js'
 import { rateLimit } from '../lib/rateLimit.js'
 import {
-  authenticate, hashPassword, optionalSession, passwordMatches, requireSession, sessionCookie, signToken, verifyCredentials,
+  attemptLogin, authenticate, hashPasswordAsync, optionalSession, passwordMatchesAsync, requireSession, sessionCookie, signToken,
 } from '../platform/auth.js'
 import { writeAudit } from '../platform/audit.js'
 import { passwordProblem } from '../platform/password.js'
@@ -65,29 +65,34 @@ authRouter.post('/login', handler(async (req, res) => {
   if (!parsed.success) {
     throw ApiError.badRequest('Email and password are required.', parsed.error.flatten().fieldErrors)
   }
-  const user = await verifyCredentials(parsed.data.email, parsed.data.password)
-  if (!user) {
-    // One message for every failure mode — no account enumeration.
+  const attempt = await attemptLogin(parsed.data.email, parsed.data.password)
+  if (!attempt.ok) {
+    // One message for every failure mode — no account enumeration. A locked
+    // account (or a locked unknown email — same schedule) only says when to
+    // try again, never whether the password was right.
     await writeAudit({
       actorUserId: null,
-      action: 'auth.login_failed',
+      action: attempt.lockedForMs > 0 ? 'auth.login_locked' : 'auth.login_failed',
       entityType: 'User',
       entityId: parsed.data.email.toLowerCase(),
       req,
     })
+    if (attempt.lockedForMs > 0) {
+      const minutes = Math.max(1, Math.ceil(attempt.lockedForMs / 60_000))
+      throw new ApiError(429, 'rate_limited', `Too many attempts. Try again in ${minutes} minute${minutes === 1 ? '' : 's'}.`)
+    }
     throw new ApiError(401, 'invalid_credentials', 'Invalid email or password.')
   }
+  const user = attempt.user
 
   await prisma.user.update({ where: { id: user.id }, data: { lastLoginAt: new Date() } })
   const [name, value, options] = sessionCookie(signToken(user.id, user.sessionVersion))
   res.cookie(name, value, options)
-  // The Super Admin's sign-ins stay out of everyone's activity feeds.
-  const role = await prisma.role.findUnique({ where: { id: user.roleId }, select: { code: true } })
-  if (role?.code !== 'md') {
-    await writeAudit({
-      actorUserId: user.id, action: 'auth.login', entityType: 'User', entityId: user.id, req,
-    })
-  }
+  // Every sign-in is recorded, the Super Admin's included; who may READ
+  // those rows is decided in the audit-log reader.
+  await writeAudit({
+    actorUserId: user.id, action: 'auth.login', entityType: 'User', entityId: user.id, req,
+  })
   ok(res, await sessionPayload(user.id))
 }))
 
@@ -98,12 +103,14 @@ authRouter.post('/logout', authenticate, handler(async (req, res) => {
   if (pushEndpoint) {
     await prisma.pushSubscription.deleteMany({ where: { endpoint: pushEndpoint, userId: session.userId } })
   }
+  // End the session server-side, not just in this browser: a copied cookie
+  // or JWT stops working the moment the user signs out. (Sessions carry no
+  // per-device id, so this signs the user out on every device.)
+  await prisma.user.update({ where: { id: session.userId }, data: { sessionVersion: { increment: 1 } } })
   res.clearCookie(env.cookieName, { path: '/' })
-  if (session.roleCode !== 'md') {
-    await writeAudit({
-      actorUserId: session.userId, action: 'auth.logout', entityType: 'User', entityId: session.userId, req,
-    })
-  }
+  await writeAudit({
+    actorUserId: session.userId, action: 'auth.logout', entityType: 'User', entityId: session.userId, req,
+  })
   res.status(204).end()
 }))
 
@@ -133,7 +140,7 @@ authRouter.post('/change-password', authenticate, handler(async (req, res) => {
   }
   const { current_password: current, new_password: next } = parsed.data
   const user = await prisma.user.findUniqueOrThrow({ where: { id: session.userId } })
-  if (!passwordMatches(user.passwordHash, current)) {
+  if (!(await passwordMatchesAsync(user.passwordHash, current))) {
     const m = 'Your current password is incorrect.'
     throw ApiError.badRequest(m, { current_password: [m] })
   }
@@ -147,7 +154,7 @@ authRouter.post('/change-password', authenticate, handler(async (req, res) => {
   const updated = await prisma.user.update({
     where: { id: user.id },
     data: {
-      passwordHash: hashPassword(next), mustChangePassword: false,
+      passwordHash: await hashPasswordAsync(next), mustChangePassword: false,
       sessionVersion: { increment: 1 }, updatedBy: user.id,
     },
   })

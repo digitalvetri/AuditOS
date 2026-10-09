@@ -9,6 +9,8 @@ import { GST_RATES } from './totals.js'
 import { listPayments, notifyPaymentRecorded, paymentBodySchema, toPaymentInput } from './payments.js'
 import { isAccountAdmin } from '../../platform/roleRank.js'
 import { writeAudit } from '../../platform/audit.js'
+import { GSTIN_RE } from '../gst/validate.js'
+import { formBool } from './supply.js'
 
 /**
  * Invoice HTTP surface — mounted at /api/invoices.
@@ -60,16 +62,23 @@ const bodySchema = z.object({
   terms: z.enum(TERMS).default('due_on_receipt'),
   due_date: ISO_DATE.nullish(),
   place_of_supply: z.string().trim().max(100).nullish(),
-  is_inter_state: z.coerce.boolean().default(false),
+  /* A hint only: the service derives the split from the place of supply and
+     the firm's state whenever it can see both (supply.ts). */
+  is_inter_state: formBool.default(false),
   discount_paise: z.coerce.number().int().nonnegative().max(1_000_000_000).default(0),
   notes: z.string().trim().max(2000).nullish(),
 
   billing_name: z.string().trim().max(200).nullish(),
   billing_address: z.string().trim().max(1000).nullish(),
-  ship_same_as_bill: z.coerce.boolean().default(true),
+  ship_same_as_bill: formBool.default(true),
   shipping_name: z.string().trim().max(200).nullish(),
   shipping_address: z.string().trim().max(1000).nullish(),
-  customer_gstin: z.string().trim().max(20).nullish(),
+  /* Blank means "none"; anything else must be a real GSTIN, stored in
+     capitals so the state-code prefix and the PAN read the same everywhere. */
+  customer_gstin: z.string().trim().toUpperCase()
+    .refine((v) => v === '' || GSTIN_RE.test(v), 'That is not a valid GSTIN. It is 15 characters: state code, PAN, entity digit, Z, checksum.')
+    .transform((v) => v || null)
+    .nullish(),
 
   bank_account_id: z.string().nullish(),
   template_id: z.string().trim().max(60).nullish(),
@@ -186,9 +195,6 @@ invoicesRouter.get('/bank-accounts', handler(async (req, res) => {
 function requireBankAccountAdmin(session: ReturnType<typeof requireSession>) {
   if (!isAccountAdmin(session)) throw ApiError.forbidden('Only an Admin can change the firm bank accounts.')
 }
-
-/** "true"/"false" from a form, or a real boolean — z.coerce.boolean() reads "false" as true. */
-const formBool = z.union([z.boolean(), z.enum(['true', 'false']).transform((v) => v === 'true')])
 
 /** Add a bank account that may be printed on an invoice (§26). */
 invoicesRouter.post('/bank-accounts', handler(async (req, res) => {

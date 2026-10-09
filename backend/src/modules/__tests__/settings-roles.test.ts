@@ -1,4 +1,5 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
+import { writeAudit } from '../../platform/audit.js'
 import type { Server } from 'node:http'
 import { createApp } from '../../app.js'
 import { signToken } from '../../platform/auth.js'
@@ -193,19 +194,19 @@ describe('Settings — Super Admin role is invisible to Admin', () => {
   })
 })
 
-describe('Audit log — Super Admin is invisible to Admin', () => {
-  it('hides Super Admin actions and failed sign-ins for its email', async () => {
+describe('Audit log — Super Admin trail is visible to Admin and Super Admin only', () => {
+  it('shows Super Admin actions and failed sign-ins for its email to Admin', async () => {
     const org = await prisma.organisation.create({ data: { id: uid('org'), name: 'Firm' } })
     const md = await user(org.id, (await seedRole('md')).id)
     const admin = await user(org.id, (await seedRole('hr_admin')).id)
     await api('/api/auth/login', { method: 'POST', body: { email: md.email, password: 'wrong' } })
-    await prisma.auditLog.create({ data: { actorUserId: md.id, action: 'test.md_action', entityType: 'X', entityId: 'x' } })
+    await writeAudit({ actorUserId: md.id, action: 'test.md_action', entityType: 'User', entityId: md.id })
 
     const seenByAdmin = await api('/api/audit-logs?limit=200', { cookie: admin.cookie })
     expect(seenByAdmin.status).toBe(200)
     const text = JSON.stringify(seenByAdmin.body)
-    expect(text).not.toContain(md.email)
-    expect(text).not.toContain('test.md_action')
+    expect(text).toContain(md.email)
+    expect(text).toContain('test.md_action')
 
     const seenByMd = await api('/api/audit-logs?limit=200', { cookie: md.cookie })
     expect(JSON.stringify(seenByMd.body)).toContain('test.md_action')

@@ -241,6 +241,8 @@ function NoticeDetail({ notice, taxpayerName, taxpayerGstin, onDeleted }: {
     taxpayer_gstin: notice.reply_inputs?.taxpayer_gstin || taxpayerGstin,
   });
   const [draft, setDraft] = useState(notice.draft_content ?? '');
+  // Once the reply has gone out its text is the record — the server refuses edits.
+  const replySent = notice.status === 'sent' || notice.status === 'closed';
   const [clientLetter, setClientLetter] = useState(notice.client_letter ?? '');
 
   const saveFields = useMutation({
@@ -400,7 +402,7 @@ function NoticeDetail({ notice, taxpayerName, taxpayerGstin, onDeleted }: {
 
       <div className="flex items-center gap-2">
         <Button onClick={() => generate.mutate()}
-                disabled={generate.isPending || (!inputs.facts.trim() && !inputs.grounds.trim())}>
+                disabled={replySent || generate.isPending || (!inputs.facts.trim() && !inputs.grounds.trim())}>
           {generate.isPending ? (
             <span className="inline-flex items-center gap-2"><Loader2 size={14} className="animate-spin" /> Generating…</span>
           ) : (
@@ -489,7 +491,8 @@ function NoticeDetail({ notice, taxpayerName, taxpayerGstin, onDeleted }: {
               <button
                 type="button"
                 onClick={() => saveDraft.mutate()}
-                disabled={saveDraft.isPending}
+                disabled={saveDraft.isPending || replySent}
+                title={replySent ? 'The reply is marked sent; its text can no longer be edited.' : undefined}
                 className="h-8 px-2 text-12 border border-neutral-300 rounded hover:border-neutral-400 disabled:opacity-60"
               >
                 {saveDraft.isPending ? 'Saving…' : 'Save edits'}
@@ -500,6 +503,7 @@ function NoticeDetail({ notice, taxpayerName, taxpayerGstin, onDeleted }: {
             rows={16}
             className={`${textareaClass} font-mono text-12`}
             value={draft}
+            readOnly={replySent}
             onChange={(e) => setDraft(e.target.value)}
           />
         </div>

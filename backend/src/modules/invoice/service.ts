@@ -8,6 +8,8 @@ import { nextInvoiceNumber } from '../../platform/workstation/codes.js'
 import { employeeMap } from '../../api/workstation.serialize.js'
 import { computeTotals, invoiceAmountInWords, paymentState, type LineInput } from './totals.js'
 import { addPayment, removePayment, type PaymentInput } from './payments.js'
+import { resolveInterState } from './supply.js'
+import { istToday } from '../../lib/dates.js'
 
 /**
  * INVOICE SERVICE — Workstation → Invoice.
@@ -52,12 +54,17 @@ const TRANSITIONS: Record<InvoiceStatus, InvoiceStatus[]> = {
   cancelled: [],
 }
 
+/** How a number reads in a message: a draft has none until it is sent. */
+export function invoiceLabel(invoiceNumber: string | null | undefined): string {
+  return invoiceNumber ?? 'Draft'
+}
+
 /** Editable only while nothing has been issued (§40). */
-function assertEditable(inv: { status: string; invoiceNumber: string }) {
+function assertEditable(inv: { status: string; invoiceNumber: string | null }) {
   if (inv.status !== 'draft') {
     throw ApiError.conflict(
       'invoice_not_editable',
-      `Invoice ${inv.invoiceNumber} has been issued and cannot be edited. ` +
+      `Invoice ${invoiceLabel(inv.invoiceNumber)} has been issued and cannot be edited. ` +
       'Record a payment or cancel it instead.',
     )
   }
@@ -152,11 +159,15 @@ function effectiveStatus(inv: { status: string; dueDate: string; balanceDuePaise
 }
 
 function serialize(inv: Row, emp: Map<string, { id: string; full_name: string; employee_code: string }>) {
-  const today = new Date().toISOString().slice(0, 10)
-  const status = effectiveStatus(inv, today)
+  // The firm's calendar day, not UTC's: before 05:30 IST the UTC date is
+  // still yesterday, and an invoice due today would not yet read as late.
+  const status = effectiveStatus(inv, istToday())
   return {
     id: inv.id,
+    /** Null while a draft — the number is taken when it is sent. */
     invoice_number: inv.invoiceNumber,
+    /** What to print where the number goes: the number, or 'Draft'. */
+    display_number: invoiceLabel(inv.invoiceNumber),
     client_id: inv.clientId,
     client_name: inv.client?.companyName ?? null,
     // For sharing the invoice with the client (WhatsApp / email).
@@ -308,23 +319,21 @@ export const InvoiceService = {
         ],
       })
     }
-    // `overdue` is derived, so it cannot be a database filter. Ask the
-    // database for what it can answer and narrow the derived status after.
-    const storedStatus = f.status && f.status !== 'overdue' ? f.status : undefined
-    if (storedStatus) and.push({ status: storedStatus })
+    // `overdue` is derived rather than stored, but it is still a plain
+    // predicate on stored columns — the same one effectiveStatus applies —
+    // so the database answers it and pages it like any other filter.
+    if (f.status === 'overdue') and.push(overdueWhere(istToday()))
+    else if (f.status) and.push({ status: f.status })
 
     const rows = await prisma.invoice.findMany({
       where: { AND: and },
       include: { items: ITEM_SELECT, client: true, bankAccount: true },
       orderBy: [{ invoiceDate: 'desc' }, { createdAt: 'desc' }],
-      take: f.status === 'overdue' ? undefined : f.limit ?? 50,
-      skip: f.status === 'overdue' ? undefined : f.offset ?? 0,
+      take: f.limit ?? 50,
+      skip: f.offset ?? 0,
     })
     const emp = await employeeMap(rows.map((r) => r.preparedById).filter(Boolean) as string[])
-    let items = rows.map((r) => serialize(r, emp))
-    if (f.status === 'overdue') {
-      items = items.filter((i) => i.status === 'overdue').slice(f.offset ?? 0, (f.offset ?? 0) + (f.limit ?? 50))
-    }
+    const items = rows.map((r) => serialize(r, emp))
     return { items, total: items.length }
   },
 
@@ -345,7 +354,7 @@ export const InvoiceService = {
       where,
       select: { status: true, dueDate: true, totalPaise: true, balanceDuePaise: true },
     })
-    const today = new Date().toISOString().slice(0, 10)
+    const today = istToday()
     const counts: Record<string, number> = {}
     let outstandingPaise = 0
     let overduePaise = 0
@@ -359,11 +368,13 @@ export const InvoiceService = {
   },
 
   /**
-   * Create a DRAFT. The invoice number is allocated inside the transaction
-   * (see codes.ts) and the party/bank snapshots are taken now, so the
-   * document is reproducible from this row alone.
+   * Create a DRAFT. It has NO number yet — the number is allocated when it
+   * is sent (see send()), so a draft that is abandoned or deleted never
+   * leaves a gap in the GST series. The party/bank snapshots are taken now,
+   * so the document is reproducible from this row alone.
    */
   async create(session: Session, scope: Scope, input: InvoiceInput): Promise<SerializedInvoice> {
+    input = withDerivedSplit(input)
     await assertCanSeeClient(session, scope, input.clientId)
     const client = await prisma.client.findFirst({
       where: { id: input.clientId, deletedAt: null },
@@ -391,11 +402,10 @@ export const InvoiceService = {
 
     const org = await orgId()
     const id = await prisma.$transaction(async (tx) => {
-      const invoiceNumber = await nextInvoiceNumber(tx)
       const created = await tx.invoice.create({
         data: {
           organisationId: org,
-          invoiceNumber,
+          invoiceNumber: null,
           clientId: input.clientId,
           invoiceDate: input.invoiceDate,
           terms: input.terms,
@@ -435,6 +445,7 @@ export const InvoiceService = {
    *  sends the whole document, and reconciling row-by-row would be a second
    *  source of truth for order. */
   async update(session: Session, scope: Scope, id: string, input: InvoiceInput): Promise<SerializedInvoice> {
+    input = withDerivedSplit(input)
     const existing = await this.get(session, scope, id)
     assertEditable({ status: existing.stored_status, invoiceNumber: existing.invoice_number })
     await assertCanSeeClient(session, scope, input.clientId)
@@ -490,14 +501,28 @@ export const InvoiceService = {
     return this.get(session, scope, id)
   },
 
-  /** draft → sent. The document is frozen from here (§40). */
+  /**
+   * draft → sent. The document is frozen from here (§40), and this is where
+   * it gets its number: allocated under the sequence lock in the same
+   * transaction that flips the status, so the series has no gaps and two
+   * sends of one draft (a double-click) cannot take two numbers. A legacy
+   * draft that was numbered at creation keeps the number it has.
+   */
   async send(session: Session, scope: Scope, id: string): Promise<SerializedInvoice> {
     const inv = await this.get(session, scope, id)
     assertTransition(inv.stored_status as InvoiceStatus, 'sent', inv.invoice_number)
     if (inv.items.length === 0) throw ApiError.badRequest('An invoice needs at least one item before it is sent.')
-    await prisma.invoice.update({
-      where: { id },
-      data: { status: 'sent', sentAt: new Date(), updatedBy: session.userId },
+    await prisma.$transaction(async (tx) => {
+      const invoiceNumber = inv.invoice_number ?? await nextInvoiceNumber(tx)
+      // Conditional on still being a draft: a concurrent send that got here
+      // first has already numbered it, and this one must not renumber it.
+      const r = await tx.invoice.updateMany({
+        where: { id, status: 'draft', deletedAt: null },
+        data: { status: 'sent', invoiceNumber, sentAt: new Date(), updatedBy: session.userId },
+      })
+      if (r.count === 0) {
+        throw ApiError.conflict('invalid_transition', 'This invoice has already been sent.')
+      }
     })
     return this.get(session, scope, id)
   },
@@ -523,6 +548,15 @@ export const InvoiceService = {
   async cancel(session: Session, scope: Scope, id: string, reason?: string): Promise<SerializedInvoice> {
     const inv = await this.get(session, scope, id)
     assertTransition(inv.stored_status as InvoiceStatus, 'cancelled', inv.invoice_number)
+    // Cancelling would leave money received against an invoice nobody owes.
+    // The amount check also covers legacy rows paid before payment rows existed.
+    const payments = await prisma.invoicePayment.count({ where: { invoiceId: id, deletedAt: null } })
+    if (payments > 0 || inv.amount_paid_paise > 0) {
+      throw ApiError.conflict(
+        'invoice_has_payments',
+        'This invoice has payments recorded. Remove the payments first, or issue a credit note.',
+      )
+    }
     await prisma.invoice.update({
       where: { id },
       data: {
@@ -603,10 +637,24 @@ export const InvoiceService = {
   },
 }
 
-function assertTransition(from: InvoiceStatus, to: InvoiceStatus, number: string) {
+function assertTransition(from: InvoiceStatus, to: InvoiceStatus, number: string | null) {
   if (!TRANSITIONS[from]?.includes(to)) {
-    throw ApiError.conflict('invalid_transition', `Invoice ${number} cannot go from ${from} to ${to}.`)
+    throw ApiError.conflict('invalid_transition', `Invoice ${invoiceLabel(number)} cannot go from ${from} to ${to}.`)
   }
+}
+
+/** effectiveStatus's `overdue`, as a database predicate. */
+function overdueWhere(today: string): Prisma.InvoiceWhereInput {
+  return {
+    status: { notIn: ['draft', 'paid', 'cancelled'] },
+    balanceDuePaise: { gt: 0 },
+    dueDate: { lt: today },
+  }
+}
+
+/** The tax split follows the place of supply when the server can tell (supply.ts). */
+function withDerivedSplit(input: InvoiceInput): InvoiceInput {
+  return { ...input, isInterState: resolveInterState(input.placeOfSupply, input.layoutConfig, input.isInterState) }
 }
 
 function bankSnapshotOf(b: {

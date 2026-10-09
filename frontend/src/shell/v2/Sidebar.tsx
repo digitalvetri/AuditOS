@@ -191,6 +191,7 @@ export function Sidebar({ mobileOpen, onMobileClose }: Props) {
       { to: '/hrms/messages',   label: 'Messages',   icon: MessageSquare,        visible: can(role, 'chat.participate', 'organisation') && Boolean(session?.employee) },
       { to: '/hrms/documents',  label: 'Employee Data', icon: FileText,             visible: can(role, 'document.read', 'self') },
       { to: '/hrms/reports',    label: 'Reports',    icon: BarChart3,            visible: can(role, 'reports.hr', 'department') || can(role, 'reports.finance', 'organisation') || can(role, 'reports.all', 'organisation') },
+      { to: '/hrms/audit-log',  label: 'Audit log',  icon: ScrollText,           visible: can(role, 'audit.read.all', 'organisation') || can(role, 'audit.read.hr', 'organisation') || can(role, 'audit.read.finance', 'organisation') },
       { to: '/hrms/settings',   label: 'Settings',   icon: Settings,             visible: can(role, 'settings.manage', 'organisation') },
     ];
     // Workstation (teammate's module, per AUDIT_OS_WORKSTATION.md §4).

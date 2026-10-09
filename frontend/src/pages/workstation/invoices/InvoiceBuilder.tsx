@@ -218,7 +218,7 @@ export function InvoiceBuilderPage() {
 
   const doc: InvoiceDoc = {
     layout, blocks, company,
-    invoiceNumber: saved?.invoice_number ?? 'Draft — number on save',
+    invoiceNumber: saved?.invoice_number ?? 'DRAFT',
     invoiceDate,
     termsLabel: TERM_LABEL[terms],
     dueDate,
@@ -314,7 +314,7 @@ export function InvoiceBuilderPage() {
       if (!isEdit) qc.setQueryData(['invoices.get', inv.id], inv);
       void qc.invalidateQueries({ queryKey: ['invoices.get', inv.id] });
       void qc.invalidateQueries({ queryKey: ['workstation'] });
-      toast.push('success', `Invoice ${inv.invoice_number} saved.`);
+      toast.push('success', inv.invoice_number ? `Invoice ${inv.invoice_number} saved.` : 'Draft invoice saved.');
       if (!isEdit) navigate(`/workstation/invoices/${inv.id}/edit`, { replace: true });
     },
     onError: (e: Error) => toast.push('error', e.message),
@@ -354,8 +354,8 @@ export function InvoiceBuilderPage() {
           <h1 className="text-[26px] leading-tight font-semibold tracking-[-0.01em] text-neutral-900">Invoice builder</h1>
           <p className="text-12 text-neutral-500 mt-1">
             {saved
-              ? <>{saved.invoice_number} · <StatusPill status={saved.status} /> {frozen ? '· issued, so the document is locked' : ''}</>
-              : 'A number is allocated when you first save — never before, so nothing is reserved by a draft you abandon.'}
+              ? <>{saved.invoice_number ?? 'Draft'} · <StatusPill status={saved.status} /> {frozen ? '· issued, so the document is locked' : ''}</>
+              : 'A number is allocated when you send the invoice — never before, so a draft you abandon leaves no gap in the series.'}
           </p>
         </div>
         <div className="flex gap-2 flex-wrap">

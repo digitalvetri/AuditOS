@@ -17,17 +17,23 @@ import { prisma, alive } from '../../lib/prisma.js'
 import { ApiError, handler, ok } from '../../lib/http.js'
 import { requireSession, type Session } from '../../platform/auth.js'
 import { notifyEmployees } from '../../platform/notify.js'
-import { requireWorkstation, assignedClientIds } from '../../platform/workstation/scope.js'
+import { requireWorkstation, assignedClientIds, assertCanSeeClient } from '../../platform/workstation/scope.js'
+import { writeAudit } from '../../platform/audit.js'
+import { addDays, istDateOf } from '../../lib/dates.js'
 import { employeeMap } from '../../api/workstation.serialize.js'
-import { periodToApi, profileToApi, stagesOf, type PeriodRow } from './serialize.js'
+import { periodDueFor, periodToApi, profileToApi, stagesOf, type PeriodRow } from './serialize.js'
 import {
-  backfillPeriods, daysRemaining, deriveOverall, dueDateFor, financialYearOf,
+  backfillPeriods, daysRemaining, deriveOverall, financialYearOf,
   nextDueOf, today, writeGstAudit,
 } from './service.js'
 import { openCase } from '../partnership/service.js'
 import { TaskService } from '../task/service.js'
-import { createRuleResolver, type FilingFrequency, type ReturnKind } from './dueDate.js'
-import { computeUpcoming, sendClientReminder, defaultReminderSubject, defaultReminderBody } from './reminders.js'
+import {
+  createRuleResolver, dueForProfile, isComposition, kindsOwed, stateGroupOf, type FilingFrequency, type ReturnKind,
+} from './dueDate.js'
+import {
+  computeUpcoming, sendClientReminder, defaultReminderSubject, defaultReminderBody, DUE_SOON_DAYS,
+} from './reminders.js'
 import {
   assertDate, assertFilingRecord, assertGstin, assertGstinMatchesPan, assertGstr1Transition,
   assertGstr2bTransition, assertGstr3bTransition, assertOneOf, assertPan,
@@ -84,6 +90,7 @@ gstRouter.get('/overview', handler(async (req, res) => {
       where: scoped,
       select: {
         period: true, periodType: true,
+        gstProfile: { select: { gstin: true, state: true, registrationType: true } },
         filings: { where: alive, select: { returnType: true, status: true, paymentStatus: true } },
         r2b: { select: { status: true } },
         reconciliation: { select: { status: true } },
@@ -94,6 +101,7 @@ gstRouter.get('/overview', handler(async (req, res) => {
   ])
 
   const t = today()
+  const resolver = await createRuleResolver(prisma)
   const tally = {
     gstr1: { filed: 0, pending: 0, overdue: 0 },
     gstr2b: { available: 0, pending: 0, reconciliation_pending: 0, reconciled: 0 },
@@ -105,8 +113,9 @@ gstRouter.get('/overview', handler(async (req, res) => {
   for (const r of rows) {
     const stages = stagesOf(r as unknown as PeriodRow)
     const g1 = stages.gstr1, g3 = stages.gstr3b, r2b = stages.gstr2b
-    const due1 = nextDueOf(r.period, r.periodType, { ...stages, gstr3b: 'filed' })
-    const due3 = nextDueOf(r.period, r.periodType, { ...stages, gstr1: 'filed' })
+    const dueFor = periodDueFor(resolver, r)
+    const due1 = nextDueOf({ ...stages, gstr3b: 'filed' }, dueFor)
+    const due3 = nextDueOf({ ...stages, gstr1: 'filed' }, dueFor)
 
     if (g1 === 'filed' || g1 === 'completed') tally.gstr1.filed++
     else { tally.gstr1.pending++; if (due1 && due1 < t) tally.gstr1.overdue++ }
@@ -122,7 +131,7 @@ gstRouter.get('/overview', handler(async (req, res) => {
       if (pay === 'pending') tally.gstr3b.payment_pending++
     } else { tally.gstr3b.pending++; if (due3 && due3 < t) tally.gstr3b.overdue++ }
 
-    const nextDue = nextDueOf(r.period, r.periodType, stages)
+    const nextDue = nextDueOf(stages, dueFor)
     const overall = deriveOverall(stages, nextDue, r._count.exceptions)
     if (overall === 'completed') tally.completed++
     else if (overall === 'overdue') tally.overdue++
@@ -156,7 +165,7 @@ gstRouter.get('/client-view/:clientId', handler(async (req, res) => {
   const session = requireSession(req)
   const scope = requireWorkstation(session, ...READ)
   const clientId = req.params.clientId
-  const period = str(req.query.period) ?? new Date().toISOString().slice(0, 7)
+  const period = str(req.query.period) ?? today().slice(0, 7)
   const scopedClients = await assignedClientIds(session, scope)
   if (scopedClients !== 'ALL' && !scopedClients.includes(clientId)) {
     throw ApiError.notFound('Client not found.')
@@ -177,15 +186,20 @@ gstRouter.get('/client-view/:clientId', handler(async (req, res) => {
 
   const resolver = await createRuleResolver(prisma)
   const freq = profile.filingFrequency as FilingFrequency
+  const group = stateGroupOf(profile)
+  // QRMP: 1 and 3B only in quarter-end months, 2B every month; composition: none.
+  const owed = kindsOwed(profile, period)
 
-  const t = new Date().toISOString().slice(0, 10)
+  const t = today()
+  const soon = addDays(t, DUE_SOON_DAYS)
   const casesForPeriod = new Map<string, (typeof cases)[number]>()
   for (const c of cases) if (c.period === period) casesForPeriod.set(c.kind, c)
 
   type Cell = { state: string; due_date: string | null; case_id: string | null; arn: string | null; filed_at: string | null } | null
   async function cellFor(kind: 'GSTR1' | 'GSTR2B' | 'GSTR3B'): Promise<Cell> {
+    if (!owed.includes(kind)) return null
     const c = casesForPeriod.get(kind)
-    const due = c?.dueDate ?? await resolver.dueDateFor(period, kind, freq)
+    const due = c?.dueDate ?? resolver.resolve(period, kind, freq, group)
     let arn: string | null = null
     let filed_at: string | null = null
     if (c?.detailsJson) {
@@ -198,7 +212,7 @@ gstRouter.get('/client-view/:clientId', handler(async (req, res) => {
     let state: 'done' | 'due' | 'overdue' | 'not_started' = 'not_started'
     if (c?.status === 'COMPLETED') state = 'done'
     else if (due && due < t) state = 'overdue'
-    else if (due && due <= new Date(Date.now() + 3 * 86400_000).toISOString().slice(0, 10)) state = 'due'
+    else if (due && due <= soon) state = 'due'
     return { state, due_date: due, case_id: c?.id ?? null, arn, filed_at }
   }
 
@@ -293,13 +307,10 @@ gstRouter.post('/period/seed', handler(async (req, res) => {
     )
   }
 
-  // Quarterly rule — mirrors client-dashboard's cellFor.
-  const mo = Number(period.slice(5, 7))
-  const quarterEnd = [3, 6, 9, 12].includes(mo)
-  const applicableKinds: ('GSTR1' | 'GSTR2B' | 'GSTR3B')[] =
-    profile.filingFrequency === 'quarterly' && !quarterEnd
-      ? []
-      : ['GSTR1', 'GSTR2B', 'GSTR3B']
+  // Same rule as client-dashboard's cellFor: QRMP filers owe GSTR-1/3B only
+  // for quarter-end months but GSTR-2B every month; composition dealers owe
+  // none of the three (CMP-08 / GSTR-4 tracking comes later).
+  const applicableKinds = kindsOwed(profile, period)
 
   const KIND_TITLE: Record<'GSTR1' | 'GSTR2B' | 'GSTR3B', string> = {
     GSTR1: 'GSTR-1 filing',
@@ -321,11 +332,12 @@ gstRouter.post('/period/seed', handler(async (req, res) => {
   const skipped: { kind: string; reason: string }[] = []
   const resolver = await createRuleResolver(prisma)
   const freq = profile.filingFrequency as FilingFrequency
+  const group = stateGroupOf(profile)
   // Statuses that mean "keep the historical due date, don't recompute."
   const TERMINAL_TASK_STATUS = new Set(['completed', 'done', 'cancelled'])
 
   for (const kind of applicableKinds) {
-    const resolvedDue = await resolver.dueDateFor(period, kind, freq)
+    const resolvedDue = resolver.resolve(period, kind, freq, group)
     if (!resolvedDue) {
       skipped.push({ kind, reason: 'no due date could be derived' })
       continue
@@ -458,8 +470,9 @@ gstRouter.post('/period/seed', handler(async (req, res) => {
 gstRouter.get('/client-dashboard', handler(async (req, res) => {
   const session = requireSession(req)
   const scope = requireWorkstation(session, ...READ)
-  const period = str(req.query.period) ?? new Date().toISOString().slice(0, 7)
-  const t = new Date().toISOString().slice(0, 10)
+  const period = str(req.query.period) ?? today().slice(0, 7)
+  const t = today()
+  const soon = addDays(t, DUE_SOON_DAYS)
   const scopedClients = await assignedClientIds(session, scope)
   const clientWhere = scopedClients === 'ALL' ? {} : { clientId: { in: scopedClients } }
 
@@ -489,16 +502,14 @@ gstRouter.get('/client-dashboard', handler(async (req, res) => {
   const resolver = await createRuleResolver(prisma)
 
   type ReturnCell = { state: 'done' | 'due' | 'overdue' | 'not_started'; due_date: string | null; case_id: string | null; arn: string | null } | null
-  async function cellFor(clientId: string, kind: 'GSTR1' | 'GSTR2B' | 'GSTR3B', filingFrequency: string): Promise<ReturnCell> {
-    // Quarterly clients: nothing due except in month 3 of the quarter. Month 3
-    // is April/July/October/January when period = YYYY-MM. § 2.2 of the spec.
-    if (filingFrequency === 'quarterly') {
-      const mo = Number(period.slice(5, 7))
-      const quarterEndMonths = [3, 6, 9, 12] // period_month=quarter-end → tasks in the following month
-      if (!quarterEndMonths.includes(mo)) return null
-    }
-    const c = caseByKey.get(`${clientId}::${kind}`)
-    const due = c?.dueDate ?? await resolver.dueDateFor(period, kind, filingFrequency as FilingFrequency)
+  type Profile = (typeof profiles)[number]
+  async function cellFor(p: Profile, kind: 'GSTR1' | 'GSTR2B' | 'GSTR3B'): Promise<ReturnCell> {
+    // QRMP clients owe GSTR-1 / 3B only for quarter-end months (§ 2.2), but
+    // GSTR-2B is generated monthly for everyone. Composition dealers owe
+    // none of the three. Not owed → null → the frontend renders '—'.
+    if (!kindsOwed(p, period).includes(kind)) return null
+    const c = caseByKey.get(`${p.clientId}::${kind}`)
+    const due = c?.dueDate ?? resolver.resolve(period, kind, p.filingFrequency as FilingFrequency, stateGroupOf(p))
     // ARN for the "✓ 11 Oct · ARN AA...X" mockup lives in detailsJson.
     let arn: string | null = null
     if (c?.detailsJson) {
@@ -507,7 +518,7 @@ gstRouter.get('/client-dashboard', handler(async (req, res) => {
     let state: 'done' | 'due' | 'overdue' | 'not_started' = 'not_started'
     if (c?.status === 'COMPLETED') state = 'done'
     else if (due && due < t) state = 'overdue'
-    else if (due && due <= new Date(Date.now() + 3 * 86400_000).toISOString().slice(0, 10)) state = 'due'
+    else if (due && due <= soon) state = 'due'
     return { state, due_date: due, case_id: c?.id ?? null, arn }
   }
 
@@ -519,9 +530,9 @@ gstRouter.get('/client-dashboard', handler(async (req, res) => {
     filing_frequency: p.filingFrequency,
     assigned_employee_id: p.assignedEmployeeId,
     reviewer_employee_id: p.reviewerEmployeeId,
-    gstr1: await cellFor(p.clientId, 'GSTR1', p.filingFrequency),
-    gstr2b: await cellFor(p.clientId, 'GSTR2B', p.filingFrequency),
-    gstr3b: await cellFor(p.clientId, 'GSTR3B', p.filingFrequency),
+    gstr1: await cellFor(p, 'GSTR1'),
+    gstr2b: await cellFor(p, 'GSTR2B'),
+    gstr3b: await cellFor(p, 'GSTR3B'),
   })))
 
   // Counters — same period.
@@ -592,7 +603,8 @@ gstRouter.get('/periods', handler(async (req, res) => {
   const employees = await employeeMap(
     rows.flatMap((r) => [r.assignedEmployeeId, r.reviewerEmployeeId]),
   )
-  let items = rows.map((r) => periodToApi(r as unknown as PeriodRow, employees, r._count.exceptions))
+  const resolver = await createRuleResolver(prisma)
+  let items = rows.map((r) => periodToApi(r as unknown as PeriodRow, employees, r._count.exceptions, resolver))
 
   const status = str(q.status)
   if (status) items = items.filter((i) => i.overall_status === status)
@@ -628,7 +640,7 @@ gstRouter.get('/periods/:id', handler(async (req, res) => {
 
   const employees = await employeeMap([row.assignedEmployeeId, row.reviewerEmployeeId, row.managerEmployeeId])
   ok(res, {
-    ...periodToApi(row as unknown as PeriodRow, employees, row._count.exceptions),
+    ...periodToApi(row as unknown as PeriodRow, employees, row._count.exceptions, await createRuleResolver(prisma)),
     exceptions: row.exceptions.map((e) => ({
       id: e.id, stage: e.stage, issue_type: e.issueType, severity: e.severity,
       title: e.title, status: e.status, due_date: e.dueDate,
@@ -708,7 +720,8 @@ gstRouter.get('/stages/:stage', handler(async (req, res) => {
 
   const t = today()
   const employees = await employeeMap(all.flatMap((r) => [r.assignedEmployeeId, r.reviewerEmployeeId]))
-  const mapped = all.map((r) => periodToApi(r as unknown as PeriodRow, employees, r._count.exceptions))
+  const resolver = await createRuleResolver(prisma)
+  const mapped = all.map((r) => periodToApi(r as unknown as PeriodRow, employees, r._count.exceptions, resolver))
 
   const returnType = stage === 'gstr1' ? 'GSTR-1' : 'GSTR-3B'
   const statusOf = (m: (typeof mapped)[number]) =>
@@ -797,7 +810,10 @@ async function periodForWrite(req: Parameters<typeof requireSession>[0], id: str
   const scope = requireWorkstation(session, 'workstation.gst.manage')
   const row = await prisma.gstCompliancePeriod.findFirst({
     where: { ...alive, id, ...(await periodScopeWhere(session, scope)) },
-    include: { filings: { where: alive }, r2b: true },
+    include: {
+      filings: { where: alive }, r2b: true,
+      gstProfile: { select: { gstin: true, state: true, registrationType: true } },
+    },
   })
   if (!row) throw ApiError.notFound()
   return { session, row }
@@ -941,7 +957,7 @@ gstRouter.post('/periods/:id/stages/:stage', handler(async (req, res) => {
 
   const arn = 'arn' in b ? s('arn') : existing?.arn ?? null
   const filedDate = s('filed_date')
-  if (status === 'filed') assertFilingRecord(arn, filedDate ?? existing?.filedAt?.toISOString().slice(0, 10) ?? null)
+  if (status === 'filed') assertFilingRecord(arn, filedDate ?? (existing?.filedAt ? istDateOf(existing.filedAt) : null))
 
   const now = new Date()
   const money = stage === 'gstr1'
@@ -986,7 +1002,7 @@ gstRouter.post('/periods/:id/stages/:stage', handler(async (req, res) => {
         financialYear: row.financialYear,
         period: row.period,
         returnType,
-        dueDate: dueDateFor(row.period, returnType, row.periodType),
+        dueDate: dueForProfile(await createRuleResolver(prisma), row.gstProfile, row.period, returnType, row.periodType),
         assignedEmployeeId: row.assignedEmployeeId ?? '',
         reviewerEmployeeId: row.reviewerEmployeeId,
         createdBy: session.userId,
@@ -1084,9 +1100,19 @@ gstRouter.post('/stages/:stage/entries', handler(async (req, res) => {
     where: {
       ...alive, id: profileId, ...(ids === 'ALL' ? {} : { clientId: { in: ids } }),
     },
-    select: { id: true, filingFrequency: true, assignedEmployeeId: true, reviewerEmployeeId: true },
+    select: {
+      id: true, filingFrequency: true, assignedEmployeeId: true, reviewerEmployeeId: true,
+      gstin: true, state: true, registrationType: true,
+    },
   })
   if (!profile) throw ApiError.notFound()
+  // Composition dealers file CMP-08 / GSTR-4, never these three returns.
+  if (isComposition(profile)) {
+    throw ApiError.unprocessable(
+      'return_not_applicable',
+      'Composition dealers do not file GSTR-1 / GSTR-2B / GSTR-3B.',
+    )
+  }
 
   const financialYear = financialYearOf(period)
   const periodType = profile.filingFrequency === 'quarterly' ? 'quarterly' : 'monthly'
@@ -1152,7 +1178,7 @@ gstRouter.post('/stages/:stage/entries', handler(async (req, res) => {
         gstProfileId: profile.id,
         compliancePeriodId: periodRow.id,
         financialYear, period, returnType, status,
-        dueDate: s('due_date') ?? dueDateFor(period, returnType, periodType),
+        dueDate: s('due_date') ?? dueForProfile(await createRuleResolver(prisma), profile, period, returnType, periodType),
         assignedEmployeeId: assigned ?? '',
         reviewerEmployeeId: reviewer,
         remarks: s('remarks'),
@@ -1302,12 +1328,14 @@ gstRouter.get('/reminders/upcoming', handler(async (req, res) => {
  *
  * Sends a reminder email to the client. Default subject + body are
  * templated per return + period; the operator may override either before
- * sending. `to` defaults to the client record's email but can be an
- * override.
+ * sending. The client must be in the caller's scope, and the recipients are
+ * locked (see `resolveReminderRecipients`): `to` must be an address on
+ * record for the client, `cc` at most 5 client contacts / firm staff. Every
+ * send is written to the audit log with its recipients.
  */
 gstRouter.post('/reminders/send', handler(async (req, res) => {
   const session = requireSession(req)
-  requireWorkstation(session, 'workstation.gst.manage')
+  const scope = requireWorkstation(session, 'workstation.gst.manage')
   const b = (req.body ?? {}) as Record<string, unknown>
   const clientId = typeof b.client_id === 'string' ? b.client_id : null
   const kind = typeof b.kind === 'string' && ['GSTR1', 'GSTR2B', 'GSTR3B'].includes(b.kind) ? b.kind as ReturnKind : null
@@ -1321,9 +1349,21 @@ gstRouter.post('/reminders/send', handler(async (req, res) => {
   if (!clientId || !kind || !period || !dueDate) {
     throw ApiError.badRequest('client_id, kind (GSTR1 / GSTR2B / GSTR3B), period (YYYY-MM) and due_date (YYYY-MM-DD) are required.')
   }
+  await assertCanSeeClient(session, scope, clientId)
   const result = await sendClientReminder(prisma, {
     caseId, clientId, kind, period, dueDate, subject, body, to, cc,
   }, session.userId)
+  await writeAudit({
+    actorUserId: session.userId,
+    action: 'gst.reminder.sent',
+    entityType: 'client',
+    entityId: clientId,
+    after: {
+      to: result.to, cc: result.cc, kind, period, due_date: dueDate,
+      subject: subject.trim() || null, case_id: caseId, message_id: result.messageId,
+    },
+    req,
+  })
   ok(res, result, 201)
 }))
 
@@ -1335,7 +1375,7 @@ gstRouter.post('/reminders/send', handler(async (req, res) => {
  */
 gstRouter.get('/reminders/template', handler(async (req, res) => {
   const session = requireSession(req)
-  requireWorkstation(session, 'workstation.gst.read', 'workstation.gst.manage')
+  const scope = requireWorkstation(session, 'workstation.gst.read', 'workstation.gst.manage')
   const clientId = typeof req.query.client_id === 'string' ? req.query.client_id : null
   const kind = typeof req.query.kind === 'string' && ['GSTR1', 'GSTR2B', 'GSTR3B'].includes(req.query.kind) ? req.query.kind as ReturnKind : null
   const period = typeof req.query.period === 'string' && /^\d{4}-\d{2}$/.test(req.query.period) ? req.query.period : null
@@ -1343,6 +1383,7 @@ gstRouter.get('/reminders/template', handler(async (req, res) => {
   if (!clientId || !kind || !period || !dueDate) {
     throw ApiError.badRequest('client_id, kind, period, due_date are required.')
   }
+  await assertCanSeeClient(session, scope, clientId)
   const client = await prisma.client.findFirst({
     where: { id: clientId, deletedAt: null },
     select: { id: true, companyName: true, email: true },

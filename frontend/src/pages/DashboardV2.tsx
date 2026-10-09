@@ -158,19 +158,19 @@ export function DashboardV2Page() {
 
       {seesBilling || gauge ? (
         <div className={`grid gap-5 grid-cols-1 ${seesBilling && gauge ? 'xl:grid-cols-[minmax(0,1.55fr)_minmax(320px,1fr)]' : ''}`}>
-          {seesBilling ? <CashFlowCard months={monthly.data?.months} avgDays={monthly.data?.avg_days_to_collect ?? null} money={money.data} loading={monthly.isLoading} error={!!monthly.error} /> : null}
+          {seesBilling ? <CashFlowCard months={monthly.data?.months} avgDays={monthly.data?.avg_days_to_collect ?? null} money={money.data} loading={monthly.isLoading} error={monthly.error} onRetry={() => void monthly.refetch()} /> : null}
           {gauge ? <GstTile {...gauge} /> : null}
         </div>
       ) : null}
 
       {approves || showSide || hasDeadlines ? (
         <div className={`grid gap-5 grid-cols-1 ${approves && (showSide || hasDeadlines) ? 'xl:grid-cols-[minmax(0,1.6fr)_minmax(320px,1fr)]' : ''}`}>
-          {approves ? <ApprovalQueue data={pending.data} loading={pending.isLoading} error={!!pending.error} /> : null}
+          {approves ? <ApprovalQueue data={pending.data} loading={pending.isLoading} error={pending.error} onRetry={() => void pending.refetch()} /> : null}
           {showSide || hasDeadlines ? (
             <aside className="space-y-5 min-w-0">
               {hasDeadlines ? <DeadlinesCard list={deadlineList} today={today} /> : null}
-              {seesTeam ? <TeamToday counts={counts} loading={attendance.isLoading} error={!!attendance.error} /> : null}
-              {seesActivity ? <ActivityCard data={activity.data} loading={activity.isLoading} error={!!activity.error} /> : null}
+              {seesTeam ? <TeamToday counts={counts} loading={attendance.isLoading} error={attendance.error} onRetry={() => void attendance.refetch()} /> : null}
+              {seesActivity ? <ActivityCard data={activity.data} loading={activity.isLoading} error={activity.error} onRetry={() => void activity.refetch()} /> : null}
             </aside>
           ) : null}
         </div>
@@ -197,11 +197,21 @@ function Panel({ title, sub, right, children, className = '', id }: {
   );
 }
 
-function State({ loading, error, empty, emptyText, children }: {
-  loading?: boolean; error?: boolean; empty?: boolean; emptyText?: ReactNode; children: ReactNode;
+function State({ loading, error, onRetry, empty, emptyText, children }: {
+  loading?: boolean; error?: unknown; onRetry?: () => void; empty?: boolean; emptyText?: ReactNode; children: ReactNode;
 }) {
   if (loading) return <div className="mx-5 mb-5 h-24 rounded-lg bg-neutral-100" aria-label="Loading" />;
-  if (error) return <div className="px-5 pb-5 text-13 text-danger" role="alert">Could not load.</div>;
+  if (error) {
+    const reason = error instanceof Error && error.message ? error.message : 'The server did not answer.';
+    return (
+      <div className="px-5 pb-5 text-13 text-danger flex flex-wrap items-center gap-x-3 gap-y-1" role="alert">
+        <span>Could not load — {reason}</span>
+        {onRetry ? (
+          <button type="button" onClick={onRetry} className="text-12 font-semibold text-primary hover:underline">Retry</button>
+        ) : null}
+      </div>
+    );
+  }
   if (empty) return <div className="px-5 pb-6 text-13 text-inkMuted">{emptyText}</div>;
   return <>{children}</>;
 }
@@ -438,10 +448,10 @@ function WaitingTile({ items }: { items: PendingAction[] }) {
 
 // ── Cash flow ─────────────────────────────────────────────────────────────
 
-function CashFlowCard({ months, avgDays, money, loading, error }: {
+function CashFlowCard({ months, avgDays, money, loading, error, onRetry }: {
   months: { month: string; billed_paise: number; collected_paise: number }[] | undefined;
   avgDays: number | null;
-  money: import('@/modules/paymentSummary/api').SummaryResponse | undefined; loading: boolean; error: boolean;
+  money: import('@/modules/paymentSummary/api').SummaryResponse | undefined; loading: boolean; error: unknown; onRetry?: () => void;
 }) {
   const [range, setRange] = useState<3 | 6>(6);
   const shown = months?.slice(-range) ?? [];
@@ -459,7 +469,7 @@ function CashFlowCard({ months, avgDays, money, loading, error }: {
           <Seg value={range} onChange={(v) => setRange(v as 3 | 6)} options={[[3, '3M'], [6, '6M']]} />
         </div>
       )}>
-      <State loading={loading} error={error} empty={empty}
+      <State loading={loading} error={error} onRetry={onRetry} empty={empty}
         emptyText={<EmptyIllo icon={Receipt} title="No invoices in this window yet"
           text="Billed and collected amounts appear here once invoices are raised and payments recorded."
           cta={{ label: 'Create invoice', href: '/workstation/invoices/new' }} />}>
@@ -610,7 +620,7 @@ const APPROVE: Partial<Record<PendingAction['kind'], (id: string) => Promise<unk
   correction: attendanceApi.approveCorrection,
 };
 
-function ApprovalQueue({ data, loading, error }: { data: { items: PendingAction[]; count: number } | undefined; loading: boolean; error: boolean }) {
+function ApprovalQueue({ data, loading, error, onRetry }: { data: { items: PendingAction[]; count: number } | undefined; loading: boolean; error: unknown; onRetry?: () => void }) {
   const qc = useQueryClient();
   const toast = useToast();
   const [tab, setTab] = useState<'all' | PendingAction['kind']>('all');
@@ -660,7 +670,7 @@ function ApprovalQueue({ data, loading, error }: { data: { items: PendingAction[
           ))}
         </div>
       )}>
-      <State loading={loading} error={error} empty={!!data && items.length === 0}
+      <State loading={loading} error={error} onRetry={onRetry} empty={!!data && items.length === 0}
         emptyText={<EmptyIllo icon={CheckCircle2} title="Nothing is waiting on you" text="Leave, expenses, corrections and expiring records land here." />}>
         <div className="overflow-x-auto">
           <table className="w-full text-13">
@@ -733,7 +743,7 @@ function ApprovalQueue({ data, loading, error }: { data: { items: PendingAction[
 
 // ── Team today (side) ─────────────────────────────────────────────────────
 
-function TeamToday({ counts, loading, error }: { counts: TodayResponse['counts'] | null; loading: boolean; error: boolean }) {
+function TeamToday({ counts, loading, error, onRetry }: { counts: TodayResponse['counts'] | null; loading: boolean; error: unknown; onRetry?: () => void }) {
   const rows: [string, number, string][] = counts ? [
     ['On time', counts.present, 'rgb(var(--c-success))'],
     ['Late', counts.late, 'rgb(var(--c-warning))'],
@@ -746,7 +756,7 @@ function TeamToday({ counts, loading, error }: { counts: TodayResponse['counts']
   return (
     <Panel title="Team today" sub={counts ? `${counts.total} people` : undefined}
       right={<Link to="/hrms/attendance" className="text-12 font-semibold text-primary">Attendance →</Link>}>
-      <State loading={loading} error={error} empty={!counts} emptyText="Attendance isn't available for your view.">
+      <State loading={loading} error={error} onRetry={onRetry} empty={!counts} emptyText="Attendance isn't available for your view.">
         {counts ? (
           <div className="px-5 pb-5 flex items-center gap-5" data-testid="attendance-summary">
             <Donut size={104} stroke={12} segments={rows.slice(0, 4).map(([, v, c]) => ({ value: v, color: c }))
@@ -774,14 +784,14 @@ function TeamToday({ counts, loading, error }: { counts: TodayResponse['counts']
 
 // ── Activity (side) ───────────────────────────────────────────────────────
 
-function ActivityCard({ data, loading, error }: { data: { items: ActivityRow[] } | undefined; loading: boolean; error: boolean }) {
+function ActivityCard({ data, loading, error, onRetry }: { data: { items: ActivityRow[] } | undefined; loading: boolean; error: unknown; onRetry?: () => void }) {
   const named: Record<string, string> = { 'auth.login': 'Logged in', 'auth.logout': 'Logged out' };
   const pretty = (a: string) => named[a] ?? a.replace(/[._]/g, ' ').replace(/^\w/, (c) => c.toUpperCase());
   const items = data?.items.slice(0, 7) ?? [];
   return (
     <Panel title="Activity"
       right={<span className="inline-flex items-center gap-[6px] text-12 font-semibold text-success"><i className="dash-live h-[7px] w-[7px] rounded-full bg-success" />Live</span>}>
-      <State loading={loading} error={error} empty={!!data && items.length === 0}
+      <State loading={loading} error={error} onRetry={onRetry} empty={!!data && items.length === 0}
         emptyText="No changes recorded yet. Sign-ins are not listed here.">
         <ol className="px-5 pb-4">
           {items.map((a, idx) => (

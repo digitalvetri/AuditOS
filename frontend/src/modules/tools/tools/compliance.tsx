@@ -1,6 +1,7 @@
 import type { ToolUI, OptionsProps } from './types';
 import { useEffect } from 'react';
 import { SelectField, TextField, Notice, Checkbox } from '../workspace/fields';
+import { PAN_RE, TAN_RE } from '@/lib/ids';
 
 /**
  * COMPLIANCE CONVERTERS — the Finance & Compliance group.
@@ -226,7 +227,6 @@ function saveDeductor(v: Record<string, unknown>) {
   try { localStorage.setItem(TDS_STORE_KEY, JSON.stringify(Object.fromEntries(TDS_REMEMBERED.map((k) => [k, v[k]])))); } catch { /* storage off */ }
 }
 
-const PAN_RE = /^[A-Z]{5}\d{4}[A-Z]$/;
 const EMAIL_RE = /^[^\s@^]+@[^\s@^]+\.[^\s@^]+$/;
 
 function TdsOptions({ value, onChange, disabled }: OptionsProps) {
@@ -348,7 +348,7 @@ export const tdsFvuGeneratorUI: ToolUI = {
     const fy = s('financial_year').match(/^(\d{4})-(\d{2}|\d{4})$/);
     if (!fy) return 'Write the tax year as 2026-27.';
     if (Number(fy[1]) < 2026) return 'Form 140 starts with tax year 2026-27. For earlier years, file Form 26Q through NSDL\'s RPU 6.0.';
-    if (!/^[A-Z]{4}\d{5}[A-Z]$/.test(s('tan'))) return 'A TAN is four letters, five digits, then a letter — for example CHEA12345B.';
+    if (!TAN_RE.test(s('tan'))) return 'A TAN is four letters, five digits, then a letter — for example CHEA12345B.';
     if (!PAN_RE.test(s('deductor_pan')) && s('deductor_pan') !== 'PANNOTREQD') return 'Enter the deductor\'s PAN.';
     if (!s('deductor_name')) return 'Enter the deductor\'s name as registered with TRACES.';
     if (!s('deductor_type')) return 'Choose the deductor type.';

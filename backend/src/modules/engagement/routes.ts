@@ -5,6 +5,7 @@ import { can, requireSession, type Session } from '../../platform/auth.js'
 import { requireWorkstation } from '../../platform/workstation/scope.js'
 import { signedLink } from '../../platform/signedUrl.js'
 import { notifyEmployees } from '../../platform/notify.js'
+import { writeAudit } from '../../platform/audit.js'
 import { prisma } from '../../lib/prisma.js'
 import { EngagementService, type LetterInput } from './service.js'
 
@@ -112,7 +113,9 @@ engagementRouter.post('/', handler(async (req, res) => {
   const scope = requireWorkstation(session, 'workstation.engagement.manage')
   requireManage(session)
   const body = parse(letterSchema, req.body, 'Invalid engagement letter.')
-  ok(res, await EngagementService.create(session, scope, toInput(body)), 201)
+  const letter = await EngagementService.create(session, scope, toInput(body))
+  await writeAudit({ actorUserId: session.userId, action: 'engagement_letter.create', entityType: 'EngagementLetter', entityId: letter.id, after: letter, req })
+  ok(res, letter, 201)
 }))
 
 engagementRouter.put('/:id', handler(async (req, res) => {
@@ -120,7 +123,10 @@ engagementRouter.put('/:id', handler(async (req, res) => {
   const scope = requireWorkstation(session, 'workstation.engagement.manage')
   requireManage(session)
   const body = parse(letterSchema, req.body, 'Invalid engagement letter.')
-  ok(res, await EngagementService.update(session, scope, req.params.id, toInput(body)))
+  const before = await EngagementService.get(session, scope, req.params.id)
+  const letter = await EngagementService.update(session, scope, req.params.id, toInput(body))
+  await writeAudit({ actorUserId: session.userId, action: 'engagement_letter.update', entityType: 'EngagementLetter', entityId: letter.id, before, after: letter, req })
+  ok(res, letter)
 }))
 
 const STATUS_PATH = { draft: 'reopen', sent: 'send', accepted: 'accept', archived: 'archive' } as const
@@ -130,7 +136,12 @@ for (const to of ['draft', 'sent', 'accepted', 'archived'] as const) {
     const session = requireSession(req)
     const scope = requireWorkstation(session, 'workstation.engagement.manage')
     requireManage(session)
+    const before = await EngagementService.get(session, scope, req.params.id)
     const letter = await EngagementService.setStatus(session, scope, req.params.id, to)
+    await writeAudit({
+      actorUserId: session.userId, action: `engagement_letter.${path}`, entityType: 'EngagementLetter',
+      entityId: letter.id, before: { status: before.status }, after: { status: letter.status }, req,
+    })
     if (to === 'accepted') await notifyAccepted(session, letter.id)
     ok(res, letter)
   }))
@@ -162,14 +173,18 @@ engagementRouter.post('/:id/unarchive', handler(async (req, res) => {
   const session = requireSession(req)
   const scope = requireWorkstation(session, 'workstation.engagement.manage')
   requireManage(session)
-  ok(res, await EngagementService.unarchive(session, scope, req.params.id))
+  const letter = await EngagementService.unarchive(session, scope, req.params.id)
+  await writeAudit({ actorUserId: session.userId, action: 'engagement_letter.unarchive', entityType: 'EngagementLetter', entityId: letter.id, after: { status: letter.status }, req })
+  ok(res, letter)
 }))
 
 engagementRouter.post('/:id/duplicate', handler(async (req, res) => {
   const session = requireSession(req)
   const scope = requireWorkstation(session, 'workstation.engagement.manage')
   requireManage(session)
-  ok(res, await EngagementService.duplicate(session, scope, req.params.id), 201)
+  const letter = await EngagementService.duplicate(session, scope, req.params.id)
+  await writeAudit({ actorUserId: session.userId, action: 'engagement_letter.duplicate', entityType: 'EngagementLetter', entityId: letter.id, after: { duplicated_from: req.params.id, letter_code: letter.letter_code }, req })
+  ok(res, letter, 201)
 }))
 
 /** A signed public link to the letter's PDF — see the signed router. */
@@ -184,6 +199,8 @@ engagementRouter.delete('/:id', handler(async (req, res) => {
   const session = requireSession(req)
   const scope = requireWorkstation(session, 'workstation.engagement.manage')
   requireManage(session)
+  const before = await EngagementService.get(session, scope, req.params.id)
   await EngagementService.remove(session, scope, req.params.id)
+  await writeAudit({ actorUserId: session.userId, action: 'engagement_letter.delete', entityType: 'EngagementLetter', entityId: req.params.id, before, req })
   noContent(res)
 }))

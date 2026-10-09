@@ -9,7 +9,7 @@ import { useAuth } from '@/platform/auth/AuthContext';
  * Per REPOTIC-MODULE.md §0, Repotic is EXACTLY two tools: the bank
  * statement → Tally pipeline (shipped) and the ecommerce seller's
  * GSTR-1 pipeline (built across the Phase 1+ PRs). The TDS tab was
- * removed per spec — TDS reconciliation lives in the TDS module.
+ * removed per spec — 26AS vs books reconciliation is not built yet.
  */
 export function AuditAutomationLandingPage() {
   const { session } = useAuth();
@@ -50,7 +50,7 @@ export function AuditAutomationLandingPage() {
         <Info size={14} strokeWidth={1.75} className="mt-0.5 flex-shrink-0" />
         <div>
           GST reconciliation (GSTR-2B vs Purchase Register) lives in the GST module.
-          TDS reconciliation (26AS) lives in the TDS module.
+          26AS vs books reconciliation — coming soon.
           Repotic itself is file-in / file-out only.
         </div>
       </div>

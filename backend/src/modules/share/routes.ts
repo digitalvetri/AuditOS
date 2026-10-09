@@ -7,8 +7,9 @@
  *   GET  /api/share/whatsapp/status   { configured, mode: 'template' | 'text' | null }
  *   POST /api/share/whatsapp          { kind, id, to, message } → { sent, link, to, message_id, mode }
  *   POST /api/share/public-link       { kind, id } → { url, file }
+ *   POST /api/share/revoke            { kind, id } → { revoked_before }
  *
- * The link is a 100-year signed URL to the document's PDF route under
+ * The link is a long-lived (PERMANENT_LINK_TTL_DAYS, default 365) signed URL to the document's PDF route under
  * `/api/<kind>/<id>/pdf?t=…` — see `backend/src/modules/signed.routes.ts`. Those
  * routes do not require a login (signed-URL authorization), so the recipient
  * can download the PDF from any device.
@@ -25,7 +26,7 @@ import { sendWhatsAppLink, whatsappConfigured, whatsappMode, WhatsAppError } fro
 import { requireSession } from '../../platform/auth.js'
 import { writeAudit } from '../../platform/audit.js'
 import { requireWorkstation } from '../../platform/workstation/scope.js'
-import { permanentLink } from '../../platform/signedUrl.js'
+import { permanentLink, revokeSharedLinks } from '../../platform/signedUrl.js'
 import { QuotationService } from '../quotation/service.js'
 import { InvoiceService } from '../invoice/service.js'
 import { EngagementService } from '../engagement/service.js'
@@ -58,6 +59,14 @@ async function publicPdfLink(req: Parameters<typeof requireSession>[0], kind: Ki
   return { url, file, party: l.party_name ?? '' }
 }
 
+/** The document's read check, per kind — the same gate as issuing a link. */
+async function assertCanRead(req: Parameters<typeof requireSession>[0], kind: Kind, id: string): Promise<void> {
+  const session = requireSession(req)
+  if (kind === 'quotation') await QuotationService.get(session, requireWorkstation(session, 'workstation.quotation.read'), id)
+  else if (kind === 'invoice') await InvoiceService.get(session, requireWorkstation(session, 'workstation.invoice.read'), id)
+  else await EngagementService.get(session, requireWorkstation(session, 'workstation.engagement.read'), id)
+}
+
 const PublicLinkBody = z.object({
   kind: z.enum(['quotation', 'invoice', 'engagement']),
   id: z.string().min(1).max(100),
@@ -72,6 +81,21 @@ shareRouter.post('/public-link', handler(async (req, res) => {
   // (/share/email, /share/whatsapp) logs the link under `after.link`.
   const link = await publicPdfLink(req, kind, id)
   ok(res, { url: link.url, file: link.file })
+}))
+
+/**
+ * Withdraw every shared link to this document issued up to now. Links issued
+ * afterwards (the dialog fetches a fresh one) keep working.
+ */
+shareRouter.post('/revoke', handler(async (req, res) => {
+  const session = requireSession(req)
+  const parsed = PublicLinkBody.safeParse(req.body)
+  if (!parsed.success) throw ApiError.badRequest(parsed.error.issues[0]?.message ?? 'Invalid request.')
+  const { kind, id } = parsed.data
+  await assertCanRead(req, kind, id)
+  const at = await revokeSharedLinks(`${kind}:${id}`, session.userId)
+  await writeAudit({ actorUserId: session.userId, action: 'link.revoke', entityType: kind, entityId: id, after: { revoked_before: at.toISOString() }, req })
+  ok(res, { revoked_before: at.toISOString() })
 }))
 
 shareRouter.get('/email/status', handler(async (req, res) => {

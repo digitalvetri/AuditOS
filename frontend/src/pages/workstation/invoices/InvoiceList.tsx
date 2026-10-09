@@ -76,7 +76,7 @@ export function InvoiceListPage() {
                 const draft = inv.stored_status === 'draft';
                 return (
                   <ListRow key={inv.id} onOpen={() => navigate(`/workstation/invoices/${inv.id}`)}>
-                    <TD first strong nowrap className="tracking-[0.02em]">{inv.invoice_number}</TD>
+                    <TD first strong nowrap className="tracking-[0.02em]">{inv.invoice_number ?? 'Draft'}</TD>
                     <TD><TwoLine avatar={inv.billing_name || inv.client_name} square top={inv.billing_name || inv.client_name || '—'} /></TD>
                     <TD muted nowrap>{fmtDay(inv.invoice_date)}</TD>
                     <TD muted nowrap>{fmtDay(inv.due_date)}</TD>

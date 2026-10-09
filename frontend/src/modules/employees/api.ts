@@ -54,6 +54,8 @@ export interface EmployeeCreateInput {
   manager_id?: string | null;
   phone?: string;
   joining_date?: string;
+  /** Covered under PF (default true). Ignored for articled assistants. */
+  pf_applicable?: boolean;
   /** Role for the login created with the employee (never Super Admin). */
   role_code?: string;
   /** Set by the admin; left out, the server generates one. */

@@ -157,8 +157,21 @@ describe('portal autofill — isolation', () => {
     const req = { launchToken: l.body.launch_token, clientId: a.id, registrationId: 'PF_EPFO', portalId: 'EPFO', pageUrl: 'https://unifiedportal-emp.epfindia.gov.in/epfo/' }
     expect((await api('/api/extension/credentials/request', { method: 'POST', body: req })).status).toBe(200)
     const again = await api('/api/extension/credentials/request', { method: 'POST', body: req })
-    expect(again.status).toBe(403)
+    expect(again.status).toBe(409)
+    expect(again.body.error.code).toBe('token_used')
     expect(again.body.error.message).toMatch(/expired/i)
+  })
+
+  it('two parallel redemptions of one token: exactly one gets the credential', async () => {
+    const a = await client('Race')
+    await saveCred(a.id, 'pf', 'pf-race', 'pf-race-pass')
+    const l = await api('/api/portal-autofill/launch', { method: 'POST', as: mdCookie, body: { client_id: a.id, registration_id: 'PF_EPFO' } })
+    const req = { launchToken: l.body.launch_token, clientId: a.id, registrationId: 'PF_EPFO', portalId: 'EPFO', pageUrl: 'https://unifiedportal-emp.epfindia.gov.in/epfo/' }
+    const results = await Promise.all(Array.from({ length: 4 }, () => api('/api/extension/credentials/request', { method: 'POST', body: req })))
+    const statuses = results.map((r) => r.status).sort()
+    expect(statuses).toEqual([200, 409, 409, 409])
+    expect(results.filter((r) => r.raw.includes('pf-race-pass'))).toHaveLength(1)
+    expect(await prisma.autofillTokenUse.count({ where: { jti: { startsWith: `${JSON.parse(Buffer.from(l.body.launch_token.split('.')[0], 'base64url').toString()).jti}:` } } })).toBe(1)
   })
 
   it('expired token: no credential', async () => {
@@ -275,8 +288,8 @@ describe('portal autofill — isolation', () => {
     expect(reg.body).toEqual({ kind: 'iec_registration', details: { register_as: 'IEC Applicant', first_name: 'Ravi', last_name: '', email: 'r@x.local', mobile: '9840011111', pincode: '641001', district: 'Coimbatore', state: 'Tamil Nadu', city: 'Coimbatore' } })
     expect(JSON.stringify(reg.body)).not.toContain('iec-pass')
     // Each purpose once.
-    expect((await req()).status).toBe(403)
-    expect((await req('registration')).status).toBe(403)
+    expect((await req()).status).toBe(409)
+    expect((await req('registration')).status).toBe(409)
   })
 
   it('Labour TN: login and the applicant registration form each fill once from one launch', async () => {
@@ -292,7 +305,7 @@ describe('portal autofill — isolation', () => {
     const reg = await req('https://labour.tn.gov.in/services/Applicants/applicantRegistration', 'registration')
     expect(reg.body.kind).toBe('labour_registration')
     expect(reg.body.details).toMatchObject({ name: 'Ravi Kumar', dob: '1985-06-15', aadhaar: '999988887777', id_proof: 'PAN', id_number: 'AABCK1234M', state: 'Tamil Nadu', district: 'Chennai', password: 'shop-pass' })
-    expect((await req('https://labour.tn.gov.in/services/Applicants/applicantRegistration', 'registration')).status).toBe(403)
+    expect((await req('https://labour.tn.gov.in/services/Applicants/applicantRegistration', 'registration')).status).toBe(409)
   })
 
   it('TNREGINET: login and the Sign Up form each fill once from one launch', async () => {
@@ -308,7 +321,7 @@ describe('portal autofill — isolation', () => {
     const reg = await req('registration')
     expect(reg.body.kind).toBe('tnreginet_registration')
     expect(reg.body.details).toMatchObject({ username: 'firmuser', password: 'firm pass@2026', security_answer: 'Tommy', identification_no: 'ABCPM1234K', email: 'a@x.local', mobile: '9876543210', dob: '1980-04-12' })
-    expect((await req('registration')).status).toBe(403)
+    expect((await req('registration')).status).toBe(409)
   })
 
   it('Udyam: the registration page gets the Aadhaar and entrepreneur name; the login stays passwordless', async () => {

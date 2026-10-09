@@ -7,6 +7,7 @@ import { requireSession } from '../../platform/auth.js'
 import { writeAudit } from '../../platform/audit.js'
 import { writeActivity } from '../../platform/workstation/activity.js'
 import { notifyEmployees } from '../../platform/notify.js'
+import { isSoleActiveEmployee } from '../../platform/makerChecker.js'
 import { signedLink, verifyResourceToken } from '../../platform/signedUrl.js'
 import { mailConfigured, MailError, sendMail } from '../../lib/mailer.js'
 import {
@@ -137,12 +138,11 @@ documentsRouter.patch('/:id', handler(async (req, res) => {
 /**
  * POST /api/documents/:id/versions — a new version, never an overwrite.
  *
- * There is no real file storage in this build (the same as HRMS documents
- * today): a version records its metadata and a `fileKey`, and the download
- * route serves a derived payload through a signed URL.
+ * Multipart only: the version carries the real file (422 without one). The
+ * uploader is always the signed-in employee and the time the server's.
  */
 documentsRouter.post('/:id/versions', (req, res, next) => {
-  // Multipart carries the real file; a JSON body still records metadata only.
+  // Multipart carries the file; a JSON body is refused below (no file).
   if (!req.is('multipart/form-data')) return next()
   upload.single('file')(req, res, (err: unknown) => {
     if (!err) return next()
@@ -154,18 +154,27 @@ documentsRouter.post('/:id/versions', (req, res, next) => {
 }, handler(async (req, res) => {
   const session = requireSession(req)
   const scope = requireWorkstation(session, 'workstation.document.manage')
-  const b = body(req)
+  // Multipart text fields (or an empty JSON body) — the file check below
+  // decides, not the body's shape.
+  const b = (req.body && typeof req.body === 'object' ? req.body : {}) as Record<string, unknown>
 
   const doc = await prisma.clientDocument.findFirst({ where: { id: req.params.id, ...alive }, include })
   if (!doc) throw ApiError.notFound('Document not found.')
   await assertCanSeeClient(session, scope, doc.clientId)
 
+  // A version IS a file. A metadata-only version (the old JSON path) proved
+  // nothing was ever received, so it is no longer accepted. Older
+  // metadata-only versions already on record still read and download.
+  if (!req.file) throw ApiError.unprocessable('file_required', 'Attach the file.', { file: 'Attach the file.' })
+
   const v = new FieldErrors()
   const notes = v.str('notes', b.notes, { required: false, max: 500 })
-  const sizeBytes = typeof b.size_bytes === 'number' && b.size_bytes > 0 ? Math.round(b.size_bytes) : 52_000
 
-  // Optional, all three default to "the next version, by me, now" — the
-  // Documents page's Add form lets the user record them as they were.
+  // The version number may be given (e.g. a re-issued certificate filed as
+  // v3). Who uploaded it and when are NOT taken from the browser — they are
+  // the signed-in employee and the server clock, so evidence cannot be
+  // backdated or attributed to someone else. A date the user enters is the
+  // date printed on the document, kept separately as `documentDate`.
   let requestedVersion: number | null = null
   if (b.version !== undefined && b.version !== null && b.version !== '') {
     const n = Number(b.version)
@@ -173,36 +182,27 @@ documentsRouter.post('/:id/versions', (req, res, next) => {
     else if (n <= doc.currentVersion) v.add('version', `This document is already at v${doc.currentVersion}; the new version must be higher.`)
     else requestedVersion = n
   }
-  let uploadedAt: Date | null = null
-  if (b.uploaded_at !== undefined && b.uploaded_at !== null && b.uploaded_at !== '') {
-    const d = typeof b.uploaded_at === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(b.uploaded_at) ? new Date(`${b.uploaded_at}T12:00:00`) : null
-    if (!d || Number.isNaN(d.getTime())) v.add('uploaded_at', 'Enter a valid date.')
-    else if (d.getTime() > Date.now() + 24 * 3600 * 1000) v.add('uploaded_at', 'The upload date cannot be in the future.')
-    else uploadedAt = d
-  }
-  let uploader: string | null = null
-  if (typeof b.uploaded_by_employee_id === 'string' && b.uploaded_by_employee_id) {
-    const me = await prisma.user.findUnique({ where: { id: session.userId }, select: { organisationId: true } })
-    const emp = await prisma.employee.findFirst({ where: { id: b.uploaded_by_employee_id, organisationId: me?.organisationId, ...alive }, select: { id: true } })
-    if (!emp) v.add('uploaded_by_employee_id', 'Select an employee from your firm.')
-    else uploader = emp.id
+  let documentDate: string | null = null
+  if (b.document_date !== undefined && b.document_date !== null && b.document_date !== '') {
+    const wellFormed = typeof b.document_date === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(b.document_date)
+    const d = wellFormed ? new Date(`${b.document_date}T00:00:00Z`) : null
+    if (!d || Number.isNaN(d.getTime()) || d.toISOString().slice(0, 10) !== b.document_date) v.add('document_date', 'Enter a valid date.')
+    else if (d.getTime() > Date.now() + 24 * 3600 * 1000) v.add('document_date', 'The document date cannot be in the future.')
+    else documentDate = b.document_date as string
   }
   v.throwIfAny()
 
-  // The original file, when one was sent — stored before the version row so a
-  // failed write never leaves a version pointing at nothing.
-  let stored: { key: string; originalName: string; mimeType: string; size: number } | null = null
-  if (req.file) {
-    const ext = (req.file.originalname.split('.').pop() ?? '').toLowerCase()
-    const mimeType = CLIENT_DOC_MIME[ext]
-    if (!mimeType) {
-      throw ApiError.unprocessable('file_type', `Allowed types: ${Object.keys(CLIENT_DOC_MIME).join(', ').toUpperCase()}.`)
-    }
-    const safe = req.file.originalname.replace(/[^A-Za-z0-9._-]/g, '_').slice(-120)
-    const key = `${doc.clientId}/${doc.id}/${crypto.randomUUID()}-${safe}`
-    await clientDocumentStorage.put(key, req.file.buffer)
-    stored = { key, originalName: req.file.originalname, mimeType, size: req.file.size }
+  // The original file — stored before the version row so a failed write never
+  // leaves a version pointing at nothing.
+  const ext = (req.file.originalname.split('.').pop() ?? '').toLowerCase()
+  const mimeType = CLIENT_DOC_MIME[ext]
+  if (!mimeType) {
+    throw ApiError.unprocessable('file_type', `Allowed types: ${Object.keys(CLIENT_DOC_MIME).join(', ').toUpperCase()}.`)
   }
+  const safe = req.file.originalname.replace(/[^A-Za-z0-9._-]/g, '_').slice(-120)
+  const key = `${doc.clientId}/${doc.id}/${crypto.randomUUID()}-${safe}`
+  await clientDocumentStorage.put(key, req.file.buffer)
+  const stored = { key, originalName: req.file.originalname, mimeType, size: req.file.size }
 
   const updated = await prisma.$transaction(async (tx) => {
     const current = await tx.clientDocument.findUniqueOrThrow({ where: { id: doc.id } })
@@ -214,13 +214,14 @@ documentsRouter.post('/:id/versions', (req, res, next) => {
       data: {
         documentId: doc.id,
         version: nextVersion,
-        fileKey: stored?.key ?? `workstation/${doc.clientId}/${doc.id}/v${nextVersion}`,
-        originalName: stored?.originalName ?? null,
-        mimeType: stored?.mimeType ?? null,
-        uploadedBy: uploader ?? session.employeeId ?? session.userId,
-        ...(uploadedAt ? { uploadedAt } : {}),
-        sizeBytes: stored?.size ?? sizeBytes,
+        fileKey: stored.key,
+        originalName: stored.originalName,
+        mimeType: stored.mimeType,
+        uploadedBy: session.employeeId ?? session.userId,
+        sizeBytes: stored.size,
         notes: notes ?? null,
+        documentDate,
+        reviewStatus: 'uploaded',
         previousVersionId: previous?.id ?? null,
       },
     })
@@ -352,16 +353,40 @@ documentsRouter.post('/:id/verify', handler(async (req, res) => {
     )
   }
 
-  const doc = await prisma.clientDocument.update({
-    where: { id: before.id },
-    data: {
-      status: approve ? 'verified' : 'rejected',
-      verifiedByEmployeeId: approve ? session.employeeId : null,
-      verifiedAt: approve ? new Date() : null,
-      rejectionReason: approve ? null : rejectionReason ?? null,
-      updatedBy: session.userId,
-    },
-    include,
+  const current = before.versions.find((x) => x.version === before.currentVersion)
+  // Maker-checker: whoever filed this version does not also sign it off —
+  // unless they are the only active employee, with nobody else to ask.
+  // (Older versions recorded the user id when the uploader had no employee.)
+  if (approve && current && current.uploadedBy !== 'portal'
+    && (current.uploadedBy === session.employeeId || current.uploadedBy === session.userId)
+    && !(await isSoleActiveEmployee(session.userId))) {
+    throw ApiError.forbidden('You uploaded this version, so someone else must verify it.')
+  }
+
+  const now = new Date()
+  const doc = await prisma.$transaction(async (tx) => {
+    if (current) {
+      await tx.clientDocumentVersion.update({
+        where: { id: current.id },
+        data: {
+          reviewStatus: approve ? 'verified' : 'rejected',
+          reviewedByEmployeeId: session.employeeId ?? null,
+          reviewedAt: now,
+          reviewNote: approve ? null : rejectionReason ?? null,
+        },
+      })
+    }
+    return tx.clientDocument.update({
+      where: { id: before.id },
+      data: {
+        status: approve ? 'verified' : 'rejected',
+        verifiedByEmployeeId: approve ? session.employeeId : null,
+        verifiedAt: approve ? now : null,
+        rejectionReason: approve ? null : rejectionReason ?? null,
+        updatedBy: session.userId,
+      },
+      include,
+    })
   })
 
   await writeActivity({
@@ -408,6 +433,10 @@ documentsRouter.get('/:id/versions/:version/link', handler(async (req, res) => {
   if (!version) throw ApiError.notFound('Version not found.')
 
   const resource = `workstation-document:${version.id}`
+  await writeAudit({
+    actorUserId: session.userId, action: 'link.issue', entityType: 'ClientDocument', entityId: doc.id,
+    after: { version_id: version.id, version: version.version }, req,
+  })
   ok(res, {
     ...signedLink(`/api/workstation-documents/${version.id}/download`, resource, session.userId),
     version: documentVersionToApi(version, await employeeMap([version.uploadedBy])),
@@ -423,7 +452,11 @@ export const workstationSignedRouter = Router()
 
 workstationSignedRouter.get('/workstation-documents/:versionId/download', handler(async (req, res) => {
   const resource = `workstation-document:${req.params.versionId}`
-  verifyResourceToken(resource, typeof req.query.t === 'string' ? req.query.t : undefined)
+  const subject = verifyResourceToken(resource, typeof req.query.t === 'string' ? req.query.t : undefined)
+  await writeAudit({
+    actorUserId: subject, action: 'document.download', entityType: 'ClientDocumentVersion', entityId: req.params.versionId,
+    after: { via: 'signed_link' }, req,
+  })
 
   const version = await prisma.clientDocumentVersion.findFirst({
     where: { id: req.params.versionId },

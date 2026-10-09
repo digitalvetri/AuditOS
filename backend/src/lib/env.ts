@@ -66,6 +66,14 @@ export const env = {
   // client weeks later. Signed with a separate secret from SIGNED_URL_SECRET
   // so that rotating one does not invalidate the other.
   permanentLinkSecret: secret('PERMANENT_LINK_SECRET'),
+  /**
+   * How long a shared (email / WhatsApp) document link stays valid. A year by
+   * default; links can also be revoked earlier from the share dialog.
+   */
+  permanentLinkTtlDays: (() => {
+    const n = Number(process.env.PERMANENT_LINK_TTL_DAYS ?? 365)
+    return Number.isFinite(n) && n > 0 ? Math.min(n, 3650) : 365
+  })(),
   /** The absolute origin a client clicks on, e.g. https://audit.example.com. */
   publicAppUrl: process.env.PUBLIC_APP_URL?.replace(/\/$/, '') ?? null,
   sessionTtlSeconds: Number(process.env.SESSION_TTL_SECONDS ?? 8 * 60 * 60),
@@ -110,5 +118,14 @@ if (isProduction) {
     }
     const problem = encryptionKeyProblem(value)
     if (problem) throw new Error(`${name} ${problem}.`)
+  }
+  // The portal-autofill launch-token key. Optional (it is otherwise derived
+  // from PORTAL_ACCESS_ENC_KEY), but when set it must be a real secret: it
+  // authorises the release of a client's portal password.
+  const autofill = process.env.PORTAL_AUTOFILL_SECRET
+  if (autofill) {
+    if (autofill.length < 32) throw new Error('PORTAL_AUTOFILL_SECRET must be at least 32 characters in production — generate one with `openssl rand -base64 32`.')
+    const problem = secretProblem(autofill)
+    if (problem) throw new Error(`PORTAL_AUTOFILL_SECRET ${problem}.`)
   }
 }

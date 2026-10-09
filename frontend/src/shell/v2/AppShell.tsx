@@ -10,6 +10,7 @@
  */
 import { useState } from 'react';
 import { Outlet } from 'react-router-dom';
+import { RouteErrorBoundary } from '@/components/ErrorBoundary';
 import { Sidebar } from './Sidebar';
 import { TopBar } from './TopBar';
 import { MobileNav } from './MobileNav';
@@ -32,7 +33,9 @@ export function AppShellV2() {
             inputs) inside this scroller; without it they stretch the
             document and the whole shell scrolls up, leaving a blank band. */}
         <main id="main" tabIndex={-1} className="m-main relative flex-1 min-h-0 overflow-y-auto p-3 md:p-5 lg:p-6 focus:outline-none">
-          <Outlet />
+          <RouteErrorBoundary>
+            <Outlet />
+          </RouteErrorBoundary>
         </main>
       </div>
       {/* Below `md` only. The drawer stays the overflow for everything the

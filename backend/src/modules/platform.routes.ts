@@ -10,6 +10,9 @@ import { canApproveCorrection, canApproveExpense, canApproveLeave } from './dash
 import type { Scope } from '../platform/rbac/matrix.js'
 import { pushPublicKey } from '../platform/push.js'
 import { USER_LABEL_SELECT, userLabel } from '../platform/userLabel.js'
+import { isAccountAdmin } from '../platform/roleRank.js'
+import { verifyAuditChain } from '../platform/audit.js'
+import type { Prisma } from '@prisma/client'
 
 /**
  * PLATFORM SURFACES — notifications, audit log, dashboard aggregates (§8.9,
@@ -141,49 +144,171 @@ notificationsRouter.post('/push/unsubscribe', handler(async (req, res) => {
 }))
 
 // ── Audit log ─────────────────────────────────────────────────────────────
+/**
+ * Which entity types each partial audit grant may read. `audit.read.all`
+ * reads everything; `audit.read.hr` and `audit.read.finance` only their own
+ * domain (both grants → the union). Entity types are written in mixed case
+ * across modules ('Invoice' and 'invoice'), so both spellings are listed.
+ */
+export const HR_AUDIT_TYPES = [
+  'Employee', 'User', 'Role', 'RolePermission', 'Department', 'Designation', 'WorkLocation',
+  'Holiday', 'LeaveRequest', 'LeaveType', 'Attendance', 'AttendanceCorrection',
+  'EmployeeDocument', 'ArticledTraining', 'PayrollRun', 'Payslip', 'SalaryStructure',
+  'Expense', 'ExpenseCategory', 'StatutoryRate',
+] as const
+export const FINANCE_AUDIT_TYPES = [
+  'Invoice', 'Quotation', 'EngagementLetter', 'engagement', 'Payment', 'LedgerTransaction',
+  'FirmBankAccount', 'Expense', 'ExpenseCategory', 'PayrollRun', 'Payslip', 'SalaryStructure',
+  'StatutoryRate', 'zpay.invoice',
+] as const
+
+function withLowercase(types: readonly string[]): string[] {
+  return [...new Set(types.flatMap((t) => [t, t.toLowerCase()]))]
+}
+
+/** Admin and Super Admin see the Super Admin's own trail; nobody else does. */
+function seesSuperAdmin(session: Session): boolean {
+  return session.roleCode === 'md' || session.roleCode === 'hr_admin'
+}
+
+/** The entity types this session may read, or 'ALL'. Null = no audit grant. */
+export function auditReadableTypes(session: Session): 'ALL' | string[] | null {
+  if (can(session, 'audit.read.all', 'organisation')) return 'ALL'
+  const types: string[] = []
+  if (can(session, 'audit.read.hr', 'organisation')) types.push(...HR_AUDIT_TYPES)
+  if (can(session, 'audit.read.finance', 'organisation')) types.push(...FINANCE_AUDIT_TYPES)
+  return types.length ? withLowercase(types) : null
+}
+
+/** Rows that hide the Super Admin from viewers who may not see it. */
+async function superAdminFilter(session: Session): Promise<Prisma.AuditLogWhereInput[]> {
+  if (seesSuperAdmin(session)) return []
+  // Hide what it did and what was done to it (including failed sign-ins,
+  // which record the typed email).
+  const hidden = await prisma.user.findMany({ where: { role: { code: 'md' } }, select: { id: true, email: true } })
+  const ids = hidden.flatMap((u) => [u.id, u.email])
+  if (!ids.length) return []
+  // Spelled out for NULL actors: in SQL, NOT (NULL IN (…)) is NULL, which
+  // would silently drop every system-written row.
+  return [
+    { OR: [{ actorUserId: null }, { actorUserId: { notIn: ids } }] },
+    { NOT: { entityType: 'User', entityId: { in: ids } } },
+  ]
+}
+
+/** 'YYYY-MM-DD' (an IST calendar day) or a full ISO timestamp. */
+function parseBound(v: string | undefined, end: boolean): Date | undefined {
+  if (!v) return undefined
+  if (/^\d{4}-\d{2}-\d{2}$/.test(v)) {
+    const d = new Date(`${v}T00:00:00+05:30`)
+    if (Number.isNaN(d.getTime())) throw ApiError.badRequest('Invalid date.')
+    return end ? new Date(d.getTime() + 24 * 60 * 60 * 1000) : d
+  }
+  const d = new Date(v)
+  if (Number.isNaN(d.getTime())) throw ApiError.badRequest('Invalid date.')
+  return d
+}
+
+const auditQuery = z.object({
+  entity_type: z.string().max(100).optional(),
+  entity_id: z.string().max(200).optional(),
+  action: z.string().max(100).optional(),
+  actor: z.string().max(100).optional(),
+  from: z.string().max(40).optional(),
+  to: z.string().max(40).optional(),
+  /** `seq` of the last row on the previous page (rows come newest first). */
+  cursor: z.coerce.number().int().optional(),
+  limit: z.coerce.number().int().min(1).max(200).default(50),
+  format: z.enum(['json', 'csv']).default('json'),
+})
+
+const CSV_MAX_ROWS = 20_000
+
+/** CSV cell: quoted, and neutralised against spreadsheet formula injection. */
+function csvCell(v: unknown): string {
+  let s = v === null || v === undefined ? '' : String(v)
+  if (/^[=+\-@\t\r]/.test(s)) s = `'${s}`
+  return `"${s.replace(/"/g, '""')}"`
+}
+
 auditRouter.get('/', handler(async (req, res) => {
   const session = requireSession(req)
-  const q = z.object({
-    entity_type: z.string().optional(),
-    entity_id: z.string().optional(),
-    action: z.string().optional(),
-    limit: z.coerce.number().int().min(1).max(200).default(50),
-  }).parse(req.query)
+  const q = auditQuery.parse(req.query)
 
-  const orgAudit = can(session, 'audit.read.all', 'organisation')
-  const hrAudit = can(session, 'audit.read.hr', 'organisation')
-  const finAudit = can(session, 'audit.read.finance', 'organisation')
+  const readable = auditReadableTypes(session)
   // Reading your own Employee activity is allowed at self scope; anything
   // else needs an audit grant.
   const ownScope =
     q.entity_type === 'Employee' && !!q.entity_id && q.entity_id === session.employeeId
-  if (!orgAudit && !hrAudit && !finAudit && !ownScope) {
+  if (!readable && !ownScope) {
     throw ApiError.forbidden('Audit access required.')
   }
 
-  // The Super Admin is invisible to everyone else: hide what it did and what
-  // was done to it (including failed sign-ins, which record the typed email).
-  // Its older sign-in/out rows (no longer written) stay hidden from everyone.
-  const hidden = session.roleCode === 'md' ? [] : await prisma.user.findMany({
-    where: { role: { code: 'md' } }, select: { id: true, email: true },
-  })
-  const hiddenIds = hidden.flatMap((u) => [u.id, u.email])
+  const from = parseBound(q.from, false)
+  const to = parseBound(q.to, true)
+  const and: Prisma.AuditLogWhereInput[] = [
+    ...(await superAdminFilter(session)),
+    ...(readable && readable !== 'ALL' && !ownScope ? [{ entityType: { in: readable } }] : []),
+    ...(q.entity_type ? [{ entityType: q.entity_type }] : []),
+    ...(q.entity_id ? [{ entityId: q.entity_id }] : []),
+    ...(q.action ? [{ action: q.action }] : []),
+    ...(q.actor ? [{ actorUserId: q.actor }] : []),
+    ...(from || to ? [{ createdAt: { ...(from ? { gte: from } : {}), ...(to ? { lt: to } : {}) } }] : []),
+    ...(q.cursor !== undefined ? [{ seq: { lt: q.cursor } }] : []),
+  ]
+  const csv = q.format === 'csv'
+  const take = csv ? CSV_MAX_ROWS : q.limit
   const rows = await prisma.auditLog.findMany({
-    where: {
-      NOT: [
-        { action: { in: ['auth.login', 'auth.logout'] }, actor: { role: { code: 'md' } } },
-        ...(hiddenIds.length
-          ? [{ actorUserId: { in: hiddenIds } }, { entityType: 'User', entityId: { in: hiddenIds } }]
-          : []),
-      ],
-      ...(q.entity_type ? { entityType: q.entity_type } : {}),
-      ...(q.entity_id ? { entityId: q.entity_id } : {}),
-      ...(q.action ? { action: q.action } : {}),
-    },
-    orderBy: { createdAt: 'desc' },
-    take: q.limit,
+    where: { AND: and },
+    orderBy: { seq: 'desc' },
+    take: csv ? take : take + 1,
   })
-  ok(res, { items: rows.map(auditLogToApi), count: rows.length })
+  const more = !csv && rows.length > take
+  const page = more ? rows.slice(0, take) : rows
+
+  const actorIds = [...new Set(page.map((r) => r.actorUserId).filter((x): x is string => !!x))]
+  const actors = actorIds.length
+    ? await prisma.user.findMany({ where: { id: { in: actorIds } }, select: USER_LABEL_SELECT })
+    : []
+  const label = new Map(actors.map((a) => [a.id, userLabel(a)]))
+  const items = page.map((r) => ({
+    ...auditLogToApi(r),
+    seq: r.seq,
+    actor_label: r.actorUserId ? (label.get(r.actorUserId) ?? r.actorUserId) : 'system',
+  }))
+
+  if (csv) {
+    const header = ['seq', 'created_at', 'actor', 'actor_user_id', 'action', 'entity_type', 'entity_id', 'ip', 'before_json', 'after_json']
+    const lines = [header.map(csvCell).join(',')]
+    for (const r of items) {
+      lines.push([
+        r.seq, r.created_at, r.actor_label, r.actor_user_id, r.action, r.entity_type, r.entity_id, r.ip,
+        r.before_json === null ? '' : JSON.stringify(r.before_json),
+        r.after_json === null ? '' : JSON.stringify(r.after_json),
+      ].map(csvCell).join(','))
+    }
+    res.setHeader('Content-Type', 'text/csv; charset=utf-8')
+    res.setHeader('Content-Disposition', `attachment; filename="audit-log-${new Date().toISOString().slice(0, 10)}.csv"`)
+    res.setHeader('Cache-Control', 'private, no-store')
+    res.send(`\ufeff${lines.join('\r\n')}\r\n`)
+    return
+  }
+
+  ok(res, { items, count: items.length, next_cursor: more ? page[page.length - 1].seq : null })
+}))
+
+// ── Platform admin ────────────────────────────────────────────────────────
+export const platformRouter = Router()
+
+/**
+ * GET /api/platform/audit-log/verify — recompute the audit log's hash chain
+ * and report the first broken link. Admin / Super Admin, or a full audit
+ * reader.
+ */
+platformRouter.get('/audit-log/verify', handler(async (req, res) => {
+  const session = requireSession(req)
+  if (!isAccountAdmin(session) && !can(session, 'audit.read.all', 'organisation')) throw ApiError.forbidden()
+  ok(res, await verifyAuditChain())
 }))
 
 // ── Dashboard ─────────────────────────────────────────────────────────────
@@ -352,13 +477,18 @@ dashboardRouter.get('/activity', handler(async (req, res) => {
     throw ApiError.forbidden()
   }
   // Everyone's sign-ins and sign-outs show; failed attempts don't (no actor,
-  // and the email may be anyone's). The Super Admin's own trail never shows.
+  // and the email may be anyone's). The Super Admin's own trail shows only to
+  // Admin and Super Admin; an HR-only reader sees HR entity types only.
+  const readable = auditReadableTypes(session)
   const rows = await prisma.auditLog.findMany({
     where: {
-      action: { not: 'auth.login_failed' },
-      OR: [{ actorUserId: null }, { actor: { role: { code: { not: 'md' } } } }],
+      AND: [
+        { action: { notIn: ['auth.login_failed', 'auth.login_locked'] } },
+        ...(seesSuperAdmin(session) ? [] : [{ OR: [{ actorUserId: null }, { actor: { role: { code: { not: 'md' } } } }] }]),
+        ...(readable && readable !== 'ALL' ? [{ entityType: { in: readable } }] : []),
+      ],
     },
-    orderBy: { createdAt: 'desc' }, take: 20,
+    orderBy: { seq: 'desc' }, take: 20,
   })
   const actorIds = [...new Set(rows.map((r) => r.actorUserId).filter((x): x is string => !!x))]
   const actors = await prisma.user.findMany({ where: { id: { in: actorIds } }, select: USER_LABEL_SELECT })

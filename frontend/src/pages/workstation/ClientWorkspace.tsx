@@ -640,7 +640,7 @@ function InvoicesTab({ client }: { client: ClientDetail }) {
                   status={v.status}
                   onClick={() => navigate(`/workstation/invoices/${v.id}`)}
                 >
-                  <Cell>{v.invoice_number}</Cell>
+                  <Cell>{v.invoice_number ?? 'Draft'}</Cell>
                   <Cell>{fmtDate(v.invoice_date)}</Cell>
                   <Cell>{v.due_date ? fmtDate(v.due_date) : '—'}</Cell>
                   <Cell><Status value={v.status} /></Cell>

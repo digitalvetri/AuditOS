@@ -2,7 +2,8 @@ import cors from 'cors'
 import cookieParser from 'cookie-parser'
 import express from 'express'
 import { env } from './lib/env.js'
-import { ApiError, errorMiddleware, ok } from './lib/http.js'
+import { ApiError, errorMiddleware, handler, ok } from './lib/http.js'
+import { prisma } from './lib/prisma.js'
 import { isAllowedOrigin } from './lib/origin.js'
 import { authenticate } from './platform/auth.js'
 import { authRouter } from './modules/auth.routes.js'
@@ -12,7 +13,7 @@ import { attendanceRouter } from './modules/attendance.routes.js'
 import { leaveRouter } from './modules/leave.routes.js'
 import { documentsRouter } from './modules/documents.routes.js'
 import { settingsRouter } from './modules/settings.routes.js'
-import { auditRouter, dashboardRouter, notificationsRouter } from './modules/platform.routes.js'
+import { auditRouter, dashboardRouter, notificationsRouter, platformRouter } from './modules/platform.routes.js'
 import { payrollRouter, salaryRouter } from './modules/payroll/routes.js'
 import { expensesRouter } from './modules/expenses/routes.js'
 import { accountsRouter, paymentsRouter } from './modules/accounts/routes.js'
@@ -98,7 +99,14 @@ import { bigintReplacer } from './lib/json.js'
 export function createApp() {
   const app = express()
   app.disable('x-powered-by')
-  app.set('trust proxy', 1)
+  // Requests arrive Traefik (Coolify) → nginx (frontend container) → API, so
+  // the socket peer is a private proxy address, and a hop count of 1 would
+  // take nginx's view of the client (Traefik) as the "client". Trust every
+  // loopback / link-local / private hop instead: req.ip is then the
+  // right-most PUBLIC address in X-Forwarded-For — the real client, which a
+  // spoofed left-hand XFF entry cannot override. Login throttling and
+  // AuditLog.ip depend on it.
+  app.set('trust proxy', 'loopback, linklocal, uniquelocal')
   // Safety net: a bigint (client-books money is int8) must never turn a
   // response into a 500. Services convert paise to numbers themselves.
   app.set('json replacer', bigintReplacer)
@@ -130,7 +138,22 @@ export function createApp() {
   app.use(express.json({ limit: '1mb' }))
   app.use(express.urlencoded({ extended: true }))
 
-  app.get('/api/health', (_req, res) => ok(res, { status: 'up', at: new Date().toISOString() }))
+  // Liveness AND readiness: the API is only "up" when it can reach Postgres.
+  // A short timeout so a hung database fails the health check instead of
+  // hanging it.
+  app.get('/api/health', handler(async (_req, res) => {
+    const at = new Date().toISOString()
+    try {
+      await Promise.race([
+        prisma.$queryRaw`SELECT 1`,
+        new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 2000).unref()),
+      ])
+      ok(res, { status: 'up', db: 'up', at })
+    } catch (e) {
+      console.error('[health] database check failed', e instanceof Error ? e.message : e)
+      res.status(503).json({ error: { code: 'db_unavailable', message: 'The database is not reachable.' }, data: { status: 'degraded', db: 'down', at } })
+    }
+  }))
 
   // Public: login. /me and /logout authenticate inside the router.
   app.use('/api/auth', authRouter)
@@ -188,6 +211,8 @@ export function createApp() {
   app.use('/api/settings', settingsRouter)
   app.use('/api/notifications', notificationsRouter)
   app.use('/api/audit-logs', auditRouter)
+  // Platform admin surfaces (audit-log chain verification).
+  app.use('/api/platform', platformRouter)
   app.use('/api/dashboard', dashboardRouter)
   app.use('/api/payroll', payrollRouter)
   app.use('/api/expenses', expensesRouter)

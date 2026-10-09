@@ -106,7 +106,7 @@ async function partFor(session: Session, clientId: string, source: string, ref: 
       if (!has(session, 'workstation.invoice.read')) return deny('Invoice')
       const inv = await prisma.invoice.findFirst({ where, include: INVOICE_PDF_INCLUDE })
       if (!inv) return gone('Invoice')
-      return { label: `Invoice ${inv.invoiceNumber}`, pdf: await renderPdf((res) => streamInvoicePdf(res, inv)) }
+      return { label: `Invoice ${inv.invoiceNumber ?? '(draft)'}`, pdf: await renderPdf((res) => streamInvoicePdf(res, inv)) }
     }
     case 'quotation': {
       if (!has(session, 'workstation.quotation.read')) return deny('Quotation')

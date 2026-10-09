@@ -4,6 +4,7 @@ import ExcelJS from 'exceljs'
 import { prisma } from '../../../lib/prisma.js'
 import { ApiError } from '../../../lib/http.js'
 import { writeAudit } from '../../../platform/audit.js'
+import { isSoleActiveEmployee } from '../../../platform/makerChecker.js'
 import type { Session } from '../../../platform/auth.js'
 import { formatVouchersXml } from '../../tally-export/xml.js'
 import type { PreviewRow, VoucherType } from '../../tally-export/types.js'
@@ -200,6 +201,11 @@ export const AaTxnService = {
     const job = await jobFor(session, jobId)
     if (job.status !== 'extracted') throw ApiError.conflict('not_extracted', 'The statement has not been read yet.')
     if (approve) {
+      // Maker-checker: the person who uploaded the statement does not also
+      // sign it off, unless they are the firm's only active employee.
+      if (job.createdByUserId === session.userId && !(await isSoleActiveEmployee(session.userId))) {
+        throw ApiError.forbidden('You uploaded this statement, so someone else must approve it.')
+      }
       const flagged = await prisma.aaBankTxn.count({ where: { jobId: job.id, status: 'flagged' } })
       if (flagged) throw ApiError.conflict('open_flags', `${flagged} flagged row${flagged === 1 ? '' : 's'} still need review — fix, exclude or accept ${flagged === 1 ? 'it' : 'them'}.`)
       const noLedger = await prisma.aaBankTxn.count({ where: { jobId: job.id, status: 'ok', ledgerName: null } })

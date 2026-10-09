@@ -52,7 +52,7 @@ const HR_FIELDS = [
   'first_name', 'last_name', 'full_name', 'email', 'type', 'status',
   'designation_id', 'department_id', 'manager_id', 'work_location_id', 'work_schedule_id',
   'joining_date', 'exit_date', 'exit_reason', 'notice_period_days',
-  'weekly_capacity_hours', 'photo_url',
+  'weekly_capacity_hours', 'photo_url', 'pf_applicable',
 ] as const
 
 /** snake_case request body → Prisma column names. One place, not per field. */
@@ -78,6 +78,7 @@ const COLUMN_OF: Record<string, string> = {
   exit_reason: 'exitReason',
   notice_period_days: 'noticePeriodDays',
   weekly_capacity_hours: 'weeklyCapacityHours',
+  pf_applicable: 'pfApplicable',
   photo_url: 'photoUrl',
 }
 
@@ -192,6 +193,8 @@ employeesRouter.post('/', handler(async (req, res) => {
     joining_date: z.string().optional(),
     notice_period_days: z.number().optional(),
     weekly_capacity_hours: z.number().nullable().optional(),
+    // Covered under PF. Articled assistants never are, whatever this says.
+    pf_applicable: z.boolean().optional(),
     // The login created alongside; Super Admin is never handed out here.
     role_code: z.string().optional(),
     // Set by the admin, or generated when left blank.
@@ -245,6 +248,7 @@ employeesRouter.post('/', handler(async (req, res) => {
         joiningDate: b.joining_date ?? istToday(),
         noticePeriodDays: b.notice_period_days ?? 30,
         weeklyCapacityHours: b.weekly_capacity_hours ?? 40,
+        pfApplicable: b.pf_applicable ?? true,
         createdBy: session.userId,
         updatedBy: session.userId,
       },
@@ -468,6 +472,12 @@ employeesRouter.patch('/:id', handler(async (req, res) => {
       throw ApiError.badRequest('First and last name are required.', { [k]: ['Required.'] })
     }
     if (k in body) body[k] = (body[k] as string).trim()
+  }
+
+  // Written straight into a Boolean column, so it must be one: "false" would
+  // otherwise reach Prisma as a string and fail the whole update.
+  if ('pf_applicable' in body && typeof body.pf_applicable !== 'boolean') {
+    throw ApiError.badRequest('pf_applicable must be true or false.', { pf_applicable: ['Must be true or false.'] })
   }
 
   // The login signs in with this email, so it moves with the employee record.

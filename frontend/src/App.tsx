@@ -119,6 +119,7 @@ import { EmployeesPage } from '@/pages/hrms/Employees';
 import { EmployeeDetailPage } from '@/pages/hrms/EmployeeDetail';
 import { DocumentsPage } from '@/pages/hrms/Documents';
 import { SettingsPage } from '@/pages/hrms/Settings';
+import { AuditLogPage } from '@/pages/hrms/AuditLog';
 import { ZohoPaymentsIntegrationPage } from '@/pages/integrations/ZohoPayments';
 import { AiProviderIntegrationPage } from '@/pages/integrations/AiProvider';
 import { PayrollPage, PayrollRunDetailPage } from '@/pages/hrms/Payroll';
@@ -137,6 +138,8 @@ import { ReportsPage } from '@/pages/hrms/Reports';
 import { PaymentSummaryPage } from '@/pages/hrms/PaymentSummary';
 import { useAuth } from '@/platform/auth/AuthContext';
 import { NotFoundPage } from '@/pages/NotFound';
+import { ComingSoonPage } from '@/pages/ComingSoon';
+import { ErrorBoundary } from '@/components/ErrorBoundary';
 import { NotificationsPage } from '@/pages/Notifications';
 import { ToastProvider } from '@/components/Toast';
 import { PwaProvider } from '@/platform/pwa/PwaProvider';
@@ -174,6 +177,7 @@ function MyProfileRoute() {
 
 export default function App() {
   return (
+    <ErrorBoundary fullPage>
     <QueryClientProvider client={queryClient}>
       <ToastProvider>
         <PwaProvider>
@@ -264,6 +268,7 @@ export default function App() {
               <Route path="hrms/payment-summary" element={<PaymentSummaryPage />} />
               <Route path="hrms/reports" element={<ReportsPage />} />
               <Route path="hrms/settings" element={<SettingsPage />} />
+              <Route path="hrms/audit-log" element={<AuditLogPage />} />
               <Route path="integrations/zoho-payments" element={<ZohoPaymentsIntegrationPage />} />
               <Route path="integrations/ai-provider" element={<AiProviderIntegrationPage />} />
 
@@ -294,13 +299,13 @@ export default function App() {
               <Route path="workstation/services/tds/:slug" element={<TdsServiceHandoff />} />
               {/* Tally Export — its own Services module (docs/tally-export/README.md). */}
               <Route path="workstation/services/tally-export" element={<TallyExportPage />} />
-              {/* Services → E-Invoice and Services → E-Way Bill were removed.
-                  Their old addresses are pinned to Not Found so the :category
-                  catch-all below cannot serve them as a generic Services page.
+              {/* Services → E-Invoice and Services → E-Way Bill are not built
+                  yet. Their addresses are pinned to a Coming soon page so the
+                  :category catch-all below cannot serve them as a generic Services page.
                   Registration → E-Invoice / E-Way Bill live under
                   workstation/services/registration/… and are unaffected. */}
-              <Route path="workstation/services/e-invoice" element={<NotFoundPage />} />
-              <Route path="workstation/services/e-way-bill" element={<NotFoundPage />} />
+              <Route path="workstation/services/e-invoice" element={<ComingSoonPage title="E-Invoice" body="Generating IRNs and e-invoices from here is coming soon." />} />
+              <Route path="workstation/services/e-way-bill" element={<ComingSoonPage title="E-Way Bill" body="Generating e-way bills from here is coming soon." />} />
               {/* Service categories (TDS) — nav structure only for now, so
                   every remaining slug resolves to the same Services page. */}
               {/* Registration category — declared BEFORE the :category
@@ -527,5 +532,6 @@ export default function App() {
         </PwaProvider>
       </ToastProvider>
     </QueryClientProvider>
+    </ErrorBoundary>
   );
 }

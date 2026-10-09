@@ -17,6 +17,11 @@
  * the individual fields so gross = net + Σ deductions exactly and the
  * payroll journal always balances.
  * Rounding: half-up to the rupee.
+ *
+ * PF applies only to employees covered by it (pfAppliesTo): an articled
+ * assistant is a trainee on a stipend, not an employee under the EPF Act, and
+ * HR can switch PF off for anyone else. Not covered means neither the
+ * employee's nor the employer's share.
  */
 import {
   computeESI, computeGratuityAccrual, computePF, computePT, roundHalfUp,
@@ -77,6 +82,13 @@ export interface CalcInputs {
   incentive_paise?: number
   tds_paise?: number
   advance_recovery_paise?: number
+  /** False skips PF entirely (both shares). Defaults to covered. */
+  pf_applicable?: boolean
+}
+
+/** Whether PF is deducted for this employee. The one place the rule lives. */
+export function pfAppliesTo(employee: { type: string; pfApplicable: boolean }): boolean {
+  return employee.type !== 'articled' && employee.pfApplicable !== false
 }
 
 export interface CalcOutput {
@@ -118,7 +130,9 @@ export function calculatePayrollItem(input: CalcInputs): CalcOutput {
   const basicLop = attendance.payable_days > 0
     ? roundHalfUp((basic_paise / attendance.payable_days) * attendance.lop_days)
     : basic_paise
-  const pf = computePF(Math.max(0, basic_paise - basicLop), snap)
+  const pf = input.pf_applicable === false
+    ? { employee_paise: 0, employer_paise: 0 }
+    : computePF(Math.max(0, basic_paise - basicLop), snap)
   const esi = computeESI(gross_paise, snap)
 
   // Deductions in absorb order: the first entry is reduced first when the

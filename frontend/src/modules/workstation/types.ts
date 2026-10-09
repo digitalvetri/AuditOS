@@ -283,6 +283,13 @@ export interface DocumentVersion {
   uploaded_at: string;
   size_bytes: number;
   notes: string | null;
+  /** Date printed on the document, as entered (YYYY-MM-DD). */
+  document_date?: string | null;
+  /** False for older metadata-only versions with no stored file. */
+  has_file?: boolean;
+  review_status?: string | null;
+  reviewed_at?: string | null;
+  review_note?: string | null;
   previous_version_id: string | null;
   created_at: string;
 }

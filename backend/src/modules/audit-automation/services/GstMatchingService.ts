@@ -81,17 +81,24 @@ export function compare(two: NormalizedEntry, pr: NormalizedEntry): { amounts: s
 
 // ── ITC ───────────────────────────────────────────────────────────────
 
-/** s.17(5) blocked credits, recognised from the books' ledger / GL / supplier text. */
+/**
+ * s.17(5) blocked credits, recognised from the books' ledger / GL head — the
+ * nearest thing to an item description these registers carry (no HSN or
+ * line description is parsed). Whole-word matches only, and never on the
+ * supplier's name: "XYZ Medical Stores" or "ABC Buildings Pvt Ltd" says
+ * nothing about what was bought. A hit is a "Confirm before claiming" hint,
+ * not a verdict.
+ */
 const BLOCKED: [RegExp, string][] = [
-  [/motor\s*(car|vehicle)|\bcar\b|vehicle|conveyance/i, 'motor vehicles'],
-  [/food|beverage|catering|canteen|restaurant|hotel stay|refreshment|pantry/i, 'food, beverages and catering'],
-  [/club|membership|gym|fitness|health\s*club/i, 'club / fitness memberships'],
-  [/life\s*insurance|health\s*insurance|mediclaim|medical/i, 'life / health insurance'],
-  [/beauty|cosmetic|plastic surgery/i, 'beauty treatment'],
-  [/gift|free\s*sample|donation|csr/i, 'gifts and free samples'],
-  [/leave travel|\bltc\b|travel benefit|holiday/i, 'travel benefits to employees'],
-  [/construction|civil work|building|immovable|works contract/i, 'construction of immovable property'],
-  [/personal/i, 'personal consumption'],
+  [/\bmotor\s*(cars?|vehicles?)\b|\bcars?\b|\bvehicles?\b|\bconveyance\b/i, 'motor vehicles'],
+  [/\b(food|beverages?|catering|canteen|restaurant|hotel stay|refreshments?|pantry)\b/i, 'food, beverages and catering'],
+  [/\b(club|membership|gym|fitness)\b/i, 'club / fitness memberships'],
+  [/\b(life|health|medical)\s+insurance\b|\bmediclaim\b/i, 'life / health insurance'],
+  [/\b(beauty|cosmetics?|plastic surgery)\b/i, 'beauty treatment'],
+  [/\b(gifts?|free\s*samples?|donations?|csr)\b/i, 'gifts and free samples'],
+  [/\bleave travel\b|\bltc\b|\btravel benefits?\b|\bholiday\b/i, 'travel benefits to employees'],
+  [/\b(construction|civil works?|works contract|immovable property)\b/i, 'construction of immovable property'],
+  [/\bpersonal\s+(use|consumption|expenses?)\b/i, 'personal consumption'],
 ]
 
 /** Last day of the ITC time limit for an invoice (s.16(4): 30 November after its FY ends). */
@@ -112,8 +119,8 @@ export function itcFor(status: MatchStatus, two: NormalizedEntry | undefined, pr
     const periodEnd = `${period}-31`
     if (deadline && periodEnd > deadline) return { cls: 'ineligible', reason: `s.16(4): the time limit for this invoice ended on ${deadline}.` }
   }
-  const text = [pr?.glCode, pr?.supplierName, two.supplierName].filter(Boolean).join(' ')
-  const blocked = BLOCKED.find(([re]) => re.test(text))
+  const text = pr?.glCode ?? ''
+  const blocked = text ? BLOCKED.find(([re]) => re.test(text)) : undefined
   if (blocked) return { cls: 'blocked', reason: `s.17(5) blocked credit — ${blocked[1]}. Confirm before claiming.` }
   if (two.reverseCharge || pr?.reverseCharge) return { cls: 'rcm', reason: 'Reverse charge — claim ITC only after paying the tax under RCM.' }
   if (status === 'only_2b') return { cls: 'eligible', reason: 'In GSTR-2B but not in the books — book the invoice or confirm it is not yours.' }

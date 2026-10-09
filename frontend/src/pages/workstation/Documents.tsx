@@ -182,15 +182,15 @@ function AddDocumentModal({ open, onClose, defaultClientId, clients, categories 
 }) {
   const qc = useQueryClient();
   const toast = useToast();
-  const { session } = useAuth();
-  const employees = useQuery({ queryKey: ['workstation', 'assignable-employees'], queryFn: workstationApi.assignableEmployees, enabled: open });
   const today = new Date().toISOString().slice(0, 10);
   const blank = {
     client: defaultClientId, category_id: '', name: '', financial_year: '2026-27', received: true, notes: '',
-    version: '1', uploaded_by: session?.employee?.id ?? '', uploaded_at: today,
+    version: '1', document_date: '',
   };
   const [form, setForm] = useState(blank);
+  const [file, setFile] = useState<File | null>(null);
   const [clientError, setClientError] = useState<string | null>(null);
+  const [fileError, setFileError] = useState<string | null>(null);
   const set = <K extends keyof typeof form>(k: K, v: (typeof form)[K]) => setForm((f) => ({ ...f, [k]: v }));
 
   const add = useMutation({
@@ -200,13 +200,13 @@ function AddDocumentModal({ open, onClose, defaultClientId, clients, categories 
         financial_year: form.financial_year.trim() || undefined,
         status: form.received ? 'pending' : 'requested',
       });
-      // Received now: record version 1, which marks it uploaded.
-      return form.received
-        ? workstationApi.addDocumentVersion(doc.id, {
+      // Received now: the file becomes version 1, which marks it uploaded.
+      // Who uploaded it and when are recorded by the server (you, now).
+      return form.received && file
+        ? workstationApi.uploadDocumentFile(doc.id, file, {
           notes: form.notes.trim() || undefined,
           version: Number(form.version) || 1,
-          uploaded_by_employee_id: form.uploaded_by || undefined,
-          uploaded_at: form.uploaded_at || undefined,
+          document_date: form.document_date || undefined,
         })
         : doc;
     },
@@ -214,6 +214,7 @@ function AddDocumentModal({ open, onClose, defaultClientId, clients, categories 
       void qc.invalidateQueries({ queryKey: ['workstation'] });
       toast.push('success', form.received ? 'Document added.' : 'Document request recorded.');
       setForm({ ...blank, client: form.client });
+      setFile(null);
       onClose();
     },
   });
@@ -222,6 +223,10 @@ function AddDocumentModal({ open, onClose, defaultClientId, clients, categories 
   const submit = () => {
     if (!form.client) { setClientError('Select a client.'); return; }
     setClientError(null);
+    // Checked before the document is created, so a missing file never leaves
+    // an empty document behind.
+    if (form.received && !file) { setFileError('Attach the file.'); return; }
+    setFileError(null);
     add.mutate();
   };
 
@@ -266,22 +271,23 @@ function AddDocumentModal({ open, onClose, defaultClientId, clients, categories 
         </div>
       </Field>
       {form.received ? (
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-          <Field label="Version" error={e.version}>
-            <input className={inputClass} inputMode="numeric" value={form.version}
-              onChange={(ev) => set('version', ev.target.value.replace(/[^0-9]/g, ''))} />
+        <>
+          <Field label="File" error={fileError ?? e.file}>
+            <input type="file" className={inputClass} accept=".pdf,.png,.jpg,.jpeg,.webp,.doc,.docx,.xls,.xlsx,.csv,.txt,.json,.xml,.zip"
+              onChange={(ev) => { setFile(ev.target.files?.[0] ?? null); setFileError(null); }} />
           </Field>
-          <Field label="Uploaded By" error={e.uploaded_by_employee_id}>
-            <select className={inputClass} value={form.uploaded_by} onChange={(ev) => set('uploaded_by', ev.target.value)}>
-              <option value="">Me</option>
-              {(employees.data?.items ?? []).map((m) => <option key={m.id} value={m.id}>{m.full_name}</option>)}
-            </select>
-          </Field>
-          <Field label="Upload Date" error={e.uploaded_at}>
-            <input type="date" className={inputClass} value={form.uploaded_at} max={today}
-              onChange={(ev) => set('uploaded_at', ev.target.value)} />
-          </Field>
-        </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <Field label="Version" error={e.version}>
+              <input className={inputClass} inputMode="numeric" value={form.version}
+                onChange={(ev) => set('version', ev.target.value.replace(/[^0-9]/g, ''))} />
+            </Field>
+            <Field label="Document date" error={e.document_date}>
+              <input type="date" className={inputClass} value={form.document_date} max={today}
+                onChange={(ev) => set('document_date', ev.target.value)} />
+            </Field>
+          </div>
+          <p className="text-12 text-neutral-500 -mt-1">Recorded as uploaded by you, now. Document date is the date printed on the document.</p>
+        </>
       ) : null}
       {form.received ? (
         <Field label="Notes" error={e.notes}>

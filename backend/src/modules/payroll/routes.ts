@@ -3,7 +3,7 @@ import { z } from 'zod'
 import { ApiError, handler, ok } from '../../lib/http.js'
 import { prisma } from '../../lib/prisma.js'
 import { addDays, istToday, monthLabel, monthlyPayrollPeriod } from '../../lib/dates.js'
-import { calculatePayrollItem, type CustomComponent } from '../../domain/payroll/calc.js'
+import { calculatePayrollItem, pfAppliesTo, type CustomComponent } from '../../domain/payroll/calc.js'
 import { summarize } from '../../domain/payroll/attendanceSummary.js'
 import { snapshotAt, type StatutorySnapshot } from '../../domain/payroll/statutory.js'
 import {
@@ -343,6 +343,7 @@ payrollRouter.post('/runs/:id/calculate', handler(async (req, res) => {
       periodStartMonth,
       period_days: periodDays,
       tds_paise: monthlyTds,
+      pf_applicable: pfAppliesTo(emp),
     })
     prepared.push({ employeeId: emp.id, salaryStructureId: structure.id, summary, calc })
   }

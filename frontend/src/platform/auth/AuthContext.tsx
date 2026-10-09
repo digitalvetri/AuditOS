@@ -4,11 +4,14 @@ import {
   useContext,
   useEffect,
   useMemo,
+  useRef,
   useState,
   type ReactNode,
 } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
-import { api, type ApiError } from '@/services/api';
+import { api, setSessionEndedHandler, type ApiError } from '@/services/api';
+import { useToast } from '@/components/Toast';
+import { useIdleLogout } from './useIdleLogout';
 import type { RoleCode } from '@/data/models';
 import { setLiveGrants, type Grant } from '@/platform/rbac/matrix';
 import { currentSubscription } from '@/platform/pwa/push';
@@ -129,6 +132,33 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setSession(null);
     }
   }, [queryClient]);
+
+  // The server ended the session mid-use (expired, signed out elsewhere,
+  // password changed, account disabled): drop it here too. ProtectedRoute
+  // then sends the user to /login.
+  const toast = useToast();
+  const sessionRef = useRef(session);
+  sessionRef.current = session;
+  useEffect(() => {
+    setSessionEndedHandler((message) => {
+      if (!sessionRef.current) return;
+      sessionRef.current = null;
+      toast.push('info', message || 'Your session has ended. Sign in again.');
+      queryClient.clear();
+      setSession(null);
+    });
+    return () => setSessionEndedHandler(null);
+  }, [queryClient, toast, setSession]);
+
+  // Idle sign-out: 30 minutes with no activity, with a one-minute warning.
+  useIdleLogout({
+    enabled: !!session,
+    onWarn: () => toast.push('info', 'You will be signed out in 1 minute because of inactivity. Move the mouse or press a key to stay signed in.'),
+    onTimeout: () => {
+      toast.push('info', 'You were signed out after 30 minutes of inactivity.');
+      void logout().catch(() => undefined);
+    },
+  });
 
   const changePassword = useCallback(async (current: string, next: string) => {
     const s = await api.post<Session>('/api/auth/change-password', {

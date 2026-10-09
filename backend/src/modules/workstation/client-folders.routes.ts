@@ -18,6 +18,7 @@ import { partnershipStorage } from '../partnership/storage.js'
 import { streamEInvoicePdf, streamEwayBillPdf, streamGstFilingPdf } from './record-pdf.js'
 import { setUploadedFileHeaders } from '../../lib/fileResponse.js'
 import { toNum } from '../../lib/money.js'
+import { sniffDocument, sniffImage } from '../messages/attachments.js'
 
 /**
  * CLIENT DOCUMENT FOLDERS — every document the firm holds for one client,
@@ -288,7 +289,7 @@ export async function buildClientFolders(who: Session | FolderAccess, client: { 
       key: 'invoices', label: 'Invoices', group: 'billing',
       items: invoices.map((i) => item({
         id: i.id, source: 'invoice', openable: 'pdf',
-        title: i.invoiceNumber, subtitle: i.billingName, date: i.invoiceDate,
+        title: i.invoiceNumber ?? 'Draft invoice', subtitle: i.billingName, date: i.invoiceDate,
         status: i.status, amount_paise: i.totalPaise,
       })),
     })
@@ -416,7 +417,14 @@ clientFoldersRouter.get('/:id/document-folders/open', handler(async (req, res) =
   const scope = requireWorkstation(session, 'workstation.document.read', 'workstation.document.manage')
   const clientId = req.params.id
   await assertCanSeeClient(session, scope, clientId)
-  ok(res, await folderItemLink(folderAccess(session), clientId, String(req.query.source ?? ''), String(req.query.ref ?? ''), session.userId))
+  const source = String(req.query.source ?? '')
+  const ref = String(req.query.ref ?? '')
+  const link = await folderItemLink(folderAccess(session), clientId, source, ref, session.userId)
+  await writeAudit({
+    actorUserId: session.userId, action: 'link.issue', entityType: 'Client', entityId: clientId,
+    after: { source, ref }, req,
+  })
+  ok(res, link)
 }))
 
 /**
@@ -520,6 +528,11 @@ clientFoldersRouter.post('/:id/document-folders/:folder/upload', (req, res, next
   if (!mimeType) {
     throw ApiError.unprocessable('file_type', `Allowed types: ${Object.keys(CLIENT_DOC_MIME).join(', ').toUpperCase()}.`)
   }
+  // The extension is only a claim: the bytes must agree with it, or a renamed
+  // executable / HTML page would be stored and later served under a trusted type.
+  if (!clientDocContentMatches(file.buffer, ext)) {
+    throw ApiError.unprocessable('file_content', `This file's content does not match its .${ext} extension. Re-save it in its real format and upload again.`)
+  }
 
   // Resolve the folder to a document category.
   const folder = req.params.folder
@@ -619,6 +632,21 @@ export const CLIENT_DOC_MIME: Record<string, string> = {
   csv: 'text/csv', txt: 'text/plain', json: 'application/json', xml: 'application/xml', zip: 'application/zip',
 }
 
+/**
+ * Do these bytes really hold what extension `ext` claims? PDF / Office / zip
+ * / text by the shared document sniffer; images by their magic numbers; JSON
+ * and XML as text (no NUL bytes).
+ */
+export function clientDocContentMatches(bytes: Buffer, ext: string): boolean {
+  const mime = CLIENT_DOC_MIME[ext]
+  if (!mime) return false
+  if (mime.startsWith('image/')) return sniffImage(bytes) === mime
+  if (ext === 'json' || ext === 'xml') {
+    return bytes.length > 0 && !bytes.subarray(0, Math.min(bytes.length, 8192)).includes(0)
+  }
+  return sniffDocument(bytes, `f.${ext}`) !== null
+}
+
 export async function readVersionBytes(fileKey: string): Promise<Buffer | null> {
   const stores: StorageAdapter[] = [clientDocumentStorage, tdsStorage(), partnershipStorage]
   for (const s of stores) {
@@ -641,7 +669,11 @@ export const clientFilesSignedRouter = Router()
 
 clientFilesSignedRouter.get('/client-files/:source/:id', handler(async (req, res) => {
   const { source, id } = req.params
-  verifyResourceToken(`client-file:${source}:${id}`, typeof req.query.t === 'string' ? req.query.t : undefined)
+  const subject = verifyResourceToken(`client-file:${source}:${id}`, typeof req.query.t === 'string' ? req.query.t : undefined)
+  await writeAudit({
+    actorUserId: subject, action: 'document.download', entityType: 'client_file', entityId: id,
+    after: { via: 'signed_link', source }, req,
+  })
   const download = req.query.download === '1'
 
   if (source === 'eway') {

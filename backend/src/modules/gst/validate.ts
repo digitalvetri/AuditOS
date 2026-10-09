@@ -116,7 +116,7 @@ export function toPaise(value: unknown, field: string): bigint | null {
 }
 
 /** GSTIN: 2-digit state code, the holder's PAN, entity digit, 'Z', checksum. */
-const GSTIN_RE = /^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z][1-9A-Z]Z[0-9A-Z]$/
+export const GSTIN_RE = /^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z][1-9A-Z]Z[0-9A-Z]$/
 const PAN_RE = /^[A-Z]{5}[0-9]{4}[A-Z]$/
 
 export const REGISTRATION_TYPES = ['regular', 'composition', 'casual', 'isd', 'sez', 'non_resident'] as const

@@ -318,7 +318,12 @@ export const EngagementService = {
   },
 
   async remove(session: Session, scope: Scope, id: string) {
-    await load(session, scope, id)
+    const row = await load(session, scope, id)
+    // The client agreed to these terms; the letter is the record of that.
+    // Archived-after-acceptance counts too (acceptedAt stays set).
+    if (row.status === 'accepted' || row.acceptedAt) {
+      throw ApiError.conflict('letter_accepted', 'An accepted letter cannot be deleted — archive it instead.')
+    }
     await prisma.engagementLetter.update({
       where: { id }, data: { deletedAt: new Date(), updatedBy: session.userId },
     })

@@ -5,6 +5,7 @@ import { useToast } from '@/components/Toast';
 import { booksApi, errorText, type ZRecord } from '@/modules/books/api';
 import { useOrg } from '@/modules/books/context';
 import { Btn, Field, Modal, Notice, NumberInput, Select, TextArea, TextInput, inputCls, money, today } from '@/modules/books/ui';
+import { gstinError, normId } from '@/lib/ids';
 
 /**
  * Record forms for the Books tool. Each builds the JSON body the Zoho Books
@@ -194,7 +195,13 @@ export function ContactForm({ kind, record, onClose, onSaved }: { kind: 'custome
   const set = (k: keyof typeof v) => (x: string) => setV({ ...v, [k]: x });
   const submit = () => {
     if (!v.contact_name.trim()) return setErr('Name is required.');
-    if (v.gst_treatment === 'business_gst' && !/^[0-9A-Z]{15}$/.test(v.gst_no.trim().toUpperCase())) return setErr('A registered business needs a 15-character GSTIN.');
+    if (v.gst_treatment === 'business_gst') {
+      const g = normId(v.gst_no);
+      if (!g) return setErr('A registered business needs a 15-character GSTIN.');
+      // A GSTIN already on the record is not re-judged — only a new or changed one.
+      const ge = g !== normId(record?.gst_no as string | undefined) ? gstinError(g) : null;
+      if (ge) return setErr(ge);
+    }
     setErr(null);
     const body: ZRecord = {
       contact_name: v.contact_name.trim(), company_name: v.company_name || undefined, website: v.website || undefined,

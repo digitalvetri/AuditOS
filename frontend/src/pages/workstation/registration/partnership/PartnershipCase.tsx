@@ -13,6 +13,7 @@ import { PortalStrip } from './PortalStrip';
 import { useState } from 'react';
 import { CaseCompliancePanel, REG_NO_LABEL } from '@/modules/postRegistration/ui';
 import { postRegistrationKeys } from '@/modules/postRegistration/api';
+import { isCin, isLlpin, normId } from '@/lib/ids';
 
 /** Registrations with post-registration compliance (INC-20A / ADTC, LLP Form 3). */
 const hasCompliance = (k: string): k is 'PRIVATE_LIMITED' | 'LLP' => k === 'PRIVATE_LIMITED' || k === 'LLP';
@@ -114,6 +115,7 @@ function CaseHeader({ c }: { c: CaseDetail }) {
   const [completing, setCompleting] = useState(false);
   const [incDate, setIncDate] = useState('');
   const [regNo, setRegNo] = useState(c.registration_number ?? '');
+  const [regNoError, setRegNoError] = useState<string | null>(null);
   const canEdit = c.permissions.manage;
   const sel = 'h-8 px-2 text-13 bg-white border border-neutral-300 rounded focus:outline-none focus:border-gold';
   const p = c.progress;
@@ -167,8 +169,17 @@ function CaseHeader({ c }: { c: CaseDetail }) {
           className="px-4 py-3 flex flex-wrap items-end gap-3 border-b border-neutral-200 bg-neutral-50"
           onSubmit={(e) => {
             e.preventDefault();
+            const reg = normId(regNo);
+            if (reg && hasCompliance(kind)) {
+              const bad = kind === 'LLP' ? !isLlpin(reg) : !isCin(reg);
+              if (bad) {
+                setRegNoError(kind === 'LLP' ? 'An LLPIN is 3 letters, a hyphen and 4 digits — e.g. AAB-1234.' : 'A CIN is 21 characters — e.g. U74999TN2020PTC123456.');
+                return;
+              }
+            }
+            setRegNoError(null);
             update.mutate(
-              { status: 'COMPLETED', ...(incDate ? { incorporation_date: incDate } : {}), ...(regNo.trim() ? { registration_number: regNo.trim() } : {}) },
+              { status: 'COMPLETED', ...(incDate ? { incorporation_date: incDate } : {}), ...(reg ? { registration_number: reg } : {}) },
               { onSuccess: () => setCompleting(false) },
             );
           }}
@@ -184,7 +195,8 @@ function CaseHeader({ c }: { c: CaseDetail }) {
           {hasCompliance(kind) ? (
             <label className="block">
               <span className="block text-11 uppercase tracking-[0.06em] text-neutral-500 mb-1">{REG_NO_LABEL[kind]} (optional)</span>
-              <input className={sel + ' uppercase'} value={regNo} maxLength={40} onChange={(e) => setRegNo(e.target.value)} />
+              <input className={sel + ' uppercase'} value={regNo} maxLength={40} onChange={(e) => { setRegNo(e.target.value); setRegNoError(null); }} aria-invalid={!!regNoError} />
+              {regNoError ? <span className="block text-12 text-red mt-1">{regNoError}</span> : null}
             </label>
           ) : null}
           <button type="submit" className="h-8 px-3 text-13 rounded border border-neutral-900 bg-neutral-900 text-white" disabled={update.isPending}>

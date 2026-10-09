@@ -15,8 +15,10 @@
  *
  * Due-day rules encode the statutory calendar per (kind, filingFrequency):
  * monthly filers get GSTR-1=11, GSTR-3B=20; QRMP quarterly filers get
- * GSTR-1=13, GSTR-3B=22 (State Group X — the earlier of 22/24; Group Y is
- * a follow-up when the state-split flag lands on GstProfile). GSTR-2B is
+ * GSTR-1=13, GSTR-3B=22 (Category X states) / 24 (Category Y states) — the
+ * group is derived from the GSTIN state code, see `stateGroupOf` in
+ * src/modules/gst/dueDate.ts for the state lists and the source
+ * (Notification 82/2020-CT). GSTR-2B is
  * the reconciliation deadline (day 16) for both, since 2B is monthly
  * regardless of the filer's own return frequency.
  *
@@ -71,15 +73,18 @@ const HSN_STARTER: Array<{
 ]
 
 /**
- * Statutory due-day rules — the calendar in six rows. `stateGroup` is null
- * ("all states") for every row today; the GSTR-3B split for QRMP filers
- * (State Group X = day 22, Group Y = day 24) waits for the state-group
- * classifier on GstProfile to land, at which point a two-row upsert here
- * replaces the single quarterly GSTR-3B rule.
+ * Statutory due-day rules. `stateGroup` null = "all states". The QRMP
+ * GSTR-3B is split by CBIC state group (Notification 82/2020-CT, Rule 61):
+ * Category X = 22nd, Category Y = 24th. The all-states quarterly 3B row
+ * (22) is kept as the fallback for a profile whose state can't be
+ * classified; a state-specific row beats it in the resolver, so on a
+ * database already seeded with only the null/22 row, re-running this seed
+ * adds the X and Y rows and Y-state clients move to the 24th.
  */
 const DUE_DAY_RULES: Array<{
   kind: 'GSTR1' | 'GSTR2B' | 'GSTR3B'
   filingFrequency: 'monthly' | 'quarterly'
+  stateGroup?: 'X' | 'Y'
   dueDay: number
   note: string
 }> = [
@@ -88,7 +93,9 @@ const DUE_DAY_RULES: Array<{
   { kind: 'GSTR3B', filingFrequency: 'monthly',   dueDay: 20, note: 'CGST Rule 61 — 20th of month following the tax period.' },
   { kind: 'GSTR1',  filingFrequency: 'quarterly', dueDay: 13, note: 'QRMP — 13th of month following the quarter end.' },
   { kind: 'GSTR2B', filingFrequency: 'quarterly', dueDay: 16, note: '2B is monthly regardless of the filer’s QRMP election.' },
-  { kind: 'GSTR3B', filingFrequency: 'quarterly', dueDay: 22, note: 'QRMP State Group X — 22nd of month following the quarter end (Group Y = 24, pending state classifier).' },
+  { kind: 'GSTR3B', filingFrequency: 'quarterly', dueDay: 22, note: 'QRMP fallback for an unclassified state — 22nd (the earlier of 22/24).' },
+  { kind: 'GSTR3B', filingFrequency: 'quarterly', stateGroup: 'X', dueDay: 22, note: 'QRMP Category X states — 22nd of month following the quarter end (Notification 82/2020-CT, Rule 61).' },
+  { kind: 'GSTR3B', filingFrequency: 'quarterly', stateGroup: 'Y', dueDay: 24, note: 'QRMP Category Y states — 24th of month following the quarter end (Notification 82/2020-CT, Rule 61).' },
 ]
 
 const RULE_EFFECTIVE_FROM: string | null = null // null = the calendar in force today.
@@ -131,7 +138,7 @@ export async function seedGst(prisma: PrismaClient) {
       where: {
         kind: r.kind,
         filingFrequency: r.filingFrequency,
-        stateGroup: null,
+        stateGroup: r.stateGroup ?? null,
         effectiveFrom: RULE_EFFECTIVE_FROM,
         deletedAt: null,
       },
@@ -148,7 +155,7 @@ export async function seedGst(prisma: PrismaClient) {
         data: {
           kind: r.kind,
           filingFrequency: r.filingFrequency,
-          stateGroup: null,
+          stateGroup: r.stateGroup ?? null,
           effectiveFrom: RULE_EFFECTIVE_FROM,
           dueDay: r.dueDay,
           note: r.note,
@@ -162,4 +169,15 @@ export async function seedGst(prisma: PrismaClient) {
     hsnCodes: await prisma.hsnMaster.count(),
     dueDateRules: await prisma.gstDueDateRule.count({ where: { deletedAt: null } }),
   }
+}
+
+// `npx tsx prisma/seed-gst.ts` — sync the GST reference data (including the
+// QRMP X/Y due-day rules) on an existing database without the full seed.
+if (process.argv[1] && /seed-gst\.(ts|js)$/.test(process.argv[1])) {
+  const { PrismaClient } = await import('@prisma/client')
+  const prisma = new PrismaClient()
+  seedGst(prisma)
+    .then((r) => console.log('GST reference data:', r))
+    .catch((e) => { console.error(e); process.exitCode = 1 })
+    .finally(() => prisma.$disconnect())
 }

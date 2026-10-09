@@ -5,8 +5,9 @@
  */
 import type { EmployeeLookup } from '../../api/workstation.serialize.js'
 import {
-  daysRemaining, dueLabel, dueDateFor, deriveOverall, nextDueOf, type StageView,
+  daysRemaining, dueLabel, deriveOverall, nextDueOf, type StageView,
 } from './service.js'
+import { dueForProfile, type RuleResolver } from './dueDate.js'
 
 /** Employee display name, or null when the id is unknown. */
 const name = (m: EmployeeLookup, id: string | null | undefined) =>
@@ -26,6 +27,7 @@ export interface PeriodRow {
     id: string
     gstin: string
     legalName: string | null
+    state?: string | null
     registrationType: string
     filingFrequency: string
     client: { id: string; companyName: string } | null
@@ -60,16 +62,25 @@ export function stagesOf(p: PeriodRow): StageView {
   }
 }
 
-export function periodToApi(p: PeriodRow, employees: EmployeeLookup, openExceptions = 0) {
+/** Statutory due date for one return of this period, via the rule engine. */
+export function periodDueFor(
+  resolver: RuleResolver,
+  p: { period: string; periodType: string; gstProfile: { gstin: string; state?: string | null; registrationType: string } },
+) {
+  return (returnType: string) => dueForProfile(resolver, p.gstProfile, p.period, returnType, p.periodType)
+}
+
+export function periodToApi(p: PeriodRow, employees: EmployeeLookup, openExceptions: number, resolver: RuleResolver) {
   const stages = stagesOf(p)
-  const nextDue = nextDueOf(p.period, p.periodType, stages)
+  const dueFor = periodDueFor(resolver, p)
+  const nextDue = nextDueOf(stages, dueFor)
   const days = daysRemaining(nextDue)
   const filing = (t: string) => {
     const f = p.filings.find((x) => x.returnType === t)
     if (!f) return null
     return {
       status: f.status,
-      due_date: f.dueDate ?? dueDateFor(p.period, t, p.periodType),
+      due_date: f.dueDate ?? dueFor(t),
       arn: f.arn,
       filed_at: f.filedAt?.toISOString() ?? null,
       /// §31 — recorded by an employee, never transmitted by Audit OS.

@@ -180,6 +180,8 @@ export interface Employee extends Auditable {
   notice_period_days: number;
   /** Reserved for Workstation — nullable from day one. */
   weekly_capacity_hours: number | null;
+  /** Covered under PF. Payroll skips PF for articled assistants regardless. */
+  pf_applicable?: boolean;
   photo_url: string | null;
   // Contact fields (employee-editable subset)
   address: string | null;
@@ -376,6 +378,10 @@ export interface AuditLog {
   ip: string | null;
   user_agent: string | null;
   created_at: ISODateTime;
+  /** Chain position (newest first); the list's pagination cursor. */
+  seq?: number;
+  /** How the actor is named to people ('system' when none). */
+  actor_label?: string;
 }
 
 export interface DashboardWidget {

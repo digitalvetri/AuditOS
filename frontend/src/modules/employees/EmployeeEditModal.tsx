@@ -47,6 +47,7 @@ export function EmployeeEditModal({ open, onClose, employee, mode }: Props) {
             status: employee.status,
             manager_id: employee.manager_id ?? null,
             joining_date: employee.joining_date,
+            pf_applicable: employee.pf_applicable ?? true,
           },
     );
   }, [open, employee, mode]);
@@ -170,6 +171,16 @@ export function EmployeeEditModal({ open, onClose, employee, mode }: Props) {
                 </label>
               </div>
               <Input label="Joining date" type="date" value={form.joining_date ?? ''} onChange={(e) => setForm({ ...form, joining_date: e.target.value })} />
+              <label className="flex items-center gap-2 text-13 text-neutral-700">
+                <input
+                  type="checkbox"
+                  checked={form.type !== 'articled' && form.pf_applicable !== false}
+                  disabled={form.type === 'articled'}
+                  onChange={(e) => setForm({ ...form, pf_applicable: e.target.checked })}
+                />
+                Covered under PF
+                {form.type === 'articled' ? <span className="text-12 text-neutral-500">— not for articled assistants</span> : null}
+              </label>
             </>
           )}
           <div className="flex justify-end gap-2 pt-2">
