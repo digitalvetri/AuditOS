@@ -12,17 +12,24 @@
 #   - No Adminer.
 #   - Nightly backups go to /data/auditos/backups on the server, outside the
 #     deploy folder, so a redeploy never removes them.
+#   - The database is NOT in this file: it is its own Coolify resource
+#     (PostgreSQL 16, "auditos-db"), like a managed database. This app has
+#     "Connect to Predefined Network" on, so it reaches the database by its
+#     container name on Coolify's network. DB_HOST is that name.
 #
 # Required variables (the API refuses to boot without them):
-#   POSTGRES_PASSWORD (hex: openssl rand -hex 24), JWT_SECRET,
+#   DB_HOST (the auditos-db container name), POSTGRES_USER/PASSWORD/DB (the
+#   auditos-db credentials; hex password), JWT_SECRET,
 #   SIGNED_URL_SECRET, PERMANENT_LINK_SECRET (openssl rand -hex 32 each),
 #   PORTAL_ACCESS_ENC_KEY (openssl rand -base64 32), OWNER_* logins,
 #   WEB_ORIGIN and PUBLIC_APP_URL (the address people open), COOKIE_SECURE
 #   (true once that address is https).
 
 x-app-env: &app-env
-  # Built here from the same variables Postgres uses, so they cannot drift.
-  DATABASE_URL: postgresql://${POSTGRES_USER:-auditos}:${POSTGRES_PASSWORD:?}@postgres:5432/${POSTGRES_DB:-auditos}?schema=public
+  # Built from the auditos-db resource's credentials, so they cannot drift.
+  DATABASE_URL: postgresql://${POSTGRES_USER:-auditos}:${POSTGRES_PASSWORD:?}@${DB_HOST:?}:5432/${POSTGRES_DB:-auditos}?schema=public
+  # The backup job connects with these (pg_dump).
+  PGHOST: ${DB_HOST:?}
   POSTGRES_USER: ${POSTGRES_USER:-auditos}
   POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?}
   POSTGRES_DB: ${POSTGRES_DB:-auditos}
@@ -65,23 +72,6 @@ x-app-env: &app-env
   BACKUP_HOUR_UTC: ${BACKUP_HOUR_UTC:-21}
 
 services:
-  postgres:
-    image: postgres:16-alpine
-    restart: unless-stopped
-    environment:
-      POSTGRES_USER: ${POSTGRES_USER:-auditos}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?}
-      POSTGRES_DB: ${POSTGRES_DB:-auditos}
-    # No ./postgres/init mount: it only creates a test database for local
-    # development, and Coolify does not ship repo files for bind mounts.
-    volumes:
-      - auditos-pg-data:/var/lib/postgresql/data
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
-      interval: 5s
-      timeout: 5s
-      retries: 10
-
   # One-shot: widens money columns, syncs the schema, seeds reference data,
   # creates the owner logins — then exits 0.
   migrate:
@@ -91,9 +81,6 @@ services:
     environment:
       <<: *app-env
       NODE_ENV: production
-    depends_on:
-      postgres:
-        condition: service_healthy
     restart: "no"
 
   api:
@@ -108,8 +95,6 @@ services:
     volumes:
       - auditos-uploads:/app/uploads
     depends_on:
-      postgres:
-        condition: service_healthy
       migrate:
         condition: service_completed_successfully
     expose:
@@ -138,10 +123,6 @@ services:
     volumes:
       - auditos-uploads:/uploads:ro
       - /data/auditos/backups:/backups
-    depends_on:
-      postgres:
-        condition: service_healthy
 
 volumes:
-  auditos-pg-data:
   auditos-uploads:
