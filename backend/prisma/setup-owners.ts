@@ -22,7 +22,14 @@ function owner(prefix: string, roleCode: OwnerSpec['roleCode']): OwnerSpec | nul
 async function main() {
   const owners = [owner('OWNER_SUPERADMIN', 'md'), owner('OWNER_ADMIN', 'hr_admin')].filter((o): o is OwnerSpec => !!o)
   if (owners.length === 0) {
-    console.log('[setup-owners] No OWNER_* variables set — nothing to do.')
+    // Fine on a running firm; fatal on a fresh one — nobody could ever sign in.
+    const admins = await prisma.user.count({
+      where: { isActive: true, deletedAt: null, role: { code: { in: ['md', 'hr_admin'] } } },
+    })
+    if (admins === 0) {
+      throw new Error('No Admin or Super Admin login exists and no OWNER_* variables are set — nobody could sign in. Set OWNER_SUPERADMIN_* / OWNER_ADMIN_* and run again.')
+    }
+    console.log('[setup-owners] No OWNER_* variables set — existing Admin logins kept.')
     return
   }
   const results = await ensureOwners(prisma, owners, { resetPasswords: process.argv.includes('--reset-passwords') })

@@ -1,5 +1,6 @@
 import fs from 'node:fs'
 import path from 'node:path'
+import { encryptionKeyProblem, secretProblem } from './secrets.js'
 
 /**
  * Minimal .env loader — avoids a dependency for a handful of values.
@@ -30,14 +31,19 @@ const isProduction = nodeEnv === 'production'
  */
 function secret(name: string): string {
   const value = process.env[name]
-  if (value && value.length >= 16) return value
   if (isProduction) {
-    throw new Error(
-      `${name} is required in production. Set it in the environment (see .env.example).`,
-    )
+    if (!value) {
+      throw new Error(`${name} is required in production. Set it in the environment (see .env.example).`)
+    }
+    // A placeholder copied from an example file is publicly known: anyone could
+    // forge sessions and signed links with it. Refuse to boot.
+    const problem = secretProblem(value)
+    if (problem) throw new Error(`${name} ${problem}.`)
+    return value
   }
   if (value) {
-    console.warn(`[env] ${name} is shorter than 16 characters — using it anyway in development.`)
+    const problem = secretProblem(value)
+    if (problem) console.warn(`[env] ${name} ${problem} — using it anyway in development.`)
     return value
   }
   console.warn(`[env] ${name} is not set — generating an ephemeral development secret.`)
@@ -48,7 +54,11 @@ export const env = {
   nodeEnv,
   isProduction,
   port: Number(process.env.PORT ?? 4000),
-  databaseUrl: process.env.DATABASE_URL ?? 'file:./dev.db',
+  databaseUrl: (() => {
+    const url = process.env.DATABASE_URL
+    if (isProduction && !url) throw new Error('DATABASE_URL is required in production (see docker/.env.docker.example).')
+    return url ?? 'file:./dev.db'
+  })(),
   jwtSecret: secret('JWT_SECRET'),
   signedUrlSecret: secret('SIGNED_URL_SECRET'),
   signedUrlTtlSeconds: Number(process.env.SIGNED_URL_TTL_SECONDS ?? 300),
@@ -78,4 +88,27 @@ export const env = {
   cookieSecure: process.env.COOKIE_SECURE
     ? process.env.COOKIE_SECURE === 'true'
     : isProduction,
+}
+
+/**
+ * Encryption keys are read lazily by the features that use them, which would
+ * let a bad key surface only when a credential is first saved. In production
+ * check them at boot instead. The portal-credential key is always required
+ * (registration details are core); the Zoho keys only when configured.
+ */
+if (isProduction) {
+  const keys: [string, boolean][] = [
+    ['PORTAL_ACCESS_ENC_KEY', true],
+    ['ZPAY_ENCRYPTION_KEY', false],
+    ['ZBOOKS_ENCRYPTION_KEY', false],
+  ]
+  for (const [name, required] of keys) {
+    const value = process.env[name]
+    if (!value) {
+      if (required) throw new Error(`${name} is required in production — generate one with \`openssl rand -base64 32\`.`)
+      continue
+    }
+    const problem = encryptionKeyProblem(value)
+    if (problem) throw new Error(`${name} ${problem}.`)
+  }
 }

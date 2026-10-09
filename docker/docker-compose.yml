@@ -14,9 +14,13 @@
 # `auditos-uploads` (client documents, tool outputs, chat attachments) and
 # survives `docker compose down`. To wipe everything: `docker compose down -v`.
 #
-# Postgres and Adminer keep their host ports so the NATIVE dev workflow
-# (npm run dev:full against localhost:55432) still works unchanged alongside
-# this stack — the two share the database on purpose.
+# Postgres is published on 127.0.0.1 ONLY, so the native dev workflow
+# (npm run dev:full against localhost:55432) still works while nothing on the
+# network can reach the database. Adminer (database UI) is opt-in:
+#   docker compose --profile tools up -d adminer    # → http://127.0.0.1:58080
+#
+# Production: no default database password exists. Set POSTGRES_PASSWORD and
+# a DATABASE_URL that uses it in .env.docker (see .env.docker.example).
 
 # Fixed project name, so the stack keeps the same identity it had when this
 # file lived at the repo root (containers and volumes are also named below).
@@ -30,9 +34,9 @@ services:
     env_file: .env.docker
     # Host port is deliberately 55432, not 5432 — a native Postgres install
     # on the host commonly holds 5432 and would silently steal connections.
-    # Override with `POSTGRES_HOST_PORT=... docker compose up -d` if needed.
+    # Bound to 127.0.0.1: reachable from this machine only, never the network.
     ports:
-      - "${POSTGRES_HOST_PORT:-55432}:5432"
+      - "127.0.0.1:${POSTGRES_HOST_PORT:-55432}:5432"
     volumes:
       - auditos-pg-data:/var/lib/postgresql/data
       - ./postgres/init:/docker-entrypoint-initdb.d:ro
@@ -57,9 +61,10 @@ services:
       context: ../backend
       target: toolchain
     container_name: auditos-migrate
+    # DATABASE_URL comes from .env.docker, next to POSTGRES_PASSWORD, so the
+    # two can never disagree (compose does not read .env.docker when it
+    # interpolates ${...}, so a URL built here would fall back to a default).
     env_file: .env.docker
-    environment:
-      DATABASE_URL: postgresql://${POSTGRES_USER:-auditos}:${POSTGRES_PASSWORD:-auditos_dev_pw}@postgres:5432/${POSTGRES_DB:-auditos}
     depends_on:
       postgres:
         condition: service_healthy
@@ -71,10 +76,10 @@ services:
       target: runtime
     container_name: auditos-api
     restart: unless-stopped
+    # DATABASE_URL comes from .env.docker (inside the network Postgres is
+    # `postgres:5432`, never the host's 55432).
     env_file: .env.docker
     environment:
-      # Inside the network Postgres is `postgres:5432`, never the host's 55432.
-      DATABASE_URL: postgresql://${POSTGRES_USER:-auditos}:${POSTGRES_PASSWORD:-auditos_dev_pw}@postgres:5432/${POSTGRES_DB:-auditos}
       NODE_ENV: production
       PORT: "4000"
     volumes:
@@ -102,7 +107,10 @@ services:
       api:
         condition: service_healthy
 
+  # Database UI — opt-in and local-only. Never run it on a server facing the
+  # internet:  docker compose --profile tools up -d adminer
   adminer:
+    profiles: ["tools"]
     image: adminer:4
     container_name: auditos-adminer
     restart: unless-stopped
@@ -110,7 +118,7 @@ services:
       postgres:
         condition: service_healthy
     ports:
-      - "${ADMINER_HOST_PORT:-58080}:8080"
+      - "127.0.0.1:${ADMINER_HOST_PORT:-58080}:8080"
     environment:
       ADMINER_DEFAULT_SERVER: postgres
 
