@@ -7,6 +7,7 @@ import {
   useState,
   type ReactNode,
 } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
 import { api, type ApiError } from '@/services/api';
 import type { RoleCode } from '@/data/models';
 import { setLiveGrants, type Grant } from '@/platform/rbac/matrix';
@@ -46,6 +47,10 @@ interface AuthState {
 const Ctx = createContext<AuthState | null>(null);
 
 export function AuthProvider({ children }: { children: ReactNode }) {
+  // Cached API data belongs to whoever was signed in. It must not outlive
+  // them: on a shared office PC the next person would see the previous
+  // user's lists until each query refetched.
+  const queryClient = useQueryClient();
   const [session, setSessionState] = useState<Session | null>(null);
   // Keep can()'s live grants in step with the session, before React renders it.
   const setSession = useCallback((next: Session | null | ((s: Session | null) => Session | null)) => {
@@ -100,6 +105,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setLoading(true);
     try {
       const s = await api.post<Session>('/api/auth/login', { email, password });
+      queryClient.clear();
       setSession(s);
     } catch (e) {
       const ae = e as ApiError;
@@ -108,7 +114,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [queryClient]);
 
   const logout = useCallback(async () => {
     try {
@@ -117,9 +123,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       const sub = await currentSubscription().catch(() => null);
       await api.post('/api/auth/logout', sub ? { push_endpoint: sub.endpoint } : undefined);
     } finally {
+      queryClient.clear();
       setSession(null);
     }
-  }, []);
+  }, [queryClient]);
 
   const changePassword = useCallback(async (current: string, next: string) => {
     const s = await api.post<Session>('/api/auth/change-password', {
