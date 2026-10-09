@@ -7,6 +7,8 @@ import { signedLink } from '../../platform/signedUrl.js'
 import { InvoiceService, QR_MODES, TERMS, type ItemInput } from './service.js'
 import { GST_RATES } from './totals.js'
 import { listPayments, notifyPaymentRecorded, paymentBodySchema, toPaymentInput } from './payments.js'
+import { isAccountAdmin } from '../../platform/roleRank.js'
+import { writeAudit } from '../../platform/audit.js'
 
 /**
  * Invoice HTTP surface — mounted at /api/invoices.
@@ -176,10 +178,23 @@ invoicesRouter.get('/bank-accounts', handler(async (req, res) => {
   ok(res, await InvoiceService.bankAccounts(session))
 }))
 
+/**
+ * The firm's own bank accounts decide where every client pays, so adding,
+ * defaulting or retiring one is an owner action (Admin / Super Admin), not
+ * something any invoice editor may do — and each change is audited.
+ */
+function requireBankAccountAdmin(session: ReturnType<typeof requireSession>) {
+  if (!isAccountAdmin(session)) throw ApiError.forbidden('Only an Admin can change the firm bank accounts.')
+}
+
+/** "true"/"false" from a form, or a real boolean — z.coerce.boolean() reads "false" as true. */
+const formBool = z.union([z.boolean(), z.enum(['true', 'false']).transform((v) => v === 'true')])
+
 /** Add a bank account that may be printed on an invoice (§26). */
 invoicesRouter.post('/bank-accounts', handler(async (req, res) => {
   const session = requireSession(req)
   requireWorkstation(session, 'workstation.invoice.manage')
+  requireBankAccountAdmin(session)
   const b = parse(
     z.object({
       label: z.string().trim().min(1, 'Name the account.').max(80),
@@ -192,12 +207,12 @@ invoicesRouter.post('/bank-accounts', handler(async (req, res) => {
          is a payment that silently goes nowhere. */
       ifsc_code: z.string().trim().regex(/^[A-Z]{4}0[A-Z0-9]{6}$/, 'IFSC is 11 characters, e.g. KKBK0008660.'),
       upi_id: z.string().trim().max(80).nullish(),
-      is_default: z.coerce.boolean().optional(),
+      is_default: formBool.optional(),
     }),
     req.body,
     'Check the bank account.',
   )
-  ok(res, await InvoiceService.createBankAccount(session, {
+  const account = await InvoiceService.createBankAccount(session, {
     label: b.label,
     accountNumber: b.account_number,
     accountType: b.account_type,
@@ -207,13 +222,25 @@ invoicesRouter.post('/bank-accounts', handler(async (req, res) => {
     ifscCode: b.ifsc_code,
     upiId: b.upi_id ?? null,
     isDefault: b.is_default,
-  }), 201)
+  })
+  await writeAudit({
+    actorUserId: session.userId, action: 'invoice.bank_account_added', entityType: 'FirmBankAccount',
+    entityId: account.id,
+    after: { label: b.label, bank: b.bank_name, ifsc: b.ifsc_code, last4: b.account_number.slice(-4), is_default: b.is_default ?? null },
+    req,
+  })
+  ok(res, account, 201)
 }))
 
 invoicesRouter.delete('/bank-accounts/:id', handler(async (req, res) => {
   const session = requireSession(req)
   requireWorkstation(session, 'workstation.invoice.manage')
+  requireBankAccountAdmin(session)
   await InvoiceService.deactivateBankAccount(session, req.params.id)
+  await writeAudit({
+    actorUserId: session.userId, action: 'invoice.bank_account_retired', entityType: 'FirmBankAccount',
+    entityId: req.params.id, req,
+  })
   noContent(res)
 }))
 
