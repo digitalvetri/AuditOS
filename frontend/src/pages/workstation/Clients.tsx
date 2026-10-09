@@ -1,16 +1,19 @@
 import { useMemo, useState } from 'react';
-import { useMutation, useQueries, useQuery, useQueryClient } from '@tanstack/react-query';
+import { keepPreviousData, useMutation, useQueries, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { workstationApi } from '@/modules/workstation/api';
-import { Plus } from 'lucide-react';
+import { ArrowDown, ArrowUp, ArrowUpDown, ChevronLeft, ChevronRight, Download, FileSpreadsheet, Plus } from 'lucide-react';
 import {
   Field, Modal, QueryState, fieldErrors, inputClass, textareaClass,
 } from '@/modules/workstation/components';
 import {
   FilterSelect, ListAction, ListCard, ListEmpty, ListHeader, ListToolbar, SearchBox,
-  StatusChip, TogglePill,
+  StatusChip, TogglePill, statusLabel,
 } from '@/modules/workstation/listUi';
-import type { ClientListItem, ListResponse } from '@/modules/workstation/types';
+import type { ClientListItem } from '@/modules/workstation/types';
+import {
+  clientQueryString, clientsBulkApi, downloadFile, ImportClientsDialog, type ClientPage, type ClientPageQuery,
+} from '@/modules/workstation/clientImport';
 import { Button } from '@/components/Button';
 import { useToast } from '@/components/Toast';
 import { can } from '@/platform/rbac/can';
@@ -39,10 +42,14 @@ import { gstinError, isPan, normId } from '@/lib/ids';
 export function ClientsPage() {
   const [params, setParams] = useSearchParams();
   const navigate = useNavigate();
+  const qc = useQueryClient();
+  const toast = useToast();
   const { session } = useAuth();
   const role = session?.role.code;
-  // `?add=1` (the top bar's Create menu) opens the add form on arrival.
+  // `?add=1` (the top bar's Create menu) opens the add form on arrival;
+  // `?import=1` (the setup checklist) opens the Excel import.
   const [addOpen, setAddOpen] = useState(() => params.get('add') === '1');
+  const [importOpen, setImportOpen] = useState(() => params.get('import') === '1');
 
   const q = params.get('q') ?? '';
   const status = params.get('status') ?? '';
@@ -51,30 +58,34 @@ export function ClientsPage() {
   const serviceId = params.get('service_id') ?? '';
   const pendingDocs = params.get('pending_documents') === 'true';
   const openId = params.get('client') ?? '';
+  const sort = params.get('sort') ?? '';
+  const order: 'asc' | 'desc' = params.get('order') === 'desc' ? 'desc' : 'asc';
+  const page = Math.max(1, Number(params.get('page')) || 1);
 
+  // Any change to what is listed goes back to page 1 and drops the selection.
+  const [selected, setSelected] = useState<Set<string>>(() => new Set());
   const setParam = (key: string, value: string) => {
     const next = new URLSearchParams(params);
     if (value) next.set(key, value);
     else next.delete(key);
+    if (key !== 'client' && key !== 'page') { next.delete('page'); setSelected(new Set()); }
     setParams(next, { replace: true });
   };
   const setView = (v: { status?: string; view?: string }) => {
     const next = new URLSearchParams(params);
-    next.delete('status'); next.delete('view');
+    next.delete('status'); next.delete('view'); next.delete('page');
     if (v.status) next.set('status', v.status);
     if (v.view) next.set('view', v.view);
+    setSelected(new Set());
+    setParams(next, { replace: true });
+  };
+  const sortBy = (key: string) => {
+    const next = new URLSearchParams(params);
+    const dir = sort === key && order === 'asc' ? 'desc' : 'asc';
+    next.set('sort', key); next.set('order', dir); next.delete('page');
     setParams(next, { replace: true });
   };
 
-  const clients = useQuery({
-    queryKey: ['workstation', 'clients', { q, status, managerId, serviceId, pendingDocs }],
-    queryFn: () => workstationApi.listClients({
-      q, status, account_manager_id: managerId, service_id: serviceId,
-      pending_documents: pendingDocs || undefined,
-    }),
-  });
-  // Unfiltered list — the per-view counts on the tabs (shared with the sidebar's count).
-  const all = useQuery({ queryKey: ['sidebar', 'client-count'], queryFn: () => workstationApi.listClients({}), staleTime: 60_000 });
   const catalog = useQuery({ queryKey: ['workstation', 'catalog'], queryFn: workstationApi.serviceCatalog });
   const employees = useQuery({ queryKey: ['workstation', 'employees'], queryFn: workstationApi.assignableEmployees });
 
@@ -83,6 +94,29 @@ export function ClientsPage() {
   const seesGst = can(role, 'workstation.gst.read', 'self');
   const seesTds = can(role, 'workstation.service.read', 'self');
   const money = useQuery({ queryKey: ['payment-summary'], queryFn: () => paymentSummaryApi.summary(), enabled: seesBilling });
+  const moneyById = useMemo(() => new Map((money.data?.clients ?? []).map((c) => [c.client_id, c])), [money.data]);
+  const overdueIds = useMemo(() => (money.data?.clients ?? []).filter((c) => c.overdue_paise > 0).map((c) => c.client_id), [money.data]);
+
+  // One paged request: the rows on this page, the total that matches, and
+  // the per-view counts (facets) — no second fetch of the whole list.
+  const listQuery: ClientPageQuery = {
+    q, status, account_manager_id: managerId, service_id: serviceId,
+    pending_documents: pendingDocs || undefined,
+    mine: view === 'mine' || undefined,
+    kind: view === 'organizations' ? 'organization' : undefined,
+    // "Payment overdue" is known from the payment summary, so it is sent as ids.
+    ids: view === 'overdue' ? (overdueIds.join(',') || '__none__') : undefined,
+    sort: sort || undefined, order: sort ? order : undefined,
+    page, page_size: PAGE_SIZE, facets: true,
+  };
+  const clients = useQuery({
+    queryKey: ['workstation', 'clients', 'page', listQuery],
+    queryFn: () => clientsBulkApi.page(listQuery),
+    enabled: view !== 'overdue' || !!money.data,
+    placeholderData: keepPreviousData,
+  });
+  const facets = clients.data?.facets;
+
   const periods = useMemo(() => lastPeriods(istToday(), 6), []);
   const gstQueries = useQueries({
     queries: periods.map((p) => ({
@@ -100,56 +134,119 @@ export function ClientsPage() {
   const fy = fyLabelForDate(new Date());
   const tds = useQuery({ queryKey: ['tds', 'overview', fy], queryFn: () => tdsApi.overview(fy), enabled: seesTds });
 
-  const moneyById = useMemo(() => new Map((money.data?.clients ?? []).map((c) => [c.client_id, c])), [money.data]);
   const knows = { money: !!money.data, gst: !!gst, tds: !!tds.data };
   const healthOf = (c: ClientListItem) => clientHealth({
     client: c, money: moneyById.get(c.id), gst: gst?.byClient.get(c.id), tds: tdsRowsFor(tds.data, c.id), knows,
   });
 
   const canManage = can(role, 'workstation.client.manage', 'self');
+  const canAssign = canManage && can(role, 'clients.view_all', 'organisation');
   const myId = session?.employee?.id;
-  const allItems = all.data?.items ?? [];
   const views: { key: string; label: string; count: number | null; apply: { status?: string; view?: string }; show: boolean }[] = [
-    { key: '', label: 'All clients', count: all.data ? all.data.count : null, apply: {}, show: true },
-    { key: 'status:active', label: 'Active', count: allItems.filter((c) => c.status === 'active').length, apply: { status: 'active' }, show: true },
-    { key: 'status:onboarding', label: 'Onboarding', count: allItems.filter((c) => c.status === 'onboarding').length, apply: { status: 'onboarding' }, show: true },
-    { key: 'status:pending_documents', label: 'Pending documents', count: allItems.filter((c) => c.status === 'pending_documents').length, apply: { status: 'pending_documents' }, show: true },
-    { key: 'status:service_due', label: 'Service due', count: allItems.filter((c) => c.status === 'service_due').length, apply: { status: 'service_due' }, show: true },
-    { key: 'view:overdue', label: 'Payment overdue', count: money.data ? money.data.clients.filter((c) => c.overdue_paise > 0).length : null, apply: { view: 'overdue' }, show: seesBilling },
-    { key: 'view:organizations', label: 'Organizations', count: allItems.filter((c) => c.is_organization).length, apply: { view: 'organizations' }, show: allItems.some((c) => c.is_organization) },
-    { key: 'view:mine', label: 'My clients', count: myId ? allItems.filter((c) => c.account_manager_id === myId || c.secondary_manager_id === myId).length : null, apply: { view: 'mine' }, show: !!myId },
-    { key: 'status:inactive', label: 'Inactive', count: allItems.filter((c) => c.status === 'inactive').length, apply: { status: 'inactive' }, show: true },
+    { key: '', label: 'All clients', count: facets ? facets.total : null, apply: {}, show: true },
+    { key: 'status:active', label: 'Active', count: facets?.by_status.active ?? (facets ? 0 : null), apply: { status: 'active' }, show: true },
+    { key: 'status:onboarding', label: 'Onboarding', count: facets?.by_status.onboarding ?? (facets ? 0 : null), apply: { status: 'onboarding' }, show: true },
+    { key: 'status:pending_documents', label: 'Pending documents', count: facets?.by_status.pending_documents ?? (facets ? 0 : null), apply: { status: 'pending_documents' }, show: true },
+    { key: 'status:service_due', label: 'Service due', count: facets?.by_status.service_due ?? (facets ? 0 : null), apply: { status: 'service_due' }, show: true },
+    { key: 'view:overdue', label: 'Payment overdue', count: money.data ? overdueIds.length : null, apply: { view: 'overdue' }, show: seesBilling },
+    { key: 'view:organizations', label: 'Organizations', count: facets ? facets.organizations : null, apply: { view: 'organizations' }, show: !!facets?.organizations },
+    { key: 'view:mine', label: 'My clients', count: facets ? facets.mine : null, apply: { view: 'mine' }, show: !!myId },
+    { key: 'status:inactive', label: 'Inactive', count: facets?.by_status.inactive ?? (facets ? 0 : null), apply: { status: 'inactive' }, show: true },
   ];
   const activeView = status ? `status:${status}` : view ? `view:${view}` : '';
 
-  const rowsFor = (items: ClientListItem[]) => items.filter((c) => {
-    if (view === 'overdue') return (moneyById.get(c.id)?.overdue_paise ?? 0) > 0;
-    if (view === 'mine') return c.account_manager_id === myId || c.secondary_manager_id === myId;
-    if (view === 'organizations') return c.is_organization;
-    return true;
+  const pageItems = clients.data?.items ?? [];
+  // A client opened from a link may be on another page: fetch just that one.
+  const openedOnPage = pageItems.find((c) => c.id === openId);
+  const openedFetch = useQuery({
+    queryKey: ['workstation', 'clients', 'one', openId],
+    queryFn: () => clientsBulkApi.page({ ids: openId }),
+    enabled: !!openId && !openedOnPage && clients.isSuccess,
+    staleTime: 60_000,
   });
-  const opened = (clients.data?.items ?? []).find((c) => c.id === openId) ?? allItems.find((c) => c.id === openId);
+  const opened = openedOnPage ?? openedFetch.data?.items.find((c) => c.id === openId);
+
+  const total = clients.data?.count ?? 0;
+  const pages = Math.max(1, Math.ceil(total / PAGE_SIZE));
+
+  // ── Bulk actions ──
+  const pageIds = pageItems.map((c) => c.id);
+  const allOnPage = pageIds.length > 0 && pageIds.every((id) => selected.has(id));
+  const toggle = (id: string) => setSelected((s) => { const n = new Set(s); if (n.has(id)) n.delete(id); else n.add(id); return n; });
+  const toggleAll = () => setSelected((s) => {
+    const n = new Set(s);
+    if (allOnPage) pageIds.forEach((id) => n.delete(id)); else pageIds.forEach((id) => n.add(id));
+    return n;
+  });
+  const bulk = useMutation({
+    mutationFn: clientsBulkApi.bulk,
+    onSuccess: (r) => {
+      toast.push('success', `${r.updated} client${r.updated === 1 ? '' : 's'} updated.`);
+      setSelected(new Set());
+      void qc.invalidateQueries({ queryKey: ['workstation'] });
+      void qc.invalidateQueries({ queryKey: ['sidebar', 'client-count'] });
+    },
+    onError: (e) => toast.push('error', (e as Error).message || 'Could not update the clients.'),
+  });
+  const assign = (employeeId: string) => {
+    const who = employees.data?.items.find((e) => e.id === employeeId)?.full_name ?? 'this employee';
+    if (window.confirm(`Make ${who} the account manager of ${selected.size} client${selected.size === 1 ? '' : 's'}?`)) {
+      bulk.mutate({ ids: [...selected], action: 'assign_account_manager', account_manager_id: employeeId });
+    }
+  };
+  const restatus = (value: string) => {
+    if (window.confirm(`Change the status of ${selected.size} client${selected.size === 1 ? '' : 's'} to ${statusLabel(value)}?`)) {
+      bulk.mutate({ ids: [...selected], action: 'set_status', status: value });
+    }
+  };
+
+  const [exporting, setExporting] = useState(false);
+  const exportExcel = () => {
+    setExporting(true);
+    const { page: _p, page_size: _s, facets: _f, ...filters } = listQuery;
+    downloadFile(`/api/clients/export${clientQueryString(filters)}`, 'clients.xlsx')
+      .catch((e: Error) => toast.push('error', e.message))
+      .finally(() => setExporting(false));
+  };
+  const fileActions = (
+    <>
+      {canManage ? (
+        <Button size="sm" onClick={() => setImportOpen(true)}><FileSpreadsheet size={14} aria-hidden /> Import from Excel</Button>
+      ) : null}
+      <Button size="sm" onClick={exportExcel} disabled={exporting || total === 0}>
+        <Download size={14} aria-hidden /> {exporting ? 'Exporting…' : 'Export to Excel'}
+      </Button>
+    </>
+  );
+
   // A firm with no clients at all gets a way in; a filter that matches
   // nothing says so instead.
   const filtered = !!(q || status || view || managerId || serviceId || pendingDocs);
   const emptyState = !filtered ? (
     <ListEmpty>
       <div className="text-14 font-semibold text-neutral-900">No clients yet</div>
-      <div className="mt-1">Every service, document and invoice hangs off a client — start with one.</div>
+      <div className="mt-1">Every service, document and invoice hangs off a client — start with one, or bring your whole list in from Excel.</div>
       {canManage ? (
-        <div className="mt-4 flex justify-center">
+        <div className="mt-4 flex flex-wrap justify-center gap-2">
           <ListAction onClick={() => setAddOpen(true)} icon={<Plus size={15} />}>Add your first client</ListAction>
+          <Button onClick={() => setImportOpen(true)}><FileSpreadsheet size={15} aria-hidden /> Import from Excel</Button>
         </div>
       ) : null}
     </ListEmpty>
   ) : <ListEmpty>No clients match these filters.</ListEmpty>;
+
+  // A plain function (not a component) so the header button keeps focus across re-renders.
+  const sortIcon = (col: string) => (sort === col
+    ? (order === 'asc' ? <ArrowUp size={12} aria-hidden /> : <ArrowDown size={12} aria-hidden />)
+    : <ArrowUpDown size={12} className="opacity-40" aria-hidden />);
+  const ariaSort = (col: string) => (sort === col ? (order === 'asc' ? 'ascending' : 'descending') : 'none') as 'ascending' | 'descending' | 'none';
 
   return (
     <div className="max-w-[1480px]">
       <ListHeader
         title="Clients"
         meta={clients.data
-          ? <>{all.data ? `${all.data.count} client${all.data.count === 1 ? '' : 's'} · ` : ''}{clients.data.scope === 'organisation' ? 'every firm client' : 'clients assigned to you'} — services, filing record and money owed in one place.</>
+          ? <>{facets ? `${facets.total} client${facets.total === 1 ? '' : 's'} · ` : ''}{clients.data.scope === 'organisation' ? 'every firm client' : 'clients assigned to you'} — services, filing record and money owed in one place.</>
           : 'One record per company. Everything else references it.'}
         action={canManage ? (
           <ListAction onClick={() => setAddOpen(true)} icon={<Plus size={15} />}>Add Client</ListAction>
@@ -158,7 +255,7 @@ export function ClientsPage() {
 
       <nav className="cl-views flex gap-1 border-b border-border mb-4 overflow-x-auto" aria-label="Client views">
         {views.filter((v) => v.show).map((v) => (
-          <button key={v.key} type="button" onClick={() => setView(v.apply)}
+          <button key={v.key} type="button" onClick={() => setView(v.apply)} aria-current={activeView === v.key ? 'page' : undefined}
             className={'cl-view relative flex items-center gap-2 px-3 pt-2 pb-[10px] text-13 font-medium whitespace-nowrap ' + (activeView === v.key ? 'is-on text-ink' : 'text-inkMuted hover:text-ink')}>
             {v.label}
             {v.count !== null ? <span className="cl-count">{v.count}</span> : null}
@@ -166,8 +263,12 @@ export function ClientsPage() {
         ))}
       </nav>
 
+      {/* `contents` below 768px keeps the toolbar's sticky phone layout; from
+          768px up the file actions sit at the right of the same row. */}
+      <div className="contents md:flex md:items-start md:gap-3">
+      <div className="contents md:block md:flex-1 md:min-w-0">
       <ListToolbar>
-        <SearchBox value={q} onChange={(v) => setParam('q', v)} placeholder="Company, Client ID, GSTIN, contact" />
+        <SearchBox value={q} onChange={(v) => setParam('q', v)} placeholder="Company, Client ID, GSTIN, PAN, contact" />
         <FilterSelect
           label="Service" value={serviceId} onChange={(v) => setParam('service_id', v)}
           options={(catalog.data?.items ?? []).map((s) => ({ value: s.id, label: s.name }))}
@@ -180,24 +281,65 @@ export function ClientsPage() {
           Pending documents
         </TogglePill>
       </ListToolbar>
+      </div>
+      <div className="hidden md:flex items-center gap-2 shrink-0">{fileActions}</div>
+      </div>
+      {/* Phones: the toolbar keeps only search + Filters, so the file actions sit here. */}
+      <div className="flex flex-wrap gap-2 mb-3 md:hidden">{fileActions}</div>
 
       <div className={'cl-split grid gap-4 items-start ' + (opened ? 'is-open' : '')}>
         <ListCard>
+          {selected.size > 0 ? (
+            <div className="flex flex-wrap items-center gap-2 px-5 py-2 border-b border-border bg-primary/5" role="region" aria-label="Bulk actions">
+              <span className="text-13 font-semibold text-ink">{selected.size} selected</span>
+              {canAssign ? (
+                <select aria-label="Assign account manager" value="" disabled={bulk.isPending}
+                  onChange={(e) => { if (e.target.value) assign(e.target.value); }}
+                  className="h-8 px-2 text-13 bg-white text-neutral-700 border border-neutral-200 rounded-lg max-w-[220px]">
+                  <option value="">Assign account manager…</option>
+                  {(employees.data?.items ?? []).map((e) => <option key={e.id} value={e.id}>{e.full_name}</option>)}
+                </select>
+              ) : null}
+              {canManage ? (
+                <select aria-label="Change status" value="" disabled={bulk.isPending}
+                  onChange={(e) => { if (e.target.value) restatus(e.target.value); }}
+                  className="h-8 px-2 text-13 bg-white text-neutral-700 border border-neutral-200 rounded-lg">
+                  <option value="">Change status…</option>
+                  {CLIENT_STATUSES.map((s) => <option key={s} value={s}>{statusLabel(s)}</option>)}
+                </select>
+              ) : null}
+              <button type="button" onClick={() => setSelected(new Set())} className="text-12 font-semibold text-primary hover:underline">Clear</button>
+              {bulk.isPending ? <span className="text-12 text-inkMuted" role="status">Updating…</span> : null}
+            </div>
+          ) : null}
           <QueryState query={clients} empty={emptyState}>
-            {(data: ListResponse<ClientListItem>) => {
-              const items = rowsFor(data.items);
+            {(data: ClientPage) => {
+              const items = data.items;
               if (items.length === 0) return emptyState;
+              const from = (page - 1) * PAGE_SIZE + 1;
               return (
                 <div className="overflow-x-auto">
                   <table className="cl-table w-full text-13">
                     <thead>
                       <tr>
-                        <th>Client</th>
+                        <th aria-sort={ariaSort('company_name')}>
+                          <span className="inline-flex items-center gap-3">
+                            {canManage ? (
+                              <input type="checkbox" aria-label={allOnPage ? 'Deselect all on this page' : 'Select all on this page'}
+                                checked={allOnPage} onChange={toggleAll} />
+                            ) : null}
+                            <button type="button" onClick={() => sortBy('company_name')} className="inline-flex items-center gap-1 hover:text-ink">
+                              Client {sortIcon('company_name')}
+                            </button>
+                          </span>
+                        </th>
                         <th className="cl-hide-open cl-hide-xs">Services</th>
                         <th className="cl-hide-sm">Manager</th>
                         {seesGst ? <th className="cl-hide-sm" title="GSTR-1 and GSTR-3B for the last six periods">GST · 6 periods</th> : null}
                         {seesBilling ? <th className="text-right">Outstanding</th> : null}
-                        <th className="cl-hide-open cl-hide-xs">Status</th>
+                        <th className="cl-hide-open cl-hide-xs" aria-sort={ariaSort('status')}>
+                          <button type="button" onClick={() => sortBy('status')} className="inline-flex items-center gap-1 hover:text-ink">Status {sortIcon('status')}</button>
+                        </th>
                         {knows.money || knows.gst || knows.tds ? <th>Health</th> : null}
                       </tr>
                     </thead>
@@ -209,14 +351,19 @@ export function ClientsPage() {
                         return (
                           <tr key={c.id} tabIndex={0}
                             className={c.id === openId ? 'is-cur' : ''}
+                            aria-selected={selected.has(c.id) || undefined}
                             onClick={(e) => {
                               if (e.metaKey || e.ctrlKey) { window.open(`/workstation/clients/${c.id}${c.is_organization ? '/organization' : ''}`, '_blank'); return; }
                               setParam('client', c.id === openId ? '' : c.id);
                             }}
-                            onKeyDown={(e) => { if (e.key === 'Enter') setParam('client', c.id); }}
+                            onKeyDown={(e) => { if (e.key === 'Enter' && e.target === e.currentTarget) setParam('client', c.id); }}
                             onDoubleClick={() => navigate(`/workstation/clients/${c.id}${c.is_organization ? '/organization' : ''}`)}>
                             <td>
                               <div className="flex items-center gap-3 min-w-0">
+                                {canManage ? (
+                                  <input type="checkbox" aria-label={`Select ${c.company_name}`} checked={selected.has(c.id)}
+                                    onClick={(e) => e.stopPropagation()} onChange={() => toggle(c.id)} />
+                                ) : null}
                                 <Avatar name={c.company_name} size={32} square />
                                 <div className="min-w-0">
                                   <div className="flex items-center gap-2 min-w-0">
@@ -274,9 +421,24 @@ export function ClientsPage() {
                       })}
                     </tbody>
                   </table>
-                  <div className="px-5 py-3 border-t border-border text-12 text-inkMuted">
-                    {items.length} of {data.count} client{data.count === 1 ? '' : 's'} · click a row for a quick look, double-click to open
-                  </div>
+                  <nav className="flex flex-wrap items-center gap-3 px-5 py-3 border-t border-border text-12 text-inkMuted" aria-label="Pages">
+                    <span>
+                      {from}–{from + items.length - 1} of {data.count} client{data.count === 1 ? '' : 's'}
+                      <span className="hidden md:inline"> · click a row for a quick look, double-click to open</span>
+                    </span>
+                    <span className="flex-1" />
+                    {pages > 1 ? (
+                      <span className="inline-flex items-center gap-2">
+                        <Button size="sm" disabled={page <= 1} onClick={() => setParam('page', String(page - 1))} aria-label="Previous page">
+                          <ChevronLeft size={14} aria-hidden /> Prev
+                        </Button>
+                        <span aria-live="polite">Page {page} of {pages}</span>
+                        <Button size="sm" disabled={page >= pages} onClick={() => setParam('page', String(page + 1))} aria-label="Next page">
+                          Next <ChevronRight size={14} aria-hidden />
+                        </Button>
+                      </span>
+                    ) : null}
+                  </nav>
                 </div>
               );
             }}
@@ -298,9 +460,16 @@ export function ClientsPage() {
       </div>
 
       <AddClientModal open={addOpen && canManage} onClose={() => setAddOpen(false)} />
+      <ImportClientsDialog open={importOpen && canManage} onClose={() => {
+        setImportOpen(false);
+        if (params.get('import')) setParam('import', '');
+      }} />
     </div>
   );
 }
+
+const PAGE_SIZE = 50;
+const CLIENT_STATUSES = ['active', 'onboarding', 'pending_documents', 'service_due', 'inactive'] as const;
 
 /** Last six GST periods as small bars: filed · overdue · open · nothing due. */
 function Strip({ states, periods }: { states: PeriodState[]; periods: string[] }) {

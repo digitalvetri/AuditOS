@@ -20,6 +20,7 @@ import { body, DOCUMENT_STATUSES, FieldErrors } from './validate.js'
 import {
   CLIENT_DOC_MAX_MB, CLIENT_DOC_MIME, clientDocumentStorage, readVersionBytes, sendFile,
 } from './client-folders.routes.js'
+import { scanUploads } from '../../platform/virusScan.js'
 
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: CLIENT_DOC_MAX_MB * 1024 * 1024, files: 1 } })
 
@@ -145,7 +146,7 @@ documentsRouter.post('/:id/versions', (req, res, next) => {
   // Multipart carries the file; a JSON body is refused below (no file).
   if (!req.is('multipart/form-data')) return next()
   upload.single('file')(req, res, (err: unknown) => {
-    if (!err) return next()
+    if (!err) return scanUploads(req, res, next)
     if ((err as { code?: string }).code === 'LIMIT_FILE_SIZE') {
       return next(ApiError.unprocessable('too_large', `File is larger than the ${CLIENT_DOC_MAX_MB} MB limit.`))
     }

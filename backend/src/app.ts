@@ -8,11 +8,14 @@ import { isAllowedOrigin } from './lib/origin.js'
 import { authenticate } from './platform/auth.js'
 import { authRouter } from './modules/auth.routes.js'
 import { employeesRouter } from './modules/employees.routes.js'
+import { articleshipRouter } from './modules/articleship/routes.js'
 import { usersRouter } from './modules/users.routes.js'
 import { attendanceRouter } from './modules/attendance.routes.js'
 import { leaveRouter } from './modules/leave.routes.js'
 import { documentsRouter } from './modules/documents.routes.js'
 import { settingsRouter } from './modules/settings.routes.js'
+import { onboardingRouter } from './modules/onboarding.routes.js'
+import { dataProtectionRouter } from './modules/data-protection/routes.js'
 import { auditRouter, dashboardRouter, notificationsRouter, platformRouter } from './modules/platform.routes.js'
 import { payrollRouter, salaryRouter } from './modules/payroll/routes.js'
 import { expensesRouter } from './modules/expenses/routes.js'
@@ -23,6 +26,7 @@ import { signedRouter } from './modules/signed.routes.js'
 // Workstation (AUDIT_OS_WORKSTATION.md §8) — the operational workspace.
 import { leadsRouter } from './modules/workstation/leads.routes.js'
 import { clientsRouter } from './modules/workstation/clients.routes.js'
+import { clientImportRouter } from './modules/workstation/client-import.routes.js'
 import { clientFoldersRouter, clientFilesSignedRouter } from './modules/workstation/client-folders.routes.js'
 import { organizationsRouter } from './modules/workstation/organizations.routes.js'
 import { clientShareLinkRouter, clientPortalPublicRouter } from './modules/workstation/client-portal.routes.js'
@@ -213,12 +217,14 @@ export function createApp() {
   app.use('/api', authenticate)
 
   app.use('/api/employees', employeesRouter)
+  app.use('/api/articleship', articleshipRouter)
   app.use('/api/users', usersRouter)
   // Salary lives under an employee but is owned by payroll (§8.4).
   app.use('/api/employees/:id/salary', salaryRouter)
   app.use('/api/attendance', attendanceRouter)
   app.use('/api/leaves', leaveRouter)
   app.use('/api/documents', documentsRouter)
+  app.use('/api/settings/onboarding', onboardingRouter)
   app.use('/api/settings', settingsRouter)
   app.use('/api/notifications', notificationsRouter)
   app.use('/api/audit-logs', auditRouter)
@@ -240,6 +246,8 @@ export function createApp() {
   // (hr_admin, finance_admin) gets 403 here, not an empty list.
   app.use('/api/workstation', workstationRouter)
   app.use('/api/leads', leadsRouter)
+  // Import / export / bulk first, so '/export' is not read as a client id.
+  app.use('/api/clients', clientImportRouter)
   app.use('/api/clients', clientsRouter)
   // E-Invoice & E-Way Bill monitoring (E-INVOICE-EWAYBILL.md). Mounts on
   // /api/clients so the client-scoped paths (/:id/einvoice-ewb) sit next
@@ -340,6 +348,7 @@ export function createApp() {
   app.use('/api/clients', clientNoticesRouter)
   app.use('/api/notices', noticesRouter)
   app.use('/api/integrations/ai', integrationsAiRouter)
+  app.use('/api/data-protection', dataProtectionRouter)
 
   // ── Books ──────────────────────────────────────────────────────────────
   app.use('/api/books', booksRouter)

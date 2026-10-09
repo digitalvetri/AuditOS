@@ -12,6 +12,7 @@ import { GstReconExportService } from './services/GstReconExportService.js'
 import type { PurchaseRegisterColumnMap } from './parsers/types.js'
 import { writeAudit } from '../../platform/audit.js'
 import { assertClientVisible } from '../../platform/workstation/scope.js'
+import { scanUploads } from '../../platform/virusScan.js'
 
 /**
  * GST reconciliation HTTP surface.
@@ -53,7 +54,7 @@ async function guard(session: Session, clientId: string | undefined) {
 // ── GSTR-2B upload ───────────────────────────────────────────────────────
 gstRouter.post('/2b/uploads', (req, res, next) => {
   upload.single('file')(req, res, (err: unknown) => {
-    if (!err) return next()
+    if (!err) return scanUploads(req, res, next)
     const code = (err as { code?: string }).code
     if (code === 'LIMIT_FILE_SIZE') return next(ApiError.unprocessable('too_large', `File is larger than ${MAX_MB} MB.`))
     next(ApiError.badRequest('Upload could not be read.'))
@@ -100,7 +101,7 @@ gstRouter.get('/2b', handler(async (req, res) => {
 // ── Purchase Register upload (2-step for Excel) ──────────────────────────
 gstRouter.post('/purchase-registers/uploads', (req, res, next) => {
   upload.single('file')(req, res, (err: unknown) => {
-    if (!err) return next()
+    if (!err) return scanUploads(req, res, next)
     const code = (err as { code?: string }).code
     if (code === 'LIMIT_FILE_SIZE') return next(ApiError.unprocessable('too_large', `File is larger than ${MAX_MB} MB.`))
     next(ApiError.badRequest('Upload could not be read.'))

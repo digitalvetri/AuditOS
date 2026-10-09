@@ -16,6 +16,7 @@ import { formatINR } from '../../lib/money.js'
 import { notifyEmployees } from '../../platform/notify.js'
 import { paymentState } from './totals.js'
 import { lockSequence } from '../../lib/sequence.js'
+import { nextReceiptNumber } from '../../platform/workstation/codes.js'
 
 export const PAYMENT_MODES = ['bank_transfer', 'upi', 'cash', 'cheque', 'card', 'other'] as const
 export type PaymentMode = (typeof PAYMENT_MODES)[number]
@@ -70,16 +71,52 @@ export function toPaymentInput(b: z.infer<typeof paymentBodySchema>): PaymentInp
 }
 
 /**
- * A receipt number for a payment row. InvoicePayment has no stored number, so
- * it is DERIVED: the row's position among every payment ever recorded (removed
- * ones included — they are soft-deleted and never re-ordered), oldest first.
- * Stable for the life of the row because rows are never hard-deleted.
+ * The receipt number for a payment row. Stored since receipt numbers became
+ * a real sequence (nextReceiptNumber); a row the backfill has not reached yet
+ * falls back to the old DERIVED number — its position among every payment
+ * ever recorded (removed ones included), oldest first — which is exactly the
+ * number the backfill will store for it.
  */
-export async function receiptNumberFor(p: { id: string; createdAt: Date }): Promise<string> {
-  const n = await prisma.invoicePayment.count({
+export async function receiptNumberFor(p: { id: string; createdAt: Date; receiptNumber?: string | null }): Promise<string> {
+  if (p.receiptNumber) return p.receiptNumber
+  return derivedReceiptNumber(prisma, p)
+}
+
+async function derivedReceiptNumber(db: Pick<PrismaClient, 'invoicePayment'> | Tx, p: { id: string; createdAt: Date }): Promise<string> {
+  const n = await db.invoicePayment.count({
     where: { OR: [{ createdAt: { lt: p.createdAt } }, { createdAt: p.createdAt, id: { lte: p.id } }] },
   })
   return `RCT-${String(n).padStart(6, '0')}`
+}
+
+/**
+ * Store a receipt number on every payment that has none, oldest first
+ * (removed rows included, as the derived numbering always counted them).
+ * Each row gets its derived number — the one already printed on its receipt —
+ * unless that number is somehow taken, in which case it gets the next one.
+ * Idempotent: a second run finds nothing to do. Called from prisma/seed.ts.
+ */
+export async function backfillReceiptNumbers(db: PrismaClient): Promise<number> {
+  const rows = await db.invoicePayment.findMany({
+    where: { receiptNumber: null },
+    orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+    select: { id: true, createdAt: true },
+  })
+  let done = 0
+  for (const r of rows) {
+    await db.$transaction(async (tx) => {
+      await lockSequence(tx, 'code:RCT')
+      const fresh = await tx.invoicePayment.findUnique({ where: { id: r.id }, select: { receiptNumber: true } })
+      if (!fresh || fresh.receiptNumber) return
+      let number = await derivedReceiptNumber(tx, r)
+      if (await tx.invoicePayment.findUnique({ where: { receiptNumber: number }, select: { id: true } })) {
+        number = await nextReceiptNumber(tx)
+      }
+      await tx.invoicePayment.update({ where: { id: r.id }, data: { receiptNumber: number } })
+      done++
+    })
+  }
+  return done
 }
 
 export function paymentToApi(p: {
@@ -194,6 +231,8 @@ export async function addPayment(invoiceId: string, input: PaymentInput, userId:
         tdsSection: tds > 0 ? (input.tdsSection ?? '194J') : null,
         tdsCertificateReceived: tds > 0 ? Boolean(input.tdsCertificateReceived) : false,
         externalPaymentId: input.externalPaymentId ?? null,
+        // Taken last, under its own lock, after the invoice lock above.
+        receiptNumber: await nextReceiptNumber(tx),
         createdBy: userId,
         updatedBy: userId,
       },
@@ -272,16 +311,19 @@ export async function backfillInvoicePayments(db: PrismaClient): Promise<number>
     })
     const missing = inv.amountPaidPaise - (agg._sum.amountPaise ?? 0)
     if (missing <= 0) continue
-    await db.invoicePayment.create({
-      data: {
-        organisationId: inv.organisationId,
-        invoiceId: inv.id,
-        clientId: inv.clientId,
-        amountPaise: missing,
-        paidOn: inv.paidAt ? inv.paidAt.toISOString().slice(0, 10) : inv.invoiceDate,
-        mode: 'other',
-        note: 'Recorded before payment history was kept',
-      },
+    await db.$transaction(async (tx) => {
+      await tx.invoicePayment.create({
+        data: {
+          organisationId: inv.organisationId,
+          invoiceId: inv.id,
+          clientId: inv.clientId,
+          amountPaise: missing,
+          paidOn: inv.paidAt ? inv.paidAt.toISOString().slice(0, 10) : inv.invoiceDate,
+          mode: 'other',
+          note: 'Recorded before payment history was kept',
+          receiptNumber: await nextReceiptNumber(tx),
+        },
+      })
     })
     created++
   }

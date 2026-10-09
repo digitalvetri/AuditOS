@@ -131,6 +131,11 @@ export class FieldErrors {
     return up
   }
 
+  /** The collected field → message map (a copy). */
+  get fields(): Record<string, string> {
+    return { ...this.errors }
+  }
+
   get hasErrors(): boolean {
     return Object.keys(this.errors).length > 0
   }

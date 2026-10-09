@@ -13,9 +13,10 @@ import {
 } from '../../platform/workstation/organization.js'
 import { activityToApi, clientToApi, employeeMap } from '../../api/workstation.serialize.js'
 import {
-  buildClientFolders, CLIENT_DOC_MAX_MB, CLIENT_DOC_MIME, clientDocumentStorage, ensureCategory, has,
+  buildClientFolders, CLIENT_DOC_MAX_MB, CLIENT_DOC_MIME, clientDocContentMatches, clientDocumentStorage, ensureCategory, has,
 } from './client-folders.routes.js'
 import { mergeDocuments, sendMergedPdf } from './client-merge.routes.js'
+import { scanUploads } from '../../platform/virusScan.js'
 
 /**
  * ORGANIZATION VIEWS (on /api/clients, next to the client routes).
@@ -273,7 +274,7 @@ const receiveUpload = () => multer({ storage: multer.memoryStorage(), limits: { 
  */
 organizationsRouter.post('/:id/organization/requests/:docId/receive', (req, res, next) => {
   receiveUpload().single('file')(req, res, (err: unknown) => {
-    if (!err) return next()
+    if (!err) return scanUploads(req, res, next)
     if ((err as { code?: string }).code === 'LIMIT_FILE_SIZE') {
       return next(ApiError.unprocessable('too_large', `File is larger than the ${CLIENT_DOC_MAX_MB} MB limit.`))
     }
@@ -292,6 +293,10 @@ organizationsRouter.post('/:id/organization/requests/:docId/receive', (req, res,
   const ext = (file.originalname.split('.').pop() ?? '').toLowerCase()
   const mimeType = CLIENT_DOC_MIME[ext]
   if (!mimeType) throw ApiError.unprocessable('file_type', `Allowed types: ${Object.keys(CLIENT_DOC_MIME).join(', ').toUpperCase()}.`)
+  // The extension is only a claim: the bytes must agree with it (same check as client-folders).
+  if (!clientDocContentMatches(file.buffer, ext)) {
+    throw ApiError.unprocessable('file_content', `This file's content does not match its .${ext} extension. Re-save it in its real format and upload again.`)
+  }
 
   const targetId = typeof req.body?.client_id === 'string' && req.body.client_id ? req.body.client_id : org.id
   let target = org

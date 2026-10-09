@@ -10,6 +10,8 @@ import { tasksApi, formatMinutes, formatWorked, type Task, type CreateTaskInput,
 import { Priority, TaskStatusPill, useLiveMinutes } from '@/modules/workstation/tasks/ui';
 import { useAuth } from '@/platform/auth/AuthContext';
 import { can } from '@/platform/rbac/can';
+import { useClientOptions } from '@/modules/compliance/ui';
+import { useAuditFileOptions } from '@/modules/audit/pickers';
 import type { ApiError } from '@/services/api';
 
 /**
@@ -268,6 +270,8 @@ function CreateTaskModal({ employees, onClose }: {
     due_date: new Date().toISOString().slice(0, 10),
   });
   const [estimateHours, setEstimateHours] = useState('');
+  const clients = useClientOptions();
+  const audits = useAuditFileOptions(form.client_id);
   const [err, setErr] = useState<string | null>(null);
   const [fieldErr, setFieldErr] = useState<Record<string, string>>({});
 
@@ -337,6 +341,22 @@ function CreateTaskModal({ employees, onClose }: {
           </Field>
           <Field label="Estimated duration (hours)" hint="Used for the estimated-vs-actual comparison. Optional.">
             <input className={inputClass} value={estimateHours} onChange={(e) => setEstimateHours(e.target.value)} placeholder="e.g. 2" />
+          </Field>
+        </div>
+        <div className="grid grid-cols-2 gap-3">
+          <Field label="Client" hint="Optional.">
+            <select className={inputClass} value={form.client_id ?? ''}
+              onChange={(e) => setForm({ ...form, client_id: e.target.value || null, audit_engagement_id: null })}>
+              <option value="">No client</option>
+              {clients.options.map((c) => <option key={c.value} value={c.value}>{c.label}</option>)}
+            </select>
+          </Field>
+          <Field label="Audit file" error={fieldErr.audit_engagement_id} hint={form.client_id ? 'Time on this task counts toward the audit file.' : 'Choose a client first.'}>
+            <select className={inputClass} value={form.audit_engagement_id ?? ''} disabled={!form.client_id || !audits.available}
+              onChange={(e) => setForm({ ...form, audit_engagement_id: e.target.value || null })}>
+              <option value="">None</option>
+              {audits.options.map((a) => <option key={a.value} value={a.value}>{a.label}</option>)}
+            </select>
           </Field>
         </div>
         <Field label="Notes">

@@ -35,6 +35,7 @@ import { postCollectionToInvoice, postedInvoices, unpostCollection } from './led
 import { collectedWhere } from './statuses.js'
 import { writeAudit } from '../../platform/audit.js'
 import { requireWorkstation } from '../../platform/workstation/scope.js'
+import { scanUploads } from '../../platform/virusScan.js'
 
 export const zpayRouter = Router()
 
@@ -208,7 +209,7 @@ zpayRouter.post('/connections/:cid/sync', handler(async (req, res) => {
 // (billingAccountId, invoice_number) so re-uploading is idempotent.
 zpayRouter.post('/accounts/:aid/invoices/import', (req, res, next) => {
   csvUpload.single('file')(req, res, (err: unknown) => {
-    if (!err) return next()
+    if (!err) return scanUploads(req, res, next)
     const code = (err as { code?: string }).code
     if (code === 'LIMIT_FILE_SIZE') {
       return next(ApiError.unprocessable('too_large', `The file is larger than ${MAX_CSV_MB} MB.`))

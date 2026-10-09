@@ -8,6 +8,7 @@ import { Priority, TaskStatusPill, LiveTimer, Variance } from '@/modules/worksta
 import { useAuth } from '@/platform/auth/AuthContext';
 import { can } from '@/platform/rbac/can';
 import type { ApiError } from '@/services/api';
+import { useAuditFileOptions } from '@/modules/audit/pickers';
 
 /**
  * /workstation/tasks/:id — one task in full.
@@ -137,6 +138,8 @@ export function TaskDetailPage() {
                         <Detail label="Assigned by" value={t.assigned_by_name ?? '—'} />
                         <Detail label="Client" value={t.client_name ?? '—'} />
                         <Detail label="Project" value={t.project_name ?? '—'} />
+                        <Detail label="Audit file" value={<TaskAuditFile taskId={t.id} clientId={t.client_id} value={t.audit_engagement_id ?? null}
+                          editable={canManage && t.status !== 'completed'} onSaved={invalidate} />} />
                         <Detail label="Priority" value={<Priority value={t.priority} />} />
                         <Detail label="Due date" value={t.due_date ? `${t.due_date}${t.overdue ? ' (overdue)' : ''}` : '—'} />
                         <Detail label="Status" value={<TaskStatusPill status={t.status} overdue={t.overdue} />} />
@@ -336,4 +339,32 @@ function humanAction(action: string): string {
     task_reopened: 'Reopened',
   };
   return map[action] ?? action.replace(/_/g, ' ');
+}
+
+/** The audit file this task's time counts toward — pick one of the client's files. */
+function TaskAuditFile({ taskId, clientId, value, editable, onSaved }: {
+  taskId: string; clientId: string | null; value: string | null; editable: boolean; onSaved: () => Promise<void>;
+}) {
+  const audits = useAuditFileOptions(clientId);
+  const [err, setErr] = useState<string | null>(null);
+  const save = useMutation({
+    mutationFn: (id: string | null) => tasksApi.update(taskId, { audit_engagement_id: id }),
+    onSuccess: async () => { setErr(null); await onSaved(); },
+    onError: (e: ApiError) => setErr(e.message),
+  });
+  const current = audits.options.find((o) => o.value === value);
+  if (!clientId || !audits.available) return <span>{value ? (current?.label ?? 'Linked') : '—'}</span>;
+  if (!editable) {
+    return value ? <Link to={`/workstation/audits/${value}`} className="hover:underline">{current?.label ?? 'Open audit file'}</Link> : <span>—</span>;
+  }
+  return (
+    <span className="flex flex-col gap-1">
+      <select aria-label="Audit file" className={`${inputClass} max-w-[320px]`} value={value ?? ''} disabled={save.isPending}
+        onChange={(e) => save.mutate(e.target.value || null)}>
+        <option value="">None</option>
+        {audits.options.map((a) => <option key={a.value} value={a.value}>{a.label}</option>)}
+      </select>
+      {err ? <span className="text-12 text-red">{err}</span> : null}
+    </span>
+  );
 }

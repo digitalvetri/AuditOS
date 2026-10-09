@@ -19,6 +19,7 @@ import { streamEInvoicePdf, streamEwayBillPdf, streamGstFilingPdf } from './reco
 import { setUploadedFileHeaders } from '../../lib/fileResponse.js'
 import { toNum } from '../../lib/money.js'
 import { sniffDocument, sniffImage } from '../messages/attachments.js'
+import { scanUploads } from '../../platform/virusScan.js'
 
 /**
  * CLIENT DOCUMENT FOLDERS — every document the firm holds for one client,
@@ -506,7 +507,7 @@ const folderUpload = () => multer({ storage: multer.memoryStorage(), limits: { f
 
 clientFoldersRouter.post('/:id/document-folders/:folder/upload', (req, res, next) => {
   folderUpload().single('file')(req, res, (err: unknown) => {
-    if (!err) return next()
+    if (!err) return scanUploads(req, res, next)
     if ((err as { code?: string }).code === 'LIMIT_FILE_SIZE') {
       return next(ApiError.unprocessable('too_large', `File is larger than the ${CLIENT_DOC_MAX_MB} MB limit.`))
     }

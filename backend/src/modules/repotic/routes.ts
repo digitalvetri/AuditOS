@@ -36,6 +36,7 @@ import { parseFromBuffer, readRowsFromBuffer } from './parser.js'
 import { buildGstr1Preview } from './gstr1-builder.js'
 import { autoMap } from './auto-mapper.js'
 import { assertClientVisible } from '../../platform/workstation/scope.js'
+import { assertFilesClean } from '../../platform/virusScan.js'
 
 export const repoticRouter = Router()
 
@@ -153,6 +154,7 @@ repoticRouter.post('/ecommerce/uploads', (req, res, next) => {
         const organisationId = await orgIdOf(session.userId)
         const file = req.file
         if (!file) throw ApiError.badRequest('Choose a file to upload.')
+        await assertFilesClean([file])
         const b = (req.body ?? {}) as Record<string, unknown>
         const clientId = typeof b.client_id === 'string' ? b.client_id : null
         const gstin = typeof b.gstin === 'string' ? b.gstin.trim().toUpperCase() : null

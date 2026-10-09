@@ -12,16 +12,10 @@
  * unit they accept. Kept separate so the dashboard's mock data (rupees, per
  * §8 of the prompt) doesn't have to pretend to be paise.
  */
-const INR = new Intl.NumberFormat('en-IN', {
-  style: 'currency',
-  currency: 'INR',
-  maximumFractionDigits: 0,
-});
+import { formatRupees } from '@/lib/format';
 
-export function formatINR(rupees: number): string {
-  // Intl includes a NBSP after ₹; strip it so the assertion "₹12,340" holds.
-  return INR.format(rupees).replace(/ /g, '');
-}
+/** Rupees in — the dashboard's name for `formatRupees` in @/lib/format. */
+export const formatINR = formatRupees;
 
 /** '07 Sept 2026' */
 const DATE = new Intl.DateTimeFormat('en-GB', {

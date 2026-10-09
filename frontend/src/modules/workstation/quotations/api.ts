@@ -1,3 +1,4 @@
+import { formatRupeeAmount } from '@/lib/format';
 import { api } from '@/services/api';
 
 /**
@@ -206,7 +207,7 @@ export const quotationsApi = {
 // view.
 
 export const inr = (paise: number): string =>
-  `₹${(paise / 100).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  `₹${formatRupeeAmount(paise / 100, { min: 2, max: 2 })}`;
 
 /** '2.5' from 250 — trailing zeros dropped so whole quantities read as '1'. */
 export const qty = (centi: number): string => String(centi / 100);

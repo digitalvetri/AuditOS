@@ -158,6 +158,7 @@ tasksRouter.post('/', handler(async (req, res) => {
     due_date: ISO_DATE,
     client_id: z.string().nullable().optional(),
     project_id: z.string().nullable().optional(),
+    audit_engagement_id: z.string().max(64).nullable().optional(),
     estimated_minutes: z.number().int().positive().nullable().optional(),
     notes: z.string().nullable().optional(),
     attachment_url: z.string().nullable().optional(),
@@ -171,6 +172,7 @@ tasksRouter.post('/', handler(async (req, res) => {
     dueDate: b.due_date,
     clientId: b.client_id,
     clientServiceId: b.project_id,
+    auditEngagementId: b.audit_engagement_id,
     estimatedMinutes: b.estimated_minutes ?? null,
     notes: b.notes,
     attachmentUrl: b.attachment_url,
@@ -188,13 +190,14 @@ tasksRouter.patch('/:id', handler(async (req, res) => {
     due_date: ISO_DATE.optional(),
     client_id: z.string().nullable().optional(),
     project_id: z.string().nullable().optional(),
+    audit_engagement_id: z.string().max(64).nullable().optional(),
     estimated_minutes: z.number().int().positive().nullable().optional(),
     notes: z.string().nullable().optional(),
   }), req.body, 'Invalid task patch.')
 
   ok(res, await TaskService.update(session, scope, req.params.id, {
     title: b.title, description: b.description, priority: b.priority, dueDate: b.due_date,
-    clientId: b.client_id, clientServiceId: b.project_id,
+    clientId: b.client_id, clientServiceId: b.project_id, auditEngagementId: b.audit_engagement_id,
     estimatedMinutes: b.estimated_minutes, notes: b.notes,
   }))
 }))

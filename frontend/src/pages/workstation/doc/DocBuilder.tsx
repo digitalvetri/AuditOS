@@ -8,6 +8,7 @@ import {
   Redo2, Save, Trash2, Undo2,
 } from 'lucide-react';
 import { RecordLoadGate, inputClass } from '@/modules/workstation/components';
+import { useUnsavedChangesGuard } from '@/lib/useUnsavedChanges';
 import { workstationApi } from '@/modules/workstation/api';
 import { pageGeometry, type LayoutConfig } from '@/modules/workstation/quotations/document';
 import { clientHeader, type CompanyHeader, type HeaderField, type HeaderSource } from '@/modules/workstation/docs/model';
@@ -449,6 +450,7 @@ export function DocBuilderPage() {
       queryClient.setQueryData(['docs.get', d.id], d);
       // Saving does not reload the editor: what is on screen IS what was saved.
       setLoadedId(d.id);
+      unsaved.markSaved();
       if (!isEdit) navigate(`/workstation/doc/${d.id}/edit`, { replace: true });
     },
     onError: (e) => setError((e as { message?: string })?.message ?? 'That could not be saved.'),
@@ -484,6 +486,8 @@ export function DocBuilderPage() {
   const status = existingQ.data?.status ?? 'draft';
   const frozen = isEdit && existingQ.data ? !existingQ.data.is_editable : false;
   const liveEdit = frozen ? undefined : edit;
+  // Warn before leaving with unsaved edits (not on a frozen document).
+  const unsaved = useUnsavedChangesGuard(ready && !frozen ? s : null, { ready });
 
   if (!type && !isEdit) {
     return <div className="text-13 text-neutral-600">That document type does not exist. <Link className="underline" to="/workstation/doc">Back to Doc</Link>.</div>;

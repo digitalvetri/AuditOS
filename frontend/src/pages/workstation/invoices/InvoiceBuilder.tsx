@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
+import { useAuditFileOptions } from '@/modules/audit/pickers';
 import { workstationApi } from '@/modules/workstation/api';
 import { invoicesApi, TERM_LABEL, GST_RATES, QR_MODE_LABEL, type BankSnapshot, type Invoice, type QrMode, type Term } from '@/modules/workstation/invoices/api';
 import { downloadFile } from '@/modules/workstation/invoices/download';
@@ -12,6 +13,7 @@ import {
 import { InvoiceDocument, type InvoiceDoc } from './InvoiceDocument';
 import { Button } from '@/components/Button';
 import { useToast } from '@/components/Toast';
+import { useUnsavedChangesGuard } from '@/lib/useUnsavedChanges';
 import { Field, Modal, RecordLoadGate, fieldErrors, inputClass, textareaClass } from '@/modules/workstation/components';
 import { can } from '@/platform/rbac/can';
 import { useAuth } from '@/platform/auth/AuthContext';
@@ -65,6 +67,9 @@ export function InvoiceBuilderPage() {
 
   // ── One state object. Everything the document shows lives here. ────────
   const [clientId, setClientId] = useState('');
+  // Optional links for profitability: an engagement (client service) and/or an audit file.
+  const [clientServiceId, setClientServiceId] = useState('');
+  const [auditEngagementId, setAuditEngagementId] = useState('');
   const [invoiceDate, setInvoiceDate] = useState(today());
   const [terms, setTerms] = useState<Term>('due_on_receipt');
   const [dueDate, setDueDate] = useState(today());
@@ -107,6 +112,8 @@ export function InvoiceBuilderPage() {
   if (isEdit && saved && saved.id === id && loadedId !== id) {
     const cfg = (saved.layout_config ?? {}) as Partial<LayoutConfig> & { company?: Partial<CompanyInfo> };
     setClientId(saved.client_id);
+    setClientServiceId(saved.client_service_id ?? '');
+    setAuditEngagementId(saved.audit_engagement_id ?? '');
     setInvoiceDate(saved.invoice_date);
     setTerms(saved.terms);
     setDueDate(saved.due_date);
@@ -193,6 +200,7 @@ export function InvoiceBuilderPage() {
    * instruction to re-address the invoice.
    */
   function chooseClient(cid: string) {
+    if (cid !== clientId) { setClientServiceId(''); setAuditEngagementId(''); }
     setClientId(cid);
     const c = (clientsQ.data?.items ?? []).find((x) => x.id === cid);
     if (!c) return;
@@ -280,6 +288,8 @@ export function InvoiceBuilderPage() {
       shipping_address: shipSame ? null : shippingAddress,
       customer_gstin: customerGstin,
       bank_account_id: bankAccountId || null,
+      client_service_id: clientServiceId || null,
+      audit_engagement_id: auditEngagementId || null,
       template_id: 'tax-invoice',
       signatory_name: signatoryName,
       signatory_designation: signatoryDesignation,
@@ -315,6 +325,7 @@ export function InvoiceBuilderPage() {
       void qc.invalidateQueries({ queryKey: ['invoices.get', inv.id] });
       void qc.invalidateQueries({ queryKey: ['workstation'] });
       toast.push('success', inv.invoice_number ? `Invoice ${inv.invoice_number} saved.` : 'Draft invoice saved.');
+      unsaved.markSaved();
       if (!isEdit) navigate(`/workstation/invoices/${inv.id}/edit`, { replace: true });
     },
     onError: (e: Error) => toast.push('error', e.message),
@@ -340,6 +351,9 @@ export function InvoiceBuilderPage() {
     onSuccess: (r) => downloadFile(r.url, `${saved?.invoice_number ?? 'invoice'}.pdf`),
     onError: (e: Error) => toast.push('error', e.message),
   });
+
+  // Warn before leaving with unsaved edits (a frozen, sent invoice cannot be edited).
+  const unsaved = useUnsavedChangesGuard(ready && !frozen ? payload() : null, { ready });
 
   const serverErrors = fieldErrors(save.error);
   const err = (k: string) => errors[k] ?? serverErrors[k];
@@ -436,6 +450,9 @@ export function InvoiceBuilderPage() {
                 shippingAddress={shippingAddress} setShippingAddress={setShippingAddress}
                 customerGstin={customerGstin} setCustomerGstin={setCustomerGstin}
                 err={err}
+                links={<InvoiceLinks clientId={clientId}
+                  clientServiceId={clientServiceId} setClientServiceId={setClientServiceId}
+                  auditEngagementId={auditEngagementId} setAuditEngagementId={setAuditEngagementId} err={err} />}
               />
             ) : null}
 
@@ -584,6 +601,49 @@ export function StatusPill({ status }: { status: string }) {
 
 // ── DETAILS ───────────────────────────────────────────────────────────────
 
+/**
+ * Optional: which engagement (client service) and/or audit file this invoice
+ * bills — feeds engagement profitability. Never printed on the invoice.
+ */
+function InvoiceLinks(p: {
+  clientId: string;
+  clientServiceId: string; setClientServiceId: (v: string) => void;
+  auditEngagementId: string; setAuditEngagementId: (v: string) => void;
+  err: (k: string) => string | undefined;
+}) {
+  const services = useQuery({
+    queryKey: ['invoices.client-services', p.clientId],
+    queryFn: () => workstationApi.clientServices(p.clientId),
+    enabled: Boolean(p.clientId),
+    retry: false,
+  });
+  const audits = useAuditFileOptions(p.clientId);
+  if (!p.clientId) return null;
+  const svcOptions = (services.data?.items ?? []).map((s) => ({
+    value: s.id, label: `${s.service_name ?? 'Service'}${s.due_date ? ` · due ${s.due_date}` : ''}${s.status === 'completed' ? ' · completed' : ''}`,
+  }));
+  return (
+    <Two>
+      <div data-field="client_service_id">
+        <Field label="Engagement / service" error={p.err('client_service_id')} hint="Optional — for engagement profitability.">
+          <select className={inputClass} value={p.clientServiceId} onChange={(e) => p.setClientServiceId(e.target.value)} disabled={services.isError}>
+            <option value="">None</option>
+            {svcOptions.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+          </select>
+        </Field>
+      </div>
+      <div data-field="audit_engagement_id">
+        <Field label="Audit file" error={p.err('audit_engagement_id')} hint="Optional — fees count toward the audit file.">
+          <select className={inputClass} value={p.auditEngagementId} onChange={(e) => p.setAuditEngagementId(e.target.value)} disabled={!audits.available}>
+            <option value="">None</option>
+            {audits.options.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+          </select>
+        </Field>
+      </div>
+    </Two>
+  );
+}
+
 function Two({ children }: { children: React.ReactNode }) {
   return <div className="grid grid-cols-2 gap-2">{children}</div>;
 }
@@ -603,6 +663,7 @@ function DetailsTab(p: {
   shippingAddress: string; setShippingAddress: (v: string) => void;
   customerGstin: string; setCustomerGstin: (v: string) => void;
   err: (k: string) => string | undefined;
+  links?: React.ReactNode;
 }) {
   return (
     <div>
@@ -614,6 +675,7 @@ function DetailsTab(p: {
           </select>
         </Field>
       </div>
+      {p.links}
 
       <Two>
         <div data-field="invoice_date">

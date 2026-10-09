@@ -57,6 +57,23 @@ export default defineConfig(({ mode }) => {
         },
       }),
     ],
+    build: {
+      rollupOptions: {
+        output: {
+          // Long-lived vendor chunks: a deploy that only changes app code
+          // leaves these cached. Pages themselves are split in App.tsx.
+          manualChunks(id: string) {
+            if (!id.includes('node_modules')) return undefined;
+            if (/[\\/]node_modules[\\/](react|react-dom|scheduler|react-router|react-router-dom|@remix-run)[\\/]/.test(id)) return 'vendor-react';
+            if (id.includes('/@tanstack/')) return 'vendor-query';
+            if (/[\\/]node_modules[\\/](recharts|recharts-scale|d3-[^/\\]+|victory-vendor|internmap|decimal\.js-light|react-smooth|eventemitter3|fast-equals|tiny-invariant)[\\/]/.test(id)) return 'vendor-charts';
+            if (id.includes('/lucide-react/')) return 'vendor-icons';
+            if (/[\\/]node_modules[\\/](socket\.io-client|socket\.io-parser|engine\.io-client|engine\.io-parser|@socket\.io)[\\/]/.test(id)) return 'vendor-realtime';
+            return undefined;
+          },
+        },
+      },
+    },
     resolve: {
       alias: {
         '@': path.resolve(__dirname, 'src'),

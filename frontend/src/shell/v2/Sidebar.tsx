@@ -42,7 +42,7 @@ import {
   ScrollText,
   Wallet,
   Wrench,
-  CalendarClock, FileWarning, GitCompareArrows, KeyRound,
+  CalendarClock, FileWarning, GitCompareArrows, KeyRound, GraduationCap,
   type LucideIcon,
 } from 'lucide-react';
 import { useAuth } from '@/platform/auth/AuthContext';
@@ -50,7 +50,7 @@ import { can } from '@/platform/rbac/can';
 import { api } from '@/services/api';
 import { Avatar } from '@/components/viz';
 import { usePinnedClients } from '@/modules/workstation/pins';
-import { workstationApi } from '@/modules/workstation/api';
+import { clientsBulkApi } from '@/modules/workstation/clientImport';
 import { gstApi } from '@/modules/workstation/gst/api';
 import { filingStats, istToday, periodName, previousPeriod, returnCells } from '@/modules/dashboardV2/brief';
 import { employeeApi } from '@/modules/employees/api';
@@ -65,12 +65,12 @@ const COLLAPSED_KEY = 'audit-os:sidebar-collapsed';
  * A row below the icon level. A child may carry its own children — Services →
  * Registration → the ten registrations — so the rail nests three deep.
  */
-interface NavChild {
+export interface NavChild {
   to: string;
   label: string;
   children?: { to: string; label: string }[];
 }
-interface NavItem {
+export interface NavItem {
   to: string;
   label: string;
   icon: LucideIcon;
@@ -83,7 +83,7 @@ interface NavItem {
       each row deep-links to the Services page scoped by its slug. */
   children?: NavChild[];
 }
-interface NavGroup {
+export interface NavGroup {
   label: string | null; // null = no section header (Dashboard row)
   items: NavItem[];
 }
@@ -135,6 +135,115 @@ function matchRow(rows: ReturnType<typeof flatten>, path: string) {
   return best;
 }
 
+/**
+ * The navigation: one source for the Sidebar AND the global search's page
+ * list (GlobalSearch). `can()` here is menu-rendering only — the API is what
+ * enforces access. `badges` carries the Sidebar's live count pills.
+ */
+export function buildNav(
+  role: Parameters<typeof can>[0],
+  session: { employee?: unknown } | null | undefined,
+  { pendingCount = 0, clientCount }: { pendingCount?: number; clientCount?: number } = {},
+): NavGroup[] {
+  // Role-scoped nav (§6.1). Employee: no Employees / Accounts /
+  // Reports / Settings; no Tools if `tools.access` is not granted.
+  // Payroll and Expenses used to be top-level sidebar entries; they
+  // are now tabs INSIDE Accounts (§6.1). One "Accounts" row here,
+  // visible to any role with access to any sub-tab.
+  const canAccountsRead =
+    can(role, 'accounts.read', 'organisation')
+    || can(role, 'accounts.manage', 'organisation')
+    || can(role, 'payroll.view.own', 'self')
+    || can(role, 'payroll.view', 'organisation')
+    || can(role, 'expense.submit', 'self')
+    || can(role, 'expense.approve', 'department')
+  const auditItems: NavItem[] = [
+    { to: '/hrms/employees',  label: 'Employees',  icon: Users,                visible: can(role, 'employee.read', 'department') },
+    { to: '/hrms/attendance', label: 'Attendance', icon: Clock,                visible: can(role, 'attendance.read', 'self') },
+    { to: '/hrms/leave',      label: 'Leave',      icon: CalendarDays,         visible: can(role, 'leave.read', 'self') },
+    { to: '/hrms/articleship', label: 'Articleship', icon: GraduationCap,      visible: can(role, 'employee.manage', 'organisation') || can(role, 'employee.read', 'organisation') },
+    { to: '/hrms/accounts',   label: 'Accounts',   icon: BookOpen,             visible: canAccountsRead },
+    { to: '/hrms/payment-summary', label: 'Payment summary', icon: IndianRupee, visible: can(role, 'payment_summary.read', 'organisation') },
+    // Chats are between staff; the owner logins have no staff record.
+    { to: '/hrms/messages',   label: 'Messages',   icon: MessageSquare,        visible: can(role, 'chat.participate', 'organisation') && Boolean(session?.employee) },
+    { to: '/hrms/documents',  label: 'Employee Data', icon: FileText,             visible: can(role, 'document.read', 'self') },
+    { to: '/hrms/reports',    label: 'Reports',    icon: BarChart3,            visible: can(role, 'reports.hr', 'department') || can(role, 'reports.finance', 'organisation') || can(role, 'reports.all', 'organisation') },
+    { to: '/hrms/audit-log',  label: 'Audit log',  icon: ScrollText,           visible: can(role, 'audit.read.all', 'organisation') || can(role, 'audit.read.hr', 'organisation') || can(role, 'audit.read.finance', 'organisation') },
+    { to: '/hrms/settings',   label: 'Settings',   icon: Settings,             visible: can(role, 'settings.manage', 'organisation') },
+  ];
+  // Workstation (teammate's module, per AUDIT_OS_WORKSTATION.md §4).
+  // Sub-items follow the same can(role, ...) pattern; roles without a
+  // workstation.access grant see nothing here.
+  const workstationItems: NavItem[] = [
+    { to: '/workstation',             label: 'Overview',   icon: LayoutGrid,    end: true, visible: can(role, 'workstation.access', 'self') },
+    /* Quotation is its own module. Billing — invoices, receipts, what is
+       actually charged — is a separate thing and gets its own row when it
+       exists; a quotation is a proposal and is not billing. */
+    { to: '/workstation/quotations',  label: 'Quotation',  icon: FileSignature, end: true, visible: can(role, 'workstation.quotation.read', 'self') },
+    { to: '/workstation/invoices',    label: 'Invoice',    icon: ReceiptText,   end: true, visible: can(role, 'workstation.invoice.read', 'self') },
+    { to: '/workstation/credit-notes', label: 'Credit notes', icon: IndianRupee, visible: can(role, 'workstation.invoice.read', 'self') },
+    { to: '/workstation/recurring-invoices', label: 'Recurring', icon: Wallet, visible: can(role, 'workstation.invoice.read', 'self') },
+    { to: '/workstation/engagement',  label: 'Engagement', icon: ScrollText,    visible: can(role, 'workstation.engagement.read', 'self') },
+    /* Audit files (SA 230): one per client × FY × type, plus the firm's UDIN register. */
+    { to: '/workstation/audits',      label: 'Audits',     icon: ClipboardCheck, visible: can(role, 'workstation.audit.read', 'self'),
+      children: [{ to: '/workstation/audits/udins', label: 'UDIN register' }] },
+    { to: '/workstation/doc',         label: 'Format',     icon: FileText,      visible: can(role, 'workstation.doc.read', 'self') },
+    { to: '/workstation/leads',       label: 'Leads',      icon: PhoneCall,     visible: can(role, 'workstation.lead.read', 'self') },
+    { to: '/workstation/clients',     label: 'Clients',    icon: Handshake,     visible: can(role, 'workstation.client.read', 'self'), badge: clientCount },
+    { to: '/workstation/follow-ups',  label: 'Follow-ups', icon: Clock,         visible: can(role, 'workstation.followup.read', 'self') },
+    { to: '/workstation/calendar',    label: 'Calendar',   icon: CalendarDays,  visible: can(role, 'workstation.followup.read', 'self') },
+    { to: '/workstation/compliance',  label: 'Compliance', icon: CalendarClock, visible: can(role, 'workstation.compliance.read', 'self') },
+    { to: '/workstation/notices',     label: 'Notices',    icon: FileWarning,   visible: can(role, 'workstation.notice.read', 'self') || can(role, 'workstation.notice.manage', 'self') },
+    { to: '/workstation/dsc',         label: 'DSC register', icon: KeyRound,    visible: can(role, 'workstation.dsc.read', 'self') || can(role, 'workstation.dsc.manage', 'self') },
+    { to: '/workstation/tds-recon',   label: '26AS reconciliation', icon: GitCompareArrows, visible: can(role, 'workstation.service.read', 'self') || can(role, 'tools.audit_automation.access', 'self') },
+    { to: '/workstation/services',    label: 'Services',   icon: Briefcase,     end: true, visible: can(role, 'workstation.service.read', 'self'),
+      children: [
+        { to: '/workstation/services/tds',           label: 'TDS' },
+        /* BOOKKEEPING-REBUILD §7 renames "Bookkeeping" (the
+           accounting engine) to "Books". */
+        { to: '/workstation/services/bookkeeping',   label: 'Books' },
+        { to: '/workstation/services/tally-export',  label: 'Tally Export' },
+        { to: '/workstation/services/registration',  label: 'Registration',
+          children: REGISTRATION_SERVICES.map((r) => ({
+            to: `/workstation/services/registration/${r.slug}`,
+            label: r.name,
+          })) },
+      ] },
+    { to: '/workstation/tasks',       label: 'Task',       icon: ListChecks,    visible: can(role, 'workstation.task.read', 'self') },
+    { to: '/workstation/documents',   label: 'Documents',  icon: FolderKanban,  visible: can(role, 'workstation.document.read', 'self') },
+  ];
+  // TOOLS is one labelled section — a sibling of Workstation — holding
+  // three tool modules as siblings inside it: Tools (converters), Repotic
+  // (bank / GST / TDS pipelines) and Books (Zoho Books integration). The
+  // native double-entry accounting engine (formerly "Tally") moved to
+  // Services → Bookkeeping and is not a Tools row any more.
+  const toolsItems: NavItem[] = [
+    { to: '/tools', label: 'Tools', icon: Wrench,
+      visible: can(role, 'tools.access', 'self') },
+    { to: '/audit-automation', label: 'Repotic', icon: Landmark,
+      visible: can(role, 'tools.audit_automation.access', 'self') },
+    { to: '/books', label: 'Books', icon: Wallet,
+      visible: can(role, 'books.access', 'organisation') },
+  ];
+  // INTEGRATIONS — third-party services the firm connects to (Zoho
+  // Payments today; Books/Tally/banking as they land). Sibling of
+  // Tools, not nested inside HRMS: this is firm-level infrastructure,
+  // not an HR concern.
+  const integrationsItems: NavItem[] = [
+    { to: '/integrations/zoho-payments', label: 'Zoho Payments', icon: Plug,
+      visible: can(role, 'integrations.access', 'organisation') },
+    { to: '/integrations/ai-provider', label: 'AI provider', icon: Plug,
+      visible: can(role, 'integrations.access', 'organisation') },
+  ];
+  return [
+    { label: null, items: [{ to: '/', label: 'Dashboard', icon: Home, end: true, visible: true, badge: pendingCount || undefined, hot: true }] },
+    { label: 'HRMS', items: auditItems.filter((i) => i.visible) },
+    { label: 'WORKSTATION', items: workstationItems.filter((i) => i.visible) },
+    { label: 'TOOLS', items: toolsItems.filter((i) => i.visible) },
+    { label: 'INTEGRATIONS', items: integrationsItems.filter((i) => i.visible) },
+  ].filter((g) => g.items.length > 0);
+}
+
 interface Props {
   mobileOpen: boolean;
   onMobileClose: () => void;
@@ -156,7 +265,8 @@ export function Sidebar({ mobileOpen, onMobileClose }: Props) {
   const seesClients = can(role, 'workstation.client.read', 'self');
   const clients = useQuery({
     queryKey: ['sidebar', 'client-count'],
-    queryFn: () => workstationApi.listClients({}),
+    // One row is enough: `count` is the total the caller can see.
+    queryFn: () => clientsBulkApi.page({ page_size: 1 }),
     enabled: seesClients, staleTime: 300_000,
   });
   const pendingCount = pending.data?.count ?? 0;
@@ -169,105 +279,7 @@ export function Sidebar({ mobileOpen, onMobileClose }: Props) {
     enabled: seesPeople, staleTime: 120_000,
   });
 
-  // Role-scoped nav (§6.1). `can()` here is menu-rendering only — the API
-  // is what actually enforces access. Employee: no Employees / Accounts /
-  // Reports / Settings; no Tools if `tools.access` is not granted.
-  const nav = useMemo<NavGroup[]>(() => {
-    // Payroll and Expenses used to be top-level sidebar entries; they
-    // are now tabs INSIDE Accounts (§6.1). One "Accounts" row here,
-    // visible to any role with access to any sub-tab.
-    const canAccountsRead =
-      can(role, 'accounts.read', 'organisation')
-      || can(role, 'accounts.manage', 'organisation')
-      || can(role, 'payroll.view.own', 'self')
-      || can(role, 'payroll.view', 'organisation')
-      || can(role, 'expense.submit', 'self')
-      || can(role, 'expense.approve', 'department')
-    const auditItems: NavItem[] = [
-      { to: '/hrms/employees',  label: 'Employees',  icon: Users,                visible: can(role, 'employee.read', 'department') },
-      { to: '/hrms/attendance', label: 'Attendance', icon: Clock,                visible: can(role, 'attendance.read', 'self') },
-      { to: '/hrms/leave',      label: 'Leave',      icon: CalendarDays,         visible: can(role, 'leave.read', 'self') },
-      { to: '/hrms/accounts',   label: 'Accounts',   icon: BookOpen,             visible: canAccountsRead },
-      { to: '/hrms/payment-summary', label: 'Payment summary', icon: IndianRupee, visible: can(role, 'payment_summary.read', 'organisation') },
-      // Chats are between staff; the owner logins have no staff record.
-      { to: '/hrms/messages',   label: 'Messages',   icon: MessageSquare,        visible: can(role, 'chat.participate', 'organisation') && Boolean(session?.employee) },
-      { to: '/hrms/documents',  label: 'Employee Data', icon: FileText,             visible: can(role, 'document.read', 'self') },
-      { to: '/hrms/reports',    label: 'Reports',    icon: BarChart3,            visible: can(role, 'reports.hr', 'department') || can(role, 'reports.finance', 'organisation') || can(role, 'reports.all', 'organisation') },
-      { to: '/hrms/audit-log',  label: 'Audit log',  icon: ScrollText,           visible: can(role, 'audit.read.all', 'organisation') || can(role, 'audit.read.hr', 'organisation') || can(role, 'audit.read.finance', 'organisation') },
-      { to: '/hrms/settings',   label: 'Settings',   icon: Settings,             visible: can(role, 'settings.manage', 'organisation') },
-    ];
-    // Workstation (teammate's module, per AUDIT_OS_WORKSTATION.md §4).
-    // Sub-items follow the same can(role, ...) pattern; roles without a
-    // workstation.access grant see nothing here.
-    const workstationItems: NavItem[] = [
-      { to: '/workstation',             label: 'Overview',   icon: LayoutGrid,    end: true, visible: can(role, 'workstation.access', 'self') },
-      /* Quotation is its own module. Billing — invoices, receipts, what is
-         actually charged — is a separate thing and gets its own row when it
-         exists; a quotation is a proposal and is not billing. */
-      { to: '/workstation/quotations',  label: 'Quotation',  icon: FileSignature, end: true, visible: can(role, 'workstation.quotation.read', 'self') },
-      { to: '/workstation/invoices',    label: 'Invoice',    icon: ReceiptText,   end: true, visible: can(role, 'workstation.invoice.read', 'self') },
-      { to: '/workstation/credit-notes', label: 'Credit notes', icon: IndianRupee, visible: can(role, 'workstation.invoice.read', 'self') },
-      { to: '/workstation/recurring-invoices', label: 'Recurring', icon: Wallet, visible: can(role, 'workstation.invoice.read', 'self') },
-      { to: '/workstation/engagement',  label: 'Engagement', icon: ScrollText,    visible: can(role, 'workstation.engagement.read', 'self') },
-      /* Audit files (SA 230): one per client × FY × type, plus the firm's UDIN register. */
-      { to: '/workstation/audits',      label: 'Audits',     icon: ClipboardCheck, visible: can(role, 'workstation.audit.read', 'self'),
-        children: [{ to: '/workstation/audits/udins', label: 'UDIN register' }] },
-      { to: '/workstation/doc',         label: 'Format',     icon: FileText,      visible: can(role, 'workstation.doc.read', 'self') },
-      { to: '/workstation/leads',       label: 'Leads',      icon: PhoneCall,     visible: can(role, 'workstation.lead.read', 'self') },
-      { to: '/workstation/clients',     label: 'Clients',    icon: Handshake,     visible: can(role, 'workstation.client.read', 'self'), badge: clientCount },
-      { to: '/workstation/follow-ups',  label: 'Follow-ups', icon: Clock,         visible: can(role, 'workstation.followup.read', 'self') },
-      { to: '/workstation/calendar',    label: 'Calendar',   icon: CalendarDays,  visible: can(role, 'workstation.followup.read', 'self') },
-      { to: '/workstation/compliance',  label: 'Compliance', icon: CalendarClock, visible: can(role, 'workstation.compliance.read', 'self') },
-      { to: '/workstation/notices',     label: 'Notices',    icon: FileWarning,   visible: can(role, 'workstation.notice.read', 'self') || can(role, 'workstation.notice.manage', 'self') },
-      { to: '/workstation/dsc',         label: 'DSC register', icon: KeyRound,    visible: can(role, 'workstation.dsc.read', 'self') || can(role, 'workstation.dsc.manage', 'self') },
-      { to: '/workstation/tds-recon',   label: '26AS reconciliation', icon: GitCompareArrows, visible: can(role, 'workstation.service.read', 'self') || can(role, 'tools.audit_automation.access', 'self') },
-      { to: '/workstation/services',    label: 'Services',   icon: Briefcase,     end: true, visible: can(role, 'workstation.service.read', 'self'),
-        children: [
-          { to: '/workstation/services/tds',           label: 'TDS' },
-          /* BOOKKEEPING-REBUILD §7 renames "Bookkeeping" (the
-             accounting engine) to "Books". */
-          { to: '/workstation/services/bookkeeping',   label: 'Books' },
-          { to: '/workstation/services/tally-export',  label: 'Tally Export' },
-          { to: '/workstation/services/registration',  label: 'Registration',
-            children: REGISTRATION_SERVICES.map((r) => ({
-              to: `/workstation/services/registration/${r.slug}`,
-              label: r.name,
-            })) },
-        ] },
-      { to: '/workstation/tasks',       label: 'Task',       icon: ListChecks,    visible: can(role, 'workstation.task.read', 'self') },
-      { to: '/workstation/documents',   label: 'Documents',  icon: FolderKanban,  visible: can(role, 'workstation.document.read', 'self') },
-    ];
-    // TOOLS is one labelled section — a sibling of Workstation — holding
-    // three tool modules as siblings inside it: Tools (converters), Repotic
-    // (bank / GST / TDS pipelines) and Books (Zoho Books integration). The
-    // native double-entry accounting engine (formerly "Tally") moved to
-    // Services → Bookkeeping and is not a Tools row any more.
-    const toolsItems: NavItem[] = [
-      { to: '/tools', label: 'Tools', icon: Wrench,
-        visible: can(role, 'tools.access', 'self') },
-      { to: '/audit-automation', label: 'Repotic', icon: Landmark,
-        visible: can(role, 'tools.audit_automation.access', 'self') },
-      { to: '/books', label: 'Books', icon: Wallet,
-        visible: can(role, 'books.access', 'organisation') },
-    ];
-    // INTEGRATIONS — third-party services the firm connects to (Zoho
-    // Payments today; Books/Tally/banking as they land). Sibling of
-    // Tools, not nested inside HRMS: this is firm-level infrastructure,
-    // not an HR concern.
-    const integrationsItems: NavItem[] = [
-      { to: '/integrations/zoho-payments', label: 'Zoho Payments', icon: Plug,
-        visible: can(role, 'integrations.access', 'organisation') },
-      { to: '/integrations/ai-provider', label: 'AI provider', icon: Plug,
-        visible: can(role, 'integrations.access', 'organisation') },
-    ];
-    return [
-      { label: null, items: [{ to: '/', label: 'Dashboard', icon: Home, end: true, visible: true, badge: pendingCount || undefined, hot: true }] },
-      { label: 'HRMS', items: auditItems.filter((i) => i.visible) },
-      { label: 'WORKSTATION', items: workstationItems.filter((i) => i.visible) },
-      { label: 'TOOLS', items: toolsItems.filter((i) => i.visible) },
-      { label: 'INTEGRATIONS', items: integrationsItems.filter((i) => i.visible) },
-    ].filter((g) => g.items.length > 0);
-  }, [role, pendingCount, clientCount]);
+  const nav = useMemo(() => buildNav(role, session, { pendingCount, clientCount }), [role, session, pendingCount, clientCount]);
 
   const [collapsed, setCollapsed] = useState<boolean>(() => {
     if (typeof localStorage === 'undefined') return false;

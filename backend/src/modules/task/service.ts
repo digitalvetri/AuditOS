@@ -43,6 +43,26 @@ export interface TaskFilters {
   offset?: number
 }
 
+/**
+ * An audit file may be linked only when it is alive and belongs to the same
+ * client as the task (the task's own client, or its project's client).
+ */
+async function assertAuditFileForClient(auditEngagementId: string, clientId: string | null) {
+  const a = await prisma.auditEngagement.findFirst({ where: { id: auditEngagementId, ...alive }, select: { clientId: true } })
+  if (!a) throw ApiError.badRequest('That audit file does not exist.', { audit_engagement_id: 'Not found.' })
+  if (!clientId) throw ApiError.badRequest('Choose the client before linking an audit file.', { audit_engagement_id: 'Choose the client first.' })
+  if (a.clientId !== clientId) {
+    throw ApiError.badRequest('That audit file belongs to a different client.', { audit_engagement_id: 'Different client.' })
+  }
+}
+
+async function taskClientOf(clientId: string | null | undefined, clientServiceId: string | null | undefined): Promise<string | null> {
+  if (clientId) return clientId
+  if (!clientServiceId) return null
+  const cs = await prisma.clientService.findFirst({ where: { id: clientServiceId }, select: { clientId: true } })
+  return cs?.clientId ?? null
+}
+
 const PRIORITY_RANK: Record<string, number> = { urgent: 0, high: 1, medium: 2, low: 3 }
 
 /**
@@ -87,6 +107,8 @@ export interface TaskApi {
   client_name: string | null
   project_id: string | null
   project_name: string | null
+  /** Audit file this task's time counts toward (null when none). */
+  audit_engagement_id: string | null
   due_date: string | null
   estimated_minutes: number | null
   actual_minutes: number
@@ -134,6 +156,7 @@ export function taskToApi(row: TaskRow, now = new Date()): TaskApi {
     client_name: row.client?.companyName ?? null,
     project_id: row.clientServiceId,
     project_name: row.clientService?.service.name ?? null,
+    audit_engagement_id: row.auditEngagementId ?? null,
     due_date: row.dueDate,
     estimated_minutes: row.estimatedMinutes,
     actual_minutes: live.actualMinutes,
@@ -290,6 +313,7 @@ export const TaskService = {
     dueDate: string
     clientId?: string | null
     clientServiceId?: string | null
+    auditEngagementId?: string | null
     /**
      * Two-way link to the GST return-cycle case (schema commit 070a81d).
      * Set by the GST period seed generator (§4) so completing the case's
@@ -321,6 +345,9 @@ export const TaskService = {
         throw ApiError.badRequest('That project belongs to a different client.')
       }
     }
+    if (input.auditEngagementId) {
+      await assertAuditFileForClient(input.auditEngagementId, await taskClientOf(input.clientId, input.clientServiceId))
+    }
 
     const created = await prisma.$transaction(async (tx) => {
       const task = await tx.task.create({
@@ -334,6 +361,7 @@ export const TaskService = {
           dueDate: input.dueDate,
           clientId: input.clientId || null,
           clientServiceId: input.clientServiceId || null,
+          auditEngagementId: input.auditEngagementId || null,
           partnershipCaseId: input.partnershipCaseId || null,
           estimatedMinutes: input.estimatedMinutes ?? null,
           notes: input.notes?.trim() || null,
@@ -377,6 +405,7 @@ export const TaskService = {
     dueDate?: string
     clientId?: string | null
     clientServiceId?: string | null
+    auditEngagementId?: string | null
     estimatedMinutes?: number | null
     notes?: string | null
   }) {
@@ -398,6 +427,15 @@ export const TaskService = {
     if (patch.clientServiceId !== undefined) data.clientServiceId = patch.clientServiceId || null
     if (patch.estimatedMinutes !== undefined) data.estimatedMinutes = patch.estimatedMinutes
     if (patch.notes !== undefined) data.notes = patch.notes?.trim() || null
+    // The audit link must stay with the task's client — re-checked whenever
+    // the link or the client changes.
+    const nextAudit = patch.auditEngagementId !== undefined ? (patch.auditEngagementId || null) : existing.auditEngagementId
+    if (patch.auditEngagementId !== undefined) data.auditEngagementId = nextAudit
+    if (nextAudit && (patch.auditEngagementId !== undefined || patch.clientId !== undefined || patch.clientServiceId !== undefined)) {
+      const clientId = patch.clientId !== undefined ? patch.clientId : existing.clientId
+      const csId = patch.clientServiceId !== undefined ? patch.clientServiceId : existing.clientServiceId
+      await assertAuditFileForClient(nextAudit, await taskClientOf(clientId, csId))
+    }
 
     await prisma.$transaction(async (tx) => {
       await tx.task.update({ where: { id: taskId }, data })

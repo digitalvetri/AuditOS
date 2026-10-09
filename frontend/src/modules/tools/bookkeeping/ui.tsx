@@ -1,3 +1,4 @@
+import { formatRupeeAmount } from '@/lib/format';
 import { createContext, useContext, useMemo, type ReactNode } from 'react';
 import { useSearchParams, Link } from 'react-router-dom';
 import { Download, Printer } from 'lucide-react';
@@ -16,7 +17,7 @@ import type { BookkeepingFinancialYear } from '@/modules/tools/audit-automation/
 /** Paise → Indian-format rupee string, no symbol. */
 export function rupees(paise: number, opts: { decimals?: boolean } = {}): string {
   const d = opts.decimals === false ? 0 : 2;
-  return (Math.abs(paise) / 100).toLocaleString('en-IN', { minimumFractionDigits: d, maximumFractionDigits: d });
+  return formatRupeeAmount(Math.abs(paise) / 100, { min: d, max: d });
 }
 
 export function qty(milli: number): string {

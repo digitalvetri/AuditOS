@@ -7,7 +7,7 @@
  */
 import { useSearchParams } from 'react-router-dom';
 import {
-  BadgePercent, Building2, CalendarDays, CalendarRange, KeyRound, Receipt, Users,
+  BadgePercent, Building2, CalendarDays, CalendarRange, KeyRound, Receipt, ShieldCheck, Users,
 } from 'lucide-react';
 import { useAuth } from '@/platform/auth/AuthContext';
 import { can } from '@/platform/rbac/can';
@@ -17,6 +17,7 @@ import { ExpenseCategoriesSection } from '@/modules/settings/ExpenseCategoriesSe
 import { StatutoryRatesSection } from '@/modules/settings/StatutoryRatesSection';
 import { RolesSection } from '@/modules/settings/RolesSection';
 import { UsersSection } from '@/modules/settings/UsersSection';
+import { DataProtectionSection } from '@/modules/settings/DataProtectionSection';
 
 type Section =
   | 'holidays'
@@ -24,7 +25,8 @@ type Section =
   | 'expense-categories'
   | 'statutory-rates'
   | 'users'
-  | 'roles';
+  | 'roles'
+  | 'data-protection';
 
 /** Each group's tint for the menu's icon squares (the dashboard palette). */
 const GROUP_TINT: Record<string, { bg: string; fg: string }> = {
@@ -41,6 +43,7 @@ const SECTIONS: { id: Section; label: string; group: string; icon: typeof Buildi
   { id: 'statutory-rates', label: 'Statutory rates', group: 'Finance', icon: BadgePercent },
   { id: 'users', label: 'Users', group: 'Access', icon: Users },
   { id: 'roles', label: 'Roles & permissions', group: 'Access', icon: KeyRound },
+  { id: 'data-protection', label: 'Data protection', group: 'Access', icon: ShieldCheck },
 ];
 
 export function SettingsPage() {
@@ -66,7 +69,8 @@ export function SettingsPage() {
   const setSection = (s: Section) => setParams({ section: s });
   // Users is account administration: Super Admin and Admin only.
   const isAdmin = session?.role.code === 'md' || session?.role.code === 'hr_admin';
-  const sections = SECTIONS.filter((s) => s.id !== 'users' || isAdmin);
+  // Users and Data protection are account administration: Admins only.
+  const sections = SECTIONS.filter((s) => (s.id !== 'users' && s.id !== 'data-protection') || isAdmin);
   const groups = Array.from(new Set(sections.map((s) => s.group)));
 
   return (
@@ -137,6 +141,7 @@ export function SettingsPage() {
           {section === 'statutory-rates' ? <StatutoryRatesSection /> : null}
           {section === 'users' && isAdmin ? <UsersSection /> : null}
           {section === 'roles' ? <RolesSection /> : null}
+          {section === 'data-protection' && isAdmin ? <DataProtectionSection /> : null}
         </main>
       </div>
     </div>

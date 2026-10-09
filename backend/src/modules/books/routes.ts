@@ -29,6 +29,7 @@ import { toApiError, zohoRequest, ZohoBooksError, type ZohoContext } from './cli
 import { addConfiguredConnection, beginConnect, completeConnect, connectWithCode, disconnect, refreshOrganizations } from './connection.js'
 import { ENTITIES, isZohoId, type EntityDef } from './entities.js'
 import { computeDashboard, REPORTS, runReport, istDate } from './insights.js'
+import { scanUploads } from '../../platform/virusScan.js'
 
 export const booksRouter = Router()
 export const booksCallbackRouter = Router()
@@ -674,7 +675,8 @@ const receiptIn: RequestHandler = (req, res, next) => {
     if (err instanceof multer.MulterError) {
       return next(err.code === 'LIMIT_FILE_SIZE' ? new ApiError(413, 'file_too_large', 'Receipts can be up to 10 MB.') : ApiError.badRequest('Attach one receipt file.'))
     }
-    next(err)
+    if (err) return next(err)
+    scanUploads(req, res, next)
   })
 }
 // Documents: upload a file to the organisation's Zoho Books Documents. Verified
@@ -687,7 +689,8 @@ const documentIn: RequestHandler = (req, res, next) => {
     if (err instanceof multer.MulterError) {
       return next(err.code === 'LIMIT_FILE_SIZE' ? new ApiError(413, 'file_too_large', 'Documents can be up to 10 MB.') : ApiError.badRequest('Attach one file.'))
     }
-    next(err)
+    if (err) return next(err)
+    scanUploads(req, res, next)
   })
 }
 orgRouter.post('/documents/upload', documentIn, h(async (req, res) => {

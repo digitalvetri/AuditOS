@@ -3,7 +3,7 @@ import { prisma, alive } from '../../lib/prisma.js'
 import { handler, ok } from '../../lib/http.js'
 import { requireSession } from '../../platform/auth.js'
 import {
-  clientIdWhere, clientScopeWhere, followUpScopeWhere, leadScopeWhere, requireWorkstation,
+  clientIdWhere, clientScopeWhere, followUpScopeWhere, leadScopeWhere, requireWorkstation, workstationScope,
 } from '../../platform/workstation/scope.js'
 import {
   clientDocumentToApi, clientServiceToApi, clientToApi, employeeMap, followUpToApi, leadToApi,
@@ -203,14 +203,51 @@ workstationRouter.get('/search', handler(async (req, res) => {
     ...documents.flatMap((r) => [r.requestedByEmployeeId, r.verifiedByEmployeeId]),
   ])
 
+  // Invoice numbers, quotation codes and audit codes — each only for a
+  // caller who may read that register, and only on clients they may see.
+  const like = { contains: q, mode: 'insensitive' as const }
+  const scoped = async (perm: Parameters<typeof workstationScope>[1]) => {
+    const s = workstationScope(session, perm)
+    return s ? clientScopeWhere(session, s) : null
+  }
+  const [invScope, quoScope, audScope] = await Promise.all([
+    scoped('workstation.invoice.read'), scoped('workstation.quotation.read'), scoped('workstation.audit.read'),
+  ])
+  const [invoices, quotations, audits] = await Promise.all([
+    invScope ? prisma.invoice.findMany({
+      where: { ...alive, ...invScope, OR: [{ invoiceNumber: like }, { client: { companyName: like } }] },
+      select: { id: true, invoiceNumber: true, status: true, invoiceDate: true, totalPaise: true, client: { select: { companyName: true } } },
+      orderBy: { createdAt: 'desc' }, take: 5,
+    }) : [],
+    quoScope ? prisma.quotation.findMany({
+      where: { ...alive, ...quoScope, quotationCode: like },
+      select: { id: true, quotationCode: true, status: true, quoteDate: true, client: { select: { companyName: true } } },
+      orderBy: { createdAt: 'desc' }, take: 5,
+    }) : [],
+    audScope ? prisma.auditEngagement.findMany({
+      where: { ...alive, ...audScope, OR: [{ auditCode: like }, { title: like }] },
+      select: { id: true, auditCode: true, title: true, financialYear: true, status: true, clientId: true },
+      orderBy: { createdAt: 'desc' }, take: 5,
+    }) : [],
+  ])
+
+  // Audit files carry no client relation; name them in one lookup.
+  const auditClients = new Map((audits.length
+    ? await prisma.client.findMany({ where: { id: { in: audits.map((a) => a.clientId) } }, select: { id: true, companyName: true } })
+    : []).map((c) => [c.id, c.companyName]))
+
   ok(res, {
     query: q,
+    invoices: invoices.map((r) => ({ id: r.id, invoice_number: r.invoiceNumber, status: r.status, invoice_date: r.invoiceDate, total_paise: r.totalPaise, client_name: r.client?.companyName ?? null })),
+    quotations: quotations.map((r) => ({ id: r.id, quotation_code: r.quotationCode, status: r.status, quote_date: r.quoteDate, client_name: r.client?.companyName ?? null })),
+    audits: audits.map((r) => ({ id: r.id, audit_code: r.auditCode, title: r.title, financial_year: r.financialYear, status: r.status, client_name: auditClients.get(r.clientId) ?? null })),
     leads: leads.map((r) => leadToApi(r, m)),
     clients: clients.map((r) => clientToApi(r, m)),
     services: services.map((r) => clientServiceToApi(r, m)),
     follow_ups: followUps.map((r) => followUpToApi(r, m)),
     documents: documents.map((r) => clientDocumentToApi(r, m)),
-    total: leads.length + clients.length + services.length + followUps.length + documents.length,
+    total: leads.length + clients.length + services.length + followUps.length + documents.length
+      + invoices.length + quotations.length + audits.length,
   })
 }))
 

@@ -1,3 +1,4 @@
+import { formatRupeeAmount } from '@/lib/format';
 /**
  * The ENGAGEMENT LETTER document model.
  *
@@ -330,7 +331,7 @@ export function fill(text: string, vars: Record<string, string>): string {
 }
 
 export const rupees = (paise: number): string =>
-  `Rs. ${(paise / 100).toLocaleString('en-IN', { minimumFractionDigits: 0, maximumFractionDigits: 2 })}`;
+  `Rs. ${formatRupeeAmount(paise / 100, { min: 0, max: 2 })}`;
 
 // ── Lines ─────────────────────────────────────────────────────────────────
 

@@ -448,8 +448,8 @@ function UpcomingRemindersPanel({ period }: { period: string }) {
 
 /**
  * Send modal — pre-fills subject + body from the backend template, and
- * uses the client record's email as the recipient default. The operator
- * can override any field before sending. On success the modal closes with
+ * offers only the client's addresses on record as the recipient (the
+ * client's email by default). Subject and body can be edited before sending. On success the modal closes with
  * a lightweight success note; on failure (SMTP missing, bad address,
  * network) the error renders inline so nothing is silently dropped.
  */
@@ -465,10 +465,15 @@ function SendReminderModal({ row, onClose }: { row: UpcomingReminderRow; onClose
   const [body, setBody] = useState('');
   const [sent, setSent] = useState<{ to: string; at: string } | null>(null);
 
+  const addresses = useMemo(() => {
+    const list = tpl.data?.addresses ?? (tpl.data?.to ? [tpl.data.to] : []);
+    return Array.from(new Set(list));
+  }, [tpl.data]);
+
   // Pre-fill once the template loads.
   useMemo(() => {
     if (tpl.data) {
-      setTo((prev) => prev || tpl.data!.to || '');
+      setTo((prev) => prev || tpl.data!.to || addresses[0] || '');
       setSubject((prev) => prev || tpl.data!.subject || '');
       setBody((prev) => prev || tpl.data!.body || '');
     }
@@ -509,9 +514,14 @@ function SendReminderModal({ row, onClose }: { row: UpcomingReminderRow; onClose
             <div className="flex-1 overflow-y-auto p-4 space-y-3">
               <label className="block text-11 text-neutral-500">
                 To
-                <input value={to} onChange={(e) => setTo(e.target.value)} type="email" placeholder="client@example.com"
-                  className="mt-1 h-8 w-full px-2 text-12 border border-neutral-300 rounded focus:outline-none focus:border-neutral-500" />
-                {!row.client_email ? <span className="text-11 text-amber-600 block mt-1">No email on the client record — enter one to send.</span> : null}
+                {/* Only an address on record for this client (client, GST contact
+                    or client contact) — the server refuses any other. */}
+                <select value={to} onChange={(e) => setTo(e.target.value)} disabled={addresses.length === 0}
+                  className="mt-1 h-8 w-full px-2 text-12 border border-neutral-300 rounded bg-white focus:outline-none focus:border-neutral-500">
+                  {addresses.length === 0 ? <option value="">No email on record</option> : null}
+                  {addresses.map((a) => <option key={a} value={a}>{a}</option>)}
+                </select>
+                {addresses.length === 0 ? <span className="text-11 text-amber-600 block mt-1">This client has no email address on record. Add one to the client (or a client contact) before sending reminders.</span> : null}
               </label>
               <label className="block text-11 text-neutral-500">
                 Subject
@@ -528,7 +538,7 @@ function SendReminderModal({ row, onClose }: { row: UpcomingReminderRow; onClose
             <div className="px-4 py-3 border-t border-neutral-200 flex justify-end gap-2">
               <button type="button" onClick={onClose} className="h-8 px-3 text-12 border border-neutral-300 rounded">Cancel</button>
               <button type="button" onClick={() => send.mutate()}
-                disabled={!to.trim() || !subject.trim() || !body.trim() || send.isPending}
+                disabled={!to.trim() || !addresses.includes(to) || !subject.trim() || !body.trim() || send.isPending}
                 className="h-8 px-3 text-12 bg-neutral-900 text-white rounded disabled:opacity-60 inline-flex items-center gap-1">
                 <Mail size={11} strokeWidth={2} /> {send.isPending ? 'Sending…' : 'Send'}
               </button>

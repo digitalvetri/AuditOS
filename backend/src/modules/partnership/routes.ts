@@ -26,6 +26,7 @@ import {
 } from './storage.js'
 import { ensurePostRegistrationCompliances, hasCompliance, rulesFor } from './compliance.js'
 import { setUploadedFileHeaders } from '../../lib/fileResponse.js'
+import { scanUploads } from '../../platform/virusScan.js'
 
 /**
  * PARTNERSHIP FIRM REGISTRATION — Workstation → Services → Registration.
@@ -1116,7 +1117,7 @@ partnershipRouter.delete('/cases/:id/items/:itemId', handler(async (req, res) =>
 partnershipRouter.post('/cases/:id/documents',
   (req, res, next) => {
     upload.single('file')(req, res, (err: unknown) => {
-      if (!err) return next()
+      if (!err) return scanUploads(req, res, next)
       if ((err as { code?: string }).code === 'LIMIT_FILE_SIZE') {
         return next(ApiError.unprocessable('too_large', `File is larger than the ${MAX_UPLOAD_MB} MB limit.`))
       }

@@ -12,6 +12,7 @@ import type { Scope } from '../platform/rbac/matrix.js'
 import { sanitizeFilename } from './tools/lib/files.js'
 import { checkEmployeeDocument, employeeDocKey, employeeDocStorage, MAX_EMPLOYEE_DOC_MB } from './documents.storage.js'
 import { USER_LABEL_SELECT, userLabel } from '../platform/userLabel.js'
+import { scanUploads } from '../platform/virusScan.js'
 
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: MAX_EMPLOYEE_DOC_MB * 1024 * 1024, files: 1 } })
 
@@ -112,7 +113,7 @@ documentsRouter.get('/', handler(async (req, res) => {
 // POST /api/documents — multipart: the file on `file`, plus name / type / employee_id / expiry_date.
 documentsRouter.post('/', (req, res, next) => {
   upload.single('file')(req, res, (err: unknown) => {
-    if (!err) return next()
+    if (!err) return scanUploads(req, res, next)
     if ((err as { code?: string }).code === 'LIMIT_FILE_SIZE') {
       return next(ApiError.unprocessable('too_large', `The file is larger than ${MAX_EMPLOYEE_DOC_MB} MB.`))
     }

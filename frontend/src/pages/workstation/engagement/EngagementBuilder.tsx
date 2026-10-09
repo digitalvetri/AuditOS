@@ -5,6 +5,7 @@ import {
   ArrowDown, ArrowUp, FileText, LayoutTemplate, Minus, MoveVertical, Pencil, Plus, Printer, Redo2, Save, Trash2, Undo2,
 } from 'lucide-react';
 import { RecordLoadGate, inputClass } from '@/modules/workstation/components';
+import { useUnsavedChangesGuard } from '@/lib/useUnsavedChanges';
 import { workstationApi } from '@/modules/workstation/api';
 import {
   SPACE_MAX_PX, SPACE_MIN_PX, SPACE_STEP_PX, clampSpace, pageGeometry,
@@ -516,6 +517,7 @@ export function EngagementBuilderPage() {
       queryClient.setQueryData(['engagement.get', l.id], l);
       // Saving does not reload the editor: what is on screen IS what was saved.
       setLoadedId(l.id);
+      unsaved.markSaved();
       if (!isEdit) navigate(`/workstation/engagement/${l.id}/edit`, { replace: true });
     },
     onError: (e) => setError((e as { message?: string })?.message ?? 'That could not be saved.'),
@@ -553,6 +555,8 @@ export function EngagementBuilderPage() {
   const frozen = isEdit && existingQ.data ? !existingQ.data.is_editable : false;
   const liveEdit = frozen ? undefined : edit;
   const vars = varsOf(doc);
+  // Warn before leaving with unsaved edits (not on a sent, read-only letter).
+  const unsaved = useUnsavedChangesGuard(ready && !frozen ? s : null, { ready });
 
   // Loading / failed / not yet in state: no editor, so nothing can be saved.
   if (!ready) return <RecordLoadGate query={existingQ} />;

@@ -18,7 +18,7 @@ import { forwardRef, useEffect, useImperativeHandle, useMemo, useRef, useState }
 import { useNavigate } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import {
-  ArrowRight, CalendarClock, FileSignature, FileText, Handshake, IndianRupee, LayoutGrid, PhoneCall, Plane, Plus, Receipt,
+  ArrowRight, CalendarClock, ClipboardCheck, FileSignature, FileText, Handshake, IndianRupee, LayoutGrid, PhoneCall, Plane, Plus, Receipt,
   ReceiptText, ScrollText, Search, UserPlus, Users, Wrench, type LucideIcon,
 } from 'lucide-react';
 import { Avatar } from '@/components/viz';
@@ -27,6 +27,8 @@ import { can } from '@/platform/rbac/can';
 import { employeeApi, isFullEmployee } from '@/modules/employees/api';
 import { workstationApi } from '@/modules/workstation/api';
 import { searchTools, TOOLS } from '@/modules/tools/registry';
+import { formatPaise } from '@/lib/format';
+import { buildNav } from './Sidebar';
 
 export interface GlobalSearchHandle { focus: () => void }
 
@@ -83,49 +85,17 @@ export const GlobalSearch = forwardRef<GlobalSearchHandle>(function GlobalSearch
     staleTime: 30_000,
   });
 
+  // Pages: built from the Sidebar's own nav (buildNav), so search and the
+  // rail can never disagree about where things are or who may see them.
+  const destinations = useMemo(() => searchDestinations(role, session), [role, session]);
   const pages = useMemo<Hit[]>(() => {
-    const all: { label: string; to: string; visible: boolean; hint: string }[] = [
-      { label: 'Dashboard', to: '/', visible: true, hint: 'Home' },
-      { label: 'Employees', to: '/hrms/employees', visible: can(role, 'employee.read', 'department'), hint: 'HRMS' },
-      { label: 'Attendance', to: '/hrms/attendance', visible: can(role, 'attendance.read', 'self'), hint: 'HRMS' },
-      { label: 'Leave', to: '/hrms/leave', visible: can(role, 'leave.read', 'self'), hint: 'HRMS' },
-      { label: 'Payroll', to: '/hrms/accounts/payroll', visible: can(role, 'payroll.view.own', 'self') || can(role, 'payroll.view', 'organisation'), hint: 'HRMS · Accounts' },
-      { label: 'Expenses', to: '/hrms/accounts/expenses', visible: can(role, 'expense.submit', 'self') || can(role, 'expense.approve', 'department'), hint: 'HRMS · Accounts' },
-      { label: 'Accounts', to: '/hrms/accounts', visible: can(role, 'accounts.read', 'organisation') || can(role, 'accounts.manage', 'organisation'), hint: 'HRMS' },
-      { label: 'Messages', to: '/hrms/messages', visible: can(role, 'chat.participate', 'organisation') && Boolean(session?.employee), hint: 'HRMS' },
-      { label: 'Employee Data', to: '/hrms/documents', visible: can(role, 'document.read', 'self'), hint: 'HRMS' },
-      { label: 'Payment summary', to: '/hrms/payment-summary', visible: can(role, 'payment_summary.read', 'organisation'), hint: 'HRMS' },
-      { label: 'Reports', to: '/hrms/reports', visible: can(role, 'reports.hr', 'department') || can(role, 'reports.finance', 'organisation') || can(role, 'reports.all', 'organisation'), hint: 'HRMS' },
-      { label: 'Settings', to: '/hrms/settings', visible: can(role, 'settings.manage', 'organisation'), hint: 'HRMS' },
-      { label: 'Workstation overview', to: '/workstation', visible: canWorkstation, hint: 'Workstation' },
-      { label: 'Leads', to: '/workstation/leads', visible: can(role, 'workstation.lead.read', 'self'), hint: 'Workstation' },
-      { label: 'Clients', to: '/workstation/clients', visible: can(role, 'workstation.client.read', 'self'), hint: 'Workstation' },
-      { label: 'Follow-ups', to: '/workstation/follow-ups', visible: can(role, 'workstation.followup.read', 'self'), hint: 'Workstation' },
-      { label: 'Services', to: '/workstation/services', visible: can(role, 'workstation.service.read', 'self'), hint: 'Workstation' },
-      { label: 'Client documents', to: '/workstation/documents', visible: can(role, 'workstation.document.read', 'self'), hint: 'Workstation' },
-      { label: 'Invoices', to: '/workstation/invoices', visible: can(role, 'workstation.invoice.read', 'self'), hint: 'Workstation' },
-      { label: 'Quotations', to: '/workstation/quotations', visible: can(role, 'workstation.quotation.read', 'self'), hint: 'Workstation' },
-      { label: 'Engagement letters', to: '/workstation/engagement', visible: can(role, 'workstation.engagement.read', 'self'), hint: 'Workstation' },
-      { label: 'Audits', to: '/workstation/audits', visible: can(role, 'workstation.audit.read', 'self'), hint: 'Workstation' },
-      { label: 'UDIN register', to: '/workstation/audits/udins', visible: can(role, 'workstation.audit.read', 'self'), hint: 'Workstation · Audits' },
-      { label: 'Tasks', to: '/workstation/tasks', visible: can(role, 'workstation.task.read', 'self'), hint: 'Workstation' },
-      { label: 'Compliance calendar', to: '/workstation/compliance', visible: can(role, 'workstation.compliance.read', 'self'), hint: 'Workstation · due dates' },
-      { label: 'Notices register', to: '/workstation/notices', visible: can(role, 'workstation.notice.read', 'self') || can(role, 'workstation.notice.manage', 'self'), hint: 'Workstation · income tax, GST, MCA' },
-      { label: 'DSC register', to: '/workstation/dsc', visible: can(role, 'workstation.dsc.read', 'self') || can(role, 'workstation.dsc.manage', 'self'), hint: 'Workstation · digital signatures' },
-      { label: '26AS reconciliation', to: '/workstation/tds-recon', visible: can(role, 'workstation.service.read', 'self') || can(role, 'tools.audit_automation.access', 'self'), hint: 'Workstation · TDS 26AS vs books' },
-      { label: 'Calendar', to: '/workstation/calendar', visible: can(role, 'workstation.followup.read', 'self'), hint: 'Workstation' },
-      { label: 'TDS', to: '/workstation/services/tds', visible: can(role, 'workstation.service.read', 'self'), hint: 'Workstation · Services' },
-      { label: 'Registration', to: '/workstation/services/registration', visible: can(role, 'workstation.service.read', 'self'), hint: 'Workstation · Services' },
-      { label: 'Books', to: '/books', visible: can(role, 'books.access', 'organisation'), hint: 'Tools' },
-      { label: 'Tools & Converters', to: '/tools', visible: canTools, hint: 'Tools' },
-      { label: 'Converted documents', to: '/tools/documents', visible: can(role, 'tools.documents.read', 'self'), hint: 'Tools' },
-      { label: 'Notifications', to: '/notifications', visible: true, hint: 'Platform' },
-      { label: 'My profile', to: '/me/profile', visible: Boolean(session?.employee), hint: 'Me' },
-      { label: 'My payslips', to: '/me/payslips', visible: tracksHr(session), hint: 'Me' },
-    ];
     const needle = q.toLowerCase();
-    return all.filter((p) => p.visible && needle && p.label.toLowerCase().includes(needle)).slice(0, 5).map((p) => ({ group: 'Pages', label: p.label, hint: p.hint, to: p.to, icon: LayoutGrid }));
-  }, [q, role, session, canWorkstation, canTools]);
+    if (!needle) return [];
+    return destinations
+      .filter((p) => p.terms.includes(needle))
+      .slice(0, 6)
+      .map((p) => ({ group: 'Pages', label: p.label, hint: p.hint, to: p.to, icon: LayoutGrid }));
+  }, [q, destinations]);
 
   // Quick actions — links into the existing "new …" forms the role may use.
   const actions = useMemo<Hit[]>(() => [
@@ -169,6 +139,9 @@ export const GlobalSearch = forwardRef<GlobalSearchHandle>(function GlobalSearch
       if (top && can(role, 'workstation.invoice.read', 'self')) {
         out.push({ group: 'Client actions', label: `Open invoices for ${top.company_name}`, hint: 'The client’s invoices', to: `/workstation/clients/${top.id}/invoices`, icon: IndianRupee });
       }
+      for (const i of (ws.invoices ?? []).slice(0, 4)) out.push({ group: 'Invoices', label: i.invoice_number ?? 'Draft invoice', hint: [i.client_name, formatPaise(i.total_paise), i.status.replace(/_/g, ' ')].filter(Boolean).join(' · '), to: `/workstation/invoices/${i.id}`, icon: ReceiptText });
+      for (const x of (ws.quotations ?? []).slice(0, 4)) out.push({ group: 'Quotations', label: x.quotation_code, hint: [x.client_name, x.status.replace(/_/g, ' ')].filter(Boolean).join(' · '), to: `/workstation/quotations/${x.id}`, icon: FileSignature });
+      for (const a of (ws.audits ?? []).slice(0, 4)) out.push({ group: 'Audits', label: `${a.audit_code} · ${a.title}`, hint: [a.client_name, `FY ${a.financial_year}`].filter(Boolean).join(' · '), to: `/workstation/audits/${a.id}`, icon: ClipboardCheck });
       for (const l of ws.leads.slice(0, 4)) out.push({ group: 'Leads', label: l.name, hint: `${l.lead_id}${l.service_name ? ` · ${l.service_name}` : ''}`, to: `/workstation/leads/${l.id}`, icon: PhoneCall });
       for (const s of ws.services.slice(0, 3)) out.push({ group: 'Services', label: s.service_name ?? 'Service', hint: s.client_name ?? undefined, to: `/workstation/clients/${s.client_id}/services`, icon: LayoutGrid });
       for (const f of ws.follow_ups.slice(0, 3)) out.push({ group: 'Follow-ups', label: f.title, hint: [f.subject_name, new Date(f.scheduled_at).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })].filter(Boolean).join(' · '), to: '/workstation/follow-ups', icon: CalendarClock });
@@ -284,3 +257,59 @@ export const GlobalSearch = forwardRef<GlobalSearchHandle>(function GlobalSearch
     </div>
   );
 });
+
+
+// ── Destinations ──────────────────────────────────────────────────────────
+
+const MODULE_HINT: Record<string, string> = { HRMS: 'HRMS', WORKSTATION: 'Workstation', TOOLS: 'Tools', INTEGRATIONS: 'Integrations' };
+/** Friendlier names (and extra words) for rail labels that are terse. Keyed by path. */
+const SEARCH_ALIAS: Record<string, { label?: string; also?: string }> = {
+  '/workstation': { label: 'Workstation overview' },
+  '/workstation/quotations': { label: 'Quotations' },
+  '/workstation/invoices': { label: 'Invoices', also: 'billing' },
+  '/workstation/engagement': { label: 'Engagement letters' },
+  '/workstation/tasks': { label: 'Tasks' },
+  '/workstation/documents': { label: 'Client documents' },
+  '/workstation/compliance': { label: 'Compliance calendar', also: 'due dates returns' },
+  '/workstation/notices': { label: 'Notices register', also: 'income tax gst mca' },
+  '/workstation/doc': { label: 'Formats', also: 'documents templates' },
+  '/workstation/tds-recon': { also: 'tds 26as' },
+  '/workstation/dsc': { also: 'digital signature' },
+  '/audit-automation': { also: 'bank gst tds automation' },
+};
+
+export interface Destination { label: string; to: string; hint: string; terms: string }
+
+/**
+ * Every page the caller can reach: the Sidebar's rows (items, children,
+ * leaves) plus the few places that live outside the rail.
+ */
+export function searchDestinations(role: Parameters<typeof can>[0], session: ReturnType<typeof useAuth>['session']): Destination[] {
+  const out: Destination[] = [];
+  const add = (to: string, label: string, hint: string) => {
+    const alias = SEARCH_ALIAS[to];
+    const name = alias?.label ?? label;
+    if (out.some((d) => d.to === to)) return;
+    out.push({ label: name, to, hint, terms: `${name} ${label} ${alias?.also ?? ''} ${hint}`.toLowerCase() });
+  };
+  for (const g of buildNav(role, session)) {
+    const module = g.label ? MODULE_HINT[g.label] ?? g.label : 'Home';
+    for (const it of g.items) {
+      add(it.to, it.label, module);
+      for (const c of it.children ?? []) {
+        add(c.to, c.label, `${module} · ${it.label}`);
+        for (const l of c.children ?? []) add(l.to, l.label, `${module} · ${c.label}`);
+      }
+    }
+  }
+  // Not rows of their own on the rail.
+  const extras: { label: string; to: string; hint: string; visible: boolean }[] = [
+    { label: 'Payroll', to: '/hrms/accounts/payroll', hint: 'HRMS · Accounts', visible: can(role, 'payroll.view.own', 'self') || can(role, 'payroll.view', 'organisation') },
+    { label: 'Expenses', to: '/hrms/accounts/expenses', hint: 'HRMS · Accounts', visible: can(role, 'expense.submit', 'self') || can(role, 'expense.approve', 'department') },
+    { label: 'Notifications', to: '/notifications', hint: 'Platform', visible: true },
+    { label: 'My profile', to: '/me/profile', hint: 'Me', visible: Boolean(session?.employee) },
+    { label: 'My payslips', to: '/me/payslips', hint: 'Me', visible: tracksHr(session) },
+  ];
+  for (const e of extras) if (e.visible) add(e.to, e.label, e.hint);
+  return out;
+}

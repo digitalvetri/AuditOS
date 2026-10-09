@@ -139,6 +139,7 @@ export function clientToApi(c: Client & { parentClient?: OrganizationRef | null 
     gstin: c.gstin,
     pan: c.pan,
     tan: c.tan,
+    cin: c.cin ?? null,
     account_manager_id: c.accountManagerId,
     account_manager: ref(m, c.accountManagerId),
     /* Second staff: sees and works the client too, and covers for the
@@ -148,6 +149,7 @@ export function clientToApi(c: Client & { parentClient?: OrganizationRef | null 
     assigned_team: c.assignedTeam,
     status: c.status,
     onboarding_date: c.onboardingDate,
+    exit_date: c.exitDate ?? null,
     notes: c.notes,
     source_lead_id: c.sourceLeadId,
     /* An organization is a client that other clients sit under. A child's

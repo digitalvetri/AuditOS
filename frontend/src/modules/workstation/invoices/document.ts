@@ -1,3 +1,4 @@
+import { formatPaiseExact } from '@/lib/format';
 import {
   DEFAULT_COMPANY, DEFAULT_LAYOUT, MARGIN_MM, PAGE_MM,
   type CompanyInfo, type LayoutConfig,
@@ -272,18 +273,9 @@ export function computeTotals(
 
 // ── Currency and words ────────────────────────────────────────────────────
 
-/** Indian grouping: 12,34,567.00 — never 1,234,567.00 (§44). */
+/** Indian grouping: 12,34,567.00 — never 1,234,567.00 (§44). One implementation: @/lib/format. */
 export function inrAmount(paise: number): string {
-  const neg = paise < 0;
-  const n = Math.abs(paise);
-  const whole = Math.floor(n / 100);
-  const frac = String(n % 100).padStart(2, '0');
-  const s = String(whole);
-  // Last three digits, then pairs — the Indian lakh/crore grouping.
-  const last3 = s.slice(-3);
-  const rest = s.slice(0, -3);
-  const grouped = rest ? `${rest.replace(/\B(?=(\d{2})+(?!\d))/g, ',')},${last3}` : last3;
-  return `${neg ? '-' : ''}${grouped}.${frac}`;
+  return formatPaiseExact(paise);
 }
 
 const ONES = [

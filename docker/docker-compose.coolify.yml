@@ -81,6 +81,15 @@ x-app-env: &app-env
   RCLONE_CONFIG_OFFSITE_SECRET_ACCESS_KEY: ${RCLONE_CONFIG_OFFSITE_SECRET_ACCESS_KEY:-}
   RCLONE_CONFIG_OFFSITE_ENDPOINT: ${RCLONE_CONFIG_OFFSITE_ENDPOINT:-}
   RCLONE_CONFIG_OFFSITE_REGION: ${RCLONE_CONFIG_OFFSITE_REGION:-}
+  # Optional error reporting (backend/src/lib/errorReport.ts).
+  SENTRY_DSN: ${SENTRY_DSN:-}
+  # Optional virus scanning of every upload (backend/src/platform/virusScan.ts).
+  # Empty CLAMAV_HOST = off. With the clamav service below enabled, set
+  # CLAMAV_HOST=clamav. CLAMAV_REQUIRED=true refuses uploads while the
+  # scanner is down (default: allow them and log a warning).
+  CLAMAV_HOST: ${CLAMAV_HOST:-}
+  CLAMAV_PORT: ${CLAMAV_PORT:-3310}
+  CLAMAV_REQUIRED: ${CLAMAV_REQUIRED:-false}
 
 services:
   # One-shot: widens money columns, syncs the schema, seeds reference data,
@@ -138,5 +147,20 @@ services:
       - auditos-uploads:/uploads:ro
       - /data/auditos/backups:/backups
 
+  # OPTIONAL virus scanner (ClamAV daemon). OFF by default: clamd keeps its
+  # signature database in memory and needs ~1 GB RAM (more while it reloads
+  # signatures), which the 4 GB server cannot spare next to the API cap and
+  # Postgres. To enable on a bigger server: uncomment this service and the
+  # clamav-db volume below, and set CLAMAV_HOST=clamav in Coolify.
+  # clamav:
+  #   image: clamav/clamav:1.4
+  #   restart: unless-stopped
+  #   mem_limit: 1536m
+  #   expose:
+  #     - "3310"
+  #   volumes:
+  #     - clamav-db:/var/lib/clamav
+
 volumes:
   auditos-uploads:
+  # clamav-db:

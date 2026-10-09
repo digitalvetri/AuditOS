@@ -45,6 +45,7 @@ import {
   type NoticeKind,
   type ReplyInputs,
 } from './prompts.js'
+import { scanUploads } from '../../platform/virusScan.js'
 
 const READ = ['workstation.gst.read', 'workstation.gst.manage'] as const
 const MANAGE = ['workstation.gst.manage'] as const
@@ -186,7 +187,7 @@ clientNoticesRouter.get('/:clientId/notices', handler(async (req, res) => {
   ok(res, rows.map(serialize))
 }))
 
-noticesRouter.post('/', upload.single('file'), handler(async (req, res) => {
+noticesRouter.post('/', upload.single('file'), scanUploads, handler(async (req, res) => {
   const session = requireSession(req)
   const scope = requireWorkstation(session, ...MANAGE)
   const clientId = assertClientId(req.body?.clientId)
@@ -233,7 +234,7 @@ noticesRouter.post('/', upload.single('file'), handler(async (req, res) => {
       fields = toExtracted(r.content)
       llmModel = r.model
     } catch (err) {
-      if (!(err instanceof ApiError && err.code === 'llm_unconfigured')) throw err
+      if (!(err instanceof ApiError && (err.code === 'llm_unconfigured' || err.code === 'ai_disabled'))) throw err
       // Soft-fail: let the user fill it in by hand.
     }
   }

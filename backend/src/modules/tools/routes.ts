@@ -75,7 +75,7 @@ toolsRouter.get('/', handler(async (req, res) => {
 // ── Upload ───────────────────────────────────────────────────────────────
 toolsRouter.post('/uploads', (req, res, next) => {
   upload.array('files', 40)(req, res, (err: unknown) => {
-    if (!err) return next()
+    if (!err) return scanUploads(req, res, next)
     const code = (err as { code?: string }).code
     if (code === 'LIMIT_FILE_SIZE') return next(ApiError.unprocessable('too_large', `File is larger than the ${HARD_MAX_MB} MB limit.`))
     if (code === 'LIMIT_FILE_COUNT') return next(ApiError.unprocessable('too_many', 'Too many files in one upload.'))
@@ -289,6 +289,7 @@ toolDocumentsRouter.delete('/:id', handler(async (req, res) => {
 // ── Signed byte routes ───────────────────────────────────────────────────
 import { signResource } from '../../platform/signedUrl.js'
 import { setUploadedFileHeaders } from '../../lib/fileResponse.js'
+import { scanUploads } from '../../platform/virusScan.js'
 function signThumb(docId: string, page: number, userId: string) {
   return signResource(`tool-thumb:${docId}:${page}`, userId)
 }

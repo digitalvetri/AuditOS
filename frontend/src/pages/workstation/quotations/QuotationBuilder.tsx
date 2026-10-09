@@ -5,6 +5,7 @@ import {
   ArrowDown, ArrowUp, Copy, Download, Eye, GripVertical, Minus, MoveVertical, Plus, Printer, Redo2, Save,
   Send, Trash2, Undo2, X,
 } from 'lucide-react';
+import { useUnsavedChangesGuard } from '@/lib/useUnsavedChanges';
 import { RecordLoadGate, fieldErrors, inputClass, textareaClass } from '@/modules/workstation/components';
 import { workstationApi } from '@/modules/workstation/api';
 import type { ClientListItem, Lead } from '@/modules/workstation/types';
@@ -227,6 +228,7 @@ export function QuotationBuilderPage() {
     onSuccess: (q) => {
       queryClient.invalidateQueries({ queryKey: ['quotations.list'] });
       queryClient.invalidateQueries({ queryKey: ['quotations.summary'] });
+      unsaved.markSaved();
       navigate(`/workstation/quotations/${q.id}`);
     },
   });
@@ -478,6 +480,9 @@ export function QuotationBuilderPage() {
   const liveEdit = existingQ.data && !existingQ.data.is_editable ? undefined : edit;
 
   const status = existingQ.data?.status ?? 'draft';
+
+  // Warn before leaving with unsaved edits (not on a sent, read-only quotation).
+  const unsaved = useUnsavedChangesGuard(ready && liveEdit ? doc : null, { ready });
 
   // Loading / failed / not yet in state: no editor, so nothing can be saved.
   if (!ready) return <RecordLoadGate query={existingQ} />;

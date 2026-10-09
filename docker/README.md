@@ -69,6 +69,52 @@ production with a missing or placeholder secret, so most mistakes fail loudly.
    fresh volume (`docker compose down -v` on that server, then `up`), or
    deactivate every demo login in Settings → Users.
 
+## Security checklist
+
+Short list; the "Going live" steps above come first.
+
+- **No 2FA yet** — logins are password-only. Use long unique passwords, keep
+  Admin / Super Admin logins few, and deactivate leavers the same day.
+- **Backups off-site** — set `BACKUP_PASSPHRASE`, `BACKUP_RCLONE_REMOTE` +
+  `RCLONE_CONFIG_OFFSITE_*`. A backup that lives only on the server dies with it.
+- **Health checks** — `BACKUP_PING_URL` (healthchecks.io) for the nightly
+  backup, and an uptime check on `https://DOMAIN/api/health`.
+- **Error reports** — set `SENTRY_DSN` so crashes reach you, not just the log.
+- **Virus scanning (optional)** — see below.
+- **Disk encryption** — turn on volume / disk encryption at the provider
+  (uploads and the database sit on the server's disk unencrypted otherwise).
+- **Rotate keys** — rotate `JWT_SECRET` / `SIGNED_URL_SECRET` /
+  `PERMANENT_LINK_SECRET` after any suspected leak or staff departure with
+  server access (everyone signs in again; shared links stop working).
+  `PORTAL_ACCESS_ENC_KEY` encrypts stored portal passwords — rotating it means
+  re-entering them, and old backups need the old key.
+- **Audit log** — the API checks the audit log's hash chain daily and alerts
+  Admins in the bell if a row was edited or deleted outside the app.
+- **AI drafting** — notice text goes to Groq (US) with PAN, GSTIN, Aadhaar,
+  phone and email masked. Switch it off in Settings → Data protection if the
+  firm's engagement terms do not allow it.
+
+### Virus scanning (ClamAV, optional)
+
+Every upload can be scanned by a ClamAV daemon (`clamd`) before it is stored.
+It is **off unless `CLAMAV_HOST` is set**.
+
+| Variable | Default | Meaning |
+|---|---|---|
+| `CLAMAV_HOST` | empty (off) | clamd host, e.g. `clamav` for the compose service |
+| `CLAMAV_PORT` | `3310` | clamd TCP port |
+| `CLAMAV_REQUIRED` | `false` | `true` refuses uploads (503) while the scanner is unreachable; otherwise they are allowed and a warning is logged |
+
+An infected file is refused with "This file failed the virus scan" (422).
+`docker-compose.coolify.yml` has a commented-out `clamav` service: it needs
+about **1 GB of RAM**, so it is left off on the 4 GB server. On a bigger
+server, uncomment it (and the `clamav-db` volume), set `CLAMAV_HOST=clamav`,
+and redeploy. The first start downloads signatures for a few minutes.
+A file larger than clamd's `StreamMaxLength` (default 25 MB in clamd.conf; the
+Tools uploads allow more) cannot be scanned: it is allowed unscanned, or refused
+with 503 under `CLAMAV_REQUIRED=true`. Raise `StreamMaxLength` to the biggest
+upload limit you use.
+
 ## Using it
 
 ```bash

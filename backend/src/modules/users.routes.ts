@@ -7,7 +7,7 @@ import { ApiError, handler, ok } from '../lib/http.js'
 import { prisma } from '../lib/prisma.js'
 import { nextEmployeeCode } from '../lib/sequence.js'
 import { rateLimit } from '../lib/rateLimit.js'
-import { hashPassword, requireSession, type Session } from '../platform/auth.js'
+import { hashPasswordAsync, requireSession, type Session } from '../platform/auth.js'
 import { writeAudit } from '../platform/audit.js'
 import { passwordProblem } from '../platform/password.js'
 import { VISIBLE_ROLES, VISIBLE_ROLE_CODES } from '../platform/rbac/modules.js'
@@ -146,7 +146,7 @@ usersRouter.post('/', handler(async (req, res) => {
     await ensureLeaveBalances(tx, [employee], fiscalYearStartOf(istToday()))
     return tx.user.create({
       data: {
-        organisationId: org.id, email: b.email, passwordHash: hashPassword(b.temp_password),
+        organisationId: org.id, email: b.email, passwordHash: await hashPasswordAsync(b.temp_password),
         roleId: role.id, employeeId: employee.id, mustChangePassword: true,
         createdBy: s.userId, updatedBy: s.userId,
       },
@@ -178,7 +178,7 @@ usersRouter.post('/from-employee/:employeeId', handler(async (req, res) => {
 
   const user = await prisma.user.create({
     data: {
-      organisationId: employee.organisationId, email, passwordHash: hashPassword(parsed.data.temp_password),
+      organisationId: employee.organisationId, email, passwordHash: await hashPasswordAsync(parsed.data.temp_password),
       roleId: role.id, employeeId: employee.id, mustChangePassword: true,
       createdBy: s.userId, updatedBy: s.userId,
     },
@@ -245,7 +245,7 @@ usersRouter.post('/:id/reset-password', handler(async (req, res) => {
   const user = await prisma.user.update({
     where: { id: target.id },
     data: {
-      passwordHash: hashPassword(parsed.data.temp_password), mustChangePassword: true,
+      passwordHash: await hashPasswordAsync(parsed.data.temp_password), mustChangePassword: true,
       sessionVersion: { increment: 1 }, updatedBy: s.userId,
     },
     include: { role: true, employee: true },

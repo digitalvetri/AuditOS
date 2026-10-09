@@ -38,6 +38,7 @@ import { fyMonths, fyOf, monthStart, quarterEnd, todayIst, type Quarter } from '
 import { buildOverview, DUE_SOON_DAYS } from './overview.js'
 import { registerDeductionRoutes } from './deductions.js'
 import { setUploadedFileHeaders } from '../../lib/fileResponse.js'
+import { scanUploads } from '../../platform/virusScan.js'
 
 /** Resolved per call so TDS_STORAGE_ROOT can be set after import (tests, ops). */
 const tdsStorage = () => new LocalStorageAdapter(process.env.TDS_STORAGE_ROOT
@@ -557,7 +558,7 @@ const KIND_LABEL: Record<string, string> = {
 tdsServiceRouter.post('/:clientId/records/:id/file',
   (req, res, next) => {
     upload.single('file')(req, res, (err: unknown) => {
-      if (!err) return next()
+      if (!err) return scanUploads(req, res, next)
       if ((err as { code?: string }).code === 'LIMIT_FILE_SIZE') {
         return next(ApiError.unprocessable('too_large', `File is larger than the ${MAX_UPLOAD_MB} MB limit.`))
       }

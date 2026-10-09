@@ -8,7 +8,7 @@
  * Keeps the shipped app's responsive discipline: single-scroll region on
  * <main>, no double scrollbars, drawer nav below `lg`.
  */
-import { useState } from 'react';
+import { Suspense, useState } from 'react';
 import { Outlet } from 'react-router-dom';
 import { RouteErrorBoundary } from '@/components/ErrorBoundary';
 import { Sidebar } from './Sidebar';
@@ -16,6 +16,8 @@ import { TopBar } from './TopBar';
 import { MobileNav } from './MobileNav';
 import { RealtimeProvider } from '@/platform/realtime/RealtimeProvider';
 import { OfflineBar, UpdateBar } from '@/platform/pwa/PwaUi';
+import { QuerySkeleton } from '@/modules/workstation/components';
+import { KeyboardShortcuts } from './KeyboardShortcuts';
 
 export function AppShellV2() {
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
@@ -34,13 +36,17 @@ export function AppShellV2() {
             document and the whole shell scrolls up, leaving a blank band. */}
         <main id="main" tabIndex={-1} className="m-main relative flex-1 min-h-0 overflow-y-auto p-3 md:p-5 lg:p-6 focus:outline-none">
           <RouteErrorBoundary>
-            <Outlet />
+            {/* Pages are code-split (App.tsx): the shell stays while one loads. */}
+            <Suspense fallback={<QuerySkeleton />}>
+              <Outlet />
+            </Suspense>
           </RouteErrorBoundary>
         </main>
       </div>
       {/* Below `md` only. The drawer stays the overflow for everything the
           five slots can't hold. */}
       <MobileNav onOpenMore={() => setMobileNavOpen(true)} />
+      <KeyboardShortcuts />
       <UpdateBar />
       <OfflineBar />
     </div>

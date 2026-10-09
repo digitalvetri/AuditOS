@@ -54,6 +54,8 @@ export interface AuditMine {
   working_papers_to_prepare?: number;
   review_notes_to_respond?: number;
   review_notes_to_clear?: number;
+  /** to_respond + to_clear. */
+  review_notes_waiting?: number;
 }
 
 export interface AuditMateriality {
@@ -125,6 +127,8 @@ export interface AuditFile extends AuditListItem {
   /** What still stops signing; empty when ready. */
   blockers: Blocker[];
   can_sign?: boolean;
+  /** Closed work sessions on tasks linked to this file (Task.auditEngagementId). */
+  time_logged?: { minutes: number; linked_tasks: number };
 }
 
 export interface AuditListResponse {

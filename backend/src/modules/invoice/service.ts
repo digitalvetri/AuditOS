@@ -267,6 +267,25 @@ export type SerializedInvoice = ReturnType<typeof serialize>
  * rather than inventing an invoice one means a staff member cannot reach a
  * client's money through a module that forgot to ask.
  */
+/**
+ * An invoice may be linked to an engagement (client service) and/or an audit
+ * file only of its own client; profitability reports trust these links.
+ */
+async function assertInvoiceLinks(clientId: string, clientServiceId?: string | null, auditEngagementId?: string | null) {
+  if (clientServiceId) {
+    const cs = await prisma.clientService.findFirst({ where: { id: clientServiceId, deletedAt: null }, select: { clientId: true } })
+    if (!cs || cs.clientId !== clientId) {
+      throw ApiError.badRequest('That engagement is not one of this client\'s services.', { client_service_id: 'Not for this client.' })
+    }
+  }
+  if (auditEngagementId) {
+    const a = await prisma.auditEngagement.findFirst({ where: { id: auditEngagementId, deletedAt: null }, select: { clientId: true } })
+    if (!a || a.clientId !== clientId) {
+      throw ApiError.badRequest('That audit file is not for this client.', { audit_engagement_id: 'Not for this client.' })
+    }
+  }
+}
+
 async function visibleWhere(session: Session, scope: Scope): Promise<Prisma.InvoiceWhereInput> {
   const base: Prisma.InvoiceWhereInput = { deletedAt: null }
   if (scope === 'organisation' || scope === 'department') return base
@@ -384,6 +403,7 @@ export const InvoiceService = {
    */
   async create(session: Session, scope: Scope, input: InvoiceInput): Promise<SerializedInvoice> {
     await assertCanSeeClient(session, scope, input.clientId)
+    await assertInvoiceLinks(input.clientId, input.clientServiceId, input.auditEngagementId)
     const id = await prisma.$transaction((tx) => createInvoiceRecord(tx, input, {
       userId: session.userId, employeeId: session.employeeId ?? null,
     }))
@@ -402,6 +422,13 @@ export const InvoiceService = {
       where: { id: input.clientId, deletedAt: null },
     })
     if (!client) throw ApiError.notFound('No such client.')
+    // The links kept (or newly set) must belong to the invoice's client —
+    // including when only the client changed.
+    await assertInvoiceLinks(
+      input.clientId,
+      input.clientServiceId !== undefined ? input.clientServiceId : existing.client_service_id,
+      input.auditEngagementId !== undefined ? input.auditEngagementId : existing.audit_engagement_id,
+    )
 
     const bank = input.bankAccountId
       ? await prisma.firmBankAccount.findFirst({ where: { id: input.bankAccountId, organisationId: await orgId() } })

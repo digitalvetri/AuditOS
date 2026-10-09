@@ -1262,6 +1262,8 @@ model Client {
   gstin String?
   pan   String?
   tan   String?
+  /// Company CIN or LLPIN, as on the MCA master data.
+  cin   String?
 
   accountManagerId   String
   /// Second staff: sees and works the client too, and covers when the
@@ -1269,11 +1271,13 @@ model Client {
   secondaryManagerId String?
   assignedTeam       String?
   /// active | onboarding | pending_documents | service_due | inactive
-  status             String  @default("onboarding")
+  status             String    @default("onboarding")
   onboardingDate     String
   /// YYYY-MM-DD the firm stopped acting for the client; starts the
   /// retention period after which the purge job may remove its records.
   exitDate           String?
+  /// Set when the retention purge removed this client's records.
+  purgedAt           DateTime?
   notes              String?
 
   /// Back-link to the lead this client came from. @unique mirrors

@@ -8,15 +8,56 @@
 
 const IST = 'Asia/Kolkata';
 
+// ── Money ──────────────────────────────────────────────────────────────────
+// The ONE implementation of INR formatting. Every other money helper in the
+// app (dashboardV2/format, gst/api, bookkeeping/ui, invoices/document,
+// quotations/api, engagement/document) wraps one of these.
+//
+// Naming: `…Rupees` takes rupees (a JS number); `…Paise` takes integer paise,
+// which is how the server sends every amount.
+
 const INR = new Intl.NumberFormat('en-IN', {
   style: 'currency',
   currency: 'INR',
   maximumFractionDigits: 0,
 });
 
-/** Amount in paise. */
-export function inr(amountPaise: number): string {
+/** '12,34,567' / '12,34,567.5' — rupees in, Indian grouping, no symbol. */
+export function formatRupeeAmount(rupees: number, decimals: { min?: number; max?: number } = {}): string {
+  const min = decimals.min ?? 0;
+  const max = Math.max(decimals.max ?? min, min);
+  return rupees.toLocaleString('en-IN', { minimumFractionDigits: min, maximumFractionDigits: max });
+}
+
+/** '₹12,34,567' — rupees in, whole rupees, no space after the symbol. */
+export function formatRupees(rupees: number): string {
+  // Some engines put a NBSP after ₹; strip it so '₹12,340' holds everywhere.
+  return INR.format(rupees).replace(/ /g, '');
+}
+
+/** '₹12,34,567' — paise in, whole rupees. */
+export function formatPaise(amountPaise: number): string {
   return INR.format(amountPaise / 100);
+}
+
+/** Amount in paise — the original name of `formatPaise`. */
+export const inr = formatPaise;
+
+/**
+ * '12,34,567.00' — paise in, always two decimals, no symbol, computed in
+ * integer arithmetic (no float rounding). Printed documents use this.
+ */
+export function formatPaiseExact(paise: number): string {
+  const neg = paise < 0;
+  const n = Math.abs(paise);
+  const whole = Math.floor(n / 100);
+  const frac = String(n % 100).padStart(2, '0');
+  const s = String(whole);
+  // Last three digits, then pairs — the Indian lakh/crore grouping.
+  const last3 = s.slice(-3);
+  const rest = s.slice(0, -3);
+  const grouped = rest ? `${rest.replace(/\B(?=(\d{2})+(?!\d))/g, ',')},${last3}` : last3;
+  return `${neg ? '-' : ''}${grouped}.${frac}`;
 }
 
 const DATE = new Intl.DateTimeFormat('en-GB', {
@@ -29,7 +70,8 @@ const DATE = new Intl.DateTimeFormat('en-GB', {
 /** '06 Sep 2026' */
 export function fmtDate(input: string | Date): string {
   const d = typeof input === 'string' ? new Date(input) : input;
-  return DATE.format(d);
+  // Newer CLDR data (Chrome, Node 20+) abbreviates September as "Sept" in en-GB.
+  return DATE.format(d).replace('Sept', 'Sep');
 }
 
 const TIME = new Intl.DateTimeFormat('en-US', {

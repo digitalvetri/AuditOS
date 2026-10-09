@@ -1,4 +1,5 @@
 import { Router } from 'express'
+import { CIN_RE, LLPIN_RE } from '../gst/validate.js'
 import { prisma, alive } from '../../lib/prisma.js'
 import { lockSequence, maxSuffix } from '../../lib/sequence.js'
 import { ApiError, handler, ok } from '../../lib/http.js'
@@ -6,7 +7,6 @@ import { requireSession } from '../../platform/auth.js'
 import { writeAudit } from '../../platform/audit.js'
 import { notifyEmployee } from '../../platform/notify.js'
 import { writeActivity } from '../../platform/workstation/activity.js'
-import { nextClientCode } from '../../platform/workstation/codes.js'
 import {
   assertCanSeeClient, assignedClientIds, clientIdWhere, requireWorkstation, seesAllClients,
 } from '../../platform/workstation/scope.js'
@@ -18,6 +18,7 @@ import {
 import {
   body, CLIENT_STATUSES, DOCUMENT_STATUSES, FieldErrors, SERVICE_STATUSES,
 } from './validate.js'
+import { clientListWhere, clientOrderBy, createClientRow, readClientFields } from './clients.shared.js'
 
 /**
  * CLIENTS (AUDIT_OS_WORKSTATION.md §7.3) — the central workspace.
@@ -33,54 +34,47 @@ clientsRouter.get('/', handler(async (req, res) => {
   const session = requireSession(req)
   const scope = requireWorkstation(session, 'workstation.client.read', 'workstation.client.manage')
 
-  const q = typeof req.query.q === 'string' ? req.query.q.trim() : ''
-  const status = typeof req.query.status === 'string' ? req.query.status : null
-  const managerId = typeof req.query.account_manager_id === 'string' ? req.query.account_manager_id : null
-  const serviceId = typeof req.query.service_id === 'string' ? req.query.service_id : null
-  const pendingDocs = req.query.pending_documents === 'true'
-  // organization_id = the clients under one organization;
-  // kind = organization | member (under an organization) | standalone.
-  const organizationId = typeof req.query.organization_id === 'string' ? req.query.organization_id : null
-  const kind = typeof req.query.kind === 'string' ? req.query.kind : null
+  const query = req.query as Record<string, unknown>
+  const where = await clientListWhere(session, scope, query)
 
-  const where = {
-    ...alive,
-    ...(await clientIdWhere(session, scope)),
-    ...(status ? { status } : {}),
-    ...(managerId ? { AND: [{ OR: [{ accountManagerId: managerId }, { secondaryManagerId: managerId }] }] } : {}),
-    ...(serviceId ? { services: { some: { serviceId, deletedAt: null } } } : {}),
-    ...(pendingDocs
-      ? { documents: { some: { status: { in: ['requested', 'pending'] }, deletedAt: null } } }
-      : {}),
-    ...(organizationId ? { parentClientId: organizationId } : {}),
-    ...(kind === 'organization' ? { isOrganization: true } : {}),
-    ...(kind === 'member' ? { parentClientId: { not: null } } : {}),
-    ...(kind === 'standalone' ? { isOrganization: false, parentClientId: null } : {}),
-    // §7.2 search: company · client id · GSTIN · contact person · number,
-    // plus the organization's name so "ABC" also finds ABC's clients.
-    ...(q
-      ? {
-          OR: [
-            { companyName: { contains: q, mode: 'insensitive' as const } },
-            { clientCode: { contains: q, mode: 'insensitive' as const } },
-            { gstin: { contains: q, mode: 'insensitive' as const } },
-            { contactPerson: { contains: q, mode: 'insensitive' as const } },
-            { contactNumber: { contains: q } },
-            { parentClient: { companyName: { contains: q, mode: 'insensitive' as const } } },
-          ],
-        }
-      : {}),
+  // Pagination is opt-in: without page/page_size the whole list comes back
+  // exactly as before (the pickers and older screens rely on that).
+  const paged = query.page !== undefined || query.page_size !== undefined
+  const pageSize = Math.min(Math.max(Number(query.page_size) || 50, 1), 200)
+  const page = Math.max(Number(query.page) || 1, 1)
+
+  const [rows, total] = await Promise.all([
+    prisma.client.findMany({
+      where,
+      include: {
+        parentClient: { select: ORGANIZATION_REF },
+        _count: { select: { documents: { where: { deletedAt: null } }, childClients: { where: { deletedAt: null } } } },
+        services: { where: alive, include: { service: true } },
+      },
+      orderBy: clientOrderBy(query),
+      ...(paged ? { skip: (page - 1) * pageSize, take: pageSize } : {}),
+    }),
+    paged ? prisma.client.count({ where }) : Promise.resolve(-1),
+  ])
+
+  // facets=1 — the saved-view counts (every client the caller may see, no
+  // filters), so the list page does not fetch the whole list to count it.
+  let facets: Record<string, unknown> | undefined
+  if (query.facets === '1' || query.facets === 'true') {
+    const base = { ...alive, ...(await clientIdWhere(session, scope)) }
+    const me = session.employeeId
+    const [byStatus, organizations, mine] = await Promise.all([
+      prisma.client.groupBy({ by: ['status'], where: base, _count: { _all: true } }),
+      prisma.client.count({ where: { ...base, isOrganization: true } }),
+      me ? prisma.client.count({ where: { ...base, OR: [{ accountManagerId: me }, { secondaryManagerId: me }] } }) : Promise.resolve(0),
+    ])
+    facets = {
+      total: byStatus.reduce((s, r) => s + r._count._all, 0),
+      by_status: Object.fromEntries(byStatus.map((r) => [r.status, r._count._all])),
+      organizations,
+      mine,
+    }
   }
-
-  const rows = await prisma.client.findMany({
-    where,
-    include: {
-      parentClient: { select: ORGANIZATION_REF },
-      _count: { select: { documents: { where: { deletedAt: null } }, childClients: { where: { deletedAt: null } } } },
-      services: { where: alive, include: { service: true } },
-    },
-    orderBy: { clientCode: 'asc' },
-  })
 
   const m = await employeeMap(rows.flatMap((r) => [r.accountManagerId, r.secondaryManagerId]))
   ok(res, {
@@ -91,7 +85,10 @@ clientsRouter.get('/', handler(async (req, res) => {
       // All children, not only visible ones: a count alone reveals no client.
       child_client_count: r.isOrganization ? r._count.childClients : 0,
     })),
-    count: rows.length,
+    // `count` stays "how many match", paged or not.
+    count: paged ? total : rows.length,
+    ...(paged ? { page, page_size: pageSize } : {}),
+    ...(facets ? { facets } : {}),
     scope,
   })
 }))
@@ -103,29 +100,11 @@ clientsRouter.post('/', handler(async (req, res) => {
   const b = body(req)
 
   const v = new FieldErrors()
-  const companyName = v.str('company_name', b.company_name, { max: 200 })
-  const contactPerson = v.str('contact_person', b.contact_person, { max: 120 })
-  const contactNumber = v.phone('contact_number', b.contact_number)
-  const email = v.email('email', b.email, false)
-  const gstin = b.gstin ? v.gstin('gstin', b.gstin) : undefined
-  const pan = b.pan ? v.pan('pan', b.pan) : undefined
-  const accountManagerId = v.str('account_manager_id', b.account_manager_id)
-  const secondaryManagerId = v.str('secondary_manager_id', b.secondary_manager_id, { required: false })
-  if (secondaryManagerId && secondaryManagerId === accountManagerId) {
-    v.add('secondary_manager_id', 'Choose a different person from the account manager.')
-  }
-  const businessType = v.str('business_type', b.business_type, { required: false, max: 80 })
-  const address = v.str('address', b.address, { required: false, max: 500 })
-  // A new client can be an organization, or be created under one.
-  const organizationId = v.str('organization_id', b.organization_id, { required: false })
-  const isOrganization = b.is_organization === true
-  const shortName = v.str('short_name', b.short_name, { required: false, max: 20 })
-  if (isOrganization && organizationId) {
-    v.add('organization_id', 'An organization cannot be placed under another organization.')
-  }
+  const f = readClientFields(v, b)
+  const { accountManagerId, secondaryManagerId, organizationId, isOrganization } = f
   v.throwIfAny()
 
-  const manager = await prisma.employee.findFirst({ where: { id: accountManagerId!, ...alive } })
+  const manager = await prisma.employee.findFirst({ where: { id: accountManagerId, ...alive } })
   if (!manager) v.add('account_manager_id', 'Select a valid employee.')
   if (secondaryManagerId && !(await prisma.employee.findFirst({ where: { id: secondaryManagerId, ...alive } }))) {
     v.add('secondary_manager_id', 'Select a valid employee.')
@@ -137,41 +116,7 @@ clientsRouter.post('/', handler(async (req, res) => {
   v.throwIfAny()
   const org = organizationId ? await assertCanJoinOrganization(session, scope, organizationId) : null
 
-  const client = await prisma.$transaction(async (tx) => {
-    const clientCode = await nextClientCode(tx)
-    const created = await tx.client.create({
-      data: {
-        organisationId: 'org-audit-os',
-        clientCode,
-        companyName: companyName!,
-        legalName: companyName!,
-        businessType: businessType ?? null,
-        contactPerson: contactPerson!,
-        contactNumber: contactNumber!,
-        email: email ?? null,
-        address: address ?? null,
-        gstin: gstin ?? null,
-        pan: pan ?? null,
-        accountManagerId: accountManagerId!,
-        secondaryManagerId: secondaryManagerId ?? null,
-        status: 'onboarding',
-        onboardingDate: new Date().toISOString().slice(0, 10),
-        isOrganization,
-        shortName: isOrganization ? (shortName ?? deriveShortName(companyName!)) : null,
-        parentClientId: org?.id ?? null,
-        createdBy: session.userId,
-        updatedBy: session.userId,
-      },
-      include: { parentClient: { select: ORGANIZATION_REF } },
-    })
-    await tx.clientContact.create({
-      data: {
-        clientId: created.id, name: contactPerson!, designation: 'Primary contact',
-        phone: contactNumber!, email: email ?? null, isPrimary: true, createdBy: session.userId,
-      },
-    })
-    return created
-  })
+  const client = await prisma.$transaction((tx) => createClientRow(tx, { ...f, organizationId: org?.id ?? null }, session.userId))
 
   await writeActivity({
     session, subjectType: 'client', subjectId: client.id,
@@ -265,6 +210,11 @@ clientsRouter.patch('/:id', handler(async (req, res) => {
   if ('gstin' in b) data.gstin = b.gstin ? v.gstin('gstin', b.gstin) : null
   if ('pan' in b) data.pan = b.pan ? v.pan('pan', b.pan) : null
   if ('tan' in b) data.tan = v.str('tan', b.tan, { required: false, max: 20 }) ?? null
+  if ('cin' in b) {
+    const cin = (v.str('cin', b.cin, { required: false, max: 25 }) ?? '').toUpperCase()
+    if (cin && !CIN_RE.test(cin) && !LLPIN_RE.test(cin)) v.add('cin', 'Enter a valid CIN (U74999TN2020PTC123456) or LLPIN (AAB-1234).')
+    data.cin = cin || null
+  }
   // Who a client is assigned to decides who can see it, so only staff who
   // see every client (Admin, Senior Associate, Super Admin) change it.
   if (('account_manager_id' in b || 'secondary_manager_id' in b) && !seesAllClients(session)) {
@@ -277,6 +227,12 @@ clientsRouter.patch('/:id', handler(async (req, res) => {
   if ('assigned_team' in b) data.assignedTeam = v.str('assigned_team', b.assigned_team, { required: false, max: 80 }) ?? null
   if ('status' in b) data.status = v.oneOf('status', b.status, CLIENT_STATUSES)
   if ('notes' in b) data.notes = v.str('notes', b.notes, { required: false, max: 2000 }) ?? null
+  // Exit date: the day the firm stopped acting — starts the retention period
+  // (data-protection/retention.ts). Only an inactive client has one.
+  if ('exit_date' in b) {
+    data.exitDate = b.exit_date ? v.date('exit_date', b.exit_date) ?? null : null
+    if (data.exitDate && (data.status ?? before.status) !== 'inactive') v.add('exit_date', 'Set the status to Inactive when entering an exit date.')
+  }
   if ('short_name' in b) data.shortName = v.str('short_name', b.short_name, { required: false, max: 20 }) ?? null
   v.throwIfAny()
 

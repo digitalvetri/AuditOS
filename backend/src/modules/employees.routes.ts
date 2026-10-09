@@ -6,11 +6,12 @@ import { prisma } from '../lib/prisma.js'
 import { nextEmployeeCode } from '../lib/sequence.js'
 import { fiscalYearStartOf, istToday } from '../lib/dates.js'
 import { ensureLeaveBalances } from '../domain/leaveBalances.js'
-import { can, hashPassword, requireSession, type Session } from '../platform/auth.js'
+import { can, hashPasswordAsync, requireSession, type Session } from '../platform/auth.js'
 import { passwordProblem } from '../platform/password.js'
 import { assertCanAssignRole, assertCanManageLogin } from '../platform/roleRank.js'
 import { writeAudit } from '../platform/audit.js'
 import { notifyPermissionHolders } from '../platform/notify.js'
+import { articleshipForms, recomputeArticleship } from './articleship/service.js'
 import { VISIBLE_ROLE_CODES } from '../platform/rbac/modules.js'
 import type { RoleCode } from '../platform/rbac/matrix.js'
 import {
@@ -265,7 +266,7 @@ employeesRouter.post('/', handler(async (req, res) => {
     await ensureLeaveBalances(tx, [row], fiscalYearStartOf(istToday()))
     const login = await tx.user.create({
       data: {
-        organisationId: org.id, email, passwordHash: hashPassword(password),
+        organisationId: org.id, email, passwordHash: await hashPasswordAsync(password),
         // Admin-issued, so temporary: they choose their own at first sign-in.
         mustChangePassword: true,
         roleId: role.id, employeeId: row.id, createdBy: session.userId, updatedBy: session.userId,
@@ -325,7 +326,7 @@ employeesRouter.put('/:id/password', handler(async (req, res) => {
       where: { id: existing.id },
       // Temporary, and every open session of theirs ends (same as Settings → Users).
       data: {
-        passwordHash: hashPassword(password), mustChangePassword: true,
+        passwordHash: await hashPasswordAsync(password), mustChangePassword: true,
         sessionVersion: { increment: 1 }, updatedBy: session.userId,
       },
       include: { role: true },
@@ -339,7 +340,7 @@ employeesRouter.put('/:id/password', handler(async (req, res) => {
     }
     login = await prisma.user.create({
       data: {
-        organisationId: target.organisationId, email, passwordHash: hashPassword(password),
+        organisationId: target.organisationId, email, passwordHash: await hashPasswordAsync(password),
         mustChangePassword: true,
         roleId: role.id, employeeId: target.id, createdBy: session.userId, updatedBy: session.userId,
       },
@@ -610,9 +611,19 @@ employeesRouter.get('/:id/training', handler(async (req, res) => {
     where: { employeeId: target.id }, include: { principal: true },
   })
   if (!record) throw ApiError.notFound('Training record not created yet.')
+  // Leave position (1/6th rule) recomputed on every read.
+  const fresh = await recomputeArticleship(target.id)
+  const today = istToday()
 
-  ok(res, { training: articledTrainingToApi(record), principal: employeeRef(record.principal) })
+  ok(res, {
+    training: articledTrainingToApi(fresh?.training ?? record),
+    principal: employeeRef(record.principal),
+    leave: fresh?.leave ?? null,
+    forms: articleshipForms(fresh?.training ?? record, today),
+  })
 }))
+
+const ISO_DAY = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Use a YYYY-MM-DD date.')
 
 // PATCH /api/employees/:id/training
 employeesRouter.patch('/:id/training', handler(async (req, res) => {
@@ -632,8 +643,18 @@ employeesRouter.patch('/:id/training', handler(async (req, res) => {
     training_end: z.string().optional(),
     current_year: z.number().int().min(1).max(3).optional(),
     stipend_slab: z.string().optional(),
+    stipend_paise: z.number().int().min(0).max(10_000_000).nullable().optional(),
+    icai_region: z.string().trim().max(120).nullable().optional(),
+    form102_date: ISO_DAY.nullable().optional(),
+    form103_date: ISO_DAY.nullable().optional(),
+    form108_date: ISO_DAY.nullable().optional(),
+    form109_date: ISO_DAY.nullable().optional(),
     status: z.enum(['active', 'transferred', 'completed', 'terminated']).optional(),
   }).parse(req.body ?? {})
+  if (b.principal_employee_id) {
+    const p = await prisma.employee.findFirst({ where: { id: b.principal_employee_id, deletedAt: null }, select: { id: true } })
+    if (!p) throw ApiError.badRequest('That principal is not an active employee.')
+  }
 
   const before = await prisma.articledTraining.findUnique({ where: { employeeId: target.id } })
   const data = {
@@ -643,6 +664,12 @@ employeesRouter.patch('/:id/training', handler(async (req, res) => {
     trainingEnd: b.training_end,
     currentYear: b.current_year,
     stipendSlab: b.stipend_slab,
+    stipendPaise: b.stipend_paise,
+    icaiRegion: b.icai_region === undefined ? undefined : (b.icai_region || null),
+    form102Date: b.form102_date,
+    form103Date: b.form103_date,
+    form108Date: b.form108_date,
+    form109Date: b.form109_date,
     status: b.status,
   }
   if (!before && !b.principal_employee_id) {
@@ -660,6 +687,12 @@ employeesRouter.patch('/:id/training', handler(async (req, res) => {
       trainingEnd: b.training_end ?? istToday(),
       currentYear: b.current_year ?? 1,
       stipendSlab: b.stipend_slab ?? '',
+      stipendPaise: b.stipend_paise ?? null,
+      icaiRegion: b.icai_region || null,
+      form102Date: b.form102_date ?? null,
+      form103Date: b.form103_date ?? null,
+      form108Date: b.form108_date ?? null,
+      form109Date: b.form109_date ?? null,
       status: b.status ?? 'active',
       createdBy: session.userId,
       updatedBy: session.userId,
@@ -670,5 +703,7 @@ employeesRouter.patch('/:id/training', handler(async (req, res) => {
     entityType: 'ArticledTraining', entityId: target.id,
     before: before ? articledTrainingToApi(before) : null, after: articledTrainingToApi(row), req,
   })
-  ok(res, { training: articledTrainingToApi(row) })
+  // Dates may have moved: the excess-leave extension follows them.
+  const fresh = await recomputeArticleship(target.id)
+  ok(res, { training: articledTrainingToApi(fresh?.training ?? row), leave: fresh?.leave ?? null })
 }))

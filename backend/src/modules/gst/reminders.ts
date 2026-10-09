@@ -272,7 +272,7 @@ const norm = (e: string) => e.trim().toLowerCase()
 const EMAIL_RE = /^[^@\s,;<>]+@[^@\s,;<>]+\.[^@\s,;<>]+$/
 
 /** Every address on record for a client, normalised. */
-async function clientAddresses(prisma: PrismaClient, clientId: string): Promise<{ primary: string | null; all: Set<string> }> {
+export async function clientAddresses(prisma: PrismaClient, clientId: string): Promise<{ primary: string | null; all: Set<string> }> {
   const [client, profile, contacts] = await Promise.all([
     prisma.client.findFirst({ where: { id: clientId, deletedAt: null }, select: { email: true } }),
     prisma.gstProfile.findFirst({ where: { clientId, deletedAt: null }, select: { contactEmail: true } }),

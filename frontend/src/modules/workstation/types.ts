@@ -120,6 +120,7 @@ export interface Client extends Auditable {
   gstin: string | null;
   pan: string | null;
   tan: string | null;
+  cin?: string | null;
   account_manager_id: string;
   account_manager: EmployeeRef | null;
   /** Second staff — also sees and works the client. */
@@ -128,6 +129,8 @@ export interface Client extends Auditable {
   assigned_team: string | null;
   status: ClientStatus;
   onboarding_date: string;
+  /** YYYY-MM-DD the firm stopped acting (status inactive); starts the retention period. */
+  exit_date?: string | null;
   notes: string | null;
   source_lead_id: string | null;
   /** An organization: a client that other clients sit under. */
@@ -448,6 +451,10 @@ export interface DashboardResponse {
 
 export interface SearchResponse {
   query: string;
+  /** Invoice numbers, quotation codes and audit codes — present when the caller may read that register. */
+  invoices?: { id: string; invoice_number: string | null; status: string; invoice_date: string; total_paise: number; client_name: string | null }[];
+  quotations?: { id: string; quotation_code: string; status: string; quote_date: string; client_name: string | null }[];
+  audits?: { id: string; audit_code: string; title: string; financial_year: string; status: string; client_name: string | null }[];
   leads: Lead[];
   clients: Client[];
   services: ClientService[];

@@ -30,6 +30,7 @@ import {
   type PartyDecision,
   type ChangedRowDecision,
 } from './services/BookkeepingImportCommitService.js'
+import { scanUploads } from '../../platform/virusScan.js'
 
 /**
  * BOOKKEEPING · IMPORT MAPPING ROUTES (BOOKKEEPING-REBUILD §3.1).
@@ -66,7 +67,7 @@ export function registerBookkeepingImportRoutes(router: Router): void {
     '/companies/:companyId/imports/preview',
     (req, res, next) => {
       upload.single('file')(req, res, (err: unknown) => {
-        if (!err) return next()
+        if (!err) return scanUploads(req, res, next)
         const code = (err as { code?: string }).code
         if (code === 'LIMIT_FILE_SIZE') {
           return next(ApiError.unprocessable('too_large', `File is larger than ${MAX_MB} MB.`))
@@ -213,7 +214,7 @@ export function registerBookkeepingImportRoutes(router: Router): void {
     '/companies/:companyId/imports/derive',
     (req, res, next) => {
       upload.single('file')(req, res, (err: unknown) => {
-        if (!err) return next()
+        if (!err) return scanUploads(req, res, next)
         const code = (err as { code?: string }).code
         if (code === 'LIMIT_FILE_SIZE') {
           return next(ApiError.unprocessable('too_large', `File is larger than ${MAX_MB} MB.`))

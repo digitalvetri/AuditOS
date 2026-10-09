@@ -8,6 +8,7 @@ import {
   leaveGroup, listChats, listMessages, markRead, messageInfo, postMessage, readAttachment, removeMember, setMemberRole, setMyPhoto, updateGroup,
 } from './service.js'
 import { MAX_DOCUMENT_MB, MAX_DOCUMENTS_PER_MESSAGE, MAX_IMAGE_MB, MAX_IMAGES_PER_MESSAGE, MAX_VOICE_MB } from './attachments.js'
+import { scanUploads } from '../../platform/virusScan.js'
 
 /**
  * Chats / Messages (§8.7 + §9)
@@ -139,7 +140,7 @@ chatsRouter.get('/:id/messages', handler(async (req, res) => {
  */
 chatsRouter.post('/:id/messages', (req, res, next) => {
   upload.fields([{ name: 'images', maxCount: MAX_IMAGES_PER_MESSAGE }, { name: 'documents', maxCount: MAX_DOCUMENTS_PER_MESSAGE }, { name: 'voice', maxCount: 1 }])(req, res, (err: unknown) => {
-    if (!err) return next()
+    if (!err) return scanUploads(req, res, next)
     const code = (err as { code?: string }).code
     if (code === 'LIMIT_FILE_SIZE') {
       return next(ApiError.unprocessable('too_large', `A file is larger than the ${Math.max(MAX_IMAGE_MB, MAX_VOICE_MB, MAX_DOCUMENT_MB)} MB limit.`))

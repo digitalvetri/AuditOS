@@ -14,6 +14,7 @@ import { defaultFys, generateItems } from './service.js'
 import { sendComplianceClientReminders, sendComplianceStaffReminders } from './reminders.js'
 import { sendNoticeReminders } from '../notices-register/reminders.js'
 import { sendDscAlerts } from '../dsc/alerts.js'
+import { sendArticleshipFormAlerts } from '../articleship/service.js'
 
 const DAY_MS = 24 * 60 * 60 * 1000
 
@@ -32,6 +33,7 @@ export interface ComplianceJobReport {
   client_reminders: Awaited<ReturnType<typeof sendComplianceClientReminders>> | null
   notice_reminders: number | null
   dsc_alerts: number | null
+  articleship_form_alerts: number | null
 }
 
 export async function runComplianceJobs(prisma: PrismaClient, today = istToday()): Promise<ComplianceJobReport> {
@@ -49,6 +51,8 @@ export async function runComplianceJobs(prisma: PrismaClient, today = istToday()
     client_reminders: await step('compliance.client_reminders', () => sendComplianceClientReminders(prisma, today)),
     notice_reminders: await step('compliance.notice_reminders', () => sendNoticeReminders(prisma, today)),
     dsc_alerts: await step('compliance.dsc_alerts', () => sendDscAlerts(prisma, today)),
+    // ICAI Form 103 / 108 / 109 reminders for articled assistants.
+    articleship_form_alerts: await step('articleship.form_alerts', () => sendArticleshipFormAlerts(prisma, today)),
   }
 }
 

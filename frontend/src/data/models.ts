@@ -199,6 +199,16 @@ export interface ArticledTraining extends Auditable {
   training_end: ISODate;
   current_year: 1 | 2 | 3;
   stipend_slab: string; // slab code — table in Settings
+  /** Monthly stipend in paise; payroll pays this (no PF) when set. */
+  stipend_paise?: number | null;
+  icai_region?: string | null;
+  /** Computed by the server from approved leave (1/6th rule) — read-only. */
+  excess_leave_days?: number;
+  extended_training_end?: ISODate | null;
+  form102_date?: ISODate | null;
+  form103_date?: ISODate | null;
+  form108_date?: ISODate | null;
+  form109_date?: ISODate | null;
   status: 'active' | 'transferred' | 'completed' | 'terminated';
 }
 

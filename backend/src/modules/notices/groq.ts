@@ -15,6 +15,19 @@ import Groq from 'groq-sdk'
 import { prisma } from '../../lib/prisma.js'
 import { ApiError } from '../../lib/http.js'
 import { decryptPortalSecret } from '../../platform/portalCrypto.js'
+import { maskPersonalData } from './mask.js'
+
+export const AI_DISABLED_MESSAGE = 'AI drafting is switched off for this firm.'
+
+/**
+ * Organisation.aiExternalProcessing — the firm's switch for sending client
+ * text to an outside AI service. Off → 409 `ai_disabled`.
+ */
+export async function assertAiAllowed(organisationId: string): Promise<void> {
+  const org = await prisma.organisation.findUnique({ where: { id: organisationId }, select: { aiExternalProcessing: true } })
+  // Fail closed: no firm row means no consent to send anything out.
+  if (!org || !org.aiExternalProcessing) throw ApiError.conflict('ai_disabled', AI_DISABLED_MESSAGE)
+}
 
 export const DEFAULT_GROQ_MODEL = process.env.GROQ_MODEL?.trim() || 'openai/gpt-oss-120b'
 
@@ -41,6 +54,7 @@ export async function complete<T = unknown>(args: {
   temperature?: number
   json?: boolean
 }): Promise<{ content: T; model: string }> {
+  await assertAiAllowed(args.organisationId)
   const cfg = await resolveGroqConfig(args.organisationId)
   const groq = new Groq({ apiKey: cfg.apiKey })
   const r = await groq.chat.completions.create({
@@ -49,7 +63,8 @@ export async function complete<T = unknown>(args: {
     response_format: args.json ? { type: 'json_object' } : undefined,
     messages: [
       { role: 'system', content: args.system },
-      { role: 'user', content: args.user },
+      // PAN, GSTIN, Aadhaar, phone and email never leave the server.
+      { role: 'user', content: maskPersonalData(args.user) },
     ],
   })
   const raw = r.choices[0]?.message?.content ?? ''

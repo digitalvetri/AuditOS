@@ -106,9 +106,15 @@ function ProgressCards({ f }: { f: AuditFile }) {
     { label: 'Checklist items pending', value: p?.checklist_pending ?? 0, sub: 'Acceptance, CARO / 3CD, completion', warn: (p?.checklist_pending ?? 0) > 0, tab: 'checklists' },
     { label: 'Observations open', value: p?.observations_open ?? 0, sub: 'Queries and points with the client', tab: 'observations' },
     { label: 'Independence pending', value: p?.team_undeclared ?? 0, sub: 'Team members yet to declare', warn: (p?.team_undeclared ?? 0) > 0, tab: 'overview' },
+    {
+      label: 'Time logged',
+      value: formatHours(f.time_logged?.minutes ?? 0),
+      sub: f.time_logged?.linked_tasks ? `On ${f.time_logged.linked_tasks} linked task${f.time_logged.linked_tasks === 1 ? '' : 's'}` : 'Link tasks to this file to track time',
+      tab: 'overview',
+    },
   ];
   return (
-    <section className="grid gap-4 grid-cols-2 md:grid-cols-3 xl:grid-cols-5">
+    <section className="grid gap-4 grid-cols-2 md:grid-cols-3 xl:grid-cols-6">
       {tiles.map((t) => (
         <Link key={t.label} to={`?tab=${t.tab}`} className="dash-card dash-card-link p-4 min-w-0">
           <div className="text-12 text-neutral-500 truncate">{t.label}</div>
@@ -123,6 +129,13 @@ function ProgressCards({ f }: { f: AuditFile }) {
       ))}
     </section>
   );
+}
+
+/** 150 → '2h 30m'. */
+function formatHours(minutes: number): string {
+  const h = Math.floor(minutes / 60);
+  const m = minutes % 60;
+  return h ? `${h}h${m ? ` ${m}m` : ''}` : `${m}m`;
 }
 
 // ── Team & independence ───────────────────────────────────────────────────

@@ -11,6 +11,7 @@ import { workstationApi } from '@/modules/workstation/api';
 import type { ClientPortalDocuments } from '@/modules/workstation/types';
 import type { ApiError } from '@/services/api';
 import { fmtDate, fmtTime, inr } from '@/lib/format';
+import { PORTAL_EXTRAS_CSS, PortalJobStatusSection, PortalRequestsSection } from './PortalRequests';
 
 /**
  * The client's own Documents page, opened from the link the firm sends.
@@ -243,7 +244,7 @@ export function ClientDocumentsPortalPage() {
 
           <div className="xp-side-foot">
             <Lock size={12} strokeWidth={2} />
-            <span>Private, read-only link from {firm}</span>
+            <span>Private link from {firm}</span>
           </div>
         </aside>
 
@@ -282,7 +283,9 @@ export function ClientDocumentsPortalPage() {
             />
 
             {!folder ? <Stats data={data} /> : null}
-            {!folder ? <Attention data={data} onOpen={(r) => setPreview(r)} /> : null}
+            {/* What the firm is waiting for — the client uploads straight into each request. */}
+            {!folder ? <PortalRequestsSection token={token} onUploaded={() => void query.refetch()} onMessage={setToast} /> : null}
+            {!folder ? <PortalJobStatusSection token={token} /> : null}
 
             <DocTable
               key={view}
@@ -366,29 +369,6 @@ function Stat({ c, icon, label, value, sub }: { c: 'indigo' | 'green' | 'amber' 
       <div className="xp-stat-value">{value}</div>
       <div className="xp-stat-sub">{sub}</div>
     </div>
-  );
-}
-
-function Attention({ data, onOpen }: { data: Data; onOpen: (r: Row) => void }) {
-  const rows = data.folders.flatMap((f) => f.items.filter(awaiting).map((item) => ({ folder: f, item })));
-  if (rows.length === 0) return null;
-  return (
-    <section className="xp-attn">
-      <div className="xp-attn-head">
-        <AlertTriangle size={14} strokeWidth={2} />
-        <b>{plural(rows.length, 'document')} needed from you</b>
-        <span>Please share these with your accountant.</span>
-      </div>
-      <div className="xp-attn-list">
-        {rows.slice(0, 6).map((r) => (
-          <button key={`${r.item.source}:${r.item.id}`} type="button" className="xp-attn-item" onClick={() => onOpen(r)}>
-            <span className="xp-attn-name">{r.item.title}</span>
-            <span className="xp-attn-folder">{r.folder.label}</span>
-          </button>
-        ))}
-        {rows.length > 6 ? <span className="xp-attn-more">+{rows.length - 6} more</span> : null}
-      </div>
-    </section>
   );
 }
 
@@ -659,7 +639,7 @@ function Frame({ children }: { children: ReactNode }) {
   }, []);
   return (
     <div className="xp-root">
-      <style>{CSS}</style>
+      <style>{CSS + PORTAL_EXTRAS_CSS}</style>
       {children}
     </div>
   );

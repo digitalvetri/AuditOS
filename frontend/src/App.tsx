@@ -8,145 +8,157 @@ import { ProtectedRoute } from '@/platform/auth/ProtectedRoute';
 // is a swap, not a delete, and old modules render inside the new frame.
 import { AppShellV2 as AppShell } from '@/shell/v2/AppShell';
 import { LoginPage } from '@/pages/Login';
-import { SetPasswordPage } from '@/pages/SetPassword';
+const SetPasswordPage = lazy(() => import('@/pages/SetPassword').then((m) => ({ default: m.SetPasswordPage })));
 import { DashboardV2Page as DashboardPage } from '@/pages/DashboardV2';
 // Workstation (AUDIT_OS_WORKSTATION.md §4) — replaces the reserved screen.
-import { WorkstationDashboardPage } from '@/pages/workstation/Dashboard';
-import { LeadsPage } from '@/pages/workstation/Leads';
-import { LeadDetailPage } from '@/pages/workstation/LeadDetail';
-import { ClientsPage } from '@/pages/workstation/Clients';
-import { ClientWorkspacePage } from '@/pages/workstation/ClientWorkspace';
-import { ServicesPage } from '@/pages/workstation/Services';
-import { FollowUpsPage } from '@/pages/workstation/FollowUps';
-import { WorkstationCalendarPage } from '@/pages/workstation/Calendar';
-import { DocumentsPage as WorkstationDocumentsPage } from '@/pages/workstation/Documents';
-import { TaskListPage } from '@/pages/workstation/tasks/TaskList';
-import { TaskDetailPage } from '@/pages/workstation/tasks/TaskDetail';
-import { TaskReportsPage } from '@/pages/workstation/tasks/TaskReports';
-import { QuotationListPage } from '@/pages/workstation/quotations/QuotationList';
-import { InvoiceListPage } from '@/pages/workstation/invoices/InvoiceList';
-import { InvoiceBuilderPage } from '@/pages/workstation/invoices/InvoiceBuilder';
-import { InvoiceDetailPage } from '@/pages/workstation/invoices/InvoiceDetail';
-import { InvoicePreviewPage } from '@/pages/workstation/invoices/InvoicePreview';
-import { CreditNoteListPage } from '@/pages/workstation/creditNotes/CreditNoteList';
-import { CreditNoteEditorPage } from '@/pages/workstation/creditNotes/CreditNoteEditor';
-import { RecurringInvoicesPage } from '@/pages/workstation/recurring/RecurringInvoices';
-import { QuotationBuilderPage } from '@/pages/workstation/quotations/QuotationBuilder';
-import { QuotationDetailPage } from '@/pages/workstation/quotations/QuotationDetail';
-import { QuotationPreviewPage } from '@/pages/workstation/quotations/QuotationPreview';
-import { EngagementListPage } from '@/pages/workstation/engagement/EngagementList';
-import { EngagementBuilderPage } from '@/pages/workstation/engagement/EngagementBuilder';
-import { EngagementPreviewPage } from '@/pages/workstation/engagement/EngagementPreview';
-import { DocHomePage } from '@/pages/workstation/doc/DocHome';
-import { DocListPage } from '@/pages/workstation/doc/DocList';
-import { DocBuilderPage } from '@/pages/workstation/doc/DocBuilder';
-import { DocPreviewPage } from '@/pages/workstation/doc/DocPreview';
-import { ClientDocumentsPortalPage } from '@/pages/portal/ClientDocumentsPortal';
+const WorkstationDashboardPage = lazy(() => import('@/pages/workstation/Dashboard').then((m) => ({ default: m.WorkstationDashboardPage })));
+const LeadsPage = lazy(() => import('@/pages/workstation/Leads').then((m) => ({ default: m.LeadsPage })));
+const LeadDetailPage = lazy(() => import('@/pages/workstation/LeadDetail').then((m) => ({ default: m.LeadDetailPage })));
+const ClientsPage = lazy(() => import('@/pages/workstation/Clients').then((m) => ({ default: m.ClientsPage })));
+const ClientWorkspacePage = lazy(() => import('@/pages/workstation/ClientWorkspace').then((m) => ({ default: m.ClientWorkspacePage })));
+const ServicesPage = lazy(() => import('@/pages/workstation/Services').then((m) => ({ default: m.ServicesPage })));
+const FollowUpsPage = lazy(() => import('@/pages/workstation/FollowUps').then((m) => ({ default: m.FollowUpsPage })));
+const WorkstationCalendarPage = lazy(() => import('@/pages/workstation/Calendar').then((m) => ({ default: m.WorkstationCalendarPage })));
+const WorkstationDocumentsPage = lazy(() => import('@/pages/workstation/Documents').then((m) => ({ default: m.DocumentsPage })));
+const TaskListPage = lazy(() => import('@/pages/workstation/tasks/TaskList').then((m) => ({ default: m.TaskListPage })));
+const TaskDetailPage = lazy(() => import('@/pages/workstation/tasks/TaskDetail').then((m) => ({ default: m.TaskDetailPage })));
+const TaskReportsPage = lazy(() => import('@/pages/workstation/tasks/TaskReports').then((m) => ({ default: m.TaskReportsPage })));
+const QuotationListPage = lazy(() => import('@/pages/workstation/quotations/QuotationList').then((m) => ({ default: m.QuotationListPage })));
+const InvoiceListPage = lazy(() => import('@/pages/workstation/invoices/InvoiceList').then((m) => ({ default: m.InvoiceListPage })));
+const InvoiceBuilderPage = lazy(() => import('@/pages/workstation/invoices/InvoiceBuilder').then((m) => ({ default: m.InvoiceBuilderPage })));
+const InvoiceDetailPage = lazy(() => import('@/pages/workstation/invoices/InvoiceDetail').then((m) => ({ default: m.InvoiceDetailPage })));
+const InvoicePreviewPage = lazy(() => import('@/pages/workstation/invoices/InvoicePreview').then((m) => ({ default: m.InvoicePreviewPage })));
+const CreditNoteListPage = lazy(() => import('@/pages/workstation/creditNotes/CreditNoteList').then((m) => ({ default: m.CreditNoteListPage })));
+const CreditNoteEditorPage = lazy(() => import('@/pages/workstation/creditNotes/CreditNoteEditor').then((m) => ({ default: m.CreditNoteEditorPage })));
+const RecurringInvoicesPage = lazy(() => import('@/pages/workstation/recurring/RecurringInvoices').then((m) => ({ default: m.RecurringInvoicesPage })));
+const QuotationBuilderPage = lazy(() => import('@/pages/workstation/quotations/QuotationBuilder').then((m) => ({ default: m.QuotationBuilderPage })));
+const QuotationDetailPage = lazy(() => import('@/pages/workstation/quotations/QuotationDetail').then((m) => ({ default: m.QuotationDetailPage })));
+const QuotationPreviewPage = lazy(() => import('@/pages/workstation/quotations/QuotationPreview').then((m) => ({ default: m.QuotationPreviewPage })));
+const EngagementListPage = lazy(() => import('@/pages/workstation/engagement/EngagementList').then((m) => ({ default: m.EngagementListPage })));
+const EngagementBuilderPage = lazy(() => import('@/pages/workstation/engagement/EngagementBuilder').then((m) => ({ default: m.EngagementBuilderPage })));
+const EngagementPreviewPage = lazy(() => import('@/pages/workstation/engagement/EngagementPreview').then((m) => ({ default: m.EngagementPreviewPage })));
+const DocHomePage = lazy(() => import('@/pages/workstation/doc/DocHome').then((m) => ({ default: m.DocHomePage })));
+const DocListPage = lazy(() => import('@/pages/workstation/doc/DocList').then((m) => ({ default: m.DocListPage })));
+const DocBuilderPage = lazy(() => import('@/pages/workstation/doc/DocBuilder').then((m) => ({ default: m.DocBuilderPage })));
+const DocPreviewPage = lazy(() => import('@/pages/workstation/doc/DocPreview').then((m) => ({ default: m.DocPreviewPage })));
+const ClientDocumentsPortalPage = lazy(() => import('@/pages/portal/ClientDocumentsPortal').then((m) => ({ default: m.ClientDocumentsPortalPage })));
 // Tools (Converters & Utilities) — registry-driven; /tools/:toolId is one
 // shared workspace and /tools/documents the output history.
-import { ToolsPage } from '@/pages/tools/Tools';
-import { ToolWorkspacePage } from '@/pages/tools/ToolWorkspace';
-import { ToolDocumentsPage } from '@/pages/tools/ToolDocuments';
+const ToolsPage = lazy(() => import('@/pages/tools/Tools').then((m) => ({ default: m.ToolsPage })));
+const ToolWorkspacePage = lazy(() => import('@/pages/tools/ToolWorkspace').then((m) => ({ default: m.ToolWorkspacePage })));
+const ToolDocumentsPage = lazy(() => import('@/pages/tools/ToolDocuments').then((m) => ({ default: m.ToolDocumentsPage })));
 // Audit Automation submodule (AMENDMENT-02-REPOTIC-GAPS.md).
-import { AuditAutomationLandingPage } from '@/pages/tools/AuditAutomation';
-import { BankJobsListPage } from '@/pages/tools/BankJobsList';
-import { BankNewUploadPage } from '@/pages/tools/BankNewUpload';
-import { BankJobDetailPage } from '@/pages/tools/BankJobDetail';
+const AuditAutomationLandingPage = lazy(() => import('@/pages/tools/AuditAutomation').then((m) => ({ default: m.AuditAutomationLandingPage })));
+const BankJobsListPage = lazy(() => import('@/pages/tools/BankJobsList').then((m) => ({ default: m.BankJobsListPage })));
+const BankNewUploadPage = lazy(() => import('@/pages/tools/BankNewUpload').then((m) => ({ default: m.BankNewUploadPage })));
+const BankJobDetailPage = lazy(() => import('@/pages/tools/BankJobDetail').then((m) => ({ default: m.BankJobDetailPage })));
 // GST reconciliation pipeline.
-import { GstJobsListPage } from '@/pages/tools/GstJobsList';
-import { GstNewReconPage } from '@/pages/tools/GstNewRecon';
-import { GstReconDetailPage } from '@/pages/tools/GstReconDetail';
+const GstJobsListPage = lazy(() => import('@/pages/tools/GstJobsList').then((m) => ({ default: m.GstJobsListPage })));
+const GstNewReconPage = lazy(() => import('@/pages/tools/GstNewRecon').then((m) => ({ default: m.GstNewReconPage })));
+const GstReconDetailPage = lazy(() => import('@/pages/tools/GstReconDetail').then((m) => ({ default: m.GstReconDetailPage })));
 // Repotic · Ecommerce GSTR-1 pipeline (REPOTIC-MODULE.md Phase 1+).
-import { EcommerceGstr1HomePage } from '@/pages/tools/repotic/EcommerceGstr1Home';
+const EcommerceGstr1HomePage = lazy(() => import('@/pages/tools/repotic/EcommerceGstr1Home').then((m) => ({ default: m.EcommerceGstr1HomePage })));
 // Bookkeeping — native double-entry accounting (formerly Tally engine).
-import { BookkeepingHome } from '@/pages/workstation/services/bookkeeping/BookkeepingHome';
-import { BookkeepingCompanies } from '@/pages/workstation/services/bookkeeping/BookkeepingCompanies';
-import { BookkeepingWorkspace } from '@/pages/workstation/services/bookkeeping/BookkeepingWorkspace';
-import { BookkeepingGroups } from '@/pages/workstation/services/bookkeeping/BookkeepingGroups';
-import { BookkeepingLedgers } from '@/pages/workstation/services/bookkeeping/BookkeepingLedgers';
-import { BookkeepingDashboard } from '@/pages/workstation/services/bookkeeping/BookkeepingDashboard';
-import { BookkeepingVouchers } from '@/pages/workstation/services/bookkeeping/BookkeepingVouchers';
-import { BookkeepingVoucherEditor } from '@/pages/workstation/services/bookkeeping/BookkeepingVoucherEditor';
-import { BookkeepingVoucherDetail } from '@/pages/workstation/services/bookkeeping/BookkeepingVoucherDetail';
-import { BookkeepingReports } from '@/pages/workstation/services/bookkeeping/BookkeepingReports';
-import { BookkeepingReportPage, BookkeepingRegisterPage, BookkeepingBookPage, BookkeepingLedgerStatement } from '@/pages/workstation/services/bookkeeping/BookkeepingReportPage';
-import { BookkeepingInventory, BookkeepingStockItemPage } from '@/pages/workstation/services/bookkeeping/BookkeepingInventory';
-import { BookkeepingBanking } from '@/pages/workstation/services/bookkeeping/BookkeepingBanking';
-import { BookkeepingImportPage } from '@/pages/workstation/services/bookkeeping/BookkeepingImport';
-import { BookkeepingClientDashboardPage } from '@/pages/workstation/services/bookkeeping/BookkeepingClientDashboard';
-import { TallyExportPage } from '@/pages/workstation/services/tally-export/TallyExportPage';
-import { BookkeepingGst } from '@/pages/workstation/services/bookkeeping/BookkeepingGst';
-import { BookkeepingTrade } from '@/pages/workstation/services/bookkeeping/BookkeepingTrade';
-import { BookkeepingPayroll } from '@/pages/workstation/services/bookkeeping/BookkeepingPayroll';
-import { BookkeepingAudit } from '@/pages/workstation/services/bookkeeping/BookkeepingAudit';
-import { BookkeepingUtilities } from '@/pages/workstation/services/bookkeeping/BookkeepingUtilities';
-import { BookkeepingSettings } from '@/pages/workstation/services/bookkeeping/BookkeepingSettings';
+const BookkeepingHome = lazy(() => import('@/pages/workstation/services/bookkeeping/BookkeepingHome').then((m) => ({ default: m.BookkeepingHome })));
+const BookkeepingCompanies = lazy(() => import('@/pages/workstation/services/bookkeeping/BookkeepingCompanies').then((m) => ({ default: m.BookkeepingCompanies })));
+const BookkeepingWorkspace = lazy(() => import('@/pages/workstation/services/bookkeeping/BookkeepingWorkspace').then((m) => ({ default: m.BookkeepingWorkspace })));
+const BookkeepingGroups = lazy(() => import('@/pages/workstation/services/bookkeeping/BookkeepingGroups').then((m) => ({ default: m.BookkeepingGroups })));
+const BookkeepingLedgers = lazy(() => import('@/pages/workstation/services/bookkeeping/BookkeepingLedgers').then((m) => ({ default: m.BookkeepingLedgers })));
+const BookkeepingDashboard = lazy(() => import('@/pages/workstation/services/bookkeeping/BookkeepingDashboard').then((m) => ({ default: m.BookkeepingDashboard })));
+const BookkeepingVouchers = lazy(() => import('@/pages/workstation/services/bookkeeping/BookkeepingVouchers').then((m) => ({ default: m.BookkeepingVouchers })));
+const BookkeepingVoucherEditor = lazy(() => import('@/pages/workstation/services/bookkeeping/BookkeepingVoucherEditor').then((m) => ({ default: m.BookkeepingVoucherEditor })));
+const BookkeepingVoucherDetail = lazy(() => import('@/pages/workstation/services/bookkeeping/BookkeepingVoucherDetail').then((m) => ({ default: m.BookkeepingVoucherDetail })));
+const BookkeepingReports = lazy(() => import('@/pages/workstation/services/bookkeeping/BookkeepingReports').then((m) => ({ default: m.BookkeepingReports })));
+const BookkeepingReportPage = lazy(() => import('@/pages/workstation/services/bookkeeping/BookkeepingReportPage').then((m) => ({ default: m.BookkeepingReportPage })));
+const BookkeepingRegisterPage = lazy(() => import('@/pages/workstation/services/bookkeeping/BookkeepingReportPage').then((m) => ({ default: m.BookkeepingRegisterPage })));
+const BookkeepingBookPage = lazy(() => import('@/pages/workstation/services/bookkeeping/BookkeepingReportPage').then((m) => ({ default: m.BookkeepingBookPage })));
+const BookkeepingLedgerStatement = lazy(() => import('@/pages/workstation/services/bookkeeping/BookkeepingReportPage').then((m) => ({ default: m.BookkeepingLedgerStatement })));
+const BookkeepingInventory = lazy(() => import('@/pages/workstation/services/bookkeeping/BookkeepingInventory').then((m) => ({ default: m.BookkeepingInventory })));
+const BookkeepingStockItemPage = lazy(() => import('@/pages/workstation/services/bookkeeping/BookkeepingInventory').then((m) => ({ default: m.BookkeepingStockItemPage })));
+const BookkeepingBanking = lazy(() => import('@/pages/workstation/services/bookkeeping/BookkeepingBanking').then((m) => ({ default: m.BookkeepingBanking })));
+const BookkeepingImportPage = lazy(() => import('@/pages/workstation/services/bookkeeping/BookkeepingImport').then((m) => ({ default: m.BookkeepingImportPage })));
+const BookkeepingClientDashboardPage = lazy(() => import('@/pages/workstation/services/bookkeeping/BookkeepingClientDashboard').then((m) => ({ default: m.BookkeepingClientDashboardPage })));
+const TallyExportPage = lazy(() => import('@/pages/workstation/services/tally-export/TallyExportPage').then((m) => ({ default: m.TallyExportPage })));
+const BookkeepingGst = lazy(() => import('@/pages/workstation/services/bookkeeping/BookkeepingGst').then((m) => ({ default: m.BookkeepingGst })));
+const BookkeepingTrade = lazy(() => import('@/pages/workstation/services/bookkeeping/BookkeepingTrade').then((m) => ({ default: m.BookkeepingTrade })));
+const BookkeepingPayroll = lazy(() => import('@/pages/workstation/services/bookkeeping/BookkeepingPayroll').then((m) => ({ default: m.BookkeepingPayroll })));
+const BookkeepingAudit = lazy(() => import('@/pages/workstation/services/bookkeeping/BookkeepingAudit').then((m) => ({ default: m.BookkeepingAudit })));
+const BookkeepingUtilities = lazy(() => import('@/pages/workstation/services/bookkeeping/BookkeepingUtilities').then((m) => ({ default: m.BookkeepingUtilities })));
+const BookkeepingSettings = lazy(() => import('@/pages/workstation/services/bookkeeping/BookkeepingSettings').then((m) => ({ default: m.BookkeepingSettings })));
 // GST — dedicated landing page + per-service AssistedHandoff detail +
 // shape-based workspace dispatcher (recurring period board / project case
 // pipeline) + weekly notice-check discovery workflow.
 // See docs/gst-services/README.md.
 // GST compliance lives inside the GST Registration entry — see GstShell.
-import { PartnershipShell } from '@/pages/workstation/registration/partnership/PartnershipShell';
-import { PartnershipDashboard } from '@/pages/workstation/registration/partnership/PartnershipDashboard';
-import { PartnershipClients } from '@/pages/workstation/registration/partnership/PartnershipClients';
-import { PartnershipCase } from '@/pages/workstation/registration/partnership/PartnershipCase';
-import { ServiceProvider } from '@/pages/workstation/registration/partnership/shared';
-import { PartnershipTemplate } from '@/pages/workstation/registration/partnership/PartnershipTemplate';
-import { PostRegistrationOverview } from '@/modules/postRegistration/Overview';
-import { LlpCompliancePage } from '@/modules/postRegistration/RegistrationComplianceSection';
-import { GstShell } from '@/pages/workstation/registration/gst/GstShell';
-import { GstRegistrationTab } from '@/pages/workstation/registration/gst/GstRegistrationTab';
-import { GstDashboard } from '@/pages/workstation/registration/gst/GstDashboard';
-import { GstClients } from '@/pages/workstation/registration/gst/GstClients';
-import { GstClientView } from '@/pages/workstation/registration/gst/GstClientView';
+const PartnershipShell = lazy(() => import('@/pages/workstation/registration/partnership/PartnershipShell').then((m) => ({ default: m.PartnershipShell })));
+const PartnershipDashboard = lazy(() => import('@/pages/workstation/registration/partnership/PartnershipDashboard').then((m) => ({ default: m.PartnershipDashboard })));
+const PartnershipClients = lazy(() => import('@/pages/workstation/registration/partnership/PartnershipClients').then((m) => ({ default: m.PartnershipClients })));
+const PartnershipCase = lazy(() => import('@/pages/workstation/registration/partnership/PartnershipCase').then((m) => ({ default: m.PartnershipCase })));
+const ServiceProvider = lazy(() => import('@/pages/workstation/registration/partnership/shared').then((m) => ({ default: m.ServiceProvider })));
+const PartnershipTemplate = lazy(() => import('@/pages/workstation/registration/partnership/PartnershipTemplate').then((m) => ({ default: m.PartnershipTemplate })));
+const PostRegistrationOverview = lazy(() => import('@/modules/postRegistration/Overview').then((m) => ({ default: m.PostRegistrationOverview })));
+const LlpCompliancePage = lazy(() => import('@/modules/postRegistration/RegistrationComplianceSection').then((m) => ({ default: m.LlpCompliancePage })));
+const GstShell = lazy(() => import('@/pages/workstation/registration/gst/GstShell').then((m) => ({ default: m.GstShell })));
+const GstRegistrationTab = lazy(() => import('@/pages/workstation/registration/gst/GstRegistrationTab').then((m) => ({ default: m.GstRegistrationTab })));
+const GstDashboard = lazy(() => import('@/pages/workstation/registration/gst/GstDashboard').then((m) => ({ default: m.GstDashboard })));
+const GstClients = lazy(() => import('@/pages/workstation/registration/gst/GstClients').then((m) => ({ default: m.GstClients })));
+const GstClientView = lazy(() => import('@/pages/workstation/registration/gst/GstClientView').then((m) => ({ default: m.GstClientView })));
 // GstStagePage + GstPeriodDetail deleted in §9-4 — the return tabs
 // render PartnershipClients, and the dashboard's 1 › 2B › Recon › 3B
 // chain nodes open the shared PartnershipCase directly.
-import { GstTemplateHub } from '@/pages/workstation/registration/gst/GstTemplateHub';
-import { RegistrationServiceDetail } from '@/pages/workstation/registration/RegistrationServiceDetail';
+const GstTemplateHub = lazy(() => import('@/pages/workstation/registration/gst/GstTemplateHub').then((m) => ({ default: m.GstTemplateHub })));
+const RegistrationServiceDetail = lazy(() => import('@/pages/workstation/registration/RegistrationServiceDetail').then((m) => ({ default: m.RegistrationServiceDetail })));
 
 // TDS — copied from the GST page structure per TDS-PAGE-PROMPT.md.
 // Client + FY + TAN scope in the URL; six sub-services (Registration,
 // Challan Payment, Return Filing, Correction, Form 16/16A, Notices).
-import { TdsServicesLanding } from '@/pages/workstation/tds/TdsServicesLanding';
-import { TdsServiceHandoff } from '@/pages/workstation/tds/TdsServiceHandoff';
-import { TdsRegisterPage } from '@/pages/workstation/tds/TdsRegisterPage';
+const TdsServicesLanding = lazy(() => import('@/pages/workstation/tds/TdsServicesLanding').then((m) => ({ default: m.TdsServicesLanding })));
+const TdsServiceHandoff = lazy(() => import('@/pages/workstation/tds/TdsServiceHandoff').then((m) => ({ default: m.TdsServiceHandoff })));
+const TdsRegisterPage = lazy(() => import('@/pages/workstation/tds/TdsRegisterPage').then((m) => ({ default: m.TdsRegisterPage })));
 // Compliance calendar, notices, DSC register, 26AS recon (docs/compliance) — code-split.
 import { ComplianceCalendarRoute, DueDateExtensionsRoute, NoticesRegisterRoute, DscRegisterRoute, TdsReconRoute } from '@/modules/compliance/lazyPages';
 
 // Books — Tools → Books, an Audit OS UI over Zoho Books (docs/books-zoho).
-import { BooksShell } from '@/pages/books/BooksShell';
-import { BooksDashboardPage } from '@/pages/books/BooksDashboard';
-import { BooksSettingsPage } from '@/pages/books/BooksSettings';
-import { BankingPage, BulkUpdatePage, ContactDetailPage, PaymentsPage, ReconciliationPage, ReportsPage as BooksReportsPage, ResourcePage, TaxesPage, TransactionLockingPage, ZohoOnlyPage } from '@/pages/books/BooksPages';
-import { AttendancePage } from '@/pages/hrms/Attendance';
-import { LeavePage } from '@/pages/hrms/Leave';
-import { EmployeesPage } from '@/pages/hrms/Employees';
-import { EmployeeDetailPage } from '@/pages/hrms/EmployeeDetail';
-import { DocumentsPage } from '@/pages/hrms/Documents';
-import { SettingsPage } from '@/pages/hrms/Settings';
-import { AuditLogPage } from '@/pages/hrms/AuditLog';
-import { ZohoPaymentsIntegrationPage } from '@/pages/integrations/ZohoPayments';
-import { AiProviderIntegrationPage } from '@/pages/integrations/AiProvider';
-import { PayrollPage, PayrollRunDetailPage } from '@/pages/hrms/Payroll';
-import { PayslipDetailPage } from '@/pages/hrms/PayslipDetail';
-import { MyPayslipsPage } from '@/pages/MyPayslips';
-import { ExpensesPage } from '@/pages/hrms/Expenses';
-import {
-  AccountsLayout,
-  AccountsOverviewPage,
-  AccountsLedgerPage,
-  AccountsPaymentsPage,
-  AccountsCollectionsPage,
-} from '@/pages/hrms/Accounts';
-import { MessagesPage } from '@/pages/hrms/Messages';
-import { ReportsPage } from '@/pages/hrms/Reports';
-import { PaymentSummaryPage } from '@/pages/hrms/PaymentSummary';
+const BooksShell = lazy(() => import('@/pages/books/BooksShell').then((m) => ({ default: m.BooksShell })));
+const BooksDashboardPage = lazy(() => import('@/pages/books/BooksDashboard').then((m) => ({ default: m.BooksDashboardPage })));
+const BooksSettingsPage = lazy(() => import('@/pages/books/BooksSettings').then((m) => ({ default: m.BooksSettingsPage })));
+const BankingPage = lazy(() => import('@/pages/books/BooksPages').then((m) => ({ default: m.BankingPage })));
+const BulkUpdatePage = lazy(() => import('@/pages/books/BooksPages').then((m) => ({ default: m.BulkUpdatePage })));
+const ContactDetailPage = lazy(() => import('@/pages/books/BooksPages').then((m) => ({ default: m.ContactDetailPage })));
+const PaymentsPage = lazy(() => import('@/pages/books/BooksPages').then((m) => ({ default: m.PaymentsPage })));
+const ReconciliationPage = lazy(() => import('@/pages/books/BooksPages').then((m) => ({ default: m.ReconciliationPage })));
+const BooksReportsPage = lazy(() => import('@/pages/books/BooksPages').then((m) => ({ default: m.ReportsPage })));
+const ResourcePage = lazy(() => import('@/pages/books/BooksPages').then((m) => ({ default: m.ResourcePage })));
+const TaxesPage = lazy(() => import('@/pages/books/BooksPages').then((m) => ({ default: m.TaxesPage })));
+const TransactionLockingPage = lazy(() => import('@/pages/books/BooksPages').then((m) => ({ default: m.TransactionLockingPage })));
+const ZohoOnlyPage = lazy(() => import('@/pages/books/BooksPages').then((m) => ({ default: m.ZohoOnlyPage })));
+const AttendancePage = lazy(() => import('@/pages/hrms/Attendance').then((m) => ({ default: m.AttendancePage })));
+const LeavePage = lazy(() => import('@/pages/hrms/Leave').then((m) => ({ default: m.LeavePage })));
+const EmployeesPage = lazy(() => import('@/pages/hrms/Employees').then((m) => ({ default: m.EmployeesPage })));
+const EmployeeDetailPage = lazy(() => import('@/pages/hrms/EmployeeDetail').then((m) => ({ default: m.EmployeeDetailPage })));
+const DocumentsPage = lazy(() => import('@/pages/hrms/Documents').then((m) => ({ default: m.DocumentsPage })));
+const SettingsPage = lazy(() => import('@/pages/hrms/Settings').then((m) => ({ default: m.SettingsPage })));
+const AuditLogPage = lazy(() => import('@/pages/hrms/AuditLog').then((m) => ({ default: m.AuditLogPage })));
+const ZohoPaymentsIntegrationPage = lazy(() => import('@/pages/integrations/ZohoPayments').then((m) => ({ default: m.ZohoPaymentsIntegrationPage })));
+const AiProviderIntegrationPage = lazy(() => import('@/pages/integrations/AiProvider').then((m) => ({ default: m.AiProviderIntegrationPage })));
+const PayrollPage = lazy(() => import('@/pages/hrms/Payroll').then((m) => ({ default: m.PayrollPage })));
+const PayrollRunDetailPage = lazy(() => import('@/pages/hrms/Payroll').then((m) => ({ default: m.PayrollRunDetailPage })));
+const PayslipDetailPage = lazy(() => import('@/pages/hrms/PayslipDetail').then((m) => ({ default: m.PayslipDetailPage })));
+const MyPayslipsPage = lazy(() => import('@/pages/MyPayslips').then((m) => ({ default: m.MyPayslipsPage })));
+const ExpensesPage = lazy(() => import('@/pages/hrms/Expenses').then((m) => ({ default: m.ExpensesPage })));
+const AccountsLayout = lazy(() => import('@/pages/hrms/Accounts').then((m) => ({ default: m.AccountsLayout })));
+const AccountsOverviewPage = lazy(() => import('@/pages/hrms/Accounts').then((m) => ({ default: m.AccountsOverviewPage })));
+const AccountsLedgerPage = lazy(() => import('@/pages/hrms/Accounts').then((m) => ({ default: m.AccountsLedgerPage })));
+const AccountsPaymentsPage = lazy(() => import('@/pages/hrms/Accounts').then((m) => ({ default: m.AccountsPaymentsPage })));
+const AccountsCollectionsPage = lazy(() => import('@/pages/hrms/Accounts').then((m) => ({ default: m.AccountsCollectionsPage })));
+const MessagesPage = lazy(() => import('@/pages/hrms/Messages').then((m) => ({ default: m.MessagesPage })));
+const ReportsPage = lazy(() => import('@/pages/hrms/Reports').then((m) => ({ default: m.ReportsPage })));
+const PaymentSummaryPage = lazy(() => import('@/pages/hrms/PaymentSummary').then((m) => ({ default: m.PaymentSummaryPage })));
 import { useAuth } from '@/platform/auth/AuthContext';
 import { NotFoundPage } from '@/pages/NotFound';
-import { ComingSoonPage } from '@/pages/ComingSoon';
+const ComingSoonPage = lazy(() => import('@/pages/ComingSoon').then((m) => ({ default: m.ComingSoonPage })));
 import { ErrorBoundary } from '@/components/ErrorBoundary';
-import { NotificationsPage } from '@/pages/Notifications';
+const NotificationsPage = lazy(() => import('@/pages/Notifications').then((m) => ({ default: m.NotificationsPage })));
 import { ToastProvider } from '@/components/Toast';
 import { PwaProvider } from '@/platform/pwa/PwaProvider';
 import { QuerySkeleton } from '@/modules/workstation/components';
@@ -156,6 +168,7 @@ import { QuerySkeleton } from '@/modules/workstation/components';
 const AuditListPage = lazy(() => import('@/pages/workstation/audits/AuditList').then((m) => ({ default: m.AuditListPage })));
 const AuditFilePage = lazy(() => import('@/pages/workstation/audits/AuditFile').then((m) => ({ default: m.AuditFilePage })));
 const UdinRegisterPage = lazy(() => import('@/pages/workstation/audits/UdinRegister').then((m) => ({ default: m.UdinRegisterPage })));
+const ArticleshipPage = lazy(() => import('@/pages/hrms/Articleship').then((m) => ({ default: m.ArticleshipPage })));
 const Lazy = ({ children }: { children: ReactNode }) => <Suspense fallback={<QuerySkeleton />}>{children}</Suspense>;
 
 const queryClient = new QueryClient({
@@ -197,6 +210,8 @@ export default function App() {
         <PwaProvider>
         <AuthProvider>
           <BrowserRouter>
+            {/* Pages are code-split; the shell has its own boundary around <Outlet/>. */}
+            <Suspense fallback={<QuerySkeleton />}>
             <Routes>
             <Route path="/login" element={<LoginPage />} />
             {/* Public: a client's live document link. No login — the token in
@@ -254,6 +269,7 @@ export default function App() {
               <Route path="hrms/employees/:id" element={<EmployeeDetailPage />} />
               <Route path="hrms/attendance" element={<AttendancePage />} />
               <Route path="hrms/leave" element={<LeavePage />} />
+              <Route path="hrms/articleship" element={<Lazy><ArticleshipPage /></Lazy>} />
               {/* Nested Accounts routes — Payroll and Expenses live inside
                   the single Accounts module now (§6.2). Legacy /hrms/payroll
                   and /hrms/expenses redirect below rather than 404. */}
@@ -554,6 +570,7 @@ export default function App() {
               <Route path="*" element={<NotFoundPage />} />
             </Route>
             </Routes>
+            </Suspense>
           </BrowserRouter>
         </AuthProvider>
         </PwaProvider>

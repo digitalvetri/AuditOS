@@ -9,6 +9,7 @@
     "build": "tsc -b && vite build",
     "preview": "vite preview",
     "type-check": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run",
     "dev:api": "npm --prefix ../backend run dev"
   },
   "dependencies": {
@@ -39,6 +40,7 @@
     "typescript": "^5.6.3",
     "vite": "^5.4.10",
     "vite-plugin-pwa": "^1.3.0",
+    "vitest": "2.1.9",
     "workbox-build": "^7.4.1",
     "workbox-core": "^7.4.1",
     "workbox-expiration": "^7.4.1",

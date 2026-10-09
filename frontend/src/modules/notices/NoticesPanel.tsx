@@ -26,6 +26,7 @@ import {
   type NoticeKind,
   type ReplyInputs,
 } from './api';
+import { useAiProcessingEnabled } from '@/modules/dataProtection/api';
 
 const EMPTY_INPUTS: ReplyInputs = {
   grounds: '',
@@ -244,6 +245,8 @@ function NoticeDetail({ notice, taxpayerName, taxpayerGstin, onDeleted }: {
   // Once the reply has gone out its text is the record — the server refuses edits.
   const replySent = notice.status === 'sent' || notice.status === 'closed';
   const [clientLetter, setClientLetter] = useState(notice.client_letter ?? '');
+  // The firm's switch for sending notice text to the outside AI service.
+  const aiOn = useAiProcessingEnabled();
 
   const saveFields = useMutation({
     mutationFn: () =>
@@ -401,14 +404,20 @@ function NoticeDetail({ notice, taxpayerName, taxpayerGstin, onDeleted }: {
       </div>
 
       <div className="flex items-center gap-2">
-        <Button onClick={() => generate.mutate()}
-                disabled={replySent || generate.isPending || (!inputs.facts.trim() && !inputs.grounds.trim())}>
-          {generate.isPending ? (
-            <span className="inline-flex items-center gap-2"><Loader2 size={14} className="animate-spin" /> Generating…</span>
-          ) : (
-            <span className="inline-flex items-center gap-2"><Sparkles size={14} /> {draft ? 'Regenerate draft' : 'Generate draft'}</span>
-          )}
-        </Button>
+        {aiOn ? (
+          <Button onClick={() => generate.mutate()}
+                  disabled={replySent || generate.isPending || (!inputs.facts.trim() && !inputs.grounds.trim())}>
+            {generate.isPending ? (
+              <span className="inline-flex items-center gap-2"><Loader2 size={14} className="animate-spin" /> Generating…</span>
+            ) : (
+              <span className="inline-flex items-center gap-2"><Sparkles size={14} /> {draft ? 'Regenerate draft' : 'Generate draft'}</span>
+            )}
+          </Button>
+        ) : (
+          <span className="text-12 text-neutral-500" data-testid="notice-ai-off">
+            AI drafting is switched off for this firm. Write the reply below by hand.
+          </span>
+        )}
         <button type="button" onClick={() => saveFields.mutate()} disabled={saveFields.isPending}
                 className="h-9 px-3 text-13 border border-neutral-300 rounded hover:border-neutral-400 disabled:opacity-60">
           {saveFields.isPending ? 'Saving…' : 'Save details & inputs'}
@@ -423,7 +432,7 @@ function NoticeDetail({ notice, taxpayerName, taxpayerGstin, onDeleted }: {
               <div className="text-12 text-neutral-500">Send this to {taxpayerName} to brief them on the notice.</div>
             </div>
             <div className="flex items-center gap-2">
-              <button
+              {aiOn ? <button
                 type="button"
                 onClick={() => regenerateClientLetter.mutate()}
                 disabled={regenerateClientLetter.isPending}
@@ -434,7 +443,7 @@ function NoticeDetail({ notice, taxpayerName, taxpayerGstin, onDeleted }: {
                 ) : (
                   <><Sparkles size={13} /> Regenerate</>
                 )}
-              </button>
+              </button> : null}
               <button
                 type="button"
                 onClick={async () => {

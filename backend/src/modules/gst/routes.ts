@@ -32,7 +32,7 @@ import {
   createRuleResolver, dueForProfile, isComposition, kindsOwed, stateGroupOf, type FilingFrequency, type ReturnKind,
 } from './dueDate.js'
 import {
-  computeUpcoming, sendClientReminder, defaultReminderSubject, defaultReminderBody, DUE_SOON_DAYS,
+  clientAddresses, computeUpcoming, sendClientReminder, defaultReminderSubject, defaultReminderBody, DUE_SOON_DAYS,
 } from './reminders.js'
 import {
   assertDate, assertFilingRecord, assertGstin, assertGstinMatchesPan, assertGstr1Transition,
@@ -1389,8 +1389,11 @@ gstRouter.get('/reminders/template', handler(async (req, res) => {
     select: { id: true, companyName: true, email: true },
   })
   if (!client) throw ApiError.notFound('No such client.')
+  // The Send dialog offers only these: the send route refuses any other `to`.
+  const { primary, all } = await clientAddresses(prisma, clientId)
   ok(res, {
-    to: client.email ?? '',
+    to: primary ?? '',
+    addresses: Array.from(all),
     subject: defaultReminderSubject({ clientName: client.companyName, kind, period, dueDate }),
     body: defaultReminderBody({ clientName: client.companyName, kind, period, dueDate }),
   })

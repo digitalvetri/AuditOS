@@ -14,6 +14,7 @@ import { AaRuleService } from './services/AaRuleService.js'
 import { writeAudit } from '../../platform/audit.js'
 import { readStatementTable } from './lib/tableFile.js'
 import { assertClientVisible, assignedClientIds, seesAllClients } from '../../platform/workstation/scope.js'
+import { scanUploads } from '../../platform/virusScan.js'
 
 /**
  * AUDIT AUTOMATION HTTP SURFACE.
@@ -116,7 +117,7 @@ auditAutomationRouter.post('/accounts', handler(async (req, res) => {
 // ── Uploads (the §3 wireframe target) ────────────────────────────────────
 auditAutomationRouter.post('/uploads', (req, res, next) => {
   upload.single('file')(req, res, (err: unknown) => {
-    if (!err) return next()
+    if (!err) return scanUploads(req, res, next)
     const code = (err as { code?: string }).code
     if (code === 'LIMIT_FILE_SIZE') return next(ApiError.unprocessable('too_large', `File is larger than the ${MAX_MB} MB limit.`))
     next(ApiError.badRequest('Upload could not be read.'))

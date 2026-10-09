@@ -28,6 +28,7 @@ export interface Task {
   client_id: string | null;
   client_name: string | null;
   project_id: string | null;
+  audit_engagement_id?: string | null;
   project_name: string | null;
   due_date: string | null;
   estimated_minutes: number | null;
@@ -132,6 +133,8 @@ export interface CreateTaskInput {
   due_date: string;
   client_id?: string | null;
   project_id?: string | null;
+  /** Audit file the task's time counts toward (same client only). */
+  audit_engagement_id?: string | null;
   estimated_minutes?: number | null;
   notes?: string | null;
 }

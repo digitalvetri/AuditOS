@@ -40,6 +40,7 @@ import {
 import { ChevronRight } from 'lucide-react';
 import { OrganizationBadge } from '@/modules/workstation/organization/badges';
 import { AssignedStaffDetails } from '@/modules/workstation/AssignedStaff';
+import { ClientExitDetail } from '@/modules/workstation/ClientExit';
 import { LevelBanner, OrganizationOverview } from '@/modules/workstation/organization/OrganizationOverview';
 import { OrganizationClients } from '@/modules/workstation/organization/OrganizationClients';
 import { OrganizationDocuments } from '@/modules/workstation/organization/OrganizationDocuments';
@@ -317,6 +318,7 @@ function OverviewTab({ client }: { client: ClientDetail }) {
           <div className="p-4">
             <Detail label="Status" value={<Status value={client.status} />} />
             <Detail label="Onboarded" value={fmtDate(client.onboarding_date)} />
+            <ClientExitDetail client={client} />
             <AssignedStaffDetails client={client} />
             <Detail label="Documents" value={`${client.document_count}`} />
             <Detail label="Follow-ups" value={`${client.follow_up_count}`} />
@@ -362,6 +364,7 @@ function DetailsTab({ client }: { client: ClientDetail }) {
           <Detail label="GSTIN" value={client.gstin ?? '—'} />
           <Detail label="PAN" value={client.pan ?? '—'} />
           <Detail label="TAN" value={client.tan ?? '—'} />
+          <Detail label="CIN / LLPIN" value={client.cin ?? '—'} />
         </div>
       </Card>
       <Card title="Internal">

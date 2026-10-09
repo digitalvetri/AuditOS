@@ -258,6 +258,15 @@ export function articledTrainingToApi(t: ArticledTraining) {
     training_end: t.trainingEnd,
     current_year: t.currentYear,
     stipend_slab: t.stipendSlab,
+    stipend_paise: t.stipendPaise,
+    icai_region: t.icaiRegion,
+    /** Computed from approved leave (articleship/service.ts) — read-only. */
+    excess_leave_days: t.excessLeaveDays,
+    extended_training_end: t.extendedTrainingEnd,
+    form102_date: t.form102Date,
+    form103_date: t.form103Date,
+    form108_date: t.form108Date,
+    form109_date: t.form109Date,
     status: t.status,
     ...auditable(t),
   }

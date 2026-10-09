@@ -9,6 +9,7 @@ import { can, requireSession, type Session } from '../platform/auth.js'
 import { writeAudit } from '../platform/audit.js'
 import { notifyEmployee, notifyPermissionHolders } from '../platform/notify.js'
 import { employeeRef, holidayToApi, leaveRequestToApi, leaveTypeToApi } from '../api/serialize.js'
+import { recomputeArticleshipQuietly } from './articleship/service.js'
 import type { Scope } from '../platform/rbac/matrix.js'
 
 /**
@@ -395,6 +396,8 @@ leaveRouter.post('/:id/approve', handler(async (req, res) => {
       })
     }
     await upsertOnLeaveRows(row.employeeId, row.startDate, row.endDate, session.userId)
+    // Articled assistants: leave beyond 1/6th of the period extends training.
+    await recomputeArticleshipQuietly(row.employee)
   }
 
   await writeAudit({
@@ -516,6 +519,7 @@ leaveRouter.post('/:id/cancel', handler(async (req, res) => {
       }
     }
     await removeOnLeaveRows(row.employeeId, row.startDate, row.endDate)
+    await recomputeArticleshipQuietly(row.employee)
   }
 
   await writeAudit({

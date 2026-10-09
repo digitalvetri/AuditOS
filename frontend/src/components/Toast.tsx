@@ -33,7 +33,7 @@ export function ToastProvider({ children }: { children: ReactNode }) {
       {children}
       {/* Click-through: a toast is text with no controls, and drawer footers
           sit in this same corner — it must never swallow their clicks. */}
-      <div className="fixed right-4 bottom-4 z-50 flex flex-col gap-2 pointer-events-none">
+      <div className="fixed right-4 bottom-4 z-50 flex flex-col gap-2 pointer-events-none" role="status" aria-live="polite" aria-atomic="false">
         {toasts.map((t) => (
           <div
             key={t.id}

@@ -156,3 +156,28 @@ export function assertDate(value: string | null, label: string) {
     throw ApiError.badRequest(`${label} must be a date.`)
   }
 }
+
+const GSTIN_CHARS = '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ'
+
+/** GSTN's mod-36 check character for the first 14 characters (same as frontend lib/ids.ts). */
+export function gstinCheckChar(first14: string): string {
+  let sum = 0
+  for (let i = 0; i < 14; i++) {
+    const v = GSTIN_CHARS.indexOf(first14[i]) * (i % 2 ? 2 : 1)
+    sum += Math.floor(v / 36) + (v % 36)
+  }
+  return GSTIN_CHARS[(36 - (sum % 36)) % 36]
+}
+
+/** Right shape AND the right check character. Expects an upper-cased value. */
+export function isValidGstin(gstin: string): boolean {
+  return GSTIN_RE.test(gstin) && gstinCheckChar(gstin.slice(0, 14)) === gstin[14]
+}
+
+/** TAN: 4 letters, 5 digits, 1 letter — e.g. CHEK09876B. */
+export const TAN_RE = /^[A-Z]{4}[0-9]{5}[A-Z]$/
+/** CIN (companies) — e.g. U74999TN2020PTC123456. */
+export const CIN_RE = /^[LU][0-9]{5}[A-Z]{2}[0-9]{4}[A-Z]{3}[0-9]{6}$/
+/** LLPIN — e.g. AAB-1234. */
+export const LLPIN_RE = /^[A-Z]{3}-[0-9]{4}$/
+export { PAN_RE }

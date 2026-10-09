@@ -26,6 +26,7 @@ import { assertCanSeeClient, assignedClientIds, requireWorkstation, seesAllClien
 import { LocalStorageAdapter } from '../tools/storage/LocalStorageAdapter.js'
 import { sniffDocument, sniffImage } from '../messages/attachments.js'
 import { orgOfUser, isIsoDate } from '../compliance/service.js'
+import { scanUploads } from '../../platform/virusScan.js'
 
 const READ = ['workstation.notice.read', 'workstation.notice.manage'] as const
 const MANAGE = ['workstation.notice.manage'] as const
@@ -193,7 +194,7 @@ noticesRegisterRouter.get('/', handler(async (req, res) => {
   ok(res, rows)
 }))
 
-noticesRegisterRouter.post('/', upload.single('file'), handler(async (req, res) => {
+noticesRegisterRouter.post('/', upload.single('file'), scanUploads, handler(async (req, res) => {
   const { session, scope, organisationId } = await caller(req, MANAGE)
   const b = (req.body ?? {}) as Record<string, unknown>
   const clientId = str(b.client_id)

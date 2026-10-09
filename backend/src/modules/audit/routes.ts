@@ -63,18 +63,80 @@ async function ensureTeam(tx: Prisma.TransactionClient, engagementId: string, em
   else if (row.deletedAt) await tx.auditTeamMember.update({ where: { id: row.id }, data: { deletedAt: null, role } })
 }
 
+/**
+ * Time logged on the file: closed work sessions of the (live) tasks linked to
+ * it through Task.auditEngagementId, plus how many such tasks there are.
+ */
+export async function auditTimeLogged(engagementId: string) {
+  const [agg, tasks] = await Promise.all([
+    prisma.taskTimeSession.aggregate({
+      where: { endedAt: { not: null }, task: { auditEngagementId: engagementId, deletedAt: null } },
+      _sum: { durationMinutes: true },
+    }),
+    prisma.task.count({ where: { auditEngagementId: engagementId, deletedAt: null } }),
+  ])
+  return { minutes: agg._sum.durationMinutes ?? 0, tasks }
+}
+
 async function detail(e: AuditEngagement) {
-  const [team, clients, prog] = await Promise.all([
+  const [team, clients, prog, time] = await Promise.all([
     prisma.auditTeamMember.findMany({ where: { engagementId: e.id, ...alive }, orderBy: { createdAt: 'asc' } }),
     clientsById([e.clientId]),
     progressFor([e]),
+    auditTimeLogged(e.id),
   ])
   const names = await employeeNames([e.signingPartnerId, e.managerId, e.acceptanceApprovedBy, e.lockedBy, ...team.map((t) => t.employeeId)])
   const d = prog.get(e.id)!
-  return S.engagementDetail(e, { client: clients.get(e.clientId) ?? null, names, progress: d.progress, team, blockers: blockersOf(e, d) })
+  return {
+    ...S.engagementDetail(e, { client: clients.get(e.clientId) ?? null, names, progress: d.progress, team, blockers: blockersOf(e, d) }),
+    time_logged: { minutes: time.minutes, linked_tasks: time.tasks },
+  }
 }
 
 // ── List / create ───────────────────────────────────────────────────────────
+
+/**
+ * The caller's own work on each file (list with ?mine=1):
+ *   working_papers_to_prepare — papers assigned to me, not yet prepared
+ *   review_notes_to_respond   — OPEN notes on a paper assigned to or prepared by me
+ *   review_notes_to_clear     — RESPONDED notes I raised
+ *   review_notes_waiting      — the two together: notes waiting on me
+ */
+type MyWork = { working_papers_to_prepare: number; review_notes_waiting: number; review_notes_to_respond: number; review_notes_to_clear: number }
+const NO_WORK: MyWork = { working_papers_to_prepare: 0, review_notes_waiting: 0, review_notes_to_respond: 0, review_notes_to_clear: 0 }
+
+async function myWorkOn(engagementIds: string[], employeeId: string | null) {
+  const out = new Map<string, MyWork>()
+  if (!employeeId || engagementIds.length === 0) return out
+  const slot = (id: string) => {
+    let v = out.get(id)
+    if (!v) { v = { ...NO_WORK }; out.set(id, v) }
+    return v
+  }
+  const inFiles = { engagementId: { in: engagementIds }, ...alive }
+  const [papers, respond, clear] = await Promise.all([
+    prisma.auditWorkingPaper.groupBy({
+      by: ['engagementId'],
+      where: { ...inFiles, assignedTo: employeeId, status: { in: ['not_started', 'in_progress'] } },
+      _count: { _all: true },
+    }),
+    prisma.auditReviewNote.groupBy({
+      by: ['engagementId'],
+      where: { ...inFiles, status: 'open', workingPaper: { OR: [{ assignedTo: employeeId }, { preparedBy: employeeId }] } },
+      _count: { _all: true },
+    }),
+    prisma.auditReviewNote.groupBy({
+      by: ['engagementId'],
+      where: { ...inFiles, status: 'responded', raisedBy: employeeId },
+      _count: { _all: true },
+    }),
+  ])
+  for (const p of papers) slot(p.engagementId).working_papers_to_prepare = p._count._all
+  for (const n of respond) slot(n.engagementId).review_notes_to_respond = n._count._all
+  for (const n of clear) slot(n.engagementId).review_notes_to_clear = n._count._all
+  for (const v of out.values()) v.review_notes_waiting = v.review_notes_to_respond + v.review_notes_to_clear
+  return out
+}
 
 auditFilesRouter.get('/', handler(async (req, res) => {
   const { session, scope } = access(req, 'read')
@@ -120,8 +182,13 @@ auditFilesRouter.get('/', handler(async (req, res) => {
     progressFor(rows),
     employeeNames(rows.flatMap((r) => [r.signingPartnerId, r.managerId, r.lockedBy, r.acceptanceApprovedBy])),
   ])
+  const mineOn = q.mine === '1' || q.mine === 'true'
+  const mine = mineOn ? await myWorkOn(rows.map((r) => r.id), session.employeeId) : null
   ok(res, {
-    items: rows.map((r) => S.engagement(r, { client: clients.get(r.clientId) ?? null, names, progress: prog.get(r.id)!.progress })),
+    items: rows.map((r) => ({
+      ...S.engagement(r, { client: clients.get(r.clientId) ?? null, names, progress: prog.get(r.id)!.progress }),
+      ...(mine ? { mine: mine.get(r.id) ?? { ...NO_WORK } } : {}),
+    })),
     total,
     count: total,
   })

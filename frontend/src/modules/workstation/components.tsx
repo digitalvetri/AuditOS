@@ -1,5 +1,5 @@
 import {
-  Children, cloneElement, createContext, isValidElement, useContext, useEffect,
+  Children, cloneElement, createContext, isValidElement, useContext, useEffect, useId, useRef,
   type ReactElement, type ReactNode,
 } from 'react';
 import type { UseQueryResult } from '@tanstack/react-query';
@@ -376,22 +376,51 @@ export function Modal({
   open: boolean; title: string; onClose: () => void;
   children: ReactNode; footer?: ReactNode; width?: string;
 }) {
+  const dialogRef = useRef<HTMLDivElement>(null);
+  // Callers pass inline closers; keep the latest in a ref so the effects
+  // below run on open/close only (not on every render — that would yank
+  // focus back to the first field while typing).
+  const closeRef = useRef(onClose);
+  closeRef.current = onClose;
+
   useEffect(() => {
     if (!open) return;
-    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
+    // Focus moves into the dialog on open and returns to whatever opened it.
+    const opener = document.activeElement as HTMLElement | null;
+    const dialog = dialogRef.current;
+    const first = dialog ? focusables(dialog).find((el) => !el.matches('[aria-label="Close"]')) : null;
+    (first ?? dialog)?.focus();
+
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') { closeRef.current(); return; }
+      if (e.key !== 'Tab' || !dialogRef.current) return;
+      // Trap Tab inside the dialog.
+      const items = focusables(dialogRef.current);
+      if (!items.length) { e.preventDefault(); return; }
+      const head = items[0];
+      const tail = items[items.length - 1];
+      const active = document.activeElement;
+      if (e.shiftKey && (active === head || !dialogRef.current.contains(active))) { e.preventDefault(); tail.focus(); }
+      else if (!e.shiftKey && (active === tail || !dialogRef.current.contains(active))) { e.preventDefault(); head.focus(); }
+    };
     window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [open, onClose]);
+    return () => {
+      window.removeEventListener('keydown', onKey);
+      if (opener && document.contains(opener)) opener.focus();
+    };
+  }, [open]);
 
   if (!open) return null;
   return (
     <div className="fixed inset-0 z-50 flex items-start justify-center p-4 overflow-y-auto">
       <div className="fixed inset-0 bg-black/[0.32]" onClick={onClose} aria-hidden />
       <div
+        ref={dialogRef}
+        tabIndex={-1}
         role="dialog"
         aria-modal="true"
         aria-label={title}
-        className={`relative bg-white border border-neutral-200 rounded shadow-drawer ${width} max-w-full mt-8`}
+        className={`relative bg-white border border-neutral-200 rounded shadow-drawer ${width} max-w-full mt-8 focus:outline-none`}
       >
         <div className="h-10 px-4 flex items-center border-b border-neutral-200">
           <span className="text-13 font-medium text-neutral-900">{title}</span>
@@ -416,6 +445,12 @@ export function Modal({
   );
 }
 
+const FOCUSABLE = 'a[href], button:not([disabled]), input:not([disabled]):not([type="hidden"]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
+/** Visible, enabled, tabbable elements inside `root`, in DOM order. */
+export function focusables(root: HTMLElement): HTMLElement[] {
+  return [...root.querySelectorAll<HTMLElement>(FOCUSABLE)].filter((el) => el.offsetParent !== null || el === document.activeElement);
+}
+
 // ── Form field ────────────────────────────────────────────────────────────
 /**
  * A labelled field with room for a server-supplied, per-field error message —
@@ -424,12 +459,25 @@ export function Modal({
 export function Field({
   label, error, children, hint,
 }: { label: string; error?: string; children: ReactNode; hint?: ReactNode }) {
+  const id = useId();
+  const msgId = `${id}-msg`;
+  const describe = Boolean(error || hint);
+  // The message is tied to the control (aria-invalid + aria-describedby) when
+  // the child is a native input/select/textarea; anything else is left alone.
+  const control = isValidElement(children) && typeof children.type === 'string' && ['input', 'select', 'textarea'].includes(children.type)
+    ? cloneElement(children as ReactElement<Record<string, unknown>>, {
+        'aria-invalid': error ? true : (children.props as Record<string, unknown>)['aria-invalid'],
+        'aria-describedby': describe
+          ? [(children.props as Record<string, unknown>)['aria-describedby'], msgId].filter(Boolean).join(' ')
+          : (children.props as Record<string, unknown>)['aria-describedby'],
+      })
+    : children;
   return (
     <label className="block mb-3">
       <span className="block text-12 font-medium text-neutral-500 mb-1">{label}</span>
-      {children}
-      {hint && !error ? <span className="block text-12 text-neutral-500 mt-1">{hint}</span> : null}
-      {error ? <span className="block text-12 text-red mt-1">{error}</span> : null}
+      {control}
+      {hint && !error ? <span id={msgId} className="block text-12 text-neutral-500 mt-1">{hint}</span> : null}
+      {error ? <span id={msgId} className="block text-12 text-red mt-1">{error}</span> : null}
     </label>
   );
 }

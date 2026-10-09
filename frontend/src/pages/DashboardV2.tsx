@@ -21,7 +21,8 @@ import { Link } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { PostRegistrationDashboardSection } from '@/modules/postRegistration/DashboardSection';
 import { DashboardComplianceCard } from '@/modules/compliance/DashboardComplianceCard';
-import { MyAuditWork } from '@/modules/audit/MyAuditWork';
+import { MyWorkWeek } from '@/modules/dashboardV2/MyWorkWeek';
+import { SetupChecklist } from '@/modules/dashboardV2/SetupChecklist';
 import {
   AlertTriangle, ArrowUpRight, CalendarClock, CalendarDays, Check, CheckCircle2, ChevronRight, ClockAlert,
   FileText, FileWarning, Inbox, Landmark, Plane, Receipt, Users, Wallet,
@@ -84,7 +85,6 @@ export function DashboardV2Page() {
   const seesBilling = can(role, 'payment_summary.read', 'organisation');
   const seesGst = can(role, 'workstation.gst.read', 'self');
   const seesTds = can(role, 'workstation.service.read', 'self');
-  const seesAudits = can(role, 'workstation.audit.read', 'self');
 
   const attendance = useQuery({ queryKey: ['attendance', 'today'], queryFn: attendanceApi.today, enabled: seesTeam });
   const pending = useQuery({ queryKey: ['dashboard', 'pending'], queryFn: dashboardApi.pending, enabled: approves });
@@ -146,6 +146,9 @@ export function DashboardV2Page() {
     <div className="dash-v3 space-y-5">
       <Greeting insights={insights} counts={counts} waiting={pending.data?.count} seesTeam={seesTeam} />
 
+      {/* First-run setup (Admin / Super Admin, until dismissed). */}
+      <SetupChecklist />
+
       {checksIn ? <TodayCard /> : null}
       {/* Staff without a team view get their own leave position instead. */}
       {checksIn && !seesTeam ? <BalancesCard /> : null}
@@ -156,13 +159,15 @@ export function DashboardV2Page() {
         {kpiTiles}
       </section>
 
+      {/* Everyone: my tasks, filings, audit papers and notice replies due this week
+          (folds in the former "My audit work" card). */}
+      <MyWorkWeek />
+
       {/* Private Limited post-registration compliance (INC-20A, ADTC) — hidden until there is any. */}
       {seesTds ? <PostRegistrationDashboardSection /> : null}
       {/* Compliance calendar, notices and DSCs — each tile shown only with its read permission. */}
       <DashboardComplianceCard />
 
-      {/* Audit files the user is on: papers to prepare, notes waiting, assembly due. */}
-      {seesAudits ? <MyAuditWork /> : null}
 
       {seesBilling || gauge ? (
         <div className={`grid gap-5 grid-cols-1 ${seesBilling && gauge ? 'xl:grid-cols-[minmax(0,1.55fr)_minmax(320px,1fr)]' : ''}`}>

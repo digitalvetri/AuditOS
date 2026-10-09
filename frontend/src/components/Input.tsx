@@ -1,4 +1,4 @@
-import { forwardRef, type InputHTMLAttributes } from 'react';
+import { forwardRef, useId, type InputHTMLAttributes } from 'react';
 
 interface Props extends InputHTMLAttributes<HTMLInputElement> {
   label?: string;
@@ -10,6 +10,7 @@ export const Input = forwardRef<HTMLInputElement, Props>(function Input(
   ref,
 ) {
   const inputId = id ?? rest.name;
+  const errId = `${useId()}-err`;
   return (
     <label htmlFor={inputId} className="block">
       {label ? (
@@ -27,9 +28,11 @@ export const Input = forwardRef<HTMLInputElement, Props>(function Input(
           (error ? 'border-danger ' : '') +
           className
         }
+        aria-invalid={error ? true : undefined}
         {...rest}
+        {...(error ? { 'aria-describedby': [rest['aria-describedby'], errId].filter(Boolean).join(' ') } : {})}
       />
-      {error ? <span className="block text-12 text-danger mt-1">{error}</span> : null}
+      {error ? <span id={errId} className="block text-12 text-danger mt-1">{error}</span> : null}
     </label>
   );
 });

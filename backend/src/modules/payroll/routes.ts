@@ -80,6 +80,16 @@ export function payrollJournalLegs(
 }
 
 /**
+ * An articled assistant with a stipend on the Articleship register is paid
+ * that stipend as the whole monthly amount (no HRA / allowances, and no PF —
+ * pfAppliesTo already excludes articled). Null for everyone else.
+ */
+function stipendOf(e: { type: string; training: { stipendPaise: number | null; deletedAt: Date | null } | null }): number | null {
+  if (e.type !== 'articled' || !e.training || e.training.deletedAt) return null
+  return e.training.stipendPaise ?? null
+}
+
+/**
  * Employees on a run with their employment window and the structure that
  * pays it (undefined → blocker). Shared by calculate and both blocker checks.
  */
@@ -89,13 +99,14 @@ async function payrollHeadcount(run: { periodStart: string; periodEnd: string })
     include: {
       department: true,
       salaryStructures: { where: periodStructureWhere(run.periodStart, run.periodEnd) },
+      training: { select: { stipendPaise: true, deletedAt: true } },
     },
     orderBy: { employeeCode: 'asc' },
   })
   return employees.flatMap((e) => {
     const window = employmentWindow(run.periodStart, run.periodEnd, e.joiningDate, e.exitDate)
     if (!window) return []
-    return [{ employee: e, window, structure: pickStructure(e.salaryStructures, window) }]
+    return [{ employee: e, window, structure: pickStructure(e.salaryStructures, window), stipend: stipendOf(e) }]
   })
 }
 
@@ -220,8 +231,8 @@ payrollRouter.get('/runs/:id', handler(async (req, res) => {
     reason: 'no_salary_structure' | 'tds_plan_missing'
     message: string
   }[] = []
-  for (const { employee: e, structure: s } of headcount) {
-    if (!s) {
+  for (const { employee: e, structure: s, stipend } of headcount) {
+    if (!s && stipend === null) {
       blockers.push({
         employee: employeeRefWithDept(e),
         reason: 'no_salary_structure',
@@ -234,7 +245,7 @@ payrollRouter.get('/runs/:id', handler(async (req, res) => {
     // pre-calculate preview.
     const item = items.find((i) => i.employeeId === e.id)
     const grossForCheck = item?.grossPaise
-      ?? (s.basicPaise + s.hraPaise + s.conveyancePaise + s.specialAllowancePaise)
+      ?? stipend ?? (s!.basicPaise + s!.hraPaise + s!.conveyancePaise + s!.specialAllowancePaise)
     const exempt = (e.tdsExemptReason ?? '').trim().length > 0
     if (
       grossForCheck > TDS_PLAN_GROSS_THRESHOLD_PAISE
@@ -310,7 +321,18 @@ payrollRouter.post('/runs/:id/calculate', handler(async (req, res) => {
     calc: ReturnType<typeof calculatePayrollItem>
   }[] = []
 
-  for (const { employee: emp, window, structure } of headcount) {
+  for (const { employee: emp, window, structure: onFile, stipend } of headcount) {
+    let structure = onFile
+    // A stipended articled assistant with no salary structure: the payroll
+    // item needs one to point at, so record the stipend as their structure.
+    if (!structure && stipend !== null) {
+      structure = await prisma.salaryStructure.create({
+        data: {
+          employeeId: emp.id, effectiveFrom: window.start, monthlyCtcPaise: stipend, basicPaise: stipend,
+          notes: 'Articleship stipend (from the Articleship register)', createdBy: session.userId, updatedBy: session.userId,
+        },
+      })
+    }
     if (!structure) continue // no salary on file for this period — not payable
     // Attendance, leave and payable days are all over the days actually
     // employed; calc pro-rates the month by payable_days / periodDays.
@@ -331,13 +353,16 @@ payrollRouter.post('/runs/:id/calculate', handler(async (req, res) => {
     // gate above catches "zero plan but should have been non-zero".
     const monthlyTds = Math.round((emp.annualTdsPlanPaise ?? 0) / 12)
     const calc = calculatePayrollItem({
-      structure: {
-        basic_paise: structure.basicPaise,
-        hra_paise: structure.hraPaise,
-        conveyance_paise: structure.conveyancePaise,
-        special_allowance_paise: structure.specialAllowancePaise,
-        custom_components: JSON.parse(structure.customComponentsJson) as CustomComponent[],
-      },
+      structure: stipend !== null
+        // Stipend is the whole monthly amount for an articled assistant.
+        ? { basic_paise: stipend, hra_paise: 0, conveyance_paise: 0, special_allowance_paise: 0, custom_components: [] }
+        : {
+            basic_paise: structure.basicPaise,
+            hra_paise: structure.hraPaise,
+            conveyance_paise: structure.conveyancePaise,
+            special_allowance_paise: structure.specialAllowancePaise,
+            custom_components: JSON.parse(structure.customComponentsJson) as CustomComponent[],
+          },
       attendance: summary,
       snap,
       periodStartMonth,
@@ -481,14 +506,14 @@ payrollRouter.post('/runs/:id/process', handler(async (req, res) => {
     where: { payrollRunId: run.id, deletedAt: null },
     select: { employeeId: true, grossPaise: true },
   })
-  for (const { employee: e, structure: s } of headcount) {
-    if (!s) {
+  for (const { employee: e, structure: s, stipend } of headcount) {
+    if (!s && stipend === null) {
       missingStructures.push(e.fullName)
       continue
     }
     const item = itemsForCheck.find((i) => i.employeeId === e.id)
     const grossForCheck = item?.grossPaise
-      ?? (s.basicPaise + s.hraPaise + s.conveyancePaise + s.specialAllowancePaise)
+      ?? stipend ?? (s!.basicPaise + s!.hraPaise + s!.conveyancePaise + s!.specialAllowancePaise)
     const exempt = (e.tdsExemptReason ?? '').trim().length > 0
     if (
       grossForCheck > TDS_PLAN_GROSS_THRESHOLD_PAISE

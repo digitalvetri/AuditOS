@@ -184,3 +184,33 @@ export async function nextAuditCode(tx: Tx, year: number): Promise<string> {
   }
   return `${prefix}${String(max + 1).padStart(4, '0')}`
 }
+
+/**
+ * 'RCT-000001' — payment receipts. A single FLAT sequence like the invoice
+ * number, taken when the payment is recorded (inside that transaction).
+ *
+ * Before receipt numbers were stored, a receipt's number was DERIVED from the
+ * row's position among all payments (oldest first, removed rows included) and
+ * printed that way. The backfill (backfillReceiptNumbers) gives every
+ * unnumbered row exactly that derived number, so receipts already handed out
+ * keep their numbers. To make sure a new allocation can never collide with a
+ * position still waiting to be backfilled, the next number is at least one
+ * more than the total row count (soft-deleted rows included) — every
+ * unbackfilled row is older, so its position is at most that count.
+ *
+ * Take this lock LAST, right before the insert (after any `invoice:<id>` lock).
+ */
+export async function nextReceiptNumber(tx: Tx): Promise<string> {
+  await lockSequence(tx, 'code:RCT')
+  const prefix = 'RCT-'
+  const [rows, total] = await Promise.all([
+    tx.invoicePayment.findMany({ where: { receiptNumber: { startsWith: prefix } }, select: { receiptNumber: true } }),
+    tx.invoicePayment.count(),
+  ])
+  let max = total
+  for (const r of rows) {
+    const n = Number((r.receiptNumber ?? '').slice(prefix.length))
+    if (Number.isFinite(n) && n > max) max = n
+  }
+  return `${prefix}${String(max + 1).padStart(6, '0')}`
+}

@@ -26,6 +26,7 @@ import { orgOfUser } from '../compliance/service.js'
 import { isFy, fyStartYear } from '../compliance/engine.js'
 import { parse26AS, parseBooks, type ParsedEntry } from './parse.js'
 import { matchTds, STATUS_LABEL, type MatchStatus } from './match.js'
+import { scanUploads } from '../../platform/virusScan.js'
 
 export const ACTION_STATUSES = ['no_action', 'chase_deductor', 'revise_book', 'credit_claimed', 'written_off'] as const
 
@@ -166,7 +167,7 @@ tdsReconRouter.get('/jobs', handler(async (req, res) => {
   ok(res, jobs.map(jobToApi))
 }))
 
-tdsReconRouter.post('/jobs', upload.fields([{ name: 'file_26as', maxCount: 1 }, { name: 'file_books', maxCount: 1 }]), handler(async (req, res) => {
+tdsReconRouter.post('/jobs', upload.fields([{ name: 'file_26as', maxCount: 1 }, { name: 'file_books', maxCount: 1 }]), scanUploads, handler(async (req, res) => {
   const { session, organisationId } = await caller(req)
   const b = (req.body ?? {}) as Record<string, unknown>
   const client = await clientFor(organisationId, b.client_id)

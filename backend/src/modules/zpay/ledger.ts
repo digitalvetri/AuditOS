@@ -21,6 +21,7 @@ import { prisma } from '../../lib/prisma.js'
 import { istDateOf } from '../../lib/dates.js'
 import { lockSequence } from '../../lib/sequence.js'
 import { recomputeInvoice } from '../invoice/payments.js'
+import { nextReceiptNumber } from '../../platform/workstation/codes.js'
 import { isCollected } from './statuses.js'
 
 const APP_INVOICE_RE = /\bINV-\d{6}\b/i
@@ -102,6 +103,7 @@ export async function postCollectionToInvoice(zpayPaymentId: string, opts: { inv
           reference: (p.referenceNumber ?? p.zohoPaymentId).slice(0, 120),
           note: 'Collected via Zoho Payments',
           externalPaymentId: p.id,
+          receiptNumber: await nextReceiptNumber(tx),
           createdBy: opts.actorUserId ?? null,
           updatedBy: opts.actorUserId ?? null,
         },

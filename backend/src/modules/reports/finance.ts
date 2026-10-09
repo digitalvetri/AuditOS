@@ -116,6 +116,7 @@ interface SessionRow {
   date: string
   clientId: string | null
   clientServiceId: string | null
+  auditEngagementId: string | null
 }
 
 async function closedSessions(from: string, to: string, clientId?: string): Promise<SessionRow[]> {
@@ -130,7 +131,7 @@ async function closedSessions(from: string, to: string, clientId?: string): Prom
       employeeId: true,
       startedAt: true,
       durationMinutes: true,
-      task: { select: { clientId: true, clientServiceId: true, clientService: { select: { clientId: true } } } },
+      task: { select: { clientId: true, clientServiceId: true, auditEngagementId: true, clientService: { select: { clientId: true } } } },
     },
   })
   return rows.map((s) => ({
@@ -139,6 +140,7 @@ async function closedSessions(from: string, to: string, clientId?: string): Prom
     date: istDateOf(s.startedAt),
     clientId: s.task.clientId ?? s.task.clientService?.clientId ?? null,
     clientServiceId: s.task.clientServiceId,
+    auditEngagementId: s.task.auditEngagementId,
   }))
 }
 
@@ -587,17 +589,20 @@ async function profitabilityEngagement(p: FinanceParams): Promise<FinanceReport>
   for (const i of invoices) if (i.clientServiceId) add(csFees, i.clientServiceId, i.taxablePaise)
   for (const n of notes) if (n.invoice.clientServiceId) add(csFees, n.invoice.clientServiceId, -n.taxablePaise)
   const time: TimeEntry[] = sessions.filter((s) => s.clientServiceId).map((s) => ({ key: s.clientServiceId!, employeeId: s.employeeId, minutes: s.minutes }))
-  const rates = await costRates(time.map((t) => t.employeeId), p.to)
-  const csRows = computeProfitability(csFees, time, rates)
-  const cs = await clientServiceInfo(csRows.map((r) => r.key))
-
-  // Audit engagements: fees only.
+  // Audit engagements: fees on linked invoices, time on linked tasks.
   const audFees = new Map<string, number>()
   for (const i of invoices) if (i.auditEngagementId) add(audFees, i.auditEngagementId, i.taxablePaise)
   for (const n of notes) if (n.invoice.auditEngagementId) add(audFees, n.invoice.auditEngagementId, -n.taxablePaise)
-  const audits = audFees.size
-    ? await prisma.auditEngagement.findMany({ where: { id: { in: [...audFees.keys()] } }, select: { id: true, auditCode: true, title: true, clientId: true } })
+  const audTime: TimeEntry[] = sessions.filter((s) => s.auditEngagementId).map((s) => ({ key: s.auditEngagementId!, employeeId: s.employeeId, minutes: s.minutes }))
+
+  const rates = await costRates([...time, ...audTime].map((t) => t.employeeId), p.to)
+  const csRows = computeProfitability(csFees, time, rates)
+  const cs = await clientServiceInfo(csRows.map((r) => r.key))
+  const audRows = computeProfitability(audFees, audTime, rates)
+  const audits = audRows.length
+    ? await prisma.auditEngagement.findMany({ where: { id: { in: audRows.map((r) => r.key) } }, select: { id: true, auditCode: true, title: true, clientId: true } })
     : []
+  const audById = new Map(audRows.map((r) => [r.key, r]))
 
   const names = await clientNames([...[...cs.values()].map((c) => c.clientId), ...audits.map((a) => a.clientId)])
   const rows: Record<string, unknown>[] = [
@@ -615,17 +620,20 @@ async function profitabilityEngagement(p: FinanceParams): Promise<FinanceReport>
         margin_percent: r.marginPercent,
       }
     }).sort((a, b) => (b.margin_paise - a.margin_paise) || a.client.localeCompare(b.client)),
-    ...audits.map((a) => ({
-      kind: 'audit_engagement',
-      id: a.id,
-      client: names.get(a.clientId)?.name ?? '(unknown client)',
-      engagement: `${a.auditCode} — ${a.title}`,
-      fees_paise: audFees.get(a.id) ?? 0,
-      hours: null,
-      time_cost_paise: null,
-      margin_paise: null,
-      margin_percent: null,
-    })).sort((a, b) => b.fees_paise - a.fees_paise),
+    ...audits.map((a) => {
+      const r = audById.get(a.id)!
+      return {
+        kind: 'audit_engagement',
+        id: a.id,
+        client: names.get(a.clientId)?.name ?? '(unknown client)',
+        engagement: `${a.auditCode} — ${a.title}`,
+        fees_paise: r.feesPaise,
+        hours: r.hours,
+        time_cost_paise: r.timeCostPaise,
+        margin_paise: r.marginPaise,
+        margin_percent: r.marginPercent,
+      }
+    }).sort((a, b) => (b.margin_paise - a.margin_paise) || a.client.localeCompare(b.client)),
   ]
   const columns: ReportColumn[] = [
     { key: 'kind', label: 'Type', type: 'text' },
@@ -644,7 +652,7 @@ async function profitabilityEngagement(p: FinanceParams): Promise<FinanceReport>
     totals: null,
     notes: [
       'Client-service fees are billed invoices linked to the engagement, ex-GST, less issued credit notes on those invoices dated in the period; time is its tasks\' closed sessions.',
-      'Audit engagements show fees only: tasks are not linked to audit engagements, so their time cost cannot be derived. An invoice linked to both a client service and an audit engagement appears under both.',
+      'Audit engagements: fees are billed invoices linked to the audit file (less credit notes on them); time is the closed sessions of tasks linked to the audit file. An invoice or task linked to both a client service and an audit file appears under both.',
       TIME_NOTE,
       COST_RATE_NOTE,
     ],

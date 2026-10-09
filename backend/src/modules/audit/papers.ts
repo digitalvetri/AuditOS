@@ -10,6 +10,7 @@ import { CLIENT_DOC_MAX_MB, CLIENT_DOC_MIME, clientDocContentMatches } from '../
 import { auditStorage, assertEmployee, employeeNames, guardWrite, isManager, isSigningPartner, me } from './service.js'
 import * as S from './serialize.js'
 import { audit, fileAccess, isUniqueViolation, parse } from './common.js'
+import { scanUploads } from '../../platform/virusScan.js'
 
 /**
  * Working papers, their evidence files, and review notes.
@@ -164,7 +165,7 @@ export function registerPapers(r: Router) {
   // ── Evidence files ──
   r.post('/:id/working-papers/:wpId/files', (req, res, next) => {
     upload.single('file')(req, res, (err: unknown) => {
-      if (!err) return next()
+      if (!err) return scanUploads(req, res, next)
       if ((err as { code?: string }).code === 'LIMIT_FILE_SIZE') {
         return next(ApiError.unprocessable('too_large', `File is larger than the ${CLIENT_DOC_MAX_MB} MB limit.`))
       }

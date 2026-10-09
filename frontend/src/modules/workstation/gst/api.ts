@@ -1,3 +1,4 @@
+import { formatRupeeAmount } from '@/lib/format';
 import { api } from '@/services/api';
 
 /**
@@ -234,7 +235,8 @@ export const gstApi = {
       `/api/gst/reminders/upcoming${period ? `?period=${encodeURIComponent(period)}` : ''}`,
     ),
   reminderTemplate: (q: { client_id: string; kind: 'GSTR1' | 'GSTR2B' | 'GSTR3B'; period: string; due_date: string }) =>
-    api.get<{ to: string; subject: string; body: string }>(
+    // `addresses`: every email on record for the client — the only allowed `to`.
+    api.get<{ to: string; addresses?: string[]; subject: string; body: string }>(
       `/api/gst/reminders/template?client_id=${encodeURIComponent(q.client_id)}&kind=${q.kind}&period=${encodeURIComponent(q.period)}&due_date=${encodeURIComponent(q.due_date)}`,
     ),
   sendReminder: (body: {
@@ -327,7 +329,7 @@ export const STAGE_STATUSES: Record<StageKey, { value: string; label: string }[]
 /** Paise → ₹ display. GST figures are held as integer paise end to end. */
 export function rupees(paise: number | null | undefined): string {
   if (paise === null || paise === undefined) return '—';
-  return '₹' + (paise / 100).toLocaleString('en-IN', { maximumFractionDigits: 2 });
+  return '₹' + formatRupeeAmount(paise / 100, { max: 2 });
 }
 
 /** 'YYYY-MM' → 'September 2026'. */
