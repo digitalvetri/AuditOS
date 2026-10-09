@@ -1,4 +1,5 @@
 import { prisma, alive } from '../../../lib/prisma.js'
+import { fyStartFor } from './fiscalYear.js'
 
 /**
  * INVENTORY — closing stock is opening stock plus every inward line
@@ -251,20 +252,97 @@ export function dayBefore(date: string): string {
   return d.toISOString().slice(0, 10)
 }
 
+interface Holding { qty: number; value: number }
+
+/**
+ * Per-item quantity and value held at the end of `asOf`, valued at the
+ * PERIODIC WEIGHTED AVERAGE of the financial year containing asOf:
+ *
+ *   rate    = (value held when the FY opened + inward value in the FY up to asOf)
+ *           / (qty held when the FY opened   + inward qty in the FY up to asOf)
+ *   closing = closing qty × rate
+ *
+ * The FY's opening holding is the previous FY's closing (recursively),
+ * or the item-master opening stock in the year books begin. Restarting
+ * each year keeps last year's cost of goods sold out of this year's
+ * average. An item that has not moved keeps its opening value to the
+ * paisa. Outward lines move quantity only — sale prices never enter a
+ * stock valuation.
+ */
+async function holdingsAsAt(
+  companyId: string, asOf: string, booksBegin: string | null,
+  items: { id: string; openQty: number; openValue: number }[],
+): Promise<Map<string, Holding>> {
+  const fyStart = await fyStartFor(companyId, asOf)
+  const firstYear = !booksBegin || fyStart <= booksBegin
+  const opening = firstYear
+    ? new Map(items.map((i) => [i.id, { qty: i.openQty, value: i.openValue }]))
+    : await holdingsAsAt(companyId, dayBefore(fyStart), booksBegin, items)
+
+  const lines = await prisma.bookkeepingVoucherItem.groupBy({
+    by: ['stockItemId', 'direction'],
+    where: {
+      tallyCompanyId: companyId,
+      stockItemId: { in: items.map((i) => i.id) },
+      voucher: { ...STOCK_VOUCHER_FILTER, date: { ...(firstYear ? {} : { gte: fyStart }), lte: asOf } },
+    },
+    _sum: { qtyMilli: true, amountPaise: true },
+  })
+  const moved = new Map<string, Holding>()
+  for (const l of lines) {
+    moved.set(`${l.stockItemId}|${l.direction}`, { qty: l._sum.qtyMilli ?? 0, value: l._sum.amountPaise ?? 0 })
+  }
+
+  const out = new Map<string, Holding>()
+  for (const item of items) {
+    const open = opening.get(item.id) ?? { qty: 0, value: 0 }
+    const inward = moved.get(`${item.id}|in`) ?? { qty: 0, value: 0 }
+    const outward = moved.get(`${item.id}|out`) ?? { qty: 0, value: 0 }
+    if (inward.qty === 0 && outward.qty === 0) { out.set(item.id, open); continue }
+    const availQty = Math.max(open.qty, 0) + inward.qty
+    const availValue = Math.max(open.value, 0) + inward.value
+    const qty = open.qty + inward.qty - outward.qty
+    out.set(item.id, { qty, value: availQty > 0 ? Math.round(availValue * (qty / availQty)) : 0 })
+  }
+  return out
+}
+
 /**
  * Value of all stock held at the end of `asOf` (null = everything
- * posted), at the same weighted-average purchase cost the stock summary
- * shows — opening stock plus every inward line up to asOf. An item that
- * has not moved keeps its master opening value to the paisa, so books
- * whose ledger openings carry the opening stock balance exactly.
+ * posted), at the periodic weighted-average purchase cost described on
+ * holdingsAsAt. This is the only stock figure the P&L and balance sheet
+ * use, so one year's closing stock is always the next year's opening.
  *
- * This is the only stock figure the P&L and balance sheet use, so one
- * year's closing stock is always the next year's opening stock.
+ * Note: the Stock Summary screen (stockPositions) averages over its own
+ * from–to window instead, so for a window that is not a whole FY its
+ * closing value can differ from this.
  */
 export async function stockValueAsAt(companyId: string, asOf: string | null): Promise<number> {
-  const rows = await stockPositions(companyId, { to: asOf })
-  return rows.reduce((s, r) =>
-    s + (r.inwardQtyMilli === 0 && r.outwardQtyMilli === 0 ? r.openingValuePaise : r.closingValuePaise), 0)
+  const items = await prisma.bookkeepingStockItem.findMany({
+    where: { tallyCompanyId: companyId, ...alive },
+    select: { id: true, openings: { select: { qtyMilli: true, valuePaise: true } } },
+  })
+  if (!items.length) return 0
+  const company = await prisma.bookkeepingCompany.findUnique({ where: { id: companyId }, select: { booksBeginFrom: true } })
+
+  let date = asOf
+  if (!date) {
+    // "Everything posted": the later of today and the last stock voucher.
+    const last = await prisma.bookkeepingVoucher.findFirst({
+      where: { tallyCompanyId: companyId, ...STOCK_VOUCHER_FILTER }, orderBy: { date: 'desc' }, select: { date: true },
+    })
+    const today = new Date().toISOString().slice(0, 10)
+    date = last && last.date > today ? last.date : today
+  }
+
+  const holdings = await holdingsAsAt(companyId, date, company?.booksBeginFrom ?? null, items.map((i) => ({
+    id: i.id,
+    openQty: i.openings.reduce((s, o) => s + o.qtyMilli, 0),
+    openValue: i.openings.reduce((s, o) => s + o.valuePaise, 0),
+  })))
+  let total = 0
+  for (const h of holdings.values()) total += h.value
+  return total
 }
 
 /**

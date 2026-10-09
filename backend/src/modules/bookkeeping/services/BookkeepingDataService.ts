@@ -547,10 +547,14 @@ ${v.entries.map((e) => `          <ALLLEDGERENTRIES.LIST>
     const mismatches = la
       .filter((l) => (mapB.get(l.ledgerName) ?? 0) !== l.closingPaise)
       .map((l) => ({ ledger: l.ledgerName, source_paise: l.closingPaise, restored_paise: mapB.get(l.ledgerName) ?? null }))
+    // Ledger totals only — the TB's debit side also carries item-master
+    // opening stock, which is not part of what a restore copies.
+    const debitA = a.totals.closingDebitPaise - a.totals.openingStockPaise
+    const debitB = b.totals.closingDebitPaise - b.totals.openingStockPaise
     return {
-      source_total_debit_paise: a.totals.closingDebitPaise,
-      restored_total_debit_paise: b.totals.closingDebitPaise,
-      matches: mismatches.length === 0 && a.totals.closingDebitPaise === b.totals.closingDebitPaise,
+      source_total_debit_paise: debitA,
+      restored_total_debit_paise: debitB,
+      matches: mismatches.length === 0 && debitA === debitB,
       mismatches: mismatches.slice(0, 50),
     }
   },

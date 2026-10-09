@@ -281,13 +281,18 @@ describe('A ledger carrying money cannot be deleted', () => {
 
 /**
  * Closing stock (Tally style): opening stock is debited to the P&L, the
- * closing stock at weighted-average purchase cost is credited to it and
- * shown as a current asset. Ledger openings carry the opening stock on
- * the capital side (capital = cash + opening stock), as Tally expects.
+ * closing stock at the year's weighted-average purchase cost is credited
+ * to it and shown as a current asset. Ledger openings carry the opening
+ * stock on the capital side (capital = cash + opening stock), as Tally
+ * expects.
  *
- *   opening 10 @ ₹1,000 · purchase 10 @ ₹1,200 (May) · sale 5 @ ₹2,000 (June)
- *   average cost ₹1,100 → closing 15 = ₹16,500, gross profit ₹4,500
- *   FY2: sale 5 @ ₹2,000 (May 2026) → closing 10 = ₹11,000, gross profit ₹4,500
+ *   FY1: opening 10 @ ₹100 · purchase 10 @ ₹120 (May) · sale 5 @ ₹200 (June)
+ *        average ₹110 → closing 15 = ₹1,650, gross profit ₹450
+ *   FY2: opening 15 = ₹1,650 · sale 5 @ ₹200 (May 2026) · purchase 10 @ ₹200 (Aug)
+ *        at 30 June: average ₹110 → closing 10 = ₹1,100, gross profit ₹450
+ *        full year: average (1,650 + 2,000) / 25 = ₹146 → closing 20 = ₹2,920,
+ *        gross profit 1,000 − 2,000 − 1,650 + 2,920 = ₹270 (the average
+ *        restarts each year, so FY1's cost never leaks into FY2's)
  */
 describe('Closing stock reaches the P&L and the balance sheet', () => {
   let sc = ''
@@ -351,6 +356,7 @@ describe('Closing stock reaches the P&L and the balance sheet', () => {
     await trade('purchase', '2025-05-10', 10_000, 12_000)
     await trade('sales', '2025-06-10', 5_000, 20_000)
     await trade('sales', '2026-05-10', 5_000, 20_000)
+    await trade('purchase', '2026-08-10', 10_000, 20_000)
   })
 
   it('the year-1 P&L debits opening stock and credits closing stock', async () => {
@@ -397,6 +403,22 @@ describe('Closing stock reaches the P&L and the balance sheet', () => {
     expect(s.assets.totalPaise).toBe(580_000 + 110_000)
     expect(s.retainedEarningsPaise).toBe(45_000)
     expect(s.netProfitPaise).toBe(45_000)
+  })
+
+  it('the year-2 average restarts from the year’s opening stock', async () => {
+    const p = await pl('2026-04-01', '2027-03-31')
+    expect(p.openingStockPaise).toBe(165_000)
+    expect(p.closingStockPaise).toBe(292_000)
+    expect(p.grossProfitPaise).toBe(27_000)
+    // = sales less 5 units at the year's ₹146 average cost.
+    expect(p.grossProfitPaise).toBe(100_000 - 5 * 14_600)
+
+    const s = await sheet('2026-04-01', '2027-03-31')
+    expectBalanced(s)
+    expect(closingStockLine(s)).toBe(292_000)
+    expect(s.assets.totalPaise).toBe(380_000 + 292_000)
+    expect(s.retainedEarningsPaise).toBe(45_000)
+    expect(s.netProfitPaise).toBe(27_000)
   })
 
   it('the trial balance counts the opening stock and balances', async () => {
