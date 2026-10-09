@@ -101,3 +101,38 @@ describe('Audit Automation and Repotic', () => {
     expect((await api('/api/audit-automation/rules', { method: 'POST', cookie: admin.cookie, body: rule })).status).toBe(201)
   })
 })
+
+describe('Bookkeeping', () => {
+  const company = (name: string, client_id?: string | null) => ({ name, books_begin_from: '2026-04-01', ...(client_id !== undefined ? { client_id } : {}) })
+  let clientBooks = ''
+  let firmBooks = ''
+  beforeAll(async () => {
+    const a = await api('/api/bookkeeping/companies', { method: 'POST', cookie: admin.cookie, body: company(uid('Assigned Co Books'), clientId) })
+    expect(a.status).toBe(201)
+    clientBooks = a.body.data.id
+    const f = await api('/api/bookkeeping/companies', { method: 'POST', cookie: admin.cookie, body: company(uid('Firm Books')) })
+    expect(f.status).toBe(201)
+    firmBooks = f.body.data.id
+  })
+  it('the assigned Associate opens the client’s books; an unassigned one gets 403', async () => {
+    for (const path of [`/api/bookkeeping/companies/${clientBooks}`, `/api/bookkeeping/companies/${clientBooks}/client-reports`]) {
+      expect((await api(path, { cookie: assigned.cookie })).status, `assigned ${path}`).toBe(200)
+      expect((await api(path, { cookie: other.cookie })).status, `unassigned ${path}`).toBe(403)
+    }
+  })
+  it('books with no client are firm-level: Admin only', async () => {
+    expect((await api(`/api/bookkeeping/companies/${firmBooks}`, { cookie: admin.cookie })).status).toBe(200)
+    expect((await api(`/api/bookkeeping/companies/${firmBooks}`, { cookie: assigned.cookie })).status).toBe(403)
+  })
+  it('lists only visible companies', async () => {
+    const mine = JSON.stringify((await api('/api/bookkeeping/companies', { cookie: assigned.cookie })).body)
+    expect(mine).toContain(clientBooks)
+    expect(mine).not.toContain(firmBooks)
+    expect(JSON.stringify((await api('/api/bookkeeping/companies', { cookie: other.cookie })).body)).not.toContain(clientBooks)
+  })
+  it('an Associate creates books only for their own client', async () => {
+    expect((await api('/api/bookkeeping/companies', { method: 'POST', cookie: other.cookie, body: company(uid('X'), clientId) })).status).toBe(403)
+    expect((await api('/api/bookkeeping/companies', { method: 'POST', cookie: assigned.cookie, body: company(uid('Y'), clientId) })).status).toBe(201)
+    expect((await api('/api/bookkeeping/companies', { method: 'POST', cookie: assigned.cookie, body: company(uid('Z')) })).status).toBe(403)
+  })
+})

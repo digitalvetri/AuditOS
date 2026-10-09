@@ -24,6 +24,15 @@ import { registerBookkeepingClientReportRoutes } from './routes.clientReports.js
  */
 export const bookkeepingRouter = Router()
 
+// Every /companies/:id/… route — company details, ledgers, vouchers, reports,
+// imports, client reports — first checks the caller may open that company:
+// same firm, and a client they are assigned to (or clients.view_all).
+// Registered before any route, so a new route cannot forget it.
+bookkeepingRouter.use('/companies/:companyId', (req, _res, next) => {
+  BookkeepingCompanyService.requireOwned(requireSession(req), req.params.companyId)
+    .then(() => next(), next)
+})
+
 function requireAccess(session: Session) {
   if (!can(session, 'tools.audit_automation.bookkeeping.access', 'self')) {
     throw ApiError.forbidden('You do not have access to Tally.')
@@ -76,6 +85,7 @@ bookkeepingRouter.post('/companies', handler(async (req, res) => {
     tan: z.string().optional(),
     fy_begin_month: z.number().int().min(1).max(12).optional(),
     books_begin_from: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+    client_id: z.string().nullable().optional(),
   }).safeParse(req.body)
   if (!b.success) throw ApiError.badRequest('name and books_begin_from are required.')
   const created = await BookkeepingCompanyService.create(session, {
@@ -93,6 +103,7 @@ bookkeepingRouter.post('/companies', handler(async (req, res) => {
     tan: b.data.tan,
     fyBeginMonth: b.data.fy_begin_month,
     booksBeginFrom: b.data.books_begin_from,
+    clientId: b.data.client_id ?? null,
   })
   await writeAudit({
     actorUserId: session.userId,
@@ -122,6 +133,7 @@ bookkeepingRouter.patch('/companies/:id', handler(async (req, res) => {
     pan: z.string().nullable().optional(),
     tan: z.string().nullable().optional(),
     active: z.boolean().optional(),
+    client_id: z.string().nullable().optional(),
   }).safeParse(req.body)
   if (!b.success) throw ApiError.badRequest('Invalid patch.')
   const updated = await BookkeepingCompanyService.update(session, req.params.id, {
@@ -138,6 +150,7 @@ bookkeepingRouter.patch('/companies/:id', handler(async (req, res) => {
     pan: b.data.pan ?? undefined,
     tan: b.data.tan ?? undefined,
     active: b.data.active,
+    clientId: b.data.client_id,
   })
   await writeAudit({
     actorUserId: session.userId,

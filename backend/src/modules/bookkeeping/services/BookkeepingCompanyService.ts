@@ -1,6 +1,7 @@
 import { prisma, alive } from '../../../lib/prisma.js'
 import { ApiError } from '../../../lib/http.js'
 import type { Session } from '../../../platform/auth.js'
+import { assertClientVisible, assignedClientIds, seesAllClients } from '../../../platform/workstation/scope.js'
 import { PRIMARY_GROUPS } from './primaryGroups.js'
 import { BookkeepingBootstrapService } from './BookkeepingBootstrapService.js'
 
@@ -34,6 +35,7 @@ export interface CompanyApi {
   fy_begin_month: number
   books_begin_from: string
   active: boolean
+  client_id: string | null
   created_at: string
 }
 
@@ -42,7 +44,7 @@ function toApi(row: {
   country: string; state: string | null; pin: string | null; phone: string | null;
   email: string | null; website: string | null; baseCurrency: string;
   gstRegistrationType: string; gstin: string | null; pan: string | null; tan: string | null;
-  fyBeginMonth: number; booksBeginFrom: string; active: boolean; createdAt: Date;
+  fyBeginMonth: number; booksBeginFrom: string; active: boolean; clientId: string | null; createdAt: Date;
 }): CompanyApi {
   return {
     id: row.id, name: row.name, mailing_name: row.mailingName, address: row.address,
@@ -50,7 +52,7 @@ function toApi(row: {
     email: row.email, website: row.website, base_currency: row.baseCurrency,
     gst_registration_type: row.gstRegistrationType, gstin: row.gstin, pan: row.pan, tan: row.tan,
     fy_begin_month: row.fyBeginMonth, books_begin_from: row.booksBeginFrom, active: row.active,
-    created_at: row.createdAt.toISOString(),
+    client_id: row.clientId, created_at: row.createdAt.toISOString(),
   }
 }
 
@@ -78,6 +80,27 @@ function fyRangeFor(booksBeginFrom: string, fyBeginMonth: number): { label: stri
   return { label, startDate, endDate }
 }
 
+/**
+ * Which companies the caller may open: every one with clients.view_all,
+ * otherwise only those belonging to a client assigned to them. Every
+ * bookkeeping route reaches a company through requireOwned/get, so this is
+ * where the client rule lives for all of them.
+ */
+async function visibleCompanyWhere(session: Session): Promise<{ clientId?: { in: string[] } }> {
+  if (seesAllClients(session)) return {}
+  const ids = await assignedClientIds(session, 'self')
+  return { clientId: { in: ids === 'ALL' ? [] : ids } }
+}
+
+/** A client id the caller may attach a company to (must be in the firm and visible). */
+async function checkClient(session: Session, organisationId: string, clientId: string | null | undefined) {
+  if (clientId) {
+    const c = await prisma.client.findFirst({ where: { id: clientId, organisationId, deletedAt: null }, select: { id: true } })
+    if (!c) throw ApiError.badRequest('No such client.')
+  }
+  await assertClientVisible(session, clientId ?? null)
+}
+
 export const BookkeepingCompanyService = {
   toApi,
   organisationIdOf,
@@ -85,7 +108,7 @@ export const BookkeepingCompanyService = {
   async listForOrg(session: Session): Promise<CompanyApi[]> {
     const organisationId = await organisationIdOf(session)
     const rows = await prisma.bookkeepingCompany.findMany({
-      where: { organisationId, ...alive },
+      where: { organisationId, ...alive, ...(await visibleCompanyWhere(session)) },
       orderBy: [{ createdAt: 'asc' }],
     })
     return rows.map(toApi)
@@ -97,6 +120,7 @@ export const BookkeepingCompanyService = {
       where: { id, organisationId, ...alive },
     })
     if (!row) throw ApiError.notFound('No such company.')
+    await assertClientVisible(session, row.clientId)
     return toApi(row)
   },
 
@@ -111,6 +135,7 @@ export const BookkeepingCompanyService = {
       where: { id: companyId, organisationId, ...alive },
     })
     if (!row) throw ApiError.notFound('No such company.')
+    await assertClientVisible(session, row.clientId)
     return row
   },
 
@@ -129,8 +154,11 @@ export const BookkeepingCompanyService = {
     tan?: string
     fyBeginMonth?: number
     booksBeginFrom: string
+    clientId?: string | null
   }): Promise<CompanyApi> {
     const organisationId = await organisationIdOf(session)
+    // Staff without clients.view_all create books only for their own clients.
+    await checkClient(session, organisationId, input.clientId)
     const name = input.name.trim()
     if (!name) throw ApiError.badRequest('Company name is required.')
     // Basic date sanity
@@ -164,6 +192,7 @@ export const BookkeepingCompanyService = {
           tan: input.tan?.trim() || null,
           fyBeginMonth,
           booksBeginFrom: input.booksBeginFrom,
+          clientId: input.clientId || null,
         },
       })
       // Seed the 17 primary groups.
@@ -208,9 +237,14 @@ export const BookkeepingCompanyService = {
     pan: string | null
     tan: string | null
     active: boolean
+    clientId: string | null
   }>): Promise<CompanyApi> {
-    await BookkeepingCompanyService.requireOwned(session, id)
+    const current = await BookkeepingCompanyService.requireOwned(session, id)
     const data: Record<string, unknown> = {}
+    if (patch.clientId !== undefined) {
+      await checkClient(session, current.organisationId, patch.clientId)
+      data.clientId = patch.clientId || null
+    }
     if (patch.name !== undefined) data.name = patch.name.trim()
     if (patch.mailingName !== undefined) data.mailingName = patch.mailingName?.trim() || null
     if (patch.address !== undefined) data.address = patch.address?.trim() || null

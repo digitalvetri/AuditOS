@@ -1200,15 +1200,15 @@ model Client {
   pan   String?
   tan   String?
 
-  accountManagerId String
+  accountManagerId   String
   /// Second staff: sees and works the client too, and covers when the
   /// account manager cannot. HRMS Employee id, no FK (like accountManagerId).
   secondaryManagerId String?
-  assignedTeam     String?
+  assignedTeam       String?
   /// active | onboarding | pending_documents | service_due | inactive
-  status           String  @default("onboarding")
-  onboardingDate   String
-  notes            String?
+  status             String  @default("onboarding")
+  onboardingDate     String
+  notes              String?
 
   /// Back-link to the lead this client came from. @unique mirrors
   /// Lead.convertedClientId so the 1:1 holds from both directions.
@@ -1282,12 +1282,13 @@ model Client {
   tdsFilings              TdsFiling[]
   gstNotices              GstNotice[]
 
-  createdAt           DateTime              @default(now())
-  updatedAt           DateTime              @updatedAt
-  createdBy           String?
-  updatedBy           String?
-  deletedAt           DateTime?
-  ClientChecklistItem ClientChecklistItem[]
+  createdAt            DateTime              @default(now())
+  updatedAt            DateTime              @updatedAt
+  createdBy            String?
+  updatedBy            String?
+  deletedAt            DateTime?
+  ClientChecklistItem  ClientChecklistItem[]
+  bookkeepingCompanies BookkeepingCompany[]
 
   @@index([status])
   @@index([accountManagerId])
@@ -1768,19 +1769,19 @@ model GstNotice {
 
   // Reply.
   /// Practitioner inputs: grounds, facts, documents in support, prayer.
-  replyInputs   Json?
+  replyInputs  Json?
   /// Short letter to the firm's client (the taxpayer) explaining what the
   /// notice says and what the practitioner proposes to do. Auto-drafted on
   /// upload — no practitioner input required.
-  clientLetter  String?
+  clientLetter String?
   /// LLM output for the DEPARTMENT reply — editable Markdown that becomes the
   /// final letter filed with the officer. First draft is auto-generated on
   /// upload with [TO BE FILLED] placeholders; practitioner fills grounds and
   /// clicks Regenerate for a tailored version.
-  draftContent  String?
-  llmProvider   String?
-  llmModel      String?
-  generatedAt   DateTime?
+  draftContent String?
+  llmProvider  String?
+  llmModel     String?
+  generatedAt  DateTime?
 
   client Client @relation(fields: [clientId], references: [id])
 
@@ -3705,8 +3706,13 @@ model BookkeepingCompany {
   /// Calendar date books opened (YYYY-MM-DD, IST-stable).
   booksBeginFrom      String
   active              Boolean @default(true)
+  /// The client whose books these are. Staff assigned to that client (or
+  /// holding clients.view_all) may open them; a company with no client is
+  /// firm-level and needs clients.view_all.
+  clientId            String?
 
   organisation   Organisation               @relation(fields: [organisationId], references: [id])
+  client         Client?                    @relation(fields: [clientId], references: [id])
   financialYears BookkeepingFinancialYear[]
   groups         BookkeepingGroup[]
   ledgers        BookkeepingLedger[]
@@ -7579,7 +7585,7 @@ model AaExport {
 ///   matched + drifted    → parse AND flag loudly (new/reordered cols)
 ///   no match             → refuse, offer manual column mapping
 model RpMarketplaceAdapter {
-  id             String @id @default(uuid())
+  id             String  @id @default(uuid())
   organisationId String
   /// amazon | flipkart | meesho | myntra | ajio | glowroad | jiomart |
   /// limeroad | shop101 | citymall | paytm | snapdeal | gov_excel | other
@@ -7587,7 +7593,7 @@ model RpMarketplaceAdapter {
   /// mtr_b2c | mtr_b2b | sales | gst | tcs_b2c | tcs_b2b | b2c_sheet |
   /// b2b_sheet | gov_summary
   reportKind     String
-  version        Int    @default(1)
+  version        Int     @default(1)
   /// JSON array of expected header column names, in order. Used by the
   /// fingerprint engine to score a file against known adapter versions.
   detectJson     String
@@ -7604,8 +7610,8 @@ model RpMarketplaceAdapter {
   notes          String?
   active         Boolean @default(true)
 
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
   createdByUserId String?
   updatedByUserId String?
   deletedAt       DateTime?
@@ -7617,7 +7623,7 @@ model RpMarketplaceAdapter {
 /// (client, gstin, period, marketplace, report_kind) so re-uploading the
 /// same file for the same scope does not double-count anything.
 model RpEcommerceUpload {
-  id             String @id @default(uuid())
+  id             String  @id @default(uuid())
   organisationId String
   clientId       String
   /// Client GSTIN this upload is being prepared for.
@@ -7649,7 +7655,7 @@ model RpEcommerceUpload {
   errorMessage   String?
 
   uploadedByUserId String
-  uploadedAt       DateTime @default(now())
+  uploadedAt       DateTime  @default(now())
   deletedAt        DateTime?
 
   parsedRows RpParsedRow[]
@@ -7678,15 +7684,15 @@ model RpParsedRow {
   /// shipment | cancel | refund | free_replacement | other — classifier
   /// takes the raw "Transaction Type" value and buckets it. Only `shipment`
   /// contributes to B2CS/B2CL totals; `cancel` and `refund` feed Table 9B.
-  txType         String
+  txType String
 
   /// Invoice fields. invoice_number may be empty on Cancel rows that
   /// cite a credit note instead; the GSTR-1 builder uses creditNoteNumber
   /// in that case.
-  invoiceNumber   String?
-  invoiceDate     String?    // YYYY-MM-DD, pulled from the Marketplace cell
-  invoiceAmount   Int        // paise
-  taxableValue    Int        // paise
+  invoiceNumber String?
+  invoiceDate   String? // YYYY-MM-DD, pulled from the Marketplace cell
+  invoiceAmount Int // paise
+  taxableValue  Int // paise
 
   /// Tax amounts in paise. Rate is the HSN-level rate (percent, no %
   /// sign — "18" for 18%). The parser derives rate from the Cgst/Sgst/Igst
@@ -7696,13 +7702,13 @@ model RpParsedRow {
   sgstTax Int @default(0)
   igstTax Int @default(0)
   cessTax Int @default(0)
-  rate    Int @default(0)   // percent × 100 (18.00% → 1800)
+  rate    Int @default(0) // percent × 100 (18.00% → 1800)
 
   /// Classification fields the builder needs.
-  hsn          String?
-  quantity     Int @default(0)   // integer units — Amazon uses whole numbers
-  shipToState  String?           // state name as written by the marketplace
-  sellerGstin  String?
+  hsn            String?
+  quantity       Int     @default(0) // integer units — Amazon uses whole numbers
+  shipToState    String? // state name as written by the marketplace
+  sellerGstin    String?
   stateCodeIntra Boolean @default(false) // true if CGST/SGST > 0 and IGST = 0
 
   /// Credit note refs — Table 9B source.
@@ -7711,9 +7717,9 @@ model RpParsedRow {
 
   /// Everything the mapper saw. kept so an auditor can see the untransformed
   /// data when a figure is questioned.
-  rawJson        String
+  rawJson String
 
-  createdAt      DateTime @default(now())
+  createdAt DateTime @default(now())
 
   upload RpEcommerceUpload @relation(fields: [uploadId], references: [id], onDelete: Cascade)
 
@@ -7731,18 +7737,18 @@ model RpParsedRow {
 /// `tableCountsJson` summarises what the UI shows in the drawer; the full
 /// JSON lives in `previewJson` and is served for download.
 model RpGstr1Build {
-  id             String @id @default(uuid())
-  organisationId String
-  clientId       String
-  gstin          String
-  period         String
-  builtAt        DateTime @default(now())
-  builtByUserId  String
+  id              String   @id @default(uuid())
+  organisationId  String
+  clientId        String
+  gstin           String
+  period          String
+  builtAt         DateTime @default(now())
+  builtByUserId   String
   /// Row counts per table so the drawer renders fast without reparsing.
   tableCountsJson String
   /// Full GSTR-1 preview JSON. Not GSTN-offline-tool-verified yet; see
   /// REPOTIC-MODULE.md Phase 3.1 for schema validation.
-  previewJson    String
+  previewJson     String
 
   @@index([organisationId, clientId, gstin, period])
 }
