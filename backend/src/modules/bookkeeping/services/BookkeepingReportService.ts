@@ -384,7 +384,8 @@ export const BookkeepingReportService = {
     ])
     const sumOf = (groups: string[]) => balances.filter((b) => groups.includes(b.primaryGroupName))
       .reduce((s, b) => s + Math.abs(b.closingPaise), 0)
-    const currentAssets = sumOf(['Current Assets', 'Sundry Debtors', 'Cash-in-Hand', 'Bank Accounts'])
+    // Closing stock is a current asset (so in the current ratio) but not a quick one.
+    const currentAssets = sumOf(['Current Assets', 'Sundry Debtors', 'Cash-in-Hand', 'Bank Accounts']) + pl.closingStockPaise
     const currentLiabilities = sumOf(['Current Liabilities', 'Sundry Creditors', 'Duties & Taxes'])
     const quickAssets = sumOf(['Sundry Debtors', 'Cash-in-Hand', 'Bank Accounts'])
     const div = (a: number, b: number) => (b === 0 ? null : Math.round((a / b) * 100) / 100)

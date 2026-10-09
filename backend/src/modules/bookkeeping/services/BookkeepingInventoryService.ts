@@ -27,6 +27,23 @@ async function assertUniqueName(model: 'bookkeepingStockGroup' | 'bookkeepingSto
   if (clash) throw ApiError.conflict('duplicate_name', `"${name}" already exists.`)
 }
 
+/**
+ * Opening stock is the trading account's first debit and (via stock
+ * valuation) part of every closing-stock figure, so once any financial
+ * year is closed it is frozen — the same rule as ledger openings.
+ */
+export async function assertOpeningStockEditable(companyId: string): Promise<void> {
+  const closed = await prisma.bookkeepingFinancialYear.findFirst({
+    where: { tallyCompanyId: companyId, closed: true }, select: { label: true },
+  })
+  if (closed) {
+    throw ApiError.unprocessable(
+      'financial_year_closed',
+      `Financial year ${closed.label} is closed. Opening stock feeds that year's profit and balance sheet, so it cannot change now — reopen the year first.`,
+    )
+  }
+}
+
 export const BookkeepingInventoryService = {
   // ── Stock groups ───────────────────────────────────────────────────
   async listStockGroups(session: Session, companyId: string) {
@@ -127,6 +144,7 @@ export const BookkeepingInventoryService = {
     const name = input.name.trim()
     if (!name) throw ApiError.badRequest('Item name is required.')
     await assertUniqueName('bookkeepingStockItem', companyId, name)
+    if (input.openingQtyMilli) await assertOpeningStockEditable(companyId)
 
     return prisma.$transaction(async (tx) => {
       const item = await tx.bookkeepingStockItem.create({
@@ -177,6 +195,11 @@ export const BookkeepingInventoryService = {
       where: { tallyCompanyId: companyId, stockItemId: itemId, godownId: input.godownId ?? null, batchId: input.batchId ?? null },
     })
     const value = Math.round((input.qtyMilli * input.ratePaise) / 1000)
+    // Only a real change counts — re-saving the same opening is fine.
+    const unchanged = existing
+      ? existing.qtyMilli === input.qtyMilli && existing.ratePaise === input.ratePaise
+      : input.qtyMilli === 0
+    if (!unchanged) await assertOpeningStockEditable(companyId)
     if (existing) {
       await prisma.bookkeepingStockOpening.update({ where: { id: existing.id }, data: { qtyMilli: input.qtyMilli, ratePaise: input.ratePaise, valuePaise: value } })
     } else {

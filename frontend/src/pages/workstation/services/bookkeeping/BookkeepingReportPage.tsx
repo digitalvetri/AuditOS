@@ -2,7 +2,7 @@ import { useParams, useSearchParams, Link, useNavigate } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query';
 import { ArrowLeft } from 'lucide-react';
 import {
-  bookkeepingAccountingApi,
+  bookkeepingAccountingApi, CLOSING_STOCK_ID,
   type DayBookRow, type TrialBalanceRow, type RegisterReport, type Outstandings, type LedgerStatement,
 } from '@/modules/tools/audit-automation/bookkeeping';
 import {
@@ -164,6 +164,11 @@ function TrialBalanceReport() {
           }
         />
       </Panel>
+      {t.openingStockPaise ? (
+        <p className="mt-2 text-11 text-neutral-500">
+          Opening and closing debit totals include opening stock of <Money paise={t.openingStockPaise} /> from the stock item masters.
+        </p>
+      ) : null}
     </div>
   );
 }
@@ -187,9 +192,20 @@ function ProfitAndLossReport() {
   if (q.isError) return <ErrorNote message={(q.error as Error).message} />;
   const pl = q.data!;
   const prior = vsPrior ? priorQ.data ?? null : null;
-  const side = (rows: { ledgerId: string; ledgerName: string; groupName: string; amountPaise: number }[]) => (
+  // Opening stock sits on the expense side, closing stock on the income
+  // side (Tally trading account). Neither is a ledger, so no drill-down.
+  const stockRow = (label: string, paise: number) => (paise ? (
+    <li className="px-3 py-2 flex items-center justify-between gap-3">
+      <span className="text-13 text-neutral-900 truncate">
+        {label} <span className="text-11 text-neutral-400">· Stock-in-Hand</span>
+      </span>
+      <Money paise={paise} />
+    </li>
+  ) : null);
+  const side = (rows: { ledgerId: string; ledgerName: string; groupName: string; amountPaise: number }[], stock: React.ReactNode = null) => (
     <ul className="divide-y divide-neutral-100">
-      {rows.length === 0 ? <li className="px-3 py-3 text-13 text-neutral-500">Nothing in this period.</li> : null}
+      {rows.length === 0 && !stock ? <li className="px-3 py-3 text-13 text-neutral-500">Nothing in this period.</li> : null}
+      {stock}
       {rows.map((r) => (
         <li key={r.ledgerId} className="px-3 py-2 flex items-center justify-between gap-3">
           <Link to={`${base}/reports/ledger/${r.ledgerId}?from=${from}&to=${to}`} className="text-13 text-neutral-900 hover:text-gold truncate">
@@ -203,13 +219,18 @@ function ProfitAndLossReport() {
   return (
     <div data-testid="tally-pl">
       <BackLink />
-      <ReportHeader title="Profit &amp; Loss" subtitle={periodLabel} actions={<ExportButtons filename="profit-and-loss.csv" rows={[...pl.income.rows.map((r) => ({ ...r, side: 'Income' })), ...pl.expenses.rows.map((r) => ({ ...r, side: 'Expense' }))]} columns={[{ key: 'side', label: 'Side', value: (r) => r.side }, { key: 'ledger', label: 'Ledger', value: (r) => r.ledgerName }, { key: 'group', label: 'Group', value: (r) => r.groupName }, { key: 'amount', label: 'Amount', value: (r) => r.amountPaise / 100 }]} />} />
+      <ReportHeader title="Profit &amp; Loss" subtitle={periodLabel} actions={<ExportButtons filename="profit-and-loss.csv" rows={[
+        ...pl.income.rows.map((r) => ({ ...r, side: 'Income' })),
+        ...(pl.closingStockPaise ? [{ ledgerId: 'closing-stock', ledgerName: 'Closing Stock', groupName: 'Stock-in-Hand', amountPaise: pl.closingStockPaise, side: 'Income' }] : []),
+        ...(pl.openingStockPaise ? [{ ledgerId: 'opening-stock', ledgerName: 'Opening Stock', groupName: 'Stock-in-Hand', amountPaise: pl.openingStockPaise, side: 'Expense' }] : []),
+        ...pl.expenses.rows.map((r) => ({ ...r, side: 'Expense' })),
+      ]} columns={[{ key: 'side', label: 'Side', value: (r) => r.side }, { key: 'ledger', label: 'Ledger', value: (r) => r.ledgerName }, { key: 'group', label: 'Group', value: (r) => r.groupName }, { key: 'amount', label: 'Amount', value: (r) => r.amountPaise / 100 }]} />} />
 
       {vsPrior && prior && <PriorComparison prior={prior} current={pl} priorFrom={priorFrom} priorTo={priorTo} />}
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        <Panel title={`Expenses — ₹${(pl.expenses.totalPaise / 100).toLocaleString('en-IN', { minimumFractionDigits: 2 })}`}>{side(pl.expenses.rows)}</Panel>
-        <Panel title={`Income — ₹${(pl.income.totalPaise / 100).toLocaleString('en-IN', { minimumFractionDigits: 2 })}`}>{side(pl.income.rows)}</Panel>
+        <Panel title={`Expenses — ₹${((pl.expenses.totalPaise + pl.openingStockPaise) / 100).toLocaleString('en-IN', { minimumFractionDigits: 2 })}`}>{side(pl.expenses.rows, stockRow('Opening Stock', pl.openingStockPaise))}</Panel>
+        <Panel title={`Income — ₹${((pl.income.totalPaise + pl.closingStockPaise) / 100).toLocaleString('en-IN', { minimumFractionDigits: 2 })}`}>{side(pl.income.rows, stockRow('Closing Stock', pl.closingStockPaise))}</Panel>
       </div>
       {/*
        * Margin percentages per BOOKKEEPING-REBUILD §5: the P&L is the
@@ -226,7 +247,9 @@ function ProfitAndLossReport() {
               </span>
             )}
           </div>
-          <p className="px-3 pb-3 text-11 text-neutral-500">Sales and direct income less purchases and direct expenses.</p>
+          <p className="px-3 pb-3 text-11 text-neutral-500">
+            Sales and direct income less purchases and direct expenses{pl.openingStockPaise || pl.closingStockPaise ? ', less opening stock plus closing stock' : ''}.
+          </p>
         </Panel>
         <Panel title={pl.netProfitPaise >= 0 ? 'Net profit' : 'Net loss'}>
           <div className="p-3 flex items-baseline gap-3">
@@ -323,7 +346,11 @@ function BalanceSheetReport() {
           <ul className="mt-1 space-y-0.5">
             {g.ledgers.map((l) => (
               <li key={l.ledgerId} className="flex items-center justify-between gap-3 pl-3">
-                <Link to={`${base}/reports/ledger/${l.ledgerId}?from=${from}&to=${to}`} className="text-12 text-neutral-600 hover:text-gold truncate">{l.ledgerName}</Link>
+                {l.ledgerId === CLOSING_STOCK_ID ? (
+                  <span className="text-12 text-neutral-600 truncate">{l.ledgerName} <span className="text-11 text-neutral-400">· weighted-average cost</span></span>
+                ) : (
+                  <Link to={`${base}/reports/ledger/${l.ledgerId}?from=${from}&to=${to}`} className="text-12 text-neutral-600 hover:text-gold truncate">{l.ledgerName}</Link>
+                )}
                 <span className="text-12"><Money paise={l.amountPaise} /></span>
               </li>
             ))}

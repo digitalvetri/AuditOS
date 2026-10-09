@@ -1,4 +1,5 @@
 import { prisma, alive } from '../../../lib/prisma.js'
+import { stockValueAsAt, openingStockValue } from './inventory.js'
 
 /**
  * DERIVED BALANCES — every report in the Tally module is built on this
@@ -165,12 +166,19 @@ export interface TrialBalance {
     creditPaise: number
     closingDebitPaise: number
     closingCreditPaise: number
+    /**
+     * Opening stock on the item masters (value at books-begin), included
+     * in the opening and closing debit totals — as in Tally, the ledger
+     * openings fall short of balancing by exactly this amount.
+     */
+    openingStockPaise: number
     balanced: boolean
     differencePaise: number
   }
 }
 
 export async function trialBalance(companyId: string, filter: PeriodFilter = {}): Promise<TrialBalance> {
+  const openingStock = await openingStockValue(companyId, null)
   const rows = (await ledgerBalances(companyId, filter)).map((r) => ({
     ...r,
     closingDebitPaise: r.closingPaise > 0 ? r.closingPaise : 0,
@@ -185,10 +193,10 @@ export async function trialBalance(companyId: string, filter: PeriodFilter = {})
       closingDebitPaise: acc.closingDebitPaise + r.closingDebitPaise,
       closingCreditPaise: acc.closingCreditPaise + r.closingCreditPaise,
     }),
-    { openingDebitPaise: 0, openingCreditPaise: 0, debitPaise: 0, creditPaise: 0, closingDebitPaise: 0, closingCreditPaise: 0 },
+    { openingDebitPaise: openingStock, openingCreditPaise: 0, debitPaise: 0, creditPaise: 0, closingDebitPaise: openingStock, closingCreditPaise: 0 },
   )
   const differencePaise = totals.closingDebitPaise - totals.closingCreditPaise
-  return { rows, totals: { ...totals, balanced: differencePaise === 0, differencePaise } }
+  return { rows, totals: { ...totals, openingStockPaise: openingStock, balanced: differencePaise === 0, differencePaise } }
 }
 
 export interface PLSection {
@@ -200,7 +208,11 @@ export interface PLSection {
 export interface ProfitAndLoss {
   income: PLSection
   expenses: PLSection
-  /** Positive = profit, negative = loss. */
+  /** Stock held when the period opens — debited to the trading account. */
+  openingStockPaise: number
+  /** Stock held at the period end — credited to the trading account. */
+  closingStockPaise: number
+  /** Positive = profit, negative = loss. Includes closing − opening stock. */
   netProfitPaise: number
   grossProfitPaise: number
   from: string | null
@@ -212,9 +224,19 @@ export interface ProfitAndLoss {
  * balances and are reported positive; expense ledgers the other way.
  * Only the PERIOD movement enters the P&L — an income ledger's opening
  * balance belongs to a prior year's reserves, not to this year's profit.
+ *
+ * Stock (Tally trading account): opening stock is debited and closing
+ * stock credited, both at weighted-average purchase cost. They sit in
+ * their own fields, never in income/expenses, so revenue and margin
+ * denominators stay ledger-only; gross and net profit include them.
  */
 export async function profitAndLoss(companyId: string, filter: PeriodFilter = {}): Promise<ProfitAndLoss> {
-  const rows = await ledgerBalances(companyId, filter)
+  const [rows, openingStock, closingStock] = await Promise.all([
+    ledgerBalances(companyId, filter),
+    openingStockValue(companyId, filter.from ?? null),
+    stockValueAsAt(companyId, filter.to ?? null),
+  ])
+  const stockChange = closingStock - openingStock
   const pl = rows.filter((r) => r.affectsPL)
 
   const incomeRows = pl.filter((r) => r.nature === 'income')
@@ -238,12 +260,17 @@ export async function profitAndLoss(companyId: string, filter: PeriodFilter = {}
   return {
     income: { label: 'Income', rows: incomeRows, totalPaise: incomeTotal },
     expenses: { label: 'Expenses', rows: expenseRows, totalPaise: expenseTotal },
-    netProfitPaise: incomeTotal - expenseTotal,
-    grossProfitPaise: directIncome - directExpense,
+    openingStockPaise: openingStock,
+    closingStockPaise: closingStock,
+    netProfitPaise: incomeTotal - expenseTotal + stockChange,
+    grossProfitPaise: directIncome - directExpense + stockChange,
     from: filter.from ?? null,
     to: filter.to ?? null,
   }
 }
+
+/** Sentinel ledgerId of the balance sheet's Closing Stock line (not a real ledger). */
+export const CLOSING_STOCK_ID = 'closing-stock'
 
 export interface BalanceSheetGroup {
   groupId: string
@@ -304,11 +331,18 @@ export async function balanceSheet(companyId: string, opts: { asOf?: string | nu
   const asOf = opts.asOf ?? null
   // opts.fyStart is deliberately ignored: callers pass the UI period start.
   const fyStart = await fyStartFor(companyId, asOf ?? new Date().toISOString().slice(0, 10))
-  const rows = await ledgerBalances(companyId, { to: asOf })
-  const pl = await profitAndLoss(companyId, { from: fyStart, to: asOf })
+  const [rows, pl, booksBeginStock] = await Promise.all([
+    ledgerBalances(companyId, { to: asOf }),
+    profitAndLoss(companyId, { from: fyStart, to: asOf }),
+    openingStockValue(companyId, null),
+  ])
+  const closingStock = pl.closingStockPaise
 
-  // Everything every P&L ledger holds up to asOf (credit = profit).
+  // Everything every P&L ledger holds up to asOf (credit = profit), plus
+  // the stock built up since books-begin (every year's closing − opening
+  // stock telescopes to this).
   const accumulatedProfit = -rows.filter((r) => r.affectsPL).reduce((s, r) => s + r.closingPaise, 0)
+    + closingStock - booksBeginStock
   const retainedEarnings = accumulatedProfit - pl.netProfitPaise
 
   const bsRows = rows.filter((r) => !r.affectsPL)
@@ -324,6 +358,19 @@ export async function balanceSheet(companyId: string, opts: { asOf?: string | nu
     const presented = r.nature === 'assets' ? r.closingPaise : -r.closingPaise
     g.amountPaise += presented
     g.ledgers.push({ ledgerId: r.ledgerId, ledgerName: r.ledgerName, amountPaise: presented })
+  }
+
+  // Closing stock is a current asset with no ledger behind it.
+  if (closingStock !== 0) {
+    const groups = await loadGroups(companyId)
+    const ca = Array.from(groups.values()).find((g) => g.isPrimary && g.name === 'Current Assets')
+    const key = ca?.id ?? CLOSING_STOCK_ID
+    if (!byPrimary.has(key)) {
+      byPrimary.set(key, { groupId: key, groupName: 'Current Assets', amountPaise: 0, ledgers: [], nature: 'assets' })
+    }
+    const g = byPrimary.get(key)!
+    g.amountPaise += closingStock
+    g.ledgers.push({ ledgerId: CLOSING_STOCK_ID, ledgerName: 'Closing Stock', amountPaise: closingStock })
   }
 
   const groups = Array.from(byPrimary.values())

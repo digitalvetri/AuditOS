@@ -243,3 +243,41 @@ export async function godownStock(companyId: string, filter: StockFilter = {}): 
   return Array.from(acc.values()).filter((r) => r.closingQtyMilli !== 0).sort((a, b) =>
     a.godownName.localeCompare(b.godownName) || a.stockItemName.localeCompare(b.stockItemName))
 }
+
+/** The calendar day before an ISO date (UTC arithmetic, no timezone drift). */
+export function dayBefore(date: string): string {
+  const d = new Date(`${date}T00:00:00Z`)
+  d.setUTCDate(d.getUTCDate() - 1)
+  return d.toISOString().slice(0, 10)
+}
+
+/**
+ * Value of all stock held at the end of `asOf` (null = everything
+ * posted), at the same weighted-average purchase cost the stock summary
+ * shows — opening stock plus every inward line up to asOf. An item that
+ * has not moved keeps its master opening value to the paisa, so books
+ * whose ledger openings carry the opening stock balance exactly.
+ *
+ * This is the only stock figure the P&L and balance sheet use, so one
+ * year's closing stock is always the next year's opening stock.
+ */
+export async function stockValueAsAt(companyId: string, asOf: string | null): Promise<number> {
+  const rows = await stockPositions(companyId, { to: asOf })
+  return rows.reduce((s, r) =>
+    s + (r.inwardQtyMilli === 0 && r.outwardQtyMilli === 0 ? r.openingValuePaise : r.closingValuePaise), 0)
+}
+
+/**
+ * Stock held when a period starting on `from` opens — at the end of the
+ * previous day. With no `from` the period opens at books-begin, so this
+ * is the opening stock entered on the item masters.
+ */
+export async function openingStockValue(companyId: string, from: string | null): Promise<number> {
+  let start = from
+  if (!start) {
+    const company = await prisma.bookkeepingCompany.findUnique({ where: { id: companyId }, select: { booksBeginFrom: true } })
+    if (!company) return 0
+    start = company.booksBeginFrom
+  }
+  return stockValueAsAt(companyId, dayBefore(start))
+}

@@ -187,6 +187,55 @@ describe('A closed financial year cannot be changed', () => {
     expect(row.name).toBe('Cash Box')
   })
 
+  it('group parent, nature and P&L flag are frozen once a year is closed; renames are not', async () => {
+    const indirect = await prisma.bookkeepingGroup.findFirstOrThrow({ where: { tallyCompanyId: companyId, name: 'Indirect Expenses' } })
+    const direct = await prisma.bookkeepingGroup.findFirstOrThrow({ where: { tallyCompanyId: companyId, name: 'Direct Expenses' } })
+    // A sub-group created before the close carries money through its ledger.
+    const sub = await prisma.bookkeepingGroup.create({ data: { tallyCompanyId: companyId, name: uid('Admin Costs'), parentGroupId: indirect.id, nature: 'expenses', affectsPL: true } })
+    await prisma.bookkeepingLedger.update({ where: { id: L.rent }, data: { groupId: sub.id } })
+
+    const parent = await api(`${C()}/groups/${sub.id}`, { method: 'PATCH', body: { parent_group_id: direct.id } })
+    expect(parent.status, JSON.stringify(parent.body)).toBe(422)
+    expect(parent.body.error?.code).toBe('financial_year_closed')
+    const flag = await api(`${C()}/groups/${sub.id}`, { method: 'PATCH', body: { affects_pl: false } })
+    expect(flag.status).toBe(422)
+    expect(flag.body.error?.code).toBe('financial_year_closed')
+    const nature = await api(`${C()}/groups/${sub.id}`, { method: 'PATCH', body: { nature: 'assets' } })
+    expect(nature.status).toBe(422)
+    expect(nature.body.error?.code).toBe('financial_year_closed')
+
+    const row = await prisma.bookkeepingGroup.findUniqueOrThrow({ where: { id: sub.id } })
+    expect(row.parentGroupId).toBe(indirect.id)
+    expect(row.affectsPL).toBe(true)
+    expect(row.nature).toBe('expenses')
+
+    // Re-sending the unchanged values with a rename is fine.
+    const rename = await api(`${C()}/groups/${sub.id}`, { method: 'PATCH', body: { name: `${sub.name} (HO)`, parent_group_id: indirect.id, affects_pl: true, nature: 'expenses' } })
+    expect(rename.status, JSON.stringify(rename.body)).toBe(200)
+    expect(rename.body.data.name).toBe(`${sub.name} (HO)`)
+
+    // A group carrying a ledger, or holding a sub-group, cannot be deleted.
+    expect((await api(`${C()}/groups/${sub.id}`, { method: 'DELETE' })).status).toBe(400)
+    const outer = await prisma.bookkeepingGroup.create({ data: { tallyCompanyId: companyId, name: uid('Outer'), parentGroupId: indirect.id, nature: 'expenses', affectsPL: true } })
+    await prisma.bookkeepingGroup.create({ data: { tallyCompanyId: companyId, name: uid('Inner'), parentGroupId: outer.id, nature: 'expenses', affectsPL: true } })
+    expect((await api(`${C()}/groups/${outer.id}`, { method: 'DELETE' })).status).toBe(400)
+    expect((await prisma.bookkeepingGroup.findUniqueOrThrow({ where: { id: outer.id } })).deletedAt).toBeNull()
+
+    await prisma.bookkeepingLedger.update({ where: { id: L.rent }, data: { groupId: indirect.id } })
+  })
+
+  it('groups can still be re-parented while no year is closed', async () => {
+    const other = await api('/api/bookkeeping/companies', { method: 'POST', body: { name: uid('Open Co'), books_begin_from: '2025-04-01' } })
+    expect(other.status).toBe(201)
+    const oc = other.body.data.id as string
+    const indirect = await prisma.bookkeepingGroup.findFirstOrThrow({ where: { tallyCompanyId: oc, name: 'Indirect Expenses' } })
+    const direct = await prisma.bookkeepingGroup.findFirstOrThrow({ where: { tallyCompanyId: oc, name: 'Direct Expenses' } })
+    const sub = await prisma.bookkeepingGroup.create({ data: { tallyCompanyId: oc, name: uid('Misc'), parentGroupId: indirect.id, nature: 'expenses', affectsPL: true } })
+    const r = await api(`/api/bookkeeping/companies/${oc}/groups/${sub.id}`, { method: 'PATCH', body: { parent_group_id: direct.id } })
+    expect(r.status, JSON.stringify(r.body)).toBe(200)
+    expect(r.body.data.parent_group_id).toBe(direct.id)
+  })
+
   it('an opening-balance import cannot change openings either', async () => {
     const r = await api(`${C()}/data/import/commit`, { method: 'POST', body: { entity: 'opening_balances', rows: [{ ledger: 'Owner Capital', amount: 2_000, dr_cr: 'cr' }] } })
     expect(r.status, JSON.stringify(r.body)).toBe(422)
@@ -227,6 +276,146 @@ describe('A ledger carrying money cannot be deleted', () => {
   it('the trial balance still balances', async () => {
     const r = await api(`${C()}/reports/trial-balance?to=2027-03-31`)
     expect(r.body.data.totals.balanced).toBe(true)
+  })
+})
+
+/**
+ * Closing stock (Tally style): opening stock is debited to the P&L, the
+ * closing stock at weighted-average purchase cost is credited to it and
+ * shown as a current asset. Ledger openings carry the opening stock on
+ * the capital side (capital = cash + opening stock), as Tally expects.
+ *
+ *   opening 10 @ ₹1,000 · purchase 10 @ ₹1,200 (May) · sale 5 @ ₹2,000 (June)
+ *   average cost ₹1,100 → closing 15 = ₹16,500, gross profit ₹4,500
+ *   FY2: sale 5 @ ₹2,000 (May 2026) → closing 10 = ₹11,000, gross profit ₹4,500
+ */
+describe('Closing stock reaches the P&L and the balance sheet', () => {
+  let sc = ''
+  let itemId = ''
+  let scFy1 = ''
+  const S: Record<string, string> = {}
+  const SC = () => `/api/bookkeeping/companies/${sc}`
+
+  async function sLedger(name: string, groupName: string, opening = 0, type: 'dr' | 'cr' = 'dr') {
+    const g = await prisma.bookkeepingGroup.findFirstOrThrow({ where: { tallyCompanyId: sc, name: groupName } })
+    const r = await api(`${SC()}/ledgers`, { method: 'POST', body: { name, group_id: g.id, opening_balance_paise: opening, opening_balance_type: type } })
+    expect(r.status, JSON.stringify(r.body)).toBe(201)
+    return r.body.data.id as string
+  }
+  async function trade(code: 'purchase' | 'sales', date: string, qtyMilli: number, ratePaise: number) {
+    const amount = Math.round((qtyMilli * ratePaise) / 1000)
+    const purchase = code === 'purchase'
+    const r = await api(`${SC()}/vouchers`, {
+      method: 'POST',
+      body: {
+        voucher_type_code: code, date,
+        entries: purchase
+          ? [{ ledger_id: S.purchases, entry_type: 'dr', amount_paise: amount }, { ledger_id: S.cash, entry_type: 'cr', amount_paise: amount }]
+          : [{ ledger_id: S.cash, entry_type: 'dr', amount_paise: amount }, { ledger_id: S.sales, entry_type: 'cr', amount_paise: amount }],
+        items: [{ stock_item_id: itemId, direction: purchase ? 'in' : 'out', qty_milli: qtyMilli, rate_paise: ratePaise }],
+      },
+    })
+    expect(r.status, JSON.stringify(r.body)).toBe(201)
+  }
+  async function pl(from: string, to: string) {
+    const r = await api(`${SC()}/reports/profit-and-loss?from=${from}&to=${to}`)
+    expect(r.status).toBe(200)
+    return r.body.data
+  }
+  async function sheet(from: string, to: string) {
+    const r = await api(`${SC()}/reports/balance-sheet?from=${from}&to=${to}`)
+    expect(r.status).toBe(200)
+    return r.body.data
+  }
+  const closingStockLine = (s: any) => {
+    const ca = s.assets.groups.find((g: any) => g.groupName === 'Current Assets')
+    return ca?.ledgers.find((l: any) => l.ledgerName === 'Closing Stock')?.amountPaise
+  }
+
+  beforeAll(async () => {
+    const c = await api('/api/bookkeeping/companies', { method: 'POST', body: { name: uid('Stock Co'), books_begin_from: '2025-04-01' } })
+    expect(c.status, JSON.stringify(c.body)).toBe(201)
+    sc = c.body.data.id
+    scFy1 = (await prisma.bookkeepingFinancialYear.findFirstOrThrow({ where: { tallyCompanyId: sc } })).id
+    expect((await api(`${SC()}/financial-years`, { method: 'POST', body: { label: '2026-27', start_date: '2026-04-01', end_date: '2027-03-31' } })).status).toBe(201)
+
+    S.cash = await sLedger('Shop Cash', 'Cash-in-Hand', 500_000, 'dr')
+    S.capital = await sLedger('Proprietor Capital', 'Capital Account', 600_000, 'cr')
+    S.purchases = await sLedger('Widget Purchases', 'Purchase Accounts')
+    S.sales = await sLedger('Widget Sales', 'Sales Accounts')
+
+    const item = await api(`${SC()}/inventory/items`, { method: 'POST', body: { name: 'Widget', opening_qty_milli: 10_000, opening_rate_paise: 10_000 } })
+    expect(item.status, JSON.stringify(item.body)).toBe(201)
+    itemId = item.body.data.id
+
+    await trade('purchase', '2025-05-10', 10_000, 12_000)
+    await trade('sales', '2025-06-10', 5_000, 20_000)
+    await trade('sales', '2026-05-10', 5_000, 20_000)
+  })
+
+  it('the year-1 P&L debits opening stock and credits closing stock', async () => {
+    const p = await pl('2025-04-01', '2025-09-30')
+    expect(p.openingStockPaise).toBe(100_000)
+    expect(p.closingStockPaise).toBe(165_000)
+    // Sales 1,00,000 − purchases 1,20,000 − opening 1,00,000 + closing 1,65,000.
+    expect(p.grossProfitPaise).toBe(45_000)
+    // = sales less 5 units at the ₹1,100 average cost.
+    expect(p.grossProfitPaise).toBe(100_000 - 5 * 11_000)
+    expect(p.netProfitPaise).toBe(45_000)
+    // Stock never counts as revenue or as an expense ledger.
+    expect(p.income.totalPaise).toBe(100_000)
+    expect(p.expenses.totalPaise).toBe(120_000)
+  })
+
+  it('a month P&L opens with the stock held at the end of the previous month', async () => {
+    const p = await pl('2025-06-01', '2025-06-30')
+    expect(p.openingStockPaise).toBe(220_000)
+    expect(p.closingStockPaise).toBe(165_000)
+    expect(p.grossProfitPaise).toBe(45_000)
+  })
+
+  it('the balance sheet shows closing stock under current assets and balances mid-year', async () => {
+    for (const from of ['2025-04-01', '2025-09-01']) {
+      const s = await sheet(from, '2025-09-30')
+      expectBalanced(s)
+      expect(closingStockLine(s)).toBe(165_000)
+      expect(s.assets.totalPaise).toBe(480_000 + 165_000)
+      expect(s.netProfitPaise).toBe(45_000)
+      expect(s.retainedEarningsPaise).toBe(0)
+    }
+  })
+
+  it('the next year opens with last year’s closing stock and still balances', async () => {
+    const p = await pl('2026-04-01', '2026-06-30')
+    expect(p.openingStockPaise).toBe(165_000)
+    expect(p.closingStockPaise).toBe(110_000)
+    expect(p.grossProfitPaise).toBe(45_000)
+
+    const s = await sheet('2026-04-01', '2026-06-30')
+    expectBalanced(s)
+    expect(closingStockLine(s)).toBe(110_000)
+    expect(s.assets.totalPaise).toBe(580_000 + 110_000)
+    expect(s.retainedEarningsPaise).toBe(45_000)
+    expect(s.netProfitPaise).toBe(45_000)
+  })
+
+  it('the trial balance counts the opening stock and balances', async () => {
+    const r = await api(`${SC()}/reports/trial-balance?to=2027-03-31`)
+    expect(r.body.data.totals.openingStockPaise).toBe(100_000)
+    expect(r.body.data.totals.balanced).toBe(true)
+  })
+
+  it('opening stock is frozen once a year is closed', async () => {
+    expect((await api(`${SC()}/financial-years/${scFy1}/close`, { method: 'PATCH' })).status).toBe(200)
+    const r = await api(`${SC()}/inventory/items/${itemId}/opening`, { method: 'PUT', body: { qty_milli: 50_000, rate_paise: 10_000 } })
+    expect(r.status, JSON.stringify(r.body)).toBe(422)
+    expect(r.body.error?.code).toBe('financial_year_closed')
+    const same = await api(`${SC()}/inventory/items/${itemId}/opening`, { method: 'PUT', body: { qty_milli: 10_000, rate_paise: 10_000 } })
+    expect(same.status, JSON.stringify(same.body)).toBe(200)
+    const created = await api(`${SC()}/inventory/items`, { method: 'POST', body: { name: 'Gadget', opening_qty_milli: 1_000, opening_rate_paise: 5_000 } })
+    expect(created.status).toBe(422)
+    expect(created.body.error?.code).toBe('financial_year_closed')
+    expectBalanced(await sheet('2026-04-01', '2026-06-30'))
   })
 })
 

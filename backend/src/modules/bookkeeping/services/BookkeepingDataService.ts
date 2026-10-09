@@ -6,6 +6,7 @@ import { BookkeepingBootstrapService } from './BookkeepingBootstrapService.js'
 import { postVoucher } from '../engine/posting.js'
 import { ledgerBalances, trialBalance } from '../engine/balances.js'
 import { formatPaise } from '../engine/primitives.js'
+import { assertOpeningStockEditable } from './BookkeepingInventoryService.js'
 
 /**
  * BookkeepingDataService — import, export, backup and restore.
@@ -217,6 +218,9 @@ export const BookkeepingDataService = {
     if (entity === 'stock_items') {
       const existing = new Set((await prisma.bookkeepingStockItem.findMany({ where: { tallyCompanyId: companyId, ...alive }, select: { name: true } })).map((l) => l.name.toLowerCase()))
       const units = new Map((await prisma.bookkeepingUnit.findMany({ where: { tallyCompanyId: companyId, ...alive }, select: { id: true, name: true } })).map((u) => [u.name.toLowerCase(), u.id]))
+      if (usable.some((r) => !existing.has(String(r.name).trim().toLowerCase()) && Math.round(Number(r.opening_qty ?? 0) * 1000))) {
+        await assertOpeningStockEditable(companyId)
+      }
       let created = 0, skipped = 0
       for (const r of usable) {
         const name = String(r.name).trim()

@@ -7,6 +7,11 @@ import { BookkeepingCompanyService } from './BookkeepingCompanyService.js'
  * BookkeepingGroupService — the group tree per company. Primary groups
  * (seeded at company creation) can't be deleted; sub-groups can, but
  * only if no active ledgers belong to them.
+ *
+ * Once any financial year is closed, a group's parent, nature and
+ * affects-P&L flag are frozen: each decides which statement (and which
+ * line of it) every ledger beneath the group lands on, so changing one
+ * would rewrite the closed year's figures. Renames stay allowed.
  */
 
 export interface GroupApi {
@@ -106,6 +111,7 @@ export const BookkeepingGroupService = {
   async update(session: Session, companyId: string, groupId: string, patch: {
     name?: string
     parentGroupId?: string | null
+    nature?: string
     affectsPL?: boolean
   }): Promise<GroupApi> {
     await BookkeepingCompanyService.requireOwned(session, companyId)
@@ -139,7 +145,34 @@ export const BookkeepingGroupService = {
       }
       data.parentGroupId = patch.parentGroupId
     }
+    if (patch.nature !== undefined) {
+      if (!['assets', 'liabilities', 'income', 'expenses'].includes(patch.nature)) {
+        throw ApiError.badRequest('Nature must be assets, liabilities, income, or expenses.')
+      }
+      if (existing.isPrimary && patch.nature !== existing.nature) {
+        throw ApiError.badRequest('The nature of a primary group cannot be changed.')
+      }
+      data.nature = patch.nature
+    }
     if (patch.affectsPL !== undefined) data.affectsPL = patch.affectsPL
+
+    // Only a real change counts — an edit form re-sending the same values
+    // alongside a rename must still go through.
+    const changesHistory =
+      (data.parentGroupId !== undefined && data.parentGroupId !== existing.parentGroupId) ||
+      (data.nature !== undefined && data.nature !== existing.nature) ||
+      (data.affectsPL !== undefined && data.affectsPL !== existing.affectsPL)
+    if (changesHistory) {
+      const closed = await prisma.bookkeepingFinancialYear.findFirst({
+        where: { tallyCompanyId: companyId, closed: true }, select: { label: true },
+      })
+      if (closed) {
+        throw ApiError.unprocessable(
+          'financial_year_closed',
+          `Financial year ${closed.label} is closed. A group's parent, nature and P&L setting decide where its ledgers appear in that year's statements, so they cannot change now — reopen the year first.`,
+        )
+      }
+    }
 
     const updated = await prisma.bookkeepingGroup.update({ where: { id: groupId }, data })
     return toApi(updated)

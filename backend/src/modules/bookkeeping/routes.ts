@@ -241,12 +241,14 @@ bookkeepingRouter.patch('/companies/:id/groups/:groupId', handler(async (req, re
   const b = z.object({
     name: z.string().min(1).optional(),
     parent_group_id: z.string().nullable().optional(),
+    nature: z.enum(['assets', 'liabilities', 'income', 'expenses']).optional(),
     affects_pl: z.boolean().optional(),
   }).safeParse(req.body)
   if (!b.success) throw ApiError.badRequest('Invalid patch.')
   const g = await BookkeepingGroupService.update(session, req.params.id, req.params.groupId, {
     name: b.data.name,
     parentGroupId: b.data.parent_group_id ?? undefined,
+    nature: b.data.nature,
     affectsPL: b.data.affects_pl,
   })
   await writeAudit({

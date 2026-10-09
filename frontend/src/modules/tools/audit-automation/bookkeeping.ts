@@ -312,6 +312,8 @@ export interface TrialBalance {
     openingDebitPaise: number; openingCreditPaise: number;
     debitPaise: number; creditPaise: number;
     closingDebitPaise: number; closingCreditPaise: number;
+    /** Opening stock at books-begin, included in the opening and closing debit totals. */
+    openingStockPaise: number;
     balanced: boolean; differencePaise: number;
   };
 }
@@ -319,8 +321,13 @@ export interface TrialBalance {
 export interface ProfitAndLoss {
   income: { label: string; rows: { ledgerId: string; ledgerName: string; groupName: string; amountPaise: number }[]; totalPaise: number };
   expenses: { label: string; rows: { ledgerId: string; ledgerName: string; groupName: string; amountPaise: number }[]; totalPaise: number };
+  /** Stock at the period start (debit) and end (credit), at weighted-average cost. Not in income/expenses. */
+  openingStockPaise: number; closingStockPaise: number;
   netProfitPaise: number; grossProfitPaise: number; from: string | null; to: string | null;
 }
+
+/** ledgerId of the balance sheet's Closing Stock line — not a real ledger, so not drillable. */
+export const CLOSING_STOCK_ID = 'closing-stock';
 
 export interface BalanceSheetGroup {
   groupId: string; groupName: string; amountPaise: number;
