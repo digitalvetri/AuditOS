@@ -54,7 +54,25 @@ export function errorMiddleware(err: unknown, _req: Request, res: Response, _nex
     })
     return
   }
+  // Money is stored in paise in 32-bit columns, so one amount above
+  // ₹2,14,74,836.47 cannot be saved. Say so plainly instead of a bare 500.
+  if (isIntegerOverflow(err)) {
+    res.status(422).json({
+      error: {
+        code: 'amount_too_large',
+        message: 'An amount is too large to save — the limit is ₹2,14,74,836 for a single amount. Split it, or ask your administrator.',
+      },
+    })
+    return
+  }
   // Never leak salary, bank or ledger detail into a client body or a log line.
   console.error('[unhandled]', err instanceof Error ? err.message : 'unknown error')
   res.status(500).json({ error: { code: 'internal', message: 'Something went wrong.' } })
+}
+
+/** Prisma's INT4 conversion failure, or Postgres "integer out of range" (22003). */
+function isIntegerOverflow(err: unknown): boolean {
+  if (!(err instanceof Error)) return false
+  if ((err as { code?: unknown }).code === '22003') return true
+  return /Unable to fit integer value .* into an INT4|integer out of range/i.test(err.message)
 }

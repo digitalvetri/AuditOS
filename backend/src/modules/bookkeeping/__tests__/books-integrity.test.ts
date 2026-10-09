@@ -229,3 +229,12 @@ describe('A ledger carrying money cannot be deleted', () => {
     expect(r.body.data.totals.balanced).toBe(true)
   })
 })
+
+describe('amounts above the 32-bit paise limit', () => {
+  it('a ₹30 crore opening balance gets a clear 422, not a 500', async () => {
+    const g = (await api(`${C()}/groups`)).body.data.items.find((x: { name: string }) => x.name === 'Capital Account')
+    const r = await api(`${C()}/ledgers`, { method: 'POST', body: { name: 'Big Capital', group_id: g.id, opening_balance_paise: 30_00_00_000_00, opening_balance_type: 'cr' } })
+    expect(r.status).toBe(422)
+    expect(r.body.error.code).toBe('amount_too_large')
+  })
+})
