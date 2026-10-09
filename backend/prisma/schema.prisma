@@ -8287,7 +8287,8 @@ model ClientObligation {
   formCode           String
   assignedEmployeeId String?
   /// Email/WhatsApp the client before the due date, listing what is pending.
-  remindClient       Boolean @default(true)
+  /// Off until switched on for the client, so nobody is emailed by surprise.
+  remindClient       Boolean @default(false)
   isActive           Boolean @default(true)
   notes              String?
 

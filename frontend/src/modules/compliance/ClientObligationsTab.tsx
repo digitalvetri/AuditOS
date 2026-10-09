@@ -58,9 +58,9 @@ function ObligationsEditor({ clientId, entityType, data, catalogue, canManage }:
 
   const initial = useMemo(() => {
     const m: Record<string, Pick> = {};
-    for (const f of catalogue) m[f.code] = { on: false, assignee: '', remind: true };
+    for (const f of catalogue) m[f.code] = { on: false, assignee: '', remind: false };
     for (const o of current) {
-      m[o.form_code] = { on: o.is_active !== false, assignee: o.assigned_employee_id ?? '', remind: o.remind_client ?? true };
+      m[o.form_code] = { on: o.is_active !== false, assignee: o.assigned_employee_id ?? '', remind: o.remind_client ?? false };
     }
     return m;
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -89,7 +89,7 @@ function ObligationsEditor({ clientId, entityType, data, catalogue, canManage }:
   const onCount = Object.values(picks).filter((p) => p.on).length;
 
   const rows = (list: ComplianceForm[]) => list.map((f) => {
-    const p = picks[f.code] ?? { on: false, assignee: '', remind: true };
+    const p = picks[f.code] ?? { on: false, assignee: '', remind: false };
     return (
       <div key={f.code} className="flex flex-wrap items-center gap-x-4 gap-y-2 px-5 py-3 border-b border-neutral-100 last:border-b-0">
         <label className="flex items-start gap-3 min-w-0 flex-1 basis-[260px] cursor-pointer">

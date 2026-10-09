@@ -155,7 +155,7 @@ complianceRouter.put('/clients/:clientId/obligations', handler(async (req, res) 
     if (typeof code !== 'string' || !forms.has(code)) throw ApiError.badRequest(`forms[${i}].form_code is not a known form.`)
     wanted.set(code, {
       assigned: row.assigned_employee_id === undefined ? null : await assertEmployee(organisationId, row.assigned_employee_id),
-      remind: row.remind_client === undefined ? true : Boolean(row.remind_client),
+      remind: row.remind_client === undefined ? false : Boolean(row.remind_client),
     })
   }
   const before = await prisma.clientObligation.findMany({ where: { clientId } })

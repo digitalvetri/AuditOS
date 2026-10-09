@@ -41,6 +41,10 @@ x-app-env: &app-env
   PUBLIC_APP_URL: ${PUBLIC_APP_URL:?}
   COOKIE_SECURE: ${COOKIE_SECURE:-true}
   SESSION_TTL_SECONDS: ${SESSION_TTL_SECONDS:-28800}
+  # Emailed document links expire after this many days and can be revoked.
+  PERMANENT_LINK_TTL_DAYS: ${PERMANENT_LINK_TTL_DAYS:-365}
+  # Optional; derived from PORTAL_ACCESS_ENC_KEY when unset (32+ chars if set).
+  PORTAL_AUTOFILL_SECRET: ${PORTAL_AUTOFILL_SECRET:-}
   SIGNED_URL_TTL_SECONDS: ${SIGNED_URL_TTL_SECONDS:-300}
   OWNER_SUPERADMIN_EMAIL: ${OWNER_SUPERADMIN_EMAIL:-}
   OWNER_SUPERADMIN_PASSWORD: ${OWNER_SUPERADMIN_PASSWORD:-}
@@ -51,6 +55,7 @@ x-app-env: &app-env
   SMTP_PORT: ${SMTP_PORT:-587}
   SMTP_USER: ${SMTP_USER:-}
   SMTP_PASS: ${SMTP_PASS:-}
+  SMTP_SECURE: ${SMTP_SECURE:-}
   MAIL_FROM: ${MAIL_FROM:-}
   VAPID_PUBLIC_KEY: ${VAPID_PUBLIC_KEY:-}
   VAPID_PRIVATE_KEY: ${VAPID_PRIVATE_KEY:-}
@@ -83,6 +88,12 @@ x-app-env: &app-env
   RCLONE_CONFIG_OFFSITE_REGION: ${RCLONE_CONFIG_OFFSITE_REGION:-}
   # Optional error reporting (backend/src/lib/errorReport.ts).
   SENTRY_DSN: ${SENTRY_DSN:-}
+  # AI notice-reply drafting (Groq). Off when unset; the firm can also switch
+  # it off in Settings. PAN, GSTIN, Aadhaar, phone and email are masked.
+  GROQ_API_KEY: ${GROQ_API_KEY:-}
+  GROQ_MODEL: ${GROQ_MODEL:-}
+  # 'on' emails clients about invoices 7, 15 and 30 days overdue.
+  INVOICE_DUNNING: ${INVOICE_DUNNING:-}
   # Optional virus scanning of every upload (backend/src/platform/virusScan.ts).
   # Empty CLAMAV_HOST = off. With the clamav service below enabled, set
   # CLAMAV_HOST=clamav. CLAMAV_REQUIRED=true refuses uploads while the
