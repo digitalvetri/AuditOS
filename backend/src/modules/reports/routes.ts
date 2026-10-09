@@ -2,9 +2,11 @@ import { Router } from 'express'
 import { z } from 'zod'
 import { ApiError, handler, ok } from '../../lib/http.js'
 import { prisma } from '../../lib/prisma.js'
+import { istToday } from '../../lib/dates.js'
 import { can, requireSession, type Session } from '../../platform/auth.js'
 import type { Scope } from '../../platform/rbac/matrix.js'
 import type { PayrollDeductions, PayrollEarnings } from '../../domain/payroll/calc.js'
+import { ensureLeaveBalances, fiscalYearWindow } from '../../domain/leaveBalances.js'
 
 /**
  * REPORTS (§8.10)
@@ -137,11 +139,14 @@ reportsRouter.get('/:type', handler(async (req, res) => {
     }
     const ids = employees.map((e) => e.id)
 
+    // Utilisation for the current fiscal year.
+    const fy = fiscalYearWindow(istToday())
+    await ensureLeaveBalances(prisma, employees, fy.fiscalYearStart)
     const [types, balances, pending] = await Promise.all([
       prisma.leaveType.findMany({ where: { deletedAt: null }, orderBy: { code: 'asc' } }),
-      prisma.leaveBalance.findMany({ where: { employeeId: { in: ids } } }),
+      prisma.leaveBalance.findMany({ where: { employeeId: { in: ids }, fiscalYearStart: fy.fiscalYearStart } }),
       prisma.leaveRequest.findMany({
-        where: { employeeId: { in: ids }, status: 'pending', deletedAt: null },
+        where: { employeeId: { in: ids }, status: 'pending', deletedAt: null, startDate: fy.startDate },
         select: { employeeId: true, leaveTypeId: true, computedWorkingDays: true },
       }),
     ])

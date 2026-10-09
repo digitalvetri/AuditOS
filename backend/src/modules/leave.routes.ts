@@ -4,6 +4,7 @@ import { ApiError, handler, ok } from '../lib/http.js'
 import { prisma } from '../lib/prisma.js'
 import { daysBetween, enumerateDates, istToday } from '../lib/dates.js'
 import { computeWorkingDays } from '../domain/leaveDays.js'
+import { ensureLeaveBalances, fiscalYearWindow } from '../domain/leaveBalances.js'
 import { can, requireSession, type Session } from '../platform/auth.js'
 import { writeAudit } from '../platform/audit.js'
 import { notifyEmployee, notifyPermissionHolders } from '../platform/notify.js'
@@ -103,11 +104,14 @@ leaveRouter.get('/balances/:employeeId', handler(async (req, res) => {
     (scope === 'self' && session.employeeId === target.id)
   if (!allowed) throw ApiError.forbidden()
 
+  // The screen shows the current fiscal year.
+  const fy = fiscalYearWindow(istToday())
+  await ensureLeaveBalances(prisma, [target], fy.fiscalYearStart)
   const [types, balances, pending] = await Promise.all([
     prisma.leaveType.findMany({ where: { deletedAt: null }, orderBy: { code: 'asc' } }),
-    prisma.leaveBalance.findMany({ where: { employeeId: target.id } }),
+    prisma.leaveBalance.findMany({ where: { employeeId: target.id, fiscalYearStart: fy.fiscalYearStart } }),
     prisma.leaveRequest.findMany({
-      where: { employeeId: target.id, status: 'pending', deletedAt: null },
+      where: { employeeId: target.id, status: 'pending', deletedAt: null, startDate: fy.startDate },
       select: { leaveTypeId: true, computedWorkingDays: true },
     }),
   ])
@@ -275,12 +279,23 @@ leaveRouter.post('/', handler(async (req, res) => {
   }
 
   // LOP is unlimited; everything else checks the balance net of pending days.
+  // Charged to the fiscal year of the start date; only that year's balance
+  // and that year's pending requests count.
   if (type.code !== 'lop') {
-    const balance = await prisma.leaveBalance.findFirst({
-      where: { employeeId: employee.id, leaveTypeId: type.id },
+    const fy = fiscalYearWindow(start_date)
+    await ensureLeaveBalances(prisma, [employee], fy.fiscalYearStart)
+    const balance = await prisma.leaveBalance.findUnique({
+      where: {
+        employeeId_leaveTypeId_fiscalYearStart: {
+          employeeId: employee.id, leaveTypeId: type.id, fiscalYearStart: fy.fiscalYearStart,
+        },
+      },
     })
     const pendingRows = await prisma.leaveRequest.findMany({
-      where: { employeeId: employee.id, leaveTypeId: type.id, status: 'pending', deletedAt: null },
+      where: {
+        employeeId: employee.id, leaveTypeId: type.id, status: 'pending', deletedAt: null,
+        startDate: fy.startDate,
+      },
       select: { computedWorkingDays: true },
     })
     const pending = pendingRows.reduce((s, r) => s + r.computedWorkingDays, 0)
@@ -372,15 +387,12 @@ leaveRouter.post('/:id/approve', handler(async (req, res) => {
 
   if (becameApproved) {
     if (row.leaveType.code !== 'lop') {
-      const balance = await prisma.leaveBalance.findFirst({
-        where: { employeeId: row.employeeId, leaveTypeId: row.leaveTypeId },
+      const { fiscalYearStart } = fiscalYearWindow(row.startDate)
+      await ensureLeaveBalances(prisma, [row.employee], fiscalYearStart)
+      await prisma.leaveBalance.updateMany({
+        where: { employeeId: row.employeeId, leaveTypeId: row.leaveTypeId, fiscalYearStart },
+        data: { availed: { increment: row.computedWorkingDays } },
       })
-      if (balance) {
-        await prisma.leaveBalance.update({
-          where: { id: balance.id },
-          data: { availed: balance.availed + row.computedWorkingDays },
-        })
-      }
     }
     await upsertOnLeaveRows(row.employeeId, row.startDate, row.endDate, session.userId)
   }
@@ -488,8 +500,13 @@ leaveRouter.post('/:id/cancel', handler(async (req, res) => {
 
   if (wasApproved) {
     if (row.leaveType.code !== 'lop') {
-      const balance = await prisma.leaveBalance.findFirst({
-        where: { employeeId: row.employeeId, leaveTypeId: row.leaveTypeId },
+      const balance = await prisma.leaveBalance.findUnique({
+        where: {
+          employeeId_leaveTypeId_fiscalYearStart: {
+            employeeId: row.employeeId, leaveTypeId: row.leaveTypeId,
+            fiscalYearStart: fiscalYearWindow(row.startDate).fiscalYearStart,
+          },
+        },
       })
       if (balance) {
         await prisma.leaveBalance.update({

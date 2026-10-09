@@ -3,7 +3,8 @@ import { Router } from 'express'
 import { z } from 'zod'
 import { ApiError, handler, ok } from '../lib/http.js'
 import { prisma } from '../lib/prisma.js'
-import { istToday } from '../lib/dates.js'
+import { fiscalYearStartOf, istToday } from '../lib/dates.js'
+import { ensureLeaveBalances } from '../domain/leaveBalances.js'
 import { can, hashPassword, requireSession, type Session } from '../platform/auth.js'
 import { passwordProblem } from '../platform/password.js'
 import { assertCanAssignRole, assertCanManageLogin } from '../platform/roleRank.js'
@@ -245,6 +246,8 @@ employeesRouter.post('/', handler(async (req, res) => {
         updatedBy: session.userId,
       },
     })
+    // This year's leave entitlement, so they can apply from day one.
+    await ensureLeaveBalances(tx, [row], fiscalYearStartOf(istToday()))
     const login = await tx.user.create({
       data: {
         organisationId: org.id, email, passwordHash: hashPassword(password),

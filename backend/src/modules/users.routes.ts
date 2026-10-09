@@ -1,7 +1,8 @@
 import { Router, type Request } from 'express'
 import type { Employee, Role, User } from '@prisma/client'
 import { z } from 'zod'
-import { istToday } from '../lib/dates.js'
+import { fiscalYearStartOf, istToday } from '../lib/dates.js'
+import { ensureLeaveBalances } from '../domain/leaveBalances.js'
 import { ApiError, handler, ok } from '../lib/http.js'
 import { prisma } from '../lib/prisma.js'
 import { rateLimit } from '../lib/rateLimit.js'
@@ -148,6 +149,8 @@ usersRouter.post('/', handler(async (req, res) => {
         createdBy: s.userId, updatedBy: s.userId,
       },
     })
+    // This year's leave entitlement, so they can apply from day one.
+    await ensureLeaveBalances(tx, [employee], fiscalYearStartOf(istToday()))
     return tx.user.create({
       data: {
         organisationId: org.id, email: b.email, passwordHash: hashPassword(b.temp_password),

@@ -94,6 +94,22 @@ export function monthlyPayrollPeriod(year: number, month: number): { start: stri
   return { start: `${year}-${mm}-01`, end: `${year}-${mm}-${dd}` }
 }
 
+/**
+ * First day of the fiscal year containing `isoDate`, as 'YYYY-MM-01'.
+ * Indian FY by default: 1 April. Leave balances are keyed on this value.
+ */
+export function fiscalYearStartOf(isoDate: string, startMonth = 4): string {
+  const [y, m] = isoDate.split('-').map(Number)
+  const year = m >= startMonth ? y : y - 1
+  return `${year}-${String(startMonth).padStart(2, '0')}-01`
+}
+
+/** First day of the fiscal year after the one starting `fyStart`. */
+export function nextFiscalYearStart(fyStart: string): string {
+  const [y, m] = fyStart.split('-').map(Number)
+  return `${y + 1}-${String(m).padStart(2, '0')}-01`
+}
+
 /** '06 Sep 2026' — display format for exports and PDFs. */
 export function fmtDate(input: string | Date | null | undefined): string {
   if (!input) return '—'
