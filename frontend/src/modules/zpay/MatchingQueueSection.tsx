@@ -61,7 +61,7 @@ export function MatchingQueueSection() {
       <header className="flex items-baseline justify-between gap-4 flex-wrap">
         <div>
           <div className="text-11 uppercase tracking-[0.06em] text-neutral-500">
-            Accounts / Collections / Matching
+            Payroll &amp; expenses / Online collections / Matching
           </div>
           <h2 className="text-18 font-medium text-neutral-900 mt-1">
             Matching queue — {monthLabel(period)}

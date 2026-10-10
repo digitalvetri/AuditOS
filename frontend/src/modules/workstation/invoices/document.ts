@@ -171,7 +171,7 @@ export const newLine = (): Line => ({
 // line, CGST/SGST carried in basis points, and the line amount is the TAXABLE
 // BASE with tax added on top — never tax-inclusive.
 
-export const HALF_RATE_BPS: Record<number, number> = { 0: 0, 5: 250, 12: 600, 18: 900, 28: 1400 };
+export const HALF_RATE_BPS: Record<number, number> = { 0: 0, 5: 250, 12: 600, 18: 900, 28: 1400, 40: 2000 };
 
 const divRound = (n: number, d: number) => Math.floor((n + Math.floor(d / 2)) / d);
 const bpsOf = (paise: number, bps: number) => divRound(paise * bps, 10_000);

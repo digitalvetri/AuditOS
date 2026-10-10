@@ -3,7 +3,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { useAuditFileOptions } from '@/modules/audit/pickers';
 import { workstationApi } from '@/modules/workstation/api';
-import { invoicesApi, TERM_LABEL, GST_RATES, QR_MODE_LABEL, type BankSnapshot, type Invoice, type QrMode, type Term } from '@/modules/workstation/invoices/api';
+import { invoicesApi, TERM_LABEL, GST_RATES, gstRateLabel, QR_MODE_LABEL, type BankSnapshot, type Invoice, type QrMode, type Term } from '@/modules/workstation/invoices/api';
 import { downloadFile } from '@/modules/workstation/invoices/download';
 import {
   BLOCK_LABEL, DEFAULT_COMPANY, DEFAULT_FOOTER_NOTE, DEFAULT_LAYOUT, DEFAULT_NOTES,
@@ -826,7 +826,7 @@ function ItemsTab(p: {
                   className={inputClass} value={l.gstRatePercent}
                   onChange={(e) => set(i, { gstRatePercent: Number(e.target.value) })}
                 >
-                  {GST_RATES.map((r) => <option key={r} value={r}>{r}%</option>)}
+                  {GST_RATES.map((r) => <option key={r} value={r}>{gstRateLabel(r)}</option>)}
                 </select>
               </Field>
               <Field label="Line discount (%)">

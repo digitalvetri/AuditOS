@@ -21,6 +21,8 @@ export interface Task {
   raw_status: string;
   priority: TaskPriority;
   overdue: boolean;
+  /** Same as `overdue`: due before today (IST) and still open. */
+  is_overdue: boolean;
   assigned_employee_id: string;
   assigned_employee_name: string;
   assigned_by_id: string | null;

@@ -1,4 +1,5 @@
 import type { Prisma } from '@prisma/client'
+import { istToday } from '../../lib/dates.js'
 import { prisma, alive } from '../../lib/prisma.js'
 import { ApiError } from '../../lib/http.js'
 import type { Session } from '../../platform/auth.js'
@@ -99,6 +100,8 @@ export interface TaskApi {
   raw_status: string
   priority: string
   overdue: boolean
+  /** Due before today (IST) and neither completed nor cancelled. */
+  is_overdue: boolean
   assigned_employee_id: string
   assigned_employee_name: string
   assigned_by_id: string | null
@@ -140,6 +143,7 @@ export function taskToApi(row: TaskRow, now = new Date()): TaskApi {
     (sum, s) => sum + ((s.endedAt ?? now).getTime() - s.startedAt.getTime()), 0,
   )
   const status = normaliseStatus(row.status)
+  const overdue = isOverdue(row.dueDate, row.status, istToday(now))
   return {
     id: row.id,
     title: row.title,
@@ -147,7 +151,8 @@ export function taskToApi(row: TaskRow, now = new Date()): TaskApi {
     status,
     raw_status: row.status,
     priority: row.priority,
-    overdue: isOverdue(row.dueDate, row.status, now.toISOString().slice(0, 10)),
+    overdue,
+    is_overdue: overdue,
     assigned_employee_id: row.assignedEmployeeId,
     assigned_employee_name: row.assignedEmployee.fullName,
     assigned_by_id: row.assignedById,
@@ -195,7 +200,7 @@ function statusWhere(status?: string): Record<string, unknown> {
 
 export const TaskService = {
   async list(session: Session, scope: Scope, filters: TaskFilters = {}) {
-    const today = new Date().toISOString().slice(0, 10)
+    const today = istToday()
     const scopeWhere = await taskScopeWhere(session, scope)
     const overdueWhere = filters.overdueOnly || filters.status === 'overdue'
       ? { dueDate: { lt: today, not: null }, status: { notIn: ['completed', 'done', 'cancelled'] } }

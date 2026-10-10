@@ -213,7 +213,7 @@ export function buildNav(
     { section: 'Billing', to: '/workstation/invoices',    label: 'Invoices',   icon: ReceiptText,   end: true, visible: can(role, 'workstation.invoice.read', 'self') },
     { section: 'Billing', to: '/workstation/credit-notes', label: 'Credit notes', icon: IndianRupee, visible: can(role, 'workstation.invoice.read', 'self') },
     { section: 'Billing', to: '/workstation/recurring-invoices', label: 'Recurring invoices', icon: Wallet, visible: can(role, 'workstation.invoice.read', 'self') },
-    { section: 'Billing', to: '/hrms/payment-summary', label: 'Collections', icon: BarChart3, visible: can(role, 'payment_summary.read', 'organisation') },
+    { section: 'Billing', to: '/hrms/payment-summary', label: 'Receivables', icon: BarChart3, visible: can(role, 'payment_summary.read', 'organisation') },
     { section: 'Templates', to: '/workstation/doc',     label: 'Document formats', icon: FileText,  visible: can(role, 'workstation.doc.read', 'self') },
   ];
   // TOOLS is one labelled section — a sibling of Workstation — holding

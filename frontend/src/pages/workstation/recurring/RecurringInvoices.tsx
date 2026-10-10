@@ -6,7 +6,7 @@ import {
   recurringApi, FREQUENCY_LABEL, MONTH_END, RECURRING_TERM_LABEL,
   type RecurringFrequency, type RecurringInput, type RecurringProfile, type RecurringTerm,
 } from '@/modules/workstation/recurring/api';
-import { GST_RATES } from '@/modules/workstation/invoices/api';
+import { GST_RATES, gstRateLabel } from '@/modules/workstation/invoices/api';
 import { STATES, inrAmount, stateName } from '@/modules/workstation/invoices/document';
 import { workstationApi } from '@/modules/workstation/api';
 import { clientNameWithOrg } from '@/modules/workstation/organization/badges';
@@ -321,7 +321,7 @@ function ProfileModal({ profile, onClose, onSaved }: { profile: RecurringProfile
             <label className="md:col-span-1 block">
               <span className="block text-12 font-medium text-neutral-500 mb-1">GST %</span>
               <select className={inputClass} value={l.gst} onChange={(e) => setLine(l.key, { gst: Number(e.target.value) })}>
-                {GST_RATES.map((r) => <option key={r} value={r}>{r}%</option>)}
+                {GST_RATES.map((r) => <option key={r} value={r}>{gstRateLabel(r)}</option>)}
               </select>
             </label>
             <label className="md:col-span-1 block">

@@ -40,13 +40,45 @@ export function Sparkline({ values, color = TEAL, height = 44, className = '' }:
   );
 }
 
-function smooth(pts: readonly (readonly [number, number])[]): string {
-  return pts.map(([x, y], i) => {
-    if (i === 0) return `M${x} ${y}`;
-    const [px, py] = pts[i - 1];
-    const c = (x - px) / 2;
-    return `C${px + c} ${py} ${x - c} ${y} ${x} ${y}`;
-  }).join(' ');
+/**
+ * Monotone cubic (Fritsch–Carlson, the same curve as d3/recharts
+ * "monotone"): smooth, but never rises above or dips below its neighbouring
+ * points, so a month with no change draws flat and a ₹0 month never dips
+ * under the axis.
+ */
+export function smooth(pts: readonly (readonly [number, number])[]): string {
+  const n = pts.length;
+  if (n === 0) return '';
+  if (n === 1) return `M${pts[0][0]} ${pts[0][1]}`;
+  if (n === 2) return `M${pts[0][0]} ${pts[0][1]} L${pts[1][0]} ${pts[1][1]}`;
+  const dx: number[] = [];
+  const slope: number[] = [];
+  for (let i = 0; i < n - 1; i++) {
+    dx.push(pts[i + 1][0] - pts[i][0]);
+    slope.push(dx[i] === 0 ? 0 : (pts[i + 1][1] - pts[i][1]) / dx[i]);
+  }
+  // Tangents: zero at a local peak/trough, harmonic-style blend elsewhere.
+  const t: number[] = new Array(n).fill(0);
+  for (let i = 1; i < n - 1; i++) {
+    const a = slope[i - 1], b = slope[i];
+    if (a * b <= 0) { t[i] = 0; continue; }
+    const h0 = dx[i - 1], h1 = dx[i];
+    const p = (a * h1 + b * h0) / (h0 + h1);
+    t[i] = (Math.sign(a) + Math.sign(b)) * Math.min(Math.abs(a), Math.abs(b), 0.5 * Math.abs(p));
+  }
+  // Ends: one-sided, as d3 does.
+  t[0] = dx[0] ? (3 * slope[0] - t[1]) / 2 : 0;
+  t[n - 1] = dx[n - 2] ? (3 * slope[n - 2] - t[n - 2]) / 2 : 0;
+  if (slope[0] * t[0] <= 0) t[0] = 0;
+  if (slope[n - 2] * t[n - 1] <= 0) t[n - 1] = 0;
+  let d = `M${pts[0][0]} ${pts[0][1]}`;
+  for (let i = 0; i < n - 1; i++) {
+    const [x0, y0] = pts[i];
+    const [x1, y1] = pts[i + 1];
+    const h = dx[i] / 3;
+    d += ` C${x0 + h} ${y0 + h * t[i]} ${x1 - h} ${y1 - h * t[i + 1]} ${x1} ${y1}`;
+  }
+  return d;
 }
 
 // ── Area chart (two series) ────────────────────────────────────────────────

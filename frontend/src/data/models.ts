@@ -392,6 +392,8 @@ export interface AuditLog {
   seq?: number;
   /** How the actor is named to people ('system' when none). */
   actor_label?: string;
+  /** Readable name of the entity (client, invoice number, employee…) when it resolves. */
+  entity_label?: string | null;
 }
 
 export interface DashboardWidget {

@@ -10,6 +10,7 @@ import { canApproveCorrection, canApproveExpense, canApproveLeave } from './dash
 import type { Scope } from '../platform/rbac/matrix.js'
 import { pushPublicKey } from '../platform/push.js'
 import { USER_LABEL_SELECT, userLabel } from '../platform/userLabel.js'
+import { auditEntityLabels, entityLabelFor } from '../platform/auditEntityLabels.js'
 import { isAccountAdmin } from '../platform/roleRank.js'
 import { verifyAuditChain } from '../platform/audit.js'
 import type { Prisma } from '@prisma/client'
@@ -271,18 +272,21 @@ auditRouter.get('/', handler(async (req, res) => {
     ? await prisma.user.findMany({ where: { id: { in: actorIds } }, select: USER_LABEL_SELECT })
     : []
   const label = new Map(actors.map((a) => [a.id, userLabel(a)]))
+  // Readable entity names, batched one query per entity type on this page.
+  const entityLabels = await auditEntityLabels(page)
   const items = page.map((r) => ({
     ...auditLogToApi(r),
     seq: r.seq,
     actor_label: r.actorUserId ? (label.get(r.actorUserId) ?? r.actorUserId) : 'system',
+    entity_label: entityLabelFor(entityLabels, r.entityType, r.entityId),
   }))
 
   if (csv) {
-    const header = ['seq', 'created_at', 'actor', 'actor_user_id', 'action', 'entity_type', 'entity_id', 'ip', 'before_json', 'after_json']
+    const header = ['seq', 'created_at', 'actor', 'actor_user_id', 'action', 'entity_type', 'entity_id', 'entity', 'ip', 'before_json', 'after_json']
     const lines = [header.map(csvCell).join(',')]
     for (const r of items) {
       lines.push([
-        r.seq, r.created_at, r.actor_label, r.actor_user_id, r.action, r.entity_type, r.entity_id, r.ip,
+        r.seq, r.created_at, r.actor_label, r.actor_user_id, r.action, r.entity_type, r.entity_id, r.entity_label, r.ip,
         r.before_json === null ? '' : JSON.stringify(r.before_json),
         r.after_json === null ? '' : JSON.stringify(r.after_json),
       ].map(csvCell).join(','))

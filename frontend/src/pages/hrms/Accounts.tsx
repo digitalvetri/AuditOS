@@ -33,6 +33,7 @@ import { CollectionsSection } from '@/modules/zpay/CollectionsSection';
 import { MatchingQueueSection } from '@/modules/zpay/MatchingQueueSection';
 import { fmtDate, fmtDateTime, inr } from '@/lib/format';
 import { StatusLabel, type StatusVariant } from '@/components/StatusRow';
+import { FilterSelect, ListHeader, ListToolbar } from '@/modules/workstation/listUi';
 
 /** Which tabs a role can see (nav-render only — the API is the gate). */
 export function accountsTabsFor(role: RoleCode | undefined) {
@@ -52,19 +53,17 @@ export function AccountsLayout() {
   const tabs = accountsTabsFor(role);
   return (
     <div className="space-y-6">
-      <header>
-        <h1 className="text-[26px] leading-tight font-semibold tracking-[-0.01em] text-neutral-900">Accounts</h1>
-        <p className="text-13 text-neutral-500 mt-1">
-          Internal JNS Accounting Solutions finance. Append-only ledger — corrections are contra entries.
-        </p>
-      </header>
+      <ListHeader
+        title="Payroll & expenses"
+        meta="Internal JNS Accounting Solutions finance. Append-only ledger — corrections are contra entries."
+      />
 
       <div className="flex items-center gap-2 flex-wrap">
         {tabs.overview    ? <AccountsTabLink to="overview">Overview</AccountsTabLink> : null}
         {tabs.payroll     ? <AccountsTabLink to="payroll">Payroll</AccountsTabLink> : null}
         {tabs.expenses    ? <AccountsTabLink to="expenses">Expenses</AccountsTabLink> : null}
         {tabs.payments    ? <AccountsTabLink to="payments">Payments</AccountsTabLink> : null}
-        {tabs.collections ? <AccountsTabLink to="collections">Collections</AccountsTabLink> : null}
+        {tabs.collections ? <AccountsTabLink to="collections">Online collections</AccountsTabLink> : null}
         {tabs.ledger      ? <AccountsTabLink to="ledger">Ledger</AccountsTabLink> : null}
       </div>
 
@@ -348,7 +347,7 @@ export function AccountsCollectionsPage() {
               : 'bg-white border-neutral-200 text-neutral-700 hover:border-neutral-300 hover:bg-neutral-50')
           }
         >
-          Collections
+          Online collections
         </NavLink>
         <NavLink
           to="matching"
@@ -392,39 +391,27 @@ function LedgerSection({ canManage }: { canManage: boolean }) {
   const [reverseTarget, setReverseTarget] = useState<LedgerRowWithEmp | null>(null);
   return (
     <div className="space-y-3" data-testid="accounts-ledger">
-      <div className="flex items-end gap-3 flex-wrap">
-        <label className="block">
-          <span className="block text-11 uppercase tracking-[0.06em] text-neutral-500 mb-1">Type</span>
-          <select
-            value={type}
-            onChange={(e) => setType(e.target.value)}
-            className="h-8 px-2 text-13 bg-white border border-neutral-300 rounded"
-            data-testid="ledger-type-filter"
-          >
-            <option value="">Any type</option>
-            {LEDGER_TYPES.map((t) => (<option key={t} value={t}>{t}</option>))}
-          </select>
-        </label>
-        <label className="block">
-          <span className="block text-11 uppercase tracking-[0.06em] text-neutral-500 mb-1">Sort by</span>
-          <select
-            value={sort}
-            onChange={(e) => setSort(e.target.value as LedgerSort)}
-            className="h-8 px-2 text-13 bg-white border border-neutral-300 rounded"
-            data-testid="ledger-sort"
-          >
-            <option value="date">Date (running balance)</option>
-            <option value="amount">Amount</option>
-            <option value="type">Type</option>
-            <option value="employee">Employee</option>
-          </select>
-        </label>
+      <ListToolbar>
+        <FilterSelect label="Type" value={type} onChange={setType} options={LEDGER_TYPES.map((t) => ({ value: t, label: t }))} />
+        <select
+          aria-label="Sort by"
+          title="Sort by"
+          value={sort}
+          onChange={(e) => setSort(e.target.value as LedgerSort)}
+          className="h-9 px-2 text-13 bg-white text-neutral-700 border border-neutral-200 rounded-lg focus:outline-none focus:border-primary/60"
+          data-testid="ledger-sort"
+        >
+          <option value="date">Sort: Date (running balance)</option>
+          <option value="amount">Sort: Amount</option>
+          <option value="type">Sort: Type</option>
+          <option value="employee">Sort: Employee</option>
+        </select>
         {!showBalance && !q.isLoading && q.data ? (
-          <span className="text-11 text-neutral-500 pb-2">
+          <span className="text-11 text-neutral-500">
             Running balance hidden — meaningful only in date order.
           </span>
         ) : null}
-      </div>
+      </ListToolbar>
       <div className="bg-white border border-neutral-200 rounded overflow-x-auto">
         {q.isLoading ? (
           <div className="h-40 bg-neutral-100" />

@@ -21,6 +21,7 @@ import { useAuth } from '@/platform/auth/AuthContext';
 import { can } from '@/platform/rbac/can';
 import { styleForStatus as attendanceStyleForStatus } from '@/modules/attendance/statusStyle';
 import { istToday } from '@/lib/dates';
+import { FilterSelect, ListHeader, ListToolbar, SearchBox, TogglePill } from '@/modules/workstation/listUi';
 
 export function EmployeesPage() {
   const { session } = useAuth();
@@ -56,27 +57,28 @@ export function EmployeesPage() {
   }, [isFinanceView]);
 
   return (
-    <div className="space-y-6">
-      <header className="flex items-baseline justify-between gap-4 flex-wrap">
-        <div>
-          <h1 className="text-[26px] leading-tight font-semibold tracking-[-0.01em] text-neutral-900">Employees</h1>
-        </div>
-        <div className="flex items-center gap-2">
-          <Button
-            variant="secondary"
-            onClick={() => exportCsv(query.data?.items ?? [], columns)}
-            disabled={!query.data?.items.length}
-            data-testid="employees-export"
-          >
-            Export CSV
-          </Button>
-          {canManage ? (
-            <Button variant="primary" onClick={() => setCreating(true)} data-testid="employees-add">
-              Add employee
+    <div className="max-w-[1400px]">
+      <ListHeader
+        title="Employees"
+        meta={query.data ? <>{query.data.items.length} employee{query.data.items.length === 1 ? '' : 's'}{filters.q || filters.type || filters.status ? ' match these filters' : ''}</> : 'Loading…'}
+        action={(
+          <span className="flex items-center gap-2">
+            <Button
+              variant="secondary"
+              onClick={() => exportCsv(query.data?.items ?? [], columns)}
+              disabled={!query.data?.items.length}
+              data-testid="employees-export"
+            >
+              Export CSV
             </Button>
-          ) : null}
-        </div>
-      </header>
+            {canManage ? (
+              <Button variant="primary" onClick={() => setCreating(true)} data-testid="employees-add">
+                Add employee
+              </Button>
+            ) : null}
+          </span>
+        )}
+      />
 
       <FiltersBar filters={filters} onChange={setFilters} canManage={canManage} />
       <EmployeeCreateModal
@@ -230,88 +232,38 @@ function FiltersBar({
   canManage: boolean;
 }) {
   return (
-    <div className="flex items-end gap-3 flex-wrap">
-      <label className="block">
-        <span className="block text-11 uppercase tracking-[0.06em] text-neutral-500 mb-1">
-          Search
-        </span>
-        <input
-          type="text"
-          value={filters.q ?? ''}
-          onChange={(e) => onChange({ ...filters, q: e.target.value })}
-          placeholder="Name, code, email"
-          className="h-8 px-3 text-13 bg-white border border-neutral-300 rounded w-[220px]"
-          data-testid="employees-search"
-        />
-      </label>
-      <Select
+    <ListToolbar>
+      <SearchBox value={filters.q ?? ''} onChange={(q) => onChange({ ...filters, q })} placeholder="Name, code, email" />
+      <FilterSelect
         label="Type"
         value={filters.type ?? ''}
-        onChange={(v) => onChange({ ...filters, type: v || undefined })}
+        onChange={(v) => onChange({ ...filters, type: (v || undefined) as EmployeeFilters['type'] })}
         options={[
-          ['', 'Any type'],
-          ['partner', 'Super Admin'],
-          ['manager', 'Senior Associate'],
-          ['executive', 'Associate'],
-          ['articled', 'Intern'],
-          ['support', 'Support'],
+          { value: 'partner', label: 'Super Admin' },
+          { value: 'manager', label: 'Senior Associate' },
+          { value: 'executive', label: 'Associate' },
+          { value: 'articled', label: 'Intern' },
+          { value: 'support', label: 'Support' },
         ]}
       />
-      <Select
+      <FilterSelect
         label="Status"
         value={filters.status ?? ''}
-        onChange={(v) => onChange({ ...filters, status: v || undefined })}
+        onChange={(v) => onChange({ ...filters, status: (v || undefined) as EmployeeFilters['status'] })}
         options={[
-          ['', 'Any status'],
-          ['active', 'Active'],
-          ['on_leave', 'On Leave'],
-          ['probation', 'Probation'],
-          ['notice_period', 'Notice Period'],
-          ...(canManage ? ([['inactive', 'Inactive']] as const) : []),
+          { value: 'active', label: 'Active' },
+          { value: 'on_leave', label: 'On Leave' },
+          { value: 'probation', label: 'Probation' },
+          { value: 'notice_period', label: 'Notice Period' },
+          ...(canManage ? [{ value: 'inactive', label: 'Inactive' }] : []),
         ]}
       />
       {canManage ? (
-        <label className="flex items-center gap-2 text-13 text-neutral-700 h-8">
-          <input
-            type="checkbox"
-            checked={!!filters.includeInactive}
-            onChange={(e) => onChange({ ...filters, includeInactive: e.target.checked })}
-          />
+        <TogglePill on={!!filters.includeInactive} onChange={(v) => onChange({ ...filters, includeInactive: v })}>
           Include inactive
-        </label>
+        </TogglePill>
       ) : null}
-    </div>
-  );
-}
-
-function Select({
-  label,
-  value,
-  onChange,
-  options,
-}: {
-  label: string;
-  value: string;
-  onChange: (v: string) => void;
-  options: (readonly [string, string])[];
-}) {
-  return (
-    <label className="block">
-      <span className="block text-11 uppercase tracking-[0.06em] text-neutral-500 mb-1">
-        {label}
-      </span>
-      <select
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        className="h-8 px-2 text-13 bg-white border border-neutral-300 rounded"
-      >
-        {options.map(([v, l]) => (
-          <option key={v} value={v}>
-            {l}
-          </option>
-        ))}
-      </select>
-    </label>
+    </ListToolbar>
   );
 }
 

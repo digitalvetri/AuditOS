@@ -49,7 +49,7 @@ export function CollectionsSection({ onGoToMatching }: { onGoToMatching?: () => 
       <header className="flex items-baseline justify-between gap-4 flex-wrap">
         <div>
           <div className="text-11 uppercase tracking-[0.06em] text-neutral-500">
-            Accounts / Collections
+            Payroll &amp; expenses / Online collections
           </div>
           <h2 className="text-18 font-medium text-neutral-900 mt-1">
             Zoho Payments — {monthLabel(period)}

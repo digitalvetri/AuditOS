@@ -36,8 +36,16 @@ export const TERM_LABEL: Record<Term, string> = {
   custom: 'Custom',
 };
 
-/** The slabs a line may carry. CGST/SGST are each half of this. */
-export const GST_RATES = [0, 5, 12, 18, 28] as const;
+/**
+ * The slabs a line may carry. CGST/SGST are each half of this. From 22 Sep
+ * 2025 (GST 2.0) the slabs are 0 / 5 / 18 / 40; 12 and 28 stay selectable for
+ * documents dated before then.
+ */
+export const GST_RATES = [0, 5, 12, 18, 28, 40] as const;
+
+/** Option label for a slab — the pre-GST 2.0 slabs say so. */
+export const gstRateLabel = (r: number, suffix = '') =>
+  r === 12 || r === 28 ? `${r}%${suffix} (before 22 Sep 2025)` : `${r}%${suffix}`;
 
 export interface InvoiceItem {
   id: string;

@@ -15,6 +15,7 @@ import { CorrectionRequestModal } from '@/modules/attendance/CorrectionRequestMo
 import { Button } from '@/components/Button';
 import { tracksHr, useAuth } from '@/platform/auth/AuthContext';
 import { can } from '@/platform/rbac/can';
+import { ListHeader } from '@/modules/workstation/listUi';
 
 type Tab = 'today' | 'records' | 'corrections';
 
@@ -30,18 +31,15 @@ export function AttendancePage() {
 
   return (
     <div className="space-y-6">
-      <header className="flex items-baseline justify-between gap-4 flex-wrap">
-        <div>
-          <h1 className="text-[26px] leading-tight font-semibold tracking-[-0.01em] text-neutral-900">Attendance</h1>
-        </div>
-        {hasOwn ? (
-          <div className="flex items-center gap-2">
-            <Button variant="secondary" onClick={() => setOpenCorrection(true)}>
-              Request correction
-            </Button>
-          </div>
-        ) : null}
-      </header>
+      <ListHeader
+        title="Attendance"
+        meta={canSeeOrgRecords ? 'Check-ins, records and correction requests for your team.' : 'Your check-ins, records and correction requests.'}
+        action={hasOwn ? (
+          <Button variant="secondary" onClick={() => setOpenCorrection(true)}>
+            Request correction
+          </Button>
+        ) : undefined}
+      />
 
       <Tabs
         active={tab}

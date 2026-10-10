@@ -7,15 +7,18 @@
  * more"); exports the filtered rows as CSV. Admins can verify the log's
  * tamper-evident hash chain.
  */
-import { useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useInfiniteQuery, useMutation } from '@tanstack/react-query';
+import { Download, ShieldCheck } from 'lucide-react';
 import { Button } from '@/components/Button';
-import { Input } from '@/components/Input';
 import { api } from '@/services/api';
 import type { AuditLog } from '@/data/models';
 import { fmtDateTime } from '@/lib/format';
 import { useAuth } from '@/platform/auth/AuthContext';
 import { can } from '@/platform/rbac/can';
+import {
+  DateRange, FilterSelect, ListCard, ListEmpty, ListHeader, ListRow, ListTable, ListToolbar, SearchBox, TD, TwoLine,
+} from '@/modules/workstation/listUi';
 
 interface Filters {
   from: string;
@@ -27,6 +30,19 @@ interface Filters {
 }
 
 const EMPTY: Filters = { from: '', to: '', actor: '', action: '', entity_type: '', entity_id: '' };
+
+/** The entity types people look for most; the server accepts any. */
+const ENTITY_TYPES = [
+  'Client', 'Invoice', 'CreditNote', 'Quotation', 'Employee', 'User', 'Task', 'Lead',
+  'ComplianceItem', 'EngagementLetter', 'AuditEngagement', 'DigitalSignature', 'LeaveRequest', 'PayrollRun', 'Expense',
+].map((t) => ({ value: t, label: t.replace(/([a-z])([A-Z])/g, '$1 $2') }));
+
+/** Text filters settle for a moment before they query. */
+function useSettled<T>(value: T, ms = 350): T {
+  const [v, setV] = useState(value);
+  useEffect(() => { const t = setTimeout(() => setV(value), ms); return () => clearTimeout(t); }, [value, ms]);
+  return v;
+}
 
 interface Page { items: AuditLog[]; count: number; next_cursor: number | null }
 
@@ -48,9 +64,10 @@ export function AuditLogPage() {
   const role = session?.role.code;
   const canVerify = role === 'md' || role === 'hr_admin' || can(role, 'audit.read.all', 'organisation');
 
-  const [draft, setDraft] = useState<Filters>(EMPTY);
-  const [applied, setApplied] = useState<Filters>(EMPTY);
-  const set = (k: keyof Filters) => (e: React.ChangeEvent<HTMLInputElement>) => setDraft((d) => ({ ...d, [k]: e.target.value }));
+  const [f, setF] = useState<Filters>(EMPTY);
+  const set = (k: keyof Filters) => (v: string) => setF((d) => ({ ...d, [k]: v }));
+  const applied = useSettled(f);
+  const [actors, setActors] = useState<Map<string, string>>(new Map());
 
   const list = useInfiniteQuery({
     queryKey: ['audit-log', applied],
@@ -63,96 +80,99 @@ export function AuditLogPage() {
 
   const verify = useMutation({ mutationFn: () => api.get<ChainReport>('/api/platform/audit-log/verify') });
 
-  const rows = list.data?.pages.flatMap((p) => p.items) ?? [];
+  const rows = useMemo(() => list.data?.pages.flatMap((p) => p.items) ?? [], [list.data]);
+  // Actors seen so far, so the actor filter offers names rather than ids.
+  useEffect(() => {
+    const fresh = rows.filter((r) => r.actor_user_id && !actors.has(r.actor_user_id));
+    if (!fresh.length) return;
+    setActors((m) => { const n = new Map(m); for (const r of fresh) n.set(r.actor_user_id!, r.actor_label ?? r.actor_user_id!); return n; });
+  }, [rows, actors]);
+  const actorOptions = [...actors].map(([value, label]) => ({ value, label })).sort((a, b) => a.label.localeCompare(b.label));
+  const filtered = Object.values(f).some((v) => v.trim());
 
   return (
-    <div className="space-y-4">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <h1 className="text-20 font-semibold text-neutral-900">Audit log</h1>
-          <p className="text-13 text-neutral-500">Every sign-in, change and download, newest first.</p>
-        </div>
-        <div className="flex flex-wrap gap-2">
-          {canVerify ? (
-            <Button variant="secondary" onClick={() => verify.mutate()} disabled={verify.isPending}>
-              {verify.isPending ? 'Verifying…' : 'Verify integrity'}
-            </Button>
-          ) : null}
-          <a
-            className="inline-flex items-center rounded-full border border-neutral-300 px-4 h-10 text-13 font-medium text-neutral-900 hover:bg-neutral-100"
-            href={`/api/audit-logs?${query(applied, { format: 'csv' })}`}
-          >
-            Export CSV
-          </a>
-        </div>
-      </div>
+    <div className="max-w-[1400px]">
+      <ListHeader
+        title="Audit log"
+        meta="Every sign-in, change and download, newest first."
+        action={(
+          <span className="flex flex-wrap gap-2">
+            {canVerify ? (
+              <Button variant="secondary" onClick={() => verify.mutate()} disabled={verify.isPending}>
+                <ShieldCheck size={15} className="mr-2" />{verify.isPending ? 'Verifying…' : 'Verify integrity'}
+              </Button>
+            ) : null}
+            <a
+              className="h-9 px-4 inline-flex items-center gap-2 text-13 font-medium rounded-lg bg-white border border-neutral-200 text-neutral-800 hover:bg-neutral-50"
+              href={`/api/audit-logs?${query(applied, { format: 'csv' })}`}
+            >
+              <Download size={15} /> Export CSV
+            </a>
+          </span>
+        )}
+      />
 
       {verify.data ? (
-        <div className={`rounded border-l-2 px-3 py-2 text-13 ${verify.data.ok ? 'border-neutral-400 bg-neutral-100 text-neutral-900' : 'border-red bg-white text-red'}`}>
+        <div className={`mb-4 rounded border-l-2 px-3 py-2 text-13 ${verify.data.ok ? 'border-neutral-400 bg-neutral-100 text-neutral-900' : 'border-red bg-white text-red'}`}>
           {verify.data.ok
             ? `Intact: ${verify.data.checked} chained entries verified${verify.data.pre_chain ? ` (${verify.data.pre_chain} older entries predate the chain)` : ''}.`
             : `Tampering detected at entry #${verify.data.first_broken?.seq} (${verify.data.first_broken?.reason.replace(/_/g, ' ')}, ${fmtDateTime(verify.data.first_broken!.created_at)}). ${verify.data.checked} entries before it are intact.`}
         </div>
       ) : null}
-      {verify.isError ? <div className="text-13 text-red">{(verify.error as Error).message}</div> : null}
+      {verify.isError ? <div className="mb-4 text-13 text-red">{(verify.error as Error).message}</div> : null}
 
-      <form
-        className="grid grid-cols-2 md:grid-cols-6 gap-3 items-end"
-        onSubmit={(e) => { e.preventDefault(); setApplied(draft); }}
-      >
-        <Input label="From" type="date" value={draft.from} onChange={set('from')} />
-        <Input label="To" type="date" value={draft.to} onChange={set('to')} />
-        <Input label="Action" placeholder="e.g. auth.login" value={draft.action} onChange={set('action')} />
-        <Input label="Entity type" placeholder="e.g. Invoice" value={draft.entity_type} onChange={set('entity_type')} />
-        <Input label="Entity id" value={draft.entity_id} onChange={set('entity_id')} />
-        <Input label="Actor user id" value={draft.actor} onChange={set('actor')} />
-        <div className="col-span-2 md:col-span-6 flex gap-2">
-          <Button type="submit" variant="primary">Apply filters</Button>
-          <Button type="button" variant="ghost" onClick={() => { setDraft(EMPTY); setApplied(EMPTY); }}>Clear</Button>
-        </div>
-      </form>
-
-      {list.isLoading ? <div className="h-40 bg-neutral-100" aria-label="Loading audit log" /> : null}
-      {list.isError ? (
-        <div className="p-4 text-13 text-neutral-500 border-l-2 border-neutral-400 pl-3">
-          {(list.error as Error).message || 'Audit access required.'}
+      <ListToolbar>
+        <SearchBox value={f.action} onChange={set('action')} placeholder="Action, e.g. auth.login" label="Action" />
+        <FilterSelect label="Entity" value={f.entity_type} onChange={set('entity_type')} options={ENTITY_TYPES} />
+        <FilterSelect label="Actor" value={f.actor} onChange={set('actor')} options={actorOptions} />
+        <DateRange from={f.from} to={f.to} onFrom={set('from')} onTo={set('to')} />
+        {filtered ? (
+          <button type="button" onClick={() => setF(EMPTY)} className="h-9 px-3 text-13 text-primary hover:underline">Clear</button>
+        ) : null}
+      </ListToolbar>
+      {f.entity_id ? (
+        <div className="mb-3 text-12 text-neutral-500">
+          Showing one record ({f.entity_id}). <button type="button" className="text-primary hover:underline" onClick={() => set('entity_id')('')}>Show all</button>
         </div>
       ) : null}
 
-      {list.isSuccess && !rows.length ? <div className="p-4 text-13 text-neutral-500">No entries match these filters.</div> : null}
-
-      {rows.length ? (
-        <div className="bg-white border border-neutral-200 rounded overflow-x-auto">
-          <table className="hr-float w-full border-collapse tabular-nums">
-            <thead>
-              <tr>
-                {['When', 'Actor', 'Action', 'Entity', 'IP'].map((c) => (
-                  <th key={c} className="text-left text-11 uppercase tracking-[0.06em] text-neutral-500 px-3 py-2 border-b border-neutral-300 font-medium">
-                    {c}
-                  </th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {rows.map((r) => (
-                <tr key={r.id} className="border-b border-neutral-200 align-top">
-                  <td className="px-3 py-2 text-13 text-neutral-900 whitespace-nowrap">{fmtDateTime(r.created_at)}</td>
-                  <td className="px-3 py-2 text-13 text-neutral-500">{r.actor_label ?? r.actor_user_id ?? 'system'}</td>
-                  <td className="px-3 py-2 text-13 text-neutral-900">{r.action}</td>
-                  <td className="px-3 py-2 text-13 text-neutral-500 break-all">{r.entity_type} · {r.entity_id}</td>
-                  <td className="px-3 py-2 text-13 text-neutral-500 whitespace-nowrap">{r.ip ?? '—'}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      ) : null}
+      <ListCard>
+        {list.isLoading ? <div className="h-40 bg-neutral-100" aria-label="Loading audit log" /> : null}
+        {list.isError ? (
+          <ListEmpty>{(list.error as Error).message || 'Audit access required.'}</ListEmpty>
+        ) : null}
+        {list.isSuccess && !rows.length ? <ListEmpty>No entries match these filters.</ListEmpty> : null}
+        {rows.length ? (
+          <ListTable cols={['When', 'Actor', 'Action', 'Entity', 'IP']}>
+            {rows.map((r) => (
+              <ListRow key={r.id}>
+                <TD first nowrap>{fmtDateTime(r.created_at)}</TD>
+                <TD title={r.actor_user_id ?? undefined}>{r.actor_label ?? r.actor_user_id ?? 'system'}</TD>
+                <TD><span className="font-mono text-12">{r.action}</span></TD>
+                <TD title={`${r.entity_type} · ${r.entity_id}`}>
+                  <button type="button" className="text-left" onClick={() => setF((d) => ({ ...d, entity_type: r.entity_type, entity_id: r.entity_id }))}
+                    aria-label={`Show only ${r.entity_label ?? r.entity_type} entries`}>
+                    <TwoLine top={r.entity_label ?? <span className="font-normal text-neutral-500">{shortId(r.entity_id)}</span>} sub={humanType(r.entity_type)} />
+                  </button>
+                </TD>
+                <TD last muted nowrap>{r.ip ?? '—'}</TD>
+              </ListRow>
+            ))}
+          </ListTable>
+        ) : null}
+      </ListCard>
 
       {list.hasNextPage ? (
-        <Button variant="secondary" onClick={() => list.fetchNextPage()} disabled={list.isFetchingNextPage}>
-          {list.isFetchingNextPage ? 'Loading…' : 'Load more'}
-        </Button>
+        <div className="mt-4">
+          <Button variant="secondary" onClick={() => list.fetchNextPage()} disabled={list.isFetchingNextPage}>
+            {list.isFetchingNextPage ? 'Loading…' : 'Load more'}
+          </Button>
+        </div>
       ) : null}
     </div>
   );
 }
+
+const humanType = (t: string) => (t.charAt(0).toUpperCase() + t.slice(1)).replace(/([a-z])([A-Z])/g, '$1 $2').replace(/_/g, ' ');
+/** A long uuid is noise; the full id is in the cell's tooltip. */
+const shortId = (id: string) => (id.length > 14 ? `${id.slice(0, 8)}…` : id);

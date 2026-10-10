@@ -15,6 +15,7 @@ import { useToast } from '@/components/Toast';
 import { useAuth } from '@/platform/auth/AuthContext';
 import { can } from '@/platform/rbac/can';
 import type { DocumentType, EmployeeDocument } from '@/data/models';
+import { FilterSelect, ListToolbar } from '@/modules/workstation/listUi';
 
 interface Props {
   employeeId?: string;
@@ -55,10 +56,10 @@ export function DocumentsTable({ employeeId, showEmployeeColumn = true, filters:
   return (
     <div data-testid="documents-table">
       {employeeId ? null : (
-        <div className="flex items-end gap-3 mb-3 flex-wrap">
-          <Select label="Type" value={type} onChange={setType} options={TYPE_OPTIONS} />
-          <Select label="Status" value={status} onChange={setStatus} options={STATUS_OPTIONS} />
-        </div>
+        <ListToolbar>
+          <FilterSelect label="Type" value={type} onChange={(v) => setType(v as DocumentType | '')} options={TYPE_OPTIONS.filter(([v]) => v).map(([value, label]) => ({ value, label }))} />
+          <FilterSelect label="Status" value={status} onChange={(v) => setStatus(v as EmployeeDocument['status'] | '')} options={STATUS_OPTIONS.filter(([v]) => v).map(([value, label]) => ({ value, label }))} />
+        </ListToolbar>
       )}
       <div className="bg-white border border-neutral-200 rounded overflow-hidden">
         {q.isLoading ? (
@@ -106,33 +107,6 @@ export function DocumentsTable({ employeeId, showEmployeeColumn = true, filters:
         )}
       </div>
     </div>
-  );
-}
-
-function Select<T extends string>({
-  label,
-  value,
-  onChange,
-  options,
-}: {
-  label: string;
-  value: T;
-  onChange: (v: T) => void;
-  options: (readonly [T, string])[];
-}) {
-  return (
-    <label className="block">
-      <span className="block text-11 uppercase tracking-[0.06em] text-neutral-500 mb-1">{label}</span>
-      <select
-        value={value}
-        onChange={(e) => onChange(e.target.value as T)}
-        className="h-8 px-2 text-13 bg-white border border-neutral-300 rounded"
-      >
-        {options.map(([v, l]) => (
-          <option key={v} value={v}>{l}</option>
-        ))}
-      </select>
-    </label>
   );
 }
 

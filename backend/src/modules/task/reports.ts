@@ -1,4 +1,5 @@
 import { prisma, alive } from '../../lib/prisma.js'
+import { istToday } from '../../lib/dates.js'
 import type { Session } from '../../platform/auth.js'
 import type { Scope } from '../../platform/rbac/matrix.js'
 import { taskScopeWhere } from './service.js'
@@ -62,7 +63,7 @@ export const TaskReports = {
    */
   async dashboard(session: Session, scope: Scope, f: ReportFilters = {}) {
     const where = await baseWhere(session, scope, f)
-    const today = new Date().toISOString().slice(0, 10)
+    const today = istToday()
 
     const [byStatus, overdue, totals, completedAgg, employees, byPriority, estimateAgg] = await Promise.all([
       prisma.task.groupBy({ by: ['status'], where, _count: { _all: true } }),
@@ -115,7 +116,7 @@ export const TaskReports = {
    */
   async byEmployee(session: Session, scope: Scope, f: ReportFilters = {}) {
     const where = await baseWhere(session, scope, f)
-    const today = new Date().toISOString().slice(0, 10)
+    const today = istToday()
 
     const [grouped, overdueRows, employees] = await Promise.all([
       prisma.task.groupBy({

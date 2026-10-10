@@ -243,7 +243,7 @@ export function PayrollRunDetailPage() {
       </div>
       <header className="flex items-baseline justify-between gap-4 flex-wrap">
         <div>
-          <div className="text-11 uppercase tracking-[0.06em] text-neutral-500">Accounts › Payroll › {run.label}</div>
+          <div className="text-11 uppercase tracking-[0.06em] text-neutral-500">Payroll &amp; expenses › Payroll › {run.label}</div>
           <h1 className="text-[26px] leading-tight font-semibold tracking-[-0.01em] text-neutral-900">
             {run.label} · {run.period_start} → {run.period_end}
           </h1>

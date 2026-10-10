@@ -29,7 +29,7 @@
  */
 
 /** Whole percents a line may carry. Anything else is rejected by the routes. */
-export const GST_RATES = [0, 5, 12, 18, 28] as const
+export const GST_RATES = [0, 5, 12, 18, 28, 40] as const
 export type GstRate = (typeof GST_RATES)[number]
 
 /**
@@ -43,6 +43,7 @@ export const HALF_RATE_BPS: Record<number, number> = {
   12: 600,
   18: 900,
   28: 1400,
+  40: 2000,
 }
 
 export interface LineInput {

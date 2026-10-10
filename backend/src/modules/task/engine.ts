@@ -1,5 +1,6 @@
 import type { Prisma } from '@prisma/client'
 import { prisma, alive } from '../../lib/prisma.js'
+import { istToday } from '../../lib/dates.js'
 import { ApiError } from '../../lib/http.js'
 import type { Session } from '../../platform/auth.js'
 
@@ -383,7 +384,7 @@ export function liveTotals(task: {
  * due date has passed and it is neither completed nor cancelled. The stored
  * status keeps saying what the employee is actually doing.
  */
-export function isOverdue(dueDate: string | null, status: string, today = new Date().toISOString().slice(0, 10)): boolean {
+export function isOverdue(dueDate: string | null, status: string, today = istToday()): boolean {
   if (!dueDate) return false
   const s = normaliseStatus(status)
   if (s === 'completed' || s === 'cancelled') return false

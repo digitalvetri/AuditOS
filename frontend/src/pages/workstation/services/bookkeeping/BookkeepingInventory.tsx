@@ -182,7 +182,13 @@ function NewItemModal({ companyId, onClose }: { companyId: string; onClose: () =
             <L label="HSN / SAC"><input value={form.hsn_code} onChange={(e) => setForm({ ...form, hsn_code: e.target.value })} className={`${cls} font-mono`} /></L>
           </div>
           <div className="grid grid-cols-3 gap-3">
-            <L label="GST rate %"><input value={form.gst_rate_pct} onChange={(e) => setForm({ ...form, gst_rate_pct: e.target.value })} className={`${cls} text-right font-mono`} /></L>
+            <L label="GST rate %">
+              <input value={form.gst_rate_pct} onChange={(e) => setForm({ ...form, gst_rate_pct: e.target.value })} list="bk-gst-slabs" inputMode="decimal" className={`${cls} text-right font-mono`} />
+              {/* GST 2.0 slabs (from 22 Sep 2025); 12 and 28 for older stock. */}
+              <datalist id="bk-gst-slabs">
+                {['0', '0.25', '3', '5', '18', '40', '12', '28'].map((r) => <option key={r} value={r} />)}
+              </datalist>
+            </L>
             <L label="Sale price ₹"><input value={form.price} onChange={(e) => setForm({ ...form, price: e.target.value })} className={`${cls} text-right font-mono`} /></L>
             <L label="Cost ₹"><input value={form.cost} onChange={(e) => setForm({ ...form, cost: e.target.value })} className={`${cls} text-right font-mono`} /></L>
           </div>

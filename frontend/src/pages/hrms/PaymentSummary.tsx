@@ -1,5 +1,5 @@
 /**
- * HRMS → Payment summary.
+ * Billing → Receivables (route /hrms/payment-summary).
  *
  * What every client has been invoiced, paid and still owes, built from the
  * Workstation invoices. Open a client to see each invoice with its
@@ -89,7 +89,7 @@ export function PaymentSummaryPage() {
   return (
     <div className="max-w-[1400px] space-y-5">
       <ListHeader
-        title="Collections"
+        title="Receivables"
         meta={<>What each client has been invoiced, has paid and still owes. Open a client to record a payment or a split.</>}
         action={summary.data ? (
           <button type="button" onClick={() => exportCsv(summary.data!.clients)}

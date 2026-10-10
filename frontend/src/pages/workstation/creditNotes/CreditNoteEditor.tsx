@@ -6,7 +6,7 @@ import {
   creditNotesApi, previewLineTax, CREDIT_NOTE_REASON_LABEL,
   type CreditNote, type CreditNoteInput, type CreditNoteReason, type Creditable,
 } from '@/modules/workstation/creditNotes/api';
-import { invoicesApi, GST_RATES } from '@/modules/workstation/invoices/api';
+import { invoicesApi, GST_RATES, gstRateLabel } from '@/modules/workstation/invoices/api';
 import { downloadFile } from '@/modules/workstation/invoices/download';
 import { inrAmount } from '@/modules/workstation/invoices/document';
 import {
@@ -101,8 +101,10 @@ function Editor({ cn, invoiceId, cr, clientName }: { cn: CreditNote | null; invo
     }), { taxable: 0, cgst: 0, sgst: 0, igst: 0, total: 0 });
   }, [lines, interState]);
 
-  // What is still creditable on the invoice. For an issued note the server's
-  // figure already includes this note, so only drafts are checked against it.
+  // The most a credit can be: the invoice's balance due (total − cash − TDS −
+  // issued credits). Refunds are not recorded, so a credit may not exceed it.
+  // For an issued note the server's figure already includes this note, so
+  // only drafts are checked against it.
   const overLimit = editable && preview.total > cr.creditable_paise;
   const validLines = lines.filter((l) => l.description.trim() && toPaise(l.taxable) > 0);
   const canSave = editable && validLines.length > 0 && validLines.length === lines.length;
@@ -230,7 +232,7 @@ function Editor({ cn, invoiceId, cr, clientName }: { cn: CreditNote | null; invo
         stats={[
           { label: 'Invoice total', value: `₹${inrAmount(cr.total_paise)}` },
           { label: 'Already credited', value: `₹${inrAmount(cr.credited_paise)}` },
-          { label: 'Creditable', value: `₹${inrAmount(cr.creditable_paise)}`, tone: overLimit ? 'bad' : undefined },
+          { label: 'Max creditable (balance due)', value: `₹${inrAmount(cr.creditable_paise)}`, tone: overLimit ? 'bad' : undefined },
           { label: 'This note', value: `₹${inrAmount(shown.total)}`, tone: overLimit ? 'bad' : undefined },
         ]}
         actions={
@@ -239,7 +241,7 @@ function Editor({ cn, invoiceId, cr, clientName }: { cn: CreditNote | null; invo
               <>
                 <Button disabled={!canSave || busy} onClick={() => save.mutate()}>{save.isPending ? 'Saving…' : 'Save draft'}</Button>
                 <Button variant="primary" disabled={!canSave || overLimit || busy} onClick={() => issue.mutate()}
-                  title={overLimit ? 'The note is more than what is still creditable on the invoice' : 'Allocates the CN number — the note is then fixed'}>
+                  title={overLimit ? 'The note is more than the balance due on the invoice' : 'Allocates the CN number — the note is then fixed'}>
                   <Send size={14} className="mr-2" />{issue.isPending ? 'Issuing…' : 'Issue'}
                 </Button>
                 {cn ? <Button variant="danger" onClick={() => setDeleting(true)}><Trash2 size={14} className="mr-2" />Delete draft</Button> : null}
@@ -257,7 +259,7 @@ function Editor({ cn, invoiceId, cr, clientName }: { cn: CreditNote | null; invo
 
       {overLimit ? (
         <div className="mb-4 border-l-2 border-red pl-3 text-13 text-neutral-900">
-          This note totals ₹ {inrAmount(preview.total)}, more than the ₹ {inrAmount(cr.creditable_paise)} still creditable on {cr.invoice_number ?? 'the invoice'}. Reduce the lines before issuing.
+          This note totals ₹ {inrAmount(preview.total)}, more than the ₹ {inrAmount(cr.creditable_paise)} balance due on {cr.invoice_number ?? 'the invoice'}. Refunds are not recorded in AuditOS yet — reduce the credit to the balance due.
         </div>
       ) : null}
 
@@ -306,6 +308,8 @@ function Editor({ cn, invoiceId, cr, clientName }: { cn: CreditNote | null; invo
                   <Detail label="SGST" value={`₹ ${inrAmount(shown.sgst)}`} />
                 </>}
             <Detail label="Total credit" value={<b>₹ {inrAmount(shown.total)}</b>} />
+            {editable ? <Detail label="Max creditable" value={<span className={overLimit ? 'text-red font-semibold' : undefined}>₹ {inrAmount(cr.creditable_paise)}</span>} /> : null}
+            {editable ? <span className="block text-12 text-neutral-500 mt-2">At most the invoice's balance due (total − paid − TDS − earlier credits).</span> : null}
             {editable ? <span className="block text-12 text-neutral-500 mt-2">A preview — the server recomputes each figure when the note is saved.</span> : null}
           </div>
         </Card>
@@ -341,7 +345,7 @@ function Editor({ cn, invoiceId, cr, clientName }: { cn: CreditNote | null; invo
                     <span className="block text-12 font-medium text-neutral-500 mb-1">GST %</span>
                     <select className={inputClass} value={l.rate}
                       onChange={(e) => { setDirty(true); setLine(l.key, { rate: Number(e.target.value) }); }}>
-                      {GST_RATES.map((r) => <option key={r} value={r}>{r}%</option>)}
+                      {GST_RATES.map((r) => <option key={r} value={r}>{gstRateLabel(r)}</option>)}
                     </select>
                   </label>
                   <div className="md:col-span-2 flex items-center gap-2 h-9">

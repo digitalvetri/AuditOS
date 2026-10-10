@@ -18,6 +18,7 @@ import { StatutoryRatesSection } from '@/modules/settings/StatutoryRatesSection'
 import { RolesSection } from '@/modules/settings/RolesSection';
 import { UsersSection } from '@/modules/settings/UsersSection';
 import { DataProtectionSection } from '@/modules/settings/DataProtectionSection';
+import { ListHeader } from '@/modules/workstation/listUi';
 
 type Section =
   | 'holidays'
@@ -75,10 +76,7 @@ export function SettingsPage() {
 
   return (
     <div className="m-page">
-      <header>
-        <h1 className="text-[26px] leading-tight font-semibold tracking-[-0.01em] text-neutral-900">Settings</h1>
-        <p className="text-13 text-neutral-500 mt-1">Organisation, time &amp; leave, finance and access — set once, used everywhere.</p>
-      </header>
+      <ListHeader title="Settings" meta="Organisation, time & leave, finance and access — set once, used everywhere." />
 
       {/* Mobile category nav. A <select> rather than a chip rail: there are
           eight sections in four groups, and the optgroup keeps the grouping

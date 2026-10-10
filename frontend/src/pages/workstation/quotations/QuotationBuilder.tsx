@@ -10,7 +10,7 @@ import { RecordLoadGate, fieldErrors, inputClass, textareaClass } from '@/module
 import { workstationApi } from '@/modules/workstation/api';
 import type { ClientListItem, Lead } from '@/modules/workstation/types';
 import {
-  quotationsApi, previewTotals, rupeesToPaise,
+  quotationsApi, previewTotals, rupeesToPaise, GST_RATES, gstRateLabel,
   type QuotationInput, type QuotationItemInput,
 } from '@/modules/workstation/quotations/api';
 import {
@@ -863,7 +863,7 @@ function ServiceEditor(p: DetailsProps) {
                   onChange={(e) => p.setLines((ls) => ls.map((x) => (x.key === l.key ? { ...x, gstRatePercent: Number(e.target.value) } : x)))}
                   className={inputClass}
                 >
-                  {[0, 5, 12, 18, 28].map((r) => <option key={r} value={r}>{r}% GST</option>)}
+                  {GST_RATES.map((r) => <option key={r} value={r}>{gstRateLabel(r, ' GST')}</option>)}
                 </select>
                 <input
                   value={l.discountPercent || ''}

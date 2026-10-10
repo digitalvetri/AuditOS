@@ -7,6 +7,7 @@ import { useSearchParams } from 'react-router-dom';
 import { Button } from '@/components/Button';
 import { DocumentsTable } from '@/modules/documents/DocumentsTable';
 import { UploadModal } from '@/modules/documents/UploadModal';
+import { ListHeader } from '@/modules/workstation/listUi';
 
 export function DocumentsPage() {
   const [params] = useSearchParams();
@@ -16,23 +17,19 @@ export function DocumentsPage() {
 
   return (
     <div className="space-y-6">
-      <header className="flex items-baseline justify-between gap-4 flex-wrap">
-        <div>
-          <h1 className="text-[26px] leading-tight font-semibold tracking-[-0.01em] text-neutral-900">Employee records</h1>
-          {withinDays ? (
-            <p className="text-13 text-neutral-500 mt-1">
-              Showing documents expiring within {withinDays} days
-            </p>
-          ) : null}
-        </div>
-        <Button
-          variant="primary"
-          onClick={() => setUploadOpen(true)}
-          data-testid="document-upload-open"
-        >
-          Upload
-        </Button>
-      </header>
+      <ListHeader
+        title="Employee records"
+        meta={withinDays ? `Showing documents expiring within ${withinDays} days` : 'ID proofs, certificates and contracts kept on each employee.'}
+        action={(
+          <Button
+            variant="primary"
+            onClick={() => setUploadOpen(true)}
+            data-testid="document-upload-open"
+          >
+            Upload
+          </Button>
+        )}
+      />
 
       <DocumentsTable filters={filters} />
 

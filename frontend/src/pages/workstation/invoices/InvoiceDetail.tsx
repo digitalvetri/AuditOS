@@ -465,7 +465,7 @@ function PaymentModal({ inv, open, onClose, onDone }: {
         <input className={inputClass} value={note} onChange={(e) => setNote(e.target.value)} maxLength={500} placeholder="e.g. 1st of 3 agreed instalments" />
       </Field>
       <p className="text-12 text-neutral-500">
-        Each payment is kept as an instalment with its own receipt — see them all under Billing → Collections. Overpayment is refused.
+        Each payment is kept as an instalment with its own receipt — see them all under Billing → Receivables. Overpayment is refused.
       </p>
     </Modal>
   );

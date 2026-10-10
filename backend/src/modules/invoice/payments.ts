@@ -164,7 +164,7 @@ export async function recomputeInvoice(tx: Tx, invoiceId: string, userId: string
       where: { invoiceId, deletedAt: null }, _sum: { amountPaise: true, tdsPaise: true }, _max: { paidOn: true },
     }),
     tx.creditNote.aggregate({
-      where: { invoiceId, deletedAt: null, status: 'issued' }, _sum: { totalPaise: true }, _max: { noteDate: true },
+      where: { invoiceId, deletedAt: null, status: 'issued' }, _sum: { totalPaise: true },
     }),
   ])
   const paid = agg._sum.amountPaise ?? 0
@@ -177,8 +177,10 @@ export async function recomputeInvoice(tx: Tx, invoiceId: string, userId: string
     : state === 'paid' ? 'paid'
     : settled > 0 ? 'partially_paid'
     : inv.status === 'draft' ? 'draft' : 'sent'
-  // The day it became fully settled: the latest payment or credit note date.
-  const lastDay = [agg._max.paidOn, credits._max.noteDate].filter((d): d is string => Boolean(d)).sort().pop() ?? istToday()
+  // The paid date follows the MONEY: the latest payment (cash or TDS) date.
+  // A credit note never moves it — it settles the balance without anything
+  // being received — so an invoice cleared only by credits has no paid date.
+  const lastPaidOn = agg._max.paidOn ?? null
   await tx.invoice.update({
     where: { id: invoiceId },
     data: {
@@ -187,10 +189,30 @@ export async function recomputeInvoice(tx: Tx, invoiceId: string, userId: string
       creditedPaise: credited,
       balanceDuePaise: Math.max(0, inv.totalPaise - settled),
       status,
-      paidAt: state === 'paid' ? new Date(`${lastDay}T00:00:00Z`) : null,
+      paidAt: state === 'paid' && lastPaidOn ? new Date(`${lastPaidOn}T00:00:00Z`) : null,
       ...(userId ? { updatedBy: userId } : {}),
     },
   })
+}
+
+/**
+ * What is still owed on an invoice, from the LIVE rows rather than the stored
+ * balanceDuePaise: total − cash received − TDS deducted − issued credit notes.
+ * `excludeCreditNoteId` leaves one credit note out (the one being issued or
+ * edited). Payments and credit notes both settle against this one figure, so
+ * neither can take the invoice past zero — refunds are not modelled.
+ */
+export async function liveBalanceDue(tx: Tx | PrismaClient, invoiceId: string, excludeCreditNoteId?: string): Promise<number> {
+  const [inv, agg, credits] = await Promise.all([
+    tx.invoice.findUniqueOrThrow({ where: { id: invoiceId }, select: { totalPaise: true } }),
+    tx.invoicePayment.aggregate({ where: { invoiceId, deletedAt: null }, _sum: { amountPaise: true, tdsPaise: true } }),
+    tx.creditNote.aggregate({
+      where: { invoiceId, deletedAt: null, status: 'issued', ...(excludeCreditNoteId ? { id: { not: excludeCreditNoteId } } : {}) },
+      _sum: { totalPaise: true },
+    }),
+  ])
+  const settled = (agg._sum.amountPaise ?? 0) + (agg._sum.tdsPaise ?? 0) + (credits._sum.totalPaise ?? 0)
+  return Math.max(0, inv.totalPaise - settled)
 }
 
 /**
@@ -211,10 +233,10 @@ export async function addPayment(invoiceId: string, input: PaymentInput, userId:
     // Re-read the balance under a per-invoice lock: two payments recorded at
     // once must not both pass the balance check.
     await lockSequence(tx, `invoice:${invoiceId}`)
-    const fresh = await tx.invoice.findUniqueOrThrow({ where: { id: invoiceId }, select: { balanceDuePaise: true } })
-    if (input.amountPaise + tds > fresh.balanceDuePaise) {
+    const balance = await liveBalanceDue(tx, invoiceId)
+    if (input.amountPaise + tds > balance) {
       throw ApiError.badRequest(
-        `That is more than the balance due. At most ${(fresh.balanceDuePaise / 100).toFixed(2)} (amount + TDS) can be recorded.`,
+        `That is more than the balance due. At most ${(balance / 100).toFixed(2)} (amount + TDS) can be recorded.`,
       )
     }
     const row = await tx.invoicePayment.create({

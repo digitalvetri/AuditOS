@@ -34,6 +34,7 @@ import { DocumentChip, MessageMenu, NewChatButton, ThreadMenu, VoicePlayer, Voic
 import { useToast } from '@/components/Toast';
 import { useIsMobile } from '@/lib/useIsMobile';
 import { useRealtimeConnected } from '@/platform/realtime/RealtimeProvider';
+import { ListHeader } from '@/modules/workstation/listUi';
 
 // ── Identity chips ────────────────────────────────────────────────────────
 
@@ -270,9 +271,7 @@ function MessagesInbox() {
       </div>
     ) : (
       <div className="m-page">
-        <header>
-          <h1 className="text-[26px] leading-tight font-semibold tracking-[-0.01em] text-neutral-900">Messages</h1>
-        </header>
+        <ListHeader title="Messages" />
         <div className="m-card flex flex-col" data-testid="chat-sidebar" style={{ minHeight: 320 }}>
           <ChatList chats={chats} activeId={null} onPick={open} loading={chatsQ.isLoading} mobile onNew={open} />
         </div>

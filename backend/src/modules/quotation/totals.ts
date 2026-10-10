@@ -18,7 +18,7 @@
  */
 
 /** Whole percents a line may carry. Anything else is rejected by the routes. */
-export const GST_RATES = [0, 5, 12, 18, 28] as const
+export const GST_RATES = [0, 5, 12, 18, 28, 40] as const
 export type GstRate = (typeof GST_RATES)[number]
 
 export interface LineInput {

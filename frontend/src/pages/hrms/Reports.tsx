@@ -15,6 +15,7 @@ import { reportsApi, type ReportType, type AttendanceReport, type LeaveReport, t
 import { FinanceMisSection } from '@/modules/reports/FinanceMisSection';
 import { addDays, istToday } from '@/lib/dates';
 import { inr } from '@/lib/format';
+import { ListHeader } from '@/modules/workstation/listUi';
 import {
   CalendarCheck, CalendarDays, Download, LineChart, Receipt, ShieldAlert, Wallet, type LucideIcon,
 } from 'lucide-react';
@@ -115,12 +116,7 @@ export function ReportsPage() {
 
   return (
     <div className="m-page">
-      <header>
-        <h1 className="text-[26px] leading-tight font-semibold tracking-[-0.01em] text-neutral-900">Reports</h1>
-        <p className="text-13 text-neutral-500 mt-1">
-          Every report is scoped at query time to what you're allowed to see.
-        </p>
-      </header>
+      <ListHeader title="Reports" meta="Every report is scoped at query time to what you're allowed to see." />
       {/* Mobile: one scrolling rail of every report the caller may run. The
           desktop rail below is untouched and simply hidden here. */}
       <div className="md:hidden m-rail" data-testid="reports-nav-mobile" role="tablist">

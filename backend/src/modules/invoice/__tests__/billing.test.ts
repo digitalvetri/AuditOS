@@ -26,6 +26,8 @@ let cookie = ''
 let clientId = ''
 let userId = ''
 
+const OVER_BALANCE = 'This credit is more than the balance due on the invoice. Refunds are not recorded in AuditOS yet — reduce the credit to the balance due.'
+
 async function api(path: string, opts: { method?: string; body?: unknown } = {}) {
   const res = await fetch(`${base}${path}`, {
     method: opts.method ?? 'GET',
@@ -138,7 +140,8 @@ describe('credit notes', () => {
 
     // Over the remaining ₹9,440: refused at create.
     const tooMuch = await api('/api/credit-notes', { method: 'POST', body: { invoice_id: inv.id, note_date: '2026-09-06', reason: 'other', lines: [{ description: 'x', taxable_paise: 8_100_00, gst_rate: 18 }] } })
-    expect(tooMuch.status).toBe(400)
+    expect(tooMuch.status).toBe(422)
+    expect(tooMuch.body.error.message).toBe(OVER_BALANCE)
 
     // Two drafts that each fit, but not together: the second is refused at issue.
     const b = await api('/api/credit-notes', { method: 'POST', body: { invoice_id: inv.id, note_date: '2026-09-06', reason: 'other', lines: [{ description: 'b', taxable_paise: 5_000_00, gst_rate: 18 }] } })
@@ -149,7 +152,7 @@ describe('credit notes', () => {
     expect(ib.status).toBe(200)
     const nb = Number(ib.body.credit_note_number.slice(3))
     expect(nb).toBe(Number(issued.body.credit_note_number.slice(3)) + 1)
-    expect((await api(`/api/credit-notes/${c.body.id}/issue`, { method: 'POST' })).status).toBe(400)
+    expect((await api(`/api/credit-notes/${c.body.id}/issue`, { method: 'POST' })).status).toBe(422)
 
     // The invoice cannot be cancelled while credit notes stand.
     expect((await api(`/api/invoices/${inv.id}/cancel`, { method: 'POST', body: {} })).status).toBe(409)
@@ -176,6 +179,55 @@ describe('credit notes', () => {
     const after = await api(`/api/invoices/${inv.id}`)
     expect(after.body.stored_status).toBe('paid')
     expect(after.body.balance_due_paise).toBe(0)
+    // Nothing was received, so there is no paid date to invent.
+    expect(after.body.paid_at).toBeNull()
+  })
+
+  it('a credit is capped at the balance due after cash and TDS', async () => {
+    const inv = await sentInvoice()
+    // ₹5,000 cash + ₹1,000 TDS against ₹11,800 leaves ₹5,800 due.
+    const pay = await api(`/api/invoices/${inv.id}/payments`, { method: 'POST', body: { amount_paise: 5_000_00, tds_paise: 1_000_00, paid_on: '2026-09-08' } })
+    expect(pay.status).toBe(200)
+    const room = await api(`/api/credit-notes/creditable/${inv.id}`)
+    expect(room.status).toBe(200)
+    expect(room.body.creditable_paise).toBe(5_800_00)
+
+    // ₹5,000 + 18% = ₹5,900 > ₹5,800: refused, with the plain message.
+    const over = await api('/api/credit-notes', { method: 'POST', body: { invoice_id: inv.id, note_date: '2026-09-09', reason: 'discount', lines: [{ description: 'Too much', taxable_paise: 5_000_00, gst_rate: 18 }] } })
+    expect(over.status).toBe(422)
+    expect(over.body.error).toMatchObject({ code: 'credit_exceeds_balance', message: OVER_BALANCE, details: { creditable_paise: 5_800_00 } })
+
+    // A draft that fits, then a payment that eats the room: refused at issue.
+    const fits = await api('/api/credit-notes', { method: 'POST', body: { invoice_id: inv.id, note_date: '2026-09-09', reason: 'discount', lines: [{ description: 'Fits', taxable_paise: 1_000_00, gst_rate: 18 }] } })
+    expect(fits.status).toBe(201)
+    expect((await api(`/api/invoices/${inv.id}/payments`, { method: 'POST', body: { amount_paise: 5_000_00, paid_on: '2026-09-10' } })).status).toBe(200)
+    const late = await api(`/api/credit-notes/${fits.body.id}/issue`, { method: 'POST' })
+    expect(late.status).toBe(422)
+    expect(late.body.error.message).toBe(OVER_BALANCE)
+  })
+
+  it('a credit equal to the balance settles the invoice without moving its paid date', async () => {
+    const inv = await sentInvoice()
+    expect((await api(`/api/invoices/${inv.id}/payments`, { method: 'POST', body: { amount_paise: 10_000_00, paid_on: '2026-09-08' } })).status).toBe(200)
+    // ₹1,800 due: a ₹1,525.42 + 18% credit rounds to exactly ₹1,800.
+    const n = await api('/api/credit-notes', { method: 'POST', body: { invoice_id: inv.id, note_date: '2026-09-20', reason: 'discount', lines: [{ description: 'Rest waived', taxable_paise: 1_525_42, gst_rate: 18 }] } })
+    expect(n.status).toBe(201)
+    expect(n.body.total_paise).toBe(1_800_00)
+    expect((await api(`/api/credit-notes/${n.body.id}/issue`, { method: 'POST' })).status).toBe(200)
+    const after = await api(`/api/invoices/${inv.id}`)
+    expect(after.body.stored_status).toBe('paid')
+    expect(after.body.balance_due_paise).toBe(0)
+    expect(after.body.paid_at?.slice(0, 10)).toBe('2026-09-08')
+    // A paid invoice has nothing left to credit.
+    expect((await api(`/api/credit-notes/creditable/${inv.id}`)).body.creditable_paise).toBe(0)
+    const more = await api('/api/credit-notes', { method: 'POST', body: { invoice_id: inv.id, note_date: '2026-09-21', reason: 'other', lines: [{ description: 'x', taxable_paise: 100, gst_rate: 18 }] } })
+    expect(more.status).toBe(422)
+  })
+
+  it('accepts the GST 2.0 40% slab', async () => {
+    const r = await api('/api/invoices', { method: 'POST', body: { client_id: clientId, invoice_date: '2026-09-25', terms: 'net_15', is_inter_state: false, items: [{ item_name: 'Fee', quantity_centi: 100, rate_paise: 1_000_00, gst_rate_percent: 40 }] } })
+    expect(r.status).toBe(201)
+    expect(r.body.total_paise).toBe(1_400_00)
   })
 })
 

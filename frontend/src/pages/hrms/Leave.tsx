@@ -12,6 +12,7 @@ import { Button } from '@/components/Button';
 import { BalancesCard } from '@/modules/leave/BalancesCard';
 import { RequestsList } from '@/modules/leave/RequestsList';
 import { LeaveApplyModal } from '@/modules/leave/LeaveApplyModal';
+import { ListHeader } from '@/modules/workstation/listUi';
 
 type Tab = 'balances' | 'mine' | 'queue';
 
@@ -36,14 +37,15 @@ export function LeavePage() {
 
   return (
     <div className="space-y-6">
-      <header className="flex items-baseline justify-between gap-4 flex-wrap">
-        <div>
-          <h1 className="text-[26px] leading-tight font-semibold tracking-[-0.01em] text-neutral-900">Leave</h1>
-        </div>
-        <Button variant="primary" onClick={() => setApplyOpen(true)} data-testid="leave-apply-open">
-          Apply for leave
-        </Button>
-      </header>
+      <ListHeader
+        title="Leave"
+        meta={canApprove ? 'Balances, your requests and the approvals queue.' : 'Your balances and leave requests.'}
+        action={(
+          <Button variant="primary" onClick={() => setApplyOpen(true)} data-testid="leave-apply-open">
+            Apply for leave
+          </Button>
+        )}
+      />
 
       <div className="flex items-center gap-2 flex-wrap">
         <TabBtn id="balances" active={tab === 'balances'} onClick={() => setTab('balances')}>

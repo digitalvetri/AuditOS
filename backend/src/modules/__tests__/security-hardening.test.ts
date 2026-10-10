@@ -224,6 +224,25 @@ describe('audit reader scoping', () => {
   })
 })
 
+describe('audit entity labels', () => {
+  it('names clients and invoices instead of showing ids; unknown ids get no label', async () => {
+    const md = await makeUser(roles.md)
+    const wsId = (await prisma.workSchedule.findFirst())?.id ?? (await prisma.workSchedule.create({ data: { organisationId: orgId, name: 'Std', standardStart: '09:30', standardEnd: '18:30' } })).id
+    const acct = await prisma.employee.create({ data: { organisationId: orgId, employeeCode: uid('AL'), firstName: 'Lena', lastName: 'Label', fullName: 'Lena Label', email: `${uid('l')}@x.local`, joiningDate: '2026-01-01', workScheduleId: wsId } })
+    const client = await prisma.client.create({ data: { organisationId: orgId, clientCode: uid('AL'), companyName: 'Label Test Pvt Ltd', accountManagerId: acct.id, contactPerson: 'P', contactNumber: '9876543210', onboardingDate: '2026-01-01' } })
+    const tag = uid('lbl')
+    await writeAudit({ actorUserId: null, action: `${tag}.client`, entityType: 'Client', entityId: client.id })
+    await writeAudit({ actorUserId: null, action: `${tag}.emp`, entityType: 'employee', entityId: acct.id })
+    await writeAudit({ actorUserId: null, action: `${tag}.gone`, entityType: 'Client', entityId: tag })
+    const r = await api(`/api/audit-logs?action=${tag}.client`, { cookie: md.cookie })
+    expect(r.body.data.items[0]).toMatchObject({ entity_id: client.id, entity_label: 'Label Test Pvt Ltd' })
+    const e = await api(`/api/audit-logs?action=${tag}.emp`, { cookie: md.cookie })
+    expect(e.body.data.items[0].entity_label).toBe(acct.fullName)
+    const g = await api(`/api/audit-logs?action=${tag}.gone`, { cookie: md.cookie })
+    expect(g.body.data.items[0].entity_label).toBeNull()
+  })
+})
+
 describe('tamper-evident audit chain', () => {
   it('chains concurrent writes and verifies clean', async () => {
     const tag = uid('chain')

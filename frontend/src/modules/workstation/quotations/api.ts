@@ -12,7 +12,7 @@ import { api } from '@/services/api';
 
 export type QuotationStatus = 'draft' | 'sent' | 'accepted' | 'rejected' | 'expired';
 
-export const GST_RATES = [0, 5, 12, 18, 28] as const;
+export { GST_RATES, gstRateLabel } from '@/modules/workstation/invoices/api';
 
 export interface QuotationItem {
   id: string;

@@ -2,11 +2,12 @@
  * GST reference-data seed — rate slabs, HSN starter, and statutory due-day
  * rules (GST-CLIENT-DASHBOARD-TASKS §5).
  *
- * The rate slabs are the five statutory bands (0/5/12/18/28). We seed
- * them with a single effectiveFrom of 2017-07-01 (the day GST came into
- * force). A Council change lands as a new row with a later date — never
- * as a mutation of an existing row, because past returns must reproduce
- * byte-for-byte.
+ * The rate slabs are the five original statutory bands (0/5/12/18/28),
+ * effective 2017-07-01 (the day GST came into force), plus the GST 2.0
+ * slabs added from 22 Sep 2025 (0.25/3/40 — 0/5/18 carry on). A Council
+ * change lands as a new row with a later date — never as a mutation of an
+ * existing row, because past returns must reproduce byte-for-byte. 12 and
+ * 28 stay active for documents dated before GST 2.0.
  *
  * The HSN starter covers the 20-odd codes the demo firm actually uses:
  * professional services (SAC 9982*), plus a handful of goods rows that
@@ -26,17 +27,22 @@
  */
 import type { PrismaClient } from '@prisma/client'
 
-const RATE_SLABS = [
-  { percentageBp: 0,    label: '0%'  },
-  { percentageBp: 500,  label: '5%'  },
-  { percentageBp: 1200, label: '12%' },
-  { percentageBp: 1800, label: '18%' },
-  { percentageBp: 2800, label: '28%' },
-]
-
-// GST-era start date. Every slab has been in force since day one; when
-// the Council rewrites a slab, add a new row rather than editing this.
+// GST-era start date. When the Council rewrites a slab, add a new row with
+// its own effectiveFrom rather than editing an existing one.
 const GST_EFFECTIVE_FROM = '2017-07-01'
+/** GST 2.0 — the rationalised slabs notified for 22 Sep 2025. */
+const GST2_EFFECTIVE_FROM = '2025-09-22'
+
+const RATE_SLABS = [
+  { percentageBp: 0,    label: '0%',    effectiveFrom: GST_EFFECTIVE_FROM },
+  { percentageBp: 500,  label: '5%',    effectiveFrom: GST_EFFECTIVE_FROM },
+  { percentageBp: 1200, label: '12%',   effectiveFrom: GST_EFFECTIVE_FROM },
+  { percentageBp: 1800, label: '18%',   effectiveFrom: GST_EFFECTIVE_FROM },
+  { percentageBp: 2800, label: '28%',   effectiveFrom: GST_EFFECTIVE_FROM },
+  { percentageBp: 25,   label: '0.25%', effectiveFrom: GST2_EFFECTIVE_FROM },
+  { percentageBp: 300,  label: '3%',    effectiveFrom: GST2_EFFECTIVE_FROM },
+  { percentageBp: 4000, label: '40%',   effectiveFrom: GST2_EFFECTIVE_FROM },
+]
 
 const HSN_STARTER: Array<{
   code: string
@@ -107,10 +113,10 @@ export async function seedGst(prisma: PrismaClient) {
       where: {
         percentageBp_effectiveFrom: {
           percentageBp: slab.percentageBp,
-          effectiveFrom: GST_EFFECTIVE_FROM,
+          effectiveFrom: slab.effectiveFrom,
         },
       },
-      create: { ...slab, effectiveFrom: GST_EFFECTIVE_FROM, isActive: true },
+      create: { ...slab, isActive: true },
       update: { label: slab.label, isActive: true },
     })
   }

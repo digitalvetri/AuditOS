@@ -119,7 +119,7 @@ export const GlobalSearch = forwardRef<GlobalSearchHandle>(function GlobalSearch
           { label: 'Clients', to: '/workstation/clients', show: can(role, 'workstation.client.read', 'self') },
           { label: 'Invoices', to: '/workstation/invoices', show: can(role, 'workstation.invoice.read', 'self') },
           { label: 'Attendance', to: '/hrms/attendance', show: can(role, 'attendance.read', 'self') },
-          { label: 'Payment summary', to: '/hrms/payment-summary', show: can(role, 'payment_summary.read', 'organisation') },
+          { label: 'Receivables', to: '/hrms/payment-summary', show: can(role, 'payment_summary.read', 'organisation') },
         ].filter((p) => p.show).map((p) => ({ group: 'Jump to', label: p.label, to: p.to, icon: ArrowRight })),
       ];
     }
@@ -304,8 +304,8 @@ export function searchDestinations(role: Parameters<typeof can>[0], session: Ret
   }
   // Not rows of their own on the rail.
   const extras: { label: string; to: string; hint: string; visible: boolean }[] = [
-    { label: 'Payroll', to: '/hrms/accounts/payroll', hint: 'HRMS · Accounts', visible: can(role, 'payroll.view.own', 'self') || can(role, 'payroll.view', 'organisation') },
-    { label: 'Expenses', to: '/hrms/accounts/expenses', hint: 'HRMS · Accounts', visible: can(role, 'expense.submit', 'self') || can(role, 'expense.approve', 'department') },
+    { label: 'Payroll', to: '/hrms/accounts/payroll', hint: 'HRMS · Payroll & expenses', visible: can(role, 'payroll.view.own', 'self') || can(role, 'payroll.view', 'organisation') },
+    { label: 'Expenses', to: '/hrms/accounts/expenses', hint: 'HRMS · Payroll & expenses', visible: can(role, 'expense.submit', 'self') || can(role, 'expense.approve', 'department') },
     { label: 'Notifications', to: '/notifications', hint: 'Platform', visible: true },
     { label: 'My profile', to: '/me/profile', hint: 'Me', visible: Boolean(session?.employee) },
     { label: 'My payslips', to: '/me/payslips', hint: 'Me', visible: tracksHr(session) },
