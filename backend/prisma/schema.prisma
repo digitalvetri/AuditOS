@@ -7045,6 +7045,9 @@ model Invoice {
   /// issued against this invoice — both reduce the balance due.
   tdsDeductedPaise Int @default(0)
   creditedPaise    Int @default(0)
+  /// Money paid back to the client (sum of refunds). Settled = paid + TDS +
+  /// credits − refunds; anything settled above the total is "refund due".
+  refundedPaise    Int @default(0)
 
   /// The recurring profile that generated it, and the engagement it bills
   /// (for fee vs time-cost profitability).
@@ -7104,6 +7107,7 @@ model Invoice {
   items         InvoiceItem[]
   payments      InvoicePayment[]
   creditNotes   CreditNote[]
+  refunds       InvoiceRefund[]
 
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt
@@ -8507,4 +8511,34 @@ model RecurringInvoiceProfile {
 
   @@index([organisationId, nextIssueDate])
   @@index([clientId])
+}
+
+/// Money returned to a client — usually the excess after a credit note on an
+/// invoice that was already paid. Number 'RFD-000001', taken on save.
+model InvoiceRefund {
+  id             String  @id @default(uuid())
+  organisationId String
+  refundNumber   String? @unique
+  invoiceId      String
+  clientId       String
+  creditNoteId   String?
+  amountPaise    Int
+  /// YYYY-MM-DD the money left the firm's account.
+  refundedOn     String
+  /// bank_transfer | upi | cheque | cash | other
+  mode           String  @default("bank_transfer")
+  reference      String?
+  note           String?
+
+  invoice Invoice @relation(fields: [invoiceId], references: [id])
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  createdBy String?
+  updatedBy String?
+  deletedAt DateTime?
+
+  @@index([invoiceId])
+  @@index([clientId])
+  @@index([refundedOn])
 }
