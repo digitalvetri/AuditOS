@@ -22,7 +22,7 @@ export interface PurgePlan {
     documents: number; files: number; audit_files: number; gst_notices: number;
     client_notices: number; contacts: number; credentials: number; share_links: number;
   };
-  retained: { invoices: number; payments: number; credit_notes: number };
+  retained: { invoices: number; payments: number; credit_notes: number; refunds?: number };
 }
 
 export interface PurgeResult {

@@ -8,6 +8,7 @@ import { nextInvoiceNumber } from '../../platform/workstation/codes.js'
 import { employeeMap } from '../../api/workstation.serialize.js'
 import { computeTotals, invoiceAmountInWords, paymentState, type LineInput } from './totals.js'
 import { addPayment, removePayment, type PaymentInput } from './payments.js'
+import { addRefund, refundToApi, removeRefund, type RefundInput } from './refunds.js'
 import { resolveInterState } from './supply.js'
 import { istToday } from '../../lib/dates.js'
 
@@ -144,9 +145,10 @@ export interface InvoiceInput {
 // ── Serialisation ─────────────────────────────────────────────────────────
 
 const ITEM_SELECT = { orderBy: { sortOrder: 'asc' } } as const
+const REFUND_SELECT = { where: { deletedAt: null }, orderBy: [{ refundedOn: 'asc' as const }, { createdAt: 'asc' as const }] }
 
 type Row = Prisma.InvoiceGetPayload<{
-  include: { items: true; client: true; bankAccount: true }
+  include: { items: true; client: true; bankAccount: true; refunds: true }
 }>
 
 /**
@@ -159,6 +161,16 @@ function effectiveStatus(inv: { status: string; dueDate: string; balanceDuePaise
   if (s === 'paid' || s === 'cancelled' || s === 'draft') return s
   if (inv.balanceDuePaise > 0 && inv.dueDate < today) return 'overdue'
   return s
+}
+
+/** Cash + TDS + issued credits − refunds, from the stored (recomputed) columns. */
+function settledOf(inv: { amountPaidPaise: number; tdsDeductedPaise: number; creditedPaise: number; refundedPaise: number }) {
+  return inv.amountPaidPaise + inv.tdsDeductedPaise + inv.creditedPaise - inv.refundedPaise
+}
+
+function refundDueOf(inv: { totalPaise: number; amountPaidPaise: number; tdsDeductedPaise: number; creditedPaise: number; refundedPaise: number; status: string }) {
+  if (inv.status === 'draft' || inv.status === 'cancelled') return 0
+  return Math.max(0, settledOf(inv) - inv.totalPaise)
 }
 
 function serialize(inv: Row, emp: Map<string, { id: string; full_name: string; employee_code: string }>) {
@@ -201,12 +213,17 @@ function serialize(inv: Row, emp: Map<string, { id: string; full_name: string; e
     igst_paise: inv.igstPaise,
     round_off_paise: inv.roundOffPaise,
     total_paise: inv.totalPaise,
-    /** Cash received. TDS and credit notes are separate — all three settle it. */
+    /** Cash received. TDS and credit notes are separate — all three settle it; refunds reverse it. */
     amount_paid_paise: inv.amountPaidPaise,
     tds_deducted_paise: inv.tdsDeductedPaise,
     credited_paise: inv.creditedPaise,
+    /** Money paid back to the client (sum of live refunds). */
+    refunded_paise: inv.refundedPaise,
     balance_due_paise: inv.balanceDuePaise,
-    payment_state: paymentState(inv.totalPaise, inv.amountPaidPaise + inv.tdsDeductedPaise + inv.creditedPaise),
+    /** Settled beyond the total (e.g. a credit note after payment) and not yet refunded. */
+    refund_due_paise: refundDueOf(inv),
+    payment_state: paymentState(inv.totalPaise, settledOf(inv)),
+    refunds: inv.refunds.map(refundToApi),
     recurring_profile_id: inv.recurringProfileId,
     client_service_id: inv.clientServiceId,
     audit_engagement_id: inv.auditEngagementId,
@@ -351,11 +368,12 @@ export const InvoiceService = {
     // predicate on stored columns — the same one effectiveStatus applies —
     // so the database answers it and pages it like any other filter.
     if (f.status === 'overdue') and.push(overdueWhere(istToday()))
+    else if (f.status === 'refund_due') and.push({ id: { in: await refundDueIds() } })
     else if (f.status) and.push({ status: f.status })
 
     const rows = await prisma.invoice.findMany({
       where: { AND: and },
-      include: { items: ITEM_SELECT, client: true, bankAccount: true },
+      include: { items: ITEM_SELECT, client: true, bankAccount: true, refunds: REFUND_SELECT },
       orderBy: [{ invoiceDate: 'desc' }, { createdAt: 'desc' }],
       take: f.limit ?? 50,
       skip: f.offset ?? 0,
@@ -369,7 +387,7 @@ export const InvoiceService = {
     const where = await visibleWhere(session, scope)
     const inv = await prisma.invoice.findFirst({
       where: { AND: [where, { id }] },
-      include: { items: ITEM_SELECT, client: true, bankAccount: true },
+      include: { items: ITEM_SELECT, client: true, bankAccount: true, refunds: REFUND_SELECT },
     })
     if (!inv) throw ApiError.notFound('No such invoice.')
     const emp = await employeeMap(inv.preparedById ? [inv.preparedById] : [])
@@ -380,19 +398,29 @@ export const InvoiceService = {
     const where = await visibleWhere(session, scope)
     const rows = await prisma.invoice.findMany({
       where,
-      select: { status: true, dueDate: true, totalPaise: true, balanceDuePaise: true },
+      select: {
+        status: true, dueDate: true, totalPaise: true, balanceDuePaise: true,
+        amountPaidPaise: true, tdsDeductedPaise: true, creditedPaise: true, refundedPaise: true,
+      },
     })
     const today = istToday()
     const counts: Record<string, number> = {}
     let outstandingPaise = 0
     let overduePaise = 0
+    let refundDuePaise = 0
     for (const r of rows) {
       const s = effectiveStatus(r, today)
       counts[s] = (counts[s] ?? 0) + 1
       if (s !== 'cancelled' && s !== 'draft') outstandingPaise += r.balanceDuePaise
       if (s === 'overdue') overduePaise += r.balanceDuePaise
+      // Not a status of its own — a paid invoice can also owe money back.
+      const due = refundDueOf(r)
+      if (due > 0) {
+        counts.refund_due = (counts.refund_due ?? 0) + 1
+        refundDuePaise += due
+      }
     }
-    return { counts, outstanding_paise: outstandingPaise, overdue_paise: overduePaise, total: rows.length }
+    return { counts, outstanding_paise: outstandingPaise, overdue_paise: overduePaise, refund_due_paise: refundDuePaise, total: rows.length }
   },
 
   /**
@@ -497,8 +525,8 @@ export const InvoiceService = {
   /**
    * Record a payment. The STATUS FOLLOWS THE MONEY rather than being chosen:
    * paying the balance in full marks it paid, anything less marks it
-   * partially paid. Overpayment is refused because the schema does not model
-   * credit (§22).
+   * partially paid. Overpayment is refused: money owed back to a client comes
+   * from a credit note and leaves through a refund (recordRefund).
    */
   async recordPayment(session: Session, scope: Scope, id: string, input: PaymentInput): Promise<SerializedInvoice> {
     await this.get(session, scope, id) // visibility check
@@ -509,6 +537,19 @@ export const InvoiceService = {
   async removePayment(session: Session, scope: Scope, id: string, paymentId: string): Promise<SerializedInvoice> {
     await this.get(session, scope, id)
     await removePayment(id, paymentId, session.userId)
+    return this.get(session, scope, id)
+  },
+
+  /** Money paid back to the client — at most the refund due (refunds.ts). */
+  async recordRefund(session: Session, scope: Scope, id: string, input: RefundInput): Promise<{ invoice: SerializedInvoice; refund: ReturnType<typeof refundToApi> }> {
+    await this.get(session, scope, id) // visibility check
+    const row = await addRefund(id, input, session.userId)
+    return { invoice: await this.get(session, scope, id), refund: refundToApi(row) }
+  },
+
+  async removeRefund(session: Session, scope: Scope, id: string, refundId: string): Promise<SerializedInvoice> {
+    await this.get(session, scope, id)
+    await removeRefund(id, refundId, session.userId)
     return this.get(session, scope, id)
   },
 
@@ -724,6 +765,19 @@ function assertTransition(from: InvoiceStatus, to: InvoiceStatus, number: string
 }
 
 /** effectiveStatus's `overdue`, as a database predicate. */
+/**
+ * Invoices settled beyond their total and not yet refunded. A comparison of
+ * column sums, which Prisma's where cannot express — so the ids come from SQL
+ * and the caller still applies the visibility scope.
+ */
+async function refundDueIds(): Promise<string[]> {
+  const rows = await prisma.$queryRaw<{ id: string }[]>`
+    SELECT "id" FROM "Invoice"
+    WHERE "deletedAt" IS NULL AND "status" NOT IN ('draft', 'cancelled')
+      AND "amountPaidPaise" + "tdsDeductedPaise" + "creditedPaise" - "refundedPaise" > "totalPaise"`
+  return rows.map((r) => r.id)
+}
+
 function overdueWhere(today: string): Prisma.InvoiceWhereInput {
   return {
     status: { notIn: ['draft', 'paid', 'cancelled'] },

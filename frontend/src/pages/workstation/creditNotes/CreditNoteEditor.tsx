@@ -101,11 +101,13 @@ function Editor({ cn, invoiceId, cr, clientName }: { cn: CreditNote | null; invo
     }), { taxable: 0, cgst: 0, sgst: 0, igst: 0, total: 0 });
   }, [lines, interState]);
 
-  // The most a credit can be: the invoice's balance due (total − cash − TDS −
-  // issued credits). Refunds are not recorded, so a credit may not exceed it.
-  // For an issued note the server's figure already includes this note, so
-  // only drafts are checked against it.
+  // The most a credit can be: the invoice total less issued credits (the GST
+  // limit) — even on a paid invoice. Whatever the note credits beyond the
+  // balance due is owed back to the client and paid out as a refund. For an
+  // issued note the server's figure already includes this note, so only
+  // drafts are checked against it.
   const overLimit = editable && preview.total > cr.creditable_paise;
+  const dueBack = editable && !overLimit ? Math.max(0, preview.total - (cr.balance_due_paise ?? 0)) : 0;
   const validLines = lines.filter((l) => l.description.trim() && toPaise(l.taxable) > 0);
   const canSave = editable && validLines.length > 0 && validLines.length === lines.length;
 
@@ -232,7 +234,7 @@ function Editor({ cn, invoiceId, cr, clientName }: { cn: CreditNote | null; invo
         stats={[
           { label: 'Invoice total', value: `₹${inrAmount(cr.total_paise)}` },
           { label: 'Already credited', value: `₹${inrAmount(cr.credited_paise)}` },
-          { label: 'Max creditable (balance due)', value: `₹${inrAmount(cr.creditable_paise)}`, tone: overLimit ? 'bad' : undefined },
+          { label: 'Max creditable', value: `₹${inrAmount(cr.creditable_paise)}`, tone: overLimit ? 'bad' : undefined },
           { label: 'This note', value: `₹${inrAmount(shown.total)}`, tone: overLimit ? 'bad' : undefined },
         ]}
         actions={
@@ -241,7 +243,7 @@ function Editor({ cn, invoiceId, cr, clientName }: { cn: CreditNote | null; invo
               <>
                 <Button disabled={!canSave || busy} onClick={() => save.mutate()}>{save.isPending ? 'Saving…' : 'Save draft'}</Button>
                 <Button variant="primary" disabled={!canSave || overLimit || busy} onClick={() => issue.mutate()}
-                  title={overLimit ? 'The note is more than the balance due on the invoice' : 'Allocates the CN number — the note is then fixed'}>
+                  title={overLimit ? 'The note is more than the invoice total less earlier credits' : 'Allocates the CN number — the note is then fixed'}>
                   <Send size={14} className="mr-2" />{issue.isPending ? 'Issuing…' : 'Issue'}
                 </Button>
                 {cn ? <Button variant="danger" onClick={() => setDeleting(true)}><Trash2 size={14} className="mr-2" />Delete draft</Button> : null}
@@ -259,7 +261,12 @@ function Editor({ cn, invoiceId, cr, clientName }: { cn: CreditNote | null; invo
 
       {overLimit ? (
         <div className="mb-4 border-l-2 border-red pl-3 text-13 text-neutral-900">
-          This note totals ₹ {inrAmount(preview.total)}, more than the ₹ {inrAmount(cr.creditable_paise)} balance due on {cr.invoice_number ?? 'the invoice'}. Refunds are not recorded in AuditOS yet — reduce the credit to the balance due.
+          This note totals ₹ {inrAmount(preview.total)}, more than the ₹ {inrAmount(cr.creditable_paise)} that can still be credited on {cr.invoice_number ?? 'the invoice'} (its total less the credit notes already issued). Reduce the credit.
+        </div>
+      ) : null}
+      {dueBack > 0 ? (
+        <div className="mb-4 border-l-2 border-warning pl-3 text-13 text-neutral-900">
+          ₹{inrAmount(dueBack)} will be due back to the client — record a refund after issuing.
         </div>
       ) : null}
 
@@ -309,7 +316,8 @@ function Editor({ cn, invoiceId, cr, clientName }: { cn: CreditNote | null; invo
                 </>}
             <Detail label="Total credit" value={<b>₹ {inrAmount(shown.total)}</b>} />
             {editable ? <Detail label="Max creditable" value={<span className={overLimit ? 'text-red font-semibold' : undefined}>₹ {inrAmount(cr.creditable_paise)}</span>} /> : null}
-            {editable ? <span className="block text-12 text-neutral-500 mt-2">At most the invoice's balance due (total − paid − TDS − earlier credits).</span> : null}
+            {editable ? <Detail label="Balance due now" value={`₹ ${inrAmount(cr.balance_due_paise ?? 0)}`} /> : null}
+            {editable ? <span className="block text-12 text-neutral-500 mt-2">At most the invoice total less earlier credits. Anything above the balance due is owed back to the client as a refund.</span> : null}
             {editable ? <span className="block text-12 text-neutral-500 mt-2">A preview — the server recomputes each figure when the note is saved.</span> : null}
           </div>
         </Card>

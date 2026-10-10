@@ -58,10 +58,23 @@ const FILTERS = [
   { value: 'partial', label: 'Partly paid' },
   { value: 'unpaid', label: 'Unpaid' },
   { value: 'paid', label: 'Fully paid' },
+  { value: 'refund_due', label: 'Refund due' },
 ];
+
+/** Money owed back to a client: an invoice settled beyond its total (e.g. a credit note after payment). */
+function RefundDueBadge({ paise }: { paise?: number }) {
+  if (!paise) return null;
+  return (
+    <span className="inline-flex items-center h-6 px-3 rounded-full text-12 font-medium whitespace-nowrap bg-warning/10 text-warning"
+      title="Settled beyond the invoice total — record a refund on the invoice">
+      Refund due <M paise={paise} />
+    </span>
+  );
+}
 
 function matches(c: ClientSummary, filter: string) {
   if (filter === 'dues') return c.pending_paise > 0;
+  if (filter === 'refund_due') return (c.refund_due_paise ?? 0) > 0;
   return !filter || c.status === filter;
 }
 
@@ -138,7 +151,7 @@ function Totals({ data }: { data: SummaryResponse }) {
   const t = data.totals;
   const tiles = [
     { label: 'Invoiced', value: t.invoiced_paise, note: `${t.invoices} invoice${t.invoices === 1 ? '' : 's'} · ${t.clients} client${t.clients === 1 ? '' : 's'}` },
-    { label: 'Received', value: t.paid_paise, note: t.collection_rate == null ? '—' : `${t.collection_rate}% collected`, tone: 'text-[#047857]' },
+    { label: 'Received', value: t.paid_paise, note: (t.collection_rate == null ? '—' : `${t.collection_rate}% collected`) + (t.refunded_paise ? ' · net of refunds' : ''), tone: 'text-[#047857]' },
     { label: 'Pending', value: t.pending_paise, note: `${t.clients_with_dues} client${t.clients_with_dues === 1 ? '' : 's'} with dues`, tone: 'text-[#b45309]' },
     { label: 'Overdue', value: t.overdue_paise, note: 'Past the due date', tone: t.overdue_paise ? 'text-[#b91c1c]' : undefined },
     { label: 'Received this month', value: t.collected_this_month_paise, note: new Date().toLocaleDateString('en-IN', { month: 'long', year: 'numeric' }) },
@@ -228,7 +241,9 @@ function ClientRows({ c, isOpen, pct, onToggle, canManage }: {
             <span className="text-11 text-neutral-500 tabular-nums w-8 text-right">{pct}%</span>
           </div>
         </td>
-        <td className="py-3 px-4"><StateChip state={c.status} /></td>
+        <td className="py-3 px-4">
+          <span className="inline-flex flex-col items-start gap-1"><StateChip state={c.status} /><RefundDueBadge paise={c.refund_due_paise} /></span>
+        </td>
         <td className="py-3 px-4 hidden lg:table-cell text-neutral-600 whitespace-nowrap">{fmtDay(c.last_payment_on)}</td>
         <td className="py-3 pl-4 pr-5 text-right" onClick={(e) => e.stopPropagation()}>
           {c.pending_paise > 0 && c.contact_number ? (
@@ -287,8 +302,10 @@ function ClientInvoices({ clientId, canManage }: { clientId: string; canManage: 
             <Amount label="Received" paise={inv.paid_paise} tone="text-[#047857]" />
             {inv.tds_deducted_paise ? <Amount label="TDS" paise={inv.tds_deducted_paise} tone="text-neutral-700" /> : null}
             {inv.credited_paise ? <Amount label="Credit notes" paise={inv.credited_paise} tone="text-neutral-700" /> : null}
+            {inv.refunded_paise ? <Amount label="Refunded" paise={inv.refunded_paise} tone="text-neutral-700" /> : null}
             <Amount label="Pending" paise={inv.pending_paise} tone={inv.pending_paise ? 'text-[#b45309] font-semibold' : 'text-neutral-400'} />
             <StateChip state={inv.state} />
+            <RefundDueBadge paise={inv.refund_due_paise} />
             <Spacer />
             {canManage && inv.pending_paise > 0 ? (
               <Button variant="primary" onClick={() => setPaying(inv)}>

@@ -214,3 +214,24 @@ export async function nextReceiptNumber(tx: Tx): Promise<string> {
   }
   return `${prefix}${String(max + 1).padStart(6, '0')}`
 }
+
+/**
+ * 'RFD-000001' — the refund voucher series. Flat and gapless like receipts:
+ * the maximum over EVERY refund row (removed ones included — a voucher number
+ * that was handed out is never handed out again), under its own lock so two
+ * refunds recorded at once cannot share a number (InvoiceRefund.refundNumber
+ * is @unique).
+ *
+ * Take this lock LAST, right before the insert (after the `invoice:<id>` lock).
+ */
+export async function nextRefundNumber(tx: Tx): Promise<string> {
+  await lockSequence(tx, 'code:RFD')
+  const prefix = 'RFD-'
+  const rows = await tx.invoiceRefund.findMany({ where: { refundNumber: { startsWith: prefix } }, select: { refundNumber: true } })
+  let max = 0
+  for (const r of rows) {
+    const n = Number((r.refundNumber ?? '').slice(prefix.length))
+    if (Number.isFinite(n) && n > max) max = n
+  }
+  return `${prefix}${String(max + 1).padStart(6, '0')}`
+}

@@ -11,14 +11,17 @@
  *  - Only against a sent / partially paid / paid invoice. The GST split
  *    MIRRORS the invoice (isInterState, place of supply) — a credit note
  *    cannot reverse IGST on an invoice that charged CGST+SGST.
- *  - The total can never exceed the invoice's BALANCE DUE (total − cash paid
- *    − TDS − credit notes already issued): AuditOS does not record refunds,
- *    so a credit may only reduce what is still owed. Checked on save and
- *    again at ISSUE under the per-invoice lock, so two concurrent issues (or
- *    an issue racing a payment) cannot both pass. 422 when it does not fit.
+ *  - The total can never exceed the invoice TOTAL less credit notes already
+ *    issued against it (the GST limit: you cannot credit more than you
+ *    invoiced) — even after the invoice is paid. A credit beyond the balance
+ *    due leaves money owed back to the client ("refund due"), which is paid
+ *    out with a refund (invoice/refunds.ts). Checked on save and again at
+ *    ISSUE under the per-invoice lock, so two concurrent issues cannot both
+ *    pass. 422 when it does not fit.
  *  - Issuing never moves the invoice's paid date — that follows payments.
  *  - Issuing and cancelling recompute the invoice (payments.ts), so the
- *    balance due and status always follow cash + TDS + issued credits.
+ *    balance due, refund due and status always follow cash + TDS + issued
+ *    credits − refunds.
  */
 import type { Prisma } from '@prisma/client'
 import { ApiError } from '../../lib/http.js'
@@ -27,7 +30,7 @@ import { lockSequence } from '../../lib/sequence.js'
 import type { Session } from '../../platform/auth.js'
 import type { Scope } from '../../platform/rbac/matrix.js'
 import { InvoiceService } from '../invoice/service.js'
-import { liveBalanceDue, recomputeInvoice } from '../invoice/payments.js'
+import { assertRefundsCovered, liveBalanceDue, recomputeInvoice } from '../invoice/payments.js'
 import { computeTotals } from '../invoice/totals.js'
 
 export const CREDIT_NOTE_REASONS = ['rate_change', 'deficiency', 'discount', 'return', 'fee_reduction', 'other'] as const
@@ -139,6 +142,15 @@ async function creditedSoFar(tx: Tx | typeof prisma, invoiceId: string, excludeI
   return agg._sum.totalPaise ?? 0
 }
 
+/** The most that may still be credited: the invoice total less issued credits (excluding `excludeId`). */
+async function creditLimit(tx: Tx | typeof prisma, invoiceId: string, excludeId?: string) {
+  const [inv, credited] = await Promise.all([
+    tx.invoice.findUniqueOrThrow({ where: { id: invoiceId }, select: { totalPaise: true } }),
+    creditedSoFar(tx, invoiceId, excludeId),
+  ])
+  return Math.max(0, inv.totalPaise - credited)
+}
+
 function assertLines(lines: CreditLineInput[]) {
   if (lines.length === 0) throw ApiError.badRequest('A credit note needs at least one line.')
   if (lines.some((l) => l.taxablePaise <= 0)) throw ApiError.badRequest('Each line must credit more than zero.')
@@ -181,7 +193,11 @@ export const CreditNoteService = {
     return serialize(n)
   },
 
-  /** What can still be credited on an invoice (its balance due), plus its lines as a starting point. */
+  /**
+   * What can still be credited on an invoice (its total less earlier issued
+   * credits), its live balance due (a credit beyond it becomes a refund due),
+   * plus its lines as a starting point.
+   */
   async creditable(session: Session, scope: Scope, invoiceId: string) {
     const inv = await InvoiceService.get(session, scope, invoiceId)
     const [credited, balance] = await Promise.all([creditedSoFar(prisma, invoiceId), liveBalanceDue(prisma, invoiceId)])
@@ -190,7 +206,8 @@ export const CreditNoteService = {
       invoice_number: inv.invoice_number,
       total_paise: inv.total_paise,
       credited_paise: credited,
-      creditable_paise: balance,
+      creditable_paise: Math.max(0, inv.total_paise - credited),
+      balance_due_paise: balance,
       is_inter_state: inv.is_inter_state,
       place_of_supply: inv.place_of_supply,
       suggested_lines: inv.items.map((i) => ({
@@ -209,7 +226,7 @@ export const CreditNoteService = {
     }
     assertLines(input.lines)
     const t = creditTotals(input.lines, inv.is_inter_state)
-    const remaining = await liveBalanceDue(prisma, invoiceId)
+    const remaining = await creditLimit(prisma, invoiceId)
     if (t.totalPaise > remaining) throw overLimit(remaining)
     const org = (await prisma.invoice.findUniqueOrThrow({ where: { id: invoiceId }, select: { organisationId: true } })).organisationId
     const row = await prisma.creditNote.create({
@@ -241,7 +258,7 @@ export const CreditNoteService = {
     if (n.status !== 'draft') throw ApiError.conflict('credit_note_not_editable', `Credit note ${n.display_number} has been issued and cannot be edited.`)
     assertLines(input.lines)
     const t = creditTotals(input.lines, n.is_inter_state)
-    const remaining = await liveBalanceDue(prisma, n.invoice_id)
+    const remaining = await creditLimit(prisma, n.invoice_id, id)
     if (t.totalPaise > remaining) throw overLimit(remaining)
     await prisma.creditNote.update({
       where: { id },
@@ -272,7 +289,7 @@ export const CreditNoteService = {
       if (inv.deletedAt || !CREDITABLE.includes(inv.status)) {
         throw ApiError.conflict('invoice_not_creditable', 'The invoice is no longer open to credit (it was cancelled or deleted).')
       }
-      const remaining = await liveBalanceDue(tx, n.invoice_id, id)
+      const remaining = await creditLimit(tx, n.invoice_id, id)
       if (n.total_paise > remaining) throw overLimit(remaining)
       const number = await nextCreditNoteNumber(tx)
       const r = await tx.creditNote.updateMany({
@@ -299,6 +316,7 @@ export const CreditNoteService = {
         },
       })
       if (r.count === 0) throw ApiError.conflict('invalid_transition', 'This credit note is no longer issued.')
+      await assertRefundsCovered(tx, n.invoice_id)
       await recomputeInvoice(tx, n.invoice_id, session.userId)
     })
     return this.get(session, scope, id)
@@ -313,9 +331,9 @@ export const CreditNoteService = {
 }
 
 export const OVER_BALANCE_MESSAGE =
-  'This credit is more than the balance due on the invoice. Refunds are not recorded in AuditOS yet — reduce the credit to the balance due.'
+  'This credit is more than the invoice total less the credit notes already issued against it. Reduce the credit.'
 
-/** 422 — the credit does not fit in the balance due. The ceiling rides in details. */
+/** 422 — the credit does not fit in what is left to credit. The ceiling rides in details. */
 function overLimit(remaining: number) {
   return ApiError.unprocessable('credit_exceeds_balance', OVER_BALANCE_MESSAGE, { creditable_paise: Math.max(0, remaining) })
 }

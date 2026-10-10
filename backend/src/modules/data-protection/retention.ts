@@ -80,7 +80,7 @@ export interface PurgePlan {
     share_links: number
   }
   /** Statutory records that stay, whatever the retention period says. */
-  retained: { invoices: number; payments: number; credit_notes: number }
+  retained: { invoices: number; payments: number; credit_notes: number; refunds: number }
 }
 
 async function fileRefs(clientId: string): Promise<FileRef[]> {
@@ -111,7 +111,7 @@ type ClientRow = { id: string; clientCode: string; companyName: string; status: 
 
 export async function buildPurgePlan(client: ClientRow, retentionYears: number, today = istToday()): Promise<PurgePlan> {
   const id = client.id
-  const [documents, files, auditFiles, gstNotices, clientNotices, contacts, regCreds, tdsCreds, shareLinks, invoices, payments, creditNotes] = await Promise.all([
+  const [documents, files, auditFiles, gstNotices, clientNotices, contacts, regCreds, tdsCreds, shareLinks, invoices, payments, creditNotes, refunds] = await Promise.all([
     prisma.clientDocument.count({ where: { clientId: id, ...alive } }),
     fileRefs(id).then((f) => f.length),
     prisma.auditEngagement.count({ where: { clientId: id } }),
@@ -124,6 +124,7 @@ export async function buildPurgePlan(client: ClientRow, retentionYears: number, 
     prisma.invoice.count({ where: { clientId: id } }),
     prisma.invoicePayment.count({ where: { clientId: id } }),
     prisma.creditNote.count({ where: { clientId: id } }),
+    prisma.invoiceRefund.count({ where: { clientId: id } }),
   ])
   const ends = client.exitDate ? retentionEndDate(client.exitDate, retentionYears) : null
   return {
@@ -138,7 +139,7 @@ export async function buildPurgePlan(client: ClientRow, retentionYears: number, 
       documents, files, audit_files: auditFiles, gst_notices: gstNotices, client_notices: clientNotices,
       contacts, credentials: regCreds + tdsCreds, share_links: shareLinks,
     },
-    retained: { invoices, payments, credit_notes: creditNotes },
+    retained: { invoices, payments, credit_notes: creditNotes, refunds },
   }
 }
 
@@ -265,7 +266,7 @@ export async function exportClientData(organisationId: string, clientId: string)
   const client = await prisma.client.findFirst({ where: { id: clientId, organisationId } })
   if (!client) throw ApiError.notFound('Client not found.')
   const id = client.id
-  const [contacts, services, documents, gstNotices, clientNotices, invoices, payments, creditNotes, tasks, audits, udins, regCreds, tdsCreds, gstProfile] = await Promise.all([
+  const [contacts, services, documents, gstNotices, clientNotices, invoices, payments, creditNotes, refunds, tasks, audits, udins, regCreds, tdsCreds, gstProfile] = await Promise.all([
     prisma.clientContact.findMany({ where: { clientId: id } }),
     prisma.clientService.findMany({ where: { clientId: id } }),
     prisma.clientDocument.findMany({ where: { clientId: id }, include: { versions: true, category: { select: { code: true, name: true } } } }),
@@ -274,6 +275,7 @@ export async function exportClientData(organisationId: string, clientId: string)
     prisma.invoice.findMany({ where: { clientId: id } }),
     prisma.invoicePayment.findMany({ where: { clientId: id } }),
     prisma.creditNote.findMany({ where: { clientId: id } }),
+    prisma.invoiceRefund.findMany({ where: { clientId: id } }),
     prisma.task.findMany({ where: { clientId: id } }),
     prisma.auditEngagement.findMany({ where: { clientId: id }, include: { workingPapers: { include: { files: true } }, observations: true, udins: true } }),
     prisma.auditUdin.findMany({ where: { clientId: id } }),
@@ -297,6 +299,7 @@ export async function exportClientData(organisationId: string, clientId: string)
   zip.file('invoices.json', json(invoices))
   zip.file('payments.json', json(payments))
   zip.file('credit-notes.json', json(creditNotes))
+  zip.file('refunds.json', json(refunds))
   zip.file('tasks.json', json(tasks))
   zip.file('audit-files.json', json(audits))
   zip.file('udins.json', json(udins))

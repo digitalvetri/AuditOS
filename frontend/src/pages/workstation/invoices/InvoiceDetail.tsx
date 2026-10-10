@@ -1,10 +1,11 @@
 import { useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { Ban, BellRing, ChevronDown, Download, FileMinus, Mail, MessageCircle, Pencil, Printer, Receipt, Repeat, Send, Trash2, Wallet } from 'lucide-react';
+import { Ban, BellRing, ChevronDown, Download, FileMinus, Mail, MessageCircle, Pencil, Printer, Receipt, Repeat, Send, Trash2, Undo2, Wallet } from 'lucide-react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useNavigate, useParams } from 'react-router-dom';
 import {
-  invoicesApi, TERM_LABEL, TDS_SECTIONS, type Invoice, type InvoicePayment, type TdsSection,
+  invoicesApi, REFUND_MODE_LABEL, TERM_LABEL, TDS_SECTIONS,
+  type Invoice, type InvoicePayment, type InvoiceRefund, type RefundMode, type TdsSection,
 } from '@/modules/workstation/invoices/api';
 import { creditNotesApi, CREDIT_NOTE_REASON_LABEL, type CreditNote } from '@/modules/workstation/creditNotes/api';
 import { ListTable, ListRow, TD, StatusChip, Money, fmtDay } from '@/modules/workstation/listUi';
@@ -28,6 +29,7 @@ import { useAuth } from '@/platform/auth/AuthContext';
 import { SendEmailDialog } from '@/modules/workstation/SendEmailDialog';
 import { SendWhatsAppDialog } from '@/modules/workstation/SendWhatsAppDialog';
 import { EntityHeader, HeaderTag } from '@/components/EntityHeader';
+import { confirmAction } from '@/components/ConfirmDialog';
 
 /** Whole days between a due date and today (IST). */
 function daysLate(due: string | null | undefined): number {
@@ -88,9 +90,9 @@ export function docFromInvoice(inv: Invoice): InvoiceDoc {
     totals: computeTotals(lines, {
       invoiceDiscountPaise: inv.discount_paise,
       isInterState: inv.is_inter_state,
-      // Settled = cash + TDS + credit notes, so the balance (and a UPI QR
-      // carrying it) matches the server's balance_due_paise.
-      amountPaidPaise: inv.amount_paid_paise + (inv.tds_deducted_paise ?? 0) + (inv.credited_paise ?? 0),
+      // Settled = cash + TDS + credit notes − refunds, so the balance (and a
+      // UPI QR carrying it) matches the server's balance_due_paise.
+      amountPaidPaise: inv.amount_paid_paise + (inv.tds_deducted_paise ?? 0) + (inv.credited_paise ?? 0) - (inv.refunded_paise ?? 0),
     }),
     notes: inv.notes ?? '',
     bank: inv.bank_snapshot,
@@ -113,6 +115,7 @@ function Body({ inv }: { inv: Invoice }) {
   const { session } = useAuth();
   const mayWrite = can(session?.role.code, 'workstation.invoice.manage', 'self');
   const [payOpen, setPayOpen] = useState(false);
+  const [refundOpen, setRefundOpen] = useState(false);
   const [cancelOpen, setCancelOpen] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const remove = useMutation({
@@ -213,6 +216,7 @@ function Body({ inv }: { inv: Invoice }) {
           chips={<>
             <StatusPill status={inv.status} />
             {inv.is_overdue ? <HeaderTag tone="bad">● {daysLate(inv.due_date)} days overdue</HeaderTag> : null}
+            {inv.refund_due_paise > 0 ? <HeaderTag tone="warn"><Undo2 size={12} />Refund due ₹{inrAmount(inv.refund_due_paise)}</HeaderTag> : null}
             {inv.recurring_profile_id ? (
               <Link to="/workstation/recurring-invoices" title="Raised by a recurring retainer profile">
                 <HeaderTag tone="teal"><Repeat size={12} />From recurring profile</HeaderTag>
@@ -253,10 +257,13 @@ function Body({ inv }: { inv: Invoice }) {
               {mayWrite && inv.balance_due_paise > 0 && inv.stored_status !== 'draft' && inv.stored_status !== 'cancelled' ? (
                 <Button variant="primary" onClick={() => setPayOpen(true)}>Record payment</Button>
               ) : null}
+              {mayWrite && inv.refund_due_paise > 0 ? (
+                <Button variant="primary" onClick={() => setRefundOpen(true)}>Record refund</Button>
+              ) : null}
               <InvoiceActionsMenu
                 inv={inv} mayWrite={mayWrite} pdfBusy={pdf.isPending}
                 onDownload={() => pdf.mutate()} onWhatsApp={() => setWhatsapping(true)} onEmail={() => setEmailing(true)}
-                onSend={() => send.mutate()} onPay={() => setPayOpen(true)} onCancel={() => setCancelOpen(true)}
+                onSend={() => send.mutate()} onPay={() => setPayOpen(true)} onRefund={() => setRefundOpen(true)} onCancel={() => setCancelOpen(true)}
                 onDelete={() => setDeleting(true)} mayCredit={mayCredit}
               />
             </span>
@@ -266,7 +273,8 @@ function Body({ inv }: { inv: Invoice }) {
             <div className="mt-5">
               <div className="flex justify-between text-12 text-inkMuted mb-[6px]">
                 <span>Settled {Math.round((settledPaise / inv.total_paise) * 100)}%</span>
-                <span>{inv.balance_due_paise > 0 ? `₹${inrAmount(inv.balance_due_paise)} to collect` : 'Fully settled'}</span>
+                <span>{inv.balance_due_paise > 0 ? `₹${inrAmount(inv.balance_due_paise)} to collect`
+                  : inv.refund_due_paise > 0 ? `₹${inrAmount(inv.refund_due_paise)} due back to the client` : 'Fully settled'}</span>
               </div>
               <div className="h-2 rounded-full bg-neutral-100 overflow-hidden">
                 <i className="block h-full rounded-full bg-success transition-[width]" style={{ width: `${Math.min(100, Math.max(0, (settledPaise / inv.total_paise) * 100))}%` }} />
@@ -300,7 +308,9 @@ function Body({ inv }: { inv: Invoice }) {
               <Detail label="Paid" value={`₹ ${inrAmount(inv.amount_paid_paise)}`} />
               {inv.tds_deducted_paise > 0 ? <Detail label="TDS deducted" value={`₹ ${inrAmount(inv.tds_deducted_paise)}`} /> : null}
               {inv.credited_paise > 0 ? <Detail label="Credit notes" value={`- ₹ ${inrAmount(inv.credited_paise)}`} /> : null}
+              {inv.refunded_paise > 0 ? <Detail label="Refunded" value={`₹ ${inrAmount(inv.refunded_paise)}`} /> : null}
               <Detail label="Balance due" value={`₹ ${inrAmount(inv.balance_due_paise)}`} />
+              {inv.refund_due_paise > 0 ? <Detail label="Refund due" value={<span className="text-warning font-semibold">₹ {inrAmount(inv.refund_due_paise)}</span>} /> : null}
             </div>
           </Card>
           <Card title="Bill to">
@@ -335,6 +345,7 @@ function Body({ inv }: { inv: Invoice }) {
       <DocumentPane inv={inv} />
 
       <PaymentModal inv={inv} open={payOpen} onClose={() => setPayOpen(false)} onDone={after('Payment recorded.')} />
+      <RefundModal inv={inv} open={refundOpen} onClose={() => setRefundOpen(false)} onDone={after('Refund recorded.')} />
       <CancelModal inv={inv} open={cancelOpen} onClose={() => setCancelOpen(false)} onDone={after('Invoice cancelled.')} />
     </>
   );
@@ -465,7 +476,7 @@ function PaymentModal({ inv, open, onClose, onDone }: {
         <input className={inputClass} value={note} onChange={(e) => setNote(e.target.value)} maxLength={500} placeholder="e.g. 1st of 3 agreed instalments" />
       </Field>
       <p className="text-12 text-neutral-500">
-        Each payment is kept as an instalment with its own receipt — see them all under Billing → Receivables. Overpayment is refused.
+        Each payment is kept as an instalment with its own receipt — see them all under Billing → Receivables. Overpayment is refused; money owed back is paid out as a refund.
       </p>
     </Modal>
   );
@@ -530,8 +541,163 @@ function PaymentsCard({ inv, mayWrite }: { inv: Invoice; mayWrite: boolean }) {
             </ListTable>
           )}
         </QueryState>
+        {inv.refunds.length > 0 ? <RefundsTable inv={inv} mayWrite={mayWrite} /> : null}
       </Card>
     </div>
+  );
+}
+
+/** Refunds paid back to the client, shown under the payments they reverse. */
+function RefundsTable({ inv, mayWrite }: { inv: Invoice; mayWrite: boolean }) {
+  const toast = useToast();
+  const qc = useQueryClient();
+  const voucher = useMutation({
+    mutationFn: (r: InvoiceRefund) => invoicesApi.refundVoucherUrl(inv.id, r.id),
+    onSuccess: (res, r) => downloadFile(res.url, `${r.refund_number ?? 'refund'}.pdf`),
+    onError: (e: Error) => toast.push('error', e.message),
+  });
+  const remove = useMutation({
+    mutationFn: (r: InvoiceRefund) => invoicesApi.removeRefund(inv.id, r.id),
+    onSuccess: (updated) => {
+      void qc.invalidateQueries({ queryKey: ['invoices.get', updated.id] });
+      void qc.invalidateQueries({ queryKey: ['invoices.list'] });
+      void qc.invalidateQueries({ queryKey: ['invoices.summary'] });
+      void qc.invalidateQueries({ queryKey: ['payment-summary'] });
+      void qc.invalidateQueries({ queryKey: ['creditNotes.creditable', inv.id] });
+      toast.push('success', 'Refund removed.');
+    },
+    onError: (e: Error) => toast.push('error', e.message),
+  });
+  return (
+    <div className="border-t border-neutral-100">
+      <div className="px-5 pt-3 pb-1 text-11 uppercase tracking-[0.06em] text-neutral-500">Refunds</div>
+      <ListTable float={false} cols={[
+        'Voucher', 'Refunded on', 'Mode', { label: 'Amount', align: 'right' }, { label: '', key: 'dl' },
+      ]}>
+        {inv.refunds.map((r) => (
+          <ListRow key={r.id}>
+            <TD first strong nowrap className="tracking-[0.02em]">{r.refund_number ?? '—'}</TD>
+            <TD muted nowrap>{fmtDay(r.refunded_on)}</TD>
+            <TD muted>
+              {REFUND_MODE_LABEL[r.mode] ?? r.mode}
+              {r.reference ? <span className="block text-11 text-neutral-500">{r.reference}</span> : null}
+              {r.note ? <span className="block text-11 text-neutral-500">{r.note}</span> : null}
+            </TD>
+            <TD right nowrap className="tabular-nums"><Money value={`- ₹${inrAmount(r.amount_paise)}`} /></TD>
+            <TD last>
+              <span className="inline-flex items-center gap-3">
+                <button type="button" disabled={voucher.isPending} onClick={() => voucher.mutate(r)}
+                  className="inline-flex items-center gap-1 text-13 text-primary hover:underline whitespace-nowrap disabled:opacity-50">
+                  <Receipt size={13} /> Voucher
+                </button>
+                {mayWrite ? (
+                  <button type="button" disabled={remove.isPending}
+                    onClick={async () => {
+                      if (await confirmAction(`Remove refund ${r.refund_number ?? ''} of ₹${inrAmount(r.amount_paise)}? The invoice is recomputed without it.`, { title: 'Remove refund?', action: 'Remove refund' })) remove.mutate(r);
+                    }}
+                    className="inline-flex items-center gap-1 text-13 text-red hover:underline whitespace-nowrap disabled:opacity-50">
+                    <Trash2 size={13} /> Remove
+                  </button>
+                ) : null}
+              </span>
+            </TD>
+          </ListRow>
+        ))}
+      </ListTable>
+    </div>
+  );
+}
+
+/** Pay money back to the client — prefilled with the refund due, never more. */
+function RefundModal({ inv, open, onClose, onDone }: {
+  inv: Invoice; open: boolean; onClose: () => void; onDone: (i: Invoice) => void;
+}) {
+  const toast = useToast();
+  const qc = useQueryClient();
+  const [amount, setAmount] = useState('');
+  const [refundedOn, setRefundedOn] = useState(istToday());
+  const [mode, setMode] = useState<RefundMode>('bank_transfer');
+  const [reference, setReference] = useState('');
+  const [note, setNote] = useState('');
+  const [creditNoteId, setCreditNoteId] = useState('');
+  const notes = useQuery({
+    queryKey: ['creditNotes.list', { invoice_id: inv.id }],
+    queryFn: () => creditNotesApi.list({ invoice_id: inv.id }),
+    enabled: open,
+  });
+  const issued = (notes.data?.items ?? []).filter((cn) => cn.status === 'issued');
+  useEffect(() => {
+    if (!open) return;
+    setAmount(String(inv.refund_due_paise / 100));
+    setRefundedOn(istToday());
+    setMode('bank_transfer');
+    setReference('');
+    setNote('');
+    setCreditNoteId('');
+  }, [open, inv.refund_due_paise]);
+  const amountPaise = Math.max(0, Math.round((Number(amount) || 0) * 100));
+  const over = amountPaise > inv.refund_due_paise;
+  const save = useMutation({
+    mutationFn: () => invoicesApi.recordRefund(inv.id, {
+      amount_paise: amountPaise, refunded_on: refundedOn, mode,
+      reference: reference.trim() || undefined, note: note.trim() || undefined,
+      credit_note_id: creditNoteId || undefined,
+    }),
+    onSuccess: (i) => {
+      void qc.invalidateQueries({ queryKey: ['payment-summary'] });
+      void qc.invalidateQueries({ queryKey: ['creditNotes.creditable', inv.id] });
+      onDone(i);
+      onClose();
+    },
+    onError: (e: Error) => toast.push('error', e.message),
+  });
+  const errs = fieldErrors(save.error);
+  return (
+    <Modal
+      open={open} title="Record a refund" onClose={onClose}
+      footer={
+        <>
+          <Button onClick={onClose}>Cancel</Button>
+          <Button variant="primary" disabled={save.isPending || amountPaise <= 0 || over} onClick={() => save.mutate()}>Record refund</Button>
+        </>
+      }
+    >
+      <Field label="Amount refunded (₹)" error={errs.amount_paise}>
+        <input className={inputClass} type="number" step="0.01" min="0" value={amount} onChange={(e) => setAmount(e.target.value)} />
+      </Field>
+      <p className={'text-12 -mt-1 mb-3 ' + (over ? 'text-red' : 'text-neutral-500')}>
+        {over
+          ? `At most ₹ ${inrAmount(inv.refund_due_paise)} is due back to the client.`
+          : `₹ ${inrAmount(inv.refund_due_paise)} is due back to the client on this invoice.`}
+      </p>
+      <div className="grid grid-cols-2 gap-3">
+        <Field label="Refunded on" error={errs.refunded_on}>
+          <input className={inputClass} type="date" max={istToday()} value={refundedOn} onChange={(e) => setRefundedOn(e.target.value)} />
+        </Field>
+        <Field label="Mode">
+          <select className={inputClass} value={mode} onChange={(e) => setMode(e.target.value as RefundMode)}>
+            {(Object.keys(REFUND_MODE_LABEL) as RefundMode[]).map((m) => <option key={m} value={m}>{REFUND_MODE_LABEL[m]}</option>)}
+          </select>
+        </Field>
+      </div>
+      {issued.length > 0 ? (
+        <Field label="Against credit note (optional)">
+          <select className={inputClass} value={creditNoteId} onChange={(e) => setCreditNoteId(e.target.value)}>
+            <option value="">—</option>
+            {issued.map((cn) => <option key={cn.id} value={cn.id}>{cn.display_number} · ₹{inrAmount(cn.total_paise)}</option>)}
+          </select>
+        </Field>
+      ) : null}
+      <Field label="Reference (UTR, cheque no., UPI ID…)">
+        <input className={inputClass} value={reference} onChange={(e) => setReference(e.target.value)} maxLength={120} />
+      </Field>
+      <Field label="Note">
+        <input className={inputClass} value={note} onChange={(e) => setNote(e.target.value)} maxLength={500} />
+      </Field>
+      <p className="text-12 text-neutral-500">
+        Each refund gets its own voucher number and is listed with the payments. It reduces the cash collected in the month it is paid.
+      </p>
+    </Modal>
   );
 }
 
@@ -626,10 +792,10 @@ function CancelModal({ inv, open, onClose, onDone }: {
  * quotation's Actions menu. Each item is enabled only in the states the
  * server accepts it.
  */
-function InvoiceActionsMenu({ inv, mayWrite, pdfBusy, onDownload, onWhatsApp, onEmail, onSend, onPay, onCancel, onDelete, mayCredit }: {
+function InvoiceActionsMenu({ inv, mayWrite, pdfBusy, onDownload, onWhatsApp, onEmail, onSend, onPay, onRefund, onCancel, onDelete, mayCredit }: {
   inv: Invoice; mayWrite: boolean; pdfBusy: boolean; mayCredit: boolean;
   onDownload: () => void; onWhatsApp: () => void; onEmail: () => void;
-  onSend: () => void; onPay: () => void; onCancel: () => void; onDelete: () => void;
+  onSend: () => void; onPay: () => void; onRefund: () => void; onCancel: () => void; onDelete: () => void;
 }) {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
@@ -685,6 +851,10 @@ function InvoiceActionsMenu({ inv, mayWrite, pdfBusy, onDownload, onWhatsApp, on
           <button type="button" className={item(!mayWrite || !canPay)} disabled={!mayWrite || !canPay}
             title={canPay ? undefined : st === 'draft' ? 'Send the invoice first' : 'Nothing is due on this invoice'} onClick={act(onPay)}>
             <Wallet size={14} /> Record payment
+          </button>
+          <button type="button" className={item(!mayWrite || inv.refund_due_paise <= 0)} disabled={!mayWrite || inv.refund_due_paise <= 0}
+            title={inv.refund_due_paise > 0 ? undefined : 'Nothing is due back to the client'} onClick={act(onRefund)}>
+            <Undo2 size={14} /> Record refund
           </button>
           {mayCredit ? (
             <Link to={`/workstation/credit-notes/new?invoice=${inv.id}`} className={item()} onClick={() => setOpen(false)}>

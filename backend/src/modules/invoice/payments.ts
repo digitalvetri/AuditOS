@@ -145,51 +145,79 @@ export function paymentToApi(p: {
 }
 
 /**
- * Paid / TDS / credited / balance / status from the live rows.
+ * The money behind an invoice, from the LIVE rows (never the stored columns):
+ * cash received, TDS deducted, issued credit notes and refunds paid back.
  *
- * An invoice is SETTLED by three things: cash received (amountPaise), tax the
- * client deducted at source (tdsPaise — the client pays it to the government
- * on our behalf and we claim it via 26AS), and credit notes issued against
- * it. amountPaidPaise stays CASH ONLY — backfillInvoicePayments compares it
- * with the sum of amountPaise at every boot, and folding TDS in would make it
- * invent a phantom history row on each restart.
+ *   settled     = cash + TDS + issued credits − refunds
+ *   balance due = max(0, total − settled)
+ *   refund due  = max(0, settled − total)
  *
- * Exported and tx-aware so credit notes and the Zoho posting recompute inside
- * their own transaction.
+ * A credit note may go up to the invoice total (less earlier credits) even
+ * after the invoice is paid, so settled can pass the total: the excess is
+ * money the firm owes back to the client until a refund is recorded.
+ * `excludeCreditNoteId` leaves one credit note out (the one being issued).
  */
-export async function recomputeInvoice(tx: Tx, invoiceId: string, userId: string | null) {
-  const inv = await tx.invoice.findUniqueOrThrow({ where: { id: invoiceId } })
-  const [agg, credits] = await Promise.all([
+export async function liveSettlement(tx: Tx | PrismaClient, invoiceId: string, excludeCreditNoteId?: string) {
+  const [inv, agg, credits, refunds] = await Promise.all([
+    tx.invoice.findUniqueOrThrow({ where: { id: invoiceId }, select: { totalPaise: true } }),
     tx.invoicePayment.aggregate({
       where: { invoiceId, deletedAt: null }, _sum: { amountPaise: true, tdsPaise: true }, _max: { paidOn: true },
     }),
     tx.creditNote.aggregate({
-      where: { invoiceId, deletedAt: null, status: 'issued' }, _sum: { totalPaise: true },
+      where: { invoiceId, deletedAt: null, status: 'issued', ...(excludeCreditNoteId ? { id: { not: excludeCreditNoteId } } : {}) },
+      _sum: { totalPaise: true },
     }),
+    tx.invoiceRefund.aggregate({ where: { invoiceId, deletedAt: null }, _sum: { amountPaise: true } }),
   ])
   const paid = agg._sum.amountPaise ?? 0
   const tds = agg._sum.tdsPaise ?? 0
   const credited = credits._sum.totalPaise ?? 0
-  const settled = paid + tds + credited
-  const state = paymentState(inv.totalPaise, settled)
+  const refunded = refunds._sum.amountPaise ?? 0
+  const settled = paid + tds + credited - refunded
+  return {
+    totalPaise: inv.totalPaise, paid, tds, credited, refunded, settled,
+    lastPaidOn: agg._max.paidOn ?? null,
+    balanceDue: Math.max(0, inv.totalPaise - settled),
+    refundDue: Math.max(0, settled - inv.totalPaise),
+  }
+}
+
+/**
+ * Paid / TDS / credited / refunded / balance / status from the live rows.
+ *
+ * An invoice is SETTLED by cash received (amountPaise), tax the client
+ * deducted at source (tdsPaise — the client pays it to the government on our
+ * behalf and we claim it via 26AS) and credit notes issued against it, less
+ * any refund paid back. amountPaidPaise stays CASH ONLY — backfillInvoicePayments
+ * compares it with the sum of amountPaise at every boot, and folding TDS in
+ * would make it invent a phantom history row on each restart.
+ *
+ * Exported and tx-aware so credit notes, refunds and the Zoho posting
+ * recompute inside their own transaction.
+ */
+export async function recomputeInvoice(tx: Tx, invoiceId: string, userId: string | null) {
+  const inv = await tx.invoice.findUniqueOrThrow({ where: { id: invoiceId } })
+  const m = await liveSettlement(tx, invoiceId)
+  const state = paymentState(inv.totalPaise, m.settled)
   // A cancelled invoice keeps its status; everything else follows the money.
   const status = inv.status === 'cancelled' ? 'cancelled'
     : state === 'paid' ? 'paid'
-    : settled > 0 ? 'partially_paid'
+    : m.settled > 0 ? 'partially_paid'
     : inv.status === 'draft' ? 'draft' : 'sent'
-  // The paid date follows the MONEY: the latest payment (cash or TDS) date.
-  // A credit note never moves it — it settles the balance without anything
-  // being received — so an invoice cleared only by credits has no paid date.
-  const lastPaidOn = agg._max.paidOn ?? null
+  // The paid date follows the MONEY RECEIVED: the latest payment (cash or
+  // TDS) date. Credit notes and refunds never move it — a credit settles the
+  // balance without anything being received, and a refund pays money back —
+  // so an invoice cleared only by credits has no paid date.
   await tx.invoice.update({
     where: { id: invoiceId },
     data: {
-      amountPaidPaise: paid,
-      tdsDeductedPaise: tds,
-      creditedPaise: credited,
-      balanceDuePaise: Math.max(0, inv.totalPaise - settled),
+      amountPaidPaise: m.paid,
+      tdsDeductedPaise: m.tds,
+      creditedPaise: m.credited,
+      refundedPaise: m.refunded,
+      balanceDuePaise: m.balanceDue,
       status,
-      paidAt: state === 'paid' && lastPaidOn ? new Date(`${lastPaidOn}T00:00:00Z`) : null,
+      paidAt: state === 'paid' && m.lastPaidOn ? new Date(`${m.lastPaidOn}T00:00:00Z`) : null,
       ...(userId ? { updatedBy: userId } : {}),
     },
   })
@@ -197,28 +225,34 @@ export async function recomputeInvoice(tx: Tx, invoiceId: string, userId: string
 
 /**
  * What is still owed on an invoice, from the LIVE rows rather than the stored
- * balanceDuePaise: total − cash received − TDS deducted − issued credit notes.
- * `excludeCreditNoteId` leaves one credit note out (the one being issued or
- * edited). Payments and credit notes both settle against this one figure, so
- * neither can take the invoice past zero — refunds are not modelled.
+ * balanceDuePaise: total − (cash + TDS + issued credits − refunds). Payments
+ * settle against this figure, so a payment can never take the invoice past
+ * zero (money owed back is a refund, not a negative balance).
  */
 export async function liveBalanceDue(tx: Tx | PrismaClient, invoiceId: string, excludeCreditNoteId?: string): Promise<number> {
-  const [inv, agg, credits] = await Promise.all([
-    tx.invoice.findUniqueOrThrow({ where: { id: invoiceId }, select: { totalPaise: true } }),
-    tx.invoicePayment.aggregate({ where: { invoiceId, deletedAt: null }, _sum: { amountPaise: true, tdsPaise: true } }),
-    tx.creditNote.aggregate({
-      where: { invoiceId, deletedAt: null, status: 'issued', ...(excludeCreditNoteId ? { id: { not: excludeCreditNoteId } } : {}) },
-      _sum: { totalPaise: true },
-    }),
-  ])
-  const settled = (agg._sum.amountPaise ?? 0) + (agg._sum.tdsPaise ?? 0) + (credits._sum.totalPaise ?? 0)
-  return Math.max(0, inv.totalPaise - settled)
+  return (await liveSettlement(tx, invoiceId, excludeCreditNoteId)).balanceDue
+}
+
+/**
+ * Removing a payment or cancelling a credit note must not leave refunds
+ * larger than what the client ever settled — the refund would then have paid
+ * back money that was never received. Call inside the transaction, after the
+ * change and before recomputeInvoice.
+ */
+export async function assertRefundsCovered(tx: Tx, invoiceId: string) {
+  const m = await liveSettlement(tx, invoiceId)
+  if (m.settled < 0) {
+    throw ApiError.conflict(
+      'refunds_exceed_settlement',
+      `Refunds of ${formatINR(m.refunded)} have been recorded against this invoice. Delete the refund first.`,
+    )
+  }
 }
 
 /**
  * Record one payment (or one instalment of a split). Draft and cancelled
- * invoices take no payments; overpayment is refused because the schema does
- * not model credit.
+ * invoices take no payments; overpayment is refused — money owed back to the
+ * client comes from a credit note and leaves through a refund.
  */
 export async function addPayment(invoiceId: string, input: PaymentInput, userId: string) {
   const inv = await prisma.invoice.findUnique({ where: { id: invoiceId } })
@@ -291,8 +325,10 @@ export async function removePayment(invoiceId: string, paymentId: string, userId
   const row = await prisma.invoicePayment.findFirst({ where: { id: paymentId, invoiceId, deletedAt: null } })
   if (!row) throw ApiError.notFound('Payment not found.')
   await prisma.$transaction(async (tx) => {
+    await lockSequence(tx, `invoice:${invoiceId}`)
     // externalPaymentId is released so the same collection can be linked again.
     await tx.invoicePayment.update({ where: { id: row.id }, data: { deletedAt: new Date(), externalPaymentId: null, updatedBy: userId } })
+    await assertRefundsCovered(tx, invoiceId)
     await recomputeInvoice(tx, invoiceId, userId)
   })
   return row

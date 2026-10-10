@@ -47,7 +47,7 @@ export const FINANCE_REPORTS = [
   { key: 'revenue-by-client', title: 'Revenue by client', description: 'Fees, GST, cash collected, TDS, credit notes and outstanding per client.' },
   { key: 'unbilled', title: 'Unbilled work', description: 'Time logged on engagements that have no invoice in the period, at cost.' },
   { key: 'dso', title: 'Days sales outstanding', description: 'Receivable days for the firm and per client, with average days to collect.' },
-  { key: 'collections', title: 'Collections', description: 'Cash and TDS received month by month.' },
+  { key: 'collections', title: 'Receipts register', description: 'Cash and TDS received month by month, net of refunds.' },
   { key: 'profitability-client', title: 'Client profitability', description: 'Fees less time cost per client, with margin.' },
   { key: 'profitability-engagement', title: 'Engagement profitability', description: 'Fees less time cost per engagement (client service) and per audit engagement.' },
   { key: 'utilisation', title: 'Staff utilisation', description: 'Task hours against attendance hours, per employee per month.' },
@@ -100,6 +100,16 @@ function paymentWhere(from: string | null, to: string, clientId?: string) {
   return {
     deletedAt: null,
     paidOn: from ? { gte: from, lte: to } : { lte: to },
+    invoice: { deletedAt: null, status: { notIn: NOT_BILLED } },
+    ...(clientId ? { clientId } : {}),
+  }
+}
+
+/** Refunds paid back against billed invoices, by the date they were paid. */
+function refundWhere(from: string | null, to: string, clientId?: string) {
+  return {
+    deletedAt: null,
+    refundedOn: from ? { gte: from, lte: to } : { lte: to },
     invoice: { deletedAt: null, status: { notIn: NOT_BILLED } },
     ...(clientId ? { clientId } : {}),
   }
@@ -306,9 +316,12 @@ async function revenueByService(p: FinanceParams): Promise<FinanceReport> {
   }
 }
 
-/** Receivable per client as at `asOf`: invoice totals less cash, TDS and issued credit notes. */
+/**
+ * Receivable per client as at `asOf`: invoice totals less cash, TDS and issued
+ * credit notes, plus refunds paid back (a refund un-settles what it returns).
+ */
 async function receivablesAsAt(asOf: string, clientId?: string): Promise<Map<string, number>> {
-  const [inv, pay, cn] = await Promise.all([
+  const [inv, pay, cn, rf] = await Promise.all([
     prisma.invoice.groupBy({ by: ['clientId'], where: billedWhere(null, asOf, clientId), _sum: { totalPaise: true } }),
     prisma.invoicePayment.groupBy({
       by: ['clientId'],
@@ -320,16 +333,22 @@ async function receivablesAsAt(asOf: string, clientId?: string): Promise<Map<str
       where: { ...issuedCreditNoteWhere(null, asOf, clientId), invoice: { ...billedWhere(null, asOf, clientId) } },
       _sum: { totalPaise: true },
     }),
+    prisma.invoiceRefund.groupBy({
+      by: ['clientId'],
+      where: { ...refundWhere(null, asOf, clientId), invoice: { ...billedWhere(null, asOf, clientId) } },
+      _sum: { amountPaise: true },
+    }),
   ])
   const out = new Map<string, number>()
   for (const r of inv) add(out, r.clientId, r._sum.totalPaise ?? 0)
   for (const r of pay) add(out, r.clientId, -((r._sum.amountPaise ?? 0) + (r._sum.tdsPaise ?? 0)))
   for (const r of cn) add(out, r.clientId, -(r._sum.totalPaise ?? 0))
+  for (const r of rf) add(out, r.clientId, r._sum.amountPaise ?? 0)
   return out
 }
 
 async function revenueByClient(p: FinanceParams): Promise<FinanceReport> {
-  const [invoices, payments, notes, outstanding] = await Promise.all([
+  const [invoices, payments, notes, outstanding, refunds] = await Promise.all([
     prisma.invoice.findMany({
       where: billedWhere(p.from, p.to, p.clientId),
       select: { clientId: true, taxablePaise: true, cgstPaise: true, sgstPaise: true, igstPaise: true, totalPaise: true },
@@ -337,14 +356,18 @@ async function revenueByClient(p: FinanceParams): Promise<FinanceReport> {
     prisma.invoicePayment.findMany({ where: paymentWhere(p.from, p.to, p.clientId), select: { clientId: true, amountPaise: true, tdsPaise: true } }),
     prisma.creditNote.findMany({ where: issuedCreditNoteWhere(p.from, p.to, p.clientId), select: { clientId: true, taxablePaise: true, totalPaise: true } }),
     receivablesAsAt(p.to, p.clientId),
+    prisma.invoiceRefund.findMany({ where: refundWhere(p.from, p.to, p.clientId), select: { clientId: true, amountPaise: true } }),
   ])
-  const ids = new Set<string>([...invoices.map((i) => i.clientId), ...payments.map((x) => x.clientId), ...notes.map((n) => n.clientId)])
+  const ids = new Set<string>([
+    ...invoices.map((i) => i.clientId), ...payments.map((x) => x.clientId), ...notes.map((n) => n.clientId), ...refunds.map((r) => r.clientId),
+  ])
   for (const [id, v] of outstanding) if (v !== 0) ids.add(id)
   const names = await clientNames(ids)
   const rows = [...ids].map((id) => {
     const inv = invoices.filter((i) => i.clientId === id)
     const pay = payments.filter((x) => x.clientId === id)
     const cn = notes.filter((n) => n.clientId === id)
+    const rf = refunds.filter((r) => r.clientId === id)
     return {
       client_id: id,
       client_code: names.get(id)?.code ?? '',
@@ -353,9 +376,11 @@ async function revenueByClient(p: FinanceParams): Promise<FinanceReport> {
       fees_paise: sum(inv, (i) => i.taxablePaise) - sum(cn, (n) => n.taxablePaise),
       gst_paise: sum(inv, gstOf),
       total_invoiced_paise: sum(inv, (i) => i.totalPaise),
-      cash_collected_paise: sum(pay, (x) => x.amountPaise),
+      // Net of refunds paid back in the period.
+      cash_collected_paise: sum(pay, (x) => x.amountPaise) - sum(rf, (r) => r.amountPaise),
       tds_paise: sum(pay, (x) => x.tdsPaise),
       credited_paise: sum(cn, (n) => n.totalPaise),
+      refunded_paise: sum(rf, (r) => r.amountPaise),
       outstanding_paise: outstanding.get(id) ?? 0,
     }
   }).sort((a, b) => b.fees_paise - a.fees_paise || a.client.localeCompare(b.client))
@@ -366,9 +391,10 @@ async function revenueByClient(p: FinanceParams): Promise<FinanceReport> {
     { key: 'fees_paise', label: 'Net fees (ex-GST)', type: 'money' },
     { key: 'gst_paise', label: 'GST invoiced', type: 'money' },
     { key: 'total_invoiced_paise', label: 'Total invoiced', type: 'money' },
-    { key: 'cash_collected_paise', label: 'Cash collected', type: 'money' },
+    { key: 'cash_collected_paise', label: 'Cash collected (net of refunds)', type: 'money' },
     { key: 'tds_paise', label: 'TDS deducted', type: 'money' },
     { key: 'credited_paise', label: 'Credit notes', type: 'money' },
+    { key: 'refunded_paise', label: 'Refunds', type: 'money' },
     { key: 'outstanding_paise', label: 'Outstanding', type: 'money' },
   ]
   return {
@@ -377,8 +403,9 @@ async function revenueByClient(p: FinanceParams): Promise<FinanceReport> {
     rows,
     totals: totalsOf(columns, rows, { client: 'Total', client_code: '' }),
     notes: [
-      'Fees are net of issued credit notes in the period. Cash and TDS are by payment date; credit notes by note date.',
-      `Outstanding is the receivable as at ${p.to}: invoice totals less cash, TDS and credit notes up to that date.`,
+      'Fees are net of issued credit notes in the period. Cash and TDS are by payment date; credit notes by note date; refunds by the date paid back.',
+      'Cash collected is net of refunds paid back in the period.',
+      `Outstanding is the receivable as at ${p.to}: invoice totals less cash, TDS and credit notes, plus refunds, up to that date. Negative means money is due back to the client.`,
     ],
   }
 }
@@ -486,20 +513,33 @@ async function dso(p: FinanceParams): Promise<FinanceReport> {
 }
 
 async function collections(p: FinanceParams): Promise<FinanceReport> {
-  const payments = await prisma.invoicePayment.findMany({
-    where: paymentWhere(p.from, p.to, p.clientId),
-    select: { paidOn: true, amountPaise: true, tdsPaise: true },
-  })
+  const [payments, refunds] = await Promise.all([
+    prisma.invoicePayment.findMany({
+      where: paymentWhere(p.from, p.to, p.clientId),
+      select: { paidOn: true, amountPaise: true, tdsPaise: true },
+    }),
+    prisma.invoiceRefund.findMany({
+      where: refundWhere(p.from, p.to, p.clientId),
+      select: { refundedOn: true, amountPaise: true },
+    }),
+  ])
   const rows = monthsBetween(p.from, p.to).map((month) => {
     const list = payments.filter((x) => x.paidOn.startsWith(month))
+    const back = refunds.filter((r) => r.refundedOn.startsWith(month))
     const cash = sum(list, (x) => x.amountPaise)
+    const refunded = sum(back, (r) => r.amountPaise)
     const tds = sum(list, (x) => x.tdsPaise)
-    return { month, payment_count: list.length, cash_paise: cash, tds_paise: tds, settled_paise: cash + tds }
+    return {
+      month, payment_count: list.length, cash_paise: cash, refunded_paise: refunded,
+      net_cash_paise: cash - refunded, tds_paise: tds, settled_paise: cash - refunded + tds,
+    }
   })
   const columns: ReportColumn[] = [
     { key: 'month', label: 'Month', type: 'text' },
     { key: 'payment_count', label: 'Payments', type: 'number' },
-    { key: 'cash_paise', label: 'Cash collected', type: 'money' },
+    { key: 'cash_paise', label: 'Cash received', type: 'money' },
+    { key: 'refunded_paise', label: 'Refunds', type: 'money' },
+    { key: 'net_cash_paise', label: 'Net cash collected', type: 'money' },
     { key: 'tds_paise', label: 'TDS deducted', type: 'money' },
     { key: 'settled_paise', label: 'Total settled', type: 'money' },
   ]
@@ -508,7 +548,10 @@ async function collections(p: FinanceParams): Promise<FinanceReport> {
     columns,
     rows,
     totals: totalsOf(columns, rows, { month: 'Total' }),
-    notes: ['By payment date. Total settled = cash received + TDS deducted by the client.'],
+    notes: [
+      'By payment date; refunds by the date they were paid back.',
+      'Net cash = cash received − refunds. Total settled = net cash + TDS deducted by the client.',
+    ],
   }
 }
 

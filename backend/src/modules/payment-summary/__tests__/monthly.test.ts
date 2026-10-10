@@ -29,10 +29,20 @@ describe('bucketMonthly', () => {
       ],
     )
     expect(points).toEqual([
-      { month: '2026-08', billed_paise: 10_000, collected_paise: 4_000, invoices: 1, payments: 1 },
-      { month: '2026-09', billed_paise: 30_000, collected_paise: 0, invoices: 2, payments: 0 },
-      { month: '2026-10', billed_paise: 0, collected_paise: 25_000, invoices: 0, payments: 1 },
+      { month: '2026-08', billed_paise: 10_000, collected_paise: 4_000, refunded_paise: 0, invoices: 1, payments: 1 },
+      { month: '2026-09', billed_paise: 30_000, collected_paise: 0, refunded_paise: 0, invoices: 2, payments: 0 },
+      { month: '2026-10', billed_paise: 0, collected_paise: 25_000, refunded_paise: 0, invoices: 0, payments: 1 },
     ])
+  })
+
+  it('takes refunds out of collected in the month they were paid back', () => {
+    const points = bucketMonthly(
+      months,
+      [],
+      [{ paidOn: '2026-08-20', amountPaise: 10_000 }],
+      [{ refundedOn: '2026-09-05', amountPaise: 3_000 }, { refundedOn: '2027-01-01', amountPaise: 1 }],
+    )
+    expect(points.map((p) => [p.collected_paise, p.refunded_paise, p.payments])).toEqual([[10_000, 0, 1], [-3_000, 3_000, 0], [0, 0, 0]])
   })
 
   it('ignores anything outside the window', () => {

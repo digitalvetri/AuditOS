@@ -2,7 +2,8 @@
  * Billed vs collected, month by month — the dashboard's cash-flow chart.
  *
  *   billed    = sum of invoice totals, bucketed by the invoice's `invoiceDate`
- *   collected = sum of payments received, bucketed by the payment's `paidOn`
+ *   collected = sum of payments received, bucketed by the payment's `paidOn`,
+ *               LESS refunds paid back, bucketed by the refund's `refundedOn`
  *
  * Both dates are stored as 'YYYY-MM-DD' strings in IST already, so the month
  * is simply the first seven characters — no timezone conversion needed.
@@ -13,7 +14,10 @@ export interface MonthPoint {
   /** 'YYYY-MM' */
   month: string
   billed_paise: number
+  /** Cash in, net of refunds paid back in the month. */
   collected_paise: number
+  /** Refunds paid back in the month (already taken out of collected_paise). */
+  refunded_paise: number
   invoices: number
   payments: number
 }
@@ -36,9 +40,10 @@ export function bucketMonthly(
   months: string[],
   invoices: { invoiceDate: string; totalPaise: number }[],
   payments: { paidOn: string; amountPaise: number }[],
+  refunds: { refundedOn: string; amountPaise: number }[] = [],
 ): MonthPoint[] {
   const points = new Map<string, MonthPoint>(
-    months.map((m) => [m, { month: m, billed_paise: 0, collected_paise: 0, invoices: 0, payments: 0 }]),
+    months.map((m) => [m, { month: m, billed_paise: 0, collected_paise: 0, refunded_paise: 0, invoices: 0, payments: 0 }]),
   )
   for (const inv of invoices) {
     const p = points.get(inv.invoiceDate.slice(0, 7))
@@ -51,6 +56,12 @@ export function bucketMonthly(
     if (!p) continue
     p.collected_paise += pay.amountPaise
     p.payments += 1
+  }
+  for (const r of refunds) {
+    const p = points.get(r.refundedOn.slice(0, 7))
+    if (!p) continue
+    p.collected_paise -= r.amountPaise
+    p.refunded_paise += r.amountPaise
   }
   return months.map((m) => points.get(m)!)
 }

@@ -8,6 +8,7 @@ import { InvoiceService, QR_MODES, TERMS, type ItemInput } from './service.js'
 import { GST_RATES } from './totals.js'
 import { listPayments, notifyPaymentRecorded, paymentBodySchema, paymentToApi, receiptNumberFor, setTdsCertificate, toPaymentInput } from './payments.js'
 import { listReminders, sendInvoiceReminder } from './reminders.js'
+import { refundBodySchema, refundToApi, toRefundInput } from './refunds.js'
 import { prisma } from '../../lib/prisma.js'
 import { isAccountAdmin } from '../../platform/roleRank.js'
 import { writeAudit } from '../../platform/audit.js'
@@ -340,6 +341,48 @@ invoicesRouter.get('/:id/payments/:paymentId/receipt-url', handler(async (req, r
   const row = await prisma.invoicePayment.findFirst({ where: { id: req.params.paymentId, invoiceId: req.params.id, deletedAt: null }, select: { id: true } })
   if (!row) throw ApiError.notFound('Payment not found.')
   ok(res, signedLink(`/api/invoice-payments/${row.id}/receipt`, `receipt:${row.id}`, session.userId))
+}))
+
+// ── Refunds ────────────────────────────────────────────────────────────────
+// Money paid back to the client when the invoice is settled beyond its total
+// (a credit note after payment). Same permission as recording a payment.
+invoicesRouter.post('/:id/refunds', handler(async (req, res) => {
+  const session = requireSession(req)
+  const scope = requireWorkstation(session, 'workstation.invoice.manage')
+  const body = parse(refundBodySchema, req.body, 'Check the refund.')
+  const input = toRefundInput(body)
+  const { invoice, refund } = await InvoiceService.recordRefund(session, scope, req.params.id, input)
+  await writeAudit({
+    actorUserId: session.userId, action: 'invoice_refund.recorded', entityType: 'Invoice', entityId: req.params.id,
+    after: {
+      refund_id: refund.id, refund_number: refund.refund_number, amount_paise: input.amountPaise, refunded_on: input.refundedOn,
+      mode: input.mode, reference: input.reference ?? null, credit_note_id: input.creditNoteId ?? null,
+    },
+    req,
+  })
+  ok(res, invoice)
+}))
+
+invoicesRouter.delete('/:id/refunds/:refundId', handler(async (req, res) => {
+  const session = requireSession(req)
+  const scope = requireWorkstation(session, 'workstation.invoice.manage')
+  const before = await prisma.invoiceRefund.findFirst({ where: { id: req.params.refundId, invoiceId: req.params.id, deletedAt: null } })
+  const invoice = await InvoiceService.removeRefund(session, scope, req.params.id, req.params.refundId)
+  await writeAudit({
+    actorUserId: session.userId, action: 'invoice_refund.removed', entityType: 'Invoice', entityId: req.params.id,
+    before: before ? refundToApi(before) : { refund_id: req.params.refundId }, req,
+  })
+  ok(res, invoice)
+}))
+
+/** Signed link to the refund voucher PDF (served by billing-signed.ts). */
+invoicesRouter.get('/:id/refunds/:refundId/voucher-url', handler(async (req, res) => {
+  const session = requireSession(req)
+  const scope = requireWorkstation(session, 'workstation.invoice.read')
+  await InvoiceService.get(session, scope, req.params.id)
+  const row = await prisma.invoiceRefund.findFirst({ where: { id: req.params.refundId, invoiceId: req.params.id, deletedAt: null }, select: { id: true } })
+  if (!row) throw ApiError.notFound('Refund not found.')
+  ok(res, signedLink(`/api/invoice-refunds/${row.id}/voucher`, `refund:${row.id}`, session.userId))
 }))
 
 /** Email the client a reminder for an overdue invoice, with its PDF link. */

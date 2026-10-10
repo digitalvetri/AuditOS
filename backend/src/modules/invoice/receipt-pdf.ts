@@ -63,3 +63,55 @@ export async function streamReceiptPdf(res: Response, paymentId: string) {
     signatory: { name: inv.signatoryName, designation: inv.signatoryDesignation },
   })
 }
+
+/** REFUND VOUCHER for one InvoiceRefund row: money paid back against an invoice. */
+export async function streamRefundVoucherPdf(res: Response, refundId: string) {
+  const r = await prisma.invoiceRefund.findFirst({
+    where: { id: refundId, deletedAt: null },
+    include: { invoice: { include: { client: { select: { companyName: true } } } } },
+  })
+  if (!r) throw ApiError.notFound('Refund not found.')
+  const inv = r.invoice
+  const number = r.refundNumber ?? 'Refund'
+  const cn = r.creditNoteId
+    ? await prisma.creditNote.findUnique({ where: { id: r.creditNoteId }, select: { creditNoteNumber: true } })
+    : null
+  await streamDocPdf(res, {
+    title: 'REFUND VOUCHER',
+    filename: `${number}.pdf`,
+    layoutConfig: inv.layoutConfig,
+    meta: [
+      ['Voucher #', number],
+      ['Refund Date', fmtDay(r.refundedOn)],
+      ['Mode', MODE_LABEL[r.mode] ?? r.mode],
+      ...(r.reference ? [['Reference', r.reference] as [string, string]] : []),
+    ],
+    metaRight: [
+      ['Against Invoice', inv.invoiceNumber ?? 'Draft'],
+      ['Invoice Date', fmtDay(inv.invoiceDate)],
+      ...(cn?.creditNoteNumber ? [['Credit Note', cn.creditNoteNumber] as [string, string]] : []),
+    ],
+    party: {
+      title: 'Paid To',
+      name: inv.billingName ?? inv.client.companyName,
+      address: inv.billingAddress,
+      gstin: inv.customerGstin,
+    },
+    columns: [
+      { label: '#', width: 0.06, align: 'center' },
+      { label: 'Particulars', width: 0.54, align: 'left' },
+      { label: 'Amount (Rs.)', width: 0.4, align: 'right' },
+    ],
+    rows: [
+      ['1', `Refunded against invoice ${inv.invoiceNumber ?? ''}${cn?.creditNoteNumber ? ` (credit note ${cn.creditNoteNumber})` : ''} by ${MODE_LABEL[r.mode] ?? r.mode}`, pdfMoney(r.amountPaise)],
+    ],
+    summary: [
+      { label: 'Amount Refunded', value: `Rs. ${pdfMoney(r.amountPaise)}`, strong: true },
+      { label: 'Invoice Total', value: pdfMoney(inv.totalPaise) },
+      { label: 'Balance Due', value: `Rs. ${pdfMoney(inv.balanceDuePaise)}`, strong: true },
+    ],
+    words: invoiceAmountInWords(r.amountPaise),
+    note: r.note ? { title: 'Note', text: r.note } : null,
+    signatory: { name: inv.signatoryName, designation: inv.signatoryDesignation },
+  })
+}

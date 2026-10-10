@@ -13,6 +13,7 @@ import { istToday } from '../../../lib/dates.js'
  * Billing completeness:
  *   - TDS on fee receipts settles the invoice (cash + TDS),
  *   - credit notes: numbering on issue, limits, balance effect, cancel,
+ *   - refunds: refund due from a credit after payment, caps, numbering, removal,
  *   - recurring retainers: date math and one invoice per profile + period,
  *   - Zoho Payments collections post to the invoice exactly once,
  *   - an accepted quotation converts to a draft invoice once.
@@ -26,12 +27,12 @@ let cookie = ''
 let clientId = ''
 let userId = ''
 
-const OVER_BALANCE = 'This credit is more than the balance due on the invoice. Refunds are not recorded in AuditOS yet — reduce the credit to the balance due.'
+const OVER_BALANCE = 'This credit is more than the invoice total less the credit notes already issued against it. Reduce the credit.'
 
-async function api(path: string, opts: { method?: string; body?: unknown } = {}) {
+async function api(path: string, opts: { method?: string; body?: unknown; cookie?: string } = {}) {
   const res = await fetch(`${base}${path}`, {
     method: opts.method ?? 'GET',
-    headers: { 'Content-Type': 'application/json', Cookie: cookie },
+    headers: { 'Content-Type': 'application/json', Cookie: opts.cookie ?? cookie },
     body: opts.body ? JSON.stringify(opts.body) : undefined,
   })
   const text = await res.text()
@@ -183,27 +184,34 @@ describe('credit notes', () => {
     expect(after.body.paid_at).toBeNull()
   })
 
-  it('a credit is capped at the balance due after cash and TDS', async () => {
+  it('a credit may go up to the total less earlier credits, even after cash and TDS', async () => {
     const inv = await sentInvoice()
-    // ₹5,000 cash + ₹1,000 TDS against ₹11,800 leaves ₹5,800 due.
+    // ₹5,000 cash + ₹1,000 TDS against ₹11,800 leaves ₹5,800 due — but the
+    // whole ₹11,800 may still be credited (the GST limit is the invoice total).
     const pay = await api(`/api/invoices/${inv.id}/payments`, { method: 'POST', body: { amount_paise: 5_000_00, tds_paise: 1_000_00, paid_on: '2026-09-08' } })
     expect(pay.status).toBe(200)
     const room = await api(`/api/credit-notes/creditable/${inv.id}`)
     expect(room.status).toBe(200)
-    expect(room.body.creditable_paise).toBe(5_800_00)
+    expect(room.body).toMatchObject({ creditable_paise: 11_800_00, balance_due_paise: 5_800_00 })
 
-    // ₹5,000 + 18% = ₹5,900 > ₹5,800: refused, with the plain message.
-    const over = await api('/api/credit-notes', { method: 'POST', body: { invoice_id: inv.id, note_date: '2026-09-09', reason: 'discount', lines: [{ description: 'Too much', taxable_paise: 5_000_00, gst_rate: 18 }] } })
+    // ₹10,000 + 18% = ₹11,800 fits; ₹10,001 + 18% does not.
+    const over = await api('/api/credit-notes', { method: 'POST', body: { invoice_id: inv.id, note_date: '2026-09-09', reason: 'discount', lines: [{ description: 'Too much', taxable_paise: 10_001_00, gst_rate: 18 }] } })
     expect(over.status).toBe(422)
-    expect(over.body.error).toMatchObject({ code: 'credit_exceeds_balance', message: OVER_BALANCE, details: { creditable_paise: 5_800_00 } })
+    expect(over.body.error).toMatchObject({ code: 'credit_exceeds_balance', message: OVER_BALANCE, details: { creditable_paise: 11_800_00 } })
 
-    // A draft that fits, then a payment that eats the room: refused at issue.
-    const fits = await api('/api/credit-notes', { method: 'POST', body: { invoice_id: inv.id, note_date: '2026-09-09', reason: 'discount', lines: [{ description: 'Fits', taxable_paise: 1_000_00, gst_rate: 18 }] } })
-    expect(fits.status).toBe(201)
-    expect((await api(`/api/invoices/${inv.id}/payments`, { method: 'POST', body: { amount_paise: 5_000_00, paid_on: '2026-09-10' } })).status).toBe(200)
-    const late = await api(`/api/credit-notes/${fits.body.id}/issue`, { method: 'POST' })
+    // Two drafts that each fit, but not together: the second is refused at issue.
+    const a = await api('/api/credit-notes', { method: 'POST', body: { invoice_id: inv.id, note_date: '2026-09-09', reason: 'discount', lines: [{ description: 'A', taxable_paise: 6_000_00, gst_rate: 18 }] } })
+    const b = await api('/api/credit-notes', { method: 'POST', body: { invoice_id: inv.id, note_date: '2026-09-09', reason: 'discount', lines: [{ description: 'B', taxable_paise: 6_000_00, gst_rate: 18 }] } })
+    expect(a.status).toBe(201)
+    expect(b.status).toBe(201)
+    expect((await api(`/api/credit-notes/${a.body.id}/issue`, { method: 'POST' })).status).toBe(200)
+    const late = await api(`/api/credit-notes/${b.body.id}/issue`, { method: 'POST' })
     expect(late.status).toBe(422)
-    expect(late.body.error.message).toBe(OVER_BALANCE)
+    expect(late.body.error).toMatchObject({ message: OVER_BALANCE, details: { creditable_paise: 11_800_00 - 7_080_00 } })
+    // ₹7,080 credit + ₹6,000 settled = ₹13,080: paid, with ₹1,280 due back.
+    const after = await api(`/api/invoices/${inv.id}`)
+    expect(after.body).toMatchObject({ stored_status: 'paid', balance_due_paise: 0, refund_due_paise: 1_280_00, refunded_paise: 0 })
+    expect(after.body.paid_at?.slice(0, 10)).toBe('2026-09-08')
   })
 
   it('a credit equal to the balance settles the invoice without moving its paid date', async () => {
@@ -217,17 +225,175 @@ describe('credit notes', () => {
     const after = await api(`/api/invoices/${inv.id}`)
     expect(after.body.stored_status).toBe('paid')
     expect(after.body.balance_due_paise).toBe(0)
+    expect(after.body.refund_due_paise).toBe(0)
     expect(after.body.paid_at?.slice(0, 10)).toBe('2026-09-08')
-    // A paid invoice has nothing left to credit.
-    expect((await api(`/api/credit-notes/creditable/${inv.id}`)).body.creditable_paise).toBe(0)
-    const more = await api('/api/credit-notes', { method: 'POST', body: { invoice_id: inv.id, note_date: '2026-09-21', reason: 'other', lines: [{ description: 'x', taxable_paise: 100, gst_rate: 18 }] } })
-    expect(more.status).toBe(422)
+    // A paid invoice can still be credited up to its total less earlier credits.
+    expect((await api(`/api/credit-notes/creditable/${inv.id}`)).body).toMatchObject({ creditable_paise: 10_000_00, balance_due_paise: 0 })
   })
 
   it('accepts the GST 2.0 40% slab', async () => {
     const r = await api('/api/invoices', { method: 'POST', body: { client_id: clientId, invoice_date: '2026-09-25', terms: 'net_15', is_inter_state: false, items: [{ item_name: 'Fee', quantity_centi: 100, rate_paise: 1_000_00, gst_rate_percent: 40 }] } })
     expect(r.status).toBe(201)
     expect(r.body.total_paise).toBe(1_400_00)
+  })
+})
+
+describe('refunds', () => {
+  const REFUND_OVER = (rupees: string) => `Refund is more than the amount due back to the client (₹ ${rupees}).`
+
+  /** A fully-paid ₹11,800 invoice with a ₹2,360 credit issued after payment. */
+  async function paidAndCredited(clientOverride?: string, invoiceDate?: string, paidOn = '2026-09-10') {
+    const r = await api('/api/invoices', {
+      method: 'POST',
+      body: {
+        client_id: clientOverride ?? clientId, invoice_date: invoiceDate ?? '2026-09-01', terms: 'net_15', is_inter_state: false,
+        items: [{ item_name: 'Audit fee', quantity_centi: 100, rate_paise: 10_000_00, gst_rate_percent: 18 }],
+      },
+    })
+    expect(r.status).toBe(201)
+    expect((await api(`/api/invoices/${r.body.id}/send`, { method: 'POST' })).status).toBe(200)
+    const paid = await api(`/api/invoices/${r.body.id}/payments`, { method: 'POST', body: { amount_paise: 11_800_00, paid_on: paidOn } })
+    expect(paid.body.stored_status).toBe('paid')
+    const cn = await api('/api/credit-notes', { method: 'POST', body: { invoice_id: r.body.id, note_date: paidOn, reason: 'fee_reduction', lines: [{ description: 'Fee reduced', taxable_paise: 2_000_00, gst_rate: 18 }] } })
+    expect(cn.status).toBe(201)
+    expect((await api(`/api/credit-notes/${cn.body.id}/issue`, { method: 'POST' })).status).toBe(200)
+    return { invoiceId: r.body.id as string, creditNoteId: cn.body.id as string }
+  }
+
+  it('a credit on a paid invoice creates a refund due; refunds are capped, numbered, listed and removable', async () => {
+    const { invoiceId, creditNoteId } = await paidAndCredited()
+    const inv = await api(`/api/invoices/${invoiceId}`)
+    expect(inv.body).toMatchObject({
+      stored_status: 'paid', balance_due_paise: 0, credited_paise: 2_360_00, refund_due_paise: 2_360_00, refunded_paise: 0, refunds: [],
+    })
+    expect(inv.body.paid_at.slice(0, 10)).toBe('2026-09-10')
+    // Listed under the Refund due filter.
+    const due = await api('/api/invoices?status=refund_due&limit=200')
+    expect(due.body.items.map((i: { id: string }) => i.id)).toContain(invoiceId)
+    expect((await api('/api/invoices/summary')).body.counts.refund_due).toBeGreaterThan(0)
+
+    // More than is due back: 422 with the amount in the message.
+    const over = await api(`/api/invoices/${invoiceId}/refunds`, { method: 'POST', body: { amount_paise: 2_360_01, refunded_on: '2026-09-15', mode: 'bank_transfer' } })
+    expect(over.status).toBe(422)
+    expect(over.body.error).toMatchObject({ code: 'refund_exceeds_due', message: REFUND_OVER('2,360.00') })
+    // Not dated in the future, and the credit note must be this invoice's.
+    expect((await api(`/api/invoices/${invoiceId}/refunds`, { method: 'POST', body: { amount_paise: 100, refunded_on: '2999-01-01' } })).status).toBe(400)
+    expect((await api(`/api/invoices/${invoiceId}/refunds`, { method: 'POST', body: { amount_paise: 100, credit_note_id: 'nope' } })).status).toBe(400)
+
+    const first = await api(`/api/invoices/${invoiceId}/refunds`, { method: 'POST', body: { amount_paise: 1_000_00, refunded_on: '2026-09-15', mode: 'upi', reference: 'UTR1', credit_note_id: creditNoteId } })
+    expect(first.status).toBe(200)
+    expect(first.body).toMatchObject({ stored_status: 'paid', balance_due_paise: 0, refunded_paise: 1_000_00, refund_due_paise: 1_360_00 })
+    expect(first.body.refunds).toHaveLength(1)
+    expect(first.body.refunds[0]).toMatchObject({ amount_paise: 1_000_00, refunded_on: '2026-09-15', mode: 'upi', reference: 'UTR1', credit_note_id: creditNoteId })
+    expect(first.body.refunds[0].refund_number).toMatch(/^RFD-\d{6}$/)
+    // The paid date follows payments only.
+    expect(first.body.paid_at.slice(0, 10)).toBe('2026-09-10')
+
+    const over2 = await api(`/api/invoices/${invoiceId}/refunds`, { method: 'POST', body: { amount_paise: 1_360_01, refunded_on: '2026-09-16' } })
+    expect(over2.status).toBe(422)
+    expect(over2.body.error.message).toBe(REFUND_OVER('1,360.00'))
+    const second = await api(`/api/invoices/${invoiceId}/refunds`, { method: 'POST', body: { amount_paise: 1_360_00, refunded_on: '2026-09-16' } })
+    expect(second.status).toBe(200)
+    expect(second.body).toMatchObject({ stored_status: 'paid', balance_due_paise: 0, refunded_paise: 2_360_00, refund_due_paise: 0 })
+    expect(second.body.paid_at.slice(0, 10)).toBe('2026-09-10')
+    const n1 = Number(second.body.refunds[0].refund_number.slice(4))
+    const n2 = Number(second.body.refunds[1].refund_number.slice(4))
+    expect(n2).toBe(n1 + 1)
+    // Nothing more is due back.
+    const none = await api(`/api/invoices/${invoiceId}/refunds`, { method: 'POST', body: { amount_paise: 100 } })
+    expect(none.status).toBe(422)
+    expect(none.body.error.message).toBe(REFUND_OVER('0.00'))
+
+    // The voucher PDF.
+    const v = await api(`/api/invoices/${invoiceId}/refunds/${second.body.refunds[0].id}/voucher-url`)
+    expect(v.status).toBe(200)
+    const pdf = await fetch(`${base}${v.body.url}`)
+    expect(pdf.status).toBe(200)
+    expect(pdf.headers.get('content-type')).toContain('application/pdf')
+
+    // Removing a refund recomputes; removing it twice is a 404.
+    const del = await api(`/api/invoices/${invoiceId}/refunds/${second.body.refunds[1].id}`, { method: 'DELETE' })
+    expect(del.status).toBe(200)
+    expect(del.body).toMatchObject({ stored_status: 'paid', refunded_paise: 1_000_00, refund_due_paise: 1_360_00 })
+    expect(del.body.refunds).toHaveLength(1)
+    expect(del.body.paid_at.slice(0, 10)).toBe('2026-09-10')
+    expect((await api(`/api/invoices/${invoiceId}/refunds/${second.body.refunds[1].id}`, { method: 'DELETE' })).status).toBe(404)
+    // A removed voucher number is never handed out again.
+    const again = await api(`/api/invoices/${invoiceId}/refunds`, { method: 'POST', body: { amount_paise: 1_360_00, refunded_on: '2026-09-17' } })
+    expect(Number(again.body.refunds[1].refund_number.slice(4))).toBeGreaterThan(n2)
+
+    // Cancelling the credit after the refund: the refunded ₹2,360 is owed again.
+    const cancelled = await api(`/api/credit-notes/${creditNoteId}/cancel`, { method: 'POST', body: { reason: 'raised in error' } })
+    expect(cancelled.status).toBe(200)
+    const reopened = await api(`/api/invoices/${invoiceId}`)
+    expect(reopened.body).toMatchObject({ stored_status: 'partially_paid', balance_due_paise: 2_360_00, refund_due_paise: 0, refunded_paise: 2_360_00 })
+    // Removing the payment now would leave refunds with nothing settled behind them.
+    const pid = (await api(`/api/invoices/${invoiceId}/payments`)).body.items[0].id
+    const blocked = await api(`/api/invoices/${invoiceId}/payments/${pid}`, { method: 'DELETE' })
+    expect(blocked.status).toBe(409)
+    expect(blocked.body.error.code).toBe('refunds_exceed_settlement')
+
+    // Both are audited.
+    const actions = (await prisma.auditLog.findMany({ where: { entityType: 'Invoice', entityId: invoiceId }, select: { action: true } })).map((a) => a.action)
+    expect(actions).toEqual(expect.arrayContaining(['invoice_refund.recorded', 'invoice_refund.removed']))
+  })
+
+  it('a refund recorded on an unpaid invoice is refused, and concurrent refunds never share a number', async () => {
+    const open = await sentInvoice()
+    const r = await api(`/api/invoices/${open.id}/refunds`, { method: 'POST', body: { amount_paise: 100 } })
+    expect(r.status).toBe(422)
+
+    const a = await paidAndCredited()
+    const b = await paidAndCredited()
+    const [ra, rb] = await Promise.all([
+      api(`/api/invoices/${a.invoiceId}/refunds`, { method: 'POST', body: { amount_paise: 2_360_00, refunded_on: '2026-09-20' } }),
+      api(`/api/invoices/${b.invoiceId}/refunds`, { method: 'POST', body: { amount_paise: 2_360_00, refunded_on: '2026-09-20' } }),
+    ])
+    expect(ra.status).toBe(200)
+    expect(rb.status).toBe(200)
+    const nums = [ra.body.refunds[0].refund_number, rb.body.refunds[0].refund_number].map((x: string) => Number(x.slice(4))).sort((x, y) => x - y)
+    expect(nums[1]).toBe(nums[0] + 1)
+  })
+
+  it('payment summary and finance reports count collections net of refunds', async () => {
+    const role = await prisma.role.findUniqueOrThrow({ where: { code: 'md' } })
+    const emp = await prisma.employee.create({ data: { organisationId: orgId, employeeCode: uid('RF'), firstName: 'R', lastName: 'F', fullName: 'R F', email: `${uid('rf')}@x.local`, joiningDate: '2026-01-01', workScheduleId: wsId } })
+    const u = await prisma.user.create({ data: { organisationId: orgId, email: emp.email, passwordHash: 'x', roleId: role.id, employeeId: emp.id } })
+    const md = `ao_access=${signToken(u.id)}`
+    const cid = (await prisma.client.create({ data: { organisationId: orgId, clientCode: uid('CLI'), companyName: 'Refund Co', accountManagerId: emp.id, contactPerson: 'P', contactNumber: '9876543210', onboardingDate: '2026-01-01' } })).id
+    const today = istToday()
+    const month = today.slice(0, 7)
+
+    const monthBefore = await api('/api/payment-summary/monthly?months=1', { cookie: md })
+    expect(monthBefore.status).toBe(200)
+    const { invoiceId } = await paidAndCredited(cid, today, today)
+
+    const mid = await api('/api/payment-summary', { cookie: md })
+    const row = mid.body.clients.find((c: { client_id: string }) => c.client_id === cid)
+    expect(row).toMatchObject({ paid_paise: 11_800_00, refund_due_paise: 2_360_00, refunded_paise: 0, pending_paise: 0 })
+    const thisMonthMid = mid.body.totals.collected_this_month_paise
+
+    expect((await api(`/api/invoices/${invoiceId}/refunds`, { method: 'POST', body: { amount_paise: 2_360_00, refunded_on: today } })).status).toBe(200)
+
+    const after = await api('/api/payment-summary', { cookie: md })
+    const row2 = after.body.clients.find((c: { client_id: string }) => c.client_id === cid)
+    expect(row2).toMatchObject({ paid_paise: 9_440_00, refund_due_paise: 0, refunded_paise: 2_360_00, pending_paise: 0 })
+    expect(after.body.totals.collected_this_month_paise).toBe(thisMonthMid - 2_360_00)
+    const detail = await api(`/api/payment-summary/clients/${cid}`, { cookie: md })
+    expect(detail.body.invoices[0]).toMatchObject({ paid_paise: 9_440_00, refunded_paise: 2_360_00, refund_due_paise: 0, state: 'paid' })
+
+    const monthAfter = await api('/api/payment-summary/monthly?months=1', { cookie: md })
+    const mb = monthBefore.body.months.find((m: { month: string }) => m.month === month)
+    const ma = monthAfter.body.months.find((m: { month: string }) => m.month === month)
+    expect(ma.collected_paise - mb.collected_paise).toBe(11_800_00 - 2_360_00)
+    expect(ma.refunded_paise - mb.refunded_paise).toBe(2_360_00)
+
+    const range = `from=${month}-01&to=${today}&client_id=${cid}`
+    const coll = await api(`/api/reports/finance/collections?${range}`, { cookie: md })
+    expect(coll.status).toBe(200)
+    expect(coll.body.totals).toMatchObject({ cash_paise: 11_800_00, refunded_paise: 2_360_00, net_cash_paise: 9_440_00, settled_paise: 9_440_00 })
+    const byClient = await api(`/api/reports/finance/revenue-by-client?${range}`, { cookie: md })
+    expect(byClient.body.rows[0]).toMatchObject({ cash_collected_paise: 9_440_00, credited_paise: 2_360_00, refunded_paise: 2_360_00, outstanding_paise: 0 })
   })
 })
 

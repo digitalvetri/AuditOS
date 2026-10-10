@@ -136,8 +136,13 @@ export interface Invoice {
   tds_deducted_paise: number;
   /** Issued credit notes against this invoice. */
   credited_paise: number;
-  /** total − (cash + TDS + issued credit notes). */
+  /** Money paid back to the client (sum of refunds). */
+  refunded_paise: number;
+  /** max(0, total − (cash + TDS + issued credit notes − refunds)). */
   balance_due_paise: number;
+  /** Settled beyond the total (e.g. a credit after payment) and not yet refunded. */
+  refund_due_paise: number;
+  refunds: InvoiceRefund[];
   recurring_profile_id: string | null;
   client_service_id: string | null;
   audit_engagement_id: string | null;
@@ -224,6 +229,8 @@ export interface InvoiceSummary {
   counts: Record<string, number>;
   outstanding_paise: number;
   overdue_paise: number;
+  /** Owed back to clients across invoices settled beyond their total. */
+  refund_due_paise: number;
   total: number;
 }
 
@@ -258,6 +265,33 @@ export interface InvoicePayment {
   created_by: string | null;
   /** 'RCT-000123' */
   receipt_number: string;
+}
+
+export type RefundMode = 'bank_transfer' | 'upi' | 'cheque' | 'cash' | 'other';
+
+export const REFUND_MODE_LABEL: Record<RefundMode, string> = {
+  bank_transfer: 'Bank transfer',
+  upi: 'UPI',
+  cheque: 'Cheque',
+  cash: 'Cash',
+  other: 'Other',
+};
+
+/** Money paid back to the client against an invoice. */
+export interface InvoiceRefund {
+  id: string;
+  /** 'RFD-000001' */
+  refund_number: string | null;
+  invoice_id: string;
+  client_id: string;
+  credit_note_id: string | null;
+  amount_paise: number;
+  refunded_on: string;
+  mode: RefundMode;
+  reference: string | null;
+  note: string | null;
+  created_at: string;
+  created_by: string | null;
 }
 
 export interface InvoiceReminder {
@@ -301,6 +335,16 @@ export const invoicesApi = {
   /** A signed link to the payment receipt PDF. */
   receiptUrl: (id: string, paymentId: string) =>
     api.get<{ url: string; expires_at: string }>(`/api/invoices/${id}/payments/${paymentId}/receipt-url`),
+  /** Pay money back to the client — at most the invoice's refund due. */
+  recordRefund: (id: string, body: {
+    amount_paise: number; refunded_on: string; mode: RefundMode;
+    reference?: string; note?: string; credit_note_id?: string;
+  }) => api.post<Invoice>(`/api/invoices/${id}/refunds`, body),
+  removeRefund: (id: string, refundId: string) =>
+    api.delete<Invoice>(`/api/invoices/${id}/refunds/${refundId}`),
+  /** A signed link to the refund voucher PDF. */
+  refundVoucherUrl: (id: string, refundId: string) =>
+    api.get<{ url: string; expires_at: string }>(`/api/invoices/${id}/refunds/${refundId}/voucher-url`),
   /** Email the client a payment reminder now (overdue invoices only). */
   remind: (id: string) =>
     api.post<{ sent: true; to: string[]; link: string }>(`/api/invoices/${id}/remind`),

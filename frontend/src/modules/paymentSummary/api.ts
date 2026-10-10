@@ -57,9 +57,13 @@ export interface ClientSummary {
   invoices: number;
   open_invoices: number;
   invoiced_paise: number;
+  /** Cash received, net of refunds paid back. */
   paid_paise: number;
   pending_paise: number;
   overdue_paise: number;
+  refunded_paise?: number;
+  /** Owed back to the client (invoices settled beyond their total). */
+  refund_due_paise?: number;
   oldest_due_date: string | null;
   last_payment_on: string | null;
   status: PayState;
@@ -71,7 +75,11 @@ export interface SummaryResponse {
     paid_paise: number;
     pending_paise: number;
     overdue_paise: number;
+    /** Net of refunds paid back this month. */
     collected_this_month_paise: number;
+    refunded_paise?: number;
+    refund_due_paise?: number;
+    clients_with_refund_due?: number;
     collection_rate: number | null;
     invoices: number;
     clients: number;
@@ -88,8 +96,12 @@ export interface ClientInvoice {
   invoice_date: string;
   due_date: string;
   total_paise: number;
+  /** Cash received, net of refunds paid back. */
   paid_paise: number;
   pending_paise: number;
+  refunded_paise?: number;
+  /** Owed back to the client on this invoice. */
+  refund_due_paise?: number;
   /** TDS deducted by the client (counts towards settlement, not cash). */
   tds_deducted_paise?: number;
   /** Issued credit notes against this invoice. */
@@ -109,7 +121,9 @@ export interface MonthPoint {
   /** 'YYYY-MM' */
   month: string;
   billed_paise: number;
+  /** Cash in, net of refunds paid back in the month. */
   collected_paise: number;
+  refunded_paise?: number;
   invoices: number;
   payments: number;
 }

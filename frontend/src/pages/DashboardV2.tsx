@@ -488,7 +488,7 @@ function CashFlowCard({ months, avgDays, money, loading, error, onRetry }: {
           cta={{ label: 'Create invoice', href: '/workstation/invoices/new' }} />}>
         <div className="px-2 pb-1">
           <AreaChart
-            points={shown.map((m) => ({ label: new Date(`${m.month}-01T00:00:00`).toLocaleString('en-IN', { month: 'short' }), a: m.billed_paise, b: m.collected_paise }))}
+            points={shown.map((m) => ({ label: new Date(`${m.month}-01T00:00:00`).toLocaleString('en-IN', { month: 'short' }), a: m.billed_paise, b: Math.max(0, m.collected_paise) }))}
             labels={{ a: 'Billed', b: 'Collected' }} format={inrCompact} />
         </div>
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-y-3 border-t border-border mx-5 py-3 text-12 text-inkMuted">

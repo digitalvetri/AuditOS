@@ -9,7 +9,9 @@
  *   DELETE /api/payment-summary/invoices/:id/payments/:paymentId   remove a wrong entry
  *
  * Draft and cancelled invoices are left out: a draft was never billed and a
- * cancelled one is not owed. Firm-wide view — `payment_summary.read` at
+ * cancelled one is not owed. Cash figures are NET of refunds (a refund
+ * reduces what was collected, in the month it was paid back); an invoice
+ * settled beyond its total carries `refund_due_paise`. Firm-wide view — `payment_summary.read` at
  * organisation scope; recording needs `payment_summary.manage`.
  */
 import { Router } from 'express'
@@ -30,6 +32,11 @@ paymentSummaryRouter.use(requirePermission('payment_summary.read', 'organisation
 const BILLED = { deletedAt: null, status: { notIn: ['draft', 'cancelled'] } }
 
 type ClientStatus = 'paid' | 'partial' | 'unpaid' | 'overdue'
+
+/** Settled beyond the total and not yet paid back (cash + TDS + credits − refunds − total). */
+function refundDue(inv: { totalPaise: number; amountPaidPaise: number; tdsDeductedPaise: number; creditedPaise: number; refundedPaise: number }) {
+  return Math.max(0, inv.amountPaidPaise + inv.tdsDeductedPaise + inv.creditedPaise - inv.refundedPaise - inv.totalPaise)
+}
 
 function invoiceState(inv: { totalPaise: number; amountPaidPaise: number; balanceDuePaise: number; dueDate: string }, today: string) {
   const overdue = inv.balanceDuePaise > 0 && inv.dueDate < today
@@ -52,7 +59,7 @@ paymentSummaryRouter.get('/', handler(async (req, res) => {
     },
     select: {
       id: true, clientId: true, totalPaise: true, amountPaidPaise: true, balanceDuePaise: true, dueDate: true,
-      tdsDeductedPaise: true, creditedPaise: true,
+      tdsDeductedPaise: true, creditedPaise: true, refundedPaise: true,
       client: { select: { companyName: true, clientCode: true, contactNumber: true, email: true } },
     },
   })
@@ -61,7 +68,7 @@ paymentSummaryRouter.get('/', handler(async (req, res) => {
   const byClient = new Map<string, {
     client_id: string; client_name: string; client_code: string | null; contact_number: string | null; email: string | null
     invoices: number; open_invoices: number; invoiced_paise: number; paid_paise: number; pending_paise: number; overdue_paise: number
-    tds_paise: number; credited_paise: number
+    tds_paise: number; credited_paise: number; refunded_paise: number; refund_due_paise: number
     oldest_due_date: string | null; last_payment_on: string | null
   }>()
 
@@ -82,15 +89,18 @@ paymentSummaryRouter.get('/', handler(async (req, res) => {
       contact_number: inv.client.contactNumber,
       email: inv.client.email,
       invoices: 0, open_invoices: 0, invoiced_paise: 0, paid_paise: 0, pending_paise: 0, overdue_paise: 0,
-      tds_paise: 0, credited_paise: 0,
+      tds_paise: 0, credited_paise: 0, refunded_paise: 0, refund_due_paise: 0,
       oldest_due_date: null, last_payment_on: null,
     }
     row.invoices++
     row.invoiced_paise += inv.totalPaise
-    row.paid_paise += inv.amountPaidPaise
+    // Received is cash NET of refunds paid back.
+    row.paid_paise += inv.amountPaidPaise - inv.refundedPaise
     // Pending is AFTER TDS and credit notes — both settle the invoice.
     row.tds_paise += inv.tdsDeductedPaise
     row.credited_paise += inv.creditedPaise
+    row.refunded_paise += inv.refundedPaise
+    row.refund_due_paise += refundDue(inv)
     row.pending_paise += inv.balanceDuePaise
     if (inv.balanceDuePaise > 0) {
       row.open_invoices++
@@ -119,10 +129,16 @@ paymentSummaryRouter.get('/', handler(async (req, res) => {
   }
 
   const monthStart = `${today.slice(0, 7)}-01`
-  const collectedThisMonth = await prisma.invoicePayment.aggregate({
-    where: { deletedAt: null, paidOn: { gte: monthStart, lte: today }, invoice: { ...BILLED } },
-    _sum: { amountPaise: true },
-  })
+  const [collectedThisMonth, refundedThisMonth] = await Promise.all([
+    prisma.invoicePayment.aggregate({
+      where: { deletedAt: null, paidOn: { gte: monthStart, lte: today }, invoice: { ...BILLED } },
+      _sum: { amountPaise: true },
+    }),
+    prisma.invoiceRefund.aggregate({
+      where: { deletedAt: null, refundedOn: { gte: monthStart, lte: today }, invoice: { ...BILLED } },
+      _sum: { amountPaise: true },
+    }),
+  ])
 
   const clients = [...byClient.values()]
     .map((c) => ({
@@ -131,7 +147,7 @@ paymentSummaryRouter.get('/', handler(async (req, res) => {
     }))
     .sort((a, b) => b.pending_paise - a.pending_paise || a.client_name.localeCompare(b.client_name))
 
-  const sum = (k: 'invoiced_paise' | 'paid_paise' | 'pending_paise' | 'overdue_paise' | 'tds_paise' | 'credited_paise') => clients.reduce((t, c) => t + c[k], 0)
+  const sum = (k: 'invoiced_paise' | 'paid_paise' | 'pending_paise' | 'overdue_paise' | 'tds_paise' | 'credited_paise' | 'refunded_paise' | 'refund_due_paise') => clients.reduce((t, c) => t + c[k], 0)
   const invoiced = sum('invoiced_paise')
   const paid = sum('paid_paise')
   const settled = paid + sum('tds_paise') + sum('credited_paise')
@@ -143,8 +159,12 @@ paymentSummaryRouter.get('/', handler(async (req, res) => {
       overdue_paise: sum('overdue_paise'),
       tds_paise: sum('tds_paise'),
       credited_paise: sum('credited_paise'),
-      collected_this_month_paise: collectedThisMonth._sum.amountPaise ?? 0,
-      // Settled share: cash, TDS deducted and credit notes all close an invoice.
+      refunded_paise: sum('refunded_paise'),
+      refund_due_paise: sum('refund_due_paise'),
+      clients_with_refund_due: clients.filter((c) => c.refund_due_paise > 0).length,
+      // Net of refunds paid back this month.
+      collected_this_month_paise: (collectedThisMonth._sum.amountPaise ?? 0) - (refundedThisMonth._sum.amountPaise ?? 0),
+      // Settled share: cash (net of refunds), TDS deducted and credit notes all close an invoice.
       collection_rate: invoiced > 0 ? Math.round((settled / invoiced) * 1000) / 10 : null,
       invoices: invoices.length,
       clients: clients.length,
@@ -170,19 +190,24 @@ paymentSummaryRouter.get('/monthly', handler(async (req, res) => {
   const from = `${months[0]}-01`
   const to = `${months[months.length - 1]}-31`
 
-  const [invoices, payments] = await Promise.all([
+  const [invoices, payments, refunds] = await Promise.all([
     prisma.invoice.findMany({
       where: { ...BILLED, invoiceDate: { gte: from, lte: to } },
       select: { invoiceDate: true, totalPaise: true },
     }),
     prisma.invoicePayment.findMany({
-      where: { paidOn: { gte: from, lte: to }, invoice: BILLED },
+      where: { deletedAt: null, paidOn: { gte: from, lte: to }, invoice: BILLED },
       select: { paidOn: true, amountPaise: true, invoice: { select: { invoiceDate: true } } },
+    }),
+    // Refunds take cash back out, in the month they were paid.
+    prisma.invoiceRefund.findMany({
+      where: { deletedAt: null, refundedOn: { gte: from, lte: to }, invoice: BILLED },
+      select: { refundedOn: true, amountPaise: true },
     }),
   ])
 
   ok(res, {
-    months: bucketMonthly(months, invoices, payments),
+    months: bucketMonthly(months, invoices, payments, refunds),
     avg_days_to_collect: avgDaysToCollect(payments.map((p) => ({ paidOn: p.paidOn, amountPaise: p.amountPaise, invoiceDate: p.invoice.invoiceDate }))),
   })
 }))
@@ -210,10 +235,13 @@ paymentSummaryRouter.get('/clients/:clientId', handler(async (req, res) => {
         invoice_date: inv.invoiceDate,
         due_date: inv.dueDate,
         total_paise: inv.totalPaise,
-        paid_paise: inv.amountPaidPaise,
+        // Cash received net of refunds paid back.
+        paid_paise: inv.amountPaidPaise - inv.refundedPaise,
         tds_paise: inv.tdsDeductedPaise,
         tds_deducted_paise: inv.tdsDeductedPaise,
         credited_paise: inv.creditedPaise,
+        refunded_paise: inv.refundedPaise,
+        refund_due_paise: refundDue(inv),
         pending_paise: inv.balanceDuePaise,
         state: s.state,
         days_overdue: s.daysOverdue,

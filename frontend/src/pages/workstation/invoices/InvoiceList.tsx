@@ -25,6 +25,8 @@ const STATUSES = [
   { value: 'paid', label: 'Paid' },
   { value: 'overdue', label: 'Overdue' },
   { value: 'cancelled', label: 'Cancelled' },
+  // Not a stored status: settled beyond the total, money owed back.
+  { value: 'refund_due', label: 'Refund due' },
 ];
 
 const link = 'text-13 text-primary hover:underline whitespace-nowrap';
@@ -52,6 +54,7 @@ export function InvoiceListPage() {
           {s.total} invoice{s.total === 1 ? '' : 's'} · newest first
           {' · '}<span className="text-neutral-700 tabular-nums">₹ {inrAmount(s.outstanding_paise)}</span> outstanding
           {s.overdue_paise > 0 ? <> · <span className="text-red tabular-nums">₹ {inrAmount(s.overdue_paise)}</span> overdue</> : null}
+          {(s.refund_due_paise ?? 0) > 0 ? <> · <span className="text-warning tabular-nums">₹ {inrAmount(s.refund_due_paise)}</span> due back to clients</> : null}
         </> : 'Loading…'}
         action={mayWrite ? (
           <ListAction onClick={() => navigate('/workstation/invoices/new')} icon={<Plus size={15} />}>Create invoice</ListAction>
@@ -88,6 +91,12 @@ export function InvoiceListPage() {
                         <span className="block text-11 text-neutral-500"
                           title={`TDS ₹${inrAmount(inv.tds_deducted_paise ?? 0)} · Credit notes ₹${inrAmount(inv.credited_paise ?? 0)}`}>
                           {[(inv.tds_deducted_paise ?? 0) > 0 ? 'TDS' : '', (inv.credited_paise ?? 0) > 0 ? 'CN' : ''].filter(Boolean).join(' + ')} adjusted
+                        </span>
+                      ) : null}
+                      {(inv.refund_due_paise ?? 0) > 0 ? (
+                        <span className="mt-0.5 inline-block rounded-full bg-warning/10 text-warning text-11 font-semibold px-2 py-[1px] whitespace-nowrap"
+                          title="Settled beyond the total — record a refund">
+                          Refund due ₹{inrAmount(inv.refund_due_paise)}
                         </span>
                       ) : null}
                     </TD>

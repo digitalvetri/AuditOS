@@ -61,7 +61,10 @@ export interface Creditable {
   invoice_number: string | null;
   total_paise: number;
   credited_paise: number;
+  /** The invoice total less issued credit notes — the most that may still be credited. */
   creditable_paise: number;
+  /** What the client still owes; a credit beyond it becomes a refund due. */
+  balance_due_paise: number;
   is_inter_state: boolean;
   place_of_supply: string | null;
   suggested_lines: { description: string; sac_code: string | null; taxable_paise: number; gst_rate: number }[];
