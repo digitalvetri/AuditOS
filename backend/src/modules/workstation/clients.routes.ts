@@ -209,7 +209,11 @@ clientsRouter.patch('/:id', handler(async (req, res) => {
   if ('address' in b) data.address = v.str('address', b.address, { required: false, max: 500 }) ?? null
   if ('gstin' in b) data.gstin = b.gstin ? v.gstin('gstin', b.gstin) : null
   if ('pan' in b) data.pan = b.pan ? v.pan('pan', b.pan) : null
-  if ('tan' in b) data.tan = v.str('tan', b.tan, { required: false, max: 20 }) ?? null
+  if ('tan' in b) {
+    const tan = (v.str('tan', b.tan, { required: false, max: 20 }) ?? '').toUpperCase()
+    if (tan && !/^[A-Z]{4}[0-9]{5}[A-Z]$/.test(tan)) v.add('tan', 'Enter a valid 10-character TAN (e.g. CHEK09876B).')
+    data.tan = tan || null
+  }
   if ('cin' in b) {
     const cin = (v.str('cin', b.cin, { required: false, max: 25 }) ?? '').toUpperCase()
     if (cin && !CIN_RE.test(cin) && !LLPIN_RE.test(cin)) v.add('cin', 'Enter a valid CIN (U74999TN2020PTC123456) or LLPIN (AAB-1234).')

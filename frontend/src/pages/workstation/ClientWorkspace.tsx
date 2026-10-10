@@ -40,6 +40,7 @@ import {
 import { ChevronRight } from 'lucide-react';
 import { OrganizationBadge } from '@/modules/workstation/organization/badges';
 import { AssignedStaffDetails } from '@/modules/workstation/AssignedStaff';
+import { EditClientDetailsButton } from '@/modules/workstation/EditClientDetails';
 import { ClientExitDetail } from '@/modules/workstation/ClientExit';
 import { LevelBanner, OrganizationOverview } from '@/modules/workstation/organization/OrganizationOverview';
 import { OrganizationClients } from '@/modules/workstation/organization/OrganizationClients';
@@ -348,7 +349,7 @@ function OverviewTab({ client }: { client: ClientDetail }) {
 function DetailsTab({ client }: { client: ClientDetail }) {
   return (
     <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-      <Card title="Basic">
+      <Card title="Basic" right={<EditClientDetailsButton client={client} />}>
         <div className="p-4">
           <Detail label="Company Name" value={client.company_name} />
           <Detail label="Legal Name" value={client.legal_name ?? '—'} />
@@ -359,7 +360,7 @@ function DetailsTab({ client }: { client: ClientDetail }) {
           <Detail label="Address" value={client.address ?? '—'} />
         </div>
       </Card>
-      <Card title="Tax">
+      <Card title="Tax" right={<EditClientDetailsButton client={client} />}>
         <div className="p-4">
           <Detail label="GSTIN" value={client.gstin ?? '—'} />
           <Detail label="PAN" value={client.pan ?? '—'} />

@@ -5,12 +5,14 @@ import { UNSAFE_NavigationContext, useLocation } from 'react-router-dom';
  * Warn before leaving a builder with unsaved edits.
  *
  * The app runs on <BrowserRouter>, where react-router's `useBlocker` is not
- * available (it needs a data router). So this guards the two ways out that
- * it can see:
+ * available (it needs a data router). So this guards the three ways out:
  *   - in-app navigation (links, navigate()) — by wrapping the router's
  *     navigator push/replace while the builder is mounted;
- *   - closing / reloading the tab — `beforeunload`.
- * The browser's own Back button (popstate) is not intercepted.
+ *   - closing / reloading the tab — `beforeunload`;
+ *   - the browser's Back button — a "trap" history entry for this same URL is
+ *     pushed on the first edit. Back pops the trap (the page stays), and the
+ *     guard then asks; "leave" steps back once more for real, "stay" re-arms
+ *     the trap. Leaving by a link replaces the trap, so history stays clean.
  *
  * Dirty = the form's `snapshot` differs from its baseline. Until the person
  * first types, picks or ticks something inside the page (<main>), whatever
@@ -41,11 +43,42 @@ export function useUnsavedChangesGuard(
   const isDirty = () =>
     !bypass.current && touched.current && currentRef.current !== null && currentRef.current !== baseline.current;
 
+  // Back-button trap: armed on the first edit, see the header.
+  const trapArmed = useRef(false);
+  const armTrap = () => {
+    if (trapArmed.current) return;
+    const state = (window.history.state ?? {}) as Record<string, unknown>;
+    window.history.pushState({ ...state, unsavedTrap: true }, '', window.location.href);
+    trapArmed.current = true;
+  };
+  const messageRef = useRef(message);
+  messageRef.current = message;
+  useEffect(() => {
+    const onPop = () => {
+      if (!trapArmed.current) return;
+      // Back just popped the trap: still on this page, same URL.
+      trapArmed.current = false;
+      if (!isDirty()) { window.history.back(); return; }
+      if (window.confirm(messageRef.current)) {
+        bypass.current = true;
+        window.history.back();
+      } else {
+        armTrap();
+      }
+    };
+    window.addEventListener('popstate', onPop);
+    return () => window.removeEventListener('popstate', onPop);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   // First real edit inside the page content ends the auto-baseline.
   useEffect(() => {
     const mark = (e: Event) => {
       const main = document.getElementById('main');
-      if (!main || (e.target instanceof Node && main.contains(e.target))) touched.current = true;
+      if (!main || (e.target instanceof Node && main.contains(e.target))) {
+        touched.current = true;
+        armTrap();
+      }
     };
     document.addEventListener('input', mark, true);
     document.addEventListener('change', mark, true);
@@ -67,8 +100,6 @@ export function useUnsavedChangesGuard(
   }, []);
 
   const { navigator } = useContext(UNSAFE_NavigationContext);
-  const messageRef = useRef(message);
-  messageRef.current = message;
   useEffect(() => {
     const nav = navigator as unknown as { push: (...a: unknown[]) => void; replace: (...a: unknown[]) => void };
     const { push, replace } = nav;
@@ -79,6 +110,13 @@ export function useUnsavedChangesGuard(
       const staying = !path || path === window.location.pathname;
       if (staying || !isDirty() || window.confirm(messageRef.current)) {
         if (!staying) bypass.current = true;
+        // Leaving with the trap armed: take its place instead of stacking a
+        // duplicate entry of this page behind the next one.
+        if (!staying && trapArmed.current && fn === push) {
+          trapArmed.current = false;
+          replace.apply(nav, args);
+          return;
+        }
         fn.apply(nav, args);
       }
     };

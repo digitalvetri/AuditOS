@@ -50,7 +50,7 @@ export const FALLBACK_CATALOGUE: FinanceCatalogueItem[] = [
   { key: 'revenue-by-client', title: 'Revenue by client', description: 'Billing and collections per client.' },
   { key: 'unbilled', title: 'Unbilled work', description: 'Work done that has not been invoiced yet.' },
   { key: 'dso', title: 'Days sales outstanding', description: 'How long clients take to pay.' },
-  { key: 'collections', title: 'Collections', description: 'Receipts in the period, by mode and client.' },
+  { key: 'collections', title: 'Receipts register', description: 'Cash and TDS received in the period, by mode and client, net of refunds.' },
   { key: 'profitability-client', title: 'Profitability by client', description: 'Fees against staff cost per client.' },
   { key: 'profitability-engagement', title: 'Profitability by engagement', description: 'Fees against staff cost per engagement.' },
   { key: 'utilisation', title: 'Staff utilisation', description: 'Logged and chargeable hours per person.' },
