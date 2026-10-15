@@ -252,11 +252,18 @@ const IMPLEMENTATIONS: Record<string, Implementation> = {
   },
 
   // Bidirectional and lossless (gstr2b.ts): the input's type picks the direction.
+  // Several JSON files = the parts of one large GSTR-2B, merged into one workbook.
   'gstr2b-json-excel': async ({ inputs, progress }) => {
     const { doc, bytes } = inputs[0]
-    const toExcel = doc.mimeType === OUTPUT_MIME.json || /\.json$/i.test(doc.originalFilename)
+    const isJson = (d: typeof doc) => d.mimeType === OUTPUT_MIME.json || /\.json$/i.test(d.originalFilename)
+    const toExcel = isJson(doc)
+    if (inputs.length > 1 && !inputs.every((i) => isJson(i.doc))) {
+      throw new ToolError('invalid_options', 'Several files can only be the JSON parts of one GSTR-2B. Convert a workbook back to JSON on its own.')
+    }
     progress(15)
-    const r = toExcel ? await gstr2bJsonToExcel(bytes) : await gstr2bExcelToJson(bytes)
+    const r = toExcel
+      ? await gstr2bJsonToExcel(inputs.map((i) => i.bytes), inputs.map((i) => i.doc.originalFilename))
+      : await gstr2bExcelToJson(bytes)
     progress(90)
     const warnings = r.issues.filter((i) => i.severity === 'warning')
     const selfTest: { pass: boolean; diffs: string[] } | null = 'selfTest' in r ? (r as { selfTest: { pass: boolean; diffs: string[] } }).selfTest : null

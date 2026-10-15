@@ -455,33 +455,59 @@
     "itcsumm": {
       "itcavl": {
         "nonrevsup": {
+          "igst": 96132.0,
+          "cgst": 20087.5,
+          "sgst": 20087.5,
+          "cess": 0.0,
           "b2b": {
-            "igst": 100776,
+            "igst": 97932.0,
             "cgst": 20387.5,
             "sgst": 20387.5,
-            "cess": 0
+            "cess": 0.0
           },
           "cdnr": {
-            "igst": -1800,
-            "cgst": -300,
-            "sgst": -300,
-            "cess": 0
-          },
+            "igst": -1800.0,
+            "cgst": -300.0,
+            "sgst": -300.0,
+            "cess": 0.0
+          }
+        },
+        "revsup": {
+          "igst": 2844.0,
+          "cgst": 0.0,
+          "sgst": 0.0,
+          "cess": 0.0,
+          "b2b": {
+            "igst": 2844.0,
+            "cgst": 0.0,
+            "sgst": 0.0,
+            "cess": 0.0
+          }
+        },
+        "imports": {
+          "igst": 81000.0,
+          "cgst": 0.0,
+          "sgst": 0.0,
+          "cess": 0.0,
           "impg": {
-            "igst": 81000,
-            "cgst": 0,
-            "sgst": 0,
-            "cess": 0
+            "igst": 81000.0,
+            "cgst": 0.0,
+            "sgst": 0.0,
+            "cess": 0.0
           }
         }
       },
       "itcunavl": {
         "nonrevsup": {
+          "igst": 0.0,
+          "cgst": 7587.0,
+          "sgst": 7587.0,
+          "cess": 0.0,
           "b2b": {
-            "igst": 0,
-            "cgst": 7587,
-            "sgst": 7587,
-            "cess": 0
+            "igst": 0.0,
+            "cgst": 7587.0,
+            "sgst": 7587.0,
+            "cess": 0.0
           }
         }
       }

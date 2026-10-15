@@ -146,8 +146,15 @@ export const SECTIONS: Section[] = [
   { key: 'impg', sheet: 'IMPG', shape: 'flat', docNumKey: 'boenum', docDateKey: 'boedt', cols: boeCols },
   { key: 'impgsez', sheet: 'IMPGSEZ', shape: 'supplierFlat', listKey: 'boe', docNumKey: 'boenum', docDateKey: 'boedt',
     cols: [SUPPLIER[0], SUPPLIER[1], ...boeCols] },
+  // Supplies through an e-commerce operator under section 9(5): the ECO's GSTIN
+  // in the supplier columns. Keys this layout lacks still ride in _extra.
+  { key: 'ecom', sheet: 'ECO', shape: 'nested', listKey: 'inv', docNumKey: 'inum', docDateKey: 'dt', cols: invoiceCols(false) },
+  { key: 'ecoma', sheet: 'ECOA', shape: 'nested', listKey: 'inv', docNumKey: 'inum', docDateKey: 'dt', cols: invoiceCols(true) },
 ]
 const BY_SHEET = new Map(SECTIONS.map((s) => [s.sheet.toUpperCase(), s]))
+/** Sheets this tool writes for reading only; never read back as data. */
+const REPORT_SHEETS = ['info', 'itcsummary', 'portalvscomputed', 'suppliersummary', 'flags', 'summary', 'raw', 'validation']
+const SORT_DATE = 'Sort Date'
 
 const INFO: [string, string][] = [['GSTIN', 'gstin'], ['Return Period', 'rtnprd'], ['Version', 'version'], ['Generated On', 'gendt']]
 const TAX_KEYS = ['txval', 'igst', 'cgst', 'sgst', 'cess'] as const
@@ -236,18 +243,31 @@ function rowsOf(sec: Section, arr: Json[]): Record<string, unknown>[] {
   return rows
 }
 
+/** dd-mm-yyyy → a real Excel date (UTC midnight), or null. */
+const toDate = (s: unknown): Date | null => {
+  const t = String(s ?? '')
+  if (!validDate(t)) return null
+  const [d, m, y] = t.split('-').map(Number)
+  return new Date(Date.UTC(y, m - 1, d))
+}
+
 function addSheet(wb: ExcelJS.Workbook, sec: Section, rows: Record<string, unknown>[]) {
   const ws = wb.addWorksheet(sec.sheet)
-  const headers = [...sec.cols.map((c) => c.header), ...HIDDEN]
+  // Sort Date: the document date as a real date so the sheet sorts and filters
+  // by date; the text column beside it is what converts back.
+  const dateHeader = sec.cols.find((c) => c.key === sec.docDateKey)?.header
+  const headers = [...sec.cols.map((c) => c.header), SORT_DATE, ...HIDDEN]
   ws.columns = headers.map((h) => ({ header: h, key: h, width: Math.max(12, h.length + 2) }))
   sec.cols.forEach((c, i) => {
     const col = ws.getColumn(i + 1)
     // Text cells stay text in Excel: no date parsing, no lost leading zeros.
-    col.numFmt = TEXT_KINDS.includes(c.kind) ? '@' : c.key === 'rt' || c.key === 'num' || c.key === 'diffprcnt' ? '0.##' : '0.00'
+    col.numFmt = TEXT_KINDS.includes(c.kind) ? '@' : c.key === 'rt' || c.key === 'num' || c.key === 'diffprcnt' ? '0.##' : '#,##0.00'
   })
-  HIDDEN.forEach((_, i) => { ws.getColumn(sec.cols.length + i + 1).hidden = true })
+  ws.getColumn(sec.cols.length + 1).numFmt = 'dd-mm-yyyy'
+  HIDDEN.forEach((_, i) => { ws.getColumn(sec.cols.length + i + 2).hidden = true })
   for (const r of rows) {
     const vals = headers.map((h) => {
+      if (h === SORT_DATE) return dateHeader ? toDate(r[dateHeader]) : null
       const col = sec.cols.find((c) => c.header === h)
       const v = r[h]
       if (v === undefined || v === null) return null
@@ -257,142 +277,246 @@ function addSheet(wb: ExcelJS.Workbook, sec: Section, rows: Record<string, unkno
   }
   ws.getRow(1).font = { bold: true }
   ws.views = [{ state: 'frozen', ySplit: 1 }]
+  ws.autoFilter = { from: { row: 1, column: 1 }, to: { row: 1, column: sec.cols.length + 1 } }
   return ws
 }
 
-const colLetter = (n: number) => { let s = ''; while (n > 0) { const m = (n - 1) % 26; s = String.fromCharCode(65 + m) + s; n = Math.floor((n - 1) / 26) } return s }
-
-/** ITC Summary as live formulas over the data sheets (recalculates when rows are edited). */
-function addItcSheet(wb: ExcelJS.Workbook, present: Section[], computed: ItcTotals) {
-  const ws = wb.addWorksheet('ITC Summary')
-  ws.columns = [{ header: 'Part', key: 'p', width: 34 }, { header: 'Section', key: 's', width: 14 },
-    { header: 'IGST', key: 'igst', width: 14 }, { header: 'CGST', key: 'cgst', width: 14 }, { header: 'SGST', key: 'sgst', width: 14 }, { header: 'Cess', key: 'cess', width: 14 }]
-  const heads = ['igst', 'cgst', 'sgst', 'cess']
-  const ref = (sec: Section, key: string) => {
-    const i = sec.cols.findIndex((c) => c.key === key)
-    return i < 0 ? null : `'${sec.sheet}'!$${colLetter(i + 1)}$2:$${colLetter(i + 1)}$100000`
-  }
-  const lines: { part: string; sec: string; f: (h: string) => string | null; v: (h: string) => number }[] = []
-  const add = (part: string, sec: Section, f: (h: string) => string | null, v: (h: string) => number) => lines.push({ part, sec: sec.sheet, f, v })
-  for (const sec of present) {
-    const itc = ref(sec, sec.key.startsWith('isd') ? 'itcelg' : 'itcavl')
-    if (sec.key === 'b2b' || sec.key === 'b2ba') {
-      add('Part A — ITC available', sec, (h) => (ref(sec, h) && itc ? `SUMIFS(${ref(sec, h)},${itc},"Y")` : null), (h) => computed.avl[sec.key]?.[h] ?? 0)
-    } else if (sec.key === 'cdnr' || sec.key === 'cdnra') {
-      const typ = ref(sec, 'typ')
-      add('Part A — credit / debit notes (credit notes negative)', sec,
-        (h) => (ref(sec, h) && itc && typ ? `SUMIFS(${ref(sec, h)},${itc},"Y",${typ},"D")-SUMIFS(${ref(sec, h)},${itc},"Y",${typ},"C")` : null),
-        (h) => computed.avl[sec.key]?.[h] ?? 0)
-    } else if (sec.key === 'impg' || sec.key === 'impgsez') {
-      add('Part A — imports', sec, (h) => (ref(sec, h) ? `SUM(${ref(sec, h)})` : null), (h) => computed.avl[sec.key]?.[h] ?? 0)
-    } else if (sec.key === 'isd' || sec.key === 'isda') {
-      add('Part A — ISD credit', sec, (h) => (ref(sec, h) && itc ? `SUMIFS(${ref(sec, h)},${itc},"Y")` : null), (h) => computed.avl[sec.key]?.[h] ?? 0)
-    }
-  }
-  const firstLine = 2
-  for (const l of lines) {
-    const r = ws.addRow({ p: l.part, s: l.sec })
-    heads.forEach((h, i) => {
-      const f = l.f(h)
-      r.getCell(3 + i).value = f ? { formula: f, result: l.v(h) } : 0
-    })
-  }
-  const lastLine = firstLine + lines.length - 1
-  const net = ws.addRow({ p: 'Net ITC available (Part A)', s: '' })
-  heads.forEach((h, i) => { const c = colLetter(3 + i); net.getCell(3 + i).value = lines.length ? { formula: `SUM(${c}${firstLine}:${c}${lastLine})`, result: computed.net[h] } : 0 })
-  net.font = { bold: true }
-  for (const sec of present.filter((s) => s.key === 'b2b' || s.key === 'b2ba')) {
-    const itc = ref(sec, 'itcavl')
-    const r = ws.addRow({ p: 'Part B — ITC not available', s: sec.sheet })
-    heads.forEach((h, i) => { const rr = ref(sec, h); r.getCell(3 + i).value = rr && itc ? { formula: `SUMIFS(${rr},${itc},"N")`, result: computed.unavl[sec.key]?.[h] ?? 0 } : 0 })
-  }
-  ws.addRow({})
-  ws.addRow({ p: 'Recalculated from the data sheets. On conversion back to JSON, itcsumm is rebuilt from the rows; figures typed here are ignored.' })
-  for (let i = 3; i <= 6; i++) ws.getColumn(i).numFmt = '#,##0.00'
-  ws.getRow(1).font = { bold: true }
-}
-
-// ── itcsumm ──────────────────────────────────────────────────────────────
+// ── ITC: classification shared by the JS totals and the sheet formulas ────
 
 type Heads = Record<string, number>
-interface ItcTotals { avl: Record<string, Heads>; unavl: Record<string, Heads>; net: Heads }
+type Group = 'imports' | 'revsup' | 'isdsup' | 'nonrevsup'
+/** itcsumm groups AuditOS computes; any other portal group is shown as-is. */
+const GROUPS: Group[] = ['imports', 'revsup', 'isdsup', 'nonrevsup']
+const HEADS = ['igst', 'cgst', 'sgst', 'cess'] as const
+interface ItcTotals { avl: Record<string, Record<string, Heads>>; unavl: Record<string, Record<string, Heads>>; net: Heads }
+
+const isNote = (sec: string) => sec === 'cdnr' || sec === 'cdnra'
+const isIsd = (sec: string) => sec.startsWith('isd')
+const isImport = (sec: string) => sec.startsWith('impg')
+const groupsOf = (sec: string): Group[] => isImport(sec) ? ['imports'] : isIsd(sec) ? ['isdsup'] : ['revsup', 'nonrevsup']
+
+/**
+ * Where one document's tax lands: imports and ISD have their own groups;
+ * everything else is reverse charge (rev = Y, GSTR-3B 4A(3)) or all other
+ * ITC (4A(5)). Credit notes and ISD credit notes reduce ITC.
+ */
+function classify(sec: string, d: Json): { group: Group; avail: boolean; sign: 1 | -1 } {
+  if (isImport(sec)) return { group: 'imports', avail: true, sign: 1 }
+  if (isIsd(sec)) return { group: 'isdsup', avail: d.itcelg !== 'N', sign: String(d.doctyp ?? '').toUpperCase().startsWith('ISDC') ? -1 : 1 }
+  return { group: d.rev === 'Y' ? 'revsup' : 'nonrevsup', avail: d.itcavl !== 'N', sign: isNote(sec) && d.typ === 'C' ? -1 : 1 }
+}
+
+const docsOf = (sec: Section, docdata: Json): Json[] => {
+  const arr = docdata[sec.key]
+  if (!Array.isArray(arr)) return []
+  return sec.shape === 'flat' ? arr as Json[] : (arr as Json[]).flatMap((g) => (g[sec.listKey!] ?? []) as Json[])
+}
 
 function computeItc(docdata: Json): ItcTotals {
   const z = (): Heads => ({ igst: 0, cgst: 0, sgst: 0, cess: 0 })
-  const avl: Record<string, Heads> = {}
-  const unavl: Record<string, Heads> = {}
+  const avl: ItcTotals['avl'] = {}
+  const unavl: ItcTotals['unavl'] = {}
   // A document's tax is its own total, or the sum of its items when it carries none.
   const taxOf = (d: Json, h: string) => d[h] !== undefined ? Number(d[h]) || 0
     : Array.isArray(d.items) ? (d.items as Json[]).reduce((a, it) => a + (Number(it[h]) || 0), 0) : 0
-  const addTo = (bucket: Record<string, Heads>, sec: string, d: Json, sign = 1) => {
-    const t = (bucket[sec] ??= z())
-    for (const h of ['igst', 'cgst', 'sgst', 'cess']) t[h] = round2(t[h] + sign * taxOf(d, h))
+  for (const sec of SECTIONS) {
+    if (!Array.isArray(docdata[sec.key])) continue
+    for (const d of docsOf(sec, docdata)) {
+      const c = classify(sec.key, d)
+      const t = (((c.avail ? avl : unavl)[c.group] ??= {})[sec.key] ??= z())
+      for (const h of HEADS) t[h] = round2(t[h] + c.sign * taxOf(d, h))
+    }
   }
-  const docs = (sec: string, list: string) => ((docdata[sec] ?? []) as Json[]).flatMap((g) => (g[list] ?? []) as Json[])
-  for (const sec of ['b2b', 'b2ba']) {
-    if (!Array.isArray(docdata[sec])) continue
-    avl[sec] = z(); unavl[sec] = z()
-    for (const d of docs(sec, 'inv')) addTo(d.itcavl === 'N' ? unavl : avl, sec, d)
-  }
-  for (const sec of ['cdnr', 'cdnra']) {
-    if (!Array.isArray(docdata[sec])) continue
-    avl[sec] = z(); unavl[sec] = z()
-    for (const d of docs(sec, 'nt')) addTo(d.itcavl === 'N' ? unavl : avl, sec, d, d.typ === 'C' ? -1 : 1)
-  }
-  for (const sec of ['isd', 'isda']) {
-    if (!Array.isArray(docdata[sec])) continue
-    avl[sec] = z(); unavl[sec] = z()
-    for (const d of docs(sec, 'doclist')) addTo(d.itcelg === 'N' ? unavl : avl, sec, d, String(d.doctyp ?? '').toUpperCase().startsWith('ISDC') ? -1 : 1)
-  }
-  if (Array.isArray(docdata.impg)) { avl.impg = z(); for (const d of docdata.impg as Json[]) addTo(avl, 'impg', d) }
-  if (Array.isArray(docdata.impgsez)) { avl.impgsez = z(); for (const d of docs('impgsez', 'boe')) addTo(avl, 'impgsez', d) }
   const net = z()
-  for (const t of Object.values(avl)) for (const h of Object.keys(net)) net[h] = round2(net[h] + t[h])
+  for (const g of Object.values(avl)) for (const t of Object.values(g)) for (const h of HEADS) net[h] = round2(net[h] + t[h])
   return { avl, unavl, net }
 }
 
-/** itcsumm in the portal's shape, from computed totals. */
+const sumHeads = (secs: Record<string, Heads> | undefined): Heads => {
+  const o: Heads = { igst: 0, cgst: 0, sgst: 0, cess: 0 }
+  for (const v of Object.values(secs ?? {})) for (const h of HEADS) o[h] = round2(o[h] + v[h])
+  return o
+}
+
+/** itcsumm in the portal's shape, for a workbook that never had one. */
 function itcsummFrom(t: ItcTotals): Json {
-  const out: Json = { itcavl: { nonrevsup: { ...t.avl } } }
-  if (t.unavl.b2b) out.itcunavl = { nonrevsup: { b2b: t.unavl.b2b } }
+  const part = (b: ItcTotals['avl']) => Object.fromEntries(Object.entries(b).map(([g, secs]) => [g, { ...sumHeads(secs), ...secs }]))
+  const out: Json = { itcavl: part(t.avl) }
+  if (Object.keys(t.unavl).length) out.itcunavl = part(t.unavl)
   return out
 }
 
+interface ReconRow { path: string; portal: number; computed: number }
+
 /**
- * Every leaf of the ORIGINAL itcsumm that AuditOS can compute is replaced by
- * the computed value; leaves it cannot compute (portal-only figures) are
- * kept. Differences are reported, never silently accepted.
+ * The portal's itcsumm against AuditOS's totals, leaf by leaf, for the
+ * groups AuditOS computes. The portal's figures are never changed: a gap is
+ * shown (Portal vs Computed sheet) and reported, for the auditor to explain.
  */
-function mergeItc(original: unknown, t: ItcTotals, issues: Issue[]): unknown {
-  const nonrevTotals = (bucket: Record<string, Heads>): Heads => {
-    const o: Heads = { igst: 0, cgst: 0, sgst: 0, cess: 0 }
-    for (const v of Object.values(bucket)) for (const h of Object.keys(o)) o[h] = round2(o[h] + v[h])
-    return o
-  }
+function reconcileItc(original: unknown, t: ItcTotals): ReconRow[] {
+  const rows: ReconRow[] = []
+  const known = new Set(SECTIONS.map((s) => s.key))
   const computedAt = (path: string[]): number | undefined => {
-    const [part, nrs, a, b] = path
-    if (nrs !== 'nonrevsup') return undefined
+    const [part, group, a, b] = path
     const bucket = part === 'itcavl' ? t.avl : part === 'itcunavl' ? t.unavl : null
-    if (!bucket) return undefined
-    if (path.length === 3) return nonrevTotals(bucket)[a]
-    if (path.length === 4 && bucket[a]) return bucket[a][b]
+    if (!bucket || !GROUPS.includes(group as Group)) return undefined
+    const g = bucket[group] ?? {}
+    if (path.length === 3 && (HEADS as readonly string[]).includes(a)) return sumHeads(g)[a]
+    if (path.length === 4 && known.has(a) && (HEADS as readonly string[]).includes(b)) return g[a]?.[b] ?? 0
     return undefined
   }
-  const walk = (node: unknown, path: string[]): unknown => {
+  const walk = (node: unknown, path: string[]) => {
     if (node && typeof node === 'object' && !Array.isArray(node)) {
-      return Object.fromEntries(Object.entries(node as Json).map(([k, v]) => [k, walk(v, [...path, k])]))
-    }
-    if (typeof node === 'number') {
+      for (const [k, v] of Object.entries(node as Json)) walk(v, [...path, k])
+    } else if (typeof node === 'number') {
       const c = computedAt(path)
-      if (c === undefined) return node
-      if (Math.abs(c - node) > 0.005) {
-        issues.push({ severity: 'warning', where: `itcsumm.${path.join('.')}`, message: `Recomputed from the rows as ${c}; the original said ${node}. The recomputed figure is used.` })
-      }
-      return c
+      if (c !== undefined) rows.push({ path: path.join('.'), portal: node, computed: c })
     }
-    return node
   }
-  return walk(original, [])
+  walk(original, [])
+  return rows
+}
+
+const reconIssues = (rows: ReconRow[]): Issue[] => rows.filter((r) => Math.abs(r.portal - r.computed) > 0.005).map((r) => ({
+  severity: 'warning', where: `itcsumm.${r.path}`,
+  message: `The portal says ${r.portal}; the documents add up to ${r.computed}. The portal's figure is kept — see Portal vs Computed.`,
+}))
+
+// ── report sheets ────────────────────────────────────────────────────────
+
+const colLetter = (n: number) => { let s = ''; while (n > 0) { const m = (n - 1) % 26; s = String.fromCharCode(65 + m) + s; n = Math.floor((n - 1) / 26) } return s }
+
+const GROUP_LABEL: Record<Group, string> = {
+  imports: '4A(1) Import of goods',
+  revsup: '4A(3) Inward supplies liable to reverse charge',
+  isdsup: '4A(4) Inward supplies from ISD',
+  nonrevsup: '4A(5) All other ITC',
+}
+
+/**
+ * ITC Summary in GSTR-3B Table 4 order, as live SUMIFS over the data sheets
+ * (it recalculates when rows are edited); the cached results are the JS
+ * totals, so viewers that do not calculate still show the figures.
+ */
+function addItcSheet(wb: ExcelJS.Workbook, present: Section[], t: ItcTotals) {
+  const ws = wb.addWorksheet('ITC Summary')
+  ws.columns = [{ header: 'GSTR-3B Table 4', key: 'p', width: 46 }, { header: 'Section', key: 's', width: 12 },
+    { header: 'IGST', key: 'igst', width: 15 }, { header: 'CGST', key: 'cgst', width: 15 }, { header: 'SGST', key: 'sgst', width: 15 }, { header: 'Cess', key: 'cess', width: 15 }]
+  const ref = (sec: Section, key: string) => {
+    const i = sec.cols.findIndex((c) => c.key === key)
+    return i < 0 ? null : `'${sec.sheet}'!$${colLetter(i + 1)}$2:$${colLetter(i + 1)}$200000`
+  }
+  const sumifs = (sec: Section, h: string, conds: [string, string][]): string | null => {
+    const r = ref(sec, h)
+    if (!r) return null
+    const cs = conds.filter(([k]) => ref(sec, k)).map(([k, v]) => `,${ref(sec, k)},"${v}"`)
+    return cs.length ? `SUMIFS(${r}${cs.join('')})` : `SUM(${r})`
+  }
+  const formula = (sec: Section, h: string, group: Group, avail: boolean): string | null => {
+    const conds: [string, string][] = []
+    if (!isImport(sec.key)) conds.push([isIsd(sec.key) ? 'itcelg' : 'itcavl', avail ? '<>N' : 'N'])
+    if (group === 'revsup') conds.push(['rev', 'Y'])
+    if (group === 'nonrevsup') conds.push(['rev', '<>Y'])
+    if (isNote(sec.key)) {
+      const pos = sumifs(sec, h, [...conds, ['typ', '<>C']]); const neg = sumifs(sec, h, [...conds, ['typ', 'C']])
+      return pos && neg ? `${pos}-${neg}` : null
+    }
+    if (isIsd(sec.key)) {
+      const all = sumifs(sec, h, conds); const cn = sumifs(sec, h, [...conds, ['doctyp', 'ISDC*']])
+      return all && cn ? `${all}-2*${cn}` : null
+    }
+    return sumifs(sec, h, conds)
+  }
+  const block = (avail: boolean, title: string) => {
+    const first = ws.rowCount + 1
+    for (const group of GROUPS) {
+      for (const sec of present.filter((s) => groupsOf(s.key).includes(group))) {
+        const cached = (avail ? t.avl : t.unavl)[group]?.[sec.key]
+        if (!cached) continue // no document of this section lands in this line
+        const r = ws.addRow({ p: GROUP_LABEL[group], s: sec.sheet })
+        HEADS.forEach((h, i) => {
+          const f = formula(sec, h, group, avail)
+          r.getCell(3 + i).value = f ? { formula: f, result: cached?.[h] ?? 0 } : 0
+        })
+      }
+    }
+    const last = ws.rowCount
+    const tot = ws.addRow({ p: title, s: '' })
+    const totals = sumHeads(Object.fromEntries(Object.entries(avail ? t.avl : t.unavl).flatMap(([g, secs]) => Object.entries(secs).map(([s, v]) => [`${g}.${s}`, v]))))
+    HEADS.forEach((h, i) => { const c = colLetter(3 + i); tot.getCell(3 + i).value = last >= first ? { formula: `SUM(${c}${first}:${c}${last})`, result: totals[h] } : 0 })
+    tot.font = { bold: true }
+  }
+  block(true, 'Total ITC available — 4A')
+  ws.addRow({})
+  ws.addRow({ p: 'ITC not available (itcavl / itcelg = N)' }).font = { italic: true }
+  block(false, 'Total ITC not available')
+  ws.addRow({})
+  ws.addRow({ p: 'Recalculated from the data sheets. Credit notes and ISD credit notes are negative. The portal\'s own figures are on Portal vs Computed and are what converts back to JSON.' })
+  for (let i = 3; i <= 6; i++) ws.getColumn(i).numFmt = '#,##0.00;[Red]-#,##0.00'
+  ws.getRow(1).font = { bold: true }
+}
+
+function addReconSheet(wb: ExcelJS.Workbook, rows: ReconRow[], hadSummary: boolean) {
+  const ws = wb.addWorksheet('Portal vs Computed')
+  ws.columns = [{ header: 'itcsumm path', key: 'p', width: 40 }, { header: 'Portal', key: 'a', width: 16 },
+    { header: 'Computed from documents', key: 'b', width: 24 }, { header: 'Difference', key: 'd', width: 16 }]
+  if (!hadSummary) ws.addRow({ p: 'This file carries no portal itcsumm — nothing to compare.' })
+  for (const r of rows) {
+    const row = ws.addRow({ p: r.path, a: r.portal, b: r.computed })
+    row.getCell(4).value = { formula: `B${row.number}-C${row.number}`, result: round2(r.portal - r.computed) }
+    if (Math.abs(r.portal - r.computed) > 0.005) row.font = { color: { argb: 'FFC00000' } }
+  }
+  for (let i = 2; i <= 4; i++) ws.getColumn(i).numFmt = '#,##0.00;[Red]-#,##0.00'
+  ws.getRow(1).font = { bold: true }
+  ws.views = [{ state: 'frozen', ySplit: 1 }]
+}
+
+/** One row per supplier per section: documents, taxable value, tax, ITC not available. */
+function addSupplierSheet(wb: ExcelJS.Workbook, docdata: Json) {
+  const ws = wb.addWorksheet('Supplier Summary')
+  ws.columns = [
+    { header: 'Section', key: 'sec', width: 10 }, { header: 'Supplier GSTIN', key: 'ctin', width: 18 }, { header: 'Supplier Name', key: 'nm', width: 30 },
+    { header: 'Documents', key: 'n', width: 11 }, { header: 'Taxable Value', key: 'txval', width: 16 },
+    { header: 'IGST', key: 'igst', width: 14 }, { header: 'CGST', key: 'cgst', width: 14 }, { header: 'SGST', key: 'sgst', width: 14 }, { header: 'Cess', key: 'cess', width: 12 },
+    { header: 'Reverse charge docs', key: 'rc', width: 12 }, { header: 'ITC not available docs', key: 'na', width: 14 },
+  ]
+  ws.getColumn(2).numFmt = '@'
+  const amt = (d: Json, k: string) => d[k] !== undefined ? Number(d[k]) || 0 : Array.isArray(d.items) ? (d.items as Json[]).reduce((a, it) => a + (Number(it[k]) || 0), 0) : 0
+  for (const sec of SECTIONS.filter((s) => s.shape !== 'flat')) {
+    const arr = docdata[sec.key]
+    if (!Array.isArray(arr)) continue
+    const by = new Map<string, { nm: string; n: number; rc: number; na: number; t: Record<string, number> }>()
+    for (const g of arr as Json[]) {
+      const ctin = String(g.ctin ?? '')
+      const e = by.get(ctin) ?? { nm: String(g.trdnm ?? ''), n: 0, rc: 0, na: 0, t: { txval: 0, igst: 0, cgst: 0, sgst: 0, cess: 0 } }
+      for (const d of (g[sec.listKey!] ?? []) as Json[]) {
+        const sign = classify(sec.key, d).sign
+        e.n++
+        if (d.rev === 'Y') e.rc++
+        if (d.itcavl === 'N' || d.itcelg === 'N') e.na++
+        for (const k of TAX_KEYS) e.t[k] = round2(e.t[k] + sign * amt(d, k))
+      }
+      by.set(ctin, e)
+    }
+    for (const [ctin, e] of [...by].sort((a, b) => b[1].t.txval - a[1].t.txval)) {
+      ws.addRow({ sec: sec.sheet, ctin, nm: e.nm, n: e.n, ...e.t, rc: e.rc || null, na: e.na || null })
+    }
+  }
+  for (let i = 5; i <= 9; i++) ws.getColumn(i).numFmt = '#,##0.00;[Red]-#,##0.00'
+  ws.getRow(1).font = { bold: true }
+  ws.views = [{ state: 'frozen', ySplit: 1 }]
+  ws.autoFilter = { from: { row: 1, column: 1 }, to: { row: 1, column: 11 } }
+}
+
+/** Every check that did not stop the conversion, one per row, for review. */
+function addFlagsSheet(wb: ExcelJS.Workbook, issues: Issue[]) {
+  const ws = wb.addWorksheet('Flags')
+  ws.columns = [{ header: 'Where', key: 'w', width: 44 }, { header: 'Flag', key: 'm', width: 110 }]
+  if (!issues.length) ws.addRow({ w: 'No flags', m: 'Every document passed the checks.' })
+  for (const i of issues) ws.addRow({ w: i.where, m: i.message })
+  ws.getRow(1).font = { bold: true }
+  ws.views = [{ state: 'frozen', ySplit: 1 }]
+  ws.autoFilter = { from: { row: 1, column: 1 }, to: { row: 1, column: 2 } }
 }
 
 // ── validation ───────────────────────────────────────────────────────────
@@ -406,53 +530,69 @@ function periodEnd(rtnprd: string): string | null {
   return `${m[2]}${m[1]}${pad2(last)}`
 }
 
-function validateDocs(checks: DocCheck[], rtnprd: string | null, issues: Issue[]) {
-  const err = (where: string, message: string) => issues.push({ severity: 'error', where, message })
+/**
+ * Checks on every document. A GSTR-2B is what suppliers filed, so its data
+ * problems are the auditor's findings, not a reason to refuse the file: they
+ * are flags (warnings, listed on the Flags sheet). Only `strict` — a workbook
+ * on its way to JSON — makes a malformed GSTIN or date an error, since the
+ * JSON would be broken.
+ */
+function validateDocs(checks: DocCheck[], rtnprd: string | null, issues: Issue[], strict = false) {
   const warn = (where: string, message: string) => issues.push({ severity: 'warning', where, message })
+  const format = (where: string, message: string) => issues.push({ severity: strict ? 'error' : 'warning', where, message })
   const end = rtnprd ? periodEnd(rtnprd) : null
   const seen = new Map<string, string>()
   for (const c of checks) {
     const { sec, doc, where } = c
     if (c.supplierGstin !== null && !GSTIN_RE.test(c.supplierGstin)) {
-      err(where, `Supplier GSTIN "${c.supplierGstin}" is not a valid GSTIN (15 characters, e.g. 33AABCS1234L1Z5).`)
+      format(where, `Supplier GSTIN "${c.supplierGstin}" is not a valid GSTIN (15 characters, e.g. 33AABCS1234L1Z5).`)
     }
     const num = String(doc[sec.docNumKey] ?? '')
     if (num) {
-      const k = `${sec.key}|${c.supplierGstin ?? ''}|${num.toUpperCase()}`
-      if (seen.has(k)) err(where, `Duplicate document: ${c.supplierGstin ? `${c.supplierGstin} / ` : ''}${num} also appears at ${seen.get(k)}.`)
+      // A credit and a debit note may share a number; same type + number is the duplicate.
+      const k = `${sec.key}|${c.supplierGstin ?? ''}|${isNote(sec.key) ? `${doc.typ ?? ''}|` : ''}${num.toUpperCase()}`
+      if (seen.has(k)) warn(where, `Possible duplicate: ${c.supplierGstin ? `${c.supplierGstin} / ` : ''}${num} also appears at ${seen.get(k)}.`)
       else seen.set(k, where)
     }
     for (const dk of ['dt', 'boedt', 'docdt', 'oidt', 'ontdt', 'refdt', 'supfildt', 'irngendate', 'oinvdt']) {
       const v = doc[dk]
       if (v === undefined || v === '' || v === null) continue
-      if (!validDate(String(v))) { err(where, `${dk} "${v}" is not a valid date (dd-mm-yyyy).`); continue }
+      if (!validDate(String(v))) { format(where, `${dk} "${v}" is not a valid date (dd-mm-yyyy).`); continue }
     }
     const dt = String(doc[sec.docDateKey] ?? '')
-    if (end && validDate(dt) && dateKey(dt) > end) err(where, `Document date ${dt} is after the return period ${rtnprd}.`)
+    if (end && validDate(dt) && dateKey(dt) > end) warn(where, `Document date ${dt} is after the return period ${rtnprd}.`)
 
     // Amounts: the document's own totals when there are no items.
     const lines = c.items ?? [doc]
     const sum = (k: string) => round2(lines.reduce((a, l) => a + (Number(l[k]) || 0), 0))
     if (doc.val !== undefined && doc.val !== '' && 'txval' in (c.items?.[0] ?? doc)) {
-      const total = sum('txval') + sum('igst') + sum('cgst') + sum('sgst') + sum('cess')
-      if (Math.abs(Number(doc.val) - total) > 1) err(where, `Value ${doc.val} ≠ taxable + IGST + CGST + SGST + cess (${round2(total)}).`)
+      const val = Number(doc.val)
+      const total = round2(sum('txval') + sum('igst') + sum('cgst') + sum('sgst') + sum('cess'))
+      // Under reverse charge the supplier's invoice usually carries no tax.
+      const rcmOk = doc.rev === 'Y' && (Math.abs(val - sum('txval')) <= 1 || Math.abs(val - round2(sum('txval') + sum('cess'))) <= 1)
+      if (Math.abs(val - total) > 1 && !rcmOk) {
+        warn(where, `Value ${doc.val} ≠ taxable + IGST + CGST + SGST + cess (${total}); difference ${round2(val - total)} (rounding, TCS, non-GST charges or a supplier error).`)
+      }
     }
     const typ = String(doc.typ ?? doc.suptyp ?? 'R')
     const igstOnly = ['SEWP', 'SEWOP', 'CBW'].includes(typ) // SEZ / bonded warehouse: IGST even within the state
+    // diffprcnt 0.65: the 65% concessional rate — tax is rate × 65%.
+    const dp = Number(doc.diffprcnt)
+    const factor = dp > 0 && dp < 1 ? dp : 1
     for (const [i, l] of lines.entries()) {
       const at = c.items ? `${where}, item ${i + 1}` : where
       const igst = Number(l.igst) || 0
       const cs = (Number(l.cgst) || 0) + (Number(l.sgst) || 0)
-      if (igst && cs) err(at, 'Both IGST and CGST/SGST on the same line.')
+      if (igst && cs) warn(at, 'Both IGST and CGST/SGST on the same line.')
       if (l.rt !== undefined && l.rt !== '' && l.txval !== undefined) {
-        const expect = (Number(l.txval) || 0) * (Number(l.rt) || 0) / 100
-        if (Math.abs(expect - (igst + cs)) > 1) err(at, `Tax ${round2(igst + cs)} ≠ taxable ${l.txval} × ${l.rt}% (${round2(expect)}).`)
+        const expect = round2((Number(l.txval) || 0) * (Number(l.rt) || 0) / 100 * factor)
+        if (Math.abs(expect - (igst + cs)) > 1) warn(at, `Tax ${round2(igst + cs)} ≠ taxable ${l.txval} × ${l.rt}%${factor !== 1 ? ` × ${factor * 100}%` : ''} (${expect}).`)
       }
       const pos = String(doc.pos ?? '')
       if (c.supplierGstin && pos && !igstOnly && sec.key !== 'impg') {
         const intra = c.supplierGstin.slice(0, 2) === pos
-        if (intra && igst) err(at, `Intra-state supply (supplier state ${pos} = place of supply) carries IGST.`)
-        if (!intra && cs) err(at, `Inter-state supply (supplier state ${c.supplierGstin.slice(0, 2)} ≠ place of supply ${pos}) carries CGST/SGST.`)
+        if (intra && igst) warn(at, `Intra-state supply (supplier state ${pos} = place of supply) carries IGST.`)
+        if (!intra && cs) warn(at, `Inter-state supply (supplier state ${c.supplierGstin.slice(0, 2)} ≠ place of supply ${pos}) carries CGST/SGST.`)
       }
     }
     if (c.items) {
@@ -488,46 +628,95 @@ export interface Gstr2bExcelResult {
   selfTest: { pass: boolean; diffs: string[] }
 }
 
-export async function gstr2bJsonToExcel(bytes: Buffer): Promise<Gstr2bExcelResult> {
-  let root: Json
-  try {
-    root = JSON.parse(bytes.toString('utf8')) as Json
-  } catch {
-    throw new ToolError('unreadable', "This file isn't valid JSON. Download the GSTR-2B JSON again from the GST portal.")
-  }
+const dataOf = (root: Json): Json => (root && typeof root.data === 'object' && root.data !== null ? root.data : root) as Json
+
+/**
+ * A large GSTR-2B downloads from the portal as several JSON files. Parts of
+ * the same GSTIN and period merge into one: section lists concatenate, and a
+ * supplier split across parts becomes one supplier. The first part's header,
+ * itcsumm and other keys are kept.
+ */
+function mergeParts(roots: Json[], names: string[]): Json {
+  const base = structuredClone(roots[0])
+  const bd = dataOf(base)
+  const bdoc = (bd.docdata ??= {}) as Json
+  roots.slice(1).forEach((r, i) => {
+    const d = dataOf(r)
+    if (d.gstin !== bd.gstin || d.rtnprd !== bd.rtnprd) {
+      throw new ToolError('invalid_options', `${names[i + 1]} is GSTIN ${d.gstin ?? '?'} / period ${d.rtnprd ?? '?'}, but ${names[0]} is ${bd.gstin ?? '?'} / ${bd.rtnprd ?? '?'}. Upload the parts of one GSTR-2B together.`)
+    }
+    for (const [k, v] of Object.entries((d.docdata ?? {}) as Json)) {
+      if (!Array.isArray(v)) continue
+      const target = (bdoc[k] ??= []) as Json[]
+      const sec = SECTIONS.find((s) => s.key === k)
+      if (!sec || sec.shape === 'flat') { target.push(...(v as Json[])); continue }
+      for (const g of v as Json[]) {
+        const same = target.find((t) => t.ctin === g.ctin && t.supprd === g.supprd && t.supfildt === g.supfildt)
+        if (same) (same[sec.listKey!] = [...((same[sec.listKey!] ?? []) as Json[]), ...((g[sec.listKey!] ?? []) as Json[])])
+        else target.push(g)
+      }
+    }
+  })
+  return base
+}
+
+export async function gstr2bJsonToExcel(input: Buffer | Buffer[], names?: string[]): Promise<Gstr2bExcelResult> {
+  const parts = Array.isArray(input) ? input : [input]
+  const labels = parts.map((_, i) => names?.[i] ?? `File ${i + 1}`)
+  const roots = parts.map((b, i) => {
+    try {
+      return JSON.parse(b.toString('utf8')) as Json
+    } catch {
+      throw new ToolError('unreadable', `${parts.length > 1 ? `${labels[i]}: ` : ''}This file isn't valid JSON. Download the GSTR-2B JSON again from the GST portal.`)
+    }
+  })
+  roots.forEach((r, i) => {
+    const dd = dataOf(r).docdata
+    if (!dd || typeof dd !== 'object') throw new ToolError('empty', `${parts.length > 1 ? `${labels[i]}: ` : ''}This is not a GSTR-2B JSON (no data.docdata found).`)
+  })
+  const root = roots.length > 1 ? mergeParts(roots, labels) : roots[0]
   const wrapped = root && typeof root.data === 'object' && root.data !== null
-  const data = (wrapped ? root.data : root) as Json
-  const docdata = data.docdata as Json | undefined
-  if (!docdata || typeof docdata !== 'object') {
-    throw new ToolError('empty', 'This is not a GSTR-2B JSON (no data.docdata found).')
-  }
+  const data = dataOf(root)
+  const docdata = data.docdata as Json
   const issues: Issue[] = []
+  if (roots.length > 1) issues.push({ severity: 'warning', where: 'files', message: `${roots.length} parts merged into one GSTR-2B (${labels.join(', ')}).` })
   const rtnprd = typeof data.rtnprd === 'string' ? data.rtnprd : null
-  if (rtnprd !== null && !/^(0[1-9]|1[0-2])\d{4}$/.test(rtnprd)) issues.push({ severity: 'error', where: 'rtnprd', message: `Return period "${rtnprd}" is not MMYYYY.` })
-  if (typeof data.gstin === 'string' && !GSTIN_RE.test(data.gstin)) issues.push({ severity: 'error', where: 'gstin', message: `GSTIN "${data.gstin}" is not a valid GSTIN.` })
+  if (rtnprd !== null && !/^(0[1-9]|1[0-2])\d{4}$/.test(rtnprd)) issues.push({ severity: 'warning', where: 'rtnprd', message: `Return period "${rtnprd}" is not MMYYYY.` })
+  if (typeof data.gstin === 'string' && !GSTIN_RE.test(data.gstin)) issues.push({ severity: 'warning', where: 'gstin', message: `GSTIN "${data.gstin}" is not a valid GSTIN.` })
   normaliseCodes(docdata, issues)
   validateDocs(checksFromJson(docdata), rtnprd, issues)
 
+  const present = SECTIONS.filter((sec) => Array.isArray(docdata[sec.key]))
+  const totals = computeItc(docdata)
+  const recon = data.itcsumm !== undefined ? reconcileItc(data.itcsumm, totals) : []
+  issues.push(...reconIssues(recon))
+  for (const k of Object.keys(docdata)) {
+    if (!SECTIONS.some((s) => s.key === k)) issues.push({ severity: 'warning', where: `docdata.${k}`, message: `Section "${k}" has no sheet in this layout; it is kept in the hidden _raw sheet and restored on conversion back.` })
+  }
+
+  // Sheet order: what the auditor reads first, then the data, then _raw.
   const wb = new ExcelJS.Workbook()
   wb.creator = 'Audit OS'
+  // Excel recalculates the summary formulas on open (a cached 0 is not stored).
+  wb.calcProperties = { fullCalcOnLoad: true }
   const info = wb.addWorksheet('Info')
   info.columns = [{ header: 'Field', key: 'k', width: 18 }, { header: 'Value', key: 'v', width: 24 }]
   info.getColumn(2).numFmt = '@'
   for (const [label, key] of INFO) if (data[key] !== undefined) info.addRow({ k: label, v: String(data[key]) })
   info.getRow(1).font = { bold: true }
+  addItcSheet(wb, present, totals)
+  addReconSheet(wb, recon, data.itcsumm !== undefined)
+  addSupplierSheet(wb, docdata)
+  addFlagsSheet(wb, issues)
 
-  const present: Section[] = []
   const stats: Gstr2bExcelResult['sections'] = []
-  for (const sec of SECTIONS) {
-    const arr = docdata[sec.key]
-    if (!Array.isArray(arr)) continue
-    present.push(sec)
-    const rows = rowsOf(sec, arr as Json[])
+  for (const sec of present) {
+    const arr = docdata[sec.key] as Json[]
+    const rows = rowsOf(sec, arr)
     addSheet(wb, sec, rows)
-    const docs = sec.shape === 'flat' ? arr.length : (arr as Json[]).reduce((a, g) => a + ((g[sec.listKey!] as unknown[] | undefined)?.length ?? 0), 0)
+    const docs = sec.shape === 'flat' ? arr.length : arr.reduce((a, g) => a + ((g[sec.listKey!] as unknown[] | undefined)?.length ?? 0), 0)
     stats.push({ section: sec.sheet, suppliers: sec.shape === 'flat' ? 0 : arr.length, documents: docs, rows: rows.length })
   }
-  addItcSheet(wb, present, computeItc(docdata))
 
   // Anything the layout has no sheet for, kept verbatim.
   const raw = wb.addWorksheet('_raw')
@@ -543,15 +732,11 @@ export async function gstr2bJsonToExcel(bytes: Buffer): Promise<Gstr2bExcelResul
   for (const [k, v] of Object.entries(docdata)) {
     if (SECTIONS.some((s) => s.key === k)) continue
     raw.addRow({ k: `section:${k}`, v: JSON.stringify(v) })
-    issues.push({ severity: 'warning', where: `docdata.${k}`, message: `Section "${k}" has no sheet in this layout; it is kept in the hidden _raw sheet and restored on conversion back.` })
   }
-
-  const errors = issues.filter((i) => i.severity === 'error')
-  if (errors.length) throw invalid(errors)
 
   const out = Buffer.from(await wb.xlsx.writeBuffer())
   // Self-test: back to JSON and compare with the original.
-  const back = await gstr2bExcelToJson(out)
+  const back = await gstr2bExcelToJson(out, { strict: false })
   const diffs = deepDiff(root, JSON.parse(back.bytes.toString('utf8')))
   return { bytes: out, sections: stats, issues, selfTest: { pass: diffs.length === 0, diffs: diffs.slice(0, 20) } }
 }
@@ -569,7 +754,12 @@ export interface Gstr2bJsonResult {
   issues: Issue[]
 }
 
-export async function gstr2bExcelToJson(bytes: Buffer): Promise<Gstr2bJsonResult> {
+/**
+ * `strict` (the default, a workbook someone edited) refuses a malformed GSTIN
+ * or date. The self-test of a portal file passes false: it re-reads exactly
+ * what the portal sent, flags and all.
+ */
+export async function gstr2bExcelToJson(bytes: Buffer, opts: { strict?: boolean } = {}): Promise<Gstr2bJsonResult> {
   const wb = new ExcelJS.Workbook()
   try {
     await wb.xlsx.load(bytes as unknown as ArrayBuffer)
@@ -601,8 +791,8 @@ export async function gstr2bExcelToJson(bytes: Buffer): Promise<Gstr2bJsonResult
     if (hit[1] === 'rtnprd' && /^\d{5}$/.test(v)) v = `0${v}` // Excel turned 092026 into 92026
     data[hit[1]] = v
   })
-  if (typeof data.rtnprd === 'string' && !/^(0[1-9]|1[0-2])\d{4}$/.test(data.rtnprd)) err('Info: Return Period', `"${data.rtnprd}" is not MMYYYY (e.g. 092026).`)
-  if (typeof data.gstin === 'string' && data.gstin && !GSTIN_RE.test(data.gstin.toUpperCase())) err('Info: GSTIN', `"${data.gstin}" is not a valid GSTIN.`)
+  if (typeof data.rtnprd === 'string' && !/^(0[1-9]|1[0-2])\d{4}$/.test(data.rtnprd)) (opts.strict === false ? warn : err)('Info: Return Period', `"${data.rtnprd}" is not MMYYYY (e.g. 092026).`)
+  if (typeof data.gstin === 'string' && data.gstin && !GSTIN_RE.test(data.gstin.toUpperCase())) (opts.strict === false ? warn : err)('Info: GSTIN', `"${data.gstin}" is not a valid GSTIN.`)
 
   const docdata: Json = {}
   const stats: Gstr2bJsonResult['sections'] = []
@@ -734,21 +924,22 @@ export async function gstr2bExcelToJson(bytes: Buffer): Promise<Gstr2bJsonResult
     else if (k.startsWith('top:')) data[k.slice(4)] = v
   }
   for (const ws of wb.worksheets) {
-    if (!BY_SHEET.has(ws.name.toUpperCase()) && !['info', 'itcsummary', 'summary', 'raw', 'validation'].includes(norm(ws.name)) && ws.rowCount > 1) {
+    if (!BY_SHEET.has(ws.name.toUpperCase()) && !REPORT_SHEETS.includes(norm(ws.name)) && ws.rowCount > 1) {
       warn(ws.name, 'Sheet not recognised as a GSTR-2B section — ignored.')
     }
   }
   if (!Object.keys(docdata).length && issues.some((i) => i.severity === 'error')) throw invalid(issues.filter((i) => i.severity === 'error'))
   if (!Object.keys(docdata).length) throw new ToolError('empty', 'No GSTR-2B sheets found. Use the sheet names B2B, B2BA, CDNR, CDNRA, ISD, ISDA, IMPG or IMPGSEZ with this tool\'s column headers.')
 
-  validateDocs(checks, typeof data.rtnprd === 'string' ? data.rtnprd : null, issues)
+  validateDocs(checks, typeof data.rtnprd === 'string' ? data.rtnprd : null, issues, opts.strict ?? true)
   const errors = issues.filter((i) => i.severity === 'error')
   if (errors.length) throw invalid(errors)
 
   data.docdata = docdata
-  // itcsumm: rebuilt from the rows; the original's shape is kept when it had one.
+  // itcsumm: the portal's own, unchanged (a gap to the rows is reported, not
+  // written over); built from the rows only for a workbook that never had one.
   const totals = computeItc(docdata)
-  if (raw.has('itcsumm')) data.itcsumm = mergeItc(raw.get('itcsumm'), totals, issues)
+  if (raw.has('itcsumm')) { data.itcsumm = raw.get('itcsumm'); issues.push(...reconIssues(reconcileItc(data.itcsumm, totals))) }
   else if (!raw.has('itcsumm_absent')) data.itcsumm = itcsummFrom(totals)
 
   const root: Json = raw.get('wrapped') === false ? data : { data }

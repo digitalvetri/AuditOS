@@ -140,7 +140,7 @@ export const TOOLS: ToolDefinition[] = [
     keywords: ['gst', 'gstr', 'gstr-1', 'gstr-3b', 'json', 'excel', 'offline utility'], permission: 'tools.gst_json_excel', status: 'active' },
   { id: 'gstr2b-json-excel', name: 'GSTR-2B JSON ⇄ Excel', description: 'Portal ITC statement, both ways',
     badge: { text: '2B', tint: 'blue' }, groupId: 'compliance-converters', route: '/tools/gstr2b-json-excel',
-    accepts: [MIME.json, MIME.xlsx], extensions: ['json', 'xlsx'], maxFileSizeMB: 25, multiple: false, outputType: 'xlsx',
+    accepts: [MIME.json, MIME.xlsx], extensions: ['json', 'xlsx'], maxFileSizeMB: 25, multiple: true, outputType: 'xlsx',
     keywords: ['gst', 'gstr', 'gstr-2b', '2b', 'itc', 'input tax credit', 'purchase', 'json', 'excel'], permission: 'tools.gstr2b_json_excel', status: 'active' },
   { id: 'bank-statement-to-excel', name: 'Bank Statement to Excel', description: 'Parse PDF statements to ledger rows',
     badge: { text: 'BANK', tint: 'green' }, groupId: 'compliance-converters', route: '/tools/bank-statement-to-excel',

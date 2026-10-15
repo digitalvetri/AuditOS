@@ -124,7 +124,7 @@ export const TOOLS: ToolDef[] = [
     maxFileSizeMB: 25, multiple: false, outputType: 'xlsx', permission: 'tools.gst_json_excel', status: 'active' },
   { id: 'gstr2b-json-excel', name: 'GSTR-2B JSON ⇄ Excel', description: 'Portal ITC statement, both ways',
     groupId: 'compliance-converters', accepts: [MIME.json, MIME.xlsx], extensions: ['json', 'xlsx'],
-    maxFileSizeMB: 25, multiple: false, outputType: 'xlsx', permission: 'tools.gstr2b_json_excel', status: 'active' },
+    maxFileSizeMB: 25, multiple: true, outputType: 'xlsx', permission: 'tools.gstr2b_json_excel', status: 'active' },
   { id: 'bank-statement-to-excel', name: 'Bank Statement to Excel', description: 'Parse PDF statements to ledger rows',
     groupId: 'compliance-converters', ...PDF_ONLY, maxFileSizeMB: 25, multiple: false, outputType: 'xlsx',
     permission: 'tools.bank_statement_to_excel', status: 'active' },
