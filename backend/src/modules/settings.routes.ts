@@ -7,7 +7,8 @@ import { can, requireSession, type Session } from '../platform/auth.js'
 import { canEditRole } from '../platform/roleRank.js'
 import { writeAudit } from '../platform/audit.js'
 import type { Scope } from '../platform/rbac/matrix.js'
-import { MODULES, moduleCodes, VISIBLE_ROLE_CODES } from '../platform/rbac/modules.js'
+import { MODULES, VISIBLE_ROLE_CODES } from '../platform/rbac/modules.js'
+import { GATES, gatesFor, grantsAt, labelOf, levelHeld, levelsOf, sectionCodes, SECTIONS, topLevel, type Level, type Section } from '../platform/rbac/sections.js'
 import {
   departmentToApi, designationToApi, expenseCategoryToApi, holidayToApi,
   leaveTypeToApi, permissionToApi, roleToApi, statutoryRateToApi,
@@ -698,13 +699,18 @@ settingsRouter.put('/roles/:roleId/permissions/:permissionCode', handler(async (
   })
 }))
 
-// ── Role modules (Settings → Roles & permissions) ────────────────────────
-// The screen edits access per module (HRMS / Workstation / Tools /
-// Integrations), not per code. "Full" = every code in the module at
-// organisation scope; "none" = no code in it. A role whose rows were edited
-// one by one reads back as "partial".
+// ── Role sections (Settings → Roles & permissions) ───────────────────────
+// The screen edits access per SECTION (Employees, Attendance, Tasks, each
+// tool…, rbac/sections.ts), grouped under the four modules. A module row is
+// a shortcut that sets every section in it. Gates (workstation.access…) are
+// kept in step on every write: held exactly when a section behind them is.
 
 type ModuleAccess = 'full' | 'none' | 'partial'
+
+const sectionsToApi = () => SECTIONS.map((s) => ({
+  code: s.code, module: s.module, group: s.group ?? null, name: s.name,
+  levels: levelsOf(s).map((l) => ({ level: l, label: labelOf(s, l) })),
+}))
 
 settingsRouter.get('/role-modules', handler(async (req, res) => {
   const session = requireSession(req)
@@ -717,66 +723,96 @@ settingsRouter.get('/role-modules', handler(async (req, res) => {
   const out = VISIBLE_ROLE_CODES.flatMap((code) => {
     const r = byCode.get(code)
     if (!r || !seesRole(session, code)) return []
-    const held = new Map(r.permissions.map((rp) => [rp.permission.code, rp.scope]))
+    const held = new Map(r.permissions.filter((rp) => !rp.permission.deletedAt).map((rp) => [rp.permission.code, rp.scope as string]))
+    const sections = Object.fromEntries(SECTIONS.map((s) => [s.code, levelHeld(s, held)]))
     const modules = Object.fromEntries(MODULES.map((m) => {
-      const codes = moduleCodes(m.code)
-      const full = codes.every((c) => held.get(c) === 'organisation')
-      const none = codes.every((c) => !held.has(c))
+      const inModule = SECTIONS.filter((s) => s.module === m.code)
+      const full = inModule.every((s) => sections[s.code] === topLevel(s))
+      const none = inModule.every((s) => sections[s.code] === 'none')
       return [m.code, (full ? 'full' : none ? 'none' : 'partial') as ModuleAccess]
     }))
-    return [{ ...roleToApi(r), modules }]
+    return [{ ...roleToApi(r), modules, sections }]
   })
-  ok(res, { modules: MODULES, roles: out })
+  ok(res, { modules: MODULES, sections: sectionsToApi(), roles: out })
 }))
 
 /**
- * Give a role a module in full, or take it away. Same lockout guards as the
- * per-code route: HRMS carries `settings.manage`, so the caller cannot drop
- * HRMS from their own role, and the last role holding it keeps it.
+ * Replace a role's grants in some sections with the given levels, then bring
+ * its gates in step. Lockout guards: `settings.manage` (the Settings section)
+ * cannot leave the caller's own role, nor the last role holding it.
  */
-settingsRouter.put('/roles/:roleId/modules/:module', handler(async (req, res) => {
-  const session = requireSession(req)
-  requireManage(session)
-
-  const module = MODULES.find((m) => m.code === req.params.module)?.code
-  if (!module) throw ApiError.notFound('Module not found.')
-  const body = z.object({ access: z.enum(['full', 'none']) }).safeParse(req.body ?? {})
-  if (!body.success) throw ApiError.badRequest('access must be full or none.')
-
-  const role = await prisma.role.findUnique({ where: { id: req.params.roleId } })
+async function writeSections(session: Session, roleId: string, levels: { section: Section; level: Level }[]) {
+  const role = await prisma.role.findUnique({
+    where: { id: roleId },
+    include: { permissions: { include: { permission: true } } },
+  })
   if (!role || role.deletedAt || !canEditRole(session, role.code)) throw ApiError.notFound('Role not found.')
 
-  const codes: string[] = moduleCodes(module)
-  if (body.data.access === 'none' && codes.includes('settings.manage')) {
+  const losesSettings = levels.some(({ section, level }) => sectionCodes(section).includes('settings.manage') && !grantsAt(section, level).some((g) => g.code === 'settings.manage'))
+    && role.permissions.some((rp) => rp.permission.code === 'settings.manage')
+  if (losesSettings) {
     if (role.id === session.roleId) {
-      throw ApiError.conflict('self_lockout', 'You cannot remove HRMS from your own role — it holds Settings.')
+      throw ApiError.conflict('self_lockout', 'You cannot remove Settings from your own role.')
     }
     const otherHolders = await prisma.rolePermission.count({
       where: { permission: { code: 'settings.manage' }, roleId: { not: role.id }, role: { deletedAt: null } },
     })
-    if (otherHolders === 0) {
-      throw ApiError.conflict('last_admin', 'At least one role must keep HRMS — it holds Settings.')
-    }
+    if (otherHolders === 0) throw ApiError.conflict('last_admin', 'At least one role must keep Settings.')
   }
 
-  const permissions = await prisma.permission.findMany({ where: { code: { in: codes }, deletedAt: null } })
-  const ids = permissions.map((p) => p.id)
-  await prisma.$transaction([
-    prisma.rolePermission.deleteMany({ where: { roleId: role.id, permissionId: { in: ids } } }),
-    ...(body.data.access === 'full'
-      ? [prisma.rolePermission.createMany({
-          data: ids.map((permissionId) => ({ roleId: role.id, permissionId, scope: 'organisation' })),
-        })]
-      : []),
-  ])
+  // The role's grants after the change, then its gates recomputed from them.
+  const held = new Map(role.permissions.map((rp) => [rp.permission.code, rp.scope as string]))
+  for (const { section, level } of levels) {
+    for (const c of sectionCodes(section)) held.delete(c)
+    for (const g of grantsAt(section, level)) held.set(g.code, g.scope)
+  }
+  for (const g of GATES) held.delete(g.code)
+  for (const code of gatesFor(held)) held.set(code, 'organisation')
 
+  const touched = new Set<string>([...levels.flatMap(({ section }) => sectionCodes(section)), ...GATES.map((g) => g.code)])
+  const permissions = await prisma.permission.findMany({ where: { code: { in: [...touched] }, deletedAt: null } })
+  const idOf = new Map(permissions.map((p) => [p.code, p.id]))
+  await prisma.$transaction([
+    prisma.rolePermission.deleteMany({ where: { roleId: role.id, permissionId: { in: [...idOf.values()] } } }),
+    prisma.rolePermission.createMany({
+      data: [...touched].filter((c) => held.has(c) && idOf.has(c)).map((c) => ({ roleId: role.id, permissionId: idOf.get(c)!, scope: held.get(c)! })),
+    }),
+  ])
+  return role
+}
+
+/** One section of one role → a level. */
+settingsRouter.put('/roles/:roleId/sections/:section', handler(async (req, res) => {
+  const session = requireSession(req)
+  requireManage(session)
+  const section = SECTIONS.find((s) => s.code === req.params.section)
+  if (!section) throw ApiError.notFound('Section not found.')
+  const body = z.object({ level: z.enum(['none', 'own', 'view', 'full']) }).safeParse(req.body ?? {})
+  if (!body.success || !levelsOf(section).includes(body.data.level)) {
+    throw ApiError.badRequest(`level must be one of: ${levelsOf(section).join(', ')}.`)
+  }
+  const role = await writeSections(session, req.params.roleId, [{ section, level: body.data.level }])
+  await writeAudit({
+    actorUserId: session.userId, action: 'role_section.changed', entityType: 'Role', entityId: role.id,
+    after: { section: section.code, level: body.data.level }, req,
+  })
+  ok(res, { role: roleToApi(role), section: section.code, level: body.data.level })
+}))
+
+/** Every section of a module → its top level (full) or none. */
+settingsRouter.put('/roles/:roleId/modules/:module', handler(async (req, res) => {
+  const session = requireSession(req)
+  requireManage(session)
+  const module = MODULES.find((m) => m.code === req.params.module)?.code
+  if (!module) throw ApiError.notFound('Module not found.')
+  const body = z.object({ access: z.enum(['full', 'none']) }).safeParse(req.body ?? {})
+  if (!body.success) throw ApiError.badRequest('access must be full or none.')
+  const role = await writeSections(session, req.params.roleId, SECTIONS.filter((s) => s.module === module)
+    .map((section) => ({ section, level: body.data.access === 'full' ? topLevel(section) : 'none' as Level })))
   await writeAudit({
     actorUserId: session.userId,
     action: body.data.access === 'full' ? 'role_module.granted' : 'role_module.revoked',
-    entityType: 'Role',
-    entityId: role.id,
-    after: { module, access: body.data.access },
-    req,
+    entityType: 'Role', entityId: role.id, after: { module, access: body.data.access }, req,
   })
   ok(res, { role: roleToApi(role), module, access: body.data.access })
 }))
