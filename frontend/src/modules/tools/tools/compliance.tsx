@@ -70,6 +70,70 @@ export const gstJsonExcelUI: ToolUI = {
   },
 };
 
+// ── 1b. GSTR-2B JSON ⇄ Excel (lossless) ───────────────────────────────────
+
+type SectionCount = { section: string; suppliers: number; documents: number; rows: number };
+type Warning = { where: string; message: string };
+
+export const gstr2bJsonExcelUI: ToolUI = {
+  actionLabel: 'Convert',
+  processingLabel: 'Converting GSTR-2B…',
+  Options: () => (
+    <div className="space-y-2">
+      <Notice tone="info">
+        <div className="text-13">
+          The direction follows the file you upload: the GSTR-2B <strong className="font-medium">.json</strong> from the
+          GST portal becomes a workbook (Info, one sheet per section with one row per item, and an ITC Summary built from
+          formulas), and a workbook in that layout becomes GSTR-2B JSON again. The round trip is lossless: JSON → Excel →
+          JSON gives back the same JSON, and every conversion checks this.
+          <div className="text-12 text-neutral-500 mt-1">
+            Sections: B2B, B2BA, CDNR, CDNRA, ISD, ISDA, IMPG, IMPGSEZ; anything else is kept in a hidden sheet. Codes are
+            written as the portal's codes (R, Y/N, C, 33); labels like "Regular", "Yes" or "33-Tamil Nadu" are read back
+            as codes with a warning. On the way back, itcsumm is rebuilt from the rows.
+          </div>
+        </div>
+      </Notice>
+      <Notice tone="warn">
+        <div className="text-13">Sample/test tool. Verify output against a real GST portal download before filing or importing.</div>
+      </Notice>
+    </div>
+  ),
+  ResultNote: ({ output }) => {
+    const counts = (output.meta.section_counts as SectionCount[] | undefined) ?? [];
+    const warnings = (output.meta.warnings as Warning[] | undefined) ?? [];
+    const selfTest = output.meta.self_test as 'PASS' | 'FAIL' | null | undefined;
+    const diffs = (output.meta.self_test_diffs as string[] | undefined) ?? [];
+    return (
+      <div className="space-y-2 text-13">
+        <div className="text-neutral-500">
+          {output.meta.direction === 'excel_to_json' ? 'Rebuilt' : 'Read'} {n(output.meta.documents)} documents across {n(output.meta.rows)} rows.
+        </div>
+        {counts.length ? (
+          <table className="text-12 border-collapse">
+            <thead><tr className="text-neutral-500 text-left"><th className="pr-6 font-medium">Section</th><th className="pr-6 font-medium">Suppliers</th><th className="pr-6 font-medium">Documents</th><th className="font-medium">Rows</th></tr></thead>
+            <tbody>{counts.map((c) => (
+              <tr key={c.section} className="border-t border-neutral-100"><td className="pr-6 py-0.5 font-medium text-neutral-800">{c.section}</td><td className="pr-6">{c.suppliers || '—'}</td><td className="pr-6">{c.documents}</td><td>{c.rows}</td></tr>
+            ))}</tbody>
+          </table>
+        ) : null}
+        {selfTest ? (
+          selfTest === 'PASS'
+            ? <div className="text-green-700">Round-trip self-test: PASS — converting this workbook back gives the identical JSON.</div>
+            : <div className="text-red-700">Round-trip self-test: FAIL at {diffs.slice(0, 5).join('; ')}</div>
+        ) : null}
+        {warnings.length ? (
+          <details>
+            <summary className="cursor-pointer text-amber-700">{warnings.length} warning{warnings.length === 1 ? '' : 's'} (download allowed)</summary>
+            <ul className="mt-1 space-y-0.5 text-12 text-neutral-600 max-h-48 overflow-auto">
+              {warnings.map((w, i) => <li key={i}><span className="font-medium text-neutral-800">{w.where}</span> — {w.message}</li>)}
+            </ul>
+          </details>
+        ) : null}
+      </div>
+    );
+  },
+};
+
 // ── 2. Bank Statement to Excel ───────────────────────────────────────────
 
 export const bankStatementToExcelUI: ToolUI = {

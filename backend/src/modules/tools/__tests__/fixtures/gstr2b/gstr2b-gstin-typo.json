@@ -1,0 +1,481 @@
+{
+  "data": {
+    "gstin": "33AAACR1234A1Z9",
+    "rtnprd": "092026",
+    "version": "1.0",
+    "gendt": "14-10-2026",
+    "docdata": {
+      "b2b": [
+        {
+          "ctin": "33AABCS1234L1Z5",
+          "trdnm": "Sri Murugan Textiles Pvt Ltd",
+          "supprd": "092026",
+          "supfildt": "11-10-2026",
+          "inv": [
+            {
+              "inum": "INV/2526/0412",
+              "typ": "R",
+              "dt": "03-09-2026",
+              "val": 140000,
+              "pos": "33",
+              "rev": "N",
+              "itcavl": "Y",
+              "rsn": "",
+              "diffprcnt": 1,
+              "txval": 125000,
+              "igst": 0,
+              "cgst": 7500,
+              "sgst": 7500,
+              "cess": 0,
+              "items": [
+                {
+                  "num": 1,
+                  "rt": 12,
+                  "txval": 125000,
+                  "igst": 0,
+                  "cgst": 7500,
+                  "sgst": 7500,
+                  "cess": 0
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "ctin": "33AAFCK5678M1Z",
+          "trdnm": "Kovai Packaging Industries",
+          "supprd": "092026",
+          "supfildt": "11-10-2026",
+          "inv": [
+            {
+              "inum": "KP/09/118",
+              "typ": "R",
+              "dt": "05-09-2026",
+              "val": 57230,
+              "pos": "33",
+              "rev": "N",
+              "itcavl": "Y",
+              "rsn": "",
+              "diffprcnt": 1,
+              "txval": 48500,
+              "igst": 0,
+              "cgst": 4365,
+              "sgst": 4365,
+              "cess": 0,
+              "items": [
+                {
+                  "num": 1,
+                  "rt": 18,
+                  "txval": 48500,
+                  "igst": 0,
+                  "cgst": 4365,
+                  "sgst": 4365,
+                  "cess": 0
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "ctin": "29AAGCB9012N1ZP",
+          "trdnm": "Bengaluru Dyes & Chemicals",
+          "supprd": "092026",
+          "supfildt": "11-10-2026",
+          "inv": [
+            {
+              "inum": "BDC-2290",
+              "typ": "R",
+              "dt": "07-09-2026",
+              "val": 250632,
+              "pos": "33",
+              "rev": "N",
+              "itcavl": "Y",
+              "rsn": "",
+              "diffprcnt": 1,
+              "txval": 212400,
+              "igst": 38232,
+              "cgst": 0,
+              "sgst": 0,
+              "cess": 0,
+              "items": [
+                {
+                  "num": 1,
+                  "rt": 18,
+                  "txval": 212400,
+                  "igst": 38232,
+                  "cgst": 0,
+                  "sgst": 0,
+                  "cess": 0
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "ctin": "27AAHCM3456P1Z8",
+          "trdnm": "Mumbai Yarn Traders",
+          "supprd": "092026",
+          "supfildt": "11-10-2026",
+          "inv": [
+            {
+              "inum": "MYT/1456",
+              "typ": "R",
+              "dt": "09-09-2026",
+              "val": 100800,
+              "pos": "33",
+              "rev": "N",
+              "itcavl": "Y",
+              "rsn": "",
+              "diffprcnt": 1,
+              "txval": 96000,
+              "igst": 4800,
+              "cgst": 0,
+              "sgst": 0,
+              "cess": 0,
+              "items": [
+                {
+                  "num": 1,
+                  "rt": 5,
+                  "txval": 96000,
+                  "igst": 4800,
+                  "cgst": 0,
+                  "sgst": 0,
+                  "cess": 0
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "ctin": "33AAJCT7890Q1ZK",
+          "trdnm": "Tiruppur Machine Spares",
+          "supprd": "092026",
+          "supfildt": "11-10-2026",
+          "inv": [
+            {
+              "inum": "TMS/0877",
+              "typ": "R",
+              "dt": "11-09-2026",
+              "val": 43955,
+              "pos": "33",
+              "rev": "N",
+              "itcavl": "Y",
+              "rsn": "",
+              "diffprcnt": 1,
+              "txval": 37250,
+              "igst": 0,
+              "cgst": 3352.5,
+              "sgst": 3352.5,
+              "cess": 0,
+              "items": [
+                {
+                  "num": 1,
+                  "rt": 18,
+                  "txval": 37250,
+                  "igst": 0,
+                  "cgst": 3352.5,
+                  "sgst": 3352.5,
+                  "cess": 0
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "ctin": "07AAKCD2345R1Z3",
+          "trdnm": "Delhi Logistics Services",
+          "supprd": "092026",
+          "supfildt": "11-10-2026",
+          "inv": [
+            {
+              "inum": "DLS/09/3321",
+              "typ": "R",
+              "dt": "14-09-2026",
+              "val": 18644,
+              "pos": "33",
+              "rev": "Y",
+              "itcavl": "Y",
+              "rsn": "",
+              "diffprcnt": 1,
+              "txval": 15800,
+              "igst": 2844,
+              "cgst": 0,
+              "sgst": 0,
+              "cess": 0,
+              "items": [
+                {
+                  "num": 1,
+                  "rt": 18,
+                  "txval": 15800,
+                  "igst": 2844,
+                  "cgst": 0,
+                  "sgst": 0,
+                  "cess": 0
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "ctin": "33AALCE6789S1ZD",
+          "trdnm": "Erode Power & Fuel Co",
+          "supprd": "092026",
+          "supfildt": "11-10-2026",
+          "inv": [
+            {
+              "inum": "EPF/2026/554",
+              "typ": "R",
+              "dt": "16-09-2026",
+              "val": 99474,
+              "pos": "33",
+              "rev": "N",
+              "itcavl": "N",
+              "rsn": "C",
+              "diffprcnt": 1,
+              "txval": 84300,
+              "igst": 0,
+              "cgst": 7587,
+              "sgst": 7587,
+              "cess": 0,
+              "items": [
+                {
+                  "num": 1,
+                  "rt": 18,
+                  "txval": 84300,
+                  "igst": 0,
+                  "cgst": 7587,
+                  "sgst": 7587,
+                  "cess": 0
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "ctin": "24AAMCG1122T1Z6",
+          "trdnm": "Gujarat Chemicals Ltd",
+          "supprd": "092026",
+          "supfildt": "11-10-2026",
+          "inv": [
+            {
+              "inum": "GCL/S/7781",
+              "typ": "R",
+              "dt": "19-09-2026",
+              "val": 359900,
+              "pos": "33",
+              "rev": "N",
+              "itcavl": "Y",
+              "rsn": "",
+              "diffprcnt": 1,
+              "txval": 305000,
+              "igst": 54900,
+              "cgst": 0,
+              "sgst": 0,
+              "cess": 0,
+              "items": [
+                {
+                  "num": 1,
+                  "rt": 18,
+                  "txval": 305000,
+                  "igst": 54900,
+                  "cgst": 0,
+                  "sgst": 0,
+                  "cess": 0
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "ctin": "33AANCH3344U1ZB",
+          "trdnm": "Salem Steel Fabricators",
+          "supprd": "092026",
+          "supfildt": "11-10-2026",
+          "inv": [
+            {
+              "inum": "SSF/0932",
+              "typ": "R",
+              "dt": "22-09-2026",
+              "val": 69502,
+              "pos": "33",
+              "rev": "N",
+              "itcavl": "Y",
+              "rsn": "",
+              "diffprcnt": 1,
+              "txval": 58900,
+              "igst": 0,
+              "cgst": 5301,
+              "sgst": 5301,
+              "cess": 0,
+              "items": [
+                {
+                  "num": 1,
+                  "rt": 18,
+                  "txval": 58900,
+                  "igst": 0,
+                  "cgst": 5301,
+                  "sgst": 5301,
+                  "cess": 0
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "ctin": "33AAOCJ5566V1ZH",
+          "trdnm": "Coimbatore Office Supplies",
+          "supprd": "092026",
+          "supfildt": "11-10-2026",
+          "inv": [
+            {
+              "inum": "COS/1109",
+              "typ": "R",
+              "dt": "25-09-2026",
+              "val": 13888,
+              "pos": "33",
+              "rev": "N",
+              "itcavl": "Y",
+              "rsn": "",
+              "diffprcnt": 1,
+              "txval": 12400,
+              "igst": 0,
+              "cgst": 744,
+              "sgst": 744,
+              "cess": 0,
+              "items": [
+                {
+                  "num": 1,
+                  "rt": 12,
+                  "txval": 12400,
+                  "igst": 0,
+                  "cgst": 744,
+                  "sgst": 744,
+                  "cess": 0
+                }
+              ]
+            }
+          ]
+        }
+      ],
+      "cdnr": [
+        {
+          "ctin": "29AAGCB9012N1ZP",
+          "trdnm": "Bengaluru Dyes & Chemicals",
+          "supprd": "092026",
+          "supfildt": "11-10-2026",
+          "nt": [
+            {
+              "ntnum": "CN/0045",
+              "typ": "C",
+              "suptyp": "R",
+              "dt": "20-09-2026",
+              "val": 11800,
+              "pos": "33",
+              "rev": "N",
+              "itcavl": "Y",
+              "rsn": "",
+              "diffprcnt": 1,
+              "txval": 10000,
+              "igst": 1800,
+              "cgst": 0,
+              "sgst": 0,
+              "cess": 0,
+              "items": [
+                {
+                  "num": 1,
+                  "rt": 18,
+                  "txval": 10000,
+                  "igst": 1800,
+                  "cgst": 0,
+                  "sgst": 0,
+                  "cess": 0
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "ctin": "33AABCS1234L1Z5",
+          "trdnm": "Sri Murugan Textiles Pvt Ltd",
+          "supprd": "092026",
+          "supfildt": "11-10-2026",
+          "nt": [
+            {
+              "ntnum": "CN/0112",
+              "typ": "C",
+              "suptyp": "R",
+              "dt": "28-09-2026",
+              "val": 5600,
+              "pos": "33",
+              "rev": "N",
+              "itcavl": "Y",
+              "rsn": "",
+              "diffprcnt": 1,
+              "txval": 5000,
+              "igst": 0,
+              "cgst": 300,
+              "sgst": 300,
+              "cess": 0,
+              "items": [
+                {
+                  "num": 1,
+                  "rt": 12,
+                  "txval": 5000,
+                  "igst": 0,
+                  "cgst": 300,
+                  "sgst": 300,
+                  "cess": 0
+                }
+              ]
+            }
+          ]
+        }
+      ],
+      "impg": [
+        {
+          "portcode": "INMAA1",
+          "boenum": "1234567",
+          "boedt": "12-09-2026",
+          "isamd": "N",
+          "txval": 450000,
+          "igst": 81000,
+          "cess": 0
+        }
+      ]
+    },
+    "itcsumm": {
+      "itcavl": {
+        "nonrevsup": {
+          "b2b": {
+            "igst": 100776,
+            "cgst": 21262.5,
+            "sgst": 21262.5,
+            "cess": 0
+          },
+          "cdnr": {
+            "igst": -1800,
+            "cgst": -300,
+            "sgst": -300,
+            "cess": 0
+          },
+          "impg": {
+            "igst": 81000,
+            "cgst": 0,
+            "sgst": 0,
+            "cess": 0
+          }
+        }
+      },
+      "itcunavl": {
+        "nonrevsup": {
+          "b2b": {
+            "igst": 0,
+            "cgst": 7587,
+            "sgst": 7587,
+            "cess": 0
+          }
+        }
+      }
+    }
+  }
+}
