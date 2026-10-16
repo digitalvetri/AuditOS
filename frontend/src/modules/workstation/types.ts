@@ -146,6 +146,8 @@ export interface Client extends Auditable {
 
 export interface ClientListItem extends Client {
   service_names: string[];
+  /** Staff with a task for this client in the Tasks section. */
+  task_staff: EmployeeRef[];
   document_count: number;
   child_client_count: number;
 }

@@ -49,7 +49,8 @@ export function readClientFields(v: FieldErrors, b: Record<string, unknown>): Cl
   const email = v.email('email', b.email, false)
   const gstin = b.gstin ? v.gstin('gstin', b.gstin) : undefined
   const pan = b.pan ? v.pan('pan', b.pan) : undefined
-  const accountManagerId = v.str('account_manager_id', b.account_manager_id)
+  // Optional: the Add Client form no longer asks — POST /clients defaults it to the creator.
+  const accountManagerId = v.str('account_manager_id', b.account_manager_id, { required: false })
   const secondaryManagerId = v.str('secondary_manager_id', b.secondary_manager_id, { required: false })
   if (secondaryManagerId && secondaryManagerId === accountManagerId) {
     v.add('secondary_manager_id', 'Choose a different person from the account manager.')
@@ -160,6 +161,9 @@ export function bumpClientCode(code: string): string {
 
 // ── List filters ────────────────────────────────────────────────────────────
 
+/** A task that names its staff on the client: not deleted, not cancelled. */
+export const LIVE_TASK = { deletedAt: null, status: { not: 'cancelled' } } satisfies Prisma.TaskWhereInput
+
 const str = (v: unknown) => (typeof v === 'string' ? v.trim() : '')
 
 /**
@@ -173,6 +177,8 @@ export async function clientListWhere(
   const status = str(query.status) || null
   const managerId = str(query.account_manager_id) || null
   const serviceId = str(query.service_id) || null
+  // task_staff_id — clients with a task for this employee in the Tasks section.
+  const taskStaffId = str(query.task_staff_id) || null
   const pendingDocs = query.pending_documents === 'true'
   // organization_id = the clients under one organization;
   // kind = organization | member (under an organization) | standalone.
@@ -190,6 +196,7 @@ export async function clientListWhere(
     and.push({ OR: [{ accountManagerId: me }, { secondaryManagerId: me }] })
   }
   if (ids) and.push({ id: { in: ids } })
+  if (taskStaffId) and.push({ tasks: { some: { assignedEmployeeId: taskStaffId, ...LIVE_TASK } } })
   // §7.2 search: company · client id · GSTIN · contact person · number,
   // plus the organization's name so "ABC" also finds ABC's clients.
   if (q) {

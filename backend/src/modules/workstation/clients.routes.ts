@@ -18,7 +18,7 @@ import {
 import {
   body, CLIENT_STATUSES, DOCUMENT_STATUSES, FieldErrors, SERVICE_STATUSES,
 } from './validate.js'
-import { clientListWhere, clientOrderBy, createClientRow, readClientFields } from './clients.shared.js'
+import { LIVE_TASK, clientListWhere, clientOrderBy, createClientRow, readClientFields } from './clients.shared.js'
 
 /**
  * CLIENTS (AUDIT_OS_WORKSTATION.md §7.3) — the central workspace.
@@ -50,6 +50,7 @@ clientsRouter.get('/', handler(async (req, res) => {
         parentClient: { select: ORGANIZATION_REF },
         _count: { select: { documents: { where: { deletedAt: null } }, childClients: { where: { deletedAt: null } } } },
         services: { where: alive, include: { service: true } },
+        tasks: { where: LIVE_TASK, select: { assignedEmployeeId: true }, distinct: ['assignedEmployeeId'] },
       },
       orderBy: clientOrderBy(query),
       ...(paged ? { skip: (page - 1) * pageSize, take: pageSize } : {}),
@@ -76,11 +77,14 @@ clientsRouter.get('/', handler(async (req, res) => {
     }
   }
 
-  const m = await employeeMap(rows.flatMap((r) => [r.accountManagerId, r.secondaryManagerId]))
+  const m = await employeeMap(rows.flatMap((r) => [r.accountManagerId, r.secondaryManagerId, ...r.tasks.map((t) => t.assignedEmployeeId)]))
   ok(res, {
     items: rows.map((r) => ({
       ...clientToApi(r, m),
       service_names: r.services.map((s) => s.service.name),
+      // The staff with a task for this client in the Tasks section.
+      task_staff: r.tasks.flatMap((t) => m.get(t.assignedEmployeeId) ?? [])
+        .sort((a, b) => a.full_name.localeCompare(b.full_name)),
       document_count: r._count.documents,
       // All children, not only visible ones: a count alone reveals no client.
       child_client_count: r.isOrganization ? r._count.childClients : 0,
@@ -101,11 +105,15 @@ clientsRouter.post('/', handler(async (req, res) => {
 
   const v = new FieldErrors()
   const f = readClientFields(v, b)
+  // Not chosen on the Add Client form: the client is assigned to whoever
+  // creates it, so staff who see only their assigned clients keep it.
+  if (!f.accountManagerId && session.employeeId) f.accountManagerId = session.employeeId
   const { accountManagerId, secondaryManagerId, organizationId, isOrganization } = f
   v.throwIfAny()
 
-  const manager = await prisma.employee.findFirst({ where: { id: accountManagerId, ...alive } })
-  if (!manager) v.add('account_manager_id', 'Select a valid employee.')
+  if (accountManagerId && !(await prisma.employee.findFirst({ where: { id: accountManagerId, ...alive } }))) {
+    v.add('account_manager_id', 'Select a valid employee.')
+  }
   if (secondaryManagerId && !(await prisma.employee.findFirst({ where: { id: secondaryManagerId, ...alive } }))) {
     v.add('secondary_manager_id', 'Select a valid employee.')
   }

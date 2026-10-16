@@ -296,7 +296,8 @@ async function validateRows(session: Session, parsed: Awaited<ReturnType<typeof 
     for (const [k, msg] of Object.entries(v.fields)) errors[FIELD_ALIAS[k] ?? k] = msg
     const add = (k: ColumnKey, msg: string) => { if (!errors[k]) errors[k] = msg }
 
-    if (amRaw && !am) errors.account_manager = 'No active employee has this code or email.'
+    if (!amRaw) errors.account_manager = 'This field is required.'
+    else if (!am) errors.account_manager = 'No active employee has this code or email.'
     // Staff who see only their own clients stay on what they import (same rule as Add Client).
     if (am && !seesAllClients(session) && session.employeeId && am.id !== session.employeeId) {
       add('account_manager', 'You can only import clients assigned to you.')
