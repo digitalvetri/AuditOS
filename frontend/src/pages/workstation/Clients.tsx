@@ -55,8 +55,8 @@ export function ClientsPage() {
   const q = params.get('q') ?? '';
   const status = params.get('status') ?? '';
   const view = params.get('view') ?? '';
-  const managerId = params.get('account_manager_id') ?? '';
   const serviceId = params.get('service_id') ?? '';
+  const taskStaffId = params.get('task_staff_id') ?? '';
   const pendingDocs = params.get('pending_documents') === 'true';
   const openId = params.get('client') ?? '';
   const sort = params.get('sort') ?? '';
@@ -101,7 +101,7 @@ export function ClientsPage() {
   // One paged request: the rows on this page, the total that matches, and
   // the per-view counts (facets) — no second fetch of the whole list.
   const listQuery: ClientPageQuery = {
-    q, status, account_manager_id: managerId, service_id: serviceId,
+    q, status, service_id: serviceId, task_staff_id: taskStaffId,
     pending_documents: pendingDocs || undefined,
     mine: view === 'mine' || undefined,
     kind: view === 'organizations' ? 'organization' : undefined,
@@ -222,7 +222,7 @@ export function ClientsPage() {
 
   // A firm with no clients at all gets a way in; a filter that matches
   // nothing says so instead.
-  const filtered = !!(q || status || view || managerId || serviceId || pendingDocs);
+  const filtered = !!(q || status || view || serviceId || taskStaffId || pendingDocs);
   const emptyState = !filtered ? (
     <ListEmpty>
       <div className="text-14 font-semibold text-neutral-900">No clients yet</div>
@@ -274,13 +274,13 @@ export function ClientsPage() {
           label="Service" value={serviceId} onChange={(v) => setParam('service_id', v)}
           options={(catalog.data?.items ?? []).map((s) => ({ value: s.id, label: s.name }))}
         />
-        <FilterSelect
-          label="Account manager" value={managerId} onChange={(v) => setParam('account_manager_id', v)}
-          options={(employees.data?.items ?? []).map((e) => ({ value: e.id, label: e.full_name }))}
-        />
         <TogglePill on={pendingDocs} onChange={(v) => setParam('pending_documents', v ? 'true' : '')}>
           Pending documents
         </TogglePill>
+        <FilterSelect
+          label="Client manager" value={taskStaffId} onChange={(v) => setParam('task_staff_id', v)}
+          options={(employees.data?.items ?? []).map((e) => ({ value: e.id, label: e.full_name }))}
+        />
       </ListToolbar>
       </div>
       <div className="hidden md:flex items-center gap-2 shrink-0">{fileActions}</div>
@@ -335,7 +335,7 @@ export function ClientsPage() {
                           </span>
                         </th>
                         <th className="cl-hide-open cl-hide-xs">Services</th>
-                        <th className="cl-hide-sm">Manager</th>
+                        <th className="cl-hide-sm" title="Staff with a task for this client in the Tasks section">Staff</th>
                         {seesGst ? <th className="cl-hide-sm" title="GSTR-1 and GSTR-3B for the last six periods">GST · 6 periods</th> : null}
                         {seesBilling ? <th className="text-right">Outstanding</th> : null}
                         <th className="cl-hide-open cl-hide-xs" aria-sort={ariaSort('status')}>
@@ -384,16 +384,14 @@ export function ClientsPage() {
                               </div>
                             </td>
                             <td className="cl-hide-sm">
-                              {c.account_manager ? (
-                                <span
-                                  className="flex items-center gap-2 text-inkMuted"
-                                  title={c.secondary_manager ? `${c.account_manager.full_name} · second staff ${c.secondary_manager.full_name}` : c.account_manager.full_name}
-                                >
+                              {c.task_staff.length ? (
+                                <span className="flex items-center gap-2 text-inkMuted" title={c.task_staff.map((s) => s.full_name).join(', ')}>
                                   <span className="flex -space-x-2">
-                                    <Avatar name={c.account_manager.full_name} size={24} />
-                                    {c.secondary_manager ? <Avatar name={c.secondary_manager.full_name} size={24} /> : null}
+                                    {c.task_staff.slice(0, 3).map((s) => <Avatar key={s.id} name={s.full_name} size={24} />)}
                                   </span>
-                                  <span className="truncate max-w-[120px] hidden 2xl:inline">{c.account_manager.full_name}{c.secondary_manager ? ' +1' : ''}</span>
+                                  <span className="truncate max-w-[120px] hidden 2xl:inline">
+                                    {c.task_staff[0].full_name}{c.task_staff.length > 1 ? ` +${c.task_staff.length - 1}` : ''}
+                                  </span>
                                 </span>
                               ) : <span className="text-inkFaint">—</span>}
                             </td>
@@ -505,11 +503,10 @@ export function AddClientModal({ open, onClose, organization, defaultName, onCre
   const qc = useQueryClient();
   const toast = useToast();
   const navigate = useNavigate();
-  const employees = useQuery({ queryKey: ['workstation', 'employees'], queryFn: workstationApi.assignableEmployees });
 
   const [form, setForm] = useState({
     company_name: defaultName ?? '', business_type: '', contact_person: '', contact_number: '',
-    email: '', gstin: '', pan: '', address: '', account_manager_id: '', secondary_manager_id: '',
+    email: '', gstin: '', pan: '', address: '',
     kind: 'client' as 'client' | 'organization', short_name: '',
   });
   const isOrg = !organization && form.kind === 'organization';
@@ -521,8 +518,6 @@ export function AddClientModal({ open, onClose, organization, defaultName, onCre
       company_name: form.company_name,
       contact_person: form.contact_person,
       contact_number: form.contact_number,
-      account_manager_id: form.account_manager_id,
-      secondary_manager_id: form.secondary_manager_id || undefined,
       business_type: form.business_type || undefined,
       email: form.email || undefined,
       // GSTIN and PAN are stored upper-case; normalise here so the value the
@@ -565,7 +560,6 @@ export function AddClientModal({ open, onClose, organization, defaultName, onCre
     if (pan && !isPan(pan)) {
       e.pan = 'Enter a valid 10-character PAN.';
     }
-    if (!form.account_manager_id) e.account_manager_id = 'Select an employee.';
     setClientErrors(e);
     return Object.keys(e).length === 0;
   }
@@ -651,22 +645,6 @@ export function AddClientModal({ open, onClose, organization, defaultName, onCre
       </Field>
       <Field label="Address" error={err('address')}>
         <textarea className={textareaClass} rows={3} value={form.address} onChange={(e) => set('address', e.target.value)} />
-      </Field>
-      <Field label="Account Manager" error={err('account_manager_id')}>
-        <select className={inputClass} value={form.account_manager_id} onChange={(e) => set('account_manager_id', e.target.value)}>
-          <option value="">Select an employee…</option>
-          {(employees.data?.items ?? []).map((e) => (
-            <option key={e.id} value={e.id}>{e.full_name} · {e.designation}</option>
-          ))}
-        </select>
-      </Field>
-      <Field label="Second Staff" error={err('secondary_manager_id')} hint="Optional. Also sees and works this client, and covers when the account manager cannot.">
-        <select className={inputClass} value={form.secondary_manager_id} onChange={(e) => set('secondary_manager_id', e.target.value)}>
-          <option value="">No second staff</option>
-          {(employees.data?.items ?? []).filter((e) => e.id !== form.account_manager_id).map((e) => (
-            <option key={e.id} value={e.id}>{e.full_name} · {e.designation}</option>
-          ))}
-        </select>
       </Field>
       {/* Client ID and status are system-assigned (§5.2) — stated, never edited. */}
       <div className="text-12 text-neutral-500 border-t border-neutral-200 pt-3">

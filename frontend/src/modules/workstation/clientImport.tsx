@@ -20,6 +20,8 @@ export interface ClientPageQuery {
   status?: string;
   account_manager_id?: string;
   service_id?: string;
+  /** Clients with a task for this employee in the Tasks section. */
+  task_staff_id?: string;
   pending_documents?: boolean;
   kind?: 'organization' | 'member' | 'standalone';
   mine?: boolean;
