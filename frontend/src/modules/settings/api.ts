@@ -68,8 +68,13 @@ export const settingsApi = {
         `/api/settings/roles/${roleId}/permissions/${encodeURIComponent(permissionCode)}`,
         { scope },
       ),
-    /** Module-level view: HRMS / Workstation / Tools / Integrations per role. */
+    /** Sections per module (HRMS / Workstation / Tools / Integrations) and each role's level. */
     modules: () => api.get<RoleModulesResponse>('/api/settings/role-modules'),
+    setSection: (roleId: string, section: string, level: SectionLevel) =>
+      api.put<{ role: Role; section: string; level: SectionLevel }>(
+        `/api/settings/roles/${roleId}/sections/${encodeURIComponent(section)}`,
+        { level },
+      ),
     setModule: (roleId: string, module: ModuleCode, access: 'full' | 'none') =>
       api.put<{ role: Role; module: ModuleCode; access: 'full' | 'none' }>(
         `/api/settings/roles/${roleId}/modules/${module}`,
@@ -81,7 +86,24 @@ export const settingsApi = {
 export type ModuleCode = 'hrms' | 'workstation' | 'tools' | 'integrations';
 export type ModuleAccess = 'full' | 'none' | 'partial';
 
+export type SectionLevel = 'none' | 'own' | 'view' | 'full';
+
+export interface RoleSection {
+  code: string;
+  module: ModuleCode;
+  /** Sub-heading inside the module ("People", "Audit Automation"…). */
+  group: string | null;
+  name: string;
+  /** Levels offered, lowest first, with their labels. */
+  levels: { level: SectionLevel; label: string }[];
+}
+
 export interface RoleModulesResponse {
   modules: { code: ModuleCode; name: string }[];
-  roles: (Role & { modules: Record<ModuleCode, ModuleAccess> })[];
+  sections: RoleSection[];
+  roles: (Role & {
+    modules: Record<ModuleCode, ModuleAccess>;
+    /** Level held per section code; 'custom' when the rows match no level. */
+    sections: Record<string, SectionLevel | 'custom'>;
+  })[];
 }
