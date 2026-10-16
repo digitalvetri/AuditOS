@@ -146,11 +146,16 @@ describe('Clients list: staff from the Tasks section', () => {
 
     expect(ids(await api(`/api/clients?task_staff_id=${worker.emp.id}`, { cookie: admin.cookie }))).not.toContain(clientId)
     const task = await prisma.task.create({ data: { clientId, title: 'Prepare return', assignedEmployeeId: worker.emp.id, status: 'pending' } })
-    expect(await staffOf()).toContain(worker.emp.id)
-    expect(ids(await api(`/api/clients?task_staff_id=${worker.emp.id}`, { cookie: admin.cookie }))).toEqual([clientId])
+    // Removed afterwards: other suites delete every employee, which a task row blocks.
+    try {
+      expect(await staffOf()).toContain(worker.emp.id)
+      expect(ids(await api(`/api/clients?task_staff_id=${worker.emp.id}`, { cookie: admin.cookie }))).toEqual([clientId])
 
-    await prisma.task.update({ where: { id: task.id }, data: { status: 'cancelled' } })
-    expect(await staffOf()).not.toContain(worker.emp.id)
-    expect(ids(await api(`/api/clients?task_staff_id=${worker.emp.id}`, { cookie: admin.cookie }))).not.toContain(clientId)
+      await prisma.task.update({ where: { id: task.id }, data: { status: 'cancelled' } })
+      expect(await staffOf()).not.toContain(worker.emp.id)
+      expect(ids(await api(`/api/clients?task_staff_id=${worker.emp.id}`, { cookie: admin.cookie }))).not.toContain(clientId)
+    } finally {
+      await prisma.task.delete({ where: { id: task.id } })
+    }
   })
 })
