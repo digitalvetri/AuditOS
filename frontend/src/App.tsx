@@ -59,6 +59,7 @@ const GstNewReconPage = lazy(() => import('@/pages/tools/GstNewRecon').then((m) 
 const GstReconDetailPage = lazy(() => import('@/pages/tools/GstReconDetail').then((m) => ({ default: m.GstReconDetailPage })));
 // Repotic · Ecommerce GSTR-1 pipeline (REPOTIC-MODULE.md Phase 1+).
 const EcommerceGstr1HomePage = lazy(() => import('@/pages/tools/repotic/EcommerceGstr1Home').then((m) => ({ default: m.EcommerceGstr1HomePage })));
+const EcommerceGstr1SummaryPage = lazy(() => import('@/pages/tools/repotic/EcommerceGstr1Summary').then((m) => ({ default: m.EcommerceGstr1SummaryPage })));
 // Bookkeeping — native double-entry accounting (formerly Tally engine).
 const BookkeepingHome = lazy(() => import('@/pages/workstation/services/bookkeeping/BookkeepingHome').then((m) => ({ default: m.BookkeepingHome })));
 const BookkeepingCompanies = lazy(() => import('@/pages/workstation/services/bookkeeping/BookkeepingCompanies').then((m) => ({ default: m.BookkeepingCompanies })));
@@ -490,6 +491,7 @@ export default function App() {
               {/* Repotic Phase 1 — Ecommerce GSTR-1 landing. Phases 2+ add
                   the Build GSTR-1 flow and per-marketplace adapter screens. */}
               <Route path="audit-automation/ecommerce" element={<EcommerceGstr1HomePage />} />
+              <Route path="audit-automation/ecommerce/summary" element={<EcommerceGstr1SummaryPage />} />
 
               {/* Bookkeeping (formerly Tally engine) — native double-entry accounting.
                   Now under Services alongside TDS and Registration. */}

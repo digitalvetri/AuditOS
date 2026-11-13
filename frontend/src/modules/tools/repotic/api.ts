@@ -57,15 +57,34 @@ export const repoticApi = {
         b2cs: number; b2cl: number; cdnur: number; hsn: number;
         excluded_free_replacement: number; excluded_other: number; total_rows: number;
       };
+      warnings: string[];
+      summary_rows: SummaryRow[];
       preview_sample: {
         gstin: string; fp: string; disclaimer: string;
         b2cs_count: number; b2cl_count: number; cdnur_count: number; hsn_count: number;
+        supeco_count: number;
       };
     }>(
       `/api/repotic/ecommerce/gstr1?client_id=${encodeURIComponent(scope.client_id)}&gstin=${encodeURIComponent(scope.gstin)}&period=${encodeURIComponent(scope.period)}`,
     ),
   /** Phase 3 — URL for the downloadable JSON. Returned so the browser can
-   *  honour the Content-Disposition header without us re-fetching. */
-  gstr1DownloadUrl: (scope: { client_id: string; gstin: string; period: string }) =>
-    `/api/repotic/ecommerce/gstr1?client_id=${encodeURIComponent(scope.client_id)}&gstin=${encodeURIComponent(scope.gstin)}&period=${encodeURIComponent(scope.period)}&download=1`,
+   *  honour the Content-Disposition header without us re-fetching.
+   *  `portal=1` returns the Repotic R1_<GSTIN>_<MM>_<YYYY>.json shape
+   *  (wrapper fields stripped, empty sections omitted). Otherwise the
+   *  expanded preview with disclaimer. */
+  gstr1DownloadUrl: (scope: { client_id: string; gstin: string; period: string }, portal = false) =>
+    `/api/repotic/ecommerce/gstr1?client_id=${encodeURIComponent(scope.client_id)}&gstin=${encodeURIComponent(scope.gstin)}&period=${encodeURIComponent(scope.period)}&download=1${portal ? '&portal=1' : ''}`,
 };
+
+export interface SummaryRow {
+  code: string;
+  label: string;
+  vouchers: number;
+  taxable: number;
+  igst: number;
+  cgst: number;
+  sgst: number;
+  cess: number;
+  invoice: number;
+  implemented: boolean;
+}
