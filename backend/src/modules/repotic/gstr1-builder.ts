@@ -24,6 +24,7 @@
  */
 import type { PrismaClient, RpParsedRow } from '@prisma/client'
 import { gstinStateCode, stateNameToCode } from './states.js'
+import { lookupEtin, type MarketplaceKey } from './eco-etins.js'
 
 /** B2CL threshold — ₹1 lakh, effective 2024-08-01 (REPOTIC-MODULE.md §3.1).
  *  Stored in paise so we never compare across unit boundaries. */
@@ -46,6 +47,25 @@ export interface Gstr1Preview {
   b2cl: B2clEntry[]
   cdnur: CdnurEntry[]
   hsn: HsnEntry[]
+  /**
+   * Table 14 — Supplies made through E-Commerce Operators (mandatory since
+   * Oct-2024 for every seller using Amazon/Flipkart/etc.). One entry per
+   * marketplace ETIN. Flag 'N' = seller pays GST, marketplace only TCS.
+   * Omitted when no ETIN is registered for the seller's state in
+   * eco-etins.ts — the portal rejects a wrong ETIN, so an unknown is better
+   * than a guess.
+   */
+  supeco?: { clttx: SupecoEntry[] }
+}
+
+export interface SupecoEntry {
+  etin: string
+  suppval: number
+  igst: number
+  cgst: number
+  sgst: number
+  cess: number
+  flag: 'N'
 }
 
 export interface B2csEntry {
@@ -99,6 +119,7 @@ export interface HsnEntry {
 export interface Gstr1BuildResult {
   preview: Gstr1Preview
   counts: Record<'b2cs' | 'b2cl' | 'cdnur' | 'hsn' | 'excluded_free_replacement' | 'excluded_other' | 'total_rows', number>
+  warnings: string[]
 }
 
 /** Build the GSTR-1 preview for one scope. Pure — same inputs give the
@@ -116,13 +137,15 @@ export async function buildGstr1Preview(scope: Gstr1BuildScope, prisma: PrismaCl
         detectStatus: { in: ['matched', 'drifted'] },
       },
     },
+    include: { upload: { select: { marketplace: true } } },
     orderBy: [{ invoiceDate: 'asc' }, { sourceRowIndex: 'asc' }],
   })
-  return buildFromRows(rows, scope.gstin, scope.period)
+  const marketplacesInScope = Array.from(new Set(rows.map((r) => r.upload.marketplace)))
+  return buildFromRows(rows, scope.gstin, scope.period, marketplacesInScope)
 }
 
 /** Pure aggregation step — exported for tests. */
-export function buildFromRows(rows: RpParsedRow[], gstin: string, period: string): Gstr1BuildResult {
+export function buildFromRows(rows: RpParsedRow[], gstin: string, period: string, marketplaces: string[] = []): Gstr1BuildResult {
   const sellerStateCode = gstinStateCode(gstin) ?? '00'
 
   const b2cs = new Map<string, B2csEntry>()   // key: pos|rate|sply_ty
@@ -134,6 +157,7 @@ export function buildFromRows(rows: RpParsedRow[], gstin: string, period: string
     b2cs: 0, b2cl: 0, cdnur: 0, hsn: 0,
     excluded_free_replacement: 0, excluded_other: 0, total_rows: rows.length,
   }
+  const warnings: string[] = []
 
   for (const r of rows) {
     if (r.txType === 'free_replacement') { counts.excluded_free_replacement++; continue }
@@ -241,18 +265,63 @@ export function buildFromRows(rows: RpParsedRow[], gstin: string, period: string
   hsnList.forEach((h, i) => { h.num = i + 1 })
   counts.hsn = hsnList.length
 
+  const b2csList = [...b2cs.values()].sort((a, b) => a.pos.localeCompare(b.pos) || a.rt - b.rt)
+
+  // Table 14 — supeco.clttx. One entry per marketplace with an ETIN
+  // registered for the seller's state in eco-etins.ts. Totals cross-check
+  // the b2cs rows so the portal's reconcile step matches. If the seller
+  // uploaded files from several marketplaces to the same scope, the b2cs
+  // rows carry no attribution back to the originating file today — so the
+  // v1 approximation is to split evenly when more than one marketplace
+  // reports in the same period. A per-marketplace split needs an
+  // `orderOrigin` column on RpParsedRow (tracked on the roadmap).
+  const supecoEntries: SupecoEntry[] = []
+  const marketplacesWithEtin = marketplaces
+    .filter((m): m is MarketplaceKey => m === 'amazon' || m === 'flipkart' || m === 'myntra' || m === 'meesho')
+    .map((m) => ({ key: m, etin: lookupEtin(m, sellerStateCode) }))
+    .filter((m): m is { key: MarketplaceKey; etin: string } => m.etin !== null)
+  if (marketplacesWithEtin.length > 0) {
+    const totTxval = b2csList.reduce((s, e) => s + e.txval, 0)
+    const totIgst = b2csList.reduce((s, e) => s + e.iamt, 0)
+    const totCgst = b2csList.reduce((s, e) => s + e.camt, 0)
+    const totSgst = b2csList.reduce((s, e) => s + e.samt, 0)
+    const totCess = b2csList.reduce((s, e) => s + e.csamt, 0)
+    const share = 1 / marketplacesWithEtin.length
+    for (const { etin } of marketplacesWithEtin) {
+      supecoEntries.push({
+        etin,
+        suppval: round2(totTxval * share),
+        igst: round2(totIgst * share),
+        cgst: round2(totCgst * share),
+        sgst: round2(totSgst * share),
+        cess: round2(totCess * share),
+        flag: 'N',
+      })
+    }
+    if (marketplacesWithEtin.length > 1) {
+      warnings.push(`supeco.clttx is split equally across ${marketplacesWithEtin.length} marketplaces because RpParsedRow does not yet record which marketplace each row came from. Add a per-row origin column for exact per-ETIN totals.`)
+    }
+  }
+  for (const m of marketplaces) {
+    const lookedUp = (m === 'amazon' || m === 'flipkart' || m === 'myntra' || m === 'meesho')
+      ? lookupEtin(m, sellerStateCode)
+      : null
+    if (!lookedUp) warnings.push(`Table 14 omitted for ${m}: no ETIN registered for state ${sellerStateCode}. Add it to backend/src/modules/repotic/eco-etins.ts before uploading to the GST portal.`)
+  }
+
   const preview: Gstr1Preview = {
     gstin,
     fp: periodToFp(period),
     version: 'preview-1',
     generated_at: new Date().toISOString(),
     disclaimer: 'GSTR-1 PREVIEW — not verified against the GSTN offline tool schema. See REPOTIC-MODULE.md Phase 3.1.',
-    b2cs: [...b2cs.values()].sort((a, b) => a.pos.localeCompare(b.pos) || a.rt - b.rt),
+    b2cs: b2csList,
     b2cl,
     cdnur,
     hsn: hsnList,
+    ...(supecoEntries.length ? { supeco: { clttx: supecoEntries } } : {}),
   }
-  return { preview, counts }
+  return { preview, counts, warnings }
 }
 
 function paiseToRupees(paise: number): number {

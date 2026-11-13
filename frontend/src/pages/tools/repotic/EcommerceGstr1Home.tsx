@@ -305,19 +305,33 @@ function BuildGstr1Section({ scope }: { scope: { client_id: string; gstin: strin
             Tables 5A, 7, 9B and 12 — assembled from every matched upload above.
           </div>
         </div>
-        <a href={anyRows ? downloadHref : undefined}
-          aria-disabled={!anyRows}
-          className={
-            'h-9 px-3 text-13 inline-flex items-center gap-1 border rounded ' +
-            (anyRows
-              ? 'border-neutral-900 bg-neutral-900 text-white hover:bg-neutral-700'
-              : 'border-neutral-200 text-neutral-400 cursor-not-allowed')
-          }
-          onClick={(e) => { if (!anyRows) e.preventDefault(); }}
-          download={anyRows ? `gstr1-preview-${scope.gstin}-${scope.period}.json` : undefined}
-        >
-          Download JSON
-        </a>
+        <div className="flex items-center gap-2">
+          <Link
+            to={`/audit-automation/ecommerce/summary?client_id=${encodeURIComponent(scope.client_id)}&period=${encodeURIComponent(scope.period)}`}
+            aria-disabled={!anyRows}
+            className={
+              'h-9 px-3 text-13 inline-flex items-center gap-1 border rounded ' +
+              (anyRows
+                ? 'border-neutral-900 bg-neutral-900 text-white hover:bg-neutral-700'
+                : 'border-neutral-200 text-neutral-400 cursor-not-allowed pointer-events-none')
+            }
+          >
+            View GSTR-1 summary
+          </Link>
+          <a href={anyRows ? downloadHref : undefined}
+            aria-disabled={!anyRows}
+            className={
+              'h-9 px-3 text-13 inline-flex items-center gap-1 border rounded ' +
+              (anyRows
+                ? 'border-neutral-300 text-neutral-900 hover:bg-neutral-50'
+                : 'border-neutral-200 text-neutral-400 cursor-not-allowed')
+            }
+            onClick={(e) => { if (!anyRows) e.preventDefault(); }}
+            download={anyRows ? `gstr1-preview-${scope.gstin}-${scope.period}.json` : undefined}
+          >
+            Download JSON
+          </a>
+        </div>
       </div>
       <div className="p-4">
         {summaryQ.isLoading ? (

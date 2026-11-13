@@ -350,7 +350,7 @@ repoticRouter.get('/ecommerce/gstr1', handler(async (req, res) => {
   const download = req.query.download === '1' || req.query.download === 'true'
   if (!clientId || !gstin || !period) throw ApiError.badRequest('client_id, gstin and period (YYYY-MM) are required.')
   await assertClientVisible(session, clientId)
-  const { preview, counts } = await buildGstr1Preview({ organisationId, clientId, gstin, period }, prisma)
+  const { preview, counts, warnings } = await buildGstr1Preview({ organisationId, clientId, gstin, period }, prisma)
 
   if (download) {
     // Persist a build record so firms can see what was downloaded when.
@@ -364,15 +364,28 @@ repoticRouter.get('/ecommerce/gstr1', handler(async (req, res) => {
         previewJson: JSON.stringify(preview),
       },
     })
-    const filename = `gstr1-preview-${gstin}-${period}.json`
+    // `portal=1` strips the preview wrapper (version/generated_at/disclaimer)
+    // and matches the R1_<GSTIN>_<MM>_<YYYY>.json shape a Repotic export has,
+    // so the download file sits alongside a manual Repotic run without
+    // renaming. `portal` defaults off to preserve existing API behaviour.
+    const asPortal = req.query.portal === '1' || req.query.portal === 'true'
+    const body = asPortal
+      ? JSON.stringify(portalShape(preview))
+      : JSON.stringify(preview, null, 2)
+    const [yyyy, mm] = period.split('-')
+    const filename = asPortal
+      ? `R1_${gstin}_${mm}_${yyyy}.json`
+      : `gstr1-preview-${gstin}-${period}.json`
     res.setHeader('Content-Type', 'application/json')
     res.setHeader('Content-Disposition', `attachment; filename="${filename}"`)
-    res.status(200).send(JSON.stringify(preview, null, 2))
+    res.status(200).send(body)
     return
   }
 
   ok(res, {
     counts,
+    warnings,
+    summary_rows: summaryRows(preview),
     preview_sample: {
       gstin: preview.gstin,
       fp: preview.fp,
@@ -381,9 +394,108 @@ repoticRouter.get('/ecommerce/gstr1', handler(async (req, res) => {
       b2cl_count: preview.b2cl.length,
       cdnur_count: preview.cdnur.length,
       hsn_count: preview.hsn.length,
+      supeco_count: preview.supeco?.clttx.length ?? 0,
     },
   })
 }))
+
+/**
+ * Nine-row GSTR-1 summary for the Repotic-style summary screen.
+ * Rows whose source we do not yet carry (B2B / Exports / Advances /
+ * Nil-Rated) come back with count=0 and amounts=0 — the UI shows them
+ * so auditors see the full scope of the form, not just what is filled
+ * today.
+ */
+function summaryRows(p: {
+  b2cs: Array<{ txval: number; iamt: number; camt: number; samt: number; csamt: number }>
+  b2cl: Array<{ inv: Array<{ val: number; itms: Array<{ itm_det: { txval: number; iamt: number; camt: number; samt: number; csamt: number } }> }> }>
+  cdnur: Array<{ val: number; itms: Array<{ itm_det: { txval: number; iamt: number; camt: number; samt: number; csamt: number } }> }>
+  hsn: Array<{ qty: number; val: number; txval: number; iamt: number; camt: number; samt: number; csamt: number }>
+  supeco?: { clttx: Array<{ suppval: number; igst: number; cgst: number; sgst: number; cess: number }> }
+}) {
+  const zero = { vouchers: 0, taxable: 0, igst: 0, cgst: 0, sgst: 0, cess: 0, invoice: 0 }
+  const b2csTot = p.b2cs.reduce((a, e) => ({
+    vouchers: a.vouchers, taxable: round(a.taxable + e.txval),
+    igst: round(a.igst + e.iamt), cgst: round(a.cgst + e.camt),
+    sgst: round(a.sgst + e.samt), cess: round(a.cess + e.csamt),
+    invoice: round(a.taxable + e.txval + e.iamt + e.camt + e.samt + e.csamt),
+  }), { ...zero })
+  const b2csVouchers = p.b2cs.length
+  const b2clVouchers = p.b2cl.reduce((n, e) => n + e.inv.length, 0)
+  const b2clTot = p.b2cl.reduce((a, e) => {
+    for (const inv of e.inv) {
+      a.invoice = round(a.invoice + inv.val)
+      for (const it of inv.itms) {
+        a.taxable = round(a.taxable + it.itm_det.txval)
+        a.igst = round(a.igst + it.itm_det.iamt)
+        a.cgst = round(a.cgst + it.itm_det.camt)
+        a.sgst = round(a.sgst + it.itm_det.samt)
+        a.cess = round(a.cess + it.itm_det.csamt)
+      }
+    }
+    return a
+  }, { ...zero })
+  const cdnurTot = p.cdnur.reduce((a, e) => {
+    a.invoice = round(a.invoice + e.val)
+    for (const it of e.itms) {
+      a.taxable = round(a.taxable + it.itm_det.txval)
+      a.igst = round(a.igst + it.itm_det.iamt)
+      a.cgst = round(a.cgst + it.itm_det.camt)
+      a.sgst = round(a.sgst + it.itm_det.samt)
+      a.cess = round(a.cess + it.itm_det.csamt)
+    }
+    return a
+  }, { ...zero })
+  const supTot = (p.supeco?.clttx ?? []).reduce((a, e) => ({
+    vouchers: a.vouchers + 1,
+    taxable: round(a.taxable + e.suppval),
+    igst: round(a.igst + e.igst), cgst: round(a.cgst + e.cgst),
+    sgst: round(a.sgst + e.sgst), cess: round(a.cess + e.cess),
+    invoice: round(a.taxable + e.suppval + e.igst + e.cgst + e.sgst + e.cess),
+  }), { ...zero })
+  const hsnTot = p.hsn.reduce((a, e) => ({
+    vouchers: a.vouchers + 1, taxable: round(a.taxable + e.txval),
+    igst: round(a.igst + e.iamt), cgst: round(a.cgst + e.camt),
+    sgst: round(a.sgst + e.samt), cess: round(a.cess + e.csamt),
+    invoice: round(a.invoice + e.val),
+  }), { ...zero })
+
+  return [
+    { code: '4A_4B_6B_6C', label: 'B2B Invoices - 4A, 4B, 6B, 6C',           ...zero, implemented: false },
+    { code: '5A',          label: 'B2C (Large) Invoices - 5A',               ...b2clTot, vouchers: b2clVouchers, implemented: true },
+    { code: '7',           label: 'B2C (Others) - 7',                        ...b2csTot, vouchers: b2csVouchers, implemented: true },
+    { code: '9B_R',        label: 'Credit/Debit Notes (Registered) - 9B',    ...zero, implemented: false },
+    { code: '9B_UR',       label: 'Credit/Debit Notes (Unregistered) - 9B',  ...cdnurTot, vouchers: p.cdnur.length, implemented: true },
+    { code: '6A',          label: 'Exports Invoices - 6A',                   ...zero, implemented: false },
+    { code: '11A',         label: 'Tax Liability (Advances Received) - 11A(1), 11A(2)', ...zero, implemented: false },
+    { code: '11B',         label: 'Adjustment of Advances - 11B(1), 11B(2)', ...zero, implemented: false },
+    { code: '8',           label: 'Nil Rated Supplies - 8A, 8B, 8C, 8D',     ...zero, implemented: false },
+    { code: 'supeco',      label: 'Supplies made through E-Commerce Operators', ...supTot, implemented: true },
+    { code: 'hsn',         label: 'HSN-wise summary of outward supplies',    ...hsnTot, implemented: true },
+    { code: '13',          label: 'Documents Issued',                        ...zero, implemented: false },
+  ]
+}
+
+function round(n: number): number { return Math.round(n * 100) / 100 }
+
+/**
+ * Strip the preview wrapper (version / generated_at / disclaimer) and omit
+ * empty sections — the shape a real Repotic export has. Used when the
+ * caller passes `portal=1`.
+ */
+function portalShape(p: {
+  gstin: string; fp: string
+  b2cs: unknown[]; b2cl: unknown[]; cdnur: unknown[]; hsn: unknown[]
+  supeco?: { clttx: unknown[] }
+}): Record<string, unknown> {
+  const out: Record<string, unknown> = { gstin: p.gstin, fp: p.fp }
+  if (p.b2cs.length) out.b2cs = p.b2cs
+  if (p.b2cl.length) out.b2cl = p.b2cl
+  if (p.cdnur.length) out.cdnur = p.cdnur
+  if (p.hsn.length) out.hsn = p.hsn
+  if (p.supeco && p.supeco.clttx.length) out.supeco = p.supeco
+  return out
+}
 
 // ── Adapters (firm-level CRUD) ──────────────────────────────────────────
 
