@@ -13,6 +13,7 @@ import { ImageService } from './services/tools/ImageService.js'
 import { OCRService } from './services/tools/OCRService.js'
 import { signatureProvider } from './services/tools/SignatureProvider.js'
 import { ComplianceService } from './services/tools/ComplianceService.js'
+import { RepoService } from './services/tools/RepoService.js'
 import { fmtDateIST } from './lib/dates.js'
 import { notifyUser } from '../../platform/notify.js'
 
@@ -326,6 +327,25 @@ const IMPLEMENTATIONS: Record<string, Implementation> = {
       filename: withExtension(doc.originalFilename, 'json'), mime: OUTPUT_MIME.json, bytes: r.bytes,
       meta: { invoices: r.invoices, items: r.items, skipped: r.skipped, total_value: r.totalValue },
       warning: r.warning,
+    }
+  },
+
+  // Amazon MTR-B2C CSV → GSTR-1 preview JSON (Repotic-shaped). Filename
+  // follows the R1_<GSTIN>_<MM>_<YYYY>.json convention so output files sit
+  // alongside real Repotic exports without renaming.
+  'repo': async ({ inputs, progress }) => {
+    const { bytes } = inputs[0]
+    progress(20)
+    const r = RepoService.convertAmazonMtr(bytes)
+    progress(90)
+    const skipTotal = r.rowsExcluded.cancel + r.rowsExcluded.refund + r.rowsExcluded.free_replacement + r.rowsExcluded.other + r.rowsExcluded.zero_taxable + r.rowsExcluded.no_state
+    return {
+      filename: r.filename, mime: OUTPUT_MIME.json, bytes: r.bytes,
+      meta: {
+        gstin: r.gstin, period: r.period,
+        rows_total: r.rowsTotal, rows_included: r.rowsIncluded, rows_excluded: r.rowsExcluded,
+      },
+      warning: r.warnings.length ? r.warnings.join(' ') : (skipTotal ? `${skipTotal} non-shipment ${skipTotal === 1 ? 'row was' : 'rows were'} excluded from the GSTR-1 output.` : undefined),
     }
   },
 }

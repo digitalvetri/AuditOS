@@ -158,6 +158,11 @@ export const TOOLS: ToolDefinition[] = [
     badge: { text: 'IFF', tint: 'blue' }, groupId: 'compliance-converters', route: '/tools/invoice-to-einvoice-json',
     accepts: [MIME.xlsx], extensions: ['xlsx'], maxFileSizeMB: 25, multiple: false, outputType: 'json',
     keywords: ['invoice', 'e-invoice', 'einvoice', 'irp', 'json', 'excel'], permission: 'tools.invoice_to_einvoice_json', status: 'active' },
+  { id: 'repo', name: 'Repo', description: 'Amazon MTR-B2C CSV to GSTR-1 JSON',
+    badge: { text: 'GSTR-1', tint: 'blue' }, groupId: 'compliance-converters', route: '/tools/repo',
+    accepts: [MIME.csv, MIME.txt], extensions: ['csv'], maxFileSizeMB: 25, multiple: false, outputType: 'json',
+    keywords: ['repo', 'repotic', 'gstr', 'gstr-1', 'gstr1', 'amazon', 'mtr', 'ecommerce', 'json', 'csv'],
+    permission: 'tools.repo', status: 'active' },
 ];
 
 const BY_ID = new Map(TOOLS.map((t) => [t.id, t]));

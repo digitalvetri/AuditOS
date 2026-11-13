@@ -152,6 +152,7 @@ export type PermissionCode =
   | 'tools.excel_to_tally_xml'
   | 'tools.tds_fvu_generator'
   | 'tools.invoice_to_einvoice_json'
+  | 'tools.repo'
   // ── Audit Automation (AMENDMENT-02-REPOTIC-GAPS.md) ─────────────────
   // Submodule of Tools; bank-statement ingestion pipeline.
   | 'tools.audit_automation.access'
@@ -273,6 +274,7 @@ export const MATRIX: Record<RoleCode, Grant[]> = {
     { permission: 'tools.excel_to_tally_xml', scope: 'self' },
     { permission: 'tools.tds_fvu_generator', scope: 'self' },
     { permission: 'tools.invoice_to_einvoice_json', scope: 'self' },
+    { permission: 'tools.repo', scope: 'self' },
     { permission: 'tools.audit_automation.access', scope: 'self' },
     { permission: 'tools.audit_automation.bank.upload', scope: 'self' },
     { permission: 'tools.audit_automation.bank.view', scope: 'self' },
@@ -376,6 +378,7 @@ export const MATRIX: Record<RoleCode, Grant[]> = {
     { permission: 'tools.excel_to_tally_xml', scope: 'organisation' },
     { permission: 'tools.tds_fvu_generator', scope: 'organisation' },
     { permission: 'tools.invoice_to_einvoice_json', scope: 'organisation' },
+    { permission: 'tools.repo', scope: 'organisation' },
     { permission: 'tools.audit_automation.access', scope: 'organisation' },
     { permission: 'tools.audit_automation.bank.upload', scope: 'organisation' },
     { permission: 'tools.audit_automation.bank.view', scope: 'organisation' },
@@ -557,6 +560,7 @@ export const MATRIX: Record<RoleCode, Grant[]> = {
     { permission: 'tools.excel_to_tally_xml', scope: 'organisation' },
     { permission: 'tools.tds_fvu_generator', scope: 'organisation' },
     { permission: 'tools.invoice_to_einvoice_json', scope: 'organisation' },
+    { permission: 'tools.repo', scope: 'organisation' },
     { permission: 'tools.audit_automation.access', scope: 'organisation' },
     { permission: 'tools.audit_automation.bank.upload', scope: 'organisation' },
     { permission: 'tools.audit_automation.bank.view', scope: 'organisation' },

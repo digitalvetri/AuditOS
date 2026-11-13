@@ -137,6 +137,12 @@ export const TOOLS: ToolDef[] = [
   { id: 'invoice-to-einvoice-json', name: 'Invoice to e-Invoice JSON', description: 'IRP-ready schema from Excel',
     groupId: 'compliance-converters', accepts: [MIME.xlsx], extensions: ['xlsx'],
     maxFileSizeMB: 25, multiple: false, outputType: 'json', permission: 'tools.invoice_to_einvoice_json', status: 'active' },
+  // Amazon MTR-B2C CSV → GSTR-1 JSON, in the shape the Repotic product's
+  // ecommerce workflow emits. One shipment file in, one portal-shaped JSON
+  // out. ETIN coverage for Table 14 lives in modules/repotic/eco-etins.ts.
+  { id: 'repo', name: 'Repo', description: 'Amazon MTR-B2C CSV to GSTR-1 JSON',
+    groupId: 'compliance-converters', accepts: [MIME.csv, MIME.txt], extensions: ['csv'],
+    maxFileSizeMB: 25, multiple: false, outputType: 'json', permission: 'tools.repo', status: 'active' },
 ]
 
 const BY_ID = new Map(TOOLS.map((t) => [t.id, t]))

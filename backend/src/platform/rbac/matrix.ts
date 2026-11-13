@@ -116,6 +116,7 @@ export type PermissionCode =
   | 'tools.excel_to_tally_xml'
   | 'tools.tds_fvu_generator'
   | 'tools.invoice_to_einvoice_json'
+  | 'tools.repo'
   // â”€â”€ Audit Automation (AMENDMENT-02-REPOTIC-GAPS.md) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   // Submodule of Tools with its own pipeline (bank statement ingestion).
   | 'tools.audit_automation.access'
@@ -230,6 +231,7 @@ export const MATRIX: Record<RoleCode, Grant[]> = {
     { permission: 'tools.excel_to_tally_xml', scope: 'self' },
     { permission: 'tools.tds_fvu_generator', scope: 'self' },
     { permission: 'tools.invoice_to_einvoice_json', scope: 'self' },
+    { permission: 'tools.repo', scope: 'self' },
     { permission: 'tools.audit_automation.access', scope: 'self' },
     { permission: 'tools.audit_automation.bank.upload', scope: 'self' },
     { permission: 'tools.audit_automation.bank.view', scope: 'self' },
@@ -340,6 +342,7 @@ export const MATRIX: Record<RoleCode, Grant[]> = {
     { permission: 'tools.excel_to_tally_xml', scope: 'organisation' },
     { permission: 'tools.tds_fvu_generator', scope: 'organisation' },
     { permission: 'tools.invoice_to_einvoice_json', scope: 'organisation' },
+    { permission: 'tools.repo', scope: 'organisation' },
     { permission: 'tools.audit_automation.access', scope: 'organisation' },
     { permission: 'tools.audit_automation.bank.upload', scope: 'organisation' },
     { permission: 'tools.audit_automation.bank.view', scope: 'organisation' },
@@ -525,6 +528,7 @@ export const MATRIX: Record<RoleCode, Grant[]> = {
     { permission: 'tools.excel_to_tally_xml', scope: 'organisation' },
     { permission: 'tools.tds_fvu_generator', scope: 'organisation' },
     { permission: 'tools.invoice_to_einvoice_json', scope: 'organisation' },
+    { permission: 'tools.repo', scope: 'organisation' },
     { permission: 'tools.audit_automation.access', scope: 'organisation' },
     { permission: 'tools.audit_automation.bank.upload', scope: 'organisation' },
     { permission: 'tools.audit_automation.bank.view', scope: 'organisation' },
@@ -673,6 +677,7 @@ export const PERMISSION_DESCRIPTIONS: Record<string, string> = {
   'tools.excel_to_tally_xml': 'Use the Excel to Tally XML tool',
   'tools.tds_fvu_generator': 'Use the TDS Text/FVU Generator tool',
   'tools.invoice_to_einvoice_json': 'Use the Invoice to e-Invoice JSON tool',
+  'tools.repo': 'Use the Repo tool (Amazon MTR to GSTR-1 JSON)',
   'tools.audit_automation.access': 'Open the Audit Automation submodule',
   'tools.audit_automation.bank.upload': 'Upload a bank statement for automated processing',
   'tools.audit_automation.bank.view': 'View bank-statement processing jobs',

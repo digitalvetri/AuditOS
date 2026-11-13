@@ -40,7 +40,12 @@ const RAW: Array<[string, string, string[]]> = [
   ['25', 'DAMAN AND DIU', ['DD', 'DAMAN & DIU']],
   ['26', 'DADRA AND NAGAR HAVELI AND DAMAN AND DIU', ['DN', 'DADRA & NAGAR HAVELI']],
   ['27', 'MAHARASHTRA', ['MH']],
-  ['28', 'ANDHRA PRADESH', ['AP']],
+  // '28' was Andhra Pradesh before the 2014 Telangana bifurcation. GST rolled
+  // out AFTER the split, so nothing ever filed PoS=28 under the current law —
+  // Amazon and every other source writes "ANDHRA PRADESH" and means the new
+  // state (code 37). Keep '28' resolvable by legacy aliases in case an old
+  // document references it, but route the plain name to 37.
+  ['28', 'ANDHRA PRADESH (UNDIVIDED)', []],
   ['29', 'KARNATAKA', ['KA']],
   ['30', 'GOA', ['GA']],
   ['31', 'LAKSHADWEEP', ['LD']],
@@ -49,7 +54,7 @@ const RAW: Array<[string, string, string[]]> = [
   ['34', 'PUDUCHERRY', ['PY', 'PONDICHERRY']],
   ['35', 'ANDAMAN AND NICOBAR ISLANDS', ['AN']],
   ['36', 'TELANGANA', ['TG', 'TS']],
-  ['37', 'ANDHRA PRADESH (NEW)', []],
+  ['37', 'ANDHRA PRADESH', ['AP']],
   ['38', 'LADAKH', ['LA']],
   ['97', 'OTHER TERRITORY', []],
 ]
