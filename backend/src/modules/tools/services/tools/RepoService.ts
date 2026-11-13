@@ -106,12 +106,16 @@ export function convertAmazonMtrCsv(csvText: string, opts: { marketplace?: Marke
     }
     return idx
   }
+  // Order Id is only required when we want to NET shipments against their
+  // refunds. A minimal CSV (eg. from a hand-built export or an older MTR
+  // schema) without it is still usable — we just skip the netting step.
+  const optionalCol = (label: string) => headerIndex.get(normaliseHeader(label)) ?? -1
 
   const colIdx = {
     sellerGstin: col(MTR_COLS.sellerGstin),
     invoiceDate: col(MTR_COLS.invoiceDate),
     txType: col(MTR_COLS.txType),
-    orderId: col(MTR_COLS.orderId),
+    orderId: optionalCol(MTR_COLS.orderId),
     shipToState: col(MTR_COLS.shipToState),
     taxableGross: col(MTR_COLS.taxableGross),
     cgstRate: col(MTR_COLS.cgstRate),
