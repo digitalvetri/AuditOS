@@ -292,6 +292,11 @@ async function loadCorrectionForReview(session: Session, id: string) {
     throw ApiError.conflict('already_reviewed', 'This correction has already been reviewed.')
   }
   if (!orgWide && corr.employee.departmentId !== session.departmentId) throw ApiError.forbidden()
+  // A department approver cannot sign off their own correction; it goes to
+  // HR / the owner (organisation-wide approvers).
+  if (!orgWide && corr.employeeId === session.employeeId) {
+    throw ApiError.forbidden('Your own correction is approved by HR, not by you.')
+  }
   return corr
 }
 
@@ -419,7 +424,11 @@ attendanceRouter.get('/', handler(async (req, res) => {
     if (scope === 'department' && target.departmentId !== session.departmentId) throw ApiError.forbidden()
     where.employeeId = q.employeeId
   }
-  if (q.departmentId) employeeWhere.departmentId = q.departmentId
+  if (q.departmentId) {
+    // A department-scoped caller may only narrow to their OWN department.
+    if (scope === 'department' && q.departmentId !== session.departmentId) throw ApiError.forbidden()
+    if (scope !== 'self') employeeWhere.departmentId = q.departmentId
+  }
   if (Object.keys(employeeWhere).length) where.employee = employeeWhere
   if (q.from || q.to) {
     where.date = { ...(q.from ? { gte: q.from } : {}), ...(q.to ? { lte: q.to } : {}) }
