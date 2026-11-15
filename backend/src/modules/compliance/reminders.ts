@@ -26,6 +26,7 @@ const EMAIL_RE = /^[^@\s,;<>]+@[^@\s,;<>]+\.[^@\s,;<>]+$/
 
 interface OpenItem {
   id: string
+  organisationId: string
   clientId: string
   formCode: string
   formName: string
@@ -97,7 +98,8 @@ async function openItems(prisma: PrismaClient, today: string, lo: number, hi: nu
       } catch { /* leave as null; non-clock behaviour applies */ }
     }
     out.push({
-      id: r.id, clientId: r.clientId, formCode: r.formCode, formName: form?.name ?? r.formCode, periodLabel: r.periodLabel,
+      id: r.id, organisationId: r.organisationId, clientId: r.clientId,
+      formCode: r.formCode, formName: form?.name ?? r.formCode, periodLabel: r.periodLabel,
       due, daysLeft, status: r.status,
       assignee: r.assignedEmployeeId ?? o.assignedEmployeeId ?? c.accountManagerId ?? null,
       remindClient: o.remindClient, lastClientReminderAt: r.lastClientReminderAt, client: c,
@@ -147,6 +149,44 @@ export function clockLeadUpStage(
   return null
 }
 
+/**
+ * Does the given clock stage warrant an escalation ring on top of the
+ * assignee's ring? Fires at `t`-stages with ≤7 days to internal, then at
+ * daily-*, past_internal-*, and overdue. This matches the doc's "escalate
+ * at T-5" for Rule 10A while also catching INC-20A, whose lead-ups skip 5
+ * but hit 7.
+ */
+export function shouldEscalateClockStage(stage: string): boolean {
+  if (stage === 'overdue') return true
+  if (stage.startsWith('daily-') || stage.startsWith('past_internal-')) return true
+  if (stage.startsWith('t')) {
+    const n = Number(stage.slice(1))
+    if (Number.isFinite(n) && n <= 7) return true
+  }
+  return false
+}
+
+/**
+ * Employees whose user has the given role, scoped to the organisation.
+ * Exposed so the scheduler can look up escalation recipients once per run.
+ */
+export async function escalationRecipients(
+  prisma: PrismaClient,
+  organisationId: string,
+  roleCode: string,
+): Promise<string[]> {
+  const users = await prisma.user.findMany({
+    where: {
+      organisationId,
+      isActive: true,
+      employeeId: { not: null },
+      role: { code: roleCode },
+    },
+    select: { employeeId: true },
+  })
+  return users.map((u) => u.employeeId).filter((id): id is string => !!id)
+}
+
 export async function sendComplianceStaffReminders(prisma: PrismaClient, today: string): Promise<number> {
   // Widened window: INC-20A's T-30 lead-up needs 30 days of forward look;
   // past-internal and overdue items keep the -7 tail for recurring forms.
@@ -166,11 +206,42 @@ export async function sendComplianceStaffReminders(prisma: PrismaClient, today: 
     if (!stage) return []
     return [{ i, stage, key: `compliance:${i.id}:${i.due}:${stage}` }]
   })
-  if (!notes.length) return 0
+  // Escalations (POST-DELIVERY-CHANGES §A). When a clock item hits an urgent
+  // stage (t≤7 / daily / past_internal / overdue) and its form sets
+  // escalateTo, the listed role is pulled into the notification. One extra
+  // ring per recipient per stage — same dedupe discipline as the assignee
+  // ring, different entityType so the two paths never collide.
+  const escalations: Array<{ i: OpenItem; stage: string; employeeId: string; key: string }> = []
+  const recipientCache = new Map<string, string[]>() // key: `${organisationId}|${roleCode}`
+  for (const { i, stage } of notes) {
+    if (!i.escalateTo || !i.leadUpDays) continue
+    if (!shouldEscalateClockStage(stage)) continue
+    const cacheKey = `${i.organisationId}|${i.escalateTo}`
+    let recipients = recipientCache.get(cacheKey)
+    if (!recipients) {
+      recipients = await escalationRecipients(prisma, i.organisationId, i.escalateTo)
+      recipientCache.set(cacheKey, recipients)
+    }
+    for (const employeeId of recipients) {
+      // Don't double-ring the assignee: if the assignee IS one of the
+      // escalation recipients (e.g. an MD acting as their own account
+      // manager), the primary bell already covered them.
+      if (employeeId === i.assignee) continue
+      escalations.push({
+        i, stage, employeeId,
+        key: `compliance_escalation:${i.id}:${i.due}:${stage}:${employeeId}`,
+      })
+    }
+  }
+
+  if (!notes.length && !escalations.length) return 0
+  const keys = [...notes.map((n) => n.key), ...escalations.map((e) => e.key)]
   const already = new Set((await prisma.notification.findMany({
-    where: { entityType: 'compliance_reminder', entityId: { in: notes.map((n) => n.key) } }, select: { entityId: true },
+    where: { entityType: { in: ['compliance_reminder', 'compliance_escalation'] }, entityId: { in: keys } },
+    select: { entityId: true },
   })).map((n) => n.entityId))
   let sent = 0
+
   for (const { i, stage, key } of notes) {
     if (already.has(key)) continue
     const what = `${i.formName} (${i.periodLabel})`
@@ -195,6 +266,27 @@ export async function sendComplianceStaffReminders(prisma: PrismaClient, today: 
     })
     if (row) sent++
   }
+
+  for (const { i, stage, employeeId, key } of escalations) {
+    if (already.has(key)) continue
+    const what = `${i.formName} (${i.periodLabel})`
+    const isOverdue = stage === 'overdue'
+    const title = isOverdue
+      ? `Escalation: overdue — ${i.client.companyName}`
+      : `Escalation: ${titleForClockStage(stage, i.daysToInternal ?? 0).toLowerCase()} — ${i.client.companyName}`
+    const body = isOverdue
+      ? `${what} was due ${fmtDate(i.due)}. Assignee has not filed; escalated.`
+      : `${what}. ${bodyForClockStage('', i, stage).replace(/^\. /, '').trim()} Assignee is still open.`
+    const row = await notifyEmployee(employeeId, {
+      type: 'compliance_escalation', module: 'workstation',
+      title,
+      body,
+      entityType: 'compliance_escalation', entityId: key,
+      actionUrl: `/workstation/compliance?client=${i.clientId}&item=${i.id}`,
+    })
+    if (row) sent++
+  }
+
   return sent
 }
 
