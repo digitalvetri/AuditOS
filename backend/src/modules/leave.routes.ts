@@ -366,24 +366,27 @@ leaveRouter.post('/:id/approve', handler(async (req, res) => {
       throw ApiError.forbidden('Only the reporting manager (or HR/MD) can approve at this stage.')
     }
     becameApproved = row.computedWorkingDays <= 5
-    updated = await prisma.leaveRequest.update({
-      where: { id: row.id },
+    // Conditional claim: two approvals racing must not both deduct the balance.
+    const claimed = await prisma.leaveRequest.updateMany({
+      where: { id: row.id, status: 'pending', approverId: null },
       data: {
         approverId: session.userId,
         updatedBy: session.userId,
         ...(becameApproved ? { status: 'approved', approvedAt: now } : {}),
       },
-      include: { employee: true, leaveType: true },
     })
+    if (claimed.count === 0) throw ApiError.conflict('not_pending', 'This request is no longer pending.')
+    updated = await prisma.leaveRequest.findUniqueOrThrow({ where: { id: row.id }, include: { employee: true, leaveType: true } })
   } else {
     // Second stage — HR/MD only.
     if (!canOrg) throw ApiError.forbidden('Only HR or MD can complete this approval.')
     becameApproved = true
-    updated = await prisma.leaveRequest.update({
-      where: { id: row.id },
+    const claimed = await prisma.leaveRequest.updateMany({
+      where: { id: row.id, status: 'pending', approverId: { not: null }, hrApproverId: null },
       data: { hrApproverId: session.userId, status: 'approved', approvedAt: now, updatedBy: session.userId },
-      include: { employee: true, leaveType: true },
     })
+    if (claimed.count === 0) throw ApiError.conflict('not_pending', 'This request is no longer pending.')
+    updated = await prisma.leaveRequest.findUniqueOrThrow({ where: { id: row.id }, include: { employee: true, leaveType: true } })
   }
 
   if (becameApproved) {

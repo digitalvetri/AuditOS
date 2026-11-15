@@ -205,3 +205,27 @@ describe('payroll pays the stipend', () => {
     expect(item.salaryStructure.basicPaise).toBe(9_000_00)
   })
 })
+
+describe('payroll deducts approved Loss-of-Pay leave', () => {
+  it('counts the working days of an approved LOP leave as LOP (they are On Leave rows, not Absent)', async () => {
+    const art = await employee('articled', 'Lop')
+    await prisma.articledTraining.create({
+      data: { employeeId: art.id, icaiRegistrationNo: 'Z', principalEmployeeId: md.emp.id, trainingStart: '2026-01-01', trainingEnd: '2036-12-31', stipendPaise: 9_000_00 },
+    })
+    const lop = (await prisma.leaveType.findFirst({ where: { organisationId: orgId, code: 'lop' } }))
+      ?? await prisma.leaveType.create({ data: { organisationId: orgId, code: 'lop', name: 'Loss of Pay', annualEntitlement: null, halfDayAllowed: false, minNoticeDays: 0, accrueDuringProbation: true } })
+    // Mon 10 – Tue 11 April 2034: two working days.
+    const leave = await prisma.leaveRequest.create({
+      data: { employeeId: art.id, leaveTypeId: lop.id, startDate: '2034-04-10', endDate: '2034-04-11', computedWorkingDays: 2, reason: 'Personal', status: 'pending' },
+    })
+    expect((await api(`/api/leaves/${leave.id}/approve`, { method: 'POST', cookie: md.cookie })).status).toBe(200)
+    // Approving it again must not double anything.
+    expect((await api(`/api/leaves/${leave.id}/approve`, { method: 'POST', cookie: md.cookie })).status).toBe(409)
+
+    const run = await prisma.payrollRun.create({ data: { organisationId: orgId, periodStart: '2034-04-01', periodEnd: '2034-04-30', stage: 'draft' } })
+    expect((await api(`/api/payroll/runs/${run.id}/calculate`, { method: 'POST', cookie: md.cookie })).status).toBe(200)
+    const item = await prisma.payrollItem.findFirstOrThrow({ where: { payrollRunId: run.id, employeeId: art.id } })
+    expect(item.lopDays).toBe(2)
+    expect(item.grossPaise).toBe(9_000_00 - Math.round((9_000_00 / 30) * 2))
+  })
+})

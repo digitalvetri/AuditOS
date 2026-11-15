@@ -4,6 +4,7 @@ import { ApiError, handler, ok } from '../../lib/http.js'
 import { prisma } from '../../lib/prisma.js'
 import { addDays, istToday, monthLabel, monthlyPayrollPeriod } from '../../lib/dates.js'
 import { calculatePayrollItem, pfAppliesTo, type CustomComponent } from '../../domain/payroll/calc.js'
+import { computeWorkingDays } from '../../domain/leaveDays.js'
 import { summarize } from '../../domain/payroll/attendanceSummary.js'
 import { snapshotAt, type StatutorySnapshot } from '../../domain/payroll/statutory.js'
 import {
@@ -290,6 +291,39 @@ payrollRouter.get('/runs/:id', handler(async (req, res) => {
   })
 }))
 
+/**
+ * Working days of approved Loss-of-Pay leave inside [start..end], counted
+ * the way the leave itself was charged (the employee's schedule, holidays,
+ * half day) so "3 days LOP" on the leave is 3 days off the payslip.
+ */
+async function approvedLopLeaveDays(
+  employeeId: string,
+  leaves: { startDate: string; endDate: string; status: string; halfDay: boolean; leaveType: { code: string } }[],
+  start: string,
+  end: string,
+): Promise<number> {
+  const lop = leaves.filter((l) => l.status === 'approved' && l.leaveType.code === 'lop' && l.endDate >= start && l.startDate <= end)
+  if (lop.length === 0) return 0
+  const employee = await prisma.employee.findUniqueOrThrow({ where: { id: employeeId }, include: { workSchedule: true } })
+  const holidays = await prisma.holiday.findMany({ where: { deletedAt: null, isOptional: false }, select: { date: true } })
+  const schedule = {
+    workingDays: JSON.parse(employee.workSchedule.workingDaysJson) as number[],
+    alternateSaturdayOff: employee.workSchedule.alternateSaturdayOff,
+  }
+  const holidayDates = new Set(holidays.map((h) => h.date))
+  let days = 0
+  for (const l of lop) {
+    days += computeWorkingDays({
+      startISO: l.startDate > start ? l.startDate : start,
+      endISO: l.endDate < end ? l.endDate : end,
+      halfDay: l.halfDay,
+      schedule,
+      holidayDates,
+    })
+  }
+  return days
+}
+
 // POST /api/payroll/runs/:id/calculate — Draft only, rebuilds items from scratch.
 payrollRouter.post('/runs/:id/calculate', handler(async (req, res) => {
   const session = requireSession(req)
@@ -343,10 +377,13 @@ payrollRouter.post('/runs/:id/calculate', handler(async (req, res) => {
       }),
       prisma.leaveRequest.findMany({
         where: { employeeId: emp.id, status: 'approved', deletedAt: null },
-        select: { startDate: true, endDate: true, status: true },
+        select: { startDate: true, endDate: true, status: true, halfDay: true, leaveType: { select: { code: true } } },
       }),
     ])
     const summary = summarize(attendance, leaves, window.start, window.end)
+    // Approved Loss-of-Pay leave writes On Leave rows (not Absent), so the
+    // summary above never sees it: deduct its working days in this window.
+    summary.lop_days += await approvedLopLeaveDays(emp.id, leaves, window.start, window.end)
     // Monthly TDS = annual plan ÷ 12, rounded to nearest paise. Not a
     // slab calculator — the spec deliberately keeps the number the firm's
     // decision. Zero plan means zero deducted this month; the process
