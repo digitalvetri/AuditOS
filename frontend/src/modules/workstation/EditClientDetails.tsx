@@ -66,9 +66,19 @@ function EditClientModal({ client, onClose }: { client: ClientDetail; onClose: (
       }
       return workstationApi.updateClient(client.id, patch);
     },
-    onSuccess: () => {
+    onSuccess: (updated) => {
       void qc.invalidateQueries({ queryKey: ['workstation'] });
       toast.push('success', 'Client details saved.');
+      // POST-DELIVERY-CHANGES §B2 — mirror the AddClient flow: if the save
+      // touched contact_number AND the server flagged other clients sharing
+      // it, surface the overlap as an info toast. The server only sets this
+      // when contact_number was actually in the patch body, so an unrelated
+      // edit doesn't nag.
+      const dupes = (updated as unknown as { phone_duplicates?: Array<{ client_code: string; company_name: string }> }).phone_duplicates;
+      if (dupes && dupes.length) {
+        const names = dupes.map((d) => `${d.client_code} ${d.company_name}`).join(', ');
+        toast.push('info', `This phone number is also on: ${names}`);
+      }
       onClose();
     },
   });
