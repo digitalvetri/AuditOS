@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react';
 import { keepPreviousData, useMutation, useQueries, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { workstationApi } from '@/modules/workstation/api';
-import { ArrowDown, ArrowUp, ArrowUpDown, ChevronLeft, ChevronRight, Download, FileSpreadsheet, Plus } from 'lucide-react';
+import { ArrowDown, ArrowUp, ArrowUpDown, ChevronLeft, ChevronRight, Download, FileSpreadsheet, Plus, Power, PowerOff } from 'lucide-react';
 import {
   Field, Modal, QueryState, fieldErrors, inputClass, textareaClass,
 } from '@/modules/workstation/components';
@@ -407,7 +407,12 @@ export function ClientsPage() {
                                 {m && m.pending_paise > 0 ? formatINR(m.pending_paise / 100) : <span className="text-inkFaint font-normal">—</span>}
                               </td>
                             ) : null}
-                            <td className="cl-hide-open cl-hide-xs"><StatusChip value={c.status} /></td>
+                            <td className="cl-hide-open cl-hide-xs">
+                              <span className="inline-flex items-center gap-2">
+                                <StatusChip value={c.status} />
+                                {canManage ? <RowStatusAction client={c} /> : null}
+                              </span>
+                            </td>
                             {knows.money || knows.gst || knows.tds ? (
                               <td title={h ? (h.reasons.length ? h.reasons.join(' · ') : 'No issues found') : undefined}>
                                 {h ? (
@@ -471,6 +476,59 @@ export function ClientsPage() {
 
 const PAGE_SIZE = 50;
 const CLIENT_STATUSES = ['active', 'onboarding', 'pending_documents', 'service_due', 'inactive'] as const;
+
+/**
+ * Per-row Deactivate / Reactivate on the Clients list. One-click: exit date
+ * defaults to today when deactivating, cleared when reactivating. The server
+ * enforces that {exit_date, status:'inactive'} travel together — the modal in
+ * ClientExit remains the long-form entry point (choose a different date, read
+ * the retention note). This button is the shortcut.
+ */
+function RowStatusAction({ client }: { client: ClientListItem }) {
+  const qc = useQueryClient();
+  const toast = useToast();
+  const isInactive = client.status === 'inactive';
+  const update = useMutation({
+    mutationFn: (patch: Record<string, unknown>) => workstationApi.updateClient(client.id, patch),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ['workstation'] });
+      void qc.invalidateQueries({ queryKey: ['sidebar', 'client-count'] });
+      toast.push('success', isInactive ? 'Client reactivated.' : 'Client marked inactive.');
+    },
+    onError: (e: Error) => toast.push('error', e.message || 'Could not update the client.'),
+  });
+  const toggle = async (ev: { stopPropagation: () => void }) => {
+    ev.stopPropagation();
+    if (update.isPending) return;
+    if (isInactive) {
+      if (await confirmAction(`Reactivate ${client.company_name}? The exit date will be cleared.`, { action: 'Reactivate', danger: false })) {
+        update.mutate({ status: 'active', exit_date: null });
+      }
+    } else {
+      const today = new Date(Date.now() + 5.5 * 3600_000).toISOString().slice(0, 10);
+      if (await confirmAction(`Make ${client.company_name} inactive? Exit date will be set to today (${today}). Records are kept for the retention period.`, { action: 'Deactivate', danger: true })) {
+        update.mutate({ status: 'inactive', exit_date: today });
+      }
+    }
+  };
+  return (
+    <button
+      type="button"
+      onClick={toggle}
+      disabled={update.isPending}
+      title={isInactive ? 'Reactivate client' : 'Mark client inactive (sets exit date to today)'}
+      aria-label={isInactive ? `Reactivate ${client.company_name}` : `Deactivate ${client.company_name}`}
+      data-testid={isInactive ? 'client-row-reactivate' : 'client-row-deactivate'}
+      className={
+        'inline-flex items-center justify-center h-6 w-6 rounded hover:bg-neutral-100 ' +
+        (isInactive ? 'text-primary' : 'text-neutral-400 hover:text-danger') +
+        (update.isPending ? ' opacity-50 cursor-wait' : '')
+      }
+    >
+      {isInactive ? <Power size={14} aria-hidden /> : <PowerOff size={14} aria-hidden />}
+    </button>
+  );
+}
 
 /** Last six GST periods as small bars: filed · overdue · open · nothing due. */
 function Strip({ states, periods }: { states: PeriodState[]; periods: string[] }) {
