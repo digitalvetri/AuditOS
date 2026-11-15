@@ -25,16 +25,26 @@ export function FiledDialog({ items, onClose }: { items: ComplianceItem[]; onClo
   const toast = useToast();
   const single = items.length === 1 ? items[0] : null;
   const [filedOn, setFiledOn] = useState(single?.filed_on ?? istToday());
-  const [ack, setAck] = useState(single?.acknowledgement_no ?? '');
+  const [ack, setAck] = useState(single?.acknowledgement_no ?? single?.evidence_ref ?? '');
   const [fee, setFee] = useState('');
+  // Clock items (POST-DELIVERY-CHANGES §A) require evidence to close. The
+  // server also enforces this; the UI gates the save so the error flow is
+  // front-loaded. Non-clock items keep the old optional-ack behaviour.
+  const isClock = !!single?.is_clock;
+  const evidenceEmpty = isClock && !ack.trim() && !single?.evidence_doc_id;
 
   const save = useMutation({
     mutationFn: async () => {
       if (single) {
+        const ackTrimmed = ack.trim();
         await complianceApi.patchItem(single.id, {
           status: 'filed',
           filed_on: filedOn,
-          acknowledgement_no: ack.trim() || null,
+          // For a clock, the SRN / portal ack is BOTH the audit reference
+          // and the evidence gate — write to both so the one value lands
+          // in the legacy audit path and in the new evidence check.
+          acknowledgement_no: ackTrimmed || null,
+          ...(isClock ? { evidence_ref: ackTrimmed || null } : {}),
           ...(fee.trim() ? { late_fee_paid_paise: rupeesToPaise(fee) } : {}),
         });
         return null;
@@ -56,13 +66,19 @@ export function FiledDialog({ items, onClose }: { items: ComplianceItem[]; onClo
       onClose={onClose} width="w-[460px]"
       footer={<>
         <Button size="sm" variant="ghost" onClick={onClose}>Cancel</Button>
-        <Button size="sm" variant="primary" disabled={!filedOn || save.isPending} onClick={() => save.mutate()}>
+        <Button size="sm" variant="primary" disabled={!filedOn || evidenceEmpty || save.isPending} onClick={() => save.mutate()}>
           {save.isPending ? 'Saving…' : 'Mark filed'}
         </Button>
       </>}>
       {single ? (
         <p className="text-13 text-neutral-600 mb-3">
           {single.client_name} · {single.period_label ?? single.period_key} · due {day(single.due_date)}
+          {isClock && single.internal_due_date ? <> · internal target {day(single.internal_due_date)}</> : null}
+        </p>
+      ) : null}
+      {isClock ? (
+        <p className="text-12 text-neutral-500 mb-3">
+          Attach the portal acknowledgement or SRN before closing — the server rejects a clock close without it.
         </p>
       ) : null}
       <div className="grid gap-3 sm:grid-cols-2">
@@ -70,8 +86,10 @@ export function FiledDialog({ items, onClose }: { items: ComplianceItem[]; onClo
           <input type="date" className={fieldClass} value={filedOn} max={istToday()} onChange={(e) => setFiledOn(e.target.value)} />
         </Labelled>
         {single ? (
-          <Labelled label="Acknowledgement / SRN / ARN">
-            <input className={fieldClass} value={ack} onChange={(e) => setAck(e.target.value)} placeholder="e.g. 123456789012345" />
+          <Labelled label={isClock ? 'SRN / portal acknowledgement — required' : 'Acknowledgement / SRN / ARN'}>
+            <input className={fieldClass} value={ack} onChange={(e) => setAck(e.target.value)}
+              placeholder={isClock ? 'e.g. AA33111226123456' : 'e.g. 123456789012345'}
+              required={isClock} />
           </Labelled>
         ) : null}
         {single ? (

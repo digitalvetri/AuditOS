@@ -351,6 +351,16 @@ function ItemsTable({
                   <DueDate due={i.due_date} statutory={i.statutory_due_date} extension={i.extension} />
                   <DaysChip days={days} done={done} />
                   {i.anchor_missing ? <Chip tone="amber" title="Due date assumes an AGM on 30 September">AGM date not entered</Chip> : null}
+                  {i.is_clock && i.internal_due_date ? (
+                    <Chip tone="blue" title="The firm's internal target — ahead of the statutory deadline">
+                      Internal target {i.internal_due_date}
+                    </Chip>
+                  ) : null}
+                  {i.is_clock && !i.anchor_date ? (
+                    <Chip tone="amber" title="Enter the trigger date (registration / incorporation) to schedule the clock">
+                      Trigger date not entered
+                    </Chip>
+                  ) : null}
                 </div>
               </TD>
               <TD>
