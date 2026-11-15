@@ -15,7 +15,7 @@ import { assertCanSeeClient, assignedClientIds, requireWorkstation } from '../..
 import type { Scope } from '../../platform/rbac/matrix.js'
 import { parseCsv } from '../zpay/invoice-import.js'
 import {
-  ENTITY_TYPES, dueFor, entityTypeOf, findPeriod, fyOfPeriodKey, isFy, parseMonths,
+  ENTITY_TYPES, applyRule, dueFor, entityTypeOf, findPeriod, fyOfPeriodKey, isFy, parseMonths,
 } from './engine.js'
 import {
   CLOSED_STATUSES, ITEM_STATUSES, buildContext, defaultFys, extensionToApi, formToApi, generateItems, isIsoDate,
@@ -342,29 +342,49 @@ async function applyPatch(item: ComplianceItem, b: Record<string, unknown>, orga
   if (Object.keys(errors).length) throw ApiError.badRequest('Check the highlighted fields.', errors)
 
   if (anchor !== undefined) {
-    const codes = await agmCodes()
-    if (!codes.has(item.formCode) && item.formCode !== 'AGM') {
-      throw ApiError.badRequest('anchor_date applies to the AGM and AGM-anchored forms only.', { anchor_date: 'Not an AGM-anchored form.' })
+    // Two paths: AGM-anchored forms (cascade across siblings in the period)
+    // and generic event-anchored forms (clock items, one row per client —
+    // Rule 10A, INC-20A). Anything else rejects.
+    const agmSet = await agmCodes()
+    const isAgmFamily = agmSet.has(item.formCode) || item.formCode === 'AGM'
+    const ownForm = await prisma.complianceForm.findUnique({ where: { code: item.formCode } })
+    const isEventClock = !isAgmFamily && ownForm?.anchor === 'event'
+    if (!isAgmFamily && !isEventClock) {
+      throw ApiError.badRequest('anchor_date applies to AGM-anchored and event-anchored forms only.', { anchor_date: 'Not an event- or AGM-anchored form.' })
     }
     data.anchorDate = anchor
-    // The AGM date is one fact per client and FY: carry it to every
-    // AGM-anchored item of that period and recompute their due dates.
-    const forms = new Map((await prisma.complianceForm.findMany({ where: { code: { in: [...codes] } } })).map((f) => [f.code, f]))
-    const siblings = await prisma.complianceItem.findMany({
-      where: { clientId: item.clientId, periodKey: item.periodKey, formCode: { in: [...codes, 'AGM'] }, deletedAt: null, id: { not: item.id } },
-    })
-    for (const s of siblings) {
-      const f = forms.get(s.formCode)
-      const due = f ? dueFor(toRule(f), s.periodKey, fyOfPeriodKey(s.periodKey), anchor) : null
-      await prisma.complianceItem.update({
-        where: { id: s.id },
-        data: { anchorDate: anchor, ...(due && !CLOSED_STATUSES.has(s.status) ? { dueDate: due.statutory_due_date } : {}), updatedBy: session.userId },
+    if (isAgmFamily) {
+      // The AGM date is one fact per client and FY: carry it to every
+      // AGM-anchored item of that period and recompute their due dates.
+      const forms = new Map((await prisma.complianceForm.findMany({ where: { code: { in: [...agmSet] } } })).map((f) => [f.code, f]))
+      const siblings = await prisma.complianceItem.findMany({
+        where: { clientId: item.clientId, periodKey: item.periodKey, formCode: { in: [...agmSet, 'AGM'] }, deletedAt: null, id: { not: item.id } },
       })
-    }
-    const own = forms.get(item.formCode)
-    if (own) {
-      const due = dueFor(toRule(own), item.periodKey, fyOfPeriodKey(item.periodKey), anchor)
-      if (due) data.dueDate = due.statutory_due_date
+      for (const s of siblings) {
+        const f = forms.get(s.formCode)
+        const due = f ? dueFor(toRule(f), s.periodKey, fyOfPeriodKey(s.periodKey), anchor) : null
+        await prisma.complianceItem.update({
+          where: { id: s.id },
+          data: { anchorDate: anchor, ...(due && !CLOSED_STATUSES.has(s.status) ? { dueDate: due.statutory_due_date } : {}), updatedBy: session.userId },
+        })
+      }
+      const own = forms.get(item.formCode)
+      if (own) {
+        const due = dueFor(toRule(own), item.periodKey, fyOfPeriodKey(item.periodKey), anchor)
+        if (due) data.dueDate = due.statutory_due_date
+      }
+    } else if (isEventClock && ownForm) {
+      // Clock items stand alone — no siblings. Recompute the statutory
+      // dueDate and the internal target only when the item is still open.
+      if (!CLOSED_STATUSES.has(item.status)) {
+        const due = dueFor(toRule(ownForm), item.periodKey, fyOfPeriodKey(item.periodKey), anchor)
+        if (due && anchor) {
+          data.dueDate = due.statutory_due_date
+          if (ownForm.internalTargetDays != null) {
+            data.internalDueDate = applyRule(anchor, { offsetMonths: 0, dueDay: null, offsetDays: ownForm.internalTargetDays })
+          }
+        }
+      }
     }
   }
   const after = await prisma.complianceItem.update({ where: { id: item.id }, data })
