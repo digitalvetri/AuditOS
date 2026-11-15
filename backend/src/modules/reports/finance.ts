@@ -354,7 +354,7 @@ async function revenueByClient(p: FinanceParams): Promise<FinanceReport> {
       select: { clientId: true, taxablePaise: true, cgstPaise: true, sgstPaise: true, igstPaise: true, totalPaise: true },
     }),
     prisma.invoicePayment.findMany({ where: paymentWhere(p.from, p.to, p.clientId), select: { clientId: true, amountPaise: true, tdsPaise: true } }),
-    prisma.creditNote.findMany({ where: issuedCreditNoteWhere(p.from, p.to, p.clientId), select: { clientId: true, taxablePaise: true, totalPaise: true } }),
+    prisma.creditNote.findMany({ where: issuedCreditNoteWhere(p.from, p.to, p.clientId), select: { clientId: true, taxablePaise: true, cgstPaise: true, sgstPaise: true, igstPaise: true, totalPaise: true } }),
     receivablesAsAt(p.to, p.clientId),
     prisma.invoiceRefund.findMany({ where: refundWhere(p.from, p.to, p.clientId), select: { clientId: true, amountPaise: true } }),
   ])
@@ -374,7 +374,8 @@ async function revenueByClient(p: FinanceParams): Promise<FinanceReport> {
       client: names.get(id)?.name ?? '(unknown client)',
       invoice_count: inv.length,
       fees_paise: sum(inv, (i) => i.taxablePaise) - sum(cn, (n) => n.taxablePaise),
-      gst_paise: sum(inv, gstOf),
+      // Net of credit-note GST, like Net fees beside it and Revenue by month.
+      gst_paise: sum(inv, gstOf) - sum(cn, gstOf),
       total_invoiced_paise: sum(inv, (i) => i.totalPaise),
       // Net of refunds paid back in the period.
       cash_collected_paise: sum(pay, (x) => x.amountPaise) - sum(rf, (r) => r.amountPaise),
@@ -389,7 +390,7 @@ async function revenueByClient(p: FinanceParams): Promise<FinanceReport> {
     { key: 'client', label: 'Client', type: 'text' },
     { key: 'invoice_count', label: 'Invoices', type: 'number' },
     { key: 'fees_paise', label: 'Net fees (ex-GST)', type: 'money' },
-    { key: 'gst_paise', label: 'GST invoiced', type: 'money' },
+    { key: 'gst_paise', label: 'Net GST', type: 'money' },
     { key: 'total_invoiced_paise', label: 'Total invoiced', type: 'money' },
     { key: 'cash_collected_paise', label: 'Cash collected (net of refunds)', type: 'money' },
     { key: 'tds_paise', label: 'TDS deducted', type: 'money' },
