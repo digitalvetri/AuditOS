@@ -39,16 +39,35 @@ export class FieldErrors {
     return trimmed
   }
 
-  /** Indian mobile/landline: 10 digits, optionally +91-prefixed. */
+  /**
+   * Indian phone number. Accepts, after stripping spaces / hyphens /
+   * brackets and an optional +91 or leading 0:
+   *   - 10-digit MOBILE (first digit 6-9)             → '98765 43210'
+   *   - 10-11 digit LANDLINE with STD code (starting 0 trimmed)
+   *     → '022 12345678', '044 12345678', '080 12345678'
+   *     We accept 10 and 11 digits here (STD 2-5 digits + local 6-8),
+   *     and we DO NOT look up the STD code (adding a table is fragile;
+   *     a real wrong number still fails to connect).
+   *
+   * POST-DELIVERY-CHANGES §B2: previously rejected everything that
+   * didn't start 6-9, which bounced every landline. Firms serving older
+   * businesses keep landlines on file; accept them.
+   *
+   * Return format stays 10-11 digits (NOT E.164-prefixed) so existing
+   * stored numbers don't need a data migration. Display formatting is
+   * a UI concern.
+   */
   phone(field: string, value: unknown, required = true): string | undefined {
     const raw = this.str(field, value, { required })
     if (raw === undefined) return undefined
-    const digits = raw.replace(/[\s\-()]/g, '').replace(/^\+91/, '')
-    if (!/^[6-9]\d{9}$/.test(digits)) {
-      this.add(field, 'Enter a valid 10-digit Indian mobile number.')
-      return undefined
-    }
-    return digits
+    const digits = raw.replace(/[\s\-()]/g, '').replace(/^\+91/, '').replace(/^0+/, '')
+    // Mobile: 10 digits, starts 6-9. The common case; fast-path it.
+    if (/^[6-9]\d{9}$/.test(digits)) return digits
+    // Landline: 10-11 digits, doesn't start 6-9 (those collide with mobile)
+    // and contains no silly runs like all-zero after the STD code.
+    if (/^[1-5]\d{9,10}$/.test(digits) && !/^0+$/.test(digits.slice(1))) return digits
+    this.add(field, 'Enter a 10-digit mobile (starts 6-9) or a landline with STD code (10-11 digits).')
+    return undefined
   }
 
   email(field: string, value: unknown, required = false): string | undefined {
