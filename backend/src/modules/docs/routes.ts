@@ -124,6 +124,19 @@ docsRouter.get('/:id/pdf-url', handler(async (req, res) => {
   ok(res, signedLink(`/api/workstation-docs/${d.id}/pdf`, `wsdoc:${d.id}`, session.userId))
 }))
 
+/**
+ * A signed public link to the document's .docx (POST-DELIVERY-CHANGES §D1).
+ * The .docx is produced by the SAME blockConfig the PDF walks — opening the
+ * paper in Word matches what was edited. Permission + signed-link discipline
+ * mirror the PDF route so nothing new is granted or trusted on this path.
+ */
+docsRouter.get('/:id/docx-url', handler(async (req, res) => {
+  const session = requireSession(req)
+  const scope = requireWorkstation(session, 'workstation.doc.read')
+  const d = await DocService.get(session, scope, req.params.id)
+  ok(res, signedLink(`/api/workstation-docs/${d.id}/docx`, `wsdoc:${d.id}`, session.userId))
+}))
+
 docsRouter.delete('/:id', handler(async (req, res) => {
   const session = requireSession(req)
   const scope = requireWorkstation(session, 'workstation.doc.manage')
