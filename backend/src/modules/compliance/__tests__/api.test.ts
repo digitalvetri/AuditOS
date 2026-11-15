@@ -1,6 +1,7 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { istToday } from '../../../lib/dates.js'
 import { generateItems } from '../service.js'
+import { migrateInc20aFromPartnership } from '../../../../prisma/seed-compliance.js'
 import { api, client, employee, login, org, prisma, startServer, stopServer, uid } from './fixtures.js'
 
 beforeAll(startServer)
@@ -197,6 +198,49 @@ describe('compliance calendar API', () => {
     const again = (await api(`/api/compliance/items?client_id=${c.id}&from=2026-09-01&to=2026-11-30&include=gst`, { cookie: md.cookie })).body.data as Item[]
     expect(again.find((r) => r.form_code === 'GSTR3B' && r.period_key === '2026-09')).toMatchObject({ status: 'filed', overdue: false })
     expect(again.some((r) => r.source === 'tds')).toBe(false)
+  })
+
+  it('INC_20A is seeded as a clock form with internal target 30 and statutory 180', async () => {
+    const o = await org()
+    const md = await login(o, 'md')
+    const forms = (await api('/api/compliance/forms', { cookie: md.cookie })).body.data as Item[]
+    const inc = forms.find((f) => f.code === 'INC_20A')
+    expect(inc).toMatchObject({ anchor: 'event', frequency: 'event', authority: 'mca', entity_types: ['company'], offset_days: 180 })
+  })
+
+  it('migrateInc20aFromPartnership copies INC_20A rows into ComplianceItem idempotently', async () => {
+    const o = await org()
+    const emp = await employee(o, 'Mgr')
+    const c = await client(o, 'PvtLtd Co', { businessType: 'Pvt Ltd', accountManagerId: emp.id })
+    const caseRow = await prisma.partnershipCase.create({
+      data: { caseCode: uid('PLCASE'), kind: 'PRIVATE_LIMITED', clientId: c.id, status: 'COMPLETED' },
+    })
+    await prisma.postRegistrationCompliance.create({
+      data: {
+        caseId: caseRow.id, clientId: c.id, code: 'INC_20A',
+        triggerLabel: 'Date of Incorporation', triggerDate: '2026-05-01',
+        offsetDays: 180, dueDate: '2026-10-28',
+        assignedEmployeeId: emp.id, notes: 'From PartnershipCase',
+      },
+    })
+
+    const first = await migrateInc20aFromPartnership(prisma)
+    expect(first.migrated).toBeGreaterThanOrEqual(1)
+    const items = await prisma.complianceItem.findMany({ where: { clientId: c.id, formCode: 'INC_20A' } })
+    expect(items).toHaveLength(1)
+    expect(items[0]).toMatchObject({
+      anchorDate: '2026-05-01',
+      dueDate: '2026-10-28',       // anchor + 180 days
+      internalDueDate: '2026-05-31', // anchor + 30 days from seed
+      status: 'not_started',
+      notes: 'From PartnershipCase',
+    })
+
+    // Re-run → no change (@@unique on clientId+formCode+periodKey; update:{} leaves alone).
+    const second = await migrateInc20aFromPartnership(prisma)
+    expect(second.migrated).toBeGreaterThanOrEqual(1)
+    const after = await prisma.complianceItem.findMany({ where: { clientId: c.id, formCode: 'INC_20A' } })
+    expect(after).toHaveLength(1)
   })
 
   it('POST /clocks creates a GST_RULE_10A clock, enforces one-per-client, recomputes dates on anchor', async () => {
