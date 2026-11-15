@@ -6,7 +6,7 @@
  * so the two copies cannot drift apart unnoticed.
  *
  *   challan      7th of next month; March deductions → 30 April
- *   return       Q1 31 Jul · Q2 31 Oct · Q3 31 Jan · Q4 31 May
+ *   return       Q1 31 Jul · Q2 31 Oct · Q3 31 Jan · Q4 31 May (27EQ: the 15th)
  *   Form 16A/27D 15 days after that quarter's return due date
  *   Form 16      15 June after the FY (needs Q4 24Q filed)
  *   26QB/QC/QD   30 days from the end of the month of deduction;

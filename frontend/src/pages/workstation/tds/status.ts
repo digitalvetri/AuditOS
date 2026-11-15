@@ -5,7 +5,7 @@
  *
  * Calendar (config.ts, marked [VERIFY] there):
  *   challan      7th of next month; March deductions → 30 April
- *   return       Q1 31 Jul · Q2 31 Oct · Q3 31 Jan · Q4 31 May
+ *   return       Q1 31 Jul · Q2 31 Oct · Q3 31 Jan · Q4 31 May (27EQ: the 15th)
  *   Form 16A/27D 15 days after that quarter's return due date
  *   Form 16      15 June after the FY (needs Q4 24Q filed)
  *   notices      checked at least every NOTICE_CHECK_INTERVAL_DAYS
@@ -73,13 +73,15 @@ export function quarterEnd(q: Quarter, fy: string): string {
   const [off, m0] = Q_END[q];
   return iso(fyStart(fy) + off, m0 + 1, 0);
 }
-export function returnDue(q: Quarter, fy: string): string {
+export function returnDue(q: Quarter, fy: string, form?: string | null): string {
   const y = fyStart(fy);
+  // TCS (27EQ) is due on the 15th — must match backend modules/tds/calendar.ts.
+  if (form === '27EQ') return { Q1: iso(y, 6, 15), Q2: iso(y, 9, 15), Q3: iso(y + 1, 0, 15), Q4: iso(y + 1, 4, 15) }[q];
   return { Q1: iso(y, 6, 31), Q2: iso(y, 9, 31), Q3: iso(y + 1, 0, 31), Q4: iso(y + 1, 4, 31) }[q];
 }
-export function certificateDue(period: string, fy: string): string {
+export function certificateDue(period: string, fy: string, form?: string | null): string {
   if (period === 'FY') return iso(fyStart(fy) + 1, 5, 15);
-  const r = returnDue(period as Quarter, fy);
+  const r = returnDue(period as Quarter, fy, form === '27D' ? '27EQ' : null);
   const d = new Date(`${r}T00:00:00`);
   return iso(d.getFullYear(), d.getMonth(), d.getDate() + 15);
 }
@@ -112,7 +114,7 @@ export function expectedReturns(data: TdsData, fy: string, today = todayIso()): 
     for (const q of QUARTERS) {
       const record = find(data.records, 'return', fy, q, form);
       if (!record && quarterEnd(q, fy) >= today) continue;
-      const due = returnDue(q, fy);
+      const due = returnDue(q, fy, form);
       out.push({ kind: 'return', period: q, formType: form, label: `${form} · ${q}`, due, record, state: stateOf(record, due, today), fy });
     }
   }
@@ -128,7 +130,7 @@ export function expectedCertificates(data: TdsData, fy: string, today = todayIso
     if (!form) continue;
     const period = form === '16' ? 'FY' : r.period!;
     const record = find(data.records, 'certificate', fy, period, form);
-    const due = certificateDue(period, fy);
+    const due = certificateDue(period, fy, form);
     const label = form === '16' ? `Form 16 · FY ${fy}` : `Form ${form} · ${period} (${r.form_type})`;
     out.push({ kind: 'certificate', period, formType: form, label, due, record, state: stateOf(record, due, today), fy });
   }
