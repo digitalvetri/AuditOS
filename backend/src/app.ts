@@ -64,6 +64,7 @@ import { billingSignedRouter } from './modules/invoice/billing-signed.js'
 import { engagementRouter } from './modules/engagement/routes.js'
 import { auditFilesRouter } from './modules/audit/routes.js'
 import { docsRouter } from './modules/docs/routes.js'
+import { docTemplatesRouter } from './modules/docs/templates.routes.js'
 import { checklistRouter } from './modules/checklist/routes.js'
 // GST compliance — Workstation → Services → Registration → GST Registration.
 import { gstRouter as gstComplianceRouter } from './modules/gst/routes.js'
@@ -327,6 +328,9 @@ export function createApp() {
   app.use('/api/audits', auditFilesRouter)
   app.use('/api/share', shareRouter)
   app.use('/api/workstation-docs', docsRouter)
+  // Doc-template catalogue (POST-DELIVERY-CHANGES §D2 + §D3). Read-only
+  // today; the Settings UI that drives writes lands with its own PR.
+  app.use('/api/doc-templates', docTemplatesRouter)
   // Client compliance checklists (GST today). Master catalogue + client work.
   app.use('/api/checklists', checklistRouter)
   // GST compliance service (NOT the Tools reconciliation router above).
