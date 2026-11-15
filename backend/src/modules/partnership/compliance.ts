@@ -26,6 +26,7 @@ import { assertCanSeeClient, clientScopeWhere, requireWorkstation } from '../../
 import type { Scope } from '../../platform/rbac/matrix.js'
 import { employeeMap } from '../../api/workstation.serialize.js'
 import { body, FieldErrors } from '../workstation/validate.js'
+import { onPrivateLimitedIncorporated } from '../compliance/clockEvents.js'
 import { addDays, logActivity, today } from './service.js'
 
 const READ = ['workstation.service.read', 'workstation.service.manage'] as const
@@ -212,6 +213,14 @@ export async function ensurePostRegistrationCompliances(caseId: string, opts: { 
         data: { triggerDate: inc, dueDate: addDays(inc, r.offsetDays), updatedBy: opts.userId ?? null },
       })
     }
+  }
+
+  // Mirror new INC_20A rows into the unified compliance clock
+  // (POST-DELIVERY-CHANGES §A sub-PR b.2). Idempotent; a subsequent
+  // completion of the same case does nothing. seed-level migration still
+  // handles historical data, this handles the fresh-case path.
+  if (rules.some((r) => r.code === 'INC_20A')) {
+    await onPrivateLimitedIncorporated(prisma, { caseId: c.id })
   }
   return created.count
 }
