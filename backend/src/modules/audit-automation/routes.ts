@@ -401,6 +401,72 @@ auditAutomationRouter.patch('/rules/:id', handler(async (req, res) => {
   ok(res, { id: rule.id })
 }))
 
+/**
+ * POST /api/audit-automation/invoices/extract (POST-DELIVERY-CHANGES §F1)
+ *
+ * Extract the standard tax-invoice fields from an uploaded PDF. PURE
+ * READ — nothing is persisted. The response carries each field with a
+ * confidence hint so the follow-up review UI can light the uncertain
+ * ones for the auditor to correct or confirm, which is the whole point
+ * of the doc's "human confirms every figure" rule. A persisted,
+ * exported-to-Excel flow is the next PR in Group F.
+ *
+ * Permissions: same gate as the bank-statement upload
+ * (tools.audit_automation.bank.upload). Firms that can bring in bank
+ * statements can bring in invoices; nothing new to grant.
+ */
+auditAutomationRouter.post('/invoices/extract', (req, res, next) => {
+  upload.single('file')(req, res, (err: unknown) => {
+    if (err instanceof Error && err.message.includes('File too large')) {
+      return next(ApiError.unprocessable('too_large', `The PDF is over ${MAX_MB} MB.`))
+    }
+    if (err) return next(err)
+    scanUploads(req, res, next)
+  })
+}, handler(async (req, res) => {
+  const session = requireSession(req)
+  requireAaUpload(session)
+  const file = req.file
+  if (!file) throw ApiError.unprocessable('empty', 'Choose an invoice PDF to upload.')
+  if (file.size === 0) throw ApiError.unprocessable('empty', 'The uploaded file is empty.')
+  const mime = await sniffMime(file.buffer, file.originalname)
+  const ext = extensionOf(file.originalname)
+  if (mime !== 'application/pdf' && ext !== 'pdf') {
+    throw ApiError.unprocessable('not_pdf', 'Upload the invoice as a PDF — Excel / image support lands in a follow-up.')
+  }
+  // Lazy imports so pdfjs is not loaded on module boot. Matches the pattern
+  // the bank-statement path uses (routes don't pull pdfInspect at the top).
+  const { inspectPdf, PasswordRequiredError, WrongPasswordError, UnreadablePdfError } = await import('./lib/pdfInspect.js')
+  const { extractInvoice } = await import('./parsers/invoicePdf.js')
+  try {
+    const inspected = await inspectPdf(file.buffer)
+    const extracted = extractInvoice(inspected.pages)
+    ok(res, {
+      filename: sanitizeFilename(file.originalname),
+      page_count: inspected.pageCount,
+      // The reviewer wants fields in snake_case, matching the rest of the API.
+      supplier_gstin: extracted.supplierGstin,
+      recipient_gstin: extracted.recipientGstin,
+      supplier_name: extracted.supplierName,
+      invoice_number: extracted.invoiceNumber,
+      invoice_date: extracted.invoiceDate,
+      total_paise: extracted.totalPaise,
+      taxable_paise: extracted.taxablePaise,
+      cgst_paise: extracted.cgstPaise,
+      sgst_paise: extracted.sgstPaise,
+      igst_paise: extracted.igstPaise,
+      hsn_candidates: extracted.hsnCandidates,
+      date_candidates: extracted.dateCandidates,
+      raw_text: extracted.rawText,
+    })
+  } catch (e) {
+    if (e instanceof PasswordRequiredError) throw ApiError.unprocessable('password_required', 'This invoice PDF is password-protected.')
+    if (e instanceof WrongPasswordError) throw ApiError.unprocessable('wrong_password', 'The password did not open the PDF.')
+    if (e instanceof UnreadablePdfError) throw ApiError.unprocessable('unreadable', 'Could not read this PDF — try a different export or a scan + OCR.')
+    throw e
+  }
+}))
+
 auditAutomationRouter.delete('/rules/:id', handler(async (req, res) => {
   const session = requireSession(req)
   requireAaUpload(session)
