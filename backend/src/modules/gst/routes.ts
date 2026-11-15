@@ -1228,7 +1228,9 @@ gstRouter.patch('/clients/:id', handler(async (req, res) => {
   const gstin = has('gstin') ? (s('gstin')?.toUpperCase() ?? null) : current.gstin
   const pan = has('pan') ? (s('pan')?.toUpperCase() ?? null) : current.pan
   if (!gstin) throw ApiError.badRequest('A GSTIN is required.')
-  assertGstin(gstin)
+  // Check-character test only on a NEW value: an older profile saved before
+  // the check must stay editable (frequency, status) without retyping it.
+  assertGstin(gstin, { checkChar: gstin !== current.gstin })
   if (pan) {
     assertPan(pan)
     assertGstinMatchesPan(gstin, pan)

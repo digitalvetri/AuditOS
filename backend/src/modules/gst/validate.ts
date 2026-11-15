@@ -123,11 +123,11 @@ export const REGISTRATION_TYPES = ['regular', 'composition', 'casual', 'isd', 's
 export const REGISTRATION_STATUSES = ['active', 'cancelled', 'suspended', 'not_registered'] as const
 export const FILING_FREQUENCIES = ['monthly', 'quarterly'] as const
 
-export function assertGstin(gstin: string) {
+export function assertGstin(gstin: string, opts: { checkChar?: boolean } = {}) {
   if (!GSTIN_RE.test(gstin.toUpperCase())) {
     throw ApiError.badRequest('That is not a valid GSTIN. It is 15 characters: state code, PAN, entity digit, Z, checksum.')
   }
-  if (!isValidGstin(gstin.toUpperCase())) {
+  if (opts.checkChar !== false && !isValidGstin(gstin.toUpperCase())) {
     throw ApiError.badRequest('This GSTIN fails its check character — re-check the last digit.')
   }
 }
