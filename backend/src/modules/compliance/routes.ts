@@ -305,11 +305,23 @@ interface PatchResult { before: ComplianceItem; after: ComplianceItem }
 async function applyPatch(item: ComplianceItem, b: Record<string, unknown>, organisationId: string, session: Session): Promise<PatchResult> {
   const data: Prisma.ComplianceItemUpdateInput = { updatedBy: session.userId }
   const errors: Record<string, string> = {}
+  // Load the form up front — the evidence gate needs form.evidenceRequired,
+  // and the anchor-cascade branch below looks it up anyway. One query here
+  // replaces the conditional lookup it used to do.
+  const form = await prisma.complianceForm.findUnique({ where: { code: item.formCode } })
   if (b.filed_on !== undefined) {
     if (b.filed_on === null || b.filed_on === '') data.filedOn = null
     else if (!isIsoDate(b.filed_on)) errors.filed_on = 'YYYY-MM-DD.'
     else if (b.filed_on > istToday()) errors.filed_on = 'Cannot be in the future.'
     else data.filedOn = b.filed_on
+  }
+  // Evidence references (POST-DELIVERY-CHANGES §A). Accept here so a single
+  // PATCH can both attach the SRN/portal ack and move status→filed.
+  if (b.evidence_ref !== undefined) {
+    data.evidenceRef = b.evidence_ref === null ? null : String(b.evidence_ref).trim().slice(0, 100) || null
+  }
+  if (b.evidence_doc_id !== undefined) {
+    data.evidenceDocId = b.evidence_doc_id === null ? null : String(b.evidence_doc_id).trim().slice(0, 100) || null
   }
   if (b.status !== undefined) {
     if (!ITEM_STATUSES.includes(b.status as never)) errors.status = `One of ${ITEM_STATUSES.join(', ')}.`
@@ -319,6 +331,18 @@ async function applyPatch(item: ComplianceItem, b: Record<string, unknown>, orga
       if (b.status === 'filed') {
         if (!filedOn) errors.filed_on = 'Required when the status is filed.'
         else if (item.status !== 'filed') data.filedBy = session.userId
+        // EVIDENCE GATE. Rule 10A / INC-20A / any future clock whose form
+        // declares evidenceRequired cannot close without the portal ack
+        // or an SRN / ARN / reference. Checks the PATCH body first, then
+        // the already-stored value — one query, no gaps if evidence was
+        // attached earlier.
+        if (form?.evidenceRequired) {
+          const refAfter = data.evidenceRef !== undefined ? data.evidenceRef : item.evidenceRef
+          const docAfter = data.evidenceDocId !== undefined ? data.evidenceDocId : item.evidenceDocId
+          if (!refAfter && !docAfter) {
+            errors.evidence_ref = `Attach the ${form.authority === 'mca' ? 'SRN' : 'portal acknowledgement reference'} or upload the evidence document before marking this filed.`
+          }
+        }
       }
     }
   }
@@ -347,8 +371,7 @@ async function applyPatch(item: ComplianceItem, b: Record<string, unknown>, orga
     // Rule 10A, INC-20A). Anything else rejects.
     const agmSet = await agmCodes()
     const isAgmFamily = agmSet.has(item.formCode) || item.formCode === 'AGM'
-    const ownForm = await prisma.complianceForm.findUnique({ where: { code: item.formCode } })
-    const isEventClock = !isAgmFamily && ownForm?.anchor === 'event'
+    const isEventClock = !isAgmFamily && form?.anchor === 'event'
     if (!isAgmFamily && !isEventClock) {
       throw ApiError.badRequest('anchor_date applies to AGM-anchored and event-anchored forms only.', { anchor_date: 'Not an event- or AGM-anchored form.' })
     }
@@ -373,16 +396,16 @@ async function applyPatch(item: ComplianceItem, b: Record<string, unknown>, orga
         const due = dueFor(toRule(own), item.periodKey, fyOfPeriodKey(item.periodKey), anchor)
         if (due) data.dueDate = due.statutory_due_date
       }
-    } else if (isEventClock && ownForm) {
+    } else if (isEventClock && form) {
       // Clock items stand alone — no siblings, no period FY. Compute the
       // dates directly with applyRule. `dueFor` assumes a period-recurring
       // form (its switch(anchor) has no 'event' case → returns null) and
       // its `fyOfPeriodKey` call doesn't parse our clock periodKeys like
       // '2026-GST_RULE_10A' — it throws.
       if (!CLOSED_STATUSES.has(item.status) && anchor) {
-        data.dueDate = applyRule(anchor, { offsetMonths: 0, dueDay: null, offsetDays: ownForm.offsetDays })
-        if (ownForm.internalTargetDays != null) {
-          data.internalDueDate = applyRule(anchor, { offsetMonths: 0, dueDay: null, offsetDays: ownForm.internalTargetDays })
+        data.dueDate = applyRule(anchor, { offsetMonths: 0, dueDay: null, offsetDays: form.offsetDays })
+        if (form.internalTargetDays != null) {
+          data.internalDueDate = applyRule(anchor, { offsetMonths: 0, dueDay: null, offsetDays: form.internalTargetDays })
         }
       }
     }
