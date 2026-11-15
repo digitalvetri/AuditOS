@@ -1,6 +1,6 @@
 import type { Prisma } from '@prisma/client'
 import { CIN_RE, LLPIN_RE } from '../gst/validate.js'
-import { alive } from '../../lib/prisma.js'
+import { alive, prisma } from '../../lib/prisma.js'
 import type { Session } from '../../platform/auth.js'
 import type { Scope } from '../../platform/rbac/matrix.js'
 import { nextClientCode } from '../../platform/workstation/codes.js'
@@ -156,6 +156,38 @@ export async function createClientRow(
 export function bumpClientCode(code: string): string {
   const m = /^(.*?)(\d+)$/.exec(code)
   return m ? `${m[1]}${Number(m[2]) + 1}` : code
+}
+
+/**
+ * Phone-number collision scan (POST-DELIVERY-CHANGES §B2).
+ *
+ * Returns other clients already holding this contact_number. Compared on the
+ * NORMALISED digits that v.phone() produces, so differently-formatted entries
+ * ('044 12345678' vs '04412345678') still collide. Soft-deleted clients are
+ * excluded — a historical row shouldn't pin a warning on a live creation.
+ *
+ * The doc's intent: WARN, DO NOT BLOCK. A proprietor and their firm
+ * legitimately share a number; the firm needs to KNOW about the overlap,
+ * not be forced to resolve it before saving.
+ */
+export async function findDuplicatePhoneClients(
+  phone: string | null | undefined,
+  excludeId?: string,
+): Promise<Array<{ id: string; client_code: string; company_name: string }>> {
+  if (!phone) return []
+  const matches = await prisma.client.findMany({
+    where: {
+      contactNumber: phone,
+      deletedAt: null,
+      ...(excludeId ? { id: { not: excludeId } } : {}),
+    },
+    select: { id: true, clientCode: true, companyName: true },
+    // Cap defensively — a number shared across dozens of rows is almost
+    // always a data-entry mistake and the warning only needs a nudge, not
+    // a full list.
+    take: 5,
+  })
+  return matches.map((c) => ({ id: c.id, client_code: c.clientCode, company_name: c.companyName }))
 }
 
 // ── List filters ────────────────────────────────────────────────────────────
