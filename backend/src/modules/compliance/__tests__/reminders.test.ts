@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { clockLeadUpStage, staffStage } from '../reminders.js'
+import { clockLeadUpStage, shouldEscalateClockStage, staffStage } from '../reminders.js'
 
 describe('staffStage (recurring forms, unchanged)', () => {
   it.each([
@@ -55,5 +55,33 @@ describe('clockLeadUpStage', () => {
   it('empty leadUps → nothing until overdue', () => {
     expect(clockLeadUpStage(10, 20, [])).toBeNull()
     expect(clockLeadUpStage(-1, -1, [])).toEqual({ stage: 'overdue', timing: 'overdue' })
+  })
+})
+
+describe('shouldEscalateClockStage', () => {
+  it('overdue, past_internal, daily — always escalate', () => {
+    expect(shouldEscalateClockStage('overdue')).toBe(true)
+    expect(shouldEscalateClockStage('daily-0')).toBe(true)
+    expect(shouldEscalateClockStage('daily-5')).toBe(true)
+    expect(shouldEscalateClockStage('past_internal-1')).toBe(true)
+    expect(shouldEscalateClockStage('past_internal-30')).toBe(true)
+  })
+
+  it('t-stages ≤ 7 escalate (so Rule 10A escalates from T-5, INC-20A from T-7)', () => {
+    expect(shouldEscalateClockStage('t7')).toBe(true)  // INC-20A entry
+    expect(shouldEscalateClockStage('t5')).toBe(true)  // Rule 10A entry
+    expect(shouldEscalateClockStage('t2')).toBe(true)
+    expect(shouldEscalateClockStage('t1')).toBe(true)
+  })
+
+  it('t-stages > 7 do NOT escalate (give the assignee room to work)', () => {
+    expect(shouldEscalateClockStage('t10')).toBe(false) // Rule 10A opening
+    expect(shouldEscalateClockStage('t15')).toBe(false) // INC-20A
+    expect(shouldEscalateClockStage('t30')).toBe(false) // INC-20A opening
+  })
+
+  it('non-clock stages (d7/d1) do not escalate — they belong to the recurring path', () => {
+    expect(shouldEscalateClockStage('d7')).toBe(false)
+    expect(shouldEscalateClockStage('d1')).toBe(false)
   })
 })

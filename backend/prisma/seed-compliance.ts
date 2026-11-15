@@ -140,7 +140,7 @@ export const COMPLIANCE_CATALOGUE: CatalogueForm[] = [
       // anchor isn't wired yet — sub-PR (b.2) will update the anchor when
       // GstFiling for GSTR-1 lands before day 30.
       computedExpr: JSON.stringify({ kind: 'min_event', event: 'first_gstr1_filed' }),
-      escalateTo: 'partner',
+      escalateTo: 'md',
     }),
   f('INC_20A', 'INC-20A — Declaration of Commencement of Business', 'mca', 'event', 'company', 'event', 0, null,
     {
@@ -169,7 +169,7 @@ export const COMPLIANCE_CATALOGUE: CatalogueForm[] = [
       // Earlier and more frequent escalation than Rule 10A — INC-20A has no
       // extension, and penalties accrue per-director per-day.
       leadUpDays: JSON.stringify([30, 15, 7, 2, 1]),
-      escalateTo: 'partner',
+      escalateTo: 'md',
     }),
 ]
 
@@ -262,7 +262,18 @@ export async function seedCompliance(prisma: PrismaClient): Promise<{ forms: num
     await prisma.complianceForm.upsert({
       where: { code: form.code },
       create: { ...form, sortOrder: i * 10 },
-      update: { name: form.name, authority: form.authority, frequency: form.frequency, entityTypes: form.entityTypes, sortOrder: i * 10 },
+      update: {
+        name: form.name, authority: form.authority, frequency: form.frequency, entityTypes: form.entityTypes, sortOrder: i * 10,
+        // Clock settings (POST-DELIVERY-CHANGES §A) are system-set, not firm
+        // policy — refresh them on re-seed so a mistaken earlier value
+        // (e.g. 'partner' instead of 'md' for escalateTo) is corrected.
+        internalTargetDays: form.internalTargetDays,
+        appliesWhen: form.appliesWhen,
+        evidenceRequired: form.evidenceRequired,
+        leadUpDays: form.leadUpDays,
+        computedExpr: form.computedExpr,
+        escalateTo: form.escalateTo,
+      },
     })
   }
   return { forms: COMPLIANCE_CATALOGUE.length }
