@@ -66,13 +66,21 @@ export interface ExtractedInvoice {
 }
 
 const GSTIN_RE = /\b[0-3]\d[A-Z]{5}[0-9]{4}[A-Z][1-9A-Z][Z1-9A-Z][0-9A-Z]\b/g
-// Invoice number — alphanumeric + /-_, 1-16 chars (GSTN upper bound).
-const INVOICE_NO_LABELS = /\b(?:invoice\s*(?:no\.?|number|#|serial)|inv\s*(?:no\.?|#)|bill\s*no\.?)\b[^\n]{0,30}/i
-const INVOICE_NO_VALUE = /[A-Z0-9][A-Z0-9\/\-_]{0,15}\b/i
+// Invoice number — the label matches up to the colon/space/hash separator,
+// then the value is read NON-GREEDILY from the char after. Earlier we
+// consumed 30 chars on the label regex and then matched '26' off the tail
+// of 'Invoice No: INV-2026-0042' — now the label stops at the separator
+// and the value picks up 'INV-2026-0042' before it sees 'Date:'.
+const INVOICE_NO_LABEL = /\b(?:invoice\s*(?:no\.?|number|#|serial)|inv\s*(?:no\.?|#)|bill\s*no\.?)\b\s*[:#]?\s*/i
+// Alphanumeric with / - _ . Stops at whitespace, so a label-and-value on
+// the same line as a following 'Date:' doesn't bleed into the date.
+const INVOICE_NO_VALUE = /[A-Z0-9][A-Z0-9\/\-_.]{1,15}/i
 // Dates — DD/MM/YYYY or DD-MM-YYYY (Indian convention), with 2- or 4-digit year.
 const DATE_RE = /\b(\d{1,2})[\/\-.](\d{1,2})[\/\-.](\d{2}|\d{4})\b/g
-// Indian-grouped amount: 12,34,56,789.00  or plain 123456789.00
-const AMOUNT_RE = /(\d{1,3}(?:,\d{2,3})*(?:\.\d{1,2})?|\d+(?:\.\d{1,2})?)/
+// Indian-grouped amount: 12,34,56,789.00 or plain 123456789.00. The
+// alternation puts the GROUPED (contains ',' or '.') form first so a
+// well-formed amount wins over an incidental '9' in '@ 9%'.
+const AMOUNT_RE = /(\d{1,3}(?:,\d{2,3})+(?:\.\d{1,2})?|\d+\.\d{1,2}|\d{4,})/
 const HSN_RE = /\b(\d{4}|\d{6}|\d{8})\b/g
 
 /** Normalise a text node — trim, collapse interior whitespace. */
@@ -149,16 +157,28 @@ export function extractInvoice(pages: ExtractedPage[]): ExtractedInvoice {
   const supplier = explicitSupplier ?? first
   const recipient = explicitRecipient ?? (supplier && supplier === first ? second : first)
 
-  // ── Supplier name — the first long line before supplier's GSTIN. ─────
+  // ── Supplier name — the FIRST long line before supplier's GSTIN that
+  // doesn't look like a label or an address. Earlier we scanned backward
+  // and got the address right above the GSTIN; now we scan forward and
+  // pick the invoice's letterhead, which is the firm name.
   let supplierName: ExtractedField<string> = { value: null, confidence: 'low', source: null }
   if (supplier) {
     const before = raw.slice(0, supplier.idx)
     const lines = before.split('\n').map((l) => l.trim()).filter(Boolean)
-    // Pick the last line of length 4-80 that doesn't look like a label.
-    for (let i = lines.length - 1; i >= 0; i--) {
-      const l = lines[i]
+    // Skip lines that look like a field label or an address line.
+    const isLabel = (l: string) => /^(gstin|pan|tan|invoice|date|address|phone|email)/i.test(l)
+    // Addresses typically carry numbers + comma-separated tokens and often
+    // end in a 6-digit PIN or city/state name. The rule here is simple:
+    // a line with a long digit run or ≥2 commas and a digit is probably an
+    // address — not a letterhead. The supplier name is normally pure text.
+    const looksLikeAddress = (l: string) => (
+      /\b\d{5,}\b/.test(l) // PIN code or long house/building number
+      || (l.split(',').length >= 3 && /\d/.test(l))
+    )
+    for (const l of lines) {
       if (l.length < 4 || l.length > 80) continue
-      if (/^(gstin|pan|tan|invoice|date|address|phone|email)/i.test(l)) continue
+      if (isLabel(l)) continue
+      if (looksLikeAddress(l)) continue
       supplierName = { value: l, confidence: 'medium', source: l }
       break
     }
@@ -166,8 +186,12 @@ export function extractInvoice(pages: ExtractedPage[]): ExtractedInvoice {
 
   // ── Invoice number ─────────────────────────────────────────────────────
   let invoiceNumber: ExtractedField<string> = { value: null, confidence: 'low', source: null }
-  const labelHit = INVOICE_NO_LABELS.exec(raw)
+  const labelHit = INVOICE_NO_LABEL.exec(raw)
   if (labelHit) {
+    // Read the next whitespace-delimited token after the label — not an
+    // arbitrary 40-char window, because the value is normally right at
+    // the cursor and a wider window picks up the value AFTER the next
+    // field (e.g. the year digits of a 'Date:' that follows).
     const after = raw.slice(labelHit.index + labelHit[0].length, labelHit.index + labelHit[0].length + 40)
     const val = INVOICE_NO_VALUE.exec(after)
     if (val) invoiceNumber = { value: val[0].toUpperCase(), confidence: 'high', source: labelHit[0] + val[0] }
