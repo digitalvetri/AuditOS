@@ -384,9 +384,12 @@ function SubServiceRow({
           <div className="flex-1" />
         </div>
       ) : (
+        // The portal shortcut is a sibling of the row link, not inside it —
+        // an <a> nested in an <a> is invalid HTML.
+        <div className="flex items-center hover:bg-neutral-50 transition-colors group">
         <Link
           to={to}
-          className="flex items-center gap-4 px-4 py-3 hover:bg-neutral-50 transition-colors group"
+          className="flex items-center gap-4 pl-4 py-3 flex-1 min-w-0"
         >
           <span
             className="inline-flex items-center justify-center w-8 h-8 rounded-md shrink-0"
@@ -416,19 +419,21 @@ function SubServiceRow({
             </span>
           ) : null}
           <div className="flex-1" />
+        </Link>
           <a
             href={service.portal.url}
             target="_blank"
             rel="noopener noreferrer"
-            onClick={(e) => e.stopPropagation()}
             title={service.portal.label}
             aria-label={`Open ${service.portal.label} in a new tab`}
-            className="inline-flex items-center justify-center w-8 h-8 rounded-md text-neutral-400 hover:text-neutral-800 hover:bg-white"
+            className="inline-flex items-center justify-center w-8 h-8 mx-2 rounded-md text-neutral-400 hover:text-neutral-800 hover:bg-white shrink-0"
           >
             <ExternalLink size={14} strokeWidth={2} />
           </a>
-          <ChevronRight size={16} strokeWidth={2} className="text-neutral-400 group-hover:text-gold shrink-0" />
-        </Link>
+          <Link to={to} tabIndex={-1} aria-hidden className="pr-4 py-3">
+            <ChevronRight size={16} strokeWidth={2} className="text-neutral-400 group-hover:text-gold shrink-0" />
+          </Link>
+        </div>
       )}
     </li>
   );
