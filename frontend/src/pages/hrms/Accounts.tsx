@@ -339,7 +339,7 @@ export function AccountsCollectionsPage() {
     <div className="space-y-4" data-testid="accounts-collections">
       <div className="flex items-center gap-2 flex-wrap text-13">
         <NavLink
-          to="."
+          to="/hrms/accounts/collections"
           end
           className={({ isActive }) =>
             'h-8 px-3 inline-flex items-center rounded-full border transition-colors whitespace-nowrap ' + (isActive
@@ -350,7 +350,7 @@ export function AccountsCollectionsPage() {
           Online collections
         </NavLink>
         <NavLink
-          to="matching"
+          to="/hrms/accounts/collections/matching"
           className={({ isActive }) =>
             'h-8 px-3 inline-flex items-center rounded-full border transition-colors whitespace-nowrap ' + (isActive
               ? 'bg-[#f1edff] border-[#cbbdf2] text-primary font-medium'
