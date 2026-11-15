@@ -374,15 +374,15 @@ async function applyPatch(item: ComplianceItem, b: Record<string, unknown>, orga
         if (due) data.dueDate = due.statutory_due_date
       }
     } else if (isEventClock && ownForm) {
-      // Clock items stand alone — no siblings. Recompute the statutory
-      // dueDate and the internal target only when the item is still open.
-      if (!CLOSED_STATUSES.has(item.status)) {
-        const due = dueFor(toRule(ownForm), item.periodKey, fyOfPeriodKey(item.periodKey), anchor)
-        if (due && anchor) {
-          data.dueDate = due.statutory_due_date
-          if (ownForm.internalTargetDays != null) {
-            data.internalDueDate = applyRule(anchor, { offsetMonths: 0, dueDay: null, offsetDays: ownForm.internalTargetDays })
-          }
+      // Clock items stand alone — no siblings, no period FY. Compute the
+      // dates directly with applyRule. `dueFor` assumes a period-recurring
+      // form (its switch(anchor) has no 'event' case → returns null) and
+      // its `fyOfPeriodKey` call doesn't parse our clock periodKeys like
+      // '2026-GST_RULE_10A' — it throws.
+      if (!CLOSED_STATUSES.has(item.status) && anchor) {
+        data.dueDate = applyRule(anchor, { offsetMonths: 0, dueDay: null, offsetDays: ownForm.offsetDays })
+        if (ownForm.internalTargetDays != null) {
+          data.internalDueDate = applyRule(anchor, { offsetMonths: 0, dueDay: null, offsetDays: ownForm.internalTargetDays })
         }
       }
     }

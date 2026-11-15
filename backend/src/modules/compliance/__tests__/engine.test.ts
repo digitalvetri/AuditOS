@@ -87,6 +87,11 @@ describe('due-date engine — every seeded rule', () => {
 
   it('every catalogue form yields a due date for each of its periods', () => {
     for (const f of COMPLIANCE_CATALOGUE) {
+      // Event-anchored clocks (Rule 10A, INC-20A) are one-shot, not
+      // period-recurring — periodsOf correctly returns []. They have their
+      // own creation path (POST /api/compliance/clocks); the invariant here
+      // is for the recurring catalogue only.
+      if (f.frequency === 'event' || f.anchor === 'event') continue
       const ps = periodsOf(f, '2026-27')
       expect(ps.length, f.code).toBeGreaterThan(0)
       for (const p of ps) expect(dueFor(f, p)!.statutory_due_date, `${f.code} ${p.key}`).toMatch(/^\d{4}-\d{2}-\d{2}$/)
