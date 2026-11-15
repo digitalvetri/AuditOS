@@ -1,4 +1,5 @@
 import { ApiError } from '../../lib/http.js'
+import { isValidGstin } from '../gst/validate.js'
 
 /**
  * The `validate` step of the shared pipeline, for Workstation.
@@ -115,6 +116,12 @@ export class FieldErrors {
     // Same shape as gst/validate.ts GSTIN_RE: the entity and check characters may be letters.
     if (!/^\d{2}[A-Z]{5}\d{4}[A-Z][1-9A-Z]Z[0-9A-Z]$/.test(up)) {
       this.add(field, 'Enter a valid 15-character GSTIN.')
+      return undefined
+    }
+    // The frontend checks the check character too; the API must not accept
+    // what the form would refuse (a mistyped GSTIN fails on the GST portal).
+    if (!isValidGstin(up)) {
+      this.add(field, 'This GSTIN fails its check character — re-check the last digit.')
       return undefined
     }
     return up

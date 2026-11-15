@@ -127,6 +127,9 @@ export function assertGstin(gstin: string) {
   if (!GSTIN_RE.test(gstin.toUpperCase())) {
     throw ApiError.badRequest('That is not a valid GSTIN. It is 15 characters: state code, PAN, entity digit, Z, checksum.')
   }
+  if (!isValidGstin(gstin.toUpperCase())) {
+    throw ApiError.badRequest('This GSTIN fails its check character — re-check the last digit.')
+  }
 }
 
 export function assertPan(pan: string) {
