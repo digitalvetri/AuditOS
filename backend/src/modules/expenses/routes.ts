@@ -271,8 +271,27 @@ expensesRouter.patch('/:id', handler(async (req, res) => {
   const disallowed = Object.keys(body).filter((k) => !(k in editable))
   if (disallowed.length) throw ApiError.unprocessable('unknown_fields', 'Unknown fields.', { disallowed })
 
+  // Same rules as creating the claim — an edit must not slip past them.
+  const v = z.object({
+    title: z.string().trim().min(1),
+    category_id: z.string().min(1),
+    amount_paise: z.number().int(),
+    expense_date: z.string().min(1),
+    description: z.string(),
+    payment_method: z.enum(['cash', 'card', 'upi', 'bank_transfer', 'other']),
+    receipt_file_key: z.string().nullable(),
+    notes: z.string().nullable(),
+  }).partial().safeParse(body)
+  if (!v.success) throw ApiError.badRequest('Check the expense fields.', v.error.flatten().fieldErrors)
+  if (v.data.amount_paise !== undefined && v.data.amount_paise <= 0) throw ApiError.unprocessable('amount', 'Amount must be positive.')
+  if (v.data.category_id !== undefined) {
+    const category = await prisma.expenseCategory.findUnique({ where: { id: v.data.category_id } })
+    if (!category || category.deletedAt) throw new ApiError(400, 'invalid_category', 'Unknown expense category.')
+    if (!category.isActive) throw ApiError.unprocessable('inactive_category', 'This category is inactive.')
+  }
+
   const data: Record<string, unknown> = { updatedBy: session.userId }
-  for (const [k, v] of Object.entries(body)) data[editable[k as keyof typeof editable]] = v
+  for (const [k, val] of Object.entries(v.data)) data[editable[k as keyof typeof editable]] = val
 
   const updated = await prisma.expense.update({ where: { id: row.id }, data })
   await writeAudit({
