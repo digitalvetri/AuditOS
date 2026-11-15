@@ -283,14 +283,14 @@ describe('compliance calendar API', () => {
     const id = created.body.data.id as string
 
     // Attempt 1: filed + filed_on, no evidence → 400 with field-specific error.
-    const noEvidence = await api(`/api/compliance/items/${id}`, { method: 'PATCH', cookie: md.cookie, body: { status: 'filed', filed_on: '2026-11-20' } })
+    const noEvidence = await api(`/api/compliance/items/${id}`, { method: 'PATCH', cookie: md.cookie, body: { status: 'filed', filed_on: istToday() } })
     expect(noEvidence.status).toBe(400)
     expect(noEvidence.body.error.details).toMatchObject({ evidence_ref: expect.stringContaining('portal acknowledgement') })
 
     // Attempt 2: same PATCH plus evidence_ref → 200, state transitions.
-    const withRef = await api(`/api/compliance/items/${id}`, { method: 'PATCH', cookie: md.cookie, body: { status: 'filed', filed_on: '2026-11-20', evidence_ref: 'ARN-AD3311261234567' } })
+    const withRef = await api(`/api/compliance/items/${id}`, { method: 'PATCH', cookie: md.cookie, body: { status: 'filed', filed_on: istToday(), evidence_ref: 'ARN-AD3311261234567' } })
     expect(withRef.status).toBe(200)
-    expect(withRef.body.data).toMatchObject({ status: 'filed', filed_on: '2026-11-20', evidence_ref: 'ARN-AD3311261234567' })
+    expect(withRef.body.data).toMatchObject({ status: 'filed', filed_on: istToday(), evidence_ref: 'ARN-AD3311261234567' })
 
     // Attach evidence first, then separately mark filed — also works.
     const other = await client(o, 'Two-Step Co', { businessType: 'Pvt Ltd', accountManagerId: emp.id })
@@ -299,7 +299,7 @@ describe('compliance calendar API', () => {
     const id2 = c2.body.data.id as string
     const attach = await api(`/api/compliance/items/${id2}`, { method: 'PATCH', cookie: md.cookie, body: { evidence_doc_id: 'cd-fake-doc-id' } })
     expect(attach.status).toBe(200)
-    const close = await api(`/api/compliance/items/${id2}`, { method: 'PATCH', cookie: md.cookie, body: { status: 'filed', filed_on: '2026-11-20' } })
+    const close = await api(`/api/compliance/items/${id2}`, { method: 'PATCH', cookie: md.cookie, body: { status: 'filed', filed_on: istToday() } })
     expect(close.status).toBe(200)
     expect(close.body.data).toMatchObject({ status: 'filed', evidence_doc_id: 'cd-fake-doc-id' })
   })
