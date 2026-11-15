@@ -131,6 +131,8 @@ export interface Client extends Auditable {
   onboarding_date: string;
   /** YYYY-MM-DD the firm stopped acting (status inactive); starts the retention period. */
   exit_date?: string | null;
+  /** Why the firm stopped acting — one line (POST-DELIVERY-CHANGES §B3). */
+  exit_reason?: string | null;
   notes: string | null;
   source_lead_id: string | null;
   /** An organization: a client that other clients sit under. */
