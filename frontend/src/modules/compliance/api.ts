@@ -124,6 +124,14 @@ export interface ComplianceItem {
   anchor_date?: string | null;
   /** True for AGM-anchored rows whose AGM date has not been entered. */
   anchor_missing?: boolean;
+  /** Clock items (Rule 10A, INC-20A): firm's internal target, ahead of statutory. */
+  internal_due_date?: string | null;
+  /** Clock evidence — portal ack / SRN / ARN. Required to close when the form says so. */
+  evidence_ref?: string | null;
+  /** Clock evidence as a ClientDocument id (free string — no FK by codebase convention). */
+  evidence_doc_id?: string | null;
+  /** True when the item's form is `anchor='event'` — i.e. a compliance clock. */
+  is_clock?: boolean;
   status: string;
   assigned_employee_id?: string | null;
   assigned_employee_name?: string | null;
@@ -160,6 +168,16 @@ export interface ItemPatch {
   anchor_date?: string | null;
   late_fee_paid_paise?: number | null;
   notes?: string | null;
+  /** Clock evidence (POST-DELIVERY-CHANGES §A). Required to close a clock whose form has `evidenceRequired`. */
+  evidence_ref?: string | null;
+  evidence_doc_id?: string | null;
+}
+
+export interface CreateClockBody {
+  client_id: string;
+  form_code: string;
+  anchor_date?: string | null;
+  assigned_employee_id?: string | null;
 }
 
 export interface BulkResult {
@@ -218,6 +236,7 @@ export const complianceApi = {
   items: async (f: ItemFilters) =>
     asList(await api.get<ComplianceItem[] | { items: ComplianceItem[] }>(`/api/compliance/items${qs({ ...f })}`)),
   patchItem: (id: string, patch: ItemPatch) => api.patch<ComplianceItem>(`/api/compliance/items/${id}`, patch),
+  createClock: (body: CreateClockBody) => api.post<ComplianceItem>('/api/compliance/clocks', body),
   bulk: (body: { ids: string[]; status?: string; assigned_employee_id?: string | null; filed_on?: string }) =>
     api.post<{ results?: BulkResult[]; updated?: number }>('/api/compliance/items/bulk', body),
   importCsv: (csv: string) =>
