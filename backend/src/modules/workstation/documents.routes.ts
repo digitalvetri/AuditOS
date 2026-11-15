@@ -136,6 +136,109 @@ documentsRouter.patch('/:id', handler(async (req, res) => {
   ok(res, clientDocumentToApi(doc, m))
 }))
 
+// DELETE /api/documents/:id — soft delete (POST-DELIVERY-CHANGES §C).
+//
+// A CA firm's document store is evidence, so delete is NEVER a hard delete:
+// the row is flipped with `deletedAt`, moves out of the default list, and
+// shows up in Recently Deleted. A nightly purge after 30 days of
+// `deletedAt < now - 30d` is outside this handler's scope — this writes the
+// soft-delete and the audit; the purge job can be a cron later.
+documentsRouter.delete('/:id', handler(async (req, res) => {
+  const session = requireSession(req)
+  const scope = requireWorkstation(session, 'workstation.document.manage')
+  const before = await prisma.clientDocument.findFirst({ where: { id: req.params.id, ...alive }, include })
+  if (!before) throw ApiError.notFound('Document not found.')
+  await assertCanSeeClient(session, scope, before.clientId)
+  const now = new Date()
+  const doc = await prisma.clientDocument.update({
+    where: { id: before.id }, data: { deletedAt: now, updatedBy: session.userId },
+  })
+  await writeActivity({
+    session, subjectType: 'client', subjectId: doc.clientId,
+    action: 'document.deleted', description: `${before.name} moved to Recently Deleted.`,
+    entityType: 'ClientDocument', entityId: doc.id,
+  })
+  await writeAudit({
+    actorUserId: session.userId, action: 'client_document.delete',
+    entityType: 'ClientDocument', entityId: doc.id, before, after: doc, req,
+  })
+  ok(res, { id: doc.id, deleted_at: now.toISOString() })
+}))
+
+// POST /api/documents/:id/move — move a document to another folder, or to
+// ANOTHER CLIENT (POST-DELIVERY-CHANGES §C). Cross-client moves are the one
+// that makes a file vanish from where someone expected it, so:
+//   - the caller must be able to see BOTH the source AND the target client
+//   - the audit and activity entries name both clients
+//   - the UI should present a double confirmation naming both — enforced
+//     on the client side; the server just accepts the move.
+documentsRouter.post('/:id/move', handler(async (req, res) => {
+  const session = requireSession(req)
+  const scope = requireWorkstation(session, 'workstation.document.manage')
+  const b = body(req)
+  const v = new FieldErrors()
+  const toCategory = 'category_id' in b ? v.str('category_id', b.category_id) : null
+  const toClient = 'client_id' in b
+    ? (b.client_id === null ? null : v.str('client_id', b.client_id))
+    : null
+  if (!toCategory && !toClient) v.add('category_id', 'Pass category_id and/or client_id.')
+  v.throwIfAny()
+
+  const before = await prisma.clientDocument.findFirst({ where: { id: req.params.id, ...alive }, include })
+  if (!before) throw ApiError.notFound('Document not found.')
+  await assertCanSeeClient(session, scope, before.clientId)
+
+  const data: Record<string, unknown> = { updatedBy: session.userId }
+  let crossClient = false
+  if (toCategory && toCategory !== before.categoryId) {
+    const cat = await prisma.documentCategory.findFirst({ where: { id: toCategory, deletedAt: null } })
+    if (!cat) throw ApiError.badRequest('Unknown folder.', { category_id: 'No such folder.' })
+    data.categoryId = toCategory
+  }
+  let targetClient: { id: string; clientCode: string; companyName: string } | null = null
+  if (toClient && toClient !== before.clientId) {
+    await assertCanSeeClient(session, scope, toClient)
+    const c = await prisma.client.findFirst({ where: { id: toClient, deletedAt: null }, select: { id: true, clientCode: true, companyName: true } })
+    if (!c) throw ApiError.badRequest('Unknown client.', { client_id: 'No such client.' })
+    data.clientId = toClient
+    targetClient = c
+    crossClient = true
+  }
+
+  const doc = await prisma.clientDocument.update({ where: { id: before.id }, data, include })
+
+  // Dual activity trail for cross-client moves — the file left one workspace
+  // and arrived in another, and someone reading either workspace deserves to
+  // see the half of the story that pertains to them.
+  if (crossClient && targetClient) {
+    await writeActivity({
+      session, subjectType: 'client', subjectId: before.clientId,
+      action: 'document.moved_out',
+      description: `${before.name} moved to ${targetClient.clientCode} · ${targetClient.companyName}.`,
+      entityType: 'ClientDocument', entityId: doc.id,
+    })
+    await writeActivity({
+      session, subjectType: 'client', subjectId: doc.clientId,
+      action: 'document.moved_in',
+      description: `${before.name} moved in from ${before.client.clientCode} · ${before.client.companyName}.`,
+      entityType: 'ClientDocument', entityId: doc.id,
+    })
+  } else {
+    await writeActivity({
+      session, subjectType: 'client', subjectId: doc.clientId,
+      action: 'document.moved', description: `${before.name} moved to a different folder.`,
+      entityType: 'ClientDocument', entityId: doc.id,
+    })
+  }
+  await writeAudit({
+    actorUserId: session.userId, action: crossClient ? 'client_document.cross_client_move' : 'client_document.move',
+    entityType: 'ClientDocument', entityId: doc.id, before, after: doc, req,
+  })
+
+  const m = await employeeMap([doc.requestedByEmployeeId, doc.verifiedByEmployeeId, ...doc.versions.map((x) => x.uploadedBy)])
+  ok(res, clientDocumentToApi(doc, m))
+}))
+
 /**
  * POST /api/documents/:id/versions — a new version, never an overwrite.
  *
