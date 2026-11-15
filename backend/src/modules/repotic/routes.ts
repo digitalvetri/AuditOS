@@ -418,7 +418,7 @@ function summaryRows(p: {
     vouchers: a.vouchers, taxable: round(a.taxable + e.txval),
     igst: round(a.igst + e.iamt), cgst: round(a.cgst + e.camt),
     sgst: round(a.sgst + e.samt), cess: round(a.cess + e.csamt),
-    invoice: round(a.taxable + e.txval + e.iamt + e.camt + e.samt + e.csamt),
+    invoice: round(a.invoice + e.txval + e.iamt + e.camt + e.samt + e.csamt),
   }), { ...zero })
   const b2csVouchers = p.b2cs.length
   const b2clVouchers = p.b2cl.reduce((n, e) => n + e.inv.length, 0)
@@ -451,7 +451,7 @@ function summaryRows(p: {
     taxable: round(a.taxable + e.suppval),
     igst: round(a.igst + e.igst), cgst: round(a.cgst + e.cgst),
     sgst: round(a.sgst + e.sgst), cess: round(a.cess + e.cess),
-    invoice: round(a.taxable + e.suppval + e.igst + e.cgst + e.sgst + e.cess),
+    invoice: round(a.invoice + e.suppval + e.igst + e.cgst + e.sgst + e.cess),
   }), { ...zero })
   const hsnTot = p.hsn.reduce((a, e) => ({
     vouchers: a.vouchers + 1, taxable: round(a.taxable + e.txval),

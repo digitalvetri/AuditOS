@@ -257,7 +257,7 @@ export function buildFromRows(rows: RpParsedRow[], gstin: string, period: string
       bucket.iamt = round2(bucket.iamt + paiseToRupees(r.igstTax))
       bucket.camt = round2(bucket.camt + paiseToRupees(r.cgstTax))
       bucket.samt = round2(bucket.samt + paiseToRupees(r.sgstTax))
-      bucket.csamt = round2(bucket.csamt + paiseToRupees(r.sgstTax))
+      bucket.csamt = round2(bucket.csamt + paiseToRupees(r.cessTax))
     }
   }
   // Finalise HSN numbering.
