@@ -22,8 +22,10 @@ export interface SectionRule {
   /** Rate % for individuals / HUFs, and for everyone else. null = entered by hand. */
   rateIndividual: number | null
   rateOther: number | null
-  /** No deduction while one payment is below this… */
+  /** No deduction while one payment is at or below this (the Act says "exceeds")… */
   singleThreshold?: number
+  /** …except where the Act taxes the threshold itself ("or more", e.g. 194IA). */
+  taxAtThreshold?: boolean
   /** …and the FY total to the deductee under this section stays at or below this. */
   annualThreshold?: number
   /** Threshold per month (rent u/s 194-I): deduct when a month's rent exceeds it. */
@@ -53,7 +55,7 @@ export const SECTIONS: SectionRule[] = [
   { code: '194Q', label: 'Purchase of goods (buyer turnover > ₹10 cr)', rateIndividual: 0.1, rateOther: 0.1, annualThreshold: 50_00_000, noPanRate: 5, returnForm: '26Q' },
   { code: '194R', label: 'Business perquisites / benefits', rateIndividual: 10, rateOther: 10, annualThreshold: 20_000, returnForm: '26Q' },
   { code: '194S', label: 'Transfer of virtual digital assets', rateIndividual: 1, rateOther: 1, returnForm: '26Q' },
-  { code: '194IA', label: 'Purchase of immovable property (26QB)', rateIndividual: 1, rateOther: 1, singleThreshold: 50_00_000, returnForm: '26QB' },
+  { code: '194IA', label: 'Purchase of immovable property (26QB)', rateIndividual: 1, rateOther: 1, singleThreshold: 50_00_000, taxAtThreshold: true, returnForm: '26QB' },
   { code: '194IB', label: 'Rent paid by individuals / HUFs (26QC)', rateIndividual: 2, rateOther: 2, monthlyThreshold: 50_000, returnForm: '26QC' },
   { code: '194M', label: 'Contract / commission / professional fees by individuals (26QD)', rateIndividual: 2, rateOther: 2, annualThreshold: 50_00_000, returnForm: '26QD' },
   { code: '195', label: 'Payments to non-residents', rateIndividual: null, rateOther: null, returnForm: '27Q' },
@@ -99,14 +101,16 @@ export function computeTds(i: TdsCalcInput): TdsCalcResult {
 
   // Thresholds (simplified to the tests the Act uses for each section).
   const fyTotal = i.priorFyTotal + i.amount
+  const withinSingle = rule.singleThreshold !== undefined
+    && (rule.taxAtThreshold ? i.amount < rule.singleThreshold : i.amount <= rule.singleThreshold)
   if (rule.monthlyThreshold !== undefined && i.amount <= rule.monthlyThreshold) {
     return { tds: 0, rate: 0, basis: 'below_threshold', note: `Within ₹${rule.monthlyThreshold.toLocaleString('en-IN')} a month — no deduction.` }
   }
-  if (rule.singleThreshold !== undefined && rule.annualThreshold === undefined && i.amount < rule.singleThreshold) {
-    return { tds: 0, rate: 0, basis: 'below_threshold', note: `Below ₹${rule.singleThreshold.toLocaleString('en-IN')} — no deduction.` }
+  if (rule.singleThreshold !== undefined && rule.annualThreshold === undefined && withinSingle) {
+    return { tds: 0, rate: 0, basis: 'below_threshold', note: `Within ₹${rule.singleThreshold.toLocaleString('en-IN')} — no deduction.` }
   }
   if (rule.annualThreshold !== undefined && fyTotal <= rule.annualThreshold
-    && (rule.singleThreshold === undefined || i.amount < rule.singleThreshold)) {
+    && (rule.singleThreshold === undefined || withinSingle)) {
     return { tds: 0, rate: 0, basis: 'below_threshold', note: `FY total ₹${fyTotal.toLocaleString('en-IN')} is within ₹${rule.annualThreshold.toLocaleString('en-IN')} — no deduction yet.` }
   }
   // 194Q taxes only the part above ₹50 lakh.
@@ -115,7 +119,8 @@ export function computeTds(i: TdsCalcInput): TdsCalcResult {
     : i.amount
 
   if (!i.hasPan) {
-    const rate = rule.noPanRate ?? Math.max(20, base * 2)
+    // s. 206AA: the higher of the section rate and 20% ("twice the rate" is s. 206AB, not this).
+    const rate = rule.noPanRate ?? Math.max(20, base)
     return { tds: roundRupee((taxable * rate) / 100), rate, basis: 'no_pan', note: `No PAN — s. 206AA higher rate ${rate}%.` }
   }
   if (i.lowerCertificate) {

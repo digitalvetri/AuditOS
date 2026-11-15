@@ -75,3 +75,22 @@ describe('TDS calculator', () => {
     expect(returnFormFor('192', 'resident')).toBe('24Q')
   })
 })
+
+describe('TDS fixes (threshold boundaries, s. 206AA, TCS dates)', () => {
+  const base = { hasPan: true, priorFyTotal: 0, declaration: false, lowerCertificate: null, category: 'other' } as const
+  it('does not deduct at exactly the "exceeds" limit, but 194IA taxes ₹50 lakh itself', () => {
+    expect(computeTds({ ...base, section: '194C', amount: 30_000 }).tds).toBe(0)
+    expect(computeTds({ ...base, section: '194C', amount: 30_001 }).tds).toBe(600)
+    expect(computeTds({ ...base, section: '194B', amount: 10_000 }).tds).toBe(0)
+    expect(computeTds({ ...base, section: '194IA', amount: 50_00_000 }).tds).toBe(50_000)
+  })
+  it('uses the higher of the section rate and 20% when there is no PAN', () => {
+    expect(computeTds({ ...base, section: '194B', amount: 50_000, hasPan: false })).toMatchObject({ rate: 30, tds: 15_000 })
+    expect(computeTds({ ...base, section: '194C', amount: 50_000, hasPan: false })).toMatchObject({ rate: 20 })
+  })
+  it('puts 27EQ on the 15th and Form 27D 15 days after it', () => {
+    expect(['Q1', 'Q2', 'Q3', 'Q4'].map((q) => returnDue(q as 'Q1', '2026-27', '27EQ'))).toEqual(['2026-07-15', '2026-10-15', '2027-01-15', '2027-05-15'])
+    expect(certificateDue('Q1', '2026-27', '27D')).toBe('2026-07-30')
+    expect(returnDue('Q1', '2026-27', '26Q')).toBe('2026-07-31')
+  })
+})

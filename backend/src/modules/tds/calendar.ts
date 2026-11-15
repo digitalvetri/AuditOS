@@ -77,13 +77,16 @@ export function quarterOfMonth(ym: string): Quarter {
   const m = Number(ym.slice(5, 7))
   return m >= 4 && m <= 6 ? 'Q1' : m >= 7 && m <= 9 ? 'Q2' : m >= 10 ? 'Q3' : 'Q4'
 }
-export function returnDue(q: Quarter, fy: string): string {
+export function returnDue(q: Quarter, fy: string, form?: string | null): string {
   const y = fyStart(fy)
+  // TCS (27EQ) is due on the 15th, a fortnight before the TDS returns (Rule 31AA).
+  if (form === '27EQ') return { Q1: iso(y, 6, 15), Q2: iso(y, 9, 15), Q3: iso(y + 1, 0, 15), Q4: iso(y + 1, 4, 15) }[q]
   return { Q1: iso(y, 6, 31), Q2: iso(y, 9, 31), Q3: iso(y + 1, 0, 31), Q4: iso(y + 1, 4, 31) }[q]
 }
-export function certificateDue(period: string, fy: string): string {
+export function certificateDue(period: string, fy: string, form?: string | null): string {
   if (period === 'FY') return iso(fyStart(fy) + 1, 5, 15)
-  return addDays(returnDue(period as Quarter, fy), 15)
+  // Form 27D follows the 27EQ due date; 16A follows the TDS return.
+  return addDays(returnDue(period as Quarter, fy, form === '27D' ? '27EQ' : null), 15)
 }
 /** 26QB / 26QC / 26QD: statement due 30 days after the end of the deduction month. */
 export function challanStatementDue(ym: string): string {
@@ -142,7 +145,7 @@ export function expectedItems(records: FilingLike[], fy: string, returnForms: st
     for (const q of QUARTERS) {
       const r = find('return', q, form)
       if (!r && quarterEnd(q, fy) >= today) continue
-      const due = returnDue(q, fy)
+      const due = returnDue(q, fy, form)
       out.push({ kind: 'return', period: q, formType: form, label: `${form} ${q} return`, due, state: stateOf(r, due, today) })
     }
   }
@@ -151,7 +154,7 @@ export function expectedItems(records: FilingLike[], fy: string, returnForms: st
     if (!form) continue
     const period = form === '16' ? 'FY' : ret.period!
     const r = find('certificate', period, form)
-    const due = certificateDue(period, fy)
+    const due = certificateDue(period, fy, form)
     out.push({ kind: 'certificate', period, formType: form, label: form === '16' ? `Form 16 FY ${fy}` : `Form ${form} ${period}`, due, state: stateOf(r, due, today) })
   }
   // 26QB / 26QC / 26QD statements owe a Form 16B / 16C / 16D.
