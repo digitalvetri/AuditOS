@@ -37,6 +37,12 @@ interface OpenItem {
   remindClient: boolean
   lastClientReminderAt: Date | null
   client: { companyName: string; email: string | null; contactNumber: string; accountManagerId: string }
+  /// Clock-item extensions (POST-DELIVERY-CHANGES §A). Null for every
+  /// recurring-form item — those keep the 7/1 schedule.
+  leadUpDays: number[] | null
+  internalDue: string | null
+  daysToInternal: number | null
+  escalateTo: string | null
 }
 
 /** Open items of active obligations whose effective due date is within [today+lo, today+hi]. */
@@ -58,11 +64,11 @@ async function openItems(prisma: PrismaClient, today: string, lo: number, hi: nu
       where: { id: { in: [...new Set(rows.map((r) => r.clientId))] }, deletedAt: null },
       select: { id: true, companyName: true, email: true, contactNumber: true, accountManagerId: true, businessType: true },
     }),
-    prisma.complianceForm.findMany({ select: { code: true, name: true } }),
+    prisma.complianceForm.findMany({ select: { code: true, name: true, leadUpDays: true, escalateTo: true } }),
   ])
   const ob = new Map(obligations.map((o) => [`${o.clientId}|${o.formCode}`, o]))
   const cl = new Map(clients.map((c) => [c.id, c]))
-  const fn = new Map(forms.map((f) => [f.code, f.name]))
+  const fn = new Map(forms.map((f) => [f.code, f]))
   const out: OpenItem[] = []
   for (const r of rows) {
     const o = ob.get(`${r.clientId}|${r.formCode}`)
@@ -71,12 +77,34 @@ async function openItems(prisma: PrismaClient, today: string, lo: number, hi: nu
     const ext = pickExtension(extensions.filter((e) => e.organisationId === r.organisationId), r.formCode, r.periodKey, entityTypeOf(c.businessType))
     const due = ext?.newDueDate ?? r.dueDate
     const daysLeft = daysBetween(today, due)
-    if (daysLeft < lo || daysLeft > hi) continue
+    const internalDue = r.internalDueDate ?? null
+    const daysToInternal = internalDue ? daysBetween(today, internalDue) : null
+    // Window test: a clock item with internalDueDate stays in range if EITHER
+    // the statutory OR the internal target is within the window. Without this
+    // an INC-20A clock whose statutory is 180 days out but internal is 30 out
+    // would be dropped by the current `daysLeft` check.
+    const inWindow = (daysLeft >= lo && daysLeft <= hi)
+      || (daysToInternal !== null && daysToInternal >= lo && daysToInternal <= hi)
+    if (!inWindow) continue
+    const form = fn.get(r.formCode)
+    let leadUps: number[] | null = null
+    if (form?.leadUpDays) {
+      try {
+        const parsed: unknown = JSON.parse(form.leadUpDays)
+        if (Array.isArray(parsed) && parsed.every((n) => typeof n === 'number' && Number.isInteger(n) && n > 0)) {
+          leadUps = parsed as number[]
+        }
+      } catch { /* leave as null; non-clock behaviour applies */ }
+    }
     out.push({
-      id: r.id, clientId: r.clientId, formCode: r.formCode, formName: fn.get(r.formCode) ?? r.formCode, periodLabel: r.periodLabel,
+      id: r.id, clientId: r.clientId, formCode: r.formCode, formName: form?.name ?? r.formCode, periodLabel: r.periodLabel,
       due, daysLeft, status: r.status,
       assignee: r.assignedEmployeeId ?? o.assignedEmployeeId ?? c.accountManagerId ?? null,
       remindClient: o.remindClient, lastClientReminderAt: r.lastClientReminderAt, client: c,
+      leadUpDays: leadUps,
+      internalDue,
+      daysToInternal,
+      escalateTo: form?.escalateTo ?? null,
     })
   }
   return out
@@ -90,11 +118,52 @@ export function staffStage(daysLeft: number): 'd7' | 'd1' | 'overdue' | null {
   return null
 }
 
+/**
+ * Clock lead-up stage (POST-DELIVERY-CHANGES §A). Counts down from the
+ * INTERNAL target (fallback to statutory when no internal is set). Fires
+ * once per listed lead-up day, then once daily after the last lead-up and
+ * before the internal target, and switches to 'overdue' once the statutory
+ * date has passed.
+ *
+ * `leadUps` is the sorted-desc array from form.leadUpDays, e.g. [30,15,7,2,1].
+ */
+export function clockLeadUpStage(
+  daysToInternal: number,
+  daysToStatutory: number,
+  leadUps: number[],
+): { stage: string; timing: 'lead' | 'daily' | 'past_internal' | 'overdue' } | null {
+  if (daysToStatutory < 0) return { stage: 'overdue', timing: 'overdue' }
+  if (!leadUps.length) return null
+  const minLead = Math.min(...leadUps)
+  // Exact-lead day match: t30, t15, t7, …
+  if (leadUps.includes(daysToInternal)) return { stage: `t${daysToInternal}`, timing: 'lead' }
+  // Between the last lead-up (exclusive) and the internal target (inclusive)
+  // the bell chimes daily, so a two-day server outage still reaches the
+  // assignee on the next run.
+  if (daysToInternal >= 0 && daysToInternal < minLead) return { stage: `daily-${daysToInternal}`, timing: 'daily' }
+  // Past the internal target but statutory is still ahead: this is where the
+  // firm starts spending political capital. One bell per day until statutory.
+  if (daysToInternal < 0 && daysToStatutory >= 0) return { stage: `past_internal-${-daysToInternal}`, timing: 'past_internal' }
+  return null
+}
+
 export async function sendComplianceStaffReminders(prisma: PrismaClient, today: string): Promise<number> {
-  const items = await openItems(prisma, today, -7, 7)
+  // Widened window: INC-20A's T-30 lead-up needs 30 days of forward look;
+  // past-internal and overdue items keep the -7 tail for recurring forms.
+  // Clock items don't use the window gate the same way — openItems() checks
+  // daysToInternal too.
+  const items = await openItems(prisma, today, -7, 30)
   const notes = items.flatMap((i) => {
+    if (!i.assignee) return []
+    // Clock items with a leadUpDays schedule use the clock stager; everything
+    // else keeps the existing d7 / d1 / overdue cadence.
+    if (i.leadUpDays && i.daysToInternal !== null) {
+      const resolved = clockLeadUpStage(i.daysToInternal, i.daysLeft, i.leadUpDays)
+      if (!resolved) return []
+      return [{ i, stage: resolved.stage, key: `compliance:${i.id}:${i.due}:${resolved.stage}` }]
+    }
     const stage = staffStage(i.daysLeft)
-    if (!stage || !i.assignee) return []
+    if (!stage) return []
     return [{ i, stage, key: `compliance:${i.id}:${i.due}:${stage}` }]
   })
   if (!notes.length) return 0
@@ -105,18 +174,54 @@ export async function sendComplianceStaffReminders(prisma: PrismaClient, today: 
   for (const { i, stage, key } of notes) {
     if (already.has(key)) continue
     const what = `${i.formName} (${i.periodLabel})`
+    const isClock = !!i.leadUpDays
+    const isOverdue = stage === 'overdue'
+    const title = isOverdue
+      ? `Overdue — ${i.client.companyName}`
+      : isClock
+        ? `${titleForClockStage(stage, i.daysToInternal ?? 0)} — ${i.client.companyName}`
+        : `Due ${stage === 'd1' ? (i.daysLeft === 0 ? 'today' : 'tomorrow') : 'in a week'} — ${i.client.companyName}`
+    const body = isOverdue
+      ? `${what} was due ${fmtDate(i.due)}.`
+      : isClock
+        ? bodyForClockStage(what, i, stage)
+        : `${what} is due ${fmtDate(i.due)}${i.daysLeft === 0 ? ' (today)' : ` (in ${i.daysLeft} day${i.daysLeft === 1 ? '' : 's'})`}.`
     const row = await notifyEmployee(i.assignee!, {
       type: 'compliance_reminder', module: 'workstation',
-      title: stage === 'overdue' ? `Overdue — ${i.client.companyName}` : `Due ${stage === 'd1' ? (i.daysLeft === 0 ? 'today' : 'tomorrow') : 'in a week'} — ${i.client.companyName}`,
-      body: stage === 'overdue'
-        ? `${what} was due ${fmtDate(i.due)}.`
-        : `${what} is due ${fmtDate(i.due)}${i.daysLeft === 0 ? ' (today)' : ` (in ${i.daysLeft} day${i.daysLeft === 1 ? '' : 's'})`}.`,
+      title,
+      body,
       entityType: 'compliance_reminder', entityId: key,
       actionUrl: `/workstation/compliance?client=${i.clientId}&item=${i.id}`,
     })
     if (row) sent++
   }
   return sent
+}
+
+function titleForClockStage(stage: string, daysToInternal: number): string {
+  if (stage.startsWith('t')) {
+    const n = Number(stage.slice(1))
+    return n === 0 ? 'Internal target today' : n === 1 ? 'Internal target tomorrow' : `Internal target in ${n} days`
+  }
+  if (stage.startsWith('daily-')) {
+    const n = Number(stage.slice('daily-'.length))
+    return n === 0 ? 'Internal target today' : `Internal target in ${n} day${n === 1 ? '' : 's'}`
+  }
+  if (stage.startsWith('past_internal-')) {
+    const n = Number(stage.slice('past_internal-'.length))
+    return `Past internal target — ${n} day${n === 1 ? '' : 's'}`
+  }
+  return daysToInternal > 0 ? `Due in ${daysToInternal} days` : 'Due'
+}
+
+function bodyForClockStage(what: string, i: OpenItem, stage: string): string {
+  const parts: string[] = []
+  if (i.internalDue) parts.push(`Internal target ${fmtDate(i.internalDue)}`)
+  parts.push(`Statutory deadline ${fmtDate(i.due)}`)
+  if (stage.startsWith('past_internal-')) {
+    parts.push("The firm's internal target has passed; the statutory deadline is still ahead.")
+  }
+  return `${what}. ${parts.join(' · ')}.`
 }
 
 /** 10-digit Indian mobile → 91XXXXXXXXXX; anything else unusable. */
