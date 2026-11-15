@@ -53,6 +53,8 @@ export interface RecurringProfile {
   lines: RecurringLine[];
   auto_send: boolean;
   is_active: boolean;
+  /** POST-DELIVERY-CHANGES §E2: when true, a mid-period start raises a prorated stub first. */
+  prorate_first_period: boolean;
   last_generated_at: string | null;
   last_invoice_id: string | null;
   last_invoice_number: string | null;
@@ -73,6 +75,8 @@ export interface RecurringInput {
   lines: { description: string; sac_code?: string | null; quantity_centi: number; unit_rate_paise: number; gst_rate: number; discount_paise: number }[];
   auto_send: boolean;
   is_active: boolean;
+  /** POST-DELIVERY-CHANGES §E2: raise a prorated stub invoice when starting mid-period. */
+  prorate_first_period: boolean;
 }
 
 export interface RunResult {

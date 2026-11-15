@@ -187,6 +187,7 @@ function ProfileModal({ profile, onClose, onSaved }: { profile: RecurringProfile
   const [pos, setPos] = useState(stateName(profile?.place_of_supply ?? 'Tamil Nadu'));
   const [autoSend, setAutoSend] = useState(profile?.auto_send ?? false);
   const [isActive, setIsActive] = useState(profile?.is_active ?? true);
+  const [prorate, setProrate] = useState(profile?.prorate_first_period ?? false);
   const [lines, setLines] = useState<EditLine[]>(() => profile?.lines.length
     ? profile.lines.map((l) => ({
         key: `rl${++seq}`, description: l.description, sac: l.sac_code ?? '', qty: String(l.quantity_centi / 100),
@@ -218,6 +219,7 @@ function ProfileModal({ profile, onClose, onSaved }: { profile: RecurringProfile
     })),
     auto_send: autoSend,
     is_active: isActive,
+    prorate_first_period: prorate,
   });
   const save = useMutation({
     mutationFn: () => (profile ? recurringApi.update(profile.id, body()) : recurringApi.create(body())),
@@ -284,11 +286,19 @@ function ProfileModal({ profile, onClose, onSaved }: { profile: RecurringProfile
           <input type="checkbox" checked={isActive} onChange={(e) => setIsActive(e.target.checked)} />
           Active
         </label>
+        <label className="flex items-center gap-2 text-13 text-neutral-700 md:mt-6 mb-3"
+          title="A start date between two full-period issue dates raises a prorated first invoice for the stub. Otherwise the first invoice is the next full period.">
+          <input type="checkbox" checked={prorate} onChange={(e) => setProrate(e.target.checked)} />
+          Prorate first period
+        </label>
       </div>
       <p className="text-12 text-neutral-500 -mt-1 mb-3">
         {autoSend
           ? 'Each invoice is numbered and emailed to the client on its issue date.'
           : 'Each invoice is raised as a draft for you to review and send.'}
+        {prorate
+          ? ' A mid-period start raises a prorated first invoice, then full invoices from the next cycle.'
+          : ''}
         {profile?.next_issue_date ? ` Next issue: ${fmtDay(profile.next_issue_date)}.` : ''}
       </p>
 
