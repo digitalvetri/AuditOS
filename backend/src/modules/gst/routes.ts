@@ -21,6 +21,7 @@ import { requireWorkstation, assignedClientIds, assertCanSeeClient } from '../..
 import { writeAudit } from '../../platform/audit.js'
 import { addDays, istDateOf } from '../../lib/dates.js'
 import { employeeMap } from '../../api/workstation.serialize.js'
+import { onGstRegistrationGranted } from '../compliance/clockEvents.js'
 import { periodDueFor, periodToApi, profileToApi, stagesOf, type PeriodRow } from './serialize.js'
 import {
   backfillPeriods, daysRemaining, deriveOverall, financialYearOf,
@@ -1282,6 +1283,28 @@ gstRouter.patch('/clients/:id', handler(async (req, res) => {
     gstProfileId: current.id, action: 'GST_CLIENT_UPDATED', stage: 'client',
     userId: session.userId, meta: changed,
   })
+
+  // Rule 10A auto-wire (POST-DELIVERY-CHANGES §A sub-PR b.2). Fires when
+  // this PATCH is what first set registrationDate — the moment the firm
+  // records a grant. The hook is idempotent (unique key on the clock item)
+  // and non-throwing for recoverable mismatches; it never breaks the PATCH.
+  if (registrationDate && registrationDate !== current.registrationDate) {
+    // Need the client's organisationId for the ComplianceItem row.
+    const client = await prisma.client.findUnique({
+      where: { id: current.clientId },
+      select: { organisationId: true },
+    })
+    if (client) {
+      await onGstRegistrationGranted(prisma, {
+        clientId: current.clientId,
+        organisationId: client.organisationId,
+        registrationDate,
+        registrationType,
+        assignedEmployeeId: assigned,
+        isNewGrant: true,
+      })
+    }
+  }
 
   ok(res, { ok: true })
 }))

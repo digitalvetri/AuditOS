@@ -2,6 +2,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { istToday } from '../../../lib/dates.js'
 import { generateItems } from '../service.js'
 import { migrateInc20aFromPartnership } from '../../../../prisma/seed-compliance.js'
+import { onGstRegistrationGranted, onPrivateLimitedIncorporated } from '../clockEvents.js'
 import { api, client, employee, login, org, prisma, startServer, stopServer, uid } from './fixtures.js'
 
 beforeAll(startServer)
@@ -302,5 +303,78 @@ describe('compliance calendar API', () => {
     const close = await api(`/api/compliance/items/${id2}`, { method: 'PATCH', cookie: md.cookie, body: { status: 'filed', filed_on: istToday() } })
     expect(close.status).toBe(200)
     expect(close.body.data).toMatchObject({ status: 'filed', evidence_doc_id: 'cd-fake-doc-id' })
+  })
+
+  it('onGstRegistrationGranted — creates the clock on new grant, skips exempt types, idempotent', async () => {
+    const o = await org()
+    const emp = await employee(o, 'Mgr')
+    const c = await client(o, 'Rule10A Co', { businessType: 'Pvt Ltd', accountManagerId: emp.id })
+
+    // Regular registration → clock created.
+    const r1 = await onGstRegistrationGranted(prisma, {
+      clientId: c.id, organisationId: o.id, registrationDate: '2026-11-01',
+      registrationType: 'regular', assignedEmployeeId: emp.id, isNewGrant: true,
+    })
+    expect(r1.created).toBe(true)
+    const items = await prisma.complianceItem.findMany({ where: { clientId: c.id, formCode: 'GST_RULE_10A' } })
+    expect(items).toHaveLength(1)
+    expect(items[0]).toMatchObject({
+      anchorDate: '2026-11-01',
+      dueDate: '2026-12-01',       // +30
+      internalDueDate: '2026-11-16', // +15
+      assignedEmployeeId: emp.id,
+    })
+
+    // Idempotent — second call on the same grant is a no-op.
+    const r2 = await onGstRegistrationGranted(prisma, {
+      clientId: c.id, organisationId: o.id, registrationDate: '2026-11-01',
+      registrationType: 'regular', assignedEmployeeId: emp.id, isNewGrant: true,
+    })
+    expect(r2.created).toBe(false)
+    expect(r2.skipped).toBe('already_exists')
+
+    // Non-first grant (isNewGrant=false) is also a no-op — guards the PATCH
+    // handler so routine edits don't resurrect a closed clock.
+    const r3 = await onGstRegistrationGranted(prisma, {
+      clientId: c.id, organisationId: o.id, registrationDate: '2026-11-01',
+      registrationType: 'regular', assignedEmployeeId: emp.id, isNewGrant: false,
+    })
+    expect(r3.created).toBe(false)
+
+    // Exempt type → no clock, no skip-as-already-exists.
+    const other = await client(o, 'TDS Co', { businessType: 'Pvt Ltd', accountManagerId: emp.id })
+    const r4 = await onGstRegistrationGranted(prisma, {
+      clientId: other.id, organisationId: o.id, registrationDate: '2026-11-01',
+      registrationType: 'non_resident', assignedEmployeeId: emp.id, isNewGrant: true,
+    })
+    expect(r4.created).toBe(false)
+    expect(r4.skipped).toBe('exempt')
+    expect(await prisma.complianceItem.count({ where: { clientId: other.id, formCode: 'GST_RULE_10A' } })).toBe(0)
+  })
+
+  it('onPrivateLimitedIncorporated — mirrors INC_20A row into ComplianceItem', async () => {
+    const o = await org()
+    const emp = await employee(o, 'Mgr')
+    const c = await client(o, 'INC20A Co', { businessType: 'Pvt Ltd', accountManagerId: emp.id })
+    const caseRow = await prisma.partnershipCase.create({
+      data: { caseCode: uid('PLCASE'), kind: 'PRIVATE_LIMITED', clientId: c.id, status: 'COMPLETED' },
+    })
+    await prisma.postRegistrationCompliance.create({
+      data: {
+        caseId: caseRow.id, clientId: c.id, code: 'INC_20A',
+        triggerLabel: 'Date of Incorporation', triggerDate: '2026-05-01',
+        offsetDays: 180, dueDate: '2026-10-28', assignedEmployeeId: emp.id,
+      },
+    })
+
+    const r = await onPrivateLimitedIncorporated(prisma, { caseId: caseRow.id })
+    expect(r.created).toBe(true)
+    const items = await prisma.complianceItem.findMany({ where: { clientId: c.id, formCode: 'INC_20A' } })
+    expect(items).toHaveLength(1)
+    expect(items[0]).toMatchObject({ anchorDate: '2026-05-01', dueDate: '2026-10-28', internalDueDate: '2026-05-31' })
+
+    // Idempotent
+    const r2 = await onPrivateLimitedIncorporated(prisma, { caseId: caseRow.id })
+    expect(r2.skipped).toBe('already_exists')
   })
 })
