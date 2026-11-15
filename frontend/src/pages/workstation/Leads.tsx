@@ -163,8 +163,12 @@ function AddLeadModal({ open, onClose }: { open: boolean; onClose: () => void })
   function validate(): boolean {
     const e: Record<string, string> = {};
     if (!form.name.trim()) e.name = 'This field is required.';
-    if (!/^[6-9]\d{9}$/.test(form.contact_number.replace(/[\s\-()]/g, '').replace(/^\+91/, ''))) {
-      e.contact_number = 'Enter a valid 10-digit Indian mobile number.';
+    // POST-DELIVERY-CHANGES §B2 — mirror backend's loosened phone rule
+    // (mobile 6-9 OR landline 1-5 with STD code).
+    {
+      const d = form.contact_number.replace(/[\s\-()]/g, '').replace(/^\+91/, '').replace(/^0+/, '');
+      const ok = /^[6-9]\d{9}$/.test(d) || (/^[1-5]\d{9,10}$/.test(d) && !/^0+$/.test(d.slice(1)));
+      if (!ok) e.contact_number = 'Enter a 10-digit mobile (starts 6-9) or a landline with STD code (10-11 digits).';
     }
     if (!form.service_id) e.service_id = 'Select a service.';
     if (!form.assigned_employee_id) e.assigned_employee_id = 'Select an employee.';

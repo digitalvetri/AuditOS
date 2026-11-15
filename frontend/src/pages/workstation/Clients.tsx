@@ -608,8 +608,12 @@ export function AddClientModal({ open, onClose, organization, defaultName, onCre
     const e: Record<string, string> = {};
     if (!form.company_name.trim()) e.company_name = 'This field is required.';
     if (!form.contact_person.trim()) e.contact_person = 'This field is required.';
-    if (!/^[6-9]\d{9}$/.test(form.contact_number.replace(/[\s\-()]/g, '').replace(/^\+91/, ''))) {
-      e.contact_number = 'Enter a valid 10-digit Indian mobile number.';
+    // POST-DELIVERY-CHANGES §B2 — accept landlines too; mirrors backend
+    // validate.ts `phone()` (mobile 6-9 OR landline 1-5 with STD code).
+    {
+      const d = form.contact_number.replace(/[\s\-()]/g, '').replace(/^\+91/, '').replace(/^0+/, '');
+      const ok = /^[6-9]\d{9}$/.test(d) || (/^[1-5]\d{9,10}$/.test(d) && !/^0+$/.test(d.slice(1)));
+      if (!ok) e.contact_number = 'Enter a 10-digit mobile (starts 6-9) or a landline with STD code (10-11 digits).';
     }
     if (form.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email)) {
       e.email = 'Enter a valid email address.';
