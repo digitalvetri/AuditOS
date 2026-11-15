@@ -6969,6 +6969,104 @@ model WorkstationDoc {
   @@index([createdAt])
 }
 
+/// DOCUMENT ASSEMBLY TEMPLATE (POST-DELIVERY-CHANGES §D).
+///
+/// A versioned, firm-level template for one kind of document (partnership
+/// deed, LLP agreement, board resolution…). The template's body carries
+/// placeholders ({{firm.name}}) and repeating blocks ({{#partners}}…
+/// {{/partners}}); its clauses can declare variants the preparer picks
+/// from (equal shares vs agreed ratio, one managing partner vs all
+/// partners jointly…).
+///
+/// Templates are IMMUTABLE at the (code, version) pair. Edits produce a
+/// NEW version with a new effective_from; a document generated in March
+/// pins the version it was composed against so regenerating it in
+/// November still produces the same paper.
+model DocTemplate {
+  id              String  @id @default(uuid())
+  organisationId  String
+  /// 'partnership-deed', 'llp-agreement' — one code per document family.
+  code            String
+  /// Which version of this code this row is. 1, 2, 3 … allocated in order.
+  version         Int     @default(1)
+  name            String
+  /// Which rendered formats this version can produce, comma-separated.
+  /// 'docx,xlsx,pdf' — docx/xlsx renderers land in §D1 follow-up.
+  outputFormats   String  @default("pdf")
+  /// YYYY-MM-DD — the earliest date this version may be CHOSEN for a new
+  /// document. A document already pinned to an older version never
+  /// re-checks this; it belongs to the version it was created with.
+  effectiveFrom   String
+  /// Template-level body with `{{placeholders}}` and `{{#list}}…{{/list}}`
+  /// blocks. Clauses slot into named sections of this body.
+  body            String  @default("")
+  description     String?
+  isActive        Boolean @default(true)
+
+  clauses DocTemplateClause[]
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  createdBy String?
+  updatedBy String?
+  deletedAt DateTime?
+
+  @@unique([code, version])
+  @@index([organisationId, code, version])
+  @@index([effectiveFrom])
+}
+
+/// A clause slot inside a `DocTemplate`. Clauses are ORDERED (sort_order);
+/// each may be required or optional. A required clause must have a
+/// variant chosen when a document is finalised.
+model DocTemplateClause {
+  id          String  @id @default(uuid())
+  templateId  String
+  /// 'profit-sharing', 'managing-partner', 'bank-operation'. Namespaced
+  /// per template so two templates can both have 'profit-sharing' without
+  /// colliding.
+  clauseCode  String
+  clauseTitle String
+  sortOrder   Int     @default(0)
+  /// True when the clause must have a variant picked before the document
+  /// can be finalised. False for optional riders.
+  required    Boolean @default(true)
+
+  template DocTemplate                 @relation(fields: [templateId], references: [id], onDelete: Cascade)
+  variants DocTemplateClauseVariant[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([templateId, clauseCode])
+  @@index([templateId, sortOrder])
+}
+
+/// One of the wordings the preparer can pick for a clause. Doc §D3: these
+/// are DATA, not code — adding a third profit-sharing wording within a
+/// month must be a row insert, not a deployment.
+model DocTemplateClauseVariant {
+  id        String  @id @default(uuid())
+  clauseId  String
+  /// Short, human-readable label — 'Equal shares', 'In agreed ratio'.
+  label     String
+  /// The clause's text, with the same {{placeholder}} / {{#block}}…
+  /// {{/block}} grammar as the parent template's body.
+  body      String
+  /// Marks the variant pre-selected when a document is composed from
+  /// this template. At most one default per clause; enforced by the
+  /// service, not by a DB constraint (switching defaults should be a
+  /// single UPDATE, not a transaction).
+  isDefault Boolean @default(false)
+
+  clause DocTemplateClause @relation(fields: [clauseId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([clauseId])
+}
+
 // ═══════════════════════════════════════════════════════════════════════════
 // INVOICE (Workstation → Invoice)
 //
