@@ -150,6 +150,8 @@ export function clientToApi(c: Client & { parentClient?: OrganizationRef | null 
     status: c.status,
     onboarding_date: c.onboardingDate,
     exit_date: c.exitDate ?? null,
+    /* POST-DELIVERY-CHANGES §B3 — the "why" the status-change recorded. */
+    exit_reason: c.exitReason ?? null,
     notes: c.notes,
     source_lead_id: c.sourceLeadId,
     /* An organization is a client that other clients sit under. A child's

@@ -39,6 +39,11 @@ export function ClientExitDetail({ client }: { client: ClientDetail }) {
           </span>
         }
       />
+      {/* POST-DELIVERY-CHANGES §B3 — surface the reason when one was given.
+          Hidden for active clients since it would always be empty. */}
+      {exit && client.exit_reason ? (
+        <Detail label="Exit reason" value={<span className="text-neutral-700">{client.exit_reason}</span>} />
+      ) : null}
       {isAdmin ? (
         <Detail
           label="Client data"
@@ -62,6 +67,10 @@ function ClientExitModal({ client, onClose }: { client: ClientDetail; onClose: (
   const qc = useQueryClient();
   const toast = useToast();
   const [date, setDate] = useState(client.exit_date ?? todayIst());
+  // POST-DELIVERY-CHANGES §B3 — the "why" the toggle records. Optional
+  // so a quick mark-inactive stays a single click (no modal validation
+  // blocker); the firm fills it in when they have the context.
+  const [reason, setReason] = useState(client.exit_reason ?? '');
   const save = useMutation({
     mutationFn: (body: Record<string, unknown>) => workstationApi.updateClient(client.id, body),
     onSuccess: (_d, body) => {
@@ -76,12 +85,14 @@ function ClientExitModal({ client, onClose }: { client: ClientDetail; onClose: (
       open title={`Former client — ${client.company_name}`} onClose={onClose}
       footer={<>
         {client.exit_date ? (
-          <Button variant="ghost" disabled={save.isPending} onClick={() => save.mutate({ status: 'active', exit_date: null })}>
+          <Button variant="ghost" disabled={save.isPending} onClick={() => save.mutate({ status: 'active', exit_date: null, exit_reason: null })}>
             Clear (client is back)
           </Button>
         ) : null}
         <Button onClick={onClose}>Cancel</Button>
-        <Button variant="primary" disabled={save.isPending || !date} onClick={() => save.mutate({ status: 'inactive', exit_date: date })}>
+        <Button variant="primary" disabled={save.isPending || !date} onClick={() => save.mutate({
+          status: 'inactive', exit_date: date, exit_reason: reason.trim() || null,
+        })}>
           {save.isPending ? 'Saving…' : 'Save'}
         </Button>
       </>}
@@ -92,6 +103,16 @@ function ClientExitModal({ client, onClose }: { client: ClientDetail; onClose: (
       </p>
       <Field label="Exit date (the day the firm stopped acting)" error={e.exit_date}>
         <input type="date" className={inputClass} value={date} onChange={(ev) => setDate(ev.target.value)} max={todayIst()} />
+      </Field>
+      <Field label="Reason (optional)" error={e.exit_reason} hint="One line, visible on the client's profile — e.g. 'Switched to another firm', 'Business closed', 'Contract ended'.">
+        <input
+          type="text"
+          className={inputClass}
+          maxLength={500}
+          value={reason}
+          onChange={(ev) => setReason(ev.target.value)}
+          placeholder="Why the firm stopped acting"
+        />
       </Field>
       {save.error && !Object.keys(e).length ? <p className="text-12 text-danger">{(save.error as Error).message}</p> : null}
     </Modal>

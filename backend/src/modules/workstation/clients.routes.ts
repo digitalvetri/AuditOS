@@ -241,6 +241,19 @@ clientsRouter.patch('/:id', handler(async (req, res) => {
     data.exitDate = b.exit_date ? v.date('exit_date', b.exit_date) ?? null : null
     if (data.exitDate && (data.status ?? before.status) !== 'inactive') v.add('exit_date', 'Set the status to Inactive when entering an exit date.')
   }
+  // Exit reason (POST-DELIVERY-CHANGES §B3) — the "why" the status-change
+  // records. Optional on the API so a reactivation (status→active with
+  // reason=null) stays a one-field PATCH; the long-form Mark-as-former-
+  // client modal captures it when it's offered.
+  if ('exit_reason' in b) {
+    const s = v.str('exit_reason', b.exit_reason, { required: false, max: 500 })
+    data.exitReason = s === undefined ? null : s
+  }
+  // Reactivation clears the reason even if the body didn't say so — a
+  // client who's active doesn't carry a stale "why they left" line.
+  if ('status' in b && b.status === 'active' && before.status === 'inactive' && !('exit_reason' in b)) {
+    data.exitReason = null
+  }
   if ('short_name' in b) data.shortName = v.str('short_name', b.short_name, { required: false, max: 20 }) ?? null
   v.throwIfAny()
 
