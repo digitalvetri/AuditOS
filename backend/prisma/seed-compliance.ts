@@ -26,16 +26,32 @@ export interface CatalogueForm {
   months: string | null
   lateFeeNote: string | null
   description: string | null
+  /// COMPLIANCE CLOCK (POST-DELIVERY-CHANGES §A) — a form is a clock when
+  /// `internalTargetDays` is set. Clocks are one-shot per client (not per
+  /// FY); `generateItems` already skips `frequency='event'` naturally, so
+  /// clock items are created explicitly via `POST /api/compliance/clocks`.
+  internalTargetDays: number | null
+  appliesWhen: string | null
+  evidenceRequired: boolean
+  leadUpDays: string | null
+  computedExpr: string | null
+  escalateTo: string | null
 }
 
 const f = (
   code: string, name: string, authority: CatalogueForm['authority'], frequency: CatalogueForm['frequency'],
   entityTypes: string, anchor: CatalogueForm['anchor'], offsetMonths: number, dueDay: number | null,
-  extra: Partial<Pick<CatalogueForm, 'offsetDays' | 'months' | 'lateFeeNote' | 'description'>> = {},
+  extra: Partial<Pick<CatalogueForm, 'offsetDays' | 'months' | 'lateFeeNote' | 'description' | 'internalTargetDays' | 'appliesWhen' | 'evidenceRequired' | 'leadUpDays' | 'computedExpr' | 'escalateTo'>> = {},
 ): CatalogueForm => ({
   code, name, authority, frequency, entityTypes, anchor, offsetMonths, dueDay,
   offsetDays: extra.offsetDays ?? 0, months: extra.months ?? null,
   lateFeeNote: extra.lateFeeNote ?? null, description: extra.description ?? null,
+  internalTargetDays: extra.internalTargetDays ?? null,
+  appliesWhen: extra.appliesWhen ?? null,
+  evidenceRequired: extra.evidenceRequired ?? false,
+  leadUpDays: extra.leadUpDays ?? null,
+  computedExpr: extra.computedExpr ?? null,
+  escalateTo: extra.escalateTo ?? null,
 })
 
 export const COMPLIANCE_CATALOGUE: CatalogueForm[] = [
@@ -91,6 +107,41 @@ export const COMPLIANCE_CATALOGUE: CatalogueForm[] = [
     { lateFeeNote: 'Interest 12% p.a.', description: '15th of the next month.' }),
   f('PT_TN', 'Tamil Nadu professional tax', 'other', 'half_yearly', 'any', 'period_end', 0, 31,
     { months: '9,3', description: '30 September and 31 March.' }),
+
+  // ── COMPLIANCE CLOCKS (POST-DELIVERY-CHANGES §A) ──────────────────────
+  // One-shot, event-triggered. generateItems skips frequency='event'
+  // (engine.ts periodsOf), so clock items live on their own path — created
+  // via POST /api/compliance/clocks and updated via PATCH /items/:id.
+  f('GST_RULE_10A', 'GST Rule 10A — furnish bank account after registration', 'gst', 'event', 'any', 'event', 0, null,
+    {
+      offsetDays: 30,
+      description: 'Within 30 days of registration grant, OR before the first GSTR-1 / IFF filing, whichever is earlier. ' +
+        'Missing it triggers AUTOMATIC suspension of the GSTIN. Recovery: non-core amendment adding bank details.',
+      lateFeeNote: 'No direct fee — the cost is automatic registration suspension and the recovery amendment.',
+      // Firm wants the client to open a current account and furnish within 15 days
+      // (they need the REG-06 certificate to open the account, which itself takes a week).
+      // Statutory backstop stays at 30 days (offsetDays).
+      internalTargetDays: 15,
+      // Exemption test. GstProfile.registrationType today covers regular/composition/
+      // casual/isd/sez/non_resident. 'non_resident' maps to NRTP and is exempt;
+      // casual/isd/sez aren't exempt under Rule 10A. TDS/TCS/suo-moto/OIDAR aren't
+      // in the enum yet — flagged in the JSON so a future type addition slots in.
+      appliesWhen: JSON.stringify({
+        authority: 'gst',
+        registration_type_not_in: ['non_resident', 'tds', 'tcs', 'suo_moto', 'oidar'],
+        note: 'OIDAR with an Indian representative IS covered — out of scope until the registration_type enum carries that distinction.',
+      }),
+      // Evidence = the portal amendment acknowledgement. 'Marked done' with
+      // nothing behind it is how a suspension arrives six months later.
+      evidenceRequired: true,
+      // Lead-ups count down from the INTERNAL target, not the statutory.
+      leadUpDays: JSON.stringify([10, 5, 2, 1]),
+      // The deadline is MIN(reg_date + 30, first_gstr1_date). The second
+      // anchor isn't wired yet — sub-PR (b.2) will update the anchor when
+      // GstFiling for GSTR-1 lands before day 30.
+      computedExpr: JSON.stringify({ kind: 'min_event', event: 'first_gstr1_filed' }),
+      escalateTo: 'partner',
+    }),
 ]
 
 export async function seedCompliance(prisma: PrismaClient): Promise<{ forms: number }> {

@@ -225,6 +225,11 @@ export function itemToApi(i: ComplianceItem, ctx: ItemContext) {
     anchor_date: i.anchorDate,
     anchor_missing: agmForm && !i.anchorDate,
     anchor_note: agmForm && !i.anchorDate ? 'AGM date not entered' : null,
+    // Clock fields (POST-DELIVERY-CHANGES §A). Null for every non-clock item.
+    internal_due_date: i.internalDueDate,
+    evidence_doc_id: i.evidenceDocId,
+    evidence_ref: i.evidenceRef,
+    is_clock: form?.anchor === 'event',
     status: i.status,
     assigned_employee_id: i.assignedEmployeeId,
     assigned_employee_name: i.assignedEmployeeId ? ctx.employees.get(i.assignedEmployeeId) ?? null : null,
