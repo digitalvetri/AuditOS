@@ -333,15 +333,35 @@ clientsRouter.patch('/:id', handler(async (req, res) => {
     })
   }
 
-  await writeActivity({
-    session, subjectType: 'client', subjectId: client.id,
-    action: data.status && data.status !== before.status ? 'client.status_updated' : 'client.updated',
-    description: data.status && data.status !== before.status
-      ? `Client status changed to ${String(data.status).replace(/_/g, ' ')}.`
-      : 'Client details updated.',
-  })
+  // POST-DELIVERY-CHANGES §B4 — GSTIN / PAN changes write a LOUDER entry.
+  // These are identity fields; a typo on either shifts filings and tax
+  // records onto the wrong taxpayer. Separate action codes let the firm
+  // filter the activity feed for identity changes without reading every
+  // "details updated" row.
+  const idFieldChanges: string[] = []
+  if ('gstin' in data && data.gstin !== before.gstin) idFieldChanges.push(`GSTIN ${before.gstin ?? '—'} → ${client.gstin ?? '—'}`)
+  if ('pan' in data && data.pan !== before.pan) idFieldChanges.push(`PAN ${before.pan ?? '—'} → ${client.pan ?? '—'}`)
+  if ('tan' in data && data.tan !== before.tan) idFieldChanges.push(`TAN ${before.tan ?? '—'} → ${client.tan ?? '—'}`)
+  if ('cin' in data && data.cin !== before.cin) idFieldChanges.push(`CIN/LLPIN ${before.cin ?? '—'} → ${client.cin ?? '—'}`)
+
+  if (idFieldChanges.length) {
+    await writeActivity({
+      session, subjectType: 'client', subjectId: client.id,
+      action: 'client.identity_changed',
+      description: `Identity field changed · ${idFieldChanges.join(' · ')}`,
+    })
+  } else {
+    await writeActivity({
+      session, subjectType: 'client', subjectId: client.id,
+      action: data.status && data.status !== before.status ? 'client.status_updated' : 'client.updated',
+      description: data.status && data.status !== before.status
+        ? `Client status changed to ${String(data.status).replace(/_/g, ' ')}.`
+        : 'Client details updated.',
+    })
+  }
   await writeAudit({
-    actorUserId: session.userId, action: 'client.update',
+    actorUserId: session.userId,
+    action: idFieldChanges.length ? 'client.identity_changed' : 'client.update',
     entityType: 'Client', entityId: client.id, before, after: client, req,
   })
 
