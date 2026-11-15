@@ -20,7 +20,7 @@ import { Prisma } from '@prisma/client'
 import { prisma } from '../../lib/prisma.js'
 import { istDateOf } from '../../lib/dates.js'
 import { lockSequence } from '../../lib/sequence.js'
-import { recomputeInvoice } from '../invoice/payments.js'
+import { recomputeInvoice, assertRefundsCovered } from '../invoice/payments.js'
 import { nextReceiptNumber } from '../../platform/workstation/codes.js'
 import { isCollected } from './statuses.js'
 
@@ -127,6 +127,8 @@ export async function unpostCollection(zpayPaymentId: string, actorUserId: strin
   await prisma.$transaction(async (tx) => {
     await lockSequence(tx, `invoice:${row.invoiceId}`)
     await tx.invoicePayment.update({ where: { id: row.id }, data: { deletedAt: new Date(), externalPaymentId: null, updatedBy: actorUserId } })
+    // Same rule as removing a payment by hand: refunds must stay covered.
+    await assertRefundsCovered(tx, row.invoiceId)
     await recomputeInvoice(tx, row.invoiceId, actorUserId)
   })
   return true

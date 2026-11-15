@@ -241,7 +241,10 @@ export async function liveBalanceDue(tx: Tx | PrismaClient, invoiceId: string, e
  */
 export async function assertRefundsCovered(tx: Tx, invoiceId: string) {
   const m = await liveSettlement(tx, invoiceId)
-  if (m.settled < 0) {
+  // A refund pays back money RECEIVED (cash or TDS) — a credit note alone
+  // never covers one. Without the second test, deleting the payment behind
+  // a credit-note refund left a refund against nothing received.
+  if (m.settled < 0 || m.refunded > m.paid + m.tds) {
     throw ApiError.conflict(
       'refunds_exceed_settlement',
       `Refunds of ${formatINR(m.refunded)} have been recorded against this invoice. Delete the refund first.`,
