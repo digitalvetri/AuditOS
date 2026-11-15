@@ -239,6 +239,145 @@ documentsRouter.post('/:id/move', handler(async (req, res) => {
   ok(res, clientDocumentToApi(doc, m))
 }))
 
+// POST /api/documents/:id/copy — duplicate a document within a client or
+// into another client (POST-DELIVERY-CHANGES §C part 2). Per the doc, the
+// copy is a NEW record with its own id, NOT a second pointer to the same
+// blob — so every version's bytes are re-read and re-written under a new
+// fileKey. Metadata-only versions (no mimeType / no bytes) are mirrored
+// without I/O. A cross-client copy, like move, requires the caller to see
+// both clients.
+documentsRouter.post('/:id/copy', handler(async (req, res) => {
+  const session = requireSession(req)
+  const scope = requireWorkstation(session, 'workstation.document.manage')
+  const b = body(req)
+  const v = new FieldErrors()
+  const nameOverride = 'name' in b ? v.str('name', b.name, { required: false, max: 200 }) ?? null : null
+  const toCategory = 'category_id' in b ? v.str('category_id', b.category_id) : null
+  const toClient = 'client_id' in b
+    ? (b.client_id === null ? null : v.str('client_id', b.client_id))
+    : null
+  v.throwIfAny()
+
+  const source = await prisma.clientDocument.findFirst({ where: { id: req.params.id, ...alive }, include })
+  if (!source) throw ApiError.notFound('Document not found.')
+  await assertCanSeeClient(session, scope, source.clientId)
+
+  const targetClientId = toClient && toClient !== source.clientId ? toClient : source.clientId
+  const crossClient = targetClientId !== source.clientId
+  let targetClient: { id: string; clientCode: string; companyName: string } | null = null
+  if (crossClient) {
+    await assertCanSeeClient(session, scope, targetClientId)
+    const c = await prisma.client.findFirst({ where: { id: targetClientId, deletedAt: null }, select: { id: true, clientCode: true, companyName: true } })
+    if (!c) throw ApiError.badRequest('Unknown client.', { client_id: 'No such client.' })
+    targetClient = c
+  }
+
+  const targetCategoryId = toCategory ?? source.categoryId
+  if (toCategory && toCategory !== source.categoryId) {
+    const cat = await prisma.documentCategory.findFirst({ where: { id: toCategory, deletedAt: null } })
+    if (!cat) throw ApiError.badRequest('Unknown folder.', { category_id: 'No such folder.' })
+  }
+
+  const defaultName = source.name.endsWith(' (copy)') ? source.name : `${source.name} (copy)`
+  const newName = nameOverride ?? defaultName
+
+  // Step 1: create the new ClientDocument row. currentVersion stays 0 until
+  // versions are attached — same shape the upload path leaves after metadata-
+  // only creation, so nothing downstream has to special-case half a copy.
+  const newDocId = crypto.randomUUID()
+  const created = await prisma.clientDocument.create({
+    data: {
+      id: newDocId,
+      clientId: targetClientId,
+      categoryId: targetCategoryId,
+      clientServiceId: crossClient ? null : source.clientServiceId,
+      name: newName,
+      financialYear: source.financialYear,
+      status: 'uploaded', // the copy inherits bytes, not a request lifecycle
+      currentVersion: 0,
+      // Review state is NOT copied — a verified source doesn't make its
+      // copy verified. The firm re-reviews the file in the new location.
+      // Request metadata (requestedBy/At, rejection reason) is also skipped
+      // for the same reason.
+      createdBy: session.userId,
+      updatedBy: session.userId,
+    },
+  })
+
+  // Step 2: for every source version, copy bytes (if present) under a new
+  // fileKey, then create a matching ClientDocumentVersion row. Metadata-only
+  // versions (mimeType null) are mirrored without I/O.
+  let maxVersion = 0
+  let lastCopiedVersionId: string | null = null
+  for (const sv of source.versions) {
+    let newKey = sv.fileKey
+    if (sv.mimeType) {
+      const bytes = await readVersionBytes(sv.fileKey)
+      if (bytes) {
+        const tail = (sv.originalName ?? `v${sv.version}`).replace(/[^A-Za-z0-9._-]/g, '_').slice(-120)
+        newKey = `${targetClientId}/${newDocId}/${crypto.randomUUID()}-${tail}`
+        await clientDocumentStorage.put(newKey, bytes)
+      }
+    }
+    const createdVersion: { id: string } = await prisma.clientDocumentVersion.create({
+      data: {
+        documentId: newDocId,
+        version: sv.version,
+        fileKey: newKey,
+        uploadedBy: sv.uploadedBy,
+        sizeBytes: sv.sizeBytes,
+        notes: sv.notes,
+        previousVersionId: lastCopiedVersionId,
+        originalName: sv.originalName,
+        mimeType: sv.mimeType,
+        // Fresh review cycle: copies land as 'uploaded' so the firm has to
+        // decide anew. Preserving 'verified' on a cross-client copy would
+        // be a loud trust bug.
+        reviewStatus: sv.mimeType ? 'uploaded' : null,
+        documentType: sv.documentType,
+        documentDate: sv.documentDate,
+      },
+    })
+    lastCopiedVersionId = createdVersion.id
+    if (sv.version > maxVersion) maxVersion = sv.version
+  }
+
+  const doc = await prisma.clientDocument.update({
+    where: { id: newDocId },
+    data: { currentVersion: maxVersion, updatedBy: session.userId },
+    include,
+  })
+
+  // Activity trail: one entry on the source client (so "this file was
+  // copied out" is visible from where it originated), and when cross-client,
+  // one entry on the target client too.
+  await writeActivity({
+    session, subjectType: 'client', subjectId: source.clientId,
+    action: 'document.copied_out',
+    description: crossClient && targetClient
+      ? `${source.name} copied to ${targetClient.clientCode} · ${targetClient.companyName}.`
+      : `${source.name} duplicated.`,
+    entityType: 'ClientDocument', entityId: source.id,
+  })
+  if (crossClient) {
+    await writeActivity({
+      session, subjectType: 'client', subjectId: doc.clientId,
+      action: 'document.copied_in',
+      description: `${source.name} copied in from ${source.client.clientCode} · ${source.client.companyName}.`,
+      entityType: 'ClientDocument', entityId: doc.id,
+    })
+  }
+  await writeAudit({
+    actorUserId: session.userId,
+    action: crossClient ? 'client_document.cross_client_copy' : 'client_document.copy',
+    entityType: 'ClientDocument', entityId: doc.id,
+    before: null, after: doc, req,
+  })
+
+  const m = await employeeMap([doc.requestedByEmployeeId, doc.verifiedByEmployeeId, ...doc.versions.map((x) => x.uploadedBy)])
+  ok(res, clientDocumentToApi(doc, m))
+}))
+
 /**
  * POST /api/documents/:id/versions — a new version, never an overwrite.
  *
