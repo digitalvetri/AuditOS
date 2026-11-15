@@ -124,7 +124,11 @@ describe('entity type from free-text business type', () => {
 })
 
 describe('suggested obligations', () => {
-  const forms = COMPLIANCE_CATALOGUE.map((f, i) => ({ ...f, id: f.code, sourceUrl: null, isActive: true, sortOrder: i, createdAt: new Date(), updatedAt: new Date() }))
+  const forms = COMPLIANCE_CATALOGUE.map((f, i) => ({
+    ...f, id: f.code, sourceUrl: null, isActive: true, sortOrder: i, createdAt: new Date(), updatedAt: new Date(),
+    // Clock columns (POST-DELIVERY-CHANGES §A) — not set on recurring-form catalogue.
+    internalTargetDays: null, appliesWhen: null, evidenceRequired: false, leadUpDays: null, computedExpr: null, escalateTo: null,
+  }))
   const codes = (s: { form_code: string }[]) => s.map((x) => x.form_code).sort()
   it('company: MCA forms, audited ITR, advance tax', () => {
     const s = codes(suggestedForms(forms, 'company', null))

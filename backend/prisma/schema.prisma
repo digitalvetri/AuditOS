@@ -8280,6 +8280,34 @@ model ComplianceForm {
   isActive     Boolean @default(true)
   sortOrder    Int     @default(0)
 
+  /// COMPLIANCE CLOCK (POST-DELIVERY-CHANGES §A). Nullable so recurring forms
+  /// (ITR, GSTR9, …) keep their existing one-date behaviour untouched; a form
+  /// is a "clock" when ANY of these are set.
+  ///
+  /// The firm's internal target ahead of the statutory deadline. Dashboard
+  /// shows this; statutory stays as the escalation.
+  internalTargetDays Int?
+  /// Exemption test as JSON string. Evaluated at item-creation time to decide
+  /// whether the clock fires for a given client. Example for INC-20A:
+  ///   {"entity_type":"company","has_share_capital":true,"incorporated_on_or_after":"2018-11-02"}
+  /// Null = always fires (subject to entityTypes).
+  appliesWhen        String?
+  /// When true, `status='filed'` requires `evidenceRef` or `evidenceDocId` on
+  /// the item. "Marked done" with nothing behind it is how a penalty arrives
+  /// six months later with everyone certain it was handled.
+  evidenceRequired   Boolean @default(false)
+  /// Lead-up schedule as a JSON string, e.g. '[10,5,2,1]' for Rule 10A. Null
+  /// = the default 7/1 handled by the reminders scheduler.
+  leadUpDays         String?
+  /// Optional second anchor used for computed deadlines of the form
+  /// min(anchor+offset, <event>). Encoded as a JSON string:
+  ///   {"kind":"min_event","event":"first_gstr1_filed"}
+  /// Null = the plain anchor+offset rule applies.
+  computedExpr       String?
+  /// Role code (or 'partner') that receives the escalation when the item
+  /// nears the statutory deadline — see leadUpDays' earliest value.
+  escalateTo         String?
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 }
@@ -8315,7 +8343,8 @@ model ComplianceItem {
   periodLabel          String
   /// Statutory due date from the rule; the extension (if any) is applied on read.
   dueDate              String
-  /// Event-anchored forms (AGM): the event date this period's due date came from.
+  /// Event-anchored forms: the event date this period's due date came from
+  /// (AGM, GST-registration-granted, company-incorporated, …).
   anchorDate           String?
   /// not_started | documents_pending | in_progress | filed | not_applicable
   status               String    @default("not_started")
@@ -8329,6 +8358,19 @@ model ComplianceItem {
   notes                String?
   lastClientReminderAt DateTime?
 
+  /// COMPLIANCE CLOCK (POST-DELIVERY-CHANGES §A). Populated only for items
+  /// whose ComplianceForm is a clock (internalTargetDays set).
+  ///
+  /// The firm's internal target date = anchorDate + form.internalTargetDays.
+  /// Dashboard-facing; `dueDate` stays as the statutory escalation.
+  internalDueDate String?
+  /// Evidence for close. When form.evidenceRequired, one of these must be
+  /// set to move status to 'filed': the uploaded portal acknowledgement
+  /// (`evidenceDocId` → ClientDocument.id, no FK by codebase convention) or
+  /// a free-text SRN / ARN / reference number.
+  evidenceDocId   String?
+  evidenceRef     String?
+
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt
   createdBy String?
@@ -8339,6 +8381,7 @@ model ComplianceItem {
   @@index([organisationId, dueDate])
   @@index([assignedEmployeeId, status])
   @@index([formCode, periodKey])
+  @@index([clientId, internalDueDate])
 }
 
 /// A CBDT / CBIC / MCA extension, entered once for every client.
