@@ -352,6 +352,51 @@ describe('compliance calendar API', () => {
     expect(await prisma.complianceItem.count({ where: { clientId: other.id, formCode: 'GST_RULE_10A' } })).toBe(0)
   })
 
+  it('inactive clients — generator skips them, clock hooks return client_inactive', async () => {
+    const o = await org()
+    const emp = await employee(o, 'Mgr')
+    const md = await login(o, 'md')
+    const c = await client(o, 'Departed Co', { businessType: 'Pvt Ltd', accountManagerId: emp.id })
+    // Flip to inactive via the standard PATCH path — exercises the whole surface.
+    const flip = await api(`/api/clients/${c.id}`, { method: 'PATCH', cookie: md.cookie, body: { status: 'inactive', exit_date: '2026-06-01' } })
+    expect(flip.status).toBe(200)
+
+    // Clock hook A — new GST registration grant for an inactive client → skipped, no row created.
+    const r1 = await onGstRegistrationGranted(prisma, {
+      clientId: c.id, organisationId: o.id, registrationDate: '2026-11-01',
+      registrationType: 'regular', assignedEmployeeId: emp.id, isNewGrant: true,
+    })
+    expect(r1.created).toBe(false)
+    expect(r1.skipped).toBe('client_inactive')
+    expect(await prisma.complianceItem.count({ where: { clientId: c.id, formCode: 'GST_RULE_10A' } })).toBe(0)
+
+    // Clock hook B — a stale PartnershipCase completion for an inactive client is also skipped.
+    const caseRow = await prisma.partnershipCase.create({
+      data: { caseCode: uid('PLCASE'), kind: 'PRIVATE_LIMITED', clientId: c.id, status: 'COMPLETED' },
+    })
+    await prisma.postRegistrationCompliance.create({
+      data: {
+        caseId: caseRow.id, clientId: c.id, code: 'INC_20A',
+        triggerLabel: 'Date of Incorporation', triggerDate: '2026-05-01',
+        offsetDays: 180, dueDate: '2026-10-28',
+      },
+    })
+    const r2 = await onPrivateLimitedIncorporated(prisma, { caseId: caseRow.id })
+    expect(r2.created).toBe(false)
+    expect(r2.skipped).toBe('client_inactive')
+
+    // generateItems — an obligation on an inactive client creates NOTHING on a fresh run.
+    // Use a form that WOULD otherwise generate, and assert zero rows landed.
+    await prisma.clientObligation.create({
+      data: { organisationId: o.id, clientId: c.id, formCode: 'ITR_AUDIT', isActive: true, createdBy: md.id },
+    })
+    const before = await prisma.complianceItem.count({ where: { clientId: c.id, formCode: 'ITR_AUDIT' } })
+    const result = await generateItems(prisma, { fys: ['2026-27'], organisationId: o.id, clientId: c.id, explicit: true })
+    expect(result.created).toBe(0)
+    const after = await prisma.complianceItem.count({ where: { clientId: c.id, formCode: 'ITR_AUDIT' } })
+    expect(after).toBe(before)
+  })
+
   it('onPrivateLimitedIncorporated — mirrors INC_20A row into ComplianceItem', async () => {
     const o = await org()
     const emp = await employee(o, 'Mgr')

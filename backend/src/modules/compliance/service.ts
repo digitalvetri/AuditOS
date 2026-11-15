@@ -102,7 +102,14 @@ export async function generateItems(
   if (!obligations.length) return result
   const forms = new Map((await prisma.complianceForm.findMany({ where: { isActive: true } })).map((f) => [f.code, f]))
   const clientIds = [...new Set(obligations.map((o) => o.clientId))]
-  const live = new Set((await prisma.client.findMany({ where: { id: { in: clientIds }, deletedAt: null }, select: { id: true } })).map((c) => c.id))
+  // POST-DELIVERY-CHANGES §B3 — inactive clients are skipped entirely for
+  // the generator. Existing ComplianceItem rows are untouched (the row-
+  // level filters in the API still return them for "inactive" reporting
+  // views); the scheduler just stops producing new period work and
+  // refreshing due dates on existing items for someone the firm no longer
+  // acts for. Obligations remain, so a later reactivation picks up where
+  // the last run left off on the next generate.
+  const live = new Set((await prisma.client.findMany({ where: { id: { in: clientIds }, deletedAt: null, status: { not: 'inactive' } }, select: { id: true } })).map((c) => c.id))
   const existing = await prisma.complianceItem.findMany({
     where: { clientId: { in: clientIds }, formCode: { in: [...new Set(obligations.map((o) => o.formCode))] } },
   })
