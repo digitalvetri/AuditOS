@@ -8543,6 +8543,12 @@ model RecurringInvoiceProfile {
   linesJson       Json
   autoSend        Boolean   @default(false)
   isActive        Boolean   @default(true)
+  /// POST-DELIVERY-CHANGES §E2. Mid-month start: when true, the first
+  /// invoice bills a prorated stub (startDate → next full-period issue),
+  /// and the full-period cadence picks up from the next cycle. When false
+  /// (default), the stub is skipped and the firm raises its first full
+  /// invoice at the first in-schedule date on or after startDate.
+  prorateFirstPeriod Boolean @default(false)
   lastGeneratedAt DateTime?
   lastInvoiceId   String?
 

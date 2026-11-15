@@ -21,7 +21,7 @@ import type { Session } from '../../platform/auth.js'
 import type { Scope } from '../../platform/rbac/matrix.js'
 import { assignedClientIds, assertCanSeeClient } from '../../platform/workstation/scope.js'
 import { createInvoiceRecord, invoiceHouseStyle, sendInvoiceTx, type InvoiceInput, type Term } from '../invoice/service.js'
-import { firstIssueDate, nextIssueDate, periodLabel, type Frequency } from './dates.js'
+import { firstIssueDate, nextIssueDate, periodLabel, prorateFactor, type Frequency } from './dates.js'
 
 export interface RecurringLine {
   description: string
@@ -45,6 +45,10 @@ export interface ProfileInput {
   lines: RecurringLine[]
   autoSend: boolean
   isActive: boolean
+  /// POST-DELIVERY-CHANGES §E2. When true and the start date is before
+  /// the first on-schedule issue date, the firm raises a prorated stub
+  /// invoice first; otherwise the first invoice is the first full period.
+  prorateFirstPeriod: boolean
 }
 
 type Row = Prisma.RecurringInvoiceProfileGetPayload<object>
@@ -80,6 +84,7 @@ async function serialize(rows: Row[]) {
       lines: (Array.isArray(r.linesJson) ? r.linesJson : []) as unknown as RecurringLine[],
       auto_send: r.autoSend,
       is_active: r.isActive,
+      prorate_first_period: r.prorateFirstPeriod,
       last_generated_at: r.lastGeneratedAt?.toISOString() ?? null,
       last_invoice_id: li && !li.deletedAt ? li.id : null,
       last_invoice_number: li && !li.deletedAt ? li.invoiceNumber : null,
@@ -156,7 +161,14 @@ export async function generateForProfile(profileId: string, opts: { today?: stri
     if (p.endDate && date > p.endDate) return { created: false, invoice_id: null, invoice_number: null, reason: 'The profile has ended.' }
     if (date > today) return { created: false, invoice_id: null, invoice_number: null, reason: `Not due until ${date}.` }
 
-    const next = nextIssueDate(date, p.frequency as Frequency, p.dayOfMonth)
+    // Stub detection (§E2): date equals startDate AND startDate is before
+    // the first on-schedule date. If so, this run bills the prorated stub
+    // only; the next date lands on the first full period.
+    const freq = p.frequency as Frequency
+    const fullIssue = firstIssueDate(p.startDate, freq, p.dayOfMonth)
+    const isStub = p.prorateFirstPeriod && date < fullIssue && date === p.startDate
+    const factor = isStub ? prorateFactor(date, fullIssue, freq) : 1
+    const next = isStub ? fullIssue : nextIssueDate(date, freq, p.dayOfMonth)
     const existing = await tx.invoice.findFirst({
       where: { recurringProfileId: p.id, invoiceDate: date, deletedAt: null },
       select: { id: true, invoiceNumber: true },
@@ -168,9 +180,22 @@ export async function generateForProfile(profileId: string, opts: { today?: stri
       invoiceId = existing.id
       invoiceNumber = existing.invoiceNumber
     } else {
-      const lines = (Array.isArray(p.linesJson) ? p.linesJson : []) as unknown as RecurringLine[]
+      const rawLines = (Array.isArray(p.linesJson) ? p.linesJson : []) as unknown as RecurringLine[]
+      // Prorate the stub by scaling unit rate and discount by the factor.
+      // Rounding goes HALF-AWAY-FROM-ZERO (Math.round on positive paise is
+      // the same thing) so we don't systematically under- or over-bill.
+      const lines = isStub
+        ? rawLines.map((l) => ({
+          ...l,
+          unit_rate_paise: Math.round(l.unit_rate_paise * factor),
+          discount_paise: Math.round(l.discount_paise * factor),
+        }))
+        : rawLines
       const { items, discountPaise } = linesToItems(lines)
       const style = await invoiceHouseStyle(tx)
+      const label = isStub
+        ? `${p.name} — ${periodLabel(fullIssue, freq)} (prorated from ${date})`
+        : `${p.name} — ${periodLabel(date, freq)}`
       invoiceId = await createInvoiceRecord(tx, {
         ...style,
         clientId: p.clientId,
@@ -178,7 +203,7 @@ export async function generateForProfile(profileId: string, opts: { today?: stri
         terms: p.terms as Term,
         placeOfSupply: p.placeOfSupply,
         discountPaise,
-        notes: `${p.name} — ${periodLabel(date, p.frequency as Frequency)}`,
+        notes: label,
         items,
       }, { userId: opts.userId ?? p.createdBy ?? null, employeeId: opts.employeeId ?? null, recurringProfileId: p.id, clientServiceId: p.clientServiceId })
       if (p.autoSend) invoiceNumber = await sendInvoiceTx(tx, invoiceId, opts.userId ?? null)
@@ -239,6 +264,13 @@ export const RecurringService = {
     await assertCanSeeClient(session, scope, input.clientId)
     assertLines(input.lines)
     if (input.endDate && input.endDate < input.startDate) throw ApiError.badRequest('The end date is before the start date.')
+    // Proration (§E2): when the firm wants the mid-period stub billed, the
+    // first run is dated at startDate itself — generateForProfile detects
+    // date < firstIssue and prorates the line amounts. Without proration we
+    // jump to the first in-schedule date on or after startDate (existing).
+    const fullIssue = firstIssueDate(input.startDate, input.frequency, input.dayOfMonth)
+    const willStub = input.prorateFirstPeriod && input.startDate < fullIssue
+    const nextOnCreate = willStub ? input.startDate : fullIssue
     const row = await prisma.recurringInvoiceProfile.create({
       data: {
         organisationId: await orgId(),
@@ -248,13 +280,14 @@ export const RecurringService = {
         dayOfMonth: input.dayOfMonth,
         startDate: input.startDate,
         endDate: input.endDate,
-        nextIssueDate: firstIssueDate(input.startDate, input.frequency, input.dayOfMonth),
+        nextIssueDate: nextOnCreate,
         terms: input.terms,
         placeOfSupply: input.placeOfSupply,
         clientServiceId: input.clientServiceId,
         linesJson: input.lines as unknown as Prisma.InputJsonValue,
         autoSend: input.autoSend,
         isActive: input.isActive,
+        prorateFirstPeriod: input.prorateFirstPeriod,
         createdBy: session.userId,
         updatedBy: session.userId,
       },
@@ -298,6 +331,7 @@ export const RecurringService = {
         linesJson: input.lines as unknown as Prisma.InputJsonValue,
         autoSend: input.autoSend,
         isActive: input.isActive,
+        prorateFirstPeriod: input.prorateFirstPeriod,
         updatedBy: session.userId,
       },
     })

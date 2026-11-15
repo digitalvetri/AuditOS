@@ -45,6 +45,8 @@ const bodySchema = z.object({
   lines: z.array(lineSchema).min(1, 'A retainer needs at least one line.').max(50),
   auto_send: formBool.default(false),
   is_active: formBool.default(true),
+  /// POST-DELIVERY-CHANGES §E2 — mid-period start: raise a prorated stub?
+  prorate_first_period: formBool.default(false),
 })
 
 const toInput = (b: z.infer<typeof bodySchema>): ProfileInput => ({
@@ -60,6 +62,7 @@ const toInput = (b: z.infer<typeof bodySchema>): ProfileInput => ({
   lines: b.lines.map((l) => ({ ...l, sac_code: l.sac_code || null })),
   autoSend: b.auto_send,
   isActive: b.is_active,
+  prorateFirstPeriod: b.prorate_first_period,
 })
 
 recurringInvoicesRouter.get('/', handler(async (req, res) => {
