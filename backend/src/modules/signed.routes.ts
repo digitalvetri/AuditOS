@@ -11,6 +11,7 @@ import { streamInvoicePdf, INVOICE_PDF_INCLUDE } from './invoice/pdf.js'
 import { streamEngagementPdf } from './engagement/pdf.js'
 import { INCLUDE as ENGAGEMENT_INCLUDE } from './engagement/service.js'
 import { streamDocPdf } from './docs/pdf.js'
+import { streamDocDocx } from './docs/docx.js'
 import { INCLUDE as DOC_INCLUDE } from './docs/service.js'
 
 /**
@@ -140,4 +141,18 @@ signedRouter.get('/workstation-docs/:id/pdf', handler(async (req, res) => {
   const d = await prisma.workstationDoc.findFirst({ where: { id, deletedAt: null }, include: DOC_INCLUDE })
   if (!d) throw ApiError.notFound('Document not found.')
   streamDocPdf(res, d)
+}))
+
+/**
+ * The same Workstation document rendered as .docx (POST-DELIVERY-CHANGES
+ * §D1). Walks the SAME blockConfig as the PDF route above — so the paper
+ * matches the Word file the client receives. Signed link; same audit
+ * recording (openLink) as the PDF path.
+ */
+signedRouter.get('/workstation-docs/:id/docx', handler(async (req, res) => {
+  const id = req.params.id
+  await openLink(req, `wsdoc:${id}`, 'WorkstationDoc', id)
+  const d = await prisma.workstationDoc.findFirst({ where: { id, deletedAt: null }, include: DOC_INCLUDE })
+  if (!d) throw ApiError.notFound('Document not found.')
+  await streamDocDocx(res, d)
 }))
