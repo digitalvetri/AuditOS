@@ -402,6 +402,69 @@ complianceRouter.patch('/items/:id', handler(async (req, res) => {
   ok(res, itemToApi(after, ctx))
 }))
 
+/// Create a single clock item (POST-DELIVERY-CHANGES §A). Clock forms are
+/// `frequency='event'`, which `generateItems` skips — so they need their own
+/// creation path. One active (non-deleted) clock item per (client, form).
+///
+/// POST /api/compliance/clocks
+///   { client_id, form_code, anchor_date?, assigned_employee_id? }
+///
+/// anchor_date is optional — when the firm doesn't yet know the trigger date
+/// (e.g. registration applied but not granted), create the item with anchor
+/// null; PATCH /items/:id updates it later and recomputes due dates.
+complianceRouter.post('/clocks', handler(async (req, res) => {
+  const { session, scope, organisationId } = await caller(req, MANAGE)
+  const b = req.body ?? {}
+  const errors: Record<string, string> = {}
+  const clientId = typeof b.client_id === 'string' && b.client_id ? b.client_id : (errors.client_id = 'Required', '')
+  const formCode = typeof b.form_code === 'string' && b.form_code ? b.form_code : (errors.form_code = 'Required', '')
+  let anchor: string | null = null
+  if (b.anchor_date != null && b.anchor_date !== '') {
+    if (!isIsoDate(String(b.anchor_date))) errors.anchor_date = 'YYYY-MM-DD.'
+    else anchor = String(b.anchor_date)
+  }
+  if (Object.keys(errors).length) throw ApiError.badRequest('Check the highlighted fields.', errors)
+  await assertCanSeeClient(session, scope, clientId)
+
+  const form = await prisma.complianceForm.findUnique({ where: { code: formCode } })
+  if (!form || !form.isActive) throw ApiError.notFound('Form not found or inactive.')
+  if (form.anchor !== 'event') throw ApiError.badRequest('Only event-anchored forms can be created as clocks.', { form_code: 'Not an event-anchored form.' })
+
+  // periodKey is the registration year when known, else today's FY. Clock
+  // items aren't period-recurring — this is a label for the unique key.
+  const anchorForKey = anchor ?? istToday()
+  const periodKey = `${anchorForKey.slice(0, 4)}-${formCode}`
+  const periodLabel = form.name
+
+  // Pre-compute due dates if we already have an anchor.
+  const dueDate = anchor ? applyRule(anchor, { offsetMonths: 0, dueDay: null, offsetDays: form.offsetDays }) : anchorForKey
+  const internalDueDate = anchor && form.internalTargetDays != null
+    ? applyRule(anchor, { offsetMonths: 0, dueDay: null, offsetDays: form.internalTargetDays })
+    : null
+
+  let assigned: string | null = null
+  if (b.assigned_employee_id != null && b.assigned_employee_id !== '') {
+    try { assigned = await assertEmployee(organisationId, String(b.assigned_employee_id)) }
+    catch { throw ApiError.badRequest('Check the highlighted fields.', { assigned_employee_id: 'Unknown employee.' }) }
+  }
+
+  const created = await prisma.complianceItem.create({
+    data: {
+      organisationId, clientId, formCode,
+      periodKey, periodLabel, dueDate,
+      anchorDate: anchor, internalDueDate,
+      assignedEmployeeId: assigned,
+      createdBy: session.userId,
+    },
+  }).catch((e: { code?: string }) => {
+    if (e.code === 'P2002') throw ApiError.conflict('clock_exists', 'A clock for this client and form already exists.')
+    throw e
+  })
+  await writeAudit({ actorUserId: session.userId, action: 'compliance_clock.create', entityType: 'ComplianceItem', entityId: created.id, after: created, req })
+  const ctx = await buildContext(prisma, organisationId, [created])
+  ok(res, itemToApi(created, ctx))
+}))
+
 complianceRouter.post('/items/bulk', handler(async (req, res) => {
   const { session, scope, organisationId } = await caller(req, MANAGE)
   const b = req.body ?? {}

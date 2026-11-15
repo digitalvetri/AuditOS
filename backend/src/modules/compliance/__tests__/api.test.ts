@@ -198,4 +198,34 @@ describe('compliance calendar API', () => {
     expect(again.find((r) => r.form_code === 'GSTR3B' && r.period_key === '2026-09')).toMatchObject({ status: 'filed', overdue: false })
     expect(again.some((r) => r.source === 'tds')).toBe(false)
   })
+
+  it('POST /clocks creates a GST_RULE_10A clock, enforces one-per-client, recomputes dates on anchor', async () => {
+    const o = await org()
+    const emp = await employee(o, 'Mgr')
+    const md = await login(o, 'md')
+    const c = await client(o, 'Clock Co', { businessType: 'Pvt Ltd', accountManagerId: emp.id })
+
+    // Form is seeded as a clock (frequency='event', anchor='event').
+    const forms = (await api('/api/compliance/forms', { cookie: md.cookie })).body.data as Item[]
+    expect(forms.find((f) => f.code === 'GST_RULE_10A')).toMatchObject({ anchor: 'event', frequency: 'event', authority: 'gst' })
+
+    // Reject a non-event form.
+    const bad = await api('/api/compliance/clocks', { method: 'POST', cookie: md.cookie, body: { client_id: c.id, form_code: 'ITR_AUDIT' } })
+    expect(bad.status).toBe(400)
+
+    // Create with no anchor yet (registration applied, not granted).
+    const created = await api('/api/compliance/clocks', { method: 'POST', cookie: md.cookie, body: { client_id: c.id, form_code: 'GST_RULE_10A', assigned_employee_id: emp.id } })
+    expect(created.status).toBe(200)
+    expect(created.body.data).toMatchObject({ form_code: 'GST_RULE_10A', anchor_date: null, assigned_employee_id: emp.id })
+    const clockId = created.body.data.id as string
+
+    // Second attempt for the same (client, form) conflicts.
+    const dup = await api('/api/compliance/clocks', { method: 'POST', cookie: md.cookie, body: { client_id: c.id, form_code: 'GST_RULE_10A' } })
+    expect(dup.status).toBe(409)
+
+    // PATCH the anchor — statutory due = anchor + 30 days (offsetDays), internal = +15 (internalTargetDays from seed).
+    const patched = await api(`/api/compliance/items/${clockId}`, { method: 'PATCH', cookie: md.cookie, body: { anchor_date: '2026-11-01' } })
+    expect(patched.status).toBe(200)
+    expect(patched.body.data).toMatchObject({ anchor_date: '2026-11-01', due_date: '2026-12-01', internal_due_date: '2026-11-16' })
+  })
 })
