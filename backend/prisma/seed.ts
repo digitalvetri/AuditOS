@@ -26,7 +26,7 @@ import { seedRegistration } from './seed-registration.js'
 import { seedPartnership } from './seed-partnership.js'
 import { migrateGstReturnCases } from './seed-gst-return-cases.js'
 import { seedGst } from './seed-gst.js'
-import { seedCompliance } from './seed-compliance.js'
+import { migrateInc20aFromPartnership, seedCompliance } from './seed-compliance.js'
 import { seedAudit } from './seed-audit.js'
 import { backfillReceiptNumbers } from '../src/modules/invoice/payments.js'
 
@@ -268,6 +268,11 @@ async function main() {
   const returnCases = await migrateGstReturnCases(prisma)
   const gst = await seedGst(prisma)
   console.log('Compliance catalogue:', await seedCompliance(prisma))
+  // One-way, idempotent copy of INC_20A rows from PostRegistrationCompliance
+  // into the unified ComplianceItem engine (POST-DELIVERY-CHANGES §A). The
+  // old table stays live for the partnership workflow until a follow-up
+  // switches reads over.
+  console.log('INC_20A migrated to unified clock:', await migrateInc20aFromPartnership(prisma))
   const audit = await seedAudit(prisma)
   // Payments recorded before receipt numbers were stored get the number
   // their receipt already showed. Idempotent.

@@ -142,7 +142,118 @@ export const COMPLIANCE_CATALOGUE: CatalogueForm[] = [
       computedExpr: JSON.stringify({ kind: 'min_event', event: 'first_gstr1_filed' }),
       escalateTo: 'partner',
     }),
+  f('INC_20A', 'INC-20A — Declaration of Commencement of Business', 'mca', 'event', 'company', 'event', 0, null,
+    {
+      offsetDays: 180,
+      description: 'Within 180 days of incorporation. Companies WITH SHARE CAPITAL incorporated on or after 2 Nov 2018. ' +
+        'Until filed the company cannot commence business or borrow, and the Registrar may begin strike-off under s.10A(3).',
+      // Penalty text for the dashboard. Late-fee tiers (2x / 4x / 6x / 10x / 12x of normal fee)
+      // aren't computable without the normal fee per authorised capital band — the estimator
+      // returns null, the note carries the detail.
+      lateFeeNote: '₹50,000 on the company + ₹1,000/day on each officer in default (capped at ₹1,00,000/each). ' +
+        'MCA additional fee: 2x ≤30d · 4x 31–60 · 6x 61–90 · 10x 91–180 · 12x >180.',
+      // Firm target is day 30: the client cannot legally trade or borrow until filed,
+      // so chasing it in week 25 is wrong even though it's technically on time.
+      internalTargetDays: 30,
+      // Applies to companies with share capital incorporated on or after 2 Nov 2018.
+      // LLPs, companies limited by guarantee without share capital, and pre-2018
+      // companies are excluded.
+      appliesWhen: JSON.stringify({
+        authority: 'mca',
+        entity_type: 'company',
+        has_share_capital: true,
+        incorporated_on_or_after: '2018-11-02',
+      }),
+      // Evidence = the INC-20A SRN as filed on MCA.
+      evidenceRequired: true,
+      // Earlier and more frequent escalation than Rule 10A — INC-20A has no
+      // extension, and penalties accrue per-director per-day.
+      leadUpDays: JSON.stringify([30, 15, 7, 2, 1]),
+      escalateTo: 'partner',
+    }),
 ]
+
+/**
+ * One-time migration: INC_20A rows from `PostRegistrationCompliance` (the
+ * partnership module's per-case tracker) into `ComplianceItem` under the
+ * unified clock engine. Fully idempotent — the `@@unique([clientId,
+ * formCode, periodKey])` on ComplianceItem means a re-run is a no-op.
+ *
+ * `PostRegistrationCompliance` stays untouched for now: the partnership
+ * workflow still reads and writes it. A follow-up switches those reads to
+ * ComplianceItem and freezes the old table. Until then, Admin should treat
+ * the unified entry as the long-term record; Partnership's view keeps
+ * working on its own data.
+ *
+ * Only INC_20A is migrated; ADTC and LLP_FORM_3_INITIAL stay on the
+ * partnership path (not scoped in POST-DELIVERY-CHANGES §A).
+ */
+export async function migrateInc20aFromPartnership(prisma: PrismaClient): Promise<{ migrated: number; skipped: number }> {
+  const result = { migrated: 0, skipped: 0 }
+  const form = await prisma.complianceForm.findUnique({ where: { code: 'INC_20A' } })
+  if (!form) return result // the seed hasn't run yet; next invocation will catch up
+  const rows = await prisma.postRegistrationCompliance.findMany({
+    where: { code: 'INC_20A' },
+    select: {
+      clientId: true, triggerDate: true, dueDate: true, completedOn: true,
+      completedBy: true, assignedEmployeeId: true, notes: true,
+    },
+  })
+  if (!rows.length) return result
+  // Join to the client to pick up organisationId — PartnershipCase itself
+  // doesn't carry it (it's derived through the client).
+  const clientOrg = new Map(
+    (await prisma.client.findMany({
+      where: { id: { in: [...new Set(rows.map((r) => r.clientId))] } },
+      select: { id: true, organisationId: true },
+    })).map((c) => [c.id, c.organisationId]),
+  )
+  for (const r of rows) {
+    const organisationId = clientOrg.get(r.clientId)
+    if (!organisationId) { result.skipped += 1; continue }
+    const anchor = r.triggerDate ?? null
+    // periodKey mirrors the POST /clocks convention: '<anchorYear>-<formCode>'
+    // and falls back to the dueDate year, else the completedOn year — one of
+    // these is always set on a real PostRegistrationCompliance row.
+    const yearSource = anchor ?? r.dueDate ?? r.completedOn
+    if (!yearSource) { result.skipped += 1; continue }
+    const periodKey = `${yearSource.slice(0, 4)}-INC_20A`
+    const status: string = r.completedOn ? 'filed' : 'not_started'
+    const internal = anchor && form.internalTargetDays != null
+      ? daysAdd(anchor, form.internalTargetDays)
+      : null
+    const due = anchor ? daysAdd(anchor, form.offsetDays) : (r.dueDate ?? daysAdd(yearSource, form.offsetDays))
+    await prisma.complianceItem.upsert({
+      where: { clientId_formCode_periodKey: { clientId: r.clientId, formCode: 'INC_20A', periodKey } },
+      create: {
+        organisationId,
+        clientId: r.clientId,
+        formCode: 'INC_20A',
+        periodKey,
+        periodLabel: form.name,
+        dueDate: due,
+        anchorDate: anchor,
+        internalDueDate: internal,
+        status,
+        filedOn: r.completedOn,
+        filedBy: r.completedBy,
+        assignedEmployeeId: r.assignedEmployeeId,
+        notes: r.notes,
+      },
+      update: {}, // leave existing rows alone — this is a one-way, one-time copy
+    })
+    result.migrated += 1
+  }
+  return result
+}
+
+/** Pure-string YYYY-MM-DD + N days. */
+function daysAdd(iso: string, days: number): string {
+  const [y, m, d] = iso.split('-').map(Number)
+  const t = new Date(Date.UTC(y, m - 1, d))
+  t.setUTCDate(t.getUTCDate() + days)
+  return `${t.getUTCFullYear()}-${String(t.getUTCMonth() + 1).padStart(2, '0')}-${String(t.getUTCDate()).padStart(2, '0')}`
+}
 
 export async function seedCompliance(prisma: PrismaClient): Promise<{ forms: number }> {
   let i = 0
