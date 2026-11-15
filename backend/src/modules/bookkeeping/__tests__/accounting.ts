@@ -107,9 +107,12 @@ async function makeCompany(session: Session, name: string, ledgerSpecs: [string,
   const groups = await BookkeepingGroupService.list(session, company.id)
   const groupByName = new Map(groups.map((g) => [g.name, g.id]))
   const ledgers = new Map<string, string>()
+  // The bootstrap now seeds default ledgers (e.g. "Sales"): reuse those.
+  const seeded = new Set((await BookkeepingLedgerService.list(session, company.id, {})).map((l) => l.name))
   for (const [ledgerName, groupName] of ledgerSpecs) {
     const groupId = groupByName.get(groupName)
     if (!groupId) throw new Error(`primary group "${groupName}" missing`)
+    if (seeded.has(ledgerName)) continue
     const l = await BookkeepingLedgerService.create(session, company.id, { name: ledgerName, groupId })
     ledgers.set(ledgerName, l.id)
   }

@@ -37,6 +37,8 @@ async function loadSession(): Promise<Session> {
     role: user.role.code,
     organisationId: user.organisationId,
     permissions: user.role.permissions.map((p) => p.permission.code),
+    // The live Session carries scoped grants; client visibility reads them.
+    grants: user.role.permissions.map((p) => ({ permission: p.permission.code, scope: p.scope })),
   } as unknown as Session
 }
 
