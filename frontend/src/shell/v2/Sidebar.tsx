@@ -12,7 +12,7 @@
  *                 Books (Zoho Books). One section, sibling rows.
  */
 import { Link, NavLink, useLocation } from 'react-router-dom';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import {
   BarChart3,
@@ -794,6 +794,12 @@ function FilingSeason() {
   );
 }
 
+function ProfileLink({ hasProfile, className, title, children }: { hasProfile: boolean; className: string; title?: string; children: ReactNode }) {
+  return hasProfile
+    ? <Link to="/me/profile" className={className} title={title}>{children}</Link>
+    : <div className={className} title={title}>{children}</div>;
+}
+
 /** Signed-in person, with the rail collapse toggle beside them. */
 function Profile({ collapsed, onToggle }: { collapsed: boolean; onToggle: () => void }) {
   const { session } = useAuth();
@@ -801,7 +807,9 @@ function Profile({ collapsed, onToggle }: { collapsed: boolean; onToggle: () => 
   const Icon = collapsed ? ChevronsRight : ChevronsLeft;
   return (
     <div className={'shrink-0 flex items-center gap-3 border-t border-white/[0.07] ' + (collapsed ? 'flex-col py-3 px-2' : 'px-4 py-3')}>
-      <Link to="/me/profile" className="flex items-center gap-3 min-w-0 flex-1" title={collapsed ? name : undefined}>
+      {/* Only staff with an employee record have a profile page — the Super
+          Admin / Admin owner accounts would land on "Page not found". */}
+      <ProfileLink hasProfile={Boolean(session?.employee)} className="flex items-center gap-3 min-w-0 flex-1" title={collapsed ? name : undefined}>
         <Avatar name={name} src={session?.employee?.photo_url} size={32} style={{ boxShadow: '0 0 0 2px rgb(255 255 255 / 0.12)' }} />
         {!collapsed ? (
           <span className="min-w-0">
@@ -809,7 +817,7 @@ function Profile({ collapsed, onToggle }: { collapsed: boolean; onToggle: () => 
             <span className="block text-11 text-sidebarMuted truncate">{session?.role.name}</span>
           </span>
         ) : null}
-      </Link>
+      </ProfileLink>
       <button
         type="button"
         onClick={onToggle}
