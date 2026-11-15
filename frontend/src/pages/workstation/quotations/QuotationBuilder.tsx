@@ -44,6 +44,9 @@ const key = () => `k${seq++}`;
 
 interface Line {
   key: string;
+  /** POST-DELIVERY-CHANGES §E1: lines carry the service catalogue id, not a typed string.
+   *  Null for one-off / free-text lines that genuinely don't fit any catalogue entry. */
+  serviceId: string | null;
   description: string;
   detail: string;
   frequency: string;
@@ -57,7 +60,7 @@ interface Line {
 }
 
 const newLine = (frequency = 'Monthly'): Line => ({
-  key: key(), description: '', detail: '', frequency, category: '',
+  key: key(), serviceId: null, description: '', detail: '', frequency, category: '',
   feeText: '', qtyText: '1', gstRatePercent: 18, discountPercent: 0,
 });
 
@@ -79,6 +82,14 @@ export function QuotationBuilderPage() {
   });
   const clientsQ = useQuery({ queryKey: ['quotations.clients'], queryFn: () => workstationApi.listClients() });
   const leadsQ = useQuery({ queryKey: ['quotations.leads'], queryFn: () => workstationApi.listLeads() });
+  // POST-DELIVERY-CHANGES §E1 — service lines become a picker over the catalogue.
+  // Loading the catalogue here (not inside the LineEditor) keeps the picker's
+  // options stable across re-renders of individual rows.
+  const servicesQ = useQuery({
+    queryKey: ['quotations.services'],
+    queryFn: () => workstationApi.serviceCatalog(),
+    staleTime: 5 * 60_000,
+  });
   const templatesQ = useQuery({ queryKey: ['quotations.templates'], queryFn: () => quotationsApi.templates() });
 
   // ── One state object. Everything the document shows lives here. ────────
@@ -153,6 +164,7 @@ export function QuotationBuilderPage() {
     setBlocks((q.block_config as BlockSpec[] | null) ?? defaultBlocks(tpl));
     setLines(q.items.map((i) => ({
       key: key(),
+      serviceId: i.service_id ?? null,
       description: i.description,
       detail: i.detail ?? '',
       frequency: i.frequency ?? '',
@@ -172,6 +184,7 @@ export function QuotationBuilderPage() {
 
   /** Lines in the shape the totals engine and the API both want. */
   const itemInputs: QuotationItemInput[] = useMemo(() => lines.map((l) => ({
+    service_id: l.serviceId ?? null,
     description: l.description.trim() || 'Untitled line',
     quantity_centi: compliance ? 100 : Math.max(1, Math.round(Number(l.qtyText || '1') * 100)),
     unit_rate_paise: rupeesToPaise(l.feeText),
@@ -579,7 +592,7 @@ export function QuotationBuilderPage() {
                 introduction, setIntroduction, closingText, setClosingText,
                 preparedByName, setPreparedByName, preparedByDesignation, setPreparedByDesignation,
                 notes, setNotes, terms, setTerms, paymentDetails, setPaymentDetails,
-                lines, setLines, sections, setSections, setBlocks, compliance, err,
+                lines, setLines, sections, setSections, setBlocks, compliance, services: servicesQ.data?.items ?? [], err,
               }}
             />
           ) : null}
@@ -655,6 +668,8 @@ type DetailsProps = {
   /** Space blocks are added from beside "Add service", so this tab needs them. */
   setBlocks: (f: (b: BlockSpec[]) => BlockSpec[]) => void;
   compliance: boolean;
+  /** Service catalogue options (POST-DELIVERY-CHANGES §E1). */
+  services: { id: string; name: string }[];
   err: (k: string) => string | undefined;
 };
 
@@ -824,6 +839,29 @@ function ServiceEditor(p: DetailsProps) {
                 <Trash2 size={13} />
               </button>
             </div>
+            {/* Service picker (POST-DELIVERY-CHANGES §E1). Choosing one stamps
+                the line with service_id; the description defaults to the
+                service name but stays free text so the firm can elaborate
+                on this quotation without editing the catalogue row. */}
+            <select
+              value={l.serviceId ?? ''}
+              onChange={(e) => {
+                const id = e.target.value || null;
+                const svc = p.services.find((s) => s.id === id);
+                p.setLines((ls) => ls.map((x) => (x.key === l.key ? {
+                  ...x,
+                  serviceId: id,
+                  description: svc && !x.description.trim() ? svc.name : x.description,
+                } : x)));
+              }}
+              className={inputClass + ' mb-2'}
+              aria-label="Service"
+            >
+              <option value="">Free-text line (no catalogue service)</option>
+              {p.services.map((s) => (
+                <option key={s.id} value={s.id}>{s.name}</option>
+              ))}
+            </select>
             <input
               value={l.description}
               onChange={(e) => p.setLines((ls) => ls.map((x) => (x.key === l.key ? { ...x, description: e.target.value } : x)))}
