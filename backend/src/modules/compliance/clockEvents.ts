@@ -19,8 +19,21 @@ import { applyRule } from './engine.js'
 
 export interface ClockEventResult {
   created: boolean
-  skipped?: 'exempt' | 'already_exists' | 'form_missing' | 'no_anchor'
+  skipped?: 'exempt' | 'already_exists' | 'form_missing' | 'no_anchor' | 'client_inactive'
   itemId?: string
+}
+
+/**
+ * Client is inactive (POST-DELIVERY-CHANGES §B3) → no new clocks. Guards
+ * the auto-create hooks so a straggler event (e.g. a delayed GST registration
+ * for a client the firm has already parted ways with) never resurrects a
+ * client into the firm's active workload.
+ */
+async function isClientInactive(prisma: PrismaClient, clientId: string): Promise<boolean> {
+  const c = await prisma.client.findUnique({ where: { id: clientId }, select: { status: true, deletedAt: true } })
+  if (!c) return true
+  if (c.deletedAt) return true
+  return c.status === 'inactive'
 }
 
 /**
@@ -44,6 +57,8 @@ export async function onGstRegistrationGranted(prisma: PrismaClient, p: {
   isNewGrant: boolean
 }): Promise<ClockEventResult> {
   if (!p.isNewGrant || !p.registrationDate) return { created: false, skipped: 'no_anchor' }
+  // POST-DELIVERY-CHANGES §B3 — inactive or deleted clients don't accept new clocks.
+  if (await isClientInactive(prisma, p.clientId)) return { created: false, skipped: 'client_inactive' }
   // Exemption. The seed's appliesWhen JSON is the source of truth; this
   // helper mirrors its registration_type_not_in list. Keep them aligned.
   const exempt = new Set(['non_resident', 'tds', 'tcs', 'suo_moto', 'oidar'])
@@ -107,9 +122,11 @@ export async function onPrivateLimitedIncorporated(prisma: PrismaClient, p: {
   if (!row) return { created: false, skipped: 'no_anchor' }
   const client = await prisma.client.findUnique({
     where: { id: row.clientId },
-    select: { organisationId: true },
+    select: { organisationId: true, status: true, deletedAt: true },
   })
-  if (!client) return { created: false, skipped: 'no_anchor' }
+  if (!client || client.deletedAt) return { created: false, skipped: 'no_anchor' }
+  // POST-DELIVERY-CHANGES §B3 — inactive clients don't get new clocks.
+  if (client.status === 'inactive') return { created: false, skipped: 'client_inactive' }
 
   const form = await prisma.complianceForm.findUnique({
     where: { code: 'INC_20A' },
