@@ -596,6 +596,14 @@ export function AddClientModal({ open, onClose, organization, defaultName, onCre
       toast.push('success', organization
         ? `${client.company_name} (${client.client_id}) added to ${organization.name}.`
         : `${isOrg ? 'Organization client' : 'Client'} ${client.client_id} created.`);
+      // POST-DELIVERY-CHANGES §B2 — a shared phone number is legitimate
+      // (proprietor + firm), but worth noticing so the firm doesn't create
+      // a duplicate by mistake. Non-blocking warning toast.
+      const dupes = (client as unknown as { phone_duplicates?: Array<{ client_code: string; company_name: string }> }).phone_duplicates;
+      if (dupes && dupes.length) {
+        const names = dupes.map((d) => `${d.client_code} ${d.company_name}`).join(', ');
+        toast.push('info', `This phone number is also on: ${names}`);
+      }
       onClose();
       if (onCreated) onCreated(client.id);
       else navigate(`/workstation/clients/${client.id}${client.is_organization ? '/organization' : ''}`);

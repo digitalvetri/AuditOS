@@ -18,7 +18,7 @@ import {
 import {
   body, CLIENT_STATUSES, DOCUMENT_STATUSES, FieldErrors, SERVICE_STATUSES,
 } from './validate.js'
-import { clientListWhere, clientOrderBy, createClientRow, readClientFields } from './clients.shared.js'
+import { clientListWhere, clientOrderBy, createClientRow, findDuplicatePhoneClients, readClientFields } from './clients.shared.js'
 
 /**
  * CLIENTS (AUDIT_OS_WORKSTATION.md §7.3) — the central workspace.
@@ -150,7 +150,11 @@ clientsRouter.post('/', handler(async (req, res) => {
   }
 
   const m = await employeeMap([client.accountManagerId, client.secondaryManagerId])
-  ok(res, clientToApi(client, m), 201)
+  // POST-DELIVERY-CHANGES §B2 — warn (don't block) when the phone matches
+  // an existing client. A proprietor and their firm legitimately share a
+  // number; the UI surfaces the overlap as a chip.
+  const phoneDuplicates = await findDuplicatePhoneClients(client.contactNumber, client.id)
+  ok(res, { ...clientToApi(client, m), phone_duplicates: phoneDuplicates }, 201)
 }))
 
 // GET /api/clients/:id
@@ -366,7 +370,14 @@ clientsRouter.patch('/:id', handler(async (req, res) => {
   })
 
   const m = await employeeMap([client.accountManagerId, client.secondaryManagerId])
-  ok(res, clientToApi(client, m))
+  // POST-DELIVERY-CHANGES §B2 — only check for duplicates when the PATCH
+  // actually touched contact_number (don't nag the firm about a pre-existing
+  // overlap on every unrelated edit).
+  const touchedPhone = 'contact_number' in b
+  const phoneDuplicates = touchedPhone
+    ? await findDuplicatePhoneClients(client.contactNumber, client.id)
+    : []
+  ok(res, { ...clientToApi(client, m), phone_duplicates: phoneDuplicates })
 }))
 
 // GET /api/clients/:id/activity
