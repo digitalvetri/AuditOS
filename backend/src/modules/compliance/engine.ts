@@ -159,7 +159,20 @@ export function dueFor(form: FormRule, period: Period | string, fy?: string, agm
       break
     default: return null
   }
-  return { statutory_due_date: applyRule(anchor, form), anchor_date: anchor, anchor_missing: missing }
+  return { statutory_due_date: applyRule(anchor, gstr4Rule(form, y)), anchor_date: anchor, anchor_missing: missing }
+}
+
+/**
+ * GSTR-4 moved: Notification 12/2024-CT (10 Jul 2024) added a proviso to
+ * CGST Rule 62(1) — from FY 2024-25 it is due 30 June after the FY; up to
+ * FY 2023-24, 30 April. The statutory rule (either date, as seeded before or
+ * after the change) is applied per FY; a rule a firm set to anything else is
+ * left alone.
+ */
+function gstr4Rule<T extends Pick<FormRule, 'code' | 'anchor' | 'offsetMonths' | 'dueDay' | 'offsetDays'>>(form: T, fyStartYear: number): T {
+  const statutory = form.code === 'GSTR4' && form.anchor === 'fy_end' && form.dueDay === 30 && !form.offsetDays
+    && (form.offsetMonths === 1 || form.offsetMonths === 3)
+  return statutory ? { ...form, offsetMonths: fyStartYear >= 2024 ? 3 : 1 } : form
 }
 
 export function findPeriod(form: FormRule, key: string): Period | null {

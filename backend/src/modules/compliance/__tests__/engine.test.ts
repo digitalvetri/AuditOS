@@ -24,7 +24,9 @@ describe('due-date engine — every seeded rule', () => {
     ['FORM_10B', '2025-26', '2026-09-30'],
     ['GSTR9', '2025-26', '2026-12-31'],
     ['GSTR9C', '2025-26', '2026-12-31'],
-    ['GSTR4', '2025-26', '2026-04-30'],
+    ['GSTR4', '2025-26', '2026-06-30'],
+    ['GSTR4', '2024-25', '2025-06-30'],
+    ['GSTR4', '2023-24', '2024-04-30'],
     ['AGM', '2025-26', '2026-09-30'],
     ['DIR3_KYC', '2026-27', '2026-09-30'],
     ['DPT3', '2025-26', '2026-06-30'],
@@ -32,6 +34,15 @@ describe('due-date engine — every seeded rule', () => {
     ['LLP8', '2025-26', '2026-10-30'],
   ])('%s %s → %s', (code, key, expected) => {
     expect(due(code, key)).toBe(expected)
+  })
+
+  it('GSTR4: 30 June from FY 2024-25 (Notification 12/2024-CT), 30 April before — also on a rule seeded with the old 30 April', () => {
+    const legacy: FormRule = { ...form('GSTR4'), offsetMonths: 1, dueDay: 30 }
+    expect(dueFor(legacy, '2025-26')?.statutory_due_date).toBe('2026-06-30')
+    expect(dueFor(legacy, '2024-25')?.statutory_due_date).toBe('2025-06-30')
+    expect(dueFor(legacy, '2023-24')?.statutory_due_date).toBe('2024-04-30')
+    // A rule the firm changed to something else is left alone.
+    expect(dueFor({ ...form('GSTR4'), offsetMonths: 2, dueDay: 15 }, '2025-26')?.statutory_due_date).toBe('2026-05-15')
   })
 
   it('ADVANCE_TAX: four instalments on the 15th of Jun, Sep, Dec, Mar', () => {

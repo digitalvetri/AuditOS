@@ -51,7 +51,7 @@ changes as extensions or catalogue edits.
 | GSTR9 | GST annual return | fy_end +9, day 31 → 31 Dec | any |
 | GSTR9C | GST reconciliation statement | fy_end +9, day 31 → 31 Dec | any |
 | CMP08 | Composition quarterly payment | quarterly, period_end +1, day 18 | any |
-| GSTR4 | Composition annual return | fy_end +1, day 30 → 30 Apr | any |
+| GSTR4 | Composition annual return | fy_end +3, day 30 → 30 Jun (FY 2024-25 on; 30 Apr before — engine.ts) | any |
 | PMT06 | QRMP monthly tax payment | monthly, months 4,5,7,8,10,11,1,2, period_end +1, day 25 | any |
 | AGM | Hold AGM | fy_end +6, day 30 → 30 Sep | company |
 | AOC4 | Financial statements to ROC | agm +30 days | company |
