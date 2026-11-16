@@ -5,7 +5,7 @@ import { signToken } from '../../../platform/auth.js'
 import { setupRoles } from '../../../../prisma/setup-roles.js'
 import { istToday } from '../../../lib/dates.js'
 import { prisma, uid } from '../../../__tests__/helpers.js'
-import { ensurePeriodJobs, generateGstFilingJobs, markDataFromPortal, previousPeriod, refreshClientGst, syncGstEnrolment } from '../filing.js'
+import { dataReminderBody, ensurePeriodJobs, generateGstFilingJobs, markDataFromPortal, previousPeriod, refreshClientGst, syncGstEnrolment } from '../filing.js'
 import { assertGstr1Transition, assertGstr3bTransition } from '../validate.js'
 
 let orgId = ''
@@ -238,5 +238,13 @@ describe('data received', () => {
   })
   it('remind refuses an empty list', async () => {
     expect((await api('/api/gst/filing/remind', { method: 'POST', body: { period_ids: [] } })).status).toBe(400)
+  })
+})
+
+describe('dataReminderBody', () => {
+  it('without a portal link asks the client to reply, with no relative path', () => {
+    const { body } = dataReminderBody('Acme', '2026-10', null, null)
+    expect(body).toContain('reply to this email')
+    expect(body).not.toContain('/portal/')
   })
 })

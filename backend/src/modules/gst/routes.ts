@@ -1095,7 +1095,7 @@ gstRouter.post('/filing/remind', handler(async (req, res) => {
     if (!primary) { failed.push({ period_id: r.id, reason: 'No email address on file.' }); continue }
     const gstr1 = r.filings.find((f) => f.returnType === 'GSTR-1') ?? r.filings[0]
     const link = await prisma.clientDocumentShareLink.findFirst({ where: { clientId, revokedAt: null, pausedAt: null }, orderBy: { createdAt: 'desc' } })
-    const url = link ? `${env.publicAppUrl ?? ''}/portal/documents/${link.token}` : null
+    const url = link && env.publicAppUrl ? `${env.publicAppUrl}/portal/documents/${link.token}` : null
     const msg = dataReminderBody(r.gstProfile.client.companyName, r.period, gstr1?.dueDate ?? null, url)
     try {
       await sendClientReminder(prisma, {
@@ -1107,7 +1107,7 @@ gstRouter.post('/filing/remind', handler(async (req, res) => {
       failed.push({ period_id: r.id, reason: e instanceof Error ? e.message : 'Could not send.' })
     }
   }
-  await writeAudit({ actorUserId: session.userId, action: 'gst.filing.data_reminder', entityType: 'GstCompliancePeriod', entityId: ids.join(','), after: { sent, failed: failed.length }, req })
+  await writeAudit({ actorUserId: session.userId, action: 'gst.filing.data_reminder', entityType: 'GstCompliancePeriod', entityId: rows[0]?.id ?? 'none', after: { period_ids: rows.map((r) => r.id), sent, failed: failed.length }, req })
   ok(res, { sent, failed })
 }))
 
