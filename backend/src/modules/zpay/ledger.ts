@@ -23,6 +23,7 @@ import { lockSequence } from '../../lib/sequence.js'
 import { recomputeInvoice, assertRefundsCovered } from '../invoice/payments.js'
 import { nextReceiptNumber } from '../../platform/workstation/codes.js'
 import { isCollected } from './statuses.js'
+import { closeStaleInvoiceLinks } from '../integrations/payment-links.js'
 
 const APP_INVOICE_RE = /\bINV-\d{6}\b/i
 
@@ -74,7 +75,7 @@ export async function postCollectionToInvoice(zpayPaymentId: string, opts: { inv
   }
 
   try {
-    return await prisma.$transaction(async (tx) => {
+    const out = await prisma.$transaction(async (tx) => {
       await lockSequence(tx, `invoice:${inv.id}`)
       // Automatic posting only: the same money may already have been typed
       // in by hand (same amount, same day, no external id). Skip rather than
@@ -115,6 +116,9 @@ export async function postCollectionToInvoice(zpayPaymentId: string, opts: { inv
       await recomputeInvoice(tx, inv.id, opts.actorUserId ?? null)
       return { posted: true, invoiceId: inv.id, invoiceNumber: inv.invoiceNumber, reason: null }
     })
+    // Settled? Its open gateway payment links must not stay payable.
+    if (out.posted) await closeStaleInvoiceLinks(inv.id, opts.actorUserId ?? null)
+    return out
   } catch (e) {
     // Caught OUTSIDE the transaction: a unique violation aborts it in Postgres.
     if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2002') {

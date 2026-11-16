@@ -175,6 +175,7 @@ export async function generateForProfile(profileId: string, opts: { today?: stri
     })
     let invoiceId: string
     let invoiceNumber: string | null = null
+    let notSent: string | null = null
     let created = false
     if (existing) {
       invoiceId = existing.id
@@ -208,8 +209,12 @@ export async function generateForProfile(profileId: string, opts: { today?: stri
       }, { userId: opts.userId ?? p.createdBy ?? null, employeeId: opts.employeeId ?? null, recurringProfileId: p.id, clientServiceId: p.clientServiceId })
       // Auto-send only what may be sent (firm GSTIN, place of supply…);
       // otherwise the period's invoice waits as a draft for someone to fix.
-      if (p.autoSend && (await invoiceSendBlockers(tx, invoiceId)).length === 0) {
-        invoiceNumber = await sendInvoiceTx(tx, invoiceId, opts.userId ?? null)
+      if (p.autoSend) {
+        const [blocker] = await invoiceSendBlockers(tx, invoiceId)
+        if (blocker) {
+          notSent = `Raised as a draft, not sent: ${blocker.message}`
+          console.warn('[recurring] profile', p.id, notSent)
+        } else invoiceNumber = await sendInvoiceTx(tx, invoiceId, opts.userId ?? null)
       }
       created = true
     }
@@ -219,7 +224,7 @@ export async function generateForProfile(profileId: string, opts: { today?: stri
       data: { nextIssueDate: next, lastGeneratedAt: new Date(), lastInvoiceId: invoiceId, updatedBy: opts.userId ?? undefined },
     })
     if (moved.count === 0) throw ApiError.conflict('concurrent_run', 'Another run raised this period at the same moment.')
-    return { created, invoice_id: invoiceId, invoice_number: invoiceNumber, ...(created ? {} : { reason: 'Already raised for this period.' }) }
+    return { created, invoice_id: invoiceId, invoice_number: invoiceNumber, ...(created ? (notSent ? { reason: notSent } : {}) : { reason: 'Already raised for this period.' }) }
   }, { maxWait: 10_000, timeout: 60_000 })
 }
 

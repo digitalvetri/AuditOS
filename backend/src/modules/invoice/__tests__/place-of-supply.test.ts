@@ -145,6 +145,7 @@ describe('place of supply and the tax split', () => {
     const run = await generateForProfile(created.body.id, { today: '2026-10-01' })
     expect(run.created).toBe(true)
     expect(run.invoice_number).toBeNull()
+    expect(run.reason).toMatch(/draft, not sent: Choose the place of supply/)
     expect((await prisma.invoice.findUniqueOrThrow({ where: { id: run.invoice_id! } })).status).toBe('draft')
   })
 })

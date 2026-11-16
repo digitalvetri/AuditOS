@@ -15,6 +15,7 @@
  * organisation scope; recording needs `payment_summary.manage`.
  */
 import { Router } from 'express'
+import { closeStaleInvoiceLinks } from '../integrations/payment-links.js'
 import { z } from 'zod'
 import { ApiError, handler, ok } from '../../lib/http.js'
 import { prisma } from '../../lib/prisma.js'
@@ -264,6 +265,7 @@ paymentSummaryRouter.post('/invoices/:id/payments',
       after: paymentToApi(row), req,
     })
     await notifyPaymentRecorded(req.params.id, row.amountPaise, session)
+    await closeStaleInvoiceLinks(req.params.id, session.userId)
     ok(res, { payment: paymentToApi(row), payments: await listPayments(req.params.id) })
   }))
 
