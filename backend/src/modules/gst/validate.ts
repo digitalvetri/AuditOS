@@ -8,6 +8,7 @@
  * same reason: the table is shared, so rewriting history was not an option.
  */
 import { ApiError } from '../../lib/http.js'
+import { istToday } from '../../lib/dates.js'
 
 export const GSTR1_STATUSES = [
   'pending', 'data_collection', 'in_preparation', 'under_review',
@@ -105,9 +106,32 @@ export function assertFilingRecord(arn: string | null | undefined, filedDate: st
   if (!arn || !arn.trim()) {
     throw ApiError.badRequest('An ARN is required to record a return as filed.')
   }
-  if (!filedDate || !/^\d{4}-\d{2}-\d{2}$/.test(filedDate)) {
+  if (!filedDate || !isCalendarDate(filedDate)) {
     throw ApiError.badRequest('A filing date (YYYY-MM-DD) is required.')
   }
+  if (filedDate > istToday()) throw ApiError.badRequest('The filing date cannot be in the future.')
+}
+
+/** 'YYYY-MM-DD' that is a real day on the calendar (no 2026-02-31). */
+export function isCalendarDate(v: unknown): v is string {
+  if (typeof v !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(v)) return false
+  const [y, m, d] = v.split('-').map(Number)
+  const dt = new Date(Date.UTC(y, m - 1, d))
+  return dt.getUTCFullYear() === y && dt.getUTCMonth() === m - 1 && dt.getUTCDate() === d
+}
+
+/** A real date, today or earlier — a payment or a filing that already happened. */
+export function assertPastDate(value: string | null, label: string) {
+  if (value === null) return
+  if (!isCalendarDate(value)) throw ApiError.badRequest(`${label} must be a real date (YYYY-MM-DD).`)
+  if (value > istToday()) throw ApiError.badRequest(`${label} cannot be in the future.`)
+}
+
+/** Optional free text: absent/null/'' → null; anything but a string → 400. */
+export function optionalText(value: unknown, label: string, max = 100): string | null {
+  if (value === undefined || value === null || value === '') return null
+  if (typeof value !== 'string') throw ApiError.badRequest(`${label} must be text.`)
+  return value.trim().slice(0, max) || null
 }
 
 /** Rupee input → integer paise. Accepts Indian grouping ('1,50,000.50'). Rejects anything that is not a number. */
@@ -158,7 +182,7 @@ export function assertOneOf(value: string, allowed: readonly string[], label: st
 
 /** 'YYYY-MM-DD' or null. */
 export function assertDate(value: string | null, label: string) {
-  if (value !== null && !/^\d{4}-\d{2}-\d{2}$/.test(value)) {
+  if (value !== null && !isCalendarDate(value)) {
     throw ApiError.badRequest(`${label} must be a date.`)
   }
 }

@@ -453,6 +453,10 @@ clientsRouter.post('/:id/services', handler(async (req, res) => {
   const managerId = v.str('manager_id', b.manager_id, { required: false })
   const dueDate = v.date('due_date', b.due_date, false)
   const notes = v.str('notes', b.notes, { required: false, max: 2000 })
+  // GST Filing only: how the client files (QRMP clients are quarterly).
+  const filingFrequency = b.filing_frequency === undefined || b.filing_frequency === null || b.filing_frequency === ''
+    ? undefined : b.filing_frequency === 'monthly' || b.filing_frequency === 'quarterly' ? b.filing_frequency as 'monthly' | 'quarterly'
+      : (v.add('filing_frequency', 'Monthly or quarterly.'), undefined)
   v.throwIfAny()
 
   const [service, employee] = await Promise.all([
@@ -477,7 +481,7 @@ clientsRouter.post('/:id/services', handler(async (req, res) => {
     },
     include: { service: true, client: true },
   })
-  if (service!.code === 'GST_FILING') await refreshClientGst(prisma, req.params.id, session.userId)
+  if (service!.code === 'GST_FILING') await refreshClientGst(prisma, req.params.id, session.userId, { frequency: filingFrequency })
 
   await writeActivity({
     session, subjectType: 'client', subjectId: req.params.id,

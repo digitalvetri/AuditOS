@@ -462,8 +462,9 @@ function AssignServiceModal({ client, open, onClose }: { client: ClientDetail; o
   const toast = useToast();
   const catalog = useQuery({ queryKey: ['workstation', 'catalog'], queryFn: workstationApi.serviceCatalog });
   const employees = useQuery({ queryKey: ['workstation', 'employees'], queryFn: workstationApi.assignableEmployees });
-  const [form, setForm] = useState({ service_id: '', assigned_employee_id: '', manager_id: '', due_date: '', notes: '' });
+  const [form, setForm] = useState({ service_id: '', assigned_employee_id: '', manager_id: '', due_date: '', notes: '', filing_frequency: 'monthly' });
   const set = (k: keyof typeof form, v: string) => setForm((f) => ({ ...f, [k]: v }));
+  const isGstFiling = (catalog.data?.items ?? []).find((s) => s.id === form.service_id)?.code === 'GST_FILING';
 
   const create = useMutation({
     mutationFn: () => workstationApi.addClientService(client.id, {
@@ -472,6 +473,7 @@ function AssignServiceModal({ client, open, onClose }: { client: ClientDetail; o
       manager_id: form.manager_id || undefined,
       due_date: form.due_date || undefined,
       notes: form.notes || undefined,
+      filing_frequency: isGstFiling ? form.filing_frequency : undefined,
     }),
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: ['workstation'] });
@@ -497,6 +499,14 @@ function AssignServiceModal({ client, open, onClose }: { client: ClientDetail; o
           {(catalog.data?.items ?? []).map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
         </select>
       </Field>
+      {isGstFiling && (
+        <Field label="Files GST returns" error={e.filing_frequency} hint="Quarterly for QRMP clients. Applies when the client is first enrolled; change it later on the client's GST profile.">
+          <select className={inputClass} value={form.filing_frequency} onChange={(ev) => set('filing_frequency', ev.target.value)}>
+            <option value="monthly">Monthly</option>
+            <option value="quarterly">Quarterly (QRMP)</option>
+          </select>
+        </Field>
+      )}
       <Field label="Assigned To" error={e.assigned_employee_id}>
         <select className={inputClass} value={form.assigned_employee_id} onChange={(ev) => set('assigned_employee_id', ev.target.value)}>
           <option value="">Select an employee…</option>

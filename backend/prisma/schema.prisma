@@ -1769,6 +1769,14 @@ model GstProfile {
   contactPhone       String?
   address            String?
   active             Boolean @default(true)
+  /// Paused by a person on the GST client screen (PATCH active=false). The
+  /// nightly GST Filing sync leaves a paused profile paused until a person
+  /// switches it back on.
+  pausedByUser       Boolean @default(false)
+  /// The GST Filing service's assignee as the sync last copied it. The sync
+  /// moves the profile's assignee only when the SERVICE's assignee changes, so
+  /// a reassignment made on the profile survives the nightly run.
+  syncedAssigneeId   String?
 
   client       Client                @relation(fields: [clientId], references: [id])
   filings      GstFiling[]

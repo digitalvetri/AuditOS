@@ -28,7 +28,7 @@ import {
   nextDueOf, today, writeGstAudit,
 } from './service.js'
 import { env } from '../../lib/env.js'
-import { setDataStatus, dataReminderBody, previousPeriod, GST_FILING_SERVICE_CODE } from './filing.js'
+import { setDataStatus, dataReminderBody, previousPeriod, realignOpenJobs, GST_FILING_SERVICE_CODE } from './filing.js'
 import { openCase } from '../partnership/service.js'
 import { TaskService } from '../task/service.js'
 import {
@@ -38,10 +38,10 @@ import {
   clientAddresses, computeUpcoming, sendClientReminder, defaultReminderSubject, defaultReminderBody, DUE_SOON_DAYS,
 } from './reminders.js'
 import {
-  assertDate, assertFilingRecord, assertGstin, assertGstinMatchesPan, assertGstr1Transition,
+  assertDate, assertFilingRecord, assertGstin, assertPastDate, optionalText, assertGstinMatchesPan, assertGstr1Transition,
   assertGstr2bTransition, assertGstr3bTransition, assertOneOf, assertPan,
   normaliseFilingStatus, toPaise,
-  FILING_FREQUENCIES, REGISTRATION_STATUSES, REGISTRATION_TYPES,
+  FILING_FREQUENCIES, PAYMENT_STATUSES, REGISTRATION_STATUSES, REGISTRATION_TYPES,
 } from './validate.js'
 
 export const gstRouter = Router()
@@ -118,7 +118,7 @@ gstRouter.get('/filing-board', handler(async (req, res) => {
   const svc = await prisma.service.findFirst({ where: { code: GST_FILING_SERVICE_CODE, deletedAt: null } })
   const bare = svc ? await prisma.clientService.findMany({
     where: {
-      serviceId: svc.id, deletedAt: null, status: { not: 'on_hold' },
+      serviceId: svc.id, deletedAt: null, status: { notIn: ['on_hold', 'completed', 'failed'] },
       client: {
         deletedAt: null, status: { not: 'inactive' }, OR: [{ gstin: null }, { gstin: '' }],
         ...(ids === 'ALL' ? {} : { id: { in: ids } }),
@@ -1039,6 +1039,13 @@ gstRouter.post('/periods/:id/stages/:stage', handler(async (req, res) => {
   const arn = 'arn' in b ? s('arn') : existing?.arn ?? null
   const filedDate = s('filed_date')
   if (status === 'filed') assertFilingRecord(arn, filedDate ?? (existing?.filedAt ? istDateOf(existing.filedAt) : null))
+  else if (filedDate) assertPastDate(filedDate, 'The filing date')
+  if (stage === 'gstr3b') {
+    const ps = s('payment_status')
+    if (ps !== null) assertOneOf(ps, PAYMENT_STATUSES, 'payment status')
+    if ('payment_date' in b) assertPastDate(s('payment_date'), 'The payment date')
+    if ('challan_ref' in b) optionalText(b.challan_ref, 'The challan reference')
+  }
 
   const now = new Date()
   const money = stage === 'gstr1'
@@ -1123,26 +1130,29 @@ gstRouter.post('/periods/:id/payment', handler(async (req, res) => {
   if (!filing) throw ApiError.badRequest('There is no GSTR-3B on this period yet.')
   // Filed with the payment still due: `filed` + pending payment, or the
   // `payment_pending` status — both read "Filed · payment due" on the board.
-  if (!['filed', 'payment_pending'].includes(normaliseFilingStatus(filing.status, 'GSTR-3B')) &&
-      filing.paymentStatus !== 'pending') {
-    throw ApiError.badRequest('Record the GSTR-3B as filed before recording its payment.')
+  // A payment status of 'pending' on an unfiled return is not enough: the
+  // return must actually be filed, with its ARN, before it can complete.
+  if (!['filed', 'payment_pending'].includes(normaliseFilingStatus(filing.status, 'GSTR-3B')) || !filing.arn?.trim()) {
+    throw ApiError.badRequest('Record the GSTR-3B as filed (with its ARN) before recording its payment.')
   }
-  const date = typeof b.payment_date === 'string' ? b.payment_date : null
-  if (!date || !/^\d{4}-\d{2}-\d{2}$/.test(date)) throw ApiError.badRequest('A payment date is required.')
+  const date = typeof b.payment_date === 'string' && b.payment_date ? b.payment_date : null
+  if (!date) throw ApiError.badRequest('A payment date is required.')
+  assertPastDate(date, 'The payment date')
+  const challanRef = optionalText(b.challan_ref, 'The challan reference')
 
   await prisma.gstFiling.update({
     where: { id: filing.id },
     data: {
       paymentStatus: 'completed',
       paymentDate: date,
-      challanRef: typeof b.challan_ref === 'string' ? b.challan_ref : null,
+      challanRef,
       status: 'completed',
       updatedBy: session.userId,
     },
   })
   await writeGstAudit({
     compliancePeriodId: row.id, action: 'PAYMENT_RECORDED', stage: 'payment',
-    userId: session.userId, newValue: date, meta: { challan_ref: b.challan_ref ?? null },
+    userId: session.userId, newValue: date, meta: { challan_ref: challanRef },
   })
   ok(res, { ok: true })
 }))
@@ -1508,7 +1518,16 @@ gstRouter.patch('/clients/:id', handler(async (req, res) => {
     updatedBy: session.userId,
   }
 
-  await prisma.gstProfile.update({ where: { id: current.id }, data: next })
+  await prisma.gstProfile.update({
+    where: { id: current.id },
+    // Switched off or on by a person here: the nightly sync respects it.
+    data: { ...next, ...(next.active !== current.active ? { pausedByUser: !next.active } : {}) },
+  })
+  // A new frequency (QRMP) or registration type: withdraw the open jobs no
+  // longer owed and re-date the rest, so the board and calendar agree.
+  if (filingFrequency !== current.filingFrequency || registrationType !== current.registrationType) {
+    await realignOpenJobs(prisma, current.id, session.userId)
+  }
 
   // Only the fields that actually moved go into the trail (§39).
   const changed: Record<string, [unknown, unknown]> = {}
