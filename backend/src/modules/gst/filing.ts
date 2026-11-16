@@ -38,11 +38,19 @@ async function liveGstServices(db: PrismaClient, clientId?: string) {
   const rows = await db.clientService.findMany({
     where: { serviceId: svc.id, deletedAt: null, ...(clientId ? { clientId } : {}) },
     include: { client: { select: { id: true, gstin: true, status: true, deletedAt: true } } },
-    orderBy: { createdAt: 'asc' },
+    orderBy: { createdAt: 'desc' },
   })
+  // Per client: the newest row still in progress (not completed / failed), else the newest row.
+  const active = new Map<string, (typeof rows)[number]>()
+  const newest = new Map<string, (typeof rows)[number]>()
   for (const r of rows) {
     if (r.status === 'on_hold' || r.client.deletedAt || r.client.status === 'inactive') continue
-    if (!live.has(r.clientId)) live.set(r.clientId, { assignedEmployeeId: r.assignedEmployeeId, gstin: r.client.gstin })
+    if (!newest.has(r.clientId)) newest.set(r.clientId, r)
+    if (!active.has(r.clientId) && r.status !== 'completed' && r.status !== 'failed') active.set(r.clientId, r)
+  }
+  for (const [id, n] of newest) {
+    const r = active.get(id) ?? n
+    live.set(id, { assignedEmployeeId: r.assignedEmployeeId, gstin: r.client.gstin })
   }
   return { live, serviceId: svc.id }
 }

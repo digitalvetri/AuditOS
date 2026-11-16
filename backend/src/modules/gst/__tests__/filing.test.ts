@@ -113,6 +113,19 @@ describe('syncGstEnrolment', () => {
     await syncGstEnrolment(prisma, { clientId: c.id })
     expect(await prisma.gstProfile.findUniqueOrThrow({ where: { clientId: c.id } })).toMatchObject({ active: true, assignedEmployeeId: other.id })
   })
+  it('takes the assignee from the newest active service row', async () => {
+    const ws = (await prisma.workSchedule.findFirstOrThrow()).id
+    const mk = async (n: string) => (await prisma.employee.create({
+      data: { organisationId: orgId, employeeCode: uid('E'), firstName: 'Gst', lastName: n, fullName: uid(`Gst ${n}`), email: `${uid('g')}@x.local`, joiningDate: '2026-01-01', workScheduleId: ws },
+    })).id
+    const [older, newer, done] = [await mk('Older'), await mk('Newer'), await mk('Done')]
+    const c = await gstClient({ withService: false })
+    await prisma.clientService.create({ data: { clientId: c.id, serviceId, assignedEmployeeId: older, status: 'not_started', createdAt: new Date('2026-01-01T00:00:00Z') } })
+    await prisma.clientService.create({ data: { clientId: c.id, serviceId, assignedEmployeeId: newer, status: 'in_progress', createdAt: new Date('2026-02-01T00:00:00Z') } })
+    await prisma.clientService.create({ data: { clientId: c.id, serviceId, assignedEmployeeId: done, status: 'completed', createdAt: new Date('2026-03-01T00:00:00Z') } })
+    await syncGstEnrolment(prisma, { clientId: c.id })
+    expect((await prisma.gstProfile.findUniqueOrThrow({ where: { clientId: c.id } })).assignedEmployeeId).toBe(newer)
+  })
   it('does not mass-deactivate when the GST_FILING service is soft-deleted', async () => {
     const c = await gstClient()
     await syncGstEnrolment(prisma, { clientId: c.id })
