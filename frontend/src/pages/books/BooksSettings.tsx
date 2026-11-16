@@ -47,7 +47,7 @@ export function BooksSettingsPage() {
   const conns = status.connections;
   return (
     <div className="space-y-4">
-      <PageHeader title="Settings" subtitle="Zoho Books connection, organisations and sync." right={can.settings && status.configured ? (
+      <PageHeader title="Settings" subtitle="Zoho Books connection, organisations and sync." right={can.settings && (status.configured || status.can_add_connection) ? (
         <div className="flex flex-wrap gap-2 justify-end">
         <Link to="/books/taxes" className="h-9 px-3 text-13 font-medium rounded inline-flex items-center bg-surface text-ink border border-border hover:bg-canvas">Taxes</Link>
         {status.can_add_connection ? <Btn variant="primary" onClick={() => setAddOpen(true)}>Add organisation</Btn> : null}
@@ -65,11 +65,13 @@ export function BooksSettingsPage() {
         />
       ) : null}
 
-      {!status.configured ? <Notice tone="warn">No Zoho Books connection is configured yet. Connections are added by your developer on the server.</Notice> : null}
+      {!status.configured ? <Notice tone="warn">{status.can_add_connection
+        ? 'No Zoho Books account is connected yet. Use Add organisation to connect one with its Zoho API client.'
+        : 'No Zoho Books account is connected yet. A Super Admin can connect one from this page.'}</Notice> : null}
       {!can.settings ? <Notice>You can view Books settings. Changing them needs the Books settings permission.</Notice> : null}
 
       <Section title="Zoho connections">
-        {conns.length === 0 ? <Empty title="Zoho Books is not connected">Zoho Books connections are configured by your developer. Once one is added it appears here.</Empty> : (
+        {conns.length === 0 ? <Empty title="Zoho Books is not connected">Once a Super Admin adds a Zoho account it appears here.</Empty> : (
           <Table cols={[{ label: 'Connection' }, { label: 'Method' }, { label: 'Status' }, { label: 'Data centre' }, { label: 'Connected' }, { label: 'Last error' }, { label: '' }]} minWidth={780}>
             {conns.map((c) => (
               <Row key={c.id}>
