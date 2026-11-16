@@ -6829,6 +6829,8 @@ model QuotationItem {
   category  String?
   /// Longer description under the particulars, when the template shows one.
   detail    String?
+  /// SAC (services) / HSN — carried onto the invoice when converted.
+  sacCode   String?
 
   // ── Derived (paise) ───────────────────────────────────────────────────
   amountPaise Int @default(0)
@@ -7345,6 +7347,9 @@ model Invoice {
   /// abandoned draft never leaves a gap in the GST series.
   invoiceNumber  String? @unique
 
+  /// The quotation this invoice was raised from (convertToInvoice). A
+  /// quotation converts once while a non-cancelled invoice stands for it.
+  quotationId String?
   clientId String
 
   /// YYYY-MM-DD. The date printed on the document, not the row's createdAt.
@@ -7472,6 +7477,7 @@ model Invoice {
   @@index([createdAt])
   @@index([recurringProfileId])
   @@index([clientServiceId])
+  @@index([quotationId])
 }
 
 /// One payment received against an invoice. A client paying in instalments

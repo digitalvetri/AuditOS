@@ -28,6 +28,8 @@ export interface QuotationItem {
   frequency: string | null;
   category: string | null;
   detail: string | null;
+  /** SAC (HSN for goods) — carried onto the invoice on conversion. */
+  sac_code: string | null;
   amount_paise: number;
   tax_paise: number;
   sort_order: number;
@@ -132,6 +134,7 @@ export interface QuotationItemInput {
   frequency?: string | null;
   category?: string | null;
   detail?: string | null;
+  sac_code?: string | null;
 }
 
 export interface QuotationWorkSectionInput {

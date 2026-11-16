@@ -681,6 +681,7 @@ export async function createInvoiceRecord(
     recurringProfileId?: string | null
     clientServiceId?: string | null
     auditEngagementId?: string | null
+    quotationId?: string | null
   },
 ): Promise<string> {
   const client = await tx.client.findFirst({ where: { id: rawInput.clientId, deletedAt: null } })
@@ -736,6 +737,7 @@ export async function createInvoiceRecord(
       qrValue: input.qrValue ?? null,
       qrImage: input.qrImage ?? null,
       recurringProfileId: meta.recurringProfileId ?? null,
+      quotationId: meta.quotationId ?? null,
       clientServiceId: meta.clientServiceId ?? input.clientServiceId ?? null,
       auditEngagementId: meta.auditEngagementId ?? input.auditEngagementId ?? null,
       preparedById: meta.employeeId,
@@ -811,17 +813,22 @@ async function withDerivedSplit(db: Prisma.TransactionClient | typeof prisma, in
 }
 
 /**
- * Why a draft cannot be sent yet — each a fact the tax invoice needs: the
- * firm's GSTIN (settings), a recognised place of supply, and a tax split
- * that still matches the two. Empty = sendable.
+ * Why a draft cannot be sent yet — each a fact the tax invoice needs: a SAC
+ * on every line, the firm's GSTIN (settings), a recognised place of supply,
+ * and a tax split that still matches the two. Empty = sendable.
  */
 export async function invoiceSendBlockers(tx: Prisma.TransactionClient | typeof prisma, id: string): Promise<{ code: string; message: string }[]> {
   const inv = await tx.invoice.findFirst({
     where: { id, deletedAt: null },
-    select: { organisationId: true, placeOfSupply: true, isInterState: true },
+    select: { organisationId: true, placeOfSupply: true, isInterState: true, items: { select: { itemName: true, hsnSac: true }, orderBy: { sortOrder: 'asc' } } },
   })
   if (!inv) return []
   const out: { code: string; message: string }[] = []
+  // Rule 46(g): a tax invoice carries the SAC (HSN for goods) of each supply.
+  const noSac = inv.items.filter((i) => !i.hsnSac?.trim())
+  if (noSac.length) {
+    out.push({ code: 'sac_missing', message: `Add the SAC code to every line before sending (missing on: ${noSac.map((i) => `"${i.itemName}"`).join(', ')}).` })
+  }
   const firm = firmStateCode(await firmGstin(tx, inv.organisationId))
   const pos = placeOfSupplyCode(inv.placeOfSupply)
   if (!firm) {

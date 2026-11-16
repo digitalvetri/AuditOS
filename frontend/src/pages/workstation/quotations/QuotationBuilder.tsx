@@ -25,6 +25,7 @@ import { forceSync } from '@/pages/workstation/engagement/Editable';
 import { printDocumentOnly } from '@/modules/workstation/print';
 import { clientNameWithOrg } from '@/modules/workstation/organization/badges';
 import { istToday } from '@/lib/dates';
+import { STATES, stateName } from '@/modules/workstation/invoices/document';
 
 /**
  * THE QUOTATION BUILDER — /workstation/quotations/new and /:id/edit.
@@ -57,11 +58,13 @@ interface Line {
   qtyText: string;
   gstRatePercent: number;
   discountPercent: number;
+  /** SAC (services) — the converted invoice needs it on every line to be sent. */
+  sacCode: string;
 }
 
 const newLine = (frequency = 'Monthly'): Line => ({
   key: key(), serviceId: null, description: '', detail: '', frequency, category: '',
-  feeText: '', qtyText: '1', gstRatePercent: 18, discountPercent: 0,
+  feeText: '', qtyText: '1', gstRatePercent: 18, discountPercent: 0, sacCode: '',
 });
 
 const today = () => istToday();
@@ -143,7 +146,7 @@ export function QuotationBuilderPage() {
     setSubject(q.subject);
     setQuoteDate(q.quote_date);
     setValidUntil(q.valid_until);
-    setPlaceOfSupply(q.place_of_supply ?? '');
+    setPlaceOfSupply(stateName(q.place_of_supply ?? ''));
     setIsInterState(q.is_inter_state);
     setDiscountText(q.discount_paise ? String(q.discount_paise / 100) : '');
     setCompany({ ...DEFAULT_COMPANY, ...(cfg.company ?? {}) });
@@ -173,6 +176,7 @@ export function QuotationBuilderPage() {
       qtyText: String(i.quantity_centi / 100),
       gstRatePercent: i.gst_rate_percent,
       discountPercent: i.discount_percent,
+      sacCode: i.sac_code ?? '',
     })));
     setSections((q.work_sections ?? []).map((w) => ({
       key: key(), title: w.title, description: w.description ?? '', items: w.items.map((it) => it.content),
@@ -193,6 +197,7 @@ export function QuotationBuilderPage() {
     frequency: l.frequency || null,
     category: l.category || null,
     detail: l.detail || null,
+    sac_code: l.sacCode.trim() || null,
   })), [lines, compliance]);
 
   const discountPaise = rupeesToPaise(discountText);
@@ -755,7 +760,10 @@ function DetailsTab(p: DetailsProps) {
         <Group title="Tax">
           <Row>
             <Field label="Place of supply">
-              <input value={p.placeOfSupply} onChange={(e) => p.setPlaceOfSupply(e.target.value)} className={inputClass} />
+              <select value={p.placeOfSupply} onChange={(e) => p.setPlaceOfSupply(e.target.value)} className={inputClass}>
+                <option value="">Choose the state…</option>
+                {STATES.map((s) => <option key={s.code} value={s.name}>{s.name} ({s.code})</option>)}
+              </select>
             </Field>
             <Field label="Discount (₹)">
               <input value={p.discountText} onChange={(e) => p.setDiscountText(e.target.value)} className={inputClass} inputMode="decimal" />
@@ -907,6 +915,11 @@ function ServiceEditor(p: DetailsProps) {
                   value={l.discountPercent || ''}
                   onChange={(e) => p.setLines((ls) => ls.map((x) => (x.key === l.key ? { ...x, discountPercent: Number(e.target.value) || 0 } : x)))}
                   placeholder="Disc %" inputMode="numeric" className={inputClass}
+                />
+                <input
+                  value={l.sacCode}
+                  onChange={(e) => p.setLines((ls) => ls.map((x) => (x.key === l.key ? { ...x, sacCode: e.target.value.replace(/\D/g, '').slice(0, 8) } : x)))}
+                  placeholder="SAC" inputMode="numeric" className={inputClass + ' col-span-3'}
                 />
               </div>
             ) : null}

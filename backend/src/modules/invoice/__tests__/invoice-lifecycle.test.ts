@@ -46,7 +46,7 @@ const body = (extra: Record<string, unknown> = {}) => ({
   client_id: clientId,
   invoice_date: '2026-10-01',
   terms: 'net_15', place_of_supply: 'Tamil Nadu',
-  items: [{ item_name: 'Audit fee', quantity_centi: 100, rate_paise: 10_000_00, gst_rate_percent: 18 }],
+  items: [{ item_name: 'Audit fee', hsn_sac: '998221', quantity_centi: 100, rate_paise: 10_000_00, gst_rate_percent: 18 }],
   ...extra,
 })
 

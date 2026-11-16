@@ -53,7 +53,7 @@ async function sentInvoice(cookie: string) {
     method: 'POST',
     body: {
       client_id: clientId, invoice_date: '2026-09-01', terms: 'net_15', place_of_supply: 'Tamil Nadu', is_inter_state: false,
-      items: [{ item_name: 'Audit fee', quantity_centi: 100, rate_paise: 10_000_00, gst_rate_percent: 18 }],
+      items: [{ item_name: 'Audit fee', hsn_sac: '998221', quantity_centi: 100, rate_paise: 10_000_00, gst_rate_percent: 18 }],
     },
   })
   expect(r.status, JSON.stringify(r.body)).toBe(201)

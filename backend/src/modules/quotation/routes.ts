@@ -54,6 +54,8 @@ const itemSchema = z.object({
   frequency: z.string().trim().max(60).nullish(),
   category: z.string().trim().max(80).nullish(),
   detail: z.string().trim().max(2000).nullish(),
+  /* SAC for services (HSN for goods), 4-8 digits — carried onto the invoice. */
+  sac_code: z.string().trim().regex(/^\d{4,8}$/, 'SAC/HSN is 4 to 8 digits.').nullish().or(z.literal('')),
 })
 
 const workSectionSchema = z.object({
@@ -114,6 +116,7 @@ function toInput(b: z.infer<typeof bodySchema>) {
       frequency: i.frequency ?? null,
       category: i.category ?? null,
       detail: i.detail ?? null,
+      sacCode: i.sac_code || null,
     })),
     templateId: b.template_id ?? null,
     introduction: b.introduction ?? null,

@@ -133,7 +133,7 @@ describe('invoice links', () => {
     const svc = await prisma.service.create({ data: { organisationId: orgId, code: uid('SVC'), name: 'Other svc' } })
     const otherCs = await prisma.clientService.create({ data: { clientId: otherClientId, serviceId: svc.id, assignedEmployeeId: meId } })
     const body = (extra: Record<string, unknown>) => ({
-      client_id: clientId, invoice_date: '2031-05-20', items: [{ item_name: 'Fee', quantity_centi: 100, rate_paise: 1_000_00, gst_rate_percent: 18 }], ...extra,
+      client_id: clientId, invoice_date: '2031-05-20', items: [{ item_name: 'Fee', hsn_sac: '998221', quantity_centi: 100, rate_paise: 1_000_00, gst_rate_percent: 18 }], ...extra,
     })
     expect((await api('/api/invoices', { method: 'POST', body: body({ audit_engagement_id: otherAuditId }) })).status).toBe(400)
     expect((await api('/api/invoices', { method: 'POST', body: body({ client_service_id: otherCs.id }) })).status).toBe(400)

@@ -114,6 +114,7 @@ function itemToApi(i: Row['items'][number]) {
     frequency: i.frequency,
     category: i.category,
     detail: i.detail,
+    sac_code: i.sacCode,
     amount_paise: i.amountPaise,
     tax_paise: i.taxPaise,
     sort_order: i.sortOrder,
@@ -216,6 +217,7 @@ export interface ItemInput {
   frequency?: string | null
   category?: string | null
   detail?: string | null
+  sacCode?: string | null
 }
 
 /** One Nature-of-Work section, with its bullets, as the builder sends it. */
@@ -508,6 +510,7 @@ export const QuotationService = {
               frequency: i.frequency ?? null,
               category: i.category ?? null,
               detail: i.detail ?? null,
+              sacCode: i.sacCode ?? null,
               amountPaise: totals.lines[idx].amountPaise,
               taxPaise: totals.lines[idx].taxPaise,
               sortOrder: idx,
@@ -581,6 +584,7 @@ export const QuotationService = {
               frequency: i.frequency ?? null,
               category: i.category ?? null,
               detail: i.detail ?? null,
+              sacCode: i.sacCode ?? null,
               amountPaise: totals.lines[idx].amountPaise,
               taxPaise: totals.lines[idx].taxPaise,
               sortOrder: idx,
@@ -662,6 +666,7 @@ export const QuotationService = {
         frequency: i.frequency,
         category: i.category,
         detail: i.detail,
+        sacCode: i.sacCode,
       })),
       // A revision is the same DOCUMENT with a new date — template, prose,
       // layout, blocks and work sections all come across, or the revised copy
@@ -737,7 +742,13 @@ export const QuotationService = {
     const marker = `Raised from quotation ${q.quotationCode}.`
     const invoiceId = await prisma.$transaction(async (tx) => {
       await lockSequence(tx, `quotation-invoice:${id}`)
-      const prior = await tx.invoice.findFirst({ where: { clientId: q.clientId!, deletedAt: null, notes: { contains: marker } }, select: { id: true } })
+      const prior = await tx.invoice.findFirst({
+        where: {
+          deletedAt: null, status: { not: 'cancelled' },
+          OR: [{ quotationId: id }, { quotationId: null, clientId: q.clientId!, notes: { contains: marker } }],
+        },
+        select: { id: true },
+      })
       if (prior) throw new ApiError(409, 'already_converted', 'This quotation has already been invoiced.', { invoice_id: prior.id })
       const style = await invoiceHouseStyle(tx)
       return createInvoiceRecord(tx, {
@@ -753,14 +764,14 @@ export const QuotationService = {
           serviceId: i.serviceId,
           itemName: i.description,
           description: i.detail ?? null,
-          hsnSac: null,
+          hsnSac: i.sacCode ?? null,
           quantityCenti: i.quantityCenti,
           unit: 'Nos',
           ratePaise: i.unitRatePaise,
           discountPercent: i.discountPercent,
           gstRatePercent: i.gstRatePercent,
         })),
-      }, { userId: session.userId, employeeId: session.employeeId ?? null })
+      }, { userId: session.userId, employeeId: session.employeeId ?? null, quotationId: id })
     })
     return { invoice_id: invoiceId }
   },

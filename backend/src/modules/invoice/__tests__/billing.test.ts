@@ -48,7 +48,7 @@ async function sentInvoice(extra: Record<string, unknown> = {}) {
     method: 'POST',
     body: {
       client_id: clientId, invoice_date: '2026-09-01', terms: 'net_15', place_of_supply: 'Tamil Nadu', is_inter_state: false,
-      items: [{ item_name: 'Audit fee', quantity_centi: 100, rate_paise: 10_000_00, gst_rate_percent: 18 }],
+      items: [{ item_name: 'Audit fee', hsn_sac: '998221', quantity_centi: 100, rate_paise: 10_000_00, gst_rate_percent: 18 }],
       ...extra,
     },
   })
@@ -122,7 +122,7 @@ describe('TDS on fee receipts', () => {
 
 describe('credit notes', () => {
   it('numbers on issue, reduces the balance, respects the limit, and cancel restores it', async () => {
-    const draftInv = (await api('/api/invoices', { method: 'POST', body: { client_id: clientId, invoice_date: '2026-09-01', terms: 'net_15', place_of_supply: 'Tamil Nadu', items: [{ item_name: 'Fee', quantity_centi: 100, rate_paise: 100_00, gst_rate_percent: 18 }] } })).body
+    const draftInv = (await api('/api/invoices', { method: 'POST', body: { client_id: clientId, invoice_date: '2026-09-01', terms: 'net_15', place_of_supply: 'Tamil Nadu', items: [{ item_name: 'Fee', hsn_sac: '998221', quantity_centi: 100, rate_paise: 100_00, gst_rate_percent: 18 }] } })).body
     const refused = await api('/api/credit-notes', { method: 'POST', body: { invoice_id: draftInv.id, note_date: '2026-09-05', reason: 'discount', lines: [{ description: 'x', taxable_paise: 100, gst_rate: 18 }] } })
     expect(refused.status).toBe(409)
 
@@ -246,7 +246,7 @@ describe('credit notes', () => {
   })
 
   it('accepts the GST 2.0 40% slab', async () => {
-    const r = await api('/api/invoices', { method: 'POST', body: { client_id: clientId, invoice_date: '2026-09-25', terms: 'net_15', place_of_supply: 'Tamil Nadu', is_inter_state: false, items: [{ item_name: 'Fee', quantity_centi: 100, rate_paise: 1_000_00, gst_rate_percent: 40 }] } })
+    const r = await api('/api/invoices', { method: 'POST', body: { client_id: clientId, invoice_date: '2026-09-25', terms: 'net_15', place_of_supply: 'Tamil Nadu', is_inter_state: false, items: [{ item_name: 'Fee', hsn_sac: '998221', quantity_centi: 100, rate_paise: 1_000_00, gst_rate_percent: 40 }] } })
     expect(r.status).toBe(201)
     expect(r.body.total_paise).toBe(1_400_00)
   })
@@ -261,7 +261,7 @@ describe('refunds', () => {
       method: 'POST',
       body: {
         client_id: clientOverride ?? clientId, invoice_date: invoiceDate ?? '2026-09-01', terms: 'net_15', place_of_supply: 'Tamil Nadu', is_inter_state: false,
-        items: [{ item_name: 'Audit fee', quantity_centi: 100, rate_paise: 10_000_00, gst_rate_percent: 18 }],
+        items: [{ item_name: 'Audit fee', hsn_sac: '998221', quantity_centi: 100, rate_paise: 10_000_00, gst_rate_percent: 18 }],
       },
     })
     expect(r.status).toBe(201)

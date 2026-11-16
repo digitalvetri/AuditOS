@@ -70,7 +70,7 @@ async function user(code: string) {
 async function sentInvoice() {
   const d = await api('/api/invoices', {
     method: 'POST',
-    body: { client_id: clientId, invoice_date: '2026-10-01', terms: 'net_15', place_of_supply: 'Tamil Nadu', items: [{ item_name: 'Audit fee', quantity_centi: 100, rate_paise: 10_000_00, gst_rate_percent: 18 }] },
+    body: { client_id: clientId, invoice_date: '2026-10-01', terms: 'net_15', place_of_supply: 'Tamil Nadu', items: [{ item_name: 'Audit fee', hsn_sac: '998221', quantity_centi: 100, rate_paise: 10_000_00, gst_rate_percent: 18 }] },
   })
   expect(d.status).toBe(201)
   const s = await api(`/api/invoices/${d.body.id}/send`, { method: 'POST' })
@@ -318,7 +318,7 @@ describe('creating a payment link', () => {
 
     // No phone on the client → a clear 400, no gateway call.
     const noPhone = await prisma.client.create({ data: { organisationId: orgId, clientCode: uid('CLI'), companyName: 'No Phone', accountManagerId: (await prisma.user.findFirstOrThrow({ where: { organisationId: orgId, employeeId: { not: null } } })).employeeId!, contactPerson: 'P', contactNumber: '', onboardingDate: '2026-01-01' } })
-    const d = await api('/api/invoices', { method: 'POST', body: { client_id: noPhone.id, invoice_date: '2026-10-01', terms: 'net_15', place_of_supply: 'Tamil Nadu', items: [{ item_name: 'Fee', quantity_centi: 100, rate_paise: 1000_00, gst_rate_percent: 18 }] } })
+    const d = await api('/api/invoices', { method: 'POST', body: { client_id: noPhone.id, invoice_date: '2026-10-01', terms: 'net_15', place_of_supply: 'Tamil Nadu', items: [{ item_name: 'Fee', hsn_sac: '998221', quantity_centi: 100, rate_paise: 1000_00, gst_rate_percent: 18 }] } })
     await api(`/api/invoices/${d.body.id}/send`, { method: 'POST' })
     calls = []
     const refused = await createLink(d.body.id, 'cashfree')
@@ -328,7 +328,7 @@ describe('creating a payment link', () => {
   })
 
   it('refuses drafts, cancelled and fully paid invoices, and unconfigured gateways', async () => {
-    const d = await api('/api/invoices', { method: 'POST', body: { client_id: clientId, invoice_date: '2026-10-01', terms: 'net_15', place_of_supply: 'Tamil Nadu', items: [{ item_name: 'Fee', quantity_centi: 100, rate_paise: 1000_00, gst_rate_percent: 18 }] } })
+    const d = await api('/api/invoices', { method: 'POST', body: { client_id: clientId, invoice_date: '2026-10-01', terms: 'net_15', place_of_supply: 'Tamil Nadu', items: [{ item_name: 'Fee', hsn_sac: '998221', quantity_centi: 100, rate_paise: 1000_00, gst_rate_percent: 18 }] } })
     expect((await createLink(d.body.id)).status).toBe(409)
 
     const c = await sentInvoice()
