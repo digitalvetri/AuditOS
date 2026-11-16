@@ -91,6 +91,7 @@ export async function syncGstEnrolment(
 
 export async function ensurePeriodJobs(
   db: PrismaClient, gstProfileId: string, period: string, userId: string | null = null, resolver?: RuleResolver,
+  today: string = istToday(),
 ): Promise<{ periodId: string | null; created: number }> {
   const profile = await db.gstProfile.findUnique({ where: { id: gstProfileId } })
   if (!profile || !profile.active || profile.deletedAt) return { periodId: null, created: 0 }
@@ -112,11 +113,13 @@ export async function ensurePeriodJobs(
 
   const rules = resolver ?? await createRuleResolver(db)
   let created = 0
+  const dues: Partial<Record<'GSTR1' | 'GSTR3B', string | null>> = {}
   for (const kind of wanted) {
     const returnType = kind === 'GSTR1' ? 'GSTR-1' : 'GSTR-3B'
     const existing = await db.gstFiling.findUnique({
       where: { gstProfileId_period_returnType: { gstProfileId, period, returnType } },
     })
+    dues[kind] = existing ? existing.dueDate : dueForProfile(rules, profile, period, returnType, periodType)
     if (existing) {
       if (!existing.compliancePeriodId) {
         await db.gstFiling.update({ where: { id: existing.id }, data: { compliancePeriodId: row.id, financialYear } })
@@ -127,7 +130,7 @@ export async function ensurePeriodJobs(
       await db.gstFiling.create({
         data: {
           gstProfileId, period, returnType, status: 'pending', financialYear, compliancePeriodId: row.id,
-          dueDate: dueForProfile(rules, profile, period, returnType, periodType),
+          dueDate: dues[kind],
           assignedEmployeeId: profile.assignedEmployeeId, reviewerEmployeeId: profile.reviewerEmployeeId,
           createdBy: userId, updatedBy: userId,
         },
@@ -139,7 +142,11 @@ export async function ensurePeriodJobs(
     }
   }
 
-  if (!row.dataRequestDocId) {
+  // No portal request once the return it feeds is already due: the data is
+  // late or already in hand, and the client must not see a stale request.
+  const requestDue = 'GSTR1' in dues ? dues.GSTR1 : dues.GSTR3B
+  const late = !!requestDue && requestDue < today
+  if (!row.dataRequestDocId && !late) {
     const category = await db.documentCategory.findFirst({ where: { code: 'gst', deletedAt: null } })
     if (category) {
       await db.$transaction(async (tx) => {
@@ -203,7 +210,7 @@ export async function generateGstFilingJobs(db: PrismaClient, today = istToday()
   const resolver = await createRuleResolver(db)
   for (const p of profiles) {
     try {
-      const r = await ensurePeriodJobs(db, p.id, period, null, resolver)
+      const r = await ensurePeriodJobs(db, p.id, period, null, resolver, today)
       if (r.periodId) periods++
       filings += r.created
     } catch (e) {
@@ -226,12 +233,26 @@ export async function refreshClientGst(db: PrismaClient, clientId: string, userI
 
 export async function setDataStatus(db: PrismaClient, periodId: string, received: boolean, by: string): Promise<void> {
   const before = await db.gstCompliancePeriod.findUniqueOrThrow({ where: { id: periodId } })
+  const now = new Date()
   await db.gstCompliancePeriod.update({
     where: { id: periodId },
     data: received
-      ? { dataStatus: 'received', dataReceivedAt: new Date(), dataReceivedBy: by }
+      ? { dataStatus: 'received', dataReceivedAt: now, dataReceivedBy: by }
       : { dataStatus: 'pending', dataReceivedAt: null, dataReceivedBy: null },
   })
+  // The portal request: withdrawn while the data is in hand, back on untick.
+  // Only an untouched request (still requested, nothing uploaded) is withdrawn,
+  // stamped with the received time so an untick restores only our own delete.
+  if (before.dataRequestDocId) {
+    const doc = await db.clientDocument.findUnique({ where: { id: before.dataRequestDocId } })
+    if (doc && doc.status === 'requested' && doc.currentVersion === 0) {
+      if (received && !doc.deletedAt) {
+        await db.clientDocument.update({ where: { id: doc.id }, data: { deletedAt: now } })
+      } else if (!received && doc.deletedAt && before.dataReceivedAt && doc.deletedAt.getTime() === before.dataReceivedAt.getTime()) {
+        await db.clientDocument.update({ where: { id: doc.id }, data: { deletedAt: null } })
+      }
+    }
+  }
   await writeGstAudit({
     compliancePeriodId: periodId, action: received ? 'GST_DATA_RECEIVED' : 'GST_DATA_PENDING',
     userId: by === 'portal' ? null : by, oldValue: before.dataStatus, newValue: received ? 'received' : 'pending',

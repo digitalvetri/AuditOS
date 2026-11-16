@@ -51,6 +51,10 @@ export async function gstClient(opts: { gstin?: string | null; withService?: boo
   return client
 }
 
+/** This month: its GSTR-1 falls due on the 11th of next month, always after today. */
+const futurePeriod = () => istToday().slice(0, 7)
+const futureName = () => `GST data — ${['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'][Number(futurePeriod().slice(5, 7)) - 1]} ${futurePeriod().slice(0, 4)}`
+
 describe('previousPeriod', () => {
   it('is the month before, across a year boundary', () => {
     expect(previousPeriod('2026-11-16')).toBe('2026-10')
@@ -123,7 +127,7 @@ describe('syncGstEnrolment', () => {
 })
 
 describe('ensurePeriodJobs / generateGstFilingJobs', () => {
-  it('creates one GSTR-1 and one GSTR-3B with due dates, a data request, and is idempotent', async () => {
+  it('creates one GSTR-1 and one GSTR-3B with due dates, and is idempotent', async () => {
     const c = await gstClient()
     await syncGstEnrolment(prisma, { clientId: c.id })
     const p = await prisma.gstProfile.findUniqueOrThrow({ where: { clientId: c.id } })
@@ -136,8 +140,23 @@ describe('ensurePeriodJobs / generateGstFilingJobs', () => {
     expect(filings.every((f) => f.dueDate?.startsWith('2026-11-'))).toBe(true)
     const period = await prisma.gstCompliancePeriod.findUniqueOrThrow({ where: { id: first.periodId! } })
     expect(period.dataStatus).toBe('pending')
+  })
+  it('opens a portal data request for a period whose GSTR-1 is still to come', async () => {
+    const c = await gstClient()
+    await syncGstEnrolment(prisma, { clientId: c.id })
+    const p = await prisma.gstProfile.findUniqueOrThrow({ where: { clientId: c.id } })
+    const { periodId } = await ensurePeriodJobs(prisma, p.id, futurePeriod())
+    const period = await prisma.gstCompliancePeriod.findUniqueOrThrow({ where: { id: periodId! } })
     const doc = await prisma.clientDocument.findUniqueOrThrow({ where: { id: period.dataRequestDocId! } })
-    expect(doc).toMatchObject({ clientId: c.id, status: 'requested', name: 'GST data — Oct 2026' })
+    expect(doc).toMatchObject({ clientId: c.id, status: 'requested', name: futureName() })
+  })
+  it('opens no data request once the period\'s GSTR-1 due date has passed', async () => {
+    const c = await gstClient()
+    await syncGstEnrolment(prisma, { clientId: c.id })
+    const p = await prisma.gstProfile.findUniqueOrThrow({ where: { clientId: c.id } })
+    const { periodId } = await ensurePeriodJobs(prisma, p.id, '2026-01')
+    expect((await prisma.gstCompliancePeriod.findUniqueOrThrow({ where: { id: periodId! } })).dataRequestDocId).toBeNull()
+    expect(await prisma.clientDocument.count({ where: { clientId: c.id } })).toBe(0)
   })
   it('gives a quarterly filer jobs only for a quarter-end month', async () => {
     const c = await gstClient({ frequency: 'quarterly' })
@@ -155,9 +174,9 @@ describe('ensurePeriodJobs / generateGstFilingJobs', () => {
     const c = await gstClient()
     await syncGstEnrolment(prisma, { clientId: c.id })
     const p = await prisma.gstProfile.findUniqueOrThrow({ where: { clientId: c.id } })
-    await ensurePeriodJobs(prisma, p.id, '2026-10')
-    await ensurePeriodJobs(prisma, p.id, '2026-10')
-    expect(await prisma.clientDocument.count({ where: { clientId: c.id, name: 'GST data — Oct 2026' } })).toBe(1)
+    await ensurePeriodJobs(prisma, p.id, futurePeriod())
+    await ensurePeriodJobs(prisma, p.id, futurePeriod())
+    expect(await prisma.clientDocument.count({ where: { clientId: c.id, name: futureName() } })).toBe(1)
   })
   it('refreshClientGst enrols the client and creates last month\'s two filings', async () => {
     const c = await gstClient()
@@ -222,7 +241,7 @@ describe('data received', () => {
     const c = await gstClient()
     await syncGstEnrolment(prisma, { clientId: c.id })
     const p = await prisma.gstProfile.findUniqueOrThrow({ where: { clientId: c.id } })
-    const { periodId } = await ensurePeriodJobs(prisma, p.id, '2026-10')
+    const { periodId } = await ensurePeriodJobs(prisma, p.id, futurePeriod())
     return prisma.gstCompliancePeriod.findUniqueOrThrow({ where: { id: periodId! } })
   }
   it('staff tick and untick', async () => {
@@ -237,6 +256,27 @@ describe('data received', () => {
     expect(await markDataFromPortal(prisma, period.dataRequestDocId!)).toBe(true)
     expect(await prisma.gstCompliancePeriod.findUniqueOrThrow({ where: { id: period.id } })).toMatchObject({ dataStatus: 'received', dataReceivedBy: 'portal' })
     expect(await markDataFromPortal(prisma, 'not-a-gst-request')).toBe(false)
+  })
+  it('ticking received withdraws the untouched portal request; unticking restores it', async () => {
+    const period = await openPeriod()
+    const doc = () => prisma.clientDocument.findUniqueOrThrow({ where: { id: period.dataRequestDocId! } })
+    await api(`/api/gst/periods/${period.id}/data`, { method: 'POST', body: { received: true } })
+    expect((await doc()).deletedAt).not.toBeNull()
+    await api(`/api/gst/periods/${period.id}/data`, { method: 'POST', body: { received: false } })
+    expect((await doc()).deletedAt).toBeNull()
+  })
+  it('never touches a request the client already uploaded to', async () => {
+    const period = await openPeriod()
+    await prisma.clientDocument.update({ where: { id: period.dataRequestDocId! }, data: { currentVersion: 1, status: 'uploaded' } })
+    await api(`/api/gst/periods/${period.id}/data`, { method: 'POST', body: { received: true } })
+    expect((await prisma.clientDocument.findUniqueOrThrow({ where: { id: period.dataRequestDocId! } })).deletedAt).toBeNull()
+  })
+  it('does not restore a request someone else deleted', async () => {
+    const period = await openPeriod()
+    await prisma.clientDocument.update({ where: { id: period.dataRequestDocId! }, data: { deletedAt: new Date('2026-01-01T00:00:00Z') } })
+    await api(`/api/gst/periods/${period.id}/data`, { method: 'POST', body: { received: true } })
+    await api(`/api/gst/periods/${period.id}/data`, { method: 'POST', body: { received: false } })
+    expect((await prisma.clientDocument.findUniqueOrThrow({ where: { id: period.dataRequestDocId! } })).deletedAt).not.toBeNull()
   })
   it('remind refuses an empty list', async () => {
     expect((await api('/api/gst/filing/remind', { method: 'POST', body: { period_ids: [] } })).status).toBe(400)
