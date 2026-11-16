@@ -10,6 +10,7 @@ import {
   assertCanSeeLead, leadScopeWhere, requireWorkstation,
 } from '../../platform/workstation/scope.js'
 import { activityToApi, clientToApi, employeeMap, leadToApi } from '../../api/workstation.serialize.js'
+import { gstinPanMismatch } from './clients.shared.js'
 import { assertLeadTransition, body, FieldErrors, LEAD_STATUSES, LEAD_TYPES } from './validate.js'
 import { seesAllClients } from '../../platform/workstation/scope.js'
 import { deriveShortName } from '../../platform/workstation/organization.js'
@@ -271,6 +272,8 @@ leadsRouter.post('/:id/convert', handler(async (req, res) => {
   const dueDate = v.date('due_date', b.due_date, false)
   const shortName = v.str('short_name', b.short_name, { required: false, max: 20 })
   const secondaryManagerId = v.str('secondary_manager_id', b.secondary_manager_id, { required: false })
+  const panClash = gstinPanMismatch(gstin, pan)
+  if (panClash) v.add('gstin', panClash)
   if (secondaryManagerId && secondaryManagerId === accountManagerId) {
     v.add('secondary_manager_id', 'Choose a different person from the account manager.')
   }

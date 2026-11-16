@@ -60,6 +60,12 @@ describe('lead conversion', () => {
     expect(await prisma.client.count({ where: { sourceLeadId: l.id } })).toBe(0)
   })
 
+  it('refuses a GSTIN whose PAN part differs from the PAN', async () => {
+    const l = await lead()
+    const r = await h.api(`/api/leads/${l.id}/convert`, md.cookie, { method: 'POST', body: body({ account_manager_id: md.emp.id, gstin: '33AABCS1234F1ZY', pan: 'AAAPL9999Q' }) })
+    expect(r.status).toBe(400)
+  })
+
   it('still converts with real staff', async () => {
     const l = await lead()
     const r = await h.api(`/api/leads/${l.id}/convert`, md.cookie, { method: 'POST', body: body({ account_manager_id: md.emp.id }) })
