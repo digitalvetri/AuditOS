@@ -88,6 +88,8 @@ import { clientNoticesRouter, noticesRouter } from './modules/notices/routes.js'
 // Integrations → AI provider: per-organisation Groq (future: Anthropic / OpenAI)
 // API key configuration, encrypted at rest via portalCrypto.
 import { integrationsAiRouter } from './modules/integrations/ai.routes.js'
+import { paymentGatewaysRouter } from './modules/integrations/payment-gateways.routes.js'
+import { paymentWebhooksRouter } from './modules/integrations/payment-webhooks.routes.js'
 // Tally Export — bank statement → TallyPrime Excel file (docs/tally-export/README.md).
 import { tallyExportRouter } from './modules/tally-export/routes.js'
 // Books — Zoho Books integration under TOOLS (docs/books-zoho/README.md).
@@ -148,6 +150,10 @@ export function createApp() {
   // by a signed single-use launch token, so the cookie-CSRF origin guard does
   // not apply to it. Every other route keeps the allow-list.
   app.use((req, res, next) => (req.path === '/api/extension/credentials/request' ? next() : corsGuard(req, res, next)))
+  // Razorpay / Cashfree webhooks: public (the HMAC signature is the
+  // authorization) and RAW — the signature covers the exact bytes received,
+  // so this must come before the JSON / urlencoded parsers and `authenticate`.
+  app.use('/api/payments/webhooks', express.raw({ type: '*/*', limit: '1mb' }), paymentWebhooksRouter)
   app.use(cookieParser())
   app.use(express.json({ limit: '1mb' }))
   app.use(express.urlencoded({ extended: true }))
@@ -352,6 +358,7 @@ export function createApp() {
   app.use('/api/clients', clientNoticesRouter)
   app.use('/api/notices', noticesRouter)
   app.use('/api/integrations/ai', integrationsAiRouter)
+  app.use('/api/integrations/payment-gateways', paymentGatewaysRouter)
   app.use('/api/data-protection', dataProtectionRouter)
 
   // ── Books ──────────────────────────────────────────────────────────────

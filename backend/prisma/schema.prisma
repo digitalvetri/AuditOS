@@ -1808,6 +1808,65 @@ model AiProviderConfig {
   @@unique([organisationId, provider])
 }
 
+/// Integrations → Payment gateways: a firm's Razorpay / Cashfree keys for
+/// invoice payment links. One row per (organisation, gateway); secrets are
+/// AES-256-GCM encrypted with encryptPortalSecret and never returned by the API.
+model PaymentGatewayConfig {
+  id                      String   @id @default(uuid())
+  organisationId          String
+  /// 'razorpay' | 'cashfree'
+  gateway                 String
+  /// 'live' | 'test' — Cashfree picks api.cashfree.com or sandbox.cashfree.com.
+  mode                    String   @default("live")
+  /// Razorpay key_id / Cashfree app id (x-client-id). Not a secret.
+  keyId                   String
+  /// Razorpay key_secret / Cashfree secret key (also signs Cashfree webhooks).
+  secretCiphertext        String
+  /// Razorpay webhook secret (Cashfree signs with the secret key instead).
+  webhookSecretCiphertext String?
+  /// The gateway the invoice "Payment link" button uses. One per firm.
+  isDefault               Boolean  @default(false)
+  active                  Boolean  @default(true)
+  createdAt               DateTime @default(now())
+  updatedAt               DateTime @updatedAt
+  createdBy               String?
+  updatedBy               String?
+
+  @@unique([organisationId, gateway])
+}
+
+/// A gateway payment link for one AuditOS invoice. Payments made through it
+/// are recorded on the invoice (webhook or "Check status"), once each: the
+/// gateway payment ids already handled are kept in recordedPaymentIds.
+model InvoicePaymentLink {
+  id                 String    @id @default(uuid())
+  organisationId     String
+  invoiceId          String
+  /// 'razorpay' | 'cashfree'
+  gateway            String
+  /// Razorpay plink_… id / Cashfree merchant link_id.
+  gatewayLinkId      String
+  url                String
+  amountPaise        Int
+  /// created | partially_paid | paid | expired | cancelled
+  status             String    @default("created")
+  /// Recorded on the invoice through this link (capped at the balance due).
+  paidPaise          Int       @default(0)
+  /// Paid at the gateway but NOT recorded because the invoice had no balance
+  /// left (or was cancelled) — money to refund or account for by hand.
+  excessPaise        Int       @default(0)
+  /// Gateway payment ids already handled (Razorpay pay_… / Cashfree order_id).
+  recordedPaymentIds String[]  @default([])
+  lastCheckedAt      DateTime?
+  invoice            Invoice   @relation(fields: [invoiceId], references: [id])
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+  createdBy          String?
+
+  @@unique([gateway, gatewayLinkId])
+  @@index([invoiceId])
+}
+
 /// A GST notice/order received from the department and the LLM-drafted reply.
 /// Scoped to a client (one GSTIN per client via GstProfile). Kinds we handle:
 ///   DRC07   — Summary of the Order (section 73/74 demand)
@@ -7386,6 +7445,7 @@ model Invoice {
   client        Client           @relation(fields: [clientId], references: [id])
   items         InvoiceItem[]
   payments      InvoicePayment[]
+  paymentLinks  InvoicePaymentLink[]
   creditNotes   CreditNote[]
   refunds       InvoiceRefund[]
 

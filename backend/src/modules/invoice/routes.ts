@@ -14,6 +14,8 @@ import { isAccountAdmin } from '../../platform/roleRank.js'
 import { writeAudit } from '../../platform/audit.js'
 import { GSTIN_RE } from '../gst/validate.js'
 import { formBool } from './supply.js'
+import { checkInvoiceLink, createInvoiceLink, listInvoiceLinks } from '../integrations/payment-links.js'
+import { isGateway } from '../integrations/gateways.js'
 
 /**
  * Invoice HTTP surface — mounted at /api/invoices.
@@ -331,6 +333,33 @@ invoicesRouter.patch('/:id/payments/:paymentId', handler(async (req, res) => {
     after: { tds_certificate_received: b.tds_certificate_received }, req,
   })
   ok(res, { payment: { ...paymentToApi(row), receipt_number: await receiptNumberFor(row) } })
+}))
+
+// Gateway payment links (Razorpay / Cashfree — Integrations → Payment
+// gateways). Creating / checking one records money, so it needs the same
+// permission as recording a payment by hand.
+invoicesRouter.get('/:id/payment-links', handler(async (req, res) => {
+  const session = requireSession(req)
+  const scope = requireWorkstation(session, 'workstation.invoice.read')
+  await InvoiceService.get(session, scope, req.params.id)
+  const inv = await prisma.invoice.findUniqueOrThrow({ where: { id: req.params.id }, select: { organisationId: true } })
+  ok(res, await listInvoiceLinks(req.params.id, inv.organisationId))
+}))
+
+invoicesRouter.post('/:id/payment-links', handler(async (req, res) => {
+  const session = requireSession(req)
+  const scope = requireWorkstation(session, 'workstation.invoice.manage')
+  await InvoiceService.get(session, scope, req.params.id)
+  const g = req.body?.gateway
+  if (g !== undefined && g !== null && g !== '' && !isGateway(g)) throw ApiError.badRequest('gateway must be razorpay or cashfree.')
+  ok(res, await createInvoiceLink(req.params.id, { gateway: isGateway(g) ? g : undefined, userId: session.userId }))
+}))
+
+invoicesRouter.post('/:id/payment-links/:linkId/check', handler(async (req, res) => {
+  const session = requireSession(req)
+  const scope = requireWorkstation(session, 'workstation.invoice.manage')
+  await InvoiceService.get(session, scope, req.params.id)
+  ok(res, await checkInvoiceLink(req.params.id, req.params.linkId, session.userId))
 }))
 
 /** Signed link to the payment receipt PDF (served by billing-signed.ts). */
