@@ -14,7 +14,15 @@ export interface PayrollItemWithEmp extends PayrollItem {
 
 export interface PayrollBlocker {
   employee: { id: string; full_name: string; employee_code: string; department_id: string } | null;
-  reason: 'no_salary_structure' | 'tds_plan_missing';
+  reason: 'no_salary_structure' | 'tds_plan_missing' | 'not_in_run';
+  message: string;
+}
+
+/** Working days with no attendance and no approved leave — informational, pay unchanged. */
+export interface PayrollAttendanceWarning {
+  employee: { id: string; full_name: string; employee_code: string; department_id: string } | null;
+  reason: 'attendance_gap';
+  days_without_attendance: number;
   message: string;
 }
 
@@ -37,6 +45,7 @@ export interface PayrollRunDetail {
   run: PayrollRun & { label: string };
   items: PayrollItemWithEmp[];
   blockers: PayrollBlocker[];
+  warnings?: PayrollAttendanceWarning[];
   variance: PayrollVariance | null;
   can_process: boolean;
 }

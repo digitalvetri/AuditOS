@@ -2,9 +2,9 @@ import { Router } from 'express'
 import { z } from 'zod'
 import { ApiError, handler, ok } from '../../lib/http.js'
 import { prisma } from '../../lib/prisma.js'
-import { addDays, istToday, monthLabel, monthlyPayrollPeriod } from '../../lib/dates.js'
+import { addDays, enumerateDates, istToday, monthLabel, monthlyPayrollPeriod } from '../../lib/dates.js'
 import { calculatePayrollItem, pfAppliesTo, type CustomComponent } from '../../domain/payroll/calc.js'
-import { computeWorkingDays } from '../../domain/leaveDays.js'
+import { computeWorkingDays, isWorkingDay } from '../../domain/leaveDays.js'
 import { summarize } from '../../domain/payroll/attendanceSummary.js'
 import { snapshotAt, type StatutorySnapshot } from '../../domain/payroll/statutory.js'
 import {
@@ -101,6 +101,7 @@ async function payrollHeadcount(run: { periodStart: string; periodEnd: string })
       department: true,
       salaryStructures: { where: periodStructureWhere(run.periodStart, run.periodEnd) },
       training: { select: { stipendPaise: true, deletedAt: true } },
+      workSchedule: true,
     },
     orderBy: { employeeCode: 'asc' },
   })
@@ -109,6 +110,66 @@ async function payrollHeadcount(run: { periodStart: string; periodEnd: string })
     if (!window) return []
     return [{ employee: e, window, structure: pickStructure(e.salaryStructures, window), stipend: stipendOf(e) }]
   })
+}
+
+type HeadcountEntry = Awaited<ReturnType<typeof payrollHeadcount>>[number]
+
+export interface AttendanceGapWarning {
+  employee: ReturnType<typeof employeeRefWithDept>
+  reason: 'attendance_gap'
+  days_without_attendance: number
+  message: string
+}
+
+/**
+ * Working days in each employee's employment window with no attendance row
+ * and no approved leave (any type). Informational only: pay is unchanged —
+ * summarize() treats a day with no row as present, and this says so.
+ * Working days use the employee's schedule and the firm's (non-optional)
+ * holidays, the same isWorkingDay rule leave uses.
+ */
+async function attendanceGapWarnings(entries: HeadcountEntry[]): Promise<AttendanceGapWarning[]> {
+  if (entries.length === 0) return []
+  const ids = entries.map((h) => h.employee.id)
+  const minStart = entries.reduce((m, h) => (h.window.start < m ? h.window.start : m), entries[0].window.start)
+  const maxEnd = entries.reduce((m, h) => (h.window.end > m ? h.window.end : m), entries[0].window.end)
+  const [holidays, attendance, leaves] = await Promise.all([
+    prisma.holiday.findMany({ where: { deletedAt: null, isOptional: false }, select: { date: true } }),
+    prisma.attendance.findMany({
+      where: { employeeId: { in: ids }, deletedAt: null, date: { gte: minStart, lte: maxEnd } },
+      select: { employeeId: true, date: true },
+    }),
+    prisma.leaveRequest.findMany({
+      where: { employeeId: { in: ids }, status: 'approved', deletedAt: null, startDate: { lte: maxEnd }, endDate: { gte: minStart } },
+      select: { employeeId: true, startDate: true, endDate: true },
+    }),
+  ])
+  const holidayDates = new Set(holidays.map((h) => h.date))
+  const warnings: AttendanceGapWarning[] = []
+  for (const { employee: e, window } of entries) {
+    const schedule = {
+      workingDays: JSON.parse(e.workSchedule.workingDaysJson) as number[],
+      alternateSaturdayOff: e.workSchedule.alternateSaturdayOff,
+    }
+    const recorded = new Set(attendance.filter((a) => a.employeeId === e.id).map((a) => a.date))
+    const myLeaves = leaves.filter((l) => l.employeeId === e.id)
+    let days = 0
+    for (const d of enumerateDates(window.start, window.end)) {
+      if (!isWorkingDay(d, schedule, holidayDates)) continue
+      if (recorded.has(d)) continue
+      if (myLeaves.some((l) => l.startDate <= d && l.endDate >= d)) continue
+      days += 1
+    }
+    if (days > 0) {
+      warnings.push({
+        employee: employeeRefWithDept(e),
+        reason: 'attendance_gap',
+        days_without_attendance: days,
+        message: `${days} day${days === 1 ? '' : 's'} with no attendance record — paid as present`,
+      })
+    }
+  }
+  return warnings
 }
 
 // ── Runs ──────────────────────────────────────────────────────────────────
@@ -292,10 +353,13 @@ payrollRouter.get('/runs/:id', handler(async (req, res) => {
     }
   }
 
+  const warnings = await attendanceGapWarnings(headcount.filter((h) => h.structure || h.stipend !== null))
+
   ok(res, {
     run: payrollRunToApi(run),
     items: items.map((i) => ({ ...payrollItemToApi(i), employee: employeeRefWithDept(i.employee) })),
     blockers,
+    warnings,
     variance,
     can_process: blockers.length === 0,
   })
@@ -469,7 +533,9 @@ payrollRouter.post('/runs/:id/calculate', handler(async (req, res) => {
     entityType: 'PayrollRun', entityId: run.id,
     after: { items: prepared.length, gross_paise: gross, net_paise: net }, req,
   })
-  ok(res, { run: payrollRunToApi(fresh), items: items.map(payrollItemToApi) })
+  const paidIds = new Set(prepared.map((p) => p.employeeId))
+  const warnings = await attendanceGapWarnings(headcount.filter((h) => paidIds.has(h.employee.id)))
+  ok(res, { run: payrollRunToApi(fresh), items: items.map(payrollItemToApi), warnings })
 }))
 
 // POST /api/payroll/runs/:id/review — draft → hr_review → finance_review

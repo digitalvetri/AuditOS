@@ -8,7 +8,7 @@
 import { useState, type FormEvent } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { payrollApi, STAGE_LABEL, type PayrollBlocker, type PayrollVariance } from '@/modules/payroll/api';
+import { payrollApi, STAGE_LABEL, type PayrollAttendanceWarning, type PayrollBlocker, type PayrollVariance } from '@/modules/payroll/api';
 import { inr } from '@/lib/format';
 import { Button } from '@/components/Button';
 import { Input } from '@/components/Input';
@@ -234,6 +234,7 @@ export function PayrollRunDetailPage() {
     );
   }
   const { run, items, blockers, variance, can_process } = q.data;
+  const warnings = q.data.warnings ?? [];
   const s = stageStyle(run.stage);
 
   return (
@@ -270,6 +271,8 @@ export function PayrollRunDetailPage() {
       {variance && Math.abs(variance.delta_paise) >= 100_000 ? (
         <VarianceBanner variance={variance} />
       ) : null}
+
+      {warnings.length > 0 ? <AttendanceGapNotice warnings={warnings} /> : null}
 
       {items.length === 0 && blockers.length === 0 ? (
         <div className="bg-white border border-neutral-200 rounded p-6 text-13 text-neutral-500">
@@ -341,6 +344,26 @@ function BlockerRow({ blocker }: { blocker: PayrollBlocker }) {
       <td className="px-3 py-2 text-13 text-neutral-400">—</td>
       <td className="px-3 py-2 text-13 text-neutral-400">—</td>
     </tr>
+  );
+}
+
+function AttendanceGapNotice({ warnings }: { warnings: PayrollAttendanceWarning[] }) {
+  return (
+    <div
+      className="bg-white border border-neutral-200 rounded px-4 py-3 border-l-2 border-l-amber"
+      data-testid="payroll-attendance-warnings"
+    >
+      <div className="text-13 font-medium text-neutral-900">Attendance gaps</div>
+      <ul className="mt-1 space-y-1">
+        {warnings.map((w) => (
+          <li key={w.employee?.id ?? w.message} className="text-13 text-neutral-700">
+            <span className="text-neutral-900">{w.employee?.full_name ?? '—'}</span>
+            {' · '}
+            <span className="text-amber-700">{w.message}</span>
+          </li>
+        ))}
+      </ul>
+    </div>
   );
 }
 

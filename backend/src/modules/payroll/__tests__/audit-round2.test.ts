@@ -191,3 +191,61 @@ describe('1. Process refuses a run that omits a payable employee', () => {
     expect(proc.body.data.payslips).toHaveLength(2)
   })
 })
+
+describe('2. Attendance-gap warnings (pay unchanged)', () => {
+  // September 2026, Mon–Fri schedule: 22 working days (1st is a Tuesday).
+  const workingDays = (from: number, to: number) => {
+    const out: string[] = []
+    for (let d = from; d <= to; d++) {
+      const iso = `2026-09-${String(d).padStart(2, '0')}`
+      const wd = new Date(`${iso}T00:00:00Z`).getUTCDay()
+      if (wd !== 0 && wd !== 6) out.push(iso)
+    }
+    return out
+  }
+
+  it('counts working days with no attendance and no approved leave, on Calculate and run detail', async () => {
+    const ctx = await seedOrg()
+    const { cookie } = await mdUser(ctx.org.id)
+    const gappy = await makeEmployee(ctx, { name: 'Gappy', joining: '2026-01-01' })
+    const full = await makeEmployee(ctx, { name: 'Full', joining: '2026-01-01' })
+    const joiner = await makeEmployee(ctx, { name: 'Joiner', joining: '2026-09-28' })
+
+    await prisma.holiday.create({ data: { organisationId: ctx.org.id, date: '2026-09-15', name: 'Festival' } })
+    const casual = await prisma.leaveType.upsert({
+      where: { id: 'lt-s1-casual' }, update: {},
+      create: { id: 'lt-s1-casual', organisationId: ctx.org.id, code: 'casual', name: 'Casual' },
+    })
+    await prisma.leaveRequest.create({
+      data: {
+        employeeId: gappy.id, leaveTypeId: casual.id, startDate: '2026-09-08', endDate: '2026-09-09',
+        computedWorkingDays: 2, reason: 'x', status: 'approved',
+      },
+    })
+    // Gappy: no row on 1, 2, 3 (gap), 8, 9 (approved leave), 15 (holiday).
+    const skip = new Set(['2026-09-01', '2026-09-02', '2026-09-03', '2026-09-08', '2026-09-09', '2026-09-15'])
+    for (const date of workingDays(1, 30)) {
+      if (!skip.has(date)) await prisma.attendance.create({ data: { employeeId: gappy.id, date, status: 'present' } })
+      await prisma.attendance.create({ data: { employeeId: full.id, date, status: 'present' } })
+    }
+
+    const run = await makeRun(ctx, '2026-09', 30)
+    const calc = await api(`/api/payroll/runs/${run.id}/calculate`, { method: 'POST', cookie })
+    expect(calc.status).toBe(200)
+    type W = { employee: { id: string }; days_without_attendance: number; message: string }
+    const byEmp = (ws: W[]) => Object.fromEntries(ws.map((w) => [w.employee.id, w.days_without_attendance]))
+    expect(byEmp(calc.body.data.warnings)).toEqual({ [gappy.id]: 3, [joiner.id]: 3 })
+    expect((calc.body.data.warnings as W[]).find((w) => w.employee.id === gappy.id)?.message)
+      .toBe('3 days with no attendance record — paid as present')
+
+    // Pay is unchanged: no LOP for the gaps.
+    const gItem = (calc.body.data.items as { employee_id: string; lop_days: number; gross_paise: number }[])
+      .find((i) => i.employee_id === gappy.id)
+    expect(gItem?.lop_days).toBe(0)
+    expect(gItem?.gross_paise).toBe(20_000_00)
+
+    const detail = await api(`/api/payroll/runs/${run.id}`, { cookie })
+    expect(byEmp(detail.body.data.warnings)).toEqual({ [gappy.id]: 3, [joiner.id]: 3 })
+    expect(detail.body.data.can_process).toBe(true)
+  })
+})
