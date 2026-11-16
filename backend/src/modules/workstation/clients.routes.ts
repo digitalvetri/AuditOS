@@ -19,7 +19,7 @@ import {
 import {
   body, CLIENT_STATUSES, DOCUMENT_STATUSES, FieldErrors, SERVICE_STATUSES,
 } from './validate.js'
-import { clientListWhere, clientOrderBy, createClientRow, findDuplicatePhoneClients, readClientFields } from './clients.shared.js'
+import { clientListWhere, clientOrderBy, createClientRow, exitFieldsFor, findDuplicatePhoneClients, readClientFields } from './clients.shared.js'
 
 /**
  * CLIENTS (AUDIT_OS_WORKSTATION.md §7.3) — the central workspace.
@@ -251,10 +251,15 @@ clientsRouter.patch('/:id', handler(async (req, res) => {
     const s = v.str('exit_reason', b.exit_reason, { required: false, max: 500 })
     data.exitReason = s === undefined ? null : s
   }
-  // Reactivation clears the reason even if the body didn't say so — a
-  // client who's active doesn't carry a stale "why they left" line.
-  if ('status' in b && b.status === 'active' && before.status === 'inactive' && !('exit_reason' in b)) {
-    data.exitReason = null
+  // Exit date and reason follow the status (clients.shared.ts exitFieldsFor):
+  // leaving inactive clears both — even if the body didn't say so — and an
+  // inactive client always has an exit date (today unless one is given).
+  const nextStatus = (data.status as string | undefined) ?? before.status
+  if ('status' in b || 'exit_date' in b) {
+    const given = 'exit_date' in b ? (data.exitDate as string | null) : undefined
+    const exit = exitFieldsFor(before, nextStatus, given)
+    if (nextStatus !== 'inactive' && 'exit_reason' in b && b.exit_reason) delete exit.exitReason
+    Object.assign(data, exit)
   }
   if ('short_name' in b) data.shortName = v.str('short_name', b.short_name, { required: false, max: 20 }) ?? null
   v.throwIfAny()

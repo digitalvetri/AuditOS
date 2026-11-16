@@ -19,7 +19,7 @@ import { entityTypeOf } from '../compliance/engine.js'
 import { CIN_RE, isValidGstin, LLPIN_RE } from '../gst/validate.js'
 import { body, CLIENT_STATUSES, FieldErrors } from './validate.js'
 import {
-  BUSINESS_TYPES, bumpClientCode, clientListWhere, clientOrderBy, createClientRow, readClientFields,
+  BUSINESS_TYPES, bumpClientCode, clientListWhere, clientOrderBy, createClientRow, exitFieldsFor, readClientFields,
   type ClientFields,
 } from './clients.shared.js'
 
@@ -509,7 +509,8 @@ clientImportRouter.post('/bulk', handler(async (req, res) => {
         }))
       } else {
         if (c.status === status) continue
-        out.push(await tx.client.update({ where: { id: c.id }, data: { status: status!, updatedBy: session.userId } }))
+        // Same exit-date rule as the single-client PATCH.
+        out.push(await tx.client.update({ where: { id: c.id }, data: { status: status!, ...exitFieldsFor(c, status!), updatedBy: session.userId } }))
       }
     }
     return out

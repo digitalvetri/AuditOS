@@ -9,6 +9,7 @@ import { assignedClientIds, clientIdWhere } from '../../platform/workstation/sco
 import { ORGANIZATION_REF } from '../../api/workstation.serialize.js'
 import { TAN_RE } from '../gst/validate.js'
 import { FieldErrors } from './validate.js'
+import { istToday } from '../../lib/dates.js'
 
 /**
  * The pieces of "make a client" and "list clients" that more than one route
@@ -202,6 +203,31 @@ export async function findDuplicatePhoneClients(
     visible: matches.map((c) => ({ id: c.id, client_code: c.clientCode, company_name: c.companyName })),
     hidden: total - visibleCount,
   }
+}
+
+// ── Exit date ───────────────────────────────────────────────────────────────
+
+/**
+ * The exit-date half of a status change. The exit date is the day the firm
+ * stopped acting, and the retention period (data-protection/retention.ts)
+ * runs from it, so every path that changes a client's status goes through
+ * here:
+ *  - leaving `inactive` clears the exit date and reason, so a stale date can
+ *    never come back with the next exit;
+ *  - an inactive client always has an exit date: the one given, else the one
+ *    it already had if it was already inactive, else today.
+ */
+export function exitFieldsFor(
+  before: { status: string; exitDate: string | null },
+  nextStatus: string,
+  givenExitDate?: string | null,
+): { exitDate?: string | null; exitReason?: null } {
+  if (nextStatus !== 'inactive') {
+    return before.status === 'inactive' || before.exitDate ? { exitDate: null, exitReason: null } : {}
+  }
+  if (givenExitDate) return { exitDate: givenExitDate }
+  if (before.status === 'inactive' && before.exitDate && givenExitDate === undefined) return {}
+  return { exitDate: istToday() }
 }
 
 // ── List filters ────────────────────────────────────────────────────────────
