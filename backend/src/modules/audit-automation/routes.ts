@@ -445,6 +445,11 @@ auditAutomationRouter.post('/invoices/extract', (req, res, next) => {
   try {
     const inspected = await inspectPdf(file.buffer)
     const extracted = extractInvoice(inspected.pages)
+    // A scan has no text layer: say so, rather than answer 200 with every
+    // field empty. Repotic does no OCR.
+    if (extracted.rawText.replace(/\s+/g, '').length < 20) {
+      throw ApiError.unprocessable('needs_ocr', 'No text found in this PDF — it looks like a scan. Repotic does not do OCR: enter the invoice details by hand, or upload a PDF with selectable text.')
+    }
     ok(res, {
       filename: sanitizeFilename(file.originalname),
       page_count: inspected.pageCount,
@@ -462,6 +467,7 @@ auditAutomationRouter.post('/invoices/extract', (req, res, next) => {
       hsn_candidates: extracted.hsnCandidates,
       date_candidates: extracted.dateCandidates,
       raw_text: extracted.rawText,
+      warnings: extracted.warnings,
     })
   } catch (e) {
     if (e instanceof PasswordRequiredError) throw ApiError.unprocessable('password_required', 'This invoice PDF is password-protected.')
@@ -929,6 +935,11 @@ auditAutomationRouter.post('/transit/extract', (req, res, next) => {
   try {
     const inspected = await inspectPdf(file.buffer)
     const extracted = extractTransit(inspected.pages)
+    // A scan has no text layer: say so, rather than answer 200 with every
+    // field empty. Repotic does no OCR.
+    if (extracted.rawText.replace(/\s+/g, '').length < 20) {
+      throw ApiError.unprocessable('needs_ocr', 'No text found in this PDF — it looks like a scan. Repotic does not do OCR: enter the transit document details by hand, or upload a PDF with selectable text.')
+    }
     ok(res, {
       filename: sanitizeFilename(file.originalname),
       page_count: inspected.pageCount,
@@ -947,6 +958,7 @@ auditAutomationRouter.post('/transit/extract', (req, res, next) => {
       value_paise: extracted.valuePaise,
       date_candidates: extracted.dateCandidates,
       raw_text: extracted.rawText,
+      warnings: extracted.warnings,
     })
   } catch (e) {
     if (e instanceof PasswordRequiredError) throw ApiError.unprocessable('password_required', 'This transit PDF is password-protected.')

@@ -24,6 +24,7 @@
  * tests and for confidence calibration over a real sample.
  */
 import type { ExtractedPage, ExtractedTextItem } from '../lib/pdfInspect.js'
+import { checkDate, checkDistinct, checkGstin } from './extractChecks.js'
 
 export type Confidence = 'high' | 'medium' | 'low'
 
@@ -63,6 +64,8 @@ export interface ExtractedInvoice {
   dateCandidates: string[]
   /** The first page's raw text joined with spaces, trimmed. Capped at 20 KB. */
   rawText: string
+  /** Checks that failed (GSTIN check digit, date, amounts not adding up). */
+  warnings: string[]
 }
 
 const GSTIN_RE = /\b[0-3]\d[A-Z]{5}[0-9]{4}[A-Z][1-9A-Z][Z1-9A-Z][0-9A-Z]\b/g
@@ -166,7 +169,8 @@ export function extractInvoice(pages: ExtractedPage[]): ExtractedInvoice {
     const before = raw.slice(0, supplier.idx)
     const lines = before.split('\n').map((l) => l.trim()).filter(Boolean)
     // Skip lines that look like a field label or an address line.
-    const isLabel = (l: string) => /^(gstin|pan|tan|invoice|date|address|phone|email)/i.test(l)
+    // Document headings ("TAX INVOICE", "ORIGINAL FOR RECIPIENT") are not the firm name.
+    const isLabel = (l: string) => /^(gstin|pan|tan|invoice|date|address|phone|email|tax\s*invoice|bill\s*of\s*supply|(original|duplicate|triplicate)\b|credit\s*note|debit\s*note|e-?invoice)/i.test(l)
     // Addresses typically carry numbers + comma-separated tokens and often
     // end in a 6-digit PIN or city/state name. The rule here is simple:
     // a line with a long digit run or ≥2 commas and a digit is probably an
@@ -249,27 +253,47 @@ export function extractInvoice(pages: ExtractedPage[]): ExtractedInvoice {
     hsnSet.add(m[0])
   }
 
+  // ── Checks: a value that fails one is not "high" (or "medium") any more.
+  const warnings: string[] = []
+  const supplierGstin = checkGstin({
+    value: supplier?.value ?? null,
+    confidence: supplier ? (supplier.context === 'supplier' ? 'high' : 'medium') : 'low',
+    source: supplier?.value ?? null,
+  }, 'Supplier GSTIN', warnings)
+  const recipientGstin = checkDistinct(supplierGstin, checkGstin({
+    value: recipient?.value ?? null,
+    confidence: recipient ? (recipient.context === 'recipient' ? 'high' : 'medium') : 'low',
+    source: recipient?.value ?? null,
+  }, 'Recipient GSTIN', warnings), 'recipient', warnings)
+  invoiceDate = checkDate(invoiceDate, 'invoice date', warnings)
+  let [totalF, taxableF, cgstF, sgstF, igstF] = [total, taxable, cgst, sgst, igst]
+  if (totalF.value !== null && taxableF.value !== null) {
+    const sum = taxableF.value + (cgstF.value ?? 0) + (sgstF.value ?? 0) + (igstF.value ?? 0)
+    // ₹1 for rounding off.
+    if (Math.abs(sum - totalF.value) > 100) {
+      warnings.push(`Taxable value and tax (₹${(sum / 100).toFixed(2)}) do not add up to the total (₹${(totalF.value / 100).toFixed(2)}) — one of them was misread.`)
+      ;[totalF, taxableF, cgstF, sgstF, igstF] = [totalF, taxableF, cgstF, sgstF, igstF].map((f) => (f.value === null ? f : { ...f, confidence: 'low' as const }))
+    }
+  }
+  if (cgstF.value !== null && sgstF.value !== null && Math.abs(cgstF.value - sgstF.value) > 1) {
+    warnings.push('CGST and SGST differ — they are always equal.')
+    cgstF = { ...cgstF, confidence: 'low' }; sgstF = { ...sgstF, confidence: 'low' }
+  }
+
   return {
-    supplierGstin: {
-      value: supplier?.value ?? null,
-      confidence: supplier ? (supplier.context === 'supplier' ? 'high' : 'medium') : 'low',
-      source: supplier?.value ?? null,
-    },
-    recipientGstin: {
-      value: recipient?.value ?? null,
-      confidence: recipient ? (recipient.context === 'recipient' ? 'high' : 'medium') : 'low',
-      source: recipient?.value ?? null,
-    },
+    supplierGstin,
+    recipientGstin,
     supplierName,
     invoiceNumber,
     invoiceDate,
-    totalPaise: total,
-    taxablePaise: taxable,
-    cgstPaise: cgst,
-    sgstPaise: sgst,
-    igstPaise: igst,
+    totalPaise: totalF,
+    taxablePaise: taxableF,
+    cgstPaise: cgstF,
+    sgstPaise: sgstF,
+    igstPaise: igstF,
     hsnCandidates: [...hsnSet],
     dateCandidates,
     rawText: raw,
+    warnings,
   }
 }

@@ -24,6 +24,7 @@
  */
 import type { ExtractedPage, ExtractedTextItem } from '../lib/pdfInspect.js'
 import { toIsoDate, toPaise } from './invoicePdf.js'
+import { checkDate, checkDistinct, checkGstin } from './extractChecks.js'
 
 export type Confidence = 'high' | 'medium' | 'low'
 
@@ -54,6 +55,8 @@ export interface ExtractedTransit {
   dateCandidates: string[]
   /** First page's text, trimmed; capped 20 KB. */
   rawText: string
+  /** Checks that failed (GSTIN check digit, same GSTIN twice, date). */
+  warnings: string[]
 }
 
 const GSTIN_RE = /\b[0-3]\d[A-Z]{5}[0-9]{4}[A-Z][1-9A-Z][Z1-9A-Z][0-9A-Z]\b/g
@@ -257,22 +260,26 @@ export function extractTransit(pages: ExtractedPage[]): ExtractedTransit {
     }
   }
 
+  const warnings: string[] = []
+  const consignorGstin = checkGstin({
+    value: consignor?.value ?? null,
+    confidence: consignor ? (consignor.context === 'consignor' ? 'high' : 'medium') : 'low',
+    source: consignor?.value ?? null,
+  }, 'Consignor GSTIN', warnings)
+  const consigneeGstin = checkDistinct(consignorGstin, checkGstin({
+    value: consignee?.value ?? null,
+    confidence: consignee ? (consignee.context === 'consignee' ? 'high' : 'medium') : 'low',
+    source: consignee?.value ?? null,
+  }, 'Consignee GSTIN', warnings), 'consignee', warnings)
+
   return {
     docNumber,
     docType,
-    docDate,
+    docDate: checkDate(docDate, 'document date', warnings),
     consignor: consignorName,
-    consignorGstin: {
-      value: consignor?.value ?? null,
-      confidence: consignor ? (consignor.context === 'consignor' ? 'high' : 'medium') : 'low',
-      source: consignor?.value ?? null,
-    },
+    consignorGstin,
     consignee: consigneeName,
-    consigneeGstin: {
-      value: consignee?.value ?? null,
-      confidence: consignee ? (consignee.context === 'consignee' ? 'high' : 'medium') : 'low',
-      source: consignee?.value ?? null,
-    },
+    consigneeGstin,
     vehicleNumber,
     fromPlace,
     toPlace,
@@ -281,5 +288,6 @@ export function extractTransit(pages: ExtractedPage[]): ExtractedTransit {
     valuePaise,
     dateCandidates,
     rawText: raw,
+    warnings,
   }
 }
