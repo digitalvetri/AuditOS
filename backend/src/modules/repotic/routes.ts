@@ -33,10 +33,12 @@ import { parseCsv } from '../zpay/invoice-import.js'
 import { MARKETPLACES, isMarketplaceKey, findReportKind } from './marketplaces.js'
 import { detect, fingerprintOf } from './fingerprint.js'
 import { parseFromBuffer, readRowsFromBuffer } from './parser.js'
-import { buildGstr1Preview } from './gstr1-builder.js'
+import { buildGstr1Preview, type Gstr1Preview, type Gstr1BuildResult } from './gstr1-builder.js'
 import { autoMap } from './auto-mapper.js'
 import { assertClientVisible } from '../../platform/workstation/scope.js'
 import { assertFilesClean } from '../../platform/virusScan.js'
+import { writeAudit } from '../../platform/audit.js'
+import { isValidGstin } from '../audit-automation/parsers/types.js'
 
 export const repoticRouter = Router()
 
@@ -64,6 +66,12 @@ async function orgIdOf(userId: string): Promise<string> {
 }
 
 const ISO_PERIOD = /^\d{4}-\d{2}$/
+
+/** The scope GSTIN must be a real one (format and check digit): every
+ *  row is filtered against it and the return is filed under it. */
+function assertGstin(gstin: string): void {
+  if (!isValidGstin(gstin)) throw ApiError.badRequest('Enter a valid 15-character GSTIN (the check digit does not match).')
+}
 
 // ── Marketplace registry + per-scope status ─────────────────────────────
 
@@ -166,12 +174,13 @@ repoticRouter.post('/ecommerce/uploads', (req, res, next) => {
         const marketplace = typeof b.marketplace === 'string' ? b.marketplace : ''
         const reportKind = typeof b.report_kind === 'string' ? b.report_kind : ''
         if (!clientId || !gstin || !period) throw ApiError.badRequest('client_id, gstin and period (YYYY-MM) are required.')
+        assertGstin(gstin)
         await assertClientVisible(session, clientId)
         if (!isMarketplaceKey(marketplace)) throw ApiError.badRequest('Unknown marketplace.')
         const report = findReportKind(marketplace, reportKind)
         if (!report) throw ApiError.badRequest('Unknown report_kind for this marketplace.')
 
-        // 1. Read the file's header row. XLSX, CSV and TSV are accepted.
+        // 1. Read the file's header row. XLSX and CSV are accepted.
         const ext = (file.originalname.split('.').pop() ?? '').toLowerCase()
         const headerRow = await readHeaderRow(file.buffer, ext)
         if (headerRow.length === 0) {
@@ -227,8 +236,12 @@ repoticRouter.post('/ecommerce/uploads', (req, res, next) => {
             },
           },
           update: {
-            // Re-upload after an adapter was added. Re-detect in case the
-            // adapter catalogue has changed; keep the existing uploadedAt.
+            // The same file again (also after deleting it): re-detect in
+            // case the adapter catalogue has changed, and make it the
+            // current upload again.
+            deletedAt: null,
+            uploadedAt: new Date(),
+            uploadedByUserId: session.userId,
             detectStatus: result.status,
             adapterId: result.adapterId,
             adapterVersion: result.adapterVersion,
@@ -281,8 +294,16 @@ repoticRouter.post('/ecommerce/uploads', (req, res, next) => {
               ext,
               adapterColumnMapJson: columnMapJson,
               prisma,
+              scopeGstin: gstin,
             })
             parseOutcome = { rows: out.rowsWritten, typeCounts: out.typeCounts, warnings: out.warnings }
+            // One current upload per (scope, marketplace, report): a
+            // corrected file replaces the earlier one instead of adding to
+            // it. The earlier rows stay for the record but are not built.
+            await prisma.rpEcommerceUpload.updateMany({
+              where: { organisationId, clientId, gstin, period, marketplace, reportKind, deletedAt: null, id: { not: row.id }, status: { not: 'superseded' } },
+              data: { status: 'superseded' },
+            })
           } catch (parseErr) {
             await prisma.rpEcommerceUpload.update({
               where: { id: row.id },
@@ -342,6 +363,26 @@ repoticRouter.get('/ecommerce/uploads', handler(async (req, res) => {
   })
 }))
 
+/**
+ * DELETE /api/repotic/ecommerce/uploads/:id — remove a wrong file. Its rows
+ * leave the GSTR-1 at once. Deleting the current upload does not bring back
+ * the one it replaced: upload the right file again.
+ */
+repoticRouter.delete('/ecommerce/uploads/:id', handler(async (req, res) => {
+  const session = requireSession(req)
+  requireAaManage(session)
+  const organisationId = await orgIdOf(session.userId)
+  const row = await prisma.rpEcommerceUpload.findFirst({ where: { id: req.params.id, organisationId, deletedAt: null } })
+  if (!row) throw ApiError.notFound('No such upload.')
+  await assertClientVisible(session, row.clientId)
+  await prisma.$transaction([
+    prisma.rpParsedRow.deleteMany({ where: { uploadId: row.id } }),
+    prisma.rpEcommerceUpload.update({ where: { id: row.id }, data: { deletedAt: new Date() } }),
+  ])
+  await writeAudit({ actorUserId: session.userId, action: 'repotic.ecommerce.upload_deleted', entityType: 'RpEcommerceUpload', entityId: row.id, after: { original_name: row.originalName, marketplace: row.marketplace, report_kind: row.reportKind, gstin: row.gstin, period: row.period }, req })
+  ok(res, { deleted: true })
+}))
+
 // ── GSTR-1 preview (Phase 3) ────────────────────────────────────────────
 
 repoticRouter.get('/ecommerce/gstr1', handler(async (req, res) => {
@@ -353,6 +394,7 @@ repoticRouter.get('/ecommerce/gstr1', handler(async (req, res) => {
   const period = typeof req.query.period === 'string' && ISO_PERIOD.test(req.query.period) ? req.query.period : null
   const download = req.query.download === '1' || req.query.download === 'true'
   if (!clientId || !gstin || !period) throw ApiError.badRequest('client_id, gstin and period (YYYY-MM) are required.')
+  assertGstin(gstin)
   await assertClientVisible(session, clientId)
   const { preview, counts, warnings } = await buildGstr1Preview({ organisationId, clientId, gstin, period }, prisma)
 
@@ -374,7 +416,7 @@ repoticRouter.get('/ecommerce/gstr1', handler(async (req, res) => {
     // renaming. `portal` defaults off to preserve existing API behaviour.
     const asPortal = req.query.portal === '1' || req.query.portal === 'true'
     const body = asPortal
-      ? JSON.stringify(portalShape(preview))
+      ? JSON.stringify(portalShape(preview, period))
       : JSON.stringify(preview, null, 2)
     const [yyyy, mm] = period.split('-')
     const filename = asPortal
@@ -389,7 +431,7 @@ repoticRouter.get('/ecommerce/gstr1', handler(async (req, res) => {
   ok(res, {
     counts,
     warnings,
-    summary_rows: summaryRows(preview),
+    summary_rows: summaryRows(preview, counts),
     preview_sample: {
       gstin: preview.gstin,
       fp: preview.fp,
@@ -410,72 +452,45 @@ repoticRouter.get('/ecommerce/gstr1', handler(async (req, res) => {
  * so auditors see the full scope of the form, not just what is filled
  * today.
  */
-function summaryRows(p: {
-  b2cs: Array<{ txval: number; iamt: number; camt: number; samt: number; csamt: number }>
-  b2cl: Array<{ inv: Array<{ val: number; itms: Array<{ itm_det: { txval: number; iamt: number; camt: number; samt: number; csamt: number } }> }> }>
-  cdnur: Array<{ val: number; itms: Array<{ itm_det: { txval: number; iamt: number; camt: number; samt: number; csamt: number } }> }>
-  hsn: Array<{ qty: number; val: number; txval: number; iamt: number; camt: number; samt: number; csamt: number }>
-  supeco?: { clttx: Array<{ suppval: number; igst: number; cgst: number; sgst: number; cess: number }> }
-}) {
+function summaryRows(p: Gstr1Preview, counts: Gstr1BuildResult['counts']) {
   const zero = { vouchers: 0, taxable: 0, igst: 0, cgst: 0, sgst: 0, cess: 0, invoice: 0 }
-  const b2csTot = p.b2cs.reduce((a, e) => ({
-    vouchers: a.vouchers, taxable: round(a.taxable + e.txval),
-    igst: round(a.igst + e.iamt), cgst: round(a.cgst + e.camt),
-    sgst: round(a.sgst + e.samt), cess: round(a.cess + e.csamt),
-    invoice: round(a.invoice + e.txval + e.iamt + e.camt + e.samt + e.csamt),
-  }), { ...zero })
-  const b2csVouchers = p.b2cs.length
-  const b2clVouchers = p.b2cl.reduce((n, e) => n + e.inv.length, 0)
-  const b2clTot = p.b2cl.reduce((a, e) => {
-    for (const inv of e.inv) {
-      a.invoice = round(a.invoice + inv.val)
-      for (const it of inv.itms) {
-        a.taxable = round(a.taxable + it.itm_det.txval)
-        a.igst = round(a.igst + it.itm_det.iamt)
-        a.cgst = round(a.cgst + it.itm_det.camt)
-        a.sgst = round(a.sgst + it.itm_det.samt)
-        a.cess = round(a.cess + it.itm_det.csamt)
-      }
-    }
+  const add = (a: typeof zero, t: { txval: number; iamt?: number; camt?: number; samt?: number; csamt?: number }, invoice?: number) => {
+    a.taxable = round(a.taxable + t.txval)
+    a.igst = round(a.igst + (t.iamt ?? 0))
+    a.cgst = round(a.cgst + (t.camt ?? 0))
+    a.sgst = round(a.sgst + (t.samt ?? 0))
+    a.cess = round(a.cess + (t.csamt ?? 0))
+    a.invoice = round(a.invoice + (invoice ?? t.txval + (t.iamt ?? 0) + (t.camt ?? 0) + (t.samt ?? 0) + (t.csamt ?? 0)))
     return a
-  }, { ...zero })
-  const cdnurTot = p.cdnur.reduce((a, e) => {
-    a.invoice = round(a.invoice + e.val)
-    for (const it of e.itms) {
-      a.taxable = round(a.taxable + it.itm_det.txval)
-      a.igst = round(a.igst + it.itm_det.iamt)
-      a.cgst = round(a.cgst + it.itm_det.camt)
-      a.sgst = round(a.sgst + it.itm_det.samt)
-      a.cess = round(a.cess + it.itm_det.csamt)
-    }
-    return a
-  }, { ...zero })
-  const supTot = (p.supeco?.clttx ?? []).reduce((a, e) => ({
-    vouchers: a.vouchers + 1,
-    taxable: round(a.taxable + e.suppval),
-    igst: round(a.igst + e.igst), cgst: round(a.cgst + e.cgst),
-    sgst: round(a.sgst + e.sgst), cess: round(a.cess + e.cess),
-    invoice: round(a.invoice + e.suppval + e.igst + e.cgst + e.sgst + e.cess),
-  }), { ...zero })
-  const hsnTot = p.hsn.reduce((a, e) => ({
-    vouchers: a.vouchers + 1, taxable: round(a.taxable + e.txval),
-    igst: round(a.igst + e.iamt), cgst: round(a.cgst + e.camt),
-    sgst: round(a.sgst + e.samt), cess: round(a.cess + e.csamt),
-    invoice: round(a.invoice + e.val),
-  }), { ...zero })
+  }
+  const b2csTot = p.b2cs.reduce((a, e) => add(a, e), { ...zero })
+  const b2clTot = { ...zero }
+  for (const e of p.b2cl) for (const inv of e.inv) {
+    b2clTot.invoice = round(b2clTot.invoice + inv.val)
+    for (const it of inv.itms) add(b2clTot, it.itm_det, 0)
+  }
+  const cdnurTot = { ...zero }
+  for (const e of p.cdnur) {
+    cdnurTot.invoice = round(cdnurTot.invoice + e.val)
+    for (const it of e.itms) add(cdnurTot, it.itm_det, 0)
+  }
+  const supTot = (p.supeco?.clttx ?? []).reduce((a, e) => add(a, { txval: e.suppval, iamt: e.igst, camt: e.cgst, samt: e.sgst, csamt: e.cess }), { ...zero })
+  const hsnTot = p.hsn.reduce((a, e) => add(a, e), { ...zero })
 
+  // Voucher counts are line/row counts from the source (B2CS is reported
+  // consolidated, so it has no invoice count of its own).
   return [
     { code: '4A_4B_6B_6C', label: 'B2B Invoices - 4A, 4B, 6B, 6C',           ...zero, implemented: false },
-    { code: '5A',          label: 'B2C (Large) Invoices - 5A',               ...b2clTot, vouchers: b2clVouchers, implemented: true },
-    { code: '7',           label: 'B2C (Others) - 7',                        ...b2csTot, vouchers: b2csVouchers, implemented: true },
+    { code: '5A',          label: 'B2C (Large) Invoices - 5A',               ...b2clTot, vouchers: p.b2cl.reduce((n, e) => n + e.inv.length, 0), implemented: true },
+    { code: '7',           label: 'B2C (Others) - 7, net of returns',        ...b2csTot, vouchers: counts.b2cs + counts.b2cs_returns, implemented: true },
     { code: '9B_R',        label: 'Credit/Debit Notes (Registered) - 9B',    ...zero, implemented: false },
-    { code: '9B_UR',       label: 'Credit/Debit Notes (Unregistered) - 9B',  ...cdnurTot, vouchers: p.cdnur.length, implemented: true },
+    { code: '9B_UR',       label: 'Credit/Debit Notes (Unregistered, B2CL) - 9B', ...cdnurTot, vouchers: p.cdnur.length, implemented: true },
     { code: '6A',          label: 'Exports Invoices - 6A',                   ...zero, implemented: false },
     { code: '11A',         label: 'Tax Liability (Advances Received) - 11A(1), 11A(2)', ...zero, implemented: false },
     { code: '11B',         label: 'Adjustment of Advances - 11B(1), 11B(2)', ...zero, implemented: false },
     { code: '8',           label: 'Nil Rated Supplies - 8A, 8B, 8C, 8D',     ...zero, implemented: false },
-    { code: 'supeco',      label: 'Supplies made through E-Commerce Operators', ...supTot, implemented: true },
-    { code: 'hsn',         label: 'HSN-wise summary of outward supplies',    ...hsnTot, implemented: true },
+    { code: 'supeco',      label: 'Supplies made through E-Commerce Operators - 14', ...supTot, vouchers: p.supeco?.clttx.length ?? 0, implemented: true },
+    { code: 'hsn',         label: 'HSN-wise summary of outward supplies - 12', ...hsnTot, vouchers: p.hsn.length, implemented: true },
     { code: '13',          label: 'Documents Issued',                        ...zero, implemented: false },
   ]
 }
@@ -487,16 +502,16 @@ function round(n: number): number { return Math.round(n * 100) / 100 }
  * empty sections — the shape a real Repotic export has. Used when the
  * caller passes `portal=1`.
  */
-function portalShape(p: {
-  gstin: string; fp: string
-  b2cs: unknown[]; b2cl: unknown[]; cdnur: unknown[]; hsn: unknown[]
-  supeco?: { clttx: unknown[] }
-}): Record<string, unknown> {
+function portalShape(p: Gstr1Preview, period: string): Record<string, unknown> {
   const out: Record<string, unknown> = { gstin: p.gstin, fp: p.fp }
   if (p.b2cs.length) out.b2cs = p.b2cs
   if (p.b2cl.length) out.b2cl = p.b2cl
   if (p.cdnur.length) out.cdnur = p.cdnur
-  if (p.hsn.length) out.hsn = p.hsn
+  // From the May-2025 return the HSN summary is split into B2B and B2C
+  // tables (`hsn.hsn_b2b` / `hsn.hsn_b2c`); before it, one `hsn.data`.
+  // Every supply here is B2C. Shape per the india-compliance GSTR-1 export
+  // (no official GSTN schema was available to check against).
+  if (p.hsn.length) out.hsn = period >= '2025-05' ? { hsn_b2c: p.hsn } : { data: p.hsn }
   if (p.supeco && p.supeco.clttx.length) out.supeco = p.supeco
   return out
 }
@@ -532,7 +547,8 @@ repoticRouter.get('/adapters', handler(async (req, res) => {
 // ── Helpers ─────────────────────────────────────────────────────────────
 
 async function readHeaderRow(buffer: Buffer, ext: string): Promise<string[]> {
-  if (ext === 'xlsx' || ext === 'xls') {
+  if (ext === 'xls') throw ApiError.unprocessable('unsupported_type', 'Old .xls files cannot be read. Open the file in Excel and save it as .xlsx (or download the report as CSV).')
+  if (ext === 'xlsx') {
     const wb = new ExcelJS.Workbook()
     try {
       await wb.xlsx.load(buffer as unknown as ArrayBuffer)
@@ -547,12 +563,12 @@ async function readHeaderRow(buffer: Buffer, ext: string): Promise<string[]> {
     const rows = await readStatementTable(buffer, 'xlsx')
     return rows[0] ?? []
   }
-  if (ext === 'csv' || ext === 'tsv' || ext === 'txt') {
+  if (ext === 'csv') {
     const text = buffer.toString('utf8')
     const rows = parseCsv(text)
     return rows[0] ?? []
   }
-  throw ApiError.unprocessable('unsupported_type', 'Supported file types: .xlsx, .csv, .tsv.')
+  throw ApiError.unprocessable('unsupported_type', 'Supported file types: .xlsx and .csv.')
 }
 
 function safeArray(json: string): unknown[] {

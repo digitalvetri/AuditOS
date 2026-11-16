@@ -25,6 +25,9 @@ interface FieldGuess {
   label: string
   required?: boolean
   synonyms: string[]
+  /** Further columns of the same head that are ADDED to the first match
+   *  (Amazon MTR: shipping and gift-wrap tax beside the item tax). */
+  addSynonyms?: string[]
 }
 
 /** Normalised header synonyms per standard field. All strings here are
@@ -39,11 +42,20 @@ const FIELD_GUESSES: FieldGuess[] = [
     synonyms: ['invoiceamount', 'invamount', 'invoiceamt', 'invoicetotal', 'finalinvoiceamount', 'ordervalue', 'finalsaleamount', 'totalamount'] },
   { key: 'taxable_value', label: 'taxable value', required: true,
     synonyms: ['taxexclusivegross', 'taxablevalue', 'taxableamount', 'taxableval', 'netamount'] },
-  { key: 'cgst_tax', label: 'CGST tax', synonyms: ['cgsttax', 'cgst', 'cgstamount'] },
-  { key: 'sgst_tax', label: 'SGST tax', synonyms: ['sgsttax', 'sgst', 'sgstamount'] },
-  { key: 'igst_tax', label: 'IGST tax', synonyms: ['igsttax', 'igst', 'igstamount'] },
+  { key: 'cgst_tax', label: 'CGST tax', synonyms: ['cgsttax', 'cgst', 'cgstamount'],
+    addSynonyms: ['shippingcgsttax', 'giftwrapcgsttax'] },
+  { key: 'sgst_tax', label: 'SGST tax', synonyms: ['sgsttax', 'sgst', 'sgstamount'],
+    addSynonyms: ['shippingsgsttax', 'giftwrapsgsttax'] },
+  { key: 'utgst_tax', label: 'UTGST tax', synonyms: ['utgsttax', 'utgst', 'utgstamount'],
+    addSynonyms: ['shippingutgsttax', 'giftwraputgsttax'] },
+  { key: 'igst_tax', label: 'IGST tax', synonyms: ['igsttax', 'igst', 'igstamount'],
+    addSynonyms: ['shippingigsttax', 'giftwrapigsttax'] },
   { key: 'cess_tax', label: 'cess tax',
-    synonyms: ['compensatorycesstax', 'cesstax', 'cess', 'cessamount'] },
+    synonyms: ['compensatorycesstax', 'cesstax', 'cess', 'cessamount'],
+    addSynonyms: ['shippingcesstaxamount', 'shippingcesstax', 'giftwrapcompensatorycesstax', 'giftwrapcesstax'] },
+  // Amazon's custom MTR spells these "… Promo Discount Tax".
+  { key: 'promo_tax', label: 'promotion tax', synonyms: ['itempromotax', 'itempromodiscounttax'],
+    addSynonyms: ['shippingpromotax', 'giftwrappromotax', 'shippingpromodiscounttax', 'giftwrappromodiscounttax'] },
   { key: 'cgst_rate', label: 'CGST rate', synonyms: ['cgstrate', 'cgstpct'] },
   { key: 'sgst_rate', label: 'SGST rate', synonyms: ['sgstrate', 'sgstpct'] },
   { key: 'igst_rate', label: 'IGST rate', synonyms: ['igstrate', 'igstpct'] },
@@ -98,7 +110,8 @@ export function autoMap(headers: string[]): AutoMapResult {
     if (hit) {
       // The ColumnMap stores the ORIGINAL header string — the parser's
       // header-index lookup normalises both sides at compare time.
-      ;(columnMap as Record<string, string>)[guess.key] = hit
+      const extra = (guess.addSynonyms ?? []).map((s) => normalisedHeaders.get(s)).filter((h): h is string => Boolean(h))
+      ;(columnMap as Record<string, string | string[]>)[guess.key] = extra.length ? [hit, ...extra] : hit
       mappedFields.push(guess.key)
     } else if (guess.required) {
       missingRequired.push(guess.label)

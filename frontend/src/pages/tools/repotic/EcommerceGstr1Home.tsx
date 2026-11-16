@@ -7,9 +7,8 @@
  * state against that scope:
  *
  *   SOURCE            REPORT              STATE / ACTION          COVERAGE
- *   Amazon            MTR B2C             ✓ uploaded 412 rows     all tables
- *                     MTR B2B             [ Upload ]               all tables
- *   Myntra            Sales               [ Upload ]               no doc 13
+ *   Amazon            MTR B2C             ✓ uploaded 412 rows     5A, 7, 9B, 12, 14
+ *                     MTR B2B             [ Upload ]               not built (B2B)
  *
  * The coverage column replaces the original Repotic's export-time
  * surprise modal — nobody discovers at download that document summary
@@ -18,7 +17,7 @@
 import { useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
-import { ArrowLeft, Upload, Check, AlertTriangle, Info } from 'lucide-react';
+import { ArrowLeft, Upload, Check, AlertTriangle, Info, Trash2 } from 'lucide-react';
 import { useToast } from '@/components/Toast';
 import { repoticApi, type ReportEntry } from '@/modules/tools/repotic/api';
 import { gstApi, recentPeriods } from '@/modules/workstation/gst/api';
@@ -29,23 +28,16 @@ function currentMonth(): string {
 }
 
 export function EcommerceGstr1HomePage() {
-  const [clientId, setClientId] = useState<string>('');
-  const [gstin, setGstin] = useState<string>('');
+  // A client can hold several GST registrations: the picker chooses one
+  // registration (profile), which gives both the client and the GSTIN.
+  const [profileId, setProfileId] = useState<string>('');
   const [period, setPeriod] = useState<string>(currentMonth());
   const periods = useMemo(() => recentPeriods(12), []);
 
   const clients = useQuery({ queryKey: ['gst.clients'], queryFn: () => gstApi.clients() });
-  const clientGstinByClient = useMemo(() => {
-    const m = new Map<string, string>();
-    for (const c of clients.data?.items ?? []) {
-      if (c.client_id) m.set(c.client_id, c.gstin);
-    }
-    return m;
-  }, [clients.data]);
-
-  // Lock GSTIN to the selected client's primary GST profile (same model
-  // GST module uses — one GSTIN per client in the common case).
-  const effectiveGstin = clientGstinByClient.get(clientId) ?? gstin;
+  const profile = (clients.data?.items ?? []).find((c) => c.id === profileId);
+  const clientId = profile?.client_id ?? '';
+  const effectiveGstin = profile?.gstin ?? '';
 
   const scoped = clientId && effectiveGstin && period
     ? { client_id: clientId, gstin: effectiveGstin, period }
@@ -77,11 +69,11 @@ export function EcommerceGstr1HomePage() {
         <div className="grid grid-cols-1 md:grid-cols-3 gap-3 items-end">
           <label className="text-11 text-neutral-500">
             Client
-            <select value={clientId} onChange={(e) => { setClientId(e.target.value); setGstin(''); }}
+            <select value={profileId} onChange={(e) => setProfileId(e.target.value)}
               className="mt-1 h-9 w-full px-2 text-13 border border-neutral-300 rounded bg-white">
               <option value="">— pick a client —</option>
-              {(clients.data?.items ?? []).map((c) => (
-                <option key={c.id} value={c.client_id ?? ''}>
+              {(clients.data?.items ?? []).filter((c) => c.client_id).map((c) => (
+                <option key={c.id} value={c.id}>
                   {c.client_name ?? c.legal_name ?? '—'} · {c.gstin}
                 </option>
               ))}
@@ -89,9 +81,7 @@ export function EcommerceGstr1HomePage() {
           </label>
           <label className="text-11 text-neutral-500">
             GSTIN
-            <input value={effectiveGstin} onChange={(e) => setGstin(e.target.value.toUpperCase())}
-              placeholder="33ABCDE1234F1Z5" maxLength={15}
-              disabled={Boolean(clientGstinByClient.get(clientId))}
+            <input value={effectiveGstin} readOnly placeholder="Pick a client and registration"
               className="mt-1 h-9 w-full px-2 text-13 font-mono border border-neutral-300 rounded disabled:bg-neutral-50 disabled:text-neutral-500" />
           </label>
           <label className="text-11 text-neutral-500">
@@ -116,6 +106,7 @@ export function EcommerceGstr1HomePage() {
             items={marketplacesQ.data?.items ?? []}
             loading={marketplacesQ.isLoading}
           />
+          <UploadsList scope={scoped} />
           <BuildGstr1Section scope={scoped} />
         </>
       )}
@@ -172,8 +163,9 @@ function SourcesTable({ scope, clientName, items, loading }: {
       <div className="p-3 border-t border-neutral-100 text-11 text-neutral-500 flex items-start gap-1.5">
         <Info size={12} className="mt-0.5" />
         <span>
-          Coverage states what each adapter can and cannot produce — stated here before upload, not surprised at export.
-          An adapter not yet configured for your firm shows <strong>Adapter missing</strong>; a drifted file is parsed with a loud warning.
+          Coverage lists the GSTR-1 tables built from each report. B2B reports are not built: file B2B invoices separately.
+          A new file for the same report replaces the earlier one. Amazon MTR B2C, Flipkart Sales and Meesho Sales have tested
+          layouts; other marketplaces are read only when their column names match — <strong>Beta, verify before filing</strong>.
         </span>
       </div>
     </section>
@@ -201,8 +193,13 @@ function ReportState({ scope, marketplace, report }: {
     },
     onSuccess: async (r) => {
       await qc.invalidateQueries({ queryKey: ['repotic.marketplaces'] });
+      await qc.invalidateQueries({ queryKey: ['repotic.uploads'] });
+      await qc.invalidateQueries({ queryKey: ['repotic.gstr1'] });
       const rows = r.parse?.rows ?? 0;
-      if (r.detect_status === 'matched' || r.detect_status === 'auto_detected') {
+      const warn = r.parse?.warnings?.length ? ` Check: ${r.parse.warnings.join('; ')}.` : '';
+      if (warn) {
+        toast.push('info', `Uploaded — ${rows} row${rows === 1 ? '' : 's'} parsed.${warn}`);
+      } else if (r.detect_status === 'matched' || r.detect_status === 'auto_detected') {
         toast.push('success', `Uploaded — ${rows} row${rows === 1 ? '' : 's'} parsed.`);
       } else if (r.detect_status === 'drifted') {
         toast.push('info', `Uploaded with warnings — some columns differ from last time.`);
@@ -264,7 +261,7 @@ function ReportState({ scope, marketplace, report }: {
 function FilePicker({ onPick, onCancel }: { onPick: (f: File) => void; onCancel: () => void }) {
   return (
     <div className="mt-1 flex items-center gap-2">
-      <input type="file" accept=".xlsx,.xls,.csv,.tsv,.txt"
+      <input type="file" accept=".xlsx,.csv"
         onChange={(e) => { const f = e.target.files?.[0]; if (f) onPick(f); }}
         className="text-11" />
       <button type="button" onClick={onCancel} className="text-11 text-neutral-500 hover:text-neutral-900">cancel</button>
@@ -273,11 +270,73 @@ function FilePicker({ onPick, onCancel }: { onPick: (f: File) => void; onCancel:
 }
 
 function Coverage({ intendedCoverage }: { intendedCoverage: string[] }) {
-  const ALL = ['4A', '5A', '7', '9B', '6A', '11A', '11B', '8', '12', '13', '14a'];
-  const missing = ALL.filter((t) => !intendedCoverage.includes(t));
-  if (missing.length === 0) return <span className="text-success">all tables</span>;
-  if (missing.length === 1) return <span>no table {missing[0] === '13' ? 'doc 13' : missing[0]}</span>;
-  return <span>no {missing.map((t) => (t === '13' ? 'doc 13' : t)).join(', ')}</span>;
+  if (intendedCoverage.length === 0) return <span>not built (B2B)</span>;
+  return <span>Tables {intendedCoverage.join(', ')}</span>;
+}
+
+/** Every file uploaded for this scope, current and replaced, with delete. */
+function UploadsList({ scope }: { scope: { client_id: string; gstin: string; period: string } }) {
+  const qc = useQueryClient();
+  const toast = useToast();
+  const q = useQuery({
+    queryKey: ['repotic.uploads', scope.client_id, scope.gstin, scope.period],
+    queryFn: () => repoticApi.uploads(scope),
+  });
+  const del = useMutation({
+    mutationFn: (id: string) => repoticApi.deleteUpload(id),
+    onSuccess: async () => {
+      await Promise.all(['repotic.uploads', 'repotic.marketplaces', 'repotic.gstr1'].map((k) => qc.invalidateQueries({ queryKey: [k] })));
+      toast.push('success', 'Upload deleted. Its rows are no longer in the GSTR-1.');
+    },
+    onError: (e: Error) => toast.push('error', e.message),
+  });
+  const items = q.data?.items ?? [];
+  if (items.length === 0) return null;
+  return (
+    <section className="mt-4 bg-white border border-neutral-200 rounded overflow-hidden">
+      <div className="p-4 border-b border-neutral-200">
+        <div className="text-11 tracking-[0.06em] text-neutral-500 mb-1">UPLOADED FILES</div>
+        <div className="text-12 text-neutral-500">Only the current file of each report is built. A replaced file is kept for the record.</div>
+      </div>
+      <table className="w-full min-w-[720px] text-13">
+        <thead>
+          <tr className="text-11 uppercase tracking-[0.06em] text-neutral-500 border-b border-neutral-200">
+            <th className="text-left px-4 h-8 font-medium">File</th>
+            <th className="text-left px-2 font-medium">Report</th>
+            <th className="text-right px-2 font-medium">Rows</th>
+            <th className="text-left px-2 font-medium">Status</th>
+            <th className="text-left px-2 font-medium">Uploaded</th>
+            <th className="px-4 w-10" />
+          </tr>
+        </thead>
+        <tbody>
+          {items.map((u) => {
+            const current = u.status !== 'superseded' && u.detect_status !== 'no_match';
+            return (
+              <tr key={u.id} className="border-b border-neutral-100">
+                <td className="px-4 py-2 text-neutral-800 truncate max-w-[280px]">{u.original_name}</td>
+                <td className="px-2 py-2 text-neutral-600">{u.marketplace} · {u.report_kind}</td>
+                <td className="px-2 py-2 text-right text-neutral-700">{u.row_count}</td>
+                <td className="px-2 py-2">
+                  {u.detect_status === 'no_match' ? <span className="text-danger">Not read</span>
+                    : current ? <span className="text-success">Current</span>
+                    : <span className="text-neutral-500">Replaced</span>}
+                </td>
+                <td className="px-2 py-2 text-neutral-500">{new Date(u.uploaded_at).toLocaleString()}</td>
+                <td className="px-4 py-2 text-right">
+                  <button type="button" aria-label={`Delete ${u.original_name}`} disabled={del.isPending}
+                    onClick={() => { if (window.confirm(`Delete ${u.original_name}? Its rows leave the GSTR-1.`)) del.mutate(u.id); }}
+                    className="text-neutral-400 hover:text-danger disabled:opacity-60">
+                    <Trash2 size={14} strokeWidth={1.75} />
+                  </button>
+                </td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+    </section>
+  );
 }
 
 /**
@@ -302,12 +361,12 @@ function BuildGstr1Section({ scope }: { scope: { client_id: string; gstin: strin
           <div className="text-11 tracking-[0.06em] text-neutral-500 mb-1">BUILD</div>
           <div className="text-14 font-semibold text-neutral-900">GSTR-1 preview</div>
           <div className="text-11 text-neutral-500 mt-0.5">
-            Tables 5A, 7, 9B and 12 — assembled from every matched upload above.
+            Tables 5A, 7, 9B (B2C-large credit notes), 12 and 14 — from the current file of each report above.
           </div>
         </div>
         <div className="flex items-center gap-2">
           <Link
-            to={`/audit-automation/ecommerce/summary?client_id=${encodeURIComponent(scope.client_id)}&period=${encodeURIComponent(scope.period)}`}
+            to={`/audit-automation/ecommerce/summary?client_id=${encodeURIComponent(scope.client_id)}&gstin=${encodeURIComponent(scope.gstin)}&period=${encodeURIComponent(scope.period)}`}
             aria-disabled={!anyRows}
             className={
               'h-9 px-3 text-13 inline-flex items-center gap-1 border rounded ' +
@@ -343,9 +402,9 @@ function BuildGstr1Section({ scope }: { scope: { client_id: string; gstin: strin
         ) : (
           <>
             <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-              <TableCount label="5A — B2C Large (≥ ₹1 lakh)" count={summaryQ.data!.counts.b2cl} />
-              <TableCount label="7 — B2C Small (consolidated)" count={summaryQ.data!.counts.b2cs} />
-              <TableCount label="9B — Credit/debit notes" count={summaryQ.data!.counts.cdnur} />
+              <TableCount label="5A — B2C Large (> ₹1 lakh, inter-state)" count={summaryQ.data!.counts.b2cl} />
+              <TableCount label="7 — B2C Small (net of returns)" count={summaryQ.data!.counts.b2cs + summaryQ.data!.counts.b2cs_returns} />
+              <TableCount label="9B — Credit notes on B2C Large" count={summaryQ.data!.counts.cdnur} />
               <TableCount label="12 — HSN summary" count={summaryQ.data!.counts.hsn} />
             </div>
             <div className="mt-3 text-11 text-neutral-500 flex items-start gap-1.5">
@@ -357,8 +416,17 @@ function BuildGstr1Section({ scope }: { scope: { client_id: string; gstin: strin
                   : ''}{' '}
                 {summaryQ.data!.counts.excluded_other
                   ? `· ${summaryQ.data!.counts.excluded_other} unclassified rows excluded`
+                  : ''}{' '}
+                {summaryQ.data!.counts.excluded_other_gstin
+                  ? `· ${summaryQ.data!.counts.excluded_other_gstin} rows of another GSTIN excluded`
+                  : ''}{' '}
+                {summaryQ.data!.counts.excluded_out_of_period
+                  ? `· ${summaryQ.data!.counts.excluded_out_of_period} rows outside the period excluded`
+                  : ''}{' '}
+                {summaryQ.data!.counts.excluded_b2b
+                  ? `· ${summaryQ.data!.counts.excluded_b2b} B2B rows not built`
                   : ''}
-                . Preview JSON is for human review — not yet verified against the GSTN offline tool schema.
+                . Beta — verify before filing: the JSON is not yet checked against the GSTN offline tool.
               </span>
             </div>
           </>

@@ -24,69 +24,68 @@ export interface ReportKind {
   /** Button text on the Upload cell, e.g. "MTR B2C", "Sales", "GST". */
   label: string
   /**
-   * Which GSTR-1 tables an adapter for this report CAN populate. Values
-   * are the GSTR-1 table codes (4A, 5A, 7, 9B, 6A, 11A, 11B, 8, 12,
-   * 13, 14a, 14b). An adapter that lacks a declared table shows up as
-   * "no doc 13" / "no 14(a)" on the import screen's coverage column.
+   * Which GSTR-1 tables the builder produces from this report (codes from
+   * B2C_TABLES; empty = not built). The import screen shows exactly this.
    */
   intendedCoverage: readonly string[]
 }
 
 /**
- * The full table set a complete adapter would cover. Anything missing
- * from a report kind's `intendedCoverage` is a known gap for that
- * source — e.g. Myntra's seller report lacks "Documents issued"
- * because Myntra does not expose per-invoice counts.
+ * The GSTR-1 tables the builder (gstr1-builder.ts) actually produces from a
+ * B2C marketplace report: 5A (B2CL), 7 (B2CS, net of returns), 9B (credit
+ * notes against B2CL invoices only), 12 (HSN) and 14 (ECO supplies, where
+ * the marketplace's ETIN is known). Nothing else — no B2B (4A), exports,
+ * advances, nil-rated or documents issued (13).
  */
-export const ALL_GSTR1_TABLES = [
-  '4A', '5A', '7', '9B', '6A', '11A', '11B', '8', '12', '13', '14a',
-] as const
+export const B2C_TABLES = ['5A', '7', '9B', '12', '14'] as const
 
-const ALL = ALL_GSTR1_TABLES as unknown as readonly string[]
-const NO_DOC_13 = ALL.filter((t) => t !== '13')
+const B2C = B2C_TABLES as unknown as readonly string[]
+/** B2B reports are not built at all: their rows are left out of the
+ *  return (Table 4 is not produced). */
+const NONE: readonly string[] = []
 
 export const MARKETPLACES: Marketplace[] = [
   {
     key: 'gov_excel', label: 'Gov. excel',
-    reports: [{ key: 'gov_summary', label: 'Summary', intendedCoverage: ALL }],
+    reports: [{ key: 'gov_summary', label: 'Summary', intendedCoverage: B2C }],
   },
   {
     key: 'other', label: 'Other',
     reports: [
-      { key: 'b2c_sheet', label: 'B2C sheet', intendedCoverage: ALL },
-      { key: 'b2b_sheet', label: 'B2B sheet', intendedCoverage: ALL },
+      { key: 'b2c_sheet', label: 'B2C sheet', intendedCoverage: B2C },
+      { key: 'b2b_sheet', label: 'B2B sheet', intendedCoverage: NONE },
     ],
   },
   {
     key: 'amazon', label: 'Amazon',
     reports: [
-      { key: 'mtr_b2c', label: 'MTR B2C', intendedCoverage: ALL },
-      { key: 'mtr_b2b', label: 'MTR B2B', intendedCoverage: ALL },
+      { key: 'mtr_b2c', label: 'MTR B2C', intendedCoverage: B2C },
+      { key: 'mtr_b2b', label: 'MTR B2B', intendedCoverage: NONE },
     ],
   },
   {
     key: 'flipkart', label: 'Flipkart',
     reports: [
-      { key: 'sales', label: 'Sales', intendedCoverage: ALL },
-      { key: 'gst', label: 'GST', intendedCoverage: ALL },
+      { key: 'sales', label: 'Sales', intendedCoverage: B2C },
+      { key: 'gst', label: 'GST', intendedCoverage: B2C },
     ],
   },
-  { key: 'meesho', label: 'Meesho', reports: [{ key: 'sales', label: 'Sales', intendedCoverage: ALL }] },
-  { key: 'myntra', label: 'Myntra', reports: [{ key: 'sales', label: 'Sales', intendedCoverage: NO_DOC_13 }] },
-  { key: 'ajio',   label: 'Ajio',   reports: [{ key: 'sales', label: 'Sales', intendedCoverage: NO_DOC_13 }] },
+  { key: 'meesho', label: 'Meesho', reports: [{ key: 'sales', label: 'Sales', intendedCoverage: B2C }] },
+  { key: 'myntra', label: 'Myntra', reports: [{ key: 'sales', label: 'Sales', intendedCoverage: B2C }] },
+  { key: 'ajio',   label: 'Ajio',   reports: [{ key: 'sales', label: 'Sales', intendedCoverage: B2C }] },
   {
     key: 'glowroad', label: 'GlowRoad',
     reports: [
-      { key: 'tcs_b2c', label: 'B2C TCS', intendedCoverage: NO_DOC_13 },
-      { key: 'tcs_b2b', label: 'B2B TCS', intendedCoverage: NO_DOC_13 },
+      { key: 'tcs_b2c', label: 'B2C TCS', intendedCoverage: B2C },
+      { key: 'tcs_b2b', label: 'B2B TCS', intendedCoverage: NONE },
     ],
   },
-  { key: 'jiomart',   label: 'JioMart',   reports: [{ key: 'sales', label: 'Sales', intendedCoverage: NO_DOC_13 }] },
-  { key: 'limeroad',  label: 'LimeRoad',  reports: [{ key: 'sales', label: 'Sales', intendedCoverage: NO_DOC_13 }] },
-  { key: 'shop101',   label: 'Shop101',   reports: [{ key: 'sales', label: 'Sales', intendedCoverage: NO_DOC_13 }] },
-  { key: 'citymall',  label: 'CityMall',  reports: [{ key: 'sales', label: 'Sales', intendedCoverage: NO_DOC_13 }] },
-  { key: 'paytm',     label: 'Paytm',     reports: [{ key: 'sales', label: 'Sales', intendedCoverage: NO_DOC_13 }] },
-  { key: 'snapdeal',  label: 'Snapdeal',  reports: [{ key: 'sales', label: 'Sales', intendedCoverage: NO_DOC_13 }] },
+  { key: 'jiomart',   label: 'JioMart',   reports: [{ key: 'sales', label: 'Sales', intendedCoverage: B2C }] },
+  { key: 'limeroad',  label: 'LimeRoad',  reports: [{ key: 'sales', label: 'Sales', intendedCoverage: B2C }] },
+  { key: 'shop101',   label: 'Shop101',   reports: [{ key: 'sales', label: 'Sales', intendedCoverage: B2C }] },
+  { key: 'citymall',  label: 'CityMall',  reports: [{ key: 'sales', label: 'Sales', intendedCoverage: B2C }] },
+  { key: 'paytm',     label: 'Paytm',     reports: [{ key: 'sales', label: 'Sales', intendedCoverage: B2C }] },
+  { key: 'snapdeal',  label: 'Snapdeal',  reports: [{ key: 'sales', label: 'Sales', intendedCoverage: B2C }] },
 ]
 
 export const MARKETPLACE_KEYS = MARKETPLACES.map((m) => m.key)

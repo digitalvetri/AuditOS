@@ -40,7 +40,7 @@ export function AuditAutomationLandingPage() {
           <PipelineCard
             to="/audit-automation/ecommerce"
             title="File ecommerce seller's GSTR-1"
-            description="Amazon · Flipkart · Meesho · Myntra · … → one normalised set of rows → GSTR-1 tables → JSON for the portal, Tally XML or CSV"
+            description="Amazon · Flipkart · Meesho B2C reports → GSTR-1 Tables 5A, 7, 9B (B2C-large notes), 12 and 14 → JSON for review. Beta — verify before filing."
             status="active"
           />
           <PipelineCard

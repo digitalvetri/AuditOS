@@ -27,19 +27,32 @@ type MoneyPaise = number
 
 /** Fields the GSTR-1 builder consumes. Everything else in the source row
  *  survives as JSON on `rawJson` for auditor spot-checks. */
+/** Tax heads may be spread over several columns (Amazon MTR writes item,
+ *  shipping and gift-wrap tax separately): a list is summed. */
+type Cols = string | string[]
 export interface ColumnMap {
   invoice_number?: string
   invoice_date?: string
   invoice_amount?: string
   taxable_value?: string
   total_tax?: string
-  cgst_tax?: string
-  sgst_tax?: string
-  igst_tax?: string
-  cess_tax?: string
+  cgst_tax?: Cols
+  sgst_tax?: Cols
+  /** UTGST is reported in the SGST field of GSTR-1. */
+  utgst_tax?: Cols
+  igst_tax?: Cols
+  cess_tax?: Cols
+  /** Promotion tax columns carry no head (Amazon "Item Promo Tax" etc., written
+   *  negative): they go to IGST on an inter-state row, else half CGST, half SGST. */
+  promo_tax?: Cols
+  /** One tax column with no head split (Meesho tcs_sales "tax_amount"):
+   *  IGST when the place of supply is another state, else half CGST/SGST. */
+  single_tax?: string
   cgst_rate?: string
   sgst_rate?: string
   igst_rate?: string
+  /** The GST rate when the file has one rate column (Meesho "gst_rate"). */
+  single_rate?: string
   hsn?: string
   quantity?: string
   ship_to_state?: string
@@ -159,8 +172,11 @@ export async function parseFromBuffer(args: {
   ext: string
   adapterColumnMapJson: string
   prisma: PrismaClient
+  /** The upload's GSTIN: the seller's state when a row carries no GSTIN. */
+  scopeGstin?: string
 }): Promise<ParseOutcome> {
   const { uploadId, organisationId, buffer, ext, adapterColumnMapJson, prisma } = args
+  const scopeStateCode = gstinStateCode(args.scopeGstin ?? '')
   const columnMap = safeParseColumnMap(adapterColumnMapJson)
   const rows = await readRowsFromBuffer(buffer, ext)
   if (rows.length === 0) return emptyOutcome('empty file')
@@ -168,6 +184,9 @@ export async function parseFromBuffer(args: {
   const body = rows.slice(1)
   const index = headerIndex(header)
   const colIndex = (label?: string) => (label ? index.get(normaliseKey(label)) ?? -1 : -1)
+  const colIndexes = (labels: Cols) => (Array.isArray(labels) ? labels : [labels]).map(colIndex).filter((i) => i >= 0)
+  const sum = (row: string[], idx: number[]) => idx.reduce((n, i) => n + toPaise(cell(row, i)), 0)
+  const sellerState = (row: string[]) => gstinStateCode(cell(row, cells.sellerGstin)) ?? scopeStateCode
 
   const cells = {
     invoiceNumber: colIndex(columnMap.invoice_number),
@@ -175,12 +194,17 @@ export async function parseFromBuffer(args: {
     invoiceAmount: colIndex(columnMap.invoice_amount),
     taxableValue: colIndex(columnMap.taxable_value),
     totalTax: colIndex(columnMap.total_tax),
-    cgstTax: colIndex(columnMap.cgst_tax ?? 'Cgst Tax'),
-    sgstTax: colIndex(columnMap.sgst_tax ?? 'Sgst Tax'),
-    igstTax: colIndex(columnMap.igst_tax ?? 'Igst Tax'),
-    cessTax: colIndex(columnMap.cess_tax ?? 'Compensatory Cess Tax'),
+    cgstTax: colIndexes(columnMap.cgst_tax ?? 'Cgst Tax'),
+    sgstTax: colIndexes(columnMap.sgst_tax ?? 'Sgst Tax'),
+    utgstTax: colIndexes(columnMap.utgst_tax ?? 'Utgst Tax'),
+    igstTax: colIndexes(columnMap.igst_tax ?? 'Igst Tax'),
+    cessTax: colIndexes(columnMap.cess_tax ?? 'Compensatory Cess Tax'),
+    promoTax: colIndexes(columnMap.promo_tax ?? []),
+    singleTax: colIndex(columnMap.single_tax),
+    singleRate: colIndex(columnMap.single_rate),
     cgstRate: colIndex(columnMap.cgst_rate ?? 'Cgst Rate'),
     sgstRate: colIndex(columnMap.sgst_rate ?? 'Sgst Rate'),
+    utgstRate: colIndex('Utgst Rate'),
     igstRate: colIndex(columnMap.igst_rate ?? 'Igst Rate'),
     hsn: colIndex(columnMap.hsn),
     quantity: colIndex(columnMap.quantity ?? 'Quantity'),
@@ -205,17 +229,33 @@ export async function parseFromBuffer(args: {
   body.forEach((row, i) => {
     const txType = classifyTxType(cell(row, cells.txType))
     typeCounts[txType]++
-    const cgstTax = toPaise(cell(row, cells.cgstTax))
-    const sgstTax = toPaise(cell(row, cells.sgstTax))
-    const igstTax = toPaise(cell(row, cells.igstTax))
-    const cessTax = toPaise(cell(row, cells.cessTax))
-    // Rate is the HSN rate the row was taxed at. Prefer IGST rate when
-    // IGST is populated (interstate); CGST rate otherwise. CGST = SGST
-    // by GST law so either works; CGST is more commonly populated.
-    const stateCodeIntra = igstTax === 0 && (cgstTax > 0 || sgstTax > 0)
-    const rate = stateCodeIntra
-      ? toRateBps(cell(row, cells.cgstRate)) + toRateBps(cell(row, cells.sgstRate))
-      : toRateBps(cell(row, cells.igstRate))
+    let cgstTax = sum(row, cells.cgstTax)
+    let sgstTax = sum(row, cells.sgstTax) + sum(row, cells.utgstTax)
+    let igstTax = sum(row, cells.igstTax)
+    const cessTax = sum(row, cells.cessTax)
+    // Which supply is it? From the heads the marketplace filled in (either
+    // sign — return rows are often negative); with a single tax column,
+    // from the place of supply against the seller's state.
+    let stateCodeIntra: boolean
+    let rate: number
+    if (cells.singleTax >= 0) {
+      const pos = stateNameToCode(cell(row, cells.shipToState))
+      stateCodeIntra = pos !== null && pos === sellerState(row)
+      const tax = toPaise(cell(row, cells.singleTax))
+      if (stateCodeIntra) { cgstTax = Math.round(tax / 2); sgstTax = tax - cgstTax } else igstTax = tax
+      rate = toRateBps(cell(row, cells.singleRate))
+    } else {
+      stateCodeIntra = igstTax === 0 && (cgstTax !== 0 || sgstTax !== 0)
+      // Rate is the HSN rate the row was taxed at: IGST rate inter-state,
+      // CGST + SGST (or UTGST) rate intra-state.
+      rate = stateCodeIntra
+        ? toRateBps(cell(row, cells.cgstRate)) + (toRateBps(cell(row, cells.sgstRate)) || toRateBps(cell(row, cells.utgstRate)))
+        : toRateBps(cell(row, cells.igstRate))
+    }
+    const promo = sum(row, cells.promoTax)
+    if (promo !== 0) {
+      if (stateCodeIntra) { const c = Math.round(promo / 2); cgstTax += c; sgstTax += promo - c } else igstTax += promo
+    }
     inserts.push({
       organisationId,
       uploadId,
