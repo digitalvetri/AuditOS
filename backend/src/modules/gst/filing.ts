@@ -3,10 +3,13 @@
  *
  * Feeds the GST engine (GstProfile → GstCompliancePeriod → GstFiling) from
  * the "GST Filing" client service, which nothing else does:
- *   - syncGstEnrolment: a client with a live GST Filing service and a GSTIN
- *     has an active GstProfile; when that service ends the profile is
- *     deactivated (past periods are kept). Profiles added by hand for
- *     clients without the service are not touched.
+ *   - syncGstEnrolment: a client with a live GST Filing service (not on
+ *     hold, completed or failed) and a GSTIN has an active GstProfile; when
+ *     that service ends the profile is deactivated (past periods are kept).
+ *     Profiles added by hand for clients without the service are not
+ *     touched. Edits made on the profile itself win over the sync: a profile
+ *     paused by a person stays paused, and the assignee only follows the
+ *     service when the service's own assignee changes.
  *   - ensurePeriodJobs: one GSTR-1 and one GSTR-3B per owed period, with
  *     due dates from the CBIC rule engine, plus a portal data request.
  *   - generateGstFilingJobs: the daily run — sync, then last month for all.
@@ -17,6 +20,7 @@ import { Prisma, type PrismaClient } from '@prisma/client'
 import { istToday } from '../../lib/dates.js'
 import { createRuleResolver, dueForProfile, kindsOwed, type RuleResolver } from './dueDate.js'
 import { financialYearOf, writeGstAudit } from './service.js'
+import { onGstRegistrationGranted } from '../compliance/clockEvents.js'
 import { normaliseFilingStatus } from './validate.js'
 
 export const GST_FILING_SERVICE_CODE = 'GST_FILING'
@@ -31,6 +35,9 @@ export function previousPeriod(today: string): string {
   return m === 1 ? `${y - 1}-12` : `${y}-${String(m - 1).padStart(2, '0')}`
 }
 
+/** A GST Filing service row in this status still generates work. */
+export const SERVICE_LIVE = (status: string) => !['on_hold', 'completed', 'failed'].includes(status)
+
 /** Clients that should be enrolled, keyed by client id → the service row that enrols them. */
 async function liveGstServices(db: PrismaClient, clientId?: string) {
   const svc = await db.service.findFirst({ where: { code: GST_FILING_SERVICE_CODE, deletedAt: null } })
@@ -41,23 +48,17 @@ async function liveGstServices(db: PrismaClient, clientId?: string) {
     include: { client: { select: { id: true, gstin: true, status: true, deletedAt: true } } },
     orderBy: { createdAt: 'desc' },
   })
-  // Per client: the newest row still in progress (not completed / failed), else the newest row.
-  const active = new Map<string, (typeof rows)[number]>()
-  const newest = new Map<string, (typeof rows)[number]>()
+  // Per client: the newest row still running. A row on hold, completed or
+  // failed has ended the service, so it enrols nobody and the jobs stop.
   for (const r of rows) {
-    if (r.status === 'on_hold' || r.client.deletedAt || r.client.status === 'inactive') continue
-    if (!newest.has(r.clientId)) newest.set(r.clientId, r)
-    if (!active.has(r.clientId) && r.status !== 'completed' && r.status !== 'failed') active.set(r.clientId, r)
-  }
-  for (const [id, n] of newest) {
-    const r = active.get(id) ?? n
-    live.set(id, { assignedEmployeeId: r.assignedEmployeeId, gstin: r.client.gstin })
+    if (!SERVICE_LIVE(r.status) || r.client.deletedAt || r.client.status === 'inactive') continue
+    if (!live.has(r.clientId)) live.set(r.clientId, { assignedEmployeeId: r.assignedEmployeeId, gstin: r.client.gstin })
   }
   return { live, serviceId: svc.id }
 }
 
 export async function syncGstEnrolment(
-  db: PrismaClient, opts: { clientId?: string; userId?: string | null } = {},
+  db: PrismaClient, opts: { clientId?: string; userId?: string | null; frequency?: 'monthly' | 'quarterly' } = {},
 ): Promise<{ enrolled: number; deactivated: number }> {
   const { live, serviceId } = await liveGstServices(db, opts.clientId)
   // No live GST Filing service row: do nothing rather than deactivating everyone.
@@ -71,17 +72,29 @@ export async function syncGstEnrolment(
     if (!existing) {
       await db.gstProfile.create({
         data: {
-          clientId, gstin, assignedEmployeeId: s.assignedEmployeeId, filingFrequency: 'monthly',
+          clientId, gstin, assignedEmployeeId: s.assignedEmployeeId, syncedAssigneeId: s.assignedEmployeeId,
+          filingFrequency: opts.frequency ?? 'monthly',
           active: true, createdBy: opts.userId ?? null, updatedBy: opts.userId ?? null,
         },
       })
       enrolled++
-    } else if (!existing.active || existing.deletedAt || existing.gstin !== gstin || existing.assignedEmployeeId !== s.assignedEmployeeId) {
+      continue
+    }
+    // Paused by a person on the GST client screen: stays paused.
+    if (existing.pausedByUser && !existing.deletedAt) continue
+    // The assignee follows the service only when the SERVICE's assignee moved
+    // since the last sync; a reassignment made on the profile is kept.
+    const serviceMoved = existing.syncedAssigneeId !== s.assignedEmployeeId
+    const assignee = serviceMoved ? s.assignedEmployeeId : existing.assignedEmployeeId
+    if (!existing.active || existing.deletedAt || existing.gstin !== gstin || existing.assignedEmployeeId !== assignee || serviceMoved) {
       await db.gstProfile.update({
         where: { id: existing.id },
-        data: { active: true, deletedAt: null, gstin, assignedEmployeeId: s.assignedEmployeeId, updatedBy: opts.userId ?? null },
+        data: {
+          active: true, deletedAt: null, pausedByUser: false, gstin, assignedEmployeeId: assignee,
+          syncedAssigneeId: s.assignedEmployeeId, updatedBy: opts.userId ?? null,
+        },
       })
-      enrolled++
+      if (!existing.active || existing.deletedAt || existing.gstin !== gstin || existing.assignedEmployeeId !== assignee) enrolled++
     }
   }
   // Anyone enrolled but no longer live (service removed / on hold / client inactive or GSTIN cleared).
@@ -187,6 +200,55 @@ export async function ensurePeriodJobs(
 }
 
 const FILING_DONE = ['filed', 'payment_pending', 'completed']
+
+/**
+ * After the profile's filing frequency (or registration type) changed: the
+ * open GSTR-1 / GSTR-3B jobs it no longer owes are withdrawn — e.g. the
+ * monthly jobs of a non-quarter-end month once a client moves to QRMP — and
+ * the remaining open jobs take the new frequency's due date. Filed returns
+ * (or anything with an ARN) are history and are never touched. A period left
+ * with no live job and no 2B record is withdrawn too, with its untouched
+ * portal data request.
+ */
+export async function realignOpenJobs(db: PrismaClient, gstProfileId: string, userId: string | null): Promise<{ removed: number }> {
+  const profile = await db.gstProfile.findUnique({ where: { id: gstProfileId } })
+  if (!profile) return { removed: 0 }
+  const filings = await db.gstFiling.findMany({ where: { gstProfileId, deletedAt: null, returnType: { in: ['GSTR-1', 'GSTR-3B'] } } })
+  const open = filings.filter((f) => !FILING_DONE.includes(normaliseFilingStatus(f.status, f.returnType)) && !f.arn?.trim())
+  const now = new Date()
+  const periodType = profile.filingFrequency === 'quarterly' ? 'quarterly' : 'monthly'
+  const rules = await createRuleResolver(db)
+  const touched = new Set<string>()
+  let removed = 0
+  for (const f of open) {
+    const kind = f.returnType === 'GSTR-1' ? 'GSTR1' : 'GSTR3B'
+    if (!kindsOwed(profile, f.period).includes(kind)) {
+      await db.gstFiling.update({ where: { id: f.id }, data: { deletedAt: now, updatedBy: userId } })
+      if (f.compliancePeriodId) touched.add(f.compliancePeriodId)
+      removed++
+    } else {
+      const due = dueForProfile(rules, profile, f.period, f.returnType, periodType)
+      if (due !== f.dueDate) await db.gstFiling.update({ where: { id: f.id }, data: { dueDate: due, updatedBy: userId } })
+    }
+  }
+  // Periods that keep an open job follow the new frequency.
+  const kept = [...new Set(open.filter((f) => f.compliancePeriodId && !touched.has(f.compliancePeriodId)).map((f) => f.compliancePeriodId!))]
+  if (kept.length) {
+    await db.gstCompliancePeriod.updateMany({ where: { id: { in: kept }, periodType: { not: periodType } }, data: { periodType, updatedBy: userId } })
+  }
+  for (const periodId of touched) {
+    const period = await db.gstCompliancePeriod.findUnique({ where: { id: periodId }, include: { r2b: true, filings: { where: { deletedAt: null } } } })
+    if (!period || period.deletedAt || period.filings.length > 0 || period.r2b) continue
+    await db.gstCompliancePeriod.update({ where: { id: period.id }, data: { deletedAt: now, updatedBy: userId } })
+    if (period.dataRequestDocId) {
+      const doc = await db.clientDocument.findUnique({ where: { id: period.dataRequestDocId } })
+      if (doc && !doc.deletedAt && doc.status === 'requested' && doc.currentVersion === 0) {
+        await db.clientDocument.update({ where: { id: doc.id }, data: { deletedAt: now } })
+      }
+    }
+  }
+  return { removed }
+}
 const R2B_DONE = ['downloaded', 'reconciliation_pending', 'reconciliation_in_progress', 'reconciliation_completed', 'exceptions_found']
 
 /**
@@ -240,9 +302,11 @@ export async function generateGstFilingJobs(db: PrismaClient, today = istToday()
 }
 
 /** After a client's service or GSTIN changed: re-sync and make sure last month exists. Best effort. */
-export async function refreshClientGst(db: PrismaClient, clientId: string, userId: string | null): Promise<void> {
+export async function refreshClientGst(
+  db: PrismaClient, clientId: string, userId: string | null, opts: { frequency?: 'monthly' | 'quarterly' } = {},
+): Promise<void> {
   try {
-    await syncGstEnrolment(db, { clientId, userId })
+    await syncGstEnrolment(db, { clientId, userId, frequency: opts.frequency })
     const p = await db.gstProfile.findUnique({ where: { clientId } })
     if (p?.active && !p.deletedAt) await ensurePeriodJobs(db, p.id, previousPeriod(istToday()), userId)
   } catch (e) {
@@ -309,4 +373,56 @@ export function dataReminderBody(
       ...(firmName?.trim() ? [`\u2014 ${firmName.trim()}`] : []),
     ].join('\n'),
   }
+}
+
+/**
+ * A GST registration case was completed: the registration is granted. Hand
+ * it over to the GST side in one go —
+ *   - the GSTIN goes on the client (the caller has already refused a
+ *     different GSTIN already there);
+ *   - the GST profile is created, or revived and brought up to date, with the
+ *     date of grant;
+ *   - the client is enrolled in GST Filing when the firm has that service
+ *     and the client is not already on it (then the usual enrolment runs);
+ *   - the Rule 10A clock starts from the date of grant (or moves, when the
+ *     date was corrected).
+ * Idempotent: completing the same case again adds nothing.
+ */
+export async function handOverGstRegistration(db: PrismaClient, p: {
+  clientId: string; gstin: string; registrationDate: string; assigneeId: string; userId: string | null
+}): Promise<void> {
+  const client = await db.client.findUniqueOrThrow({ where: { id: p.clientId }, select: { organisationId: true, gstin: true } })
+  if (client.gstin?.trim().toUpperCase() !== p.gstin) {
+    await db.client.update({ where: { id: p.clientId }, data: { gstin: p.gstin, updatedBy: p.userId } })
+  }
+  const existing = await db.gstProfile.findUnique({ where: { clientId: p.clientId } })
+  const profile = existing
+    ? await db.gstProfile.update({
+        where: { id: existing.id },
+        data: { gstin: p.gstin, registrationDate: p.registrationDate, registrationStatus: 'active', active: true, pausedByUser: false, deletedAt: null, updatedBy: p.userId },
+      })
+    : await db.gstProfile.create({
+        data: {
+          clientId: p.clientId, gstin: p.gstin, registrationDate: p.registrationDate, assignedEmployeeId: p.assigneeId,
+          syncedAssigneeId: p.assigneeId, active: true, createdBy: p.userId, updatedBy: p.userId,
+        },
+      })
+  await writeGstAudit({
+    gstProfileId: profile.id, action: existing ? 'GST_CLIENT_UPDATED' : 'GST_CLIENT_CREATED', stage: 'client',
+    userId: p.userId, meta: { via: 'gst_registration_case', gstin: p.gstin, registrationDate: p.registrationDate },
+  })
+  const svc = await db.service.findFirst({ where: { code: GST_FILING_SERVICE_CODE, deletedAt: null } })
+  if (svc) {
+    const onIt = await db.clientService.findFirst({ where: { clientId: p.clientId, serviceId: svc.id, deletedAt: null } })
+    if (!onIt) {
+      await db.clientService.create({
+        data: { clientId: p.clientId, serviceId: svc.id, assignedEmployeeId: p.assigneeId, status: 'not_started', createdBy: p.userId, updatedBy: p.userId },
+      })
+    }
+    await refreshClientGst(db, p.clientId, p.userId)
+  }
+  await onGstRegistrationGranted(db, {
+    clientId: p.clientId, organisationId: client.organisationId, registrationDate: p.registrationDate,
+    registrationType: profile.registrationType, assignedEmployeeId: profile.assignedEmployeeId, isNewGrant: true,
+  })
 }

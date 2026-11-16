@@ -323,7 +323,7 @@ function ItemsTable({
           const form = formByCode.get(i.form_code);
           const ro = !editable(i);
           const done = isDone(i);
-          const days = i.days_left ?? daysUntil(i.due_date, today);
+          const days = i.needs_date ? null : i.days_left ?? daysUntil(i.due_date, today);
           const late = !done && (i.overdue ?? (days !== null && days < 0));
           const fee = toPaise(i.late_fee_estimate?.amount_paise);
           const isAgm = (form?.anchor ?? '') === 'agm' || i.form_code === 'AGM';
@@ -348,15 +348,21 @@ function ItemsTable({
               </TD>
               <TD>
                 <div className="flex flex-col items-start gap-1">
-                  <DueDate due={i.due_date} statutory={i.statutory_due_date} extension={i.extension} />
-                  <DaysChip days={days} done={done} />
+                  {i.needs_date ? (
+                    <Chip tone="amber" title="Enter the trigger date (registration / incorporation) to schedule the clock">Needs date</Chip>
+                  ) : (
+                    <>
+                      <DueDate due={i.due_date} statutory={i.statutory_due_date} extension={i.extension} />
+                      <DaysChip days={days} done={done} />
+                    </>
+                  )}
                   {i.anchor_missing ? <Chip tone="amber" title="Due date assumes an AGM on 30 September">AGM date not entered</Chip> : null}
                   {i.is_clock && i.internal_due_date ? (
                     <Chip tone="blue" title="The firm's internal target — ahead of the statutory deadline">
                       Internal target {i.internal_due_date}
                     </Chip>
                   ) : null}
-                  {i.is_clock && !i.anchor_date ? (
+                  {i.is_clock && !i.anchor_date && !i.needs_date ? (
                     <Chip tone="amber" title="Enter the trigger date (registration / incorporation) to schedule the clock">
                       Trigger date not entered
                     </Chip>
@@ -397,6 +403,7 @@ function ItemsTable({
                 ) : canManage ? (
                   <div className="flex flex-col items-end gap-1">
                     {isAgm ? <button type="button" className={smallBtn} onClick={() => onAgm(i)}>AGM date</button> : null}
+                    {i.is_clock && !done ? <button type="button" className={smallBtn} onClick={() => onAgm(i)}>Trigger date</button> : null}
                     {!done ? <button type="button" className={smallBtn} onClick={() => onFiled(i)}>Mark filed</button> : null}
                   </div>
                 ) : null}

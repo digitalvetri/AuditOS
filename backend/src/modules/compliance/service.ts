@@ -213,6 +213,10 @@ export function itemToApi(i: ComplianceItem, ctx: ItemContext) {
   const closed = CLOSED_STATUSES.has(i.status)
   const daysLeft = daysBetween(ctx.today, due)
   const agmForm = form?.anchor === 'agm'
+  // A clock (Rule 10A, INC-20A) with no trigger date yet has no real due
+  // date: its stored dueDate is only a placeholder. It is not due today and
+  // never overdue — it "needs date".
+  const needsDate = form?.anchor === 'event' && !i.anchorDate && !closed
   return {
     id: i.id,
     source: 'compliance' as 'compliance' | 'gst' | 'tds',
@@ -231,7 +235,8 @@ export function itemToApi(i: ComplianceItem, ctx: ItemContext) {
     extension: ext ? { id: ext.id, new_due_date: ext.newDueDate, reference: ext.reference, source_url: ext.sourceUrl } : null,
     anchor_date: i.anchorDate,
     anchor_missing: agmForm && !i.anchorDate,
-    anchor_note: agmForm && !i.anchorDate ? 'AGM date not entered' : null,
+    anchor_note: agmForm && !i.anchorDate ? 'AGM date not entered' : needsDate ? 'Trigger date not entered' : null,
+    needs_date: needsDate,
     // Clock fields (POST-DELIVERY-CHANGES §A). Null for every non-clock item.
     internal_due_date: i.internalDueDate,
     evidence_doc_id: i.evidenceDocId,
@@ -244,9 +249,9 @@ export function itemToApi(i: ComplianceItem, ctx: ItemContext) {
     acknowledgement_no: i.acknowledgementNo,
     late_fee_paid_paise: i.lateFeePaidPaise === null ? null : Number(i.lateFeePaidPaise),
     notes: i.notes,
-    days_left: closed ? null : daysLeft,
-    overdue: !closed && due < ctx.today,
-    late_fee_estimate: form ? lateFeeEstimate(form, due, { today: ctx.today, filedOn: i.filedOn, status: i.status }) : null,
+    days_left: closed || needsDate ? null : daysLeft,
+    overdue: !closed && !needsDate && due < ctx.today,
+    late_fee_estimate: form && !needsDate ? lateFeeEstimate(form, due, { today: ctx.today, filedOn: i.filedOn, status: i.status, periodKey: i.periodKey }) : null,
     last_client_reminder_at: i.lastClientReminderAt,
     updated_at: i.updatedAt as Date | null,
     link: null as string | null,

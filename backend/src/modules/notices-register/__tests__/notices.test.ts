@@ -134,3 +134,42 @@ describe('notice reply reminders', () => {
     expect(await keys()).toEqual(['d1', 'd1', 'd3', 'd3', 'd7', 'd7'])
   })
 })
+
+describe('notice dates and closing', () => {
+  it('a reply due date before the notice date is refused (create and edit)', async () => {
+    const o = await org()
+    const md = await login(o, 'md')
+    const c = await client(o, 'Mike Pvt Ltd')
+    const bad = await api('/api/notices-register', { method: 'POST', cookie: md.cookie, body: { client_id: c.id, authority: 'income_tax', section: '143(2)', notice_date: '2026-09-01', response_due_date: '2026-08-15' } })
+    expect(bad.status).toBe(400)
+    expect(bad.body.error.details).toHaveProperty('response_due_date')
+    const ok = await api('/api/notices-register', { method: 'POST', cookie: md.cookie, body: { client_id: c.id, authority: 'income_tax', section: '143(2)', notice_date: '2026-09-01', response_due_date: '2026-09-01' } })
+    expect(ok.status).toBe(201)
+    const id = ok.body.data.id
+    expect((await api(`/api/notices-register/${id}`, { method: 'PATCH', cookie: md.cookie, body: { response_due_date: '2026-08-31' } })).status).toBe(400)
+    expect((await api(`/api/notices-register/${id}`, { method: 'PATCH', cookie: md.cookie, body: { notice_date: '2026-09-02' } })).status).toBe(400)
+    const gst = await prisma.gstNotice.create({ data: { organisationId: o.id, clientId: c.id, kind: 'ASMT10', status: 'review', noticeDate: '2026-09-20' } })
+    expect((await api(`/api/notices-register/gst/${gst.id}`, { method: 'PATCH', cookie: md.cookie, body: { response_due_date: '2026-09-19' } })).status).toBe(400)
+    expect((await api(`/api/notices-register/gst/${gst.id}`, { method: 'PATCH', cookie: md.cookie, body: { response_due_date: '2026-10-20' } })).status).toBe(200)
+  })
+
+  it('closing needs a reply on record or an explicit "closed without reply" reason', async () => {
+    const o = await org()
+    const md = await login(o, 'md')
+    const c = await client(o, 'November LLP')
+    const mk = async () => (await api('/api/notices-register', { method: 'POST', cookie: md.cookie, body: { client_id: c.id, authority: 'mca', section: 'ADJ', notice_date: '2026-09-01' } })).body.data.id as string
+    const a = await mk()
+    const refused = await api(`/api/notices-register/${a}`, { method: 'PATCH', cookie: md.cookie, body: { status: 'closed' } })
+    expect(refused.status).toBe(400)
+    expect(refused.body.error.details).toHaveProperty('closed_without_reply_reason')
+    expect((await prisma.clientNotice.findUniqueOrThrow({ where: { id: a } })).status).toBe('received')
+    const why = await api(`/api/notices-register/${a}`, { method: 'PATCH', cookie: md.cookie, body: { status: 'closed', closed_without_reply_reason: 'Dropped by the department' } })
+    expect(why.status).toBe(200)
+    expect(why.body.data).toMatchObject({ status: 'closed', closed_without_reply_reason: 'Dropped by the department' })
+    const b = await mk()
+    expect((await api(`/api/notices-register/${b}`, { method: 'PATCH', cookie: md.cookie, body: { status: 'closed', reply_filed_on: '2026-09-10' } })).status).toBe(200)
+    // Creating a notice straight into closed is held to the same rule.
+    expect((await api('/api/notices-register', { method: 'POST', cookie: md.cookie, body: { client_id: c.id, authority: 'mca', section: 'ADJ', notice_date: '2026-09-01', status: 'closed' } })).status).toBe(400)
+  })
+})
+

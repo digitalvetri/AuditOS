@@ -15,6 +15,7 @@
  *   POST  /api/notices/:id/generate       re-runs the draft prompt with saved inputs
  *   GET   /api/clients/:clientId/notices  list for a GST client (mounted below)
  *   GET   /api/notices/:id                single
+ *   GET   /api/notices/:id/file           the original notice file, again
  *   DELETE /api/notices/:id               soft delete
  *
  * Permission: workstation.gst.read / workstation.gst.manage — same gate as the
@@ -46,6 +47,7 @@ import {
   type ReplyInputs,
 } from './prompts.js'
 import { scanUploads } from '../../platform/virusScan.js'
+import { setUploadedFileHeaders } from '../../lib/fileResponse.js'
 
 const READ = ['workstation.gst.read', 'workstation.gst.manage'] as const
 const MANAGE = ['workstation.gst.manage'] as const
@@ -156,6 +158,7 @@ function serialize(n: NoticeRow) {
     uploaded_mime: n.uploadedMime,
     extraction_source: n.extractionSource,
     extracted_text_length: n.extractedText?.length ?? 0,
+    closed_without_reply_reason: n.closedWithoutReplyReason,
     reply_inputs: n.replyInputs,
     client_letter: n.clientLetter,
     draft_content: n.draftContent,
@@ -206,102 +209,131 @@ noticesRouter.post('/', upload.single('file'), scanUploads, handler(async (req, 
     throw ApiError.unprocessable('unsupported_type', 'That file type is not supported.')
   }
 
-  // 1. Persist the raw bytes.
+  // 1. Persist the raw bytes. Anything that fails before the row exists
+  //    removes them again, so no file is left behind without a notice.
   const key = `${clientId}/${crypto.randomUUID()}.${ext}`
   await storage.put(key, file.buffer)
+  let saved = false
+  try {
+    // 2. Extract text (pdfjs or OCR fallback).
+    const extracted = await extractNoticeText(file.buffer, mime)
 
-  // 2. Extract text (pdfjs or OCR fallback).
-  const extracted = await extractNoticeText(file.buffer, mime)
-
-  // 3. Ask the LLM for structured fields, then (in parallel) draft both the
-  //    client-facing letter and a first-cut department reply with placeholders.
-  //    If no AI provider is configured we still create the row with the raw text
-  //    so the practitioner can enter fields and generate drafts manually; the
-  //    UI shows a "configure LLM" hint in that case.
-  let fields: ExtractedFields | null = null
-  let llmModel: string | null = null
-  let llmProvider: string | null = null
-  let clientLetter: string | null = null
-  let autoDraft: string | null = null
-  if (extracted.text) {
-    try {
-      const r = await complete<unknown>({
-        organisationId: client.organisationId,
-        system: extractSystem(kind),
-        user: extractUser(extracted.text),
-        temperature: 0.1,
-        json: true,
-      })
-      fields = toExtracted(r.content)
-      llmModel = r.model
-      llmProvider = r.provider
-    } catch (err) {
-      if (!(err instanceof ApiError && (err.code === 'llm_unconfigured' || err.code === 'ai_disabled'))) throw err
-      // Soft-fail: let the user fill it in by hand.
+    // 3. Ask the LLM for structured fields, then (in parallel) draft both the
+    //    client-facing letter and a first-cut department reply with placeholders.
+    //    If no AI provider is configured we still create the row with the raw text
+    //    so the practitioner can enter fields and generate drafts manually; the
+    //    UI shows a "configure LLM" hint in that case.
+    let fields: ExtractedFields | null = null
+    let llmModel: string | null = null
+    let llmProvider: string | null = null
+    let clientLetter: string | null = null
+    let autoDraft: string | null = null
+    let aiError: string | null = null
+    if (extracted.text) {
+      try {
+        const r = await complete<unknown>({
+          organisationId: client.organisationId,
+          system: extractSystem(kind),
+          user: extractUser(extracted.text),
+          temperature: 0.1,
+          json: true,
+        })
+        fields = toExtracted(r.content)
+        llmModel = r.model
+        llmProvider = r.provider
+      } catch (err) {
+        // Soft-fail: the notice is still saved with its file and text, and the
+        // user fills the fields in by hand (or regenerates later). Not set up /
+        // switched off is expected and silent; anything else (timeout, rate
+        // limit, provider error) is logged and reported back on the response.
+        if (!(err instanceof ApiError && (err.code === 'llm_unconfigured' || err.code === 'ai_disabled'))) {
+          console.warn('[gst-notices] AI extraction failed', err instanceof Error ? err.message : err)
+          aiError = 'The AI service did not respond, so nothing was read from the notice. Fill in the details and use Regenerate.'
+        }
+      }
     }
-  }
 
-  // Both auto-drafts run in parallel. Any single one failing is tolerated —
-  // we still save the row and let the UI offer a Regenerate button.
-  if (fields) {
-    const emptyInputs: ReplyInputs = { grounds: '', facts: '', taxpayer_name: client.companyName }
-    const [letterRes, draftRes] = await Promise.allSettled([
-      complete<string>({
-        organisationId: client.organisationId,
-        system: clientLetterSystem(kind),
-        user: clientLetterUser({ extracted: fields, taxpayer: { name: client.companyName, gstin: client.gstin ?? undefined } }),
-        temperature: 0.3,
-        json: false,
-      }),
-      complete<string>({
-        organisationId: client.organisationId,
-        system: draftSystem(kind),
-        user: draftUser({ extracted: fields, reply: emptyInputs, noticeText: extracted.text }),
-        temperature: 0.3,
-        json: false,
-      }),
-    ])
-    if (letterRes.status === 'fulfilled') clientLetter = letterRes.value.content
-    if (draftRes.status === 'fulfilled') autoDraft = draftRes.value.content
-  }
+    // Both auto-drafts run in parallel. Any single one failing is tolerated —
+    // we still save the row and let the UI offer a Regenerate button.
+    if (fields) {
+      const emptyInputs: ReplyInputs = { grounds: '', facts: '', taxpayer_name: client.companyName }
+      const [letterRes, draftRes] = await Promise.allSettled([
+        complete<string>({
+          organisationId: client.organisationId,
+          system: clientLetterSystem(kind),
+          user: clientLetterUser({ extracted: fields, taxpayer: { name: client.companyName, gstin: client.gstin ?? undefined } }),
+          temperature: 0.3,
+          json: false,
+        }),
+        complete<string>({
+          organisationId: client.organisationId,
+          system: draftSystem(kind),
+          user: draftUser({ extracted: fields, reply: emptyInputs, noticeText: extracted.text }),
+          temperature: 0.3,
+          json: false,
+        }),
+      ])
+      if (letterRes.status === 'fulfilled') clientLetter = letterRes.value.content
+      if (draftRes.status === 'fulfilled') autoDraft = draftRes.value.content
+    }
 
-  const row = await prisma.gstNotice.create({
-    data: {
-      organisationId: client.organisationId,
-      clientId,
-      kind,
-      referenceNo: fields?.reference_no ?? null,
-      noticeDate: fields?.notice_date ?? null,
-      section: fields?.section ?? null,
-      financialYear: fields?.financial_year ?? null,
-      periodFrom: fields?.period_from ?? null,
-      periodTo: fields?.period_to ?? null,
-      officerName: fields?.officer_name ?? null,
-      officerDesignation: fields?.officer_designation ?? null,
-      jurisdiction: fields?.jurisdiction ?? null,
-      totalDemand: fields?.total_demand ?? null,
-      uploadedFileName: file.originalname.slice(0, 200),
-      uploadedFileKey: key,
-      uploadedFileSize: file.size,
-      uploadedMime: mime,
-      extractedText: extracted.text || null,
-      extractedJson: fields ? (fields as unknown as object) : undefined,
-      extractionSource: extracted.source,
-      clientLetter,
-      draftContent: autoDraft,
-      llmProvider,
-      llmModel,
-      generatedAt: autoDraft || clientLetter ? new Date() : null,
-      status: autoDraft ? 'review' : 'draft',
-      createdBy: session.userId,
-      updatedBy: session.userId,
-    },
+    const row = await prisma.gstNotice.create({
+      data: {
+        organisationId: client.organisationId,
+        clientId,
+        kind,
+        referenceNo: fields?.reference_no ?? null,
+        noticeDate: fields?.notice_date ?? null,
+        section: fields?.section ?? null,
+        financialYear: fields?.financial_year ?? null,
+        periodFrom: fields?.period_from ?? null,
+        periodTo: fields?.period_to ?? null,
+        officerName: fields?.officer_name ?? null,
+        officerDesignation: fields?.officer_designation ?? null,
+        jurisdiction: fields?.jurisdiction ?? null,
+        totalDemand: fields?.total_demand ?? null,
+        uploadedFileName: file.originalname.slice(0, 200),
+        uploadedFileKey: key,
+        uploadedFileSize: file.size,
+        uploadedMime: mime,
+        extractedText: extracted.text || null,
+        extractedJson: fields ? (fields as unknown as object) : undefined,
+        extractionSource: extracted.source,
+        clientLetter,
+        draftContent: autoDraft,
+        llmProvider,
+        llmModel,
+        generatedAt: autoDraft || clientLetter ? new Date() : null,
+        status: autoDraft ? 'review' : 'draft',
+        createdBy: session.userId,
+        updatedBy: session.userId,
+      },
+    })
+    saved = true
+    await writeAudit({
+      actorUserId: session.userId, action: 'gst_notice.create', entityType: 'GstNotice', entityId: row.id,
+      after: { client_id: row.clientId, kind: row.kind, reference_no: row.referenceNo, status: row.status, file: row.uploadedFileName }, req,
+    })
+    ok(res, { ...serialize(row), ai_error: aiError }, 201)
+  } catch (err) {
+    if (!saved) await storage.delete(key).catch(() => undefined)
+    throw err
+  }
+}))
+
+noticesRouter.get('/:id/file', handler(async (req, res) => {
+  const session = requireSession(req)
+  const scope = requireWorkstation(session, ...READ)
+  const row = await prisma.gstNotice.findFirst({ where: { id: req.params.id, ...alive } })
+  if (!row) throw ApiError.notFound()
+  await assertCanSeeClient(session, scope, row.clientId)
+  if (!row.uploadedFileKey) throw ApiError.notFound('This notice has no file.')
+  const bytes = await storage.get(row.uploadedFileKey)
+  setUploadedFileHeaders(res, {
+    mime: row.uploadedMime ?? 'application/octet-stream', filename: row.uploadedFileName ?? 'notice',
+    inline: req.query.download !== '1', size: bytes.length,
   })
-  await writeAudit({
-    actorUserId: session.userId, action: 'gst_notice.create', entityType: 'GstNotice', entityId: row.id,
-    after: { client_id: row.clientId, kind: row.kind, reference_no: row.referenceNo, status: row.status, file: row.uploadedFileName }, req,
-  })
-  ok(res, serialize(row), 201)
+  res.end(bytes)
 }))
 
 noticesRouter.get('/:id', handler(async (req, res) => {
@@ -349,6 +381,18 @@ noticesRouter.patch('/:id', handler(async (req, res) => {
       throw ApiError.conflict('reply_sent', `This reply is already marked ${existing.status}; it cannot go back to ${s}.`)
     }
     updates.status = s
+  }
+  if ('closed_without_reply_reason' in b) {
+    updates.closedWithoutReplyReason = typeof b.closed_without_reply_reason === 'string' ? b.closed_without_reply_reason.trim().slice(0, 1000) || null : null
+  }
+  // Closing a notice whose reply never went out needs a stated reason.
+  if (updates.status === 'closed' && existing.status !== 'sent' && existing.status !== 'closed') {
+    const reason = updates.closedWithoutReplyReason !== undefined ? updates.closedWithoutReplyReason : existing.closedWithoutReplyReason
+    if (!reason) {
+      throw ApiError.badRequest('Mark the reply sent first, or say why the notice is closed without a reply.', {
+        closed_without_reply_reason: 'Required to close a notice whose reply was not sent.',
+      })
+    }
   }
   if ('reply_inputs' in b) updates.replyInputs = toReplyInputs(b.reply_inputs) as unknown as object
   if ('draft_content' in b) {

@@ -17,6 +17,9 @@
 import type { PrismaClient } from '@prisma/client'
 import { applyRule } from './engine.js'
 
+/** Same as service.ts CLOSED_STATUSES (not imported: service.ts imports the engine too). */
+const CLOSED = new Set<string>(['filed', 'not_applicable'])
+
 export interface ClockEventResult {
   created: boolean
   skipped?: 'exempt' | 'already_exists' | 'form_missing' | 'no_anchor' | 'client_inactive'
@@ -71,6 +74,24 @@ export async function onGstRegistrationGranted(prisma: PrismaClient, p: {
   if (!form || !form.isActive) return { created: false, skipped: 'form_missing' }
 
   const anchor = p.registrationDate
+  const dueDate = applyRule(anchor, { offsetMonths: 0, dueDay: null, offsetDays: form.offsetDays })
+  const internalDueDate = form.internalTargetDays != null
+    ? applyRule(anchor, { offsetMonths: 0, dueDay: null, offsetDays: form.internalTargetDays })
+    : null
+  // One Rule 10A clock per client, whatever year its key carries: a grant
+  // date corrected later (even into another calendar year) moves the open
+  // clock rather than starting a second one. A filed clock is history and is
+  // left alone.
+  const current = await prisma.complianceItem.findFirst({
+    where: { clientId: p.clientId, formCode: 'GST_RULE_10A', deletedAt: null },
+    orderBy: { createdAt: 'desc' },
+    select: { id: true, status: true, anchorDate: true },
+  })
+  if (current) {
+    if (CLOSED.has(current.status) || current.anchorDate === anchor) return { created: false, skipped: 'already_exists', itemId: current.id }
+    await prisma.complianceItem.update({ where: { id: current.id }, data: { anchorDate: anchor, dueDate, internalDueDate } })
+    return { created: false, itemId: current.id }
+  }
   // periodKey mirrors POST /clocks: '<anchorYear>-<formCode>'. Matches the
   // migration (seed-compliance.ts migrateInc20aFromPartnership) convention.
   const periodKey = `${anchor.slice(0, 4)}-GST_RULE_10A`
@@ -87,11 +108,9 @@ export async function onGstRegistrationGranted(prisma: PrismaClient, p: {
       formCode: 'GST_RULE_10A',
       periodKey,
       periodLabel: form.name,
-      dueDate: applyRule(anchor, { offsetMonths: 0, dueDay: null, offsetDays: form.offsetDays }),
+      dueDate,
       anchorDate: anchor,
-      internalDueDate: form.internalTargetDays != null
-        ? applyRule(anchor, { offsetMonths: 0, dueDay: null, offsetDays: form.internalTargetDays })
-        : null,
+      internalDueDate,
       assignedEmployeeId: p.assignedEmployeeId,
     },
   })
@@ -116,7 +135,7 @@ export async function onPrivateLimitedIncorporated(prisma: PrismaClient, p: {
     where: { caseId: p.caseId, code: 'INC_20A' },
     select: {
       clientId: true, triggerDate: true, dueDate: true, completedOn: true,
-      completedBy: true, assignedEmployeeId: true, notes: true,
+      completedBy: true, assignedEmployeeId: true, notes: true, evidenceRef: true, evidenceDocId: true,
     },
   })
   if (!row) return { created: false, skipped: 'no_anchor' }
@@ -168,6 +187,8 @@ export async function onPrivateLimitedIncorporated(prisma: PrismaClient, p: {
       status: row.completedOn ? 'filed' : 'not_started',
       filedOn: row.completedOn,
       filedBy: row.completedBy,
+      evidenceRef: row.evidenceRef,
+      evidenceDocId: row.evidenceDocId,
       assignedEmployeeId: row.assignedEmployeeId,
       notes: row.notes,
     },
@@ -188,10 +209,9 @@ export async function onPrivateLimitedIncorporated(prisma: PrismaClient, p: {
  *   assignedEmployeeId       → assignedEmployeeId
  *   notes                    → notes
  *
- * Deliberately NOT mirrored: evidenceRef / evidenceDocId. Those live on the
- * unified engine; the partnership UI doesn't read or write them, and the
- * firm's "mark completed" on the old UI predates the evidence gate — the
- * seed-level migration captured whatever historical data existed.
+ *   evidenceRef / evidenceDocId → evidenceRef / evidenceDocId (the SRN or
+ *                             acknowledgement that post-registration
+ *                             "complete" now requires, like Mark filed)
  *
  * Idempotent: a re-run with the same PostRegistrationCompliance state leaves
  * ComplianceItem identical (Prisma update is a no-op when every value matches).
@@ -209,6 +229,7 @@ export async function syncPrivateLimitedCompliance(prisma: PrismaClient, p: {
     select: {
       code: true, clientId: true, triggerDate: true, dueDate: true,
       completedOn: true, completedBy: true, assignedEmployeeId: true, notes: true,
+      evidenceRef: true, evidenceDocId: true,
     },
   })
   if (!row || row.code !== 'INC_20A') return { created: false, skipped: 'no_anchor' }
@@ -261,6 +282,12 @@ export async function syncPrivateLimitedCompliance(prisma: PrismaClient, p: {
       status: row.completedOn ? 'filed' : (existing.status === 'filed' ? 'not_started' : existing.status),
       filedOn: row.completedOn,
       filedBy: row.completedBy,
+      // Reopened → the evidence goes with the completion. Completed with
+      // evidence → mirrored. Completed before evidence was recorded on the
+      // row (older data) → whatever the calendar item already holds stays.
+      ...(!row.completedOn
+        ? { evidenceRef: null, evidenceDocId: null }
+        : row.evidenceRef || row.evidenceDocId ? { evidenceRef: row.evidenceRef, evidenceDocId: row.evidenceDocId } : {}),
       assignedEmployeeId: row.assignedEmployeeId,
       notes: row.notes,
     },

@@ -13,7 +13,7 @@ import { PortalStrip } from './PortalStrip';
 import { useState } from 'react';
 import { CaseCompliancePanel, REG_NO_LABEL } from '@/modules/postRegistration/ui';
 import { postRegistrationKeys } from '@/modules/postRegistration/api';
-import { isCin, isLlpin, normId } from '@/lib/ids';
+import { isCin, isGstin, isLlpin, normId } from '@/lib/ids';
 
 /** Registrations with post-registration compliance (INC-20A / ADTC, LLP Form 3). */
 const hasCompliance = (k: string): k is 'PRIVATE_LIMITED' | 'LLP' => k === 'PRIVATE_LIMITED' || k === 'LLP';
@@ -116,6 +116,10 @@ function CaseHeader({ c }: { c: CaseDetail }) {
   const [incDate, setIncDate] = useState('');
   const [regNo, setRegNo] = useState(c.registration_number ?? '');
   const [regNoError, setRegNoError] = useState<string | null>(null);
+  // GST registration: completing it records the GSTIN and the date of grant —
+  // the GST profile, GST Filing and the Rule 10A clock start from them.
+  const isGstReg = kind === 'GST';
+  const asksOnComplete = hasCompliance(kind) || isGstReg;
   const canEdit = c.permissions.manage;
   const sel = 'h-8 px-2 text-13 bg-white border border-neutral-300 rounded focus:outline-none focus:border-gold';
   const p = c.progress;
@@ -142,7 +146,7 @@ function CaseHeader({ c }: { c: CaseDetail }) {
           <select
             className={sel} disabled={!canEdit} value={completing ? 'COMPLETED' : c.status}
             onChange={(e) => {
-              if (hasCompliance(kind) && e.target.value === 'COMPLETED' && c.status !== 'COMPLETED') { setCompleting(true); return; }
+              if (asksOnComplete && e.target.value === 'COMPLETED' && c.status !== 'COMPLETED') { setCompleting(true); return; }
               setCompleting(false);
               update.mutate({ status: e.target.value });
             }}
@@ -156,7 +160,7 @@ function CaseHeader({ c }: { c: CaseDetail }) {
             onChange={(e) => {
               // Private Limited: reaching the Completed stage is completing the
               // registration — ask for the Date of Incorporation, same as Status.
-              if (hasCompliance(kind) && e.target.value === 'COMPLETED' && c.status !== 'COMPLETED') { setCompleting(true); return; }
+              if (asksOnComplete && e.target.value === 'COMPLETED' && c.status !== 'COMPLETED') { setCompleting(true); return; }
               update.mutate({ stage: e.target.value });
             }}
           >
@@ -170,6 +174,15 @@ function CaseHeader({ c }: { c: CaseDetail }) {
           onSubmit={(e) => {
             e.preventDefault();
             const reg = normId(regNo);
+            if (isGstReg) {
+              if (!isGstin(reg)) { setRegNoError('Enter the 15-character GSTIN on the registration certificate (REG-06).'); return; }
+              setRegNoError(null);
+              update.mutate(
+                { status: 'COMPLETED', registration_number: reg, registration_date: incDate },
+                { onSuccess: () => setCompleting(false) },
+              );
+              return;
+            }
             if (reg && hasCompliance(kind)) {
               const bad = kind === 'LLP' ? !isLlpin(reg) : !isCin(reg);
               if (bad) {
@@ -184,14 +197,28 @@ function CaseHeader({ c }: { c: CaseDetail }) {
             );
           }}
         >
+          {isGstReg ? (
+            <div className="text-13 text-neutral-700 basis-full">
+              Registration granted — enter the <b>GSTIN</b> and the <b>date of grant</b>. They go on the client and its GST profile,
+              the client is enrolled in GST Filing, and the Rule 10A bank-account clock (30 days from the grant) starts.
+            </div>
+          ) : (
           <div className="text-13 text-neutral-700 basis-full">
             Registration completed — enter the <b>Date of Incorporation</b> so{' '}
             {kind === 'LLP' ? 'LLP Form 3 – Initial LLP Agreement (due 30 days after it) is' : 'INC-20A (due 180 days after it) and ADTC are'} tracked under Post-Registration Compliance.
           </div>
+          )}
           <label className="block">
-            <span className="block text-11 uppercase tracking-[0.06em] text-neutral-500 mb-1">Date of Incorporation</span>
-            <input type="date" className={sel} value={incDate} max={new Date(Date.now() + 5.5 * 3600_000).toISOString().slice(0, 10)} onChange={(e) => setIncDate(e.target.value)} />
+            <span className="block text-11 uppercase tracking-[0.06em] text-neutral-500 mb-1">{isGstReg ? 'Date of grant' : 'Date of Incorporation'}</span>
+            <input type="date" className={sel} value={incDate} required={isGstReg} max={new Date(Date.now() + 5.5 * 3600_000).toISOString().slice(0, 10)} onChange={(e) => setIncDate(e.target.value)} />
           </label>
+          {isGstReg ? (
+            <label className="block">
+              <span className="block text-11 uppercase tracking-[0.06em] text-neutral-500 mb-1">GSTIN</span>
+              <input className={sel + ' uppercase'} value={regNo} maxLength={15} required onChange={(e) => { setRegNo(e.target.value); setRegNoError(null); }} aria-invalid={!!regNoError} />
+              {regNoError ? <span className="block text-12 text-red mt-1">{regNoError}</span> : null}
+            </label>
+          ) : null}
           {hasCompliance(kind) ? (
             <label className="block">
               <span className="block text-11 uppercase tracking-[0.06em] text-neutral-500 mb-1">{REG_NO_LABEL[kind]} (optional)</span>
@@ -200,7 +227,7 @@ function CaseHeader({ c }: { c: CaseDetail }) {
             </label>
           ) : null}
           <button type="submit" className="h-8 px-3 text-13 rounded border border-neutral-900 bg-neutral-900 text-white" disabled={update.isPending}>
-            {incDate ? 'Complete registration' : 'Complete without the date'}
+            {incDate || isGstReg ? 'Complete registration' : 'Complete without the date'}
           </button>
           <button type="button" className="h-8 px-3 text-13 rounded border border-neutral-300 bg-white" onClick={() => { setCompleting(false); setIncDate(''); }}>Cancel</button>
         </form>

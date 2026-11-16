@@ -132,6 +132,8 @@ export interface ComplianceItem {
   evidence_doc_id?: string | null;
   /** True when the item's form is `anchor='event'` — i.e. a compliance clock. */
   is_clock?: boolean;
+  /** A clock whose trigger date is not entered yet: no real due date, never overdue. */
+  needs_date?: boolean;
   status: string;
   assigned_employee_id?: string | null;
   assigned_employee_name?: string | null;

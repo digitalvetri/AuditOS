@@ -87,8 +87,11 @@ export interface RegisterNotice {
   reply_ack_no?: string | null;
   summary?: string | null;
   outcome?: string | null;
+  closed_without_reply_reason?: string | null;
   file_name?: string | null;
   has_file?: boolean;
+  /** Where the original notice file opens (GST notices live under /api/notices). */
+  file_url?: string | null;
   days_left?: number | null;
   overdue?: boolean;
   link?: string | null;
@@ -112,6 +115,7 @@ export interface NoticePatch {
   demand_paise?: number | null;
   summary?: string | null;
   outcome?: string | null;
+  closed_without_reply_reason?: string | null;
 }
 
 export const noticesRegisterKeys = {

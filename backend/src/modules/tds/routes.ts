@@ -34,7 +34,7 @@ import { writeAudit } from '../../platform/audit.js'
 import { requireWorkstation, assignedClientIds } from '../../platform/workstation/scope.js'
 import { body, FieldErrors } from '../workstation/validate.js'
 import { LocalStorageAdapter } from '../tools/storage/LocalStorageAdapter.js'
-import { fyMonths, fyOf, monthStart, quarterEnd, todayIst, type Quarter } from './calendar.js'
+import { formForFy, fyMonths, fyOf, monthStart, quarterEnd, todayIst, type Quarter } from './calendar.js'
 import { buildOverview, DUE_SOON_DAYS } from './overview.js'
 import { registerDeductionRoutes } from './deductions.js'
 import { setUploadedFileHeaders } from '../../lib/fileResponse.js'
@@ -58,11 +58,12 @@ const MANAGE = ['workstation.service.manage'] as const
 const KINDS = ['registration', 'challan', 'return', 'correction', 'certificate', 'notice_check', 'notice', 'challan_statement'] as const
 type Kind = (typeof KINDS)[number]
 const STATUSES = ['pending', 'in_progress', 'done'] as const
-const RETURN_FORMS = ['24Q', '26Q', '27Q', '27EQ'] as const
-const CERT_FORMS = ['16', '16A', '27D'] as const
+/** 1961-Act names, then their Income-tax Rules 2026 successors (tax year 2026-27 on). */
+const RETURN_FORMS = ['24Q', '26Q', '27Q', '27EQ', '138', '140', '144', '143'] as const
+const CERT_FORMS = ['16', '16A', '27D', '130', '131', '133'] as const
 const DEDUCTOR_TYPES = ['company', 'firm', 'individual', 'government', 'trust', 'aop', 'other'] as const
 const QUARTERS = ['Q1', 'Q2', 'Q3', 'Q4'] as const
-const STATEMENT_FORMS = ['26QB', '26QC', '26QD'] as const
+const STATEMENT_FORMS = ['26QB', '26QC', '26QD', '141'] as const
 /** Kinds that do not need a TAN: registration (TAN not allotted yet) and 26QB/QC/QD (PAN-based). */
 const TANLESS = ['registration', 'challan_statement']
 const PAN_RE = /^[A-Z]{5}[0-9]{4}[A-Z]$/
@@ -396,6 +397,14 @@ function parseRecord(b: Record<string, unknown>, partial: boolean, kindForPatch?
   }
   // A 26QB / 26QC / 26QD statement belongs to the FY of its deduction month.
   if (kind === 'challan_statement' && period) data.fy = fyOf(`${period}-01`)
+  // Stored under the form's name for that FY: a 26Q return for tax year
+  // 2026-27 is recorded as Form 140, a Form 140 for 2025-26 as 26Q. One name
+  // per year keeps the board, the certificates and the reminders in step.
+  // (A 26QB/QC/QD keeps its own name: Form 141 merges them, and the type of
+  // payment it covered is worth keeping.)
+  if (formType && data.fy && (kind === 'return' || kind === 'correction' || kind === 'certificate')) {
+    data.formType = formForFy(formType, data.fy)
+  }
   const tan = kind === 'registration' ? str('tan', 10, TAN_RE, 'TAN must be 4 letters, 5 digits, 1 letter — e.g. CHEK09876B.') : undefined
 
   // Required fields on create — the "evidence capture is a gate" rule.

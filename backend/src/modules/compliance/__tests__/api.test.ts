@@ -83,8 +83,8 @@ describe('compliance calendar API', () => {
     const old = await list(`client_id=${a.id}&from=2025-04-01&to=2026-03-31`)
     const gstr9 = old.find((i) => i.form_code === 'GSTR9')!
     expect(gstr9).toMatchObject({ period_key: '2024-25', statutory_due_date: '2025-12-31', due_date: '2025-12-31', overdue: true, status: 'not_started', source: 'compliance', extension: null })
-    expect(gstr9.late_fee_estimate.amount_paise).toBeGreaterThan(0)
-    expect(gstr9.late_fee_estimate.note).toMatch(/^Estimate:/)
+    // Turnover-tiered (Notification 07/2023-CT): every tier in the note, no single amount.
+    expect(gstr9.late_fee_estimate.note).toMatch(/^Estimate: by aggregate turnover/)
     const aoc = old.find((i) => i.form_code === 'AOC4')!
     expect(aoc).toMatchObject({ due_date: '2025-10-30', anchor_missing: true, anchor_note: 'AGM date not entered' })
     expect((await list(`client_id=${a.id}&form_code=PF_ECR&from=2025-04-01&to=2026-03-31`)).every((i) => i.form_code === 'PF_ECR')).toBe(true)
@@ -262,7 +262,12 @@ describe('compliance calendar API', () => {
     const created = await api('/api/compliance/clocks', { method: 'POST', cookie: md.cookie, body: { client_id: c.id, form_code: 'GST_RULE_10A', assigned_employee_id: emp.id } })
     expect(created.status).toBe(200)
     expect(created.body.data).toMatchObject({ form_code: 'GST_RULE_10A', anchor_date: null, assigned_employee_id: emp.id })
+    // No trigger date → no real due date: not "due today", not overdue, flagged as needing the date.
+    expect(created.body.data).toMatchObject({ needs_date: true, overdue: false, days_left: null, late_fee_estimate: null })
     const clockId = created.body.data.id as string
+    const md2 = await login(o, 'md')
+    const listed = ((await api(`/api/compliance/items?client_id=${c.id}`, { cookie: md2.cookie })).body.data as Item[]).find((i) => i.id === clockId)
+    expect(listed).toMatchObject({ needs_date: true, overdue: false, days_left: null })
 
     // Second attempt for the same (client, form) conflicts.
     const dup = await api('/api/compliance/clocks', { method: 'POST', cookie: md.cookie, body: { client_id: c.id, form_code: 'GST_RULE_10A' } })
@@ -298,11 +303,22 @@ describe('compliance calendar API', () => {
     const c2 = await api('/api/compliance/clocks', { method: 'POST', cookie: md.cookie, body: { client_id: other.id, form_code: 'GST_RULE_10A', anchor_date: '2026-11-01' } })
     expect(c2.status).toBe(200)
     const id2 = c2.body.data.id as string
-    const attach = await api(`/api/compliance/items/${id2}`, { method: 'PATCH', cookie: md.cookie, body: { evidence_doc_id: 'cd-fake-doc-id' } })
+    // The evidence document must be a real, live document of THIS client.
+    const cat = await prisma.documentCategory.findFirst({ where: { deletedAt: null } })
+      ?? await prisma.documentCategory.create({ data: { organisationId: o.id, code: uid('cat'), name: 'Evidence' } })
+    const doc = await prisma.clientDocument.create({ data: { clientId: other.id, categoryId: cat.id, name: 'REG-01 ack' } })
+    const elsewhere = await prisma.clientDocument.create({ data: { clientId: c.id, categoryId: cat.id, name: 'Someone else\'s ack' } })
+    const gone = await prisma.clientDocument.create({ data: { clientId: other.id, categoryId: cat.id, name: 'Deleted', deletedAt: new Date() } })
+    for (const bad of ['cd-fake-doc-id', elsewhere.id, gone.id]) {
+      const r = await api(`/api/compliance/items/${id2}`, { method: 'PATCH', cookie: md.cookie, body: { evidence_doc_id: bad } })
+      expect(r.status).toBe(400)
+      expect(r.body.error.details).toHaveProperty('evidence_doc_id')
+    }
+    const attach = await api(`/api/compliance/items/${id2}`, { method: 'PATCH', cookie: md.cookie, body: { evidence_doc_id: doc.id } })
     expect(attach.status).toBe(200)
     const close = await api(`/api/compliance/items/${id2}`, { method: 'PATCH', cookie: md.cookie, body: { status: 'filed', filed_on: istToday() } })
     expect(close.status).toBe(200)
-    expect(close.body.data).toMatchObject({ status: 'filed', evidence_doc_id: 'cd-fake-doc-id' })
+    expect(close.body.data).toMatchObject({ status: 'filed', evidence_doc_id: doc.id })
   })
 
   it('onGstRegistrationGranted — creates the clock on new grant, skips exempt types, idempotent', async () => {
@@ -495,4 +511,54 @@ describe('compliance calendar API', () => {
     const r2 = await onPrivateLimitedIncorporated(prisma, { caseId: caseRow.id })
     expect(r2.skipped).toBe('already_exists')
   })
+
+  it('a corrected GST grant date moves the open Rule 10A clock — also across a year — and never a filed one', async () => {
+    const o = await org()
+    const emp = await employee(o, 'Mgr')
+    const c = await client(o, 'Regrant Co', { businessType: 'Pvt Ltd', accountManagerId: emp.id })
+    const grant = (registrationDate: string) => onGstRegistrationGranted(prisma, {
+      clientId: c.id, organisationId: o.id, registrationDate, registrationType: 'regular', assignedEmployeeId: emp.id, isNewGrant: true,
+    })
+    expect((await grant('2026-11-11')).created).toBe(true)
+    const moved = await grant('2026-11-14')
+    expect(moved).toMatchObject({ created: false })
+    let items = await prisma.complianceItem.findMany({ where: { clientId: c.id, formCode: 'GST_RULE_10A', deletedAt: null } })
+    expect(items).toHaveLength(1)
+    expect(items[0]).toMatchObject({ anchorDate: '2026-11-14', dueDate: '2026-12-14', internalDueDate: '2026-11-29' })
+    await grant('2027-01-02') // another calendar year: still the same clock
+    items = await prisma.complianceItem.findMany({ where: { clientId: c.id, formCode: 'GST_RULE_10A', deletedAt: null } })
+    expect(items).toHaveLength(1)
+    expect(items[0]).toMatchObject({ anchorDate: '2027-01-02', dueDate: '2027-02-01' })
+    await prisma.complianceItem.update({ where: { id: items[0].id }, data: { status: 'filed', filedOn: '2027-01-20', evidenceRef: 'AA1' } })
+    expect(await grant('2027-01-05')).toMatchObject({ created: false, skipped: 'already_exists' })
+    expect(await prisma.complianceItem.findUniqueOrThrow({ where: { id: items[0].id } })).toMatchObject({ anchorDate: '2027-01-02', status: 'filed' })
+  })
+
+  it('seed moves an existing DIR-3 KYC rule to the 3-year, 30 June cycle and tidies its open items, once', async () => {
+    const { seedCompliance } = await import('../../../../prisma/seed-compliance.js')
+    // An existing DB still holding the old annual 30 September rule.
+    await prisma.complianceForm.update({ where: { code: 'DIR3_KYC' }, data: { frequency: 'annual', anchor: 'fy_start', offsetMonths: 5, dueDay: 30, description: '30 September every year.' } })
+    const o = await org()
+    const c = await client(o, 'Kyc Pvt Ltd', { businessType: 'Pvt Ltd' })
+    const mk = (periodKey: string, dueDate: string, status = 'not_started') => prisma.complianceItem.create({
+      data: { organisationId: o.id, clientId: c.id, formCode: 'DIR3_KYC', periodKey, periodLabel: `FY ${periodKey}`, dueDate, status, ...(status === 'filed' ? { filedOn: '2025-09-20' } : {}) },
+    })
+    const old = await mk('2025-26', '2025-09-30', 'filed')     // the old regime: history
+    const offYear = await mk('2026-27', '2026-09-30')          // no longer due
+    const working = await mk('2028-29', '2028-09-30', 'in_progress') // someone is on it: kept, flagged by its date
+    const cycle = await mk('2027-28', '2027-09-30')            // the cycle year: re-dated to 30 June 2028
+    await seedCompliance(prisma)
+    expect(await prisma.complianceForm.findUniqueOrThrow({ where: { code: 'DIR3_KYC' } })).toMatchObject({ frequency: 'triennial', anchor: 'fy_end', offsetMonths: 3, dueDay: 30 })
+    const read = (id: string) => prisma.complianceItem.findUniqueOrThrow({ where: { id } })
+    expect(await read(old.id)).toMatchObject({ dueDate: '2025-09-30', deletedAt: null })
+    expect((await read(offYear.id)).deletedAt).not.toBeNull()
+    expect(await read(working.id)).toMatchObject({ deletedAt: null, status: 'in_progress' })
+    expect(await read(cycle.id)).toMatchObject({ dueDate: '2028-06-30', deletedAt: null })
+    // A firm's own later edit to the rule survives the next seed.
+    await prisma.complianceForm.update({ where: { code: 'DIR3_KYC' }, data: { offsetMonths: 4 } })
+    await seedCompliance(prisma)
+    expect((await prisma.complianceForm.findUniqueOrThrow({ where: { code: 'DIR3_KYC' } })).offsetMonths).toBe(4)
+    await prisma.complianceForm.update({ where: { code: 'DIR3_KYC' }, data: { offsetMonths: 3 } })
+  })
 })
+

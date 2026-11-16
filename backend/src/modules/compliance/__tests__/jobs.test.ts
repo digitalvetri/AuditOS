@@ -41,7 +41,22 @@ const notes = (userId: string) => prisma.notification.findMany({ where: { userId
 
 describe('staff reminders', () => {
   it('stage thresholds', () => {
-    expect([8, 7, 2, 1, 0, -1, -7, -8].map(staffStage)).toEqual([null, 'd7', 'd7', 'd1', 'd1', 'overdue', 'overdue', null])
+    expect([8, 7, 2, 1, 0, -1, -7, -8].map(staffStage)).toEqual([null, 'd7', 'd7', 'd1', 'd1', 'overdue', 'overdue', 'overdue-w2'])
+  })
+
+  it('an overdue item keeps reminding weekly until it is filed', async () => {
+    const { user, emp, mk } = await setup()
+    const item = await mk('PF_ECR', '2031-05-15', { assignedEmployeeId: emp.id })
+    for (const d of ['2031-05-16', '2031-05-20', '2031-05-23', '2031-05-29', '2031-06-01', '2031-06-10']) {
+      await sendComplianceStaffReminders(prisma, d)
+    }
+    const got = (await notes(user.id)).filter((n) => n.entityId!.includes(item.id))
+    // -1 → overdue, -8 → w2, -17 → w3, -26 → w4 (and -14 / -5 are repeats).
+    expect(got.map((n) => n.entityId!.split(':').at(-1))).toEqual(['overdue', 'overdue-w2', 'overdue-w3', 'overdue-w4'])
+    expect(got.at(-1)!.body).toMatch(/26 days overdue/)
+    await prisma.complianceItem.update({ where: { id: item.id }, data: { status: 'filed', filedOn: '2031-06-10' } })
+    await sendComplianceStaffReminders(prisma, '2031-06-20')
+    expect((await notes(user.id)).filter((n) => n.entityId!.includes(item.id))).toHaveLength(4)
   })
 
   it('7 days, 1 day, overdue — once each, to the assignee else the account manager', async () => {
@@ -71,6 +86,43 @@ describe('staff reminders', () => {
     await prisma.dueDateExtension.create({ data: { organisationId: o.id, formCode: 'GSTR9', periodKey: '2029-30', newDueDate: '2031-06-20', reference: 'NN 1/2031' } })
     await sendComplianceStaffReminders(prisma, '2031-06-16')
     expect((await notes(user.id)).map((n) => n.entityId).at(-1)).toBe(`compliance:${item.id}:2031-06-20:d7`)
+  })
+})
+
+describe('compliance clocks remind without an obligation', () => {
+  it('a Rule 10A clock rings its assignee and escalates to the MD; no client email', async () => {
+    const { o, user, emp, c } = await setup()
+    const mdEmp = await employee(o, 'Partner')
+    const mdUser = await login(o, 'md', mdEmp.id)
+    // Granted 20 days ago: internal target (day 15) passed 5 days ago, statutory (day 30) in 10.
+    const clock = await prisma.complianceItem.create({
+      data: {
+        organisationId: o.id, clientId: c.id, formCode: 'GST_RULE_10A', periodKey: '2031-GST_RULE_10A', periodLabel: 'Rule 10A',
+        anchorDate: '2031-05-21', internalDueDate: '2031-06-05', dueDate: '2031-06-20', assignedEmployeeId: emp.id,
+      },
+    })
+    expect(await prisma.clientObligation.count({ where: { clientId: c.id, formCode: 'GST_RULE_10A' } })).toBe(0)
+    mail.configured = true
+    await sendComplianceStaffReminders(prisma, TODAY)
+    await sendComplianceClientReminders(prisma, '2031-06-15')
+    const mine = (await notes(user.id)).filter((n) => n.entityId!.includes(clock.id))
+    expect(mine.map((n) => n.entityId!.split(':').at(-1))).toEqual(['past_internal-5'])
+    const esc = await prisma.notification.findMany({ where: { userId: mdUser.id, entityType: 'compliance_escalation' } })
+    expect(esc.some((n) => n.entityId!.includes(clock.id))).toBe(true)
+    expect(mail.sent.some((m) => m.text.includes('Rule 10A'))).toBe(false)
+  })
+
+  it('a clock whose trigger date is not entered yet sends nothing (it is not due today)', async () => {
+    const { o, user, emp, c } = await setup()
+    await prisma.complianceItem.create({
+      data: {
+        organisationId: o.id, clientId: c.id, formCode: 'INC_20A', periodKey: '2031-INC_20A', periodLabel: 'INC-20A',
+        anchorDate: null, dueDate: TODAY, assignedEmployeeId: emp.id,
+      },
+    })
+    await sendComplianceStaffReminders(prisma, TODAY)
+    await sendComplianceStaffReminders(prisma, '2031-06-20')
+    expect((await notes(user.id)).filter((n) => n.title.includes('Delta'))).toHaveLength(0)
   })
 })
 

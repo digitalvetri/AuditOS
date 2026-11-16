@@ -13,11 +13,15 @@
  */
 import type { PrismaClient } from '@prisma/client'
 
+const DIR3_KYC_DESCRIPTION = 'Once every three financial years, by 30 June after the third (next: 30 June 2028) — ' +
+  'Companies (Appointment and Qualification of Directors) Amendment Rules 2025, G.S.R. 943(E). ' +
+  'A director with a DIN allotted later runs on their own 3-year cycle; a change in mobile, email or address is filed within 30 days.'
+
 export interface CatalogueForm {
   code: string
   name: string
   authority: 'income_tax' | 'gst' | 'mca' | 'labour' | 'other'
-  frequency: 'monthly' | 'quarterly' | 'half_yearly' | 'annual' | 'event'
+  frequency: 'monthly' | 'quarterly' | 'half_yearly' | 'annual' | 'triennial' | 'event'
   entityTypes: string
   anchor: 'period_end' | 'fy_end' | 'fy_start' | 'agm' | 'event'
   offsetMonths: number
@@ -74,7 +78,7 @@ export const COMPLIANCE_CATALOGUE: CatalogueForm[] = [
   f('FORM_10B', 'Audit report of charitable trust', 'income_tax', 'annual', 'trust,society', 'fy_end', 6, 30,
     { description: 'Due 30 September after the FY.' }),
   f('GSTR9', 'GST annual return', 'gst', 'annual', 'any', 'fy_end', 9, 31,
-    { lateFeeNote: '₹200/day, capped at 0.5% of turnover', description: 'Due 31 December after the FY.' }),
+    { lateFeeNote: 'From FY 2022-23 (Notification 07/2023-CT): ₹50/day up to ₹5 cr turnover, ₹100/day ₹5–20 cr (cap 0.04%), ₹200/day above ₹20 cr (cap 0.5%)', description: 'Due 31 December after the FY.' }),
   f('GSTR9C', 'GST reconciliation statement', 'gst', 'annual', 'any', 'fy_end', 9, 31,
     { description: 'Due 31 December after the FY, with GSTR-9.' }),
   f('CMP08', 'Composition quarterly payment', 'gst', 'quarterly', 'any', 'period_end', 1, 18,
@@ -91,8 +95,11 @@ export const COMPLIANCE_CATALOGUE: CatalogueForm[] = [
     { offsetDays: 60, lateFeeNote: '₹100/day additional fee', description: '60 days from the AGM.' }),
   f('ADT1', 'Auditor appointment', 'mca', 'annual', 'company', 'agm', 0, null,
     { offsetDays: 15, lateFeeNote: '₹100/day additional fee', description: '15 days from the AGM.' }),
-  f('DIR3_KYC', 'Director KYC', 'mca', 'annual', 'company', 'fy_start', 5, 30,
-    { lateFeeNote: '₹5,000', description: '30 September every year.' }),
+  // G.S.R. 943(E) (31 Dec 2025, in force 31 Mar 2026): DIR-3 KYC once every
+  // three FYs, by 30 June after the third — next 30 June 2028 (ICAI CLCGC).
+  // A change in mobile, email or address is filed within 30 days as it happens.
+  f('DIR3_KYC', 'Director KYC', 'mca', 'triennial', 'company', 'fy_end', 3, 30,
+    { lateFeeNote: '₹5,000 to reactivate the DIN', description: DIR3_KYC_DESCRIPTION }),
   f('DPT3', 'Return of deposits', 'mca', 'annual', 'company', 'fy_end', 3, 30,
     { lateFeeNote: '₹100/day additional fee', description: 'Due 30 June after the FY.' }),
   f('MSME1', 'MSME outstanding dues', 'mca', 'half_yearly', 'company', 'period_end', 1, 31,
@@ -276,5 +283,41 @@ export async function seedCompliance(prisma: PrismaClient): Promise<{ forms: num
       },
     })
   }
+  await migrateDir3KycToTriennial(prisma)
   return { forms: COMPLIANCE_CATALOGUE.length }
+}
+
+/**
+ * DIR-3 KYC moved from every year by 30 September to once every three FYs
+ * by 30 June (G.S.R. 943(E), in force 31 Mar 2026). The upsert above keeps
+ * a firm's due-date rule, so an existing DB still carries the old one; this
+ * corrects exactly that rule, and only while it is unchanged from the old
+ * seed (a firm's own edit is left alone). Idempotent: once corrected the
+ * condition no longer matches.
+ *
+ * Its open items follow: the cycle FY (2027-28, …) is re-dated to 30 June;
+ * an untouched (not started) item for an FY that no longer owes KYC is
+ * withdrawn; anything someone is working on, and everything filed, stays.
+ * Items of FY 2025-26 and earlier fell due under the old rule and stay too.
+ */
+export async function migrateDir3KycToTriennial(prisma: PrismaClient): Promise<void> {
+  const fixed = await prisma.complianceForm.updateMany({
+    where: { code: 'DIR3_KYC', anchor: 'fy_start', offsetMonths: 5, dueDay: 30, offsetDays: 0 },
+    data: { frequency: 'triennial', anchor: 'fy_end', offsetMonths: 3, dueDay: 30, description: DIR3_KYC_DESCRIPTION, lateFeeNote: '₹5,000 to reactivate the DIN' },
+  })
+  if (!fixed.count) return
+  const items = await prisma.complianceItem.findMany({
+    where: { formCode: 'DIR3_KYC', deletedAt: null, status: { notIn: ['filed', 'not_applicable'] } },
+    select: { id: true, periodKey: true, status: true },
+  })
+  for (const i of items) {
+    const m = /^(\d{4})-\d{2}$/.exec(i.periodKey)
+    if (!m || Number(m[1]) < 2026) continue
+    const y = Number(m[1])
+    if ((y - 2027) % 3 === 0) {
+      await prisma.complianceItem.update({ where: { id: i.id }, data: { dueDate: `${y + 1}-06-30`, periodLabel: `FY ${i.periodKey} (3-year cycle)` } })
+    } else if (i.status === 'not_started') {
+      await prisma.complianceItem.update({ where: { id: i.id }, data: { deletedAt: new Date(), notes: 'Withdrawn: DIR-3 KYC is now due once every three years (G.S.R. 943(E)).' } })
+    }
+  }
 }

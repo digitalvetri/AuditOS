@@ -23,7 +23,7 @@ import { requireSession } from '../../platform/auth.js'
 import { writeAudit } from '../../platform/audit.js'
 import { requireWorkstation } from '../../platform/workstation/scope.js'
 import { body, FieldErrors } from '../workstation/validate.js'
-import { fyMonths, fyOf, QUARTERS, todayIst, type Quarter } from './calendar.js'
+import { formForFy, fyMonths, fyOf, QUARTERS, todayIst, type Quarter } from './calendar.js'
 import { computeTds, REMARK_CODE, returnFormFor, SECTIONS, sectionByCode, type Basis, type DeducteeCategory } from './sections.js'
 
 type Session = ReturnType<typeof requireSession>
@@ -502,8 +502,10 @@ export function registerDeductionRoutes<C extends ScopedClientLike>(router: Rout
     const { client } = await ctx(req, false)
     const fy = typeof req.query.fy === 'string' && FY_RE.test(req.query.fy) ? req.query.fy : null
     const quarter = typeof req.query.quarter === 'string' && (QUARTERS as string[]).includes(req.query.quarter) ? (req.query.quarter as Quarter) : null
-    const form = typeof req.query.form === 'string' && ['24Q', '26Q', '27Q'].includes(req.query.form) ? req.query.form : null
-    if (!fy || !quarter || !form) throw ApiError.badRequest('Choose the FY, quarter and form (24Q, 26Q or 27Q).')
+    // Form 138 / 140 / 144 (tax year 2026-27 on) are the 24Q / 26Q / 27Q statements renumbered.
+    const asked = typeof req.query.form === 'string' ? ({ '138': '24Q', '140': '26Q', '144': '27Q' } as Record<string, string>)[req.query.form] ?? req.query.form : ''
+    const form = ['24Q', '26Q', '27Q'].includes(asked) ? asked : null
+    if (!fy || !quarter || !form) throw ApiError.badRequest('Choose the FY, quarter and form (24Q, 26Q or 27Q — Form 138, 140 or 144 from tax year 2026-27).')
     const tan = h.resolveTan(client, req.query.tan)
     const months = fyMonths(fy).slice(QUARTERS.indexOf(quarter) * 3, QUARTERS.indexOf(quarter) * 3 + 3)
     const tanFilter = tan && tan !== client.tan ? { tan } : { OR: [{ tan: null }, ...(client.tan ? [{ tan: client.tan }] : [])] }
@@ -535,7 +537,7 @@ export function registerDeductionRoutes<C extends ScopedClientLike>(router: Rout
         ch?.bsrCode ?? '', ch?.eventDate ?? '', ch?.reference ?? '', d.invoiceRef ?? '',
       ].map(csv).join(','))
     })
-    const name = `${client.companyName.replace(/[^\w-]+/g, '_')}-${form}-${quarter}-FY${fy}.csv`
+    const name = `${client.companyName.replace(/[^\w-]+/g, '_')}-${formForFy(form, fy)}-${quarter}-FY${fy}.csv`
     res.setHeader('Content-Type', 'text/csv; charset=utf-8')
     res.setHeader('Content-Disposition', `attachment; filename="${name}"`)
     res.send('﻿' + lines.join('\r\n'))

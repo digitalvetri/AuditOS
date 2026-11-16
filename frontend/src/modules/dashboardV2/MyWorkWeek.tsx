@@ -91,7 +91,8 @@ export function MyWorkWeek() {
 
   const openTasks = (tasks.data?.items ?? []).filter((t) => !CLOSED_TASK.has(t.status) && t.due_date);
   const overdueTasks = openTasks.filter((t) => t.overdue || (daysFrom(today, t.due_date) ?? 0) < 0).length;
-  const openFilings = (filings.data ?? []).filter((i) => !CLOSED_FILING.has(i.status));
+  // A clock still waiting for its trigger date has no real due date yet.
+  const openFilings = (filings.data ?? []).filter((i) => !CLOSED_FILING.has(i.status) && !i.needs_date);
   const overdueFilings = openFilings.filter((i) => (daysFrom(today, i.due_date) ?? 0) < 0).length;
   const noticesDue = (notices.data ?? []).filter((n) => {
     const d = n.days_left !== undefined ? n.days_left : (n.status === 'closed' ? null : daysFrom(today, n.response_due_date));

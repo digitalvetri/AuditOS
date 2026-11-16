@@ -41,6 +41,9 @@ export interface ComplianceItem {
   completed_on: string | null;
   completed_by: { id: string | null; name: string } | null;
   notes: string | null;
+  /** SRN of the filing recorded on completion (INC-20A needs it). */
+  srn?: string | null;
+  evidence_doc_id?: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -74,7 +77,7 @@ export const postRegistrationApi = {
   },
   update: (id: string, input: { trigger_date?: string | null; trigger_label?: string; offset_days?: number; notes?: string | null; assigned_employee_id?: string | null }) =>
     api.patch<{ item: ComplianceItem }>(`${BASE}/${id}`, input),
-  complete: (id: string, input: { completed_on: string; completed_by_employee_id?: string; notes?: string | null }) =>
+  complete: (id: string, input: { completed_on: string; completed_by_employee_id?: string; notes?: string | null; srn?: string | null; evidence_doc_id?: string | null }) =>
     api.post<{ item: ComplianceItem }>(`${BASE}/${id}/complete`, input),
   reopen: (id: string) => api.post<{ item: ComplianceItem }>(`${BASE}/${id}/reopen`, {}),
 };

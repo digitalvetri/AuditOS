@@ -403,6 +403,24 @@ describe('POST /api/gst/periods/:id/payment — record a GSTR-3B payment later',
     expect(r.status).toBe(200)
     expect(await f.read()).toMatchObject({ status: 'completed', paymentStatus: 'completed', challanRef: null })
   })
+  it('refuses a 3B that is not filed (no ARN), even when its payment status says pending', async () => {
+    const f = await filed3b({ status: 'preparation', paymentStatus: 'pending' })
+    expect((await api(`/api/gst/periods/${f.periodId}/payment`, { method: 'POST', body: { payment_date: '2026-10-22' } })).status).toBe(400)
+    const noArn = await filed3b({ status: 'filed', paymentStatus: 'pending', arn: null })
+    expect((await api(`/api/gst/periods/${noArn.periodId}/payment`, { method: 'POST', body: { payment_date: '2026-10-22' } })).status).toBe(400)
+    expect(await f.read()).toMatchObject({ status: 'preparation', paymentDate: null })
+  })
+  it('refuses an impossible or future payment date, and a challan that is not text', async () => {
+    const f = await filed3b({ status: 'filed', paymentStatus: 'pending' })
+    for (const body of [
+      { payment_date: '2026-02-31' },
+      { payment_date: '2099-01-01' },
+      { payment_date: '2026-10-22', challan_ref: { evil: 1 } },
+    ]) {
+      expect((await api(`/api/gst/periods/${f.periodId}/payment`, { method: 'POST', body })).status).toBe(400)
+    }
+    expect(await f.read()).toMatchObject({ status: 'filed', paymentDate: null })
+  })
   it('needs a payment date, and a filed 3B', async () => {
     const f = await filed3b({ status: 'filed', paymentStatus: 'pending' })
     expect((await api(`/api/gst/periods/${f.periodId}/payment`, { method: 'POST', body: {} })).status).toBe(400)
@@ -449,5 +467,101 @@ describe('bell reminders and compliance calendar follow GST Filing', () => {
     expect(rows.find((r) => r.form_code === 'GSTR1' && r.period_key === '2026-09')).toMatchObject({ status: 'filed', overdue: false })
     expect(rows.find((r) => r.form_code === 'GSTR3B' && r.period_key === '2026-09')).toMatchObject({ status: 'not_started' })
     expect(rows.some((r) => r.form_code === 'GSTR2B')).toBe(false)
+  })
+})
+
+describe('POST /api/gst/periods/:id/stages — dates and payment fields', () => {
+  async function period() {
+    const c = await gstClient()
+    await syncGstEnrolment(prisma, { clientId: c.id })
+    const p = await prisma.gstProfile.findUniqueOrThrow({ where: { clientId: c.id } })
+    const { periodId } = await ensurePeriodJobs(prisma, p.id, '2026-09')
+    const read = (rt: string) => prisma.gstFiling.findFirstOrThrow({ where: { gstProfileId: p.id, period: '2026-09', returnType: rt } })
+    return { periodId: periodId!, read }
+  }
+  it('an impossible filed date is a 400, not a 500; a future one is refused', async () => {
+    const f = await period()
+    expect((await api(`/api/gst/periods/${f.periodId}/stages/gstr1`, { method: 'POST', body: { status: 'in_preparation' } })).status).toBe(200)
+    for (const filed_date of ['1999-13-45', '2026-02-30', '2099-01-01']) {
+      const r = await api(`/api/gst/periods/${f.periodId}/stages/gstr1`, { method: 'POST', body: { status: 'filed', arn: 'AA3309260012345', filed_date } })
+      expect(r.status).toBe(400)
+    }
+    expect((await f.read('GSTR-1')).status).not.toBe('filed')
+  })
+  it('payment_status must be a known value; payment date and challan are checked', async () => {
+    const f = await period()
+    const post = (body: Record<string, unknown>) => api(`/api/gst/periods/${f.periodId}/stages/gstr3b`, { method: 'POST', body })
+    expect((await post({ status: 'preparation', payment_status: 'paid-ish' })).status).toBe(400)
+    expect((await post({ status: 'preparation', payment_date: '2026-02-31' })).status).toBe(400)
+    expect((await post({ status: 'preparation', payment_date: '2099-01-01' })).status).toBe(400)
+    expect((await post({ status: 'preparation', challan_ref: { evil: 1 } })).status).toBe(400)
+    expect((await post({ status: 'preparation', payment_status: 'pending', payment_date: '2026-10-20', challan_ref: 'CIN9' })).status).toBe(200)
+    expect(await f.read('GSTR-3B')).toMatchObject({ paymentStatus: 'pending', paymentDate: '2026-10-20', challanRef: 'CIN9' })
+  })
+})
+
+describe('the nightly sync respects edits made on the GST profile', () => {
+  const other = async () => (await prisma.employee.create({
+    data: { organisationId: orgId, employeeCode: uid('E'), firstName: 'Gst', lastName: 'Senior', fullName: uid('Gst Senior'), email: `${uid('g')}@x.local`, joiningDate: '2026-01-01', workScheduleId: (await prisma.workSchedule.findFirstOrThrow()).id },
+  })).id
+  it('a profile paused by hand stays paused; a reassignment on the profile stays', async () => {
+    const c = await gstClient()
+    await syncGstEnrolment(prisma, { clientId: c.id })
+    const p = await prisma.gstProfile.findUniqueOrThrow({ where: { clientId: c.id } })
+    const senior = await other()
+    expect((await api(`/api/gst/clients/${p.id}`, { method: 'PATCH', body: { active: false, assigned_employee_id: senior } })).status).toBe(200)
+    await generateGstFilingJobs(prisma, '2026-11-05')
+    expect(await prisma.gstProfile.findUniqueOrThrow({ where: { clientId: c.id } })).toMatchObject({ active: false, assignedEmployeeId: senior })
+    expect(await prisma.gstFiling.count({ where: { gstProfileId: p.id, period: '2026-10' } })).toBe(0)
+    // Switched back on by hand: the sync keeps it on and still leaves the assignee alone.
+    expect((await api(`/api/gst/clients/${p.id}`, { method: 'PATCH', body: { active: true } })).status).toBe(200)
+    await syncGstEnrolment(prisma, { clientId: c.id })
+    expect(await prisma.gstProfile.findUniqueOrThrow({ where: { clientId: c.id } })).toMatchObject({ active: true, assignedEmployeeId: senior })
+  })
+  it('a change on the service row still flows to the profile', async () => {
+    const c = await gstClient()
+    await syncGstEnrolment(prisma, { clientId: c.id })
+    const senior = await other()
+    await prisma.clientService.updateMany({ where: { clientId: c.id }, data: { assignedEmployeeId: senior } })
+    await syncGstEnrolment(prisma, { clientId: c.id })
+    expect((await prisma.gstProfile.findUniqueOrThrow({ where: { clientId: c.id } })).assignedEmployeeId).toBe(senior)
+  })
+})
+
+describe('GST Filing service ended', () => {
+  it('a completed or failed service stops the jobs', async () => {
+    for (const status of ['completed', 'failed']) {
+      const c = await gstClient()
+      await syncGstEnrolment(prisma, { clientId: c.id })
+      await prisma.clientService.updateMany({ where: { clientId: c.id }, data: { status } })
+      await generateGstFilingJobs(prisma, '2026-11-05')
+      const p = await prisma.gstProfile.findUniqueOrThrow({ where: { clientId: c.id } })
+      expect(p.active).toBe(false)
+      expect(await prisma.gstFiling.count({ where: { gstProfileId: p.id } })).toBe(0)
+    }
+  })
+})
+
+describe('quarterly (QRMP) filers', () => {
+  it('adding GST Filing can enrol a quarterly filer', async () => {
+    const c = await gstClient({ withService: false })
+    const r = await api(`/api/clients/${c.id}/services`, { method: 'POST', body: { service_id: serviceId, assigned_employee_id: empId, filing_frequency: 'quarterly' } })
+    expect(r.status).toBe(201)
+    expect((await prisma.gstProfile.findUniqueOrThrow({ where: { clientId: c.id } })).filingFrequency).toBe('quarterly')
+  })
+  it('switching to quarterly removes the open monthly jobs of a non-quarter-end month, keeps filed ones', async () => {
+    const c = await gstClient()
+    await syncGstEnrolment(prisma, { clientId: c.id })
+    const p = await prisma.gstProfile.findUniqueOrThrow({ where: { clientId: c.id } })
+    await ensurePeriodJobs(prisma, p.id, '2026-10') // not a quarter end
+    await ensurePeriodJobs(prisma, p.id, '2026-08') // not a quarter end, GSTR-1 already filed
+    await ensurePeriodJobs(prisma, p.id, '2026-09') // quarter end
+    await prisma.gstFiling.updateMany({ where: { gstProfileId: p.id, period: '2026-08', returnType: 'GSTR-1' }, data: { status: 'filed', arn: 'AA3308260012345' } })
+    expect((await api(`/api/gst/clients/${p.id}`, { method: 'PATCH', body: { filing_frequency: 'quarterly' } })).status).toBe(200)
+    const live = await prisma.gstFiling.findMany({ where: { gstProfileId: p.id, deletedAt: null }, orderBy: [{ period: 'asc' }, { returnType: 'asc' }] })
+    expect(live.map((f) => `${f.period} ${f.returnType}`)).toEqual(['2026-08 GSTR-1', '2026-09 GSTR-1', '2026-09 GSTR-3B'])
+    const oct = await prisma.gstCompliancePeriod.findFirstOrThrow({ where: { gstProfileId: p.id, period: '2026-10' } })
+    expect(oct.deletedAt).not.toBeNull()
+    expect((await api('/api/gst/filing-board?period=2026-10')).body.rows.some((x: any) => x.client_id === c.id)).toBe(false)
   })
 })
