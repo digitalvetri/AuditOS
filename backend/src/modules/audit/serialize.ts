@@ -5,6 +5,16 @@ import type {
 import { toNum } from '../../lib/money.js'
 import type { Blocker, EmployeeRef, Progress } from './service.js'
 
+/** ICAI: a UDIN is generated at signing or within 60 days of it. */
+export const UDIN_WINDOW_DAYS = 60
+export const dayDiff = (from: string, to: string) => Math.round((Date.parse(`${to}T00:00:00Z`) - Date.parse(`${from}T00:00:00Z`)) / 86_400_000)
+
+/** Days from signing to generation, and whether that is past ICAI's 60 days. */
+export function udinTiming(documentDate: string, generatedOn: string) {
+  const days = dayDiff(documentDate, generatedOn)
+  return { days_after_signing: days, late: days > UDIN_WINDOW_DAYS }
+}
+
 /**
  * API shapes for audit files — snake_case, field names matching the request
  * bodies in docs/audit-files/README.md. Money as paise numbers (toNum).
@@ -256,6 +266,8 @@ export function udin(
     partner_name: nm(ctx.names, u.partnerId),
     membership_no: u.membershipNo,
     generated_on: u.generatedOn,
+    // ICAI: within 60 days of signing (audit/udin.ts).
+    ...udinTiming(u.documentDate, u.generatedOn),
     revoked: !!u.revokedAt,
     revoked_at: u.revokedAt,
     revoked_reason: u.revokedReason,

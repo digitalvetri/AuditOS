@@ -7,13 +7,43 @@ import { assertCanSeeClient, clientScopeWhere } from '../../platform/workstation
 import { clientsById, employeeNames, assertPartnerEmployee } from './service.js'
 import * as S from './serialize.js'
 import { ISO_DATE, access, audit, isUniqueViolation, parse } from './common.js'
+import { addDays, istToday } from '../../lib/dates.js'
 
 /**
  * ICAI UDIN register, firm-wide. A UDIN is 18 characters: the 2-digit year,
  * the 6-digit membership number of the member who generated it, and 10
  * uppercase alphanumerics. The membership number inside must be the
  * signing member's.
+ *
+ * Dates: ICAI requires the UDIN at signing or within 60 days of signing
+ * ("Aligning the time limit of generating UDIN from 15 days to 60 days",
+ * ICAI, 17 Sep 2021). The 2-digit prefix is the year it was generated.
  */
+import { UDIN_WINDOW_DAYS, dayDiff } from './serialize.js'
+
+/**
+ * The dates a UDIN is recorded with: none in the future, not generated before
+ * the document was signed, and the prefix must be the generation year.
+ * Late generation (> 60 days) is allowed — the register records what
+ * happened — and flagged by udinTiming.
+ */
+export function validateUdinDates(udin: string, documentDate: string, generatedOn: string, today = istToday()) {
+  if (generatedOn > today) throw ApiError.badRequest('The UDIN generation date cannot be in the future.', { generated_on: 'In the future.' })
+  if (documentDate > today) throw ApiError.badRequest('The document date cannot be in the future.', { document_date: 'In the future.' })
+  if (generatedOn < documentDate) {
+    throw ApiError.badRequest('A UDIN is generated on or after the date the document is signed.', { generated_on: 'Before the document date.' })
+  }
+  const prefix = udin.slice(0, 2)
+  if (prefix !== generatedOn.slice(2, 4)) {
+    throw ApiError.unprocessable('udin_year_mismatch', `This UDIN starts with ${prefix}, but a UDIN generated on ${generatedOn} starts with ${generatedOn.slice(2, 4)}.`, { udin: 'Year does not match the generation date.' })
+  }
+}
+
+/** For a signed file still without a UDIN: the last day it is due, and days left (negative = overdue). */
+export function udinDue(reportDate: string, today = istToday()) {
+  const due = addDays(reportDate, UDIN_WINDOW_DAYS)
+  return { udin_due_by: due, udin_days_left: dayDiff(today, due) }
+}
 
 export const UDIN_RE = /^(\d{2})(\d{6})([A-Z0-9]{10})$/
 const DOC_TYPES = ['audit_report', 'tax_audit_report', 'certificate', 'caro', 'other'] as const
@@ -45,7 +75,7 @@ export function registerUdins(r: Router) {
       clientsById(rows.map((e) => e.clientId)),
       employeeNames(rows.flatMap((e) => [e.signingPartnerId, e.managerId, e.lockedBy, e.acceptanceApprovedBy])),
     ])
-    ok(res, S.list(rows.map((e) => S.engagement(e, { client: clients.get(e.clientId) ?? null, names }))))
+    ok(res, S.list(rows.map((e) => ({ ...S.engagement(e, { client: clients.get(e.clientId) ?? null, names }), ...udinDue(e.reportDate!) }))))
   }))
 
   r.get('/udins', handler(async (req, res) => {
@@ -89,6 +119,7 @@ export function registerUdins(r: Router) {
     // Only the signing member generates a UDIN: the partner named must be one.
     await assertPartnerEmployee(b.partner_id, 'partner_id')
     validateUdin(b.udin, b.membership_no)
+    validateUdinDates(b.udin, b.document_date, b.generated_on)
     const row = await prisma.auditUdin.create({
       data: {
         organisationId: client.organisationId, engagementId: b.engagement_id ?? null, clientId: b.client_id, udin: b.udin,

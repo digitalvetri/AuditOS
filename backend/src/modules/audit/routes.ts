@@ -16,7 +16,7 @@ import * as S from './serialize.js'
 import { FY, ISO_DATE, access, audit, fileAccess, isUniqueViolation, parse } from './common.js'
 import { registerPapers } from './papers.js'
 import { registerRecords } from './records.js'
-import { registerUdins, udinDocType, validateUdin } from './udin.js'
+import { registerUdins, udinDocType, validateUdin, validateUdinDates } from './udin.js'
 import { registerExport } from './export.js'
 
 /**
@@ -374,6 +374,8 @@ auditFilesRouter.post('/:id/sign', handler(async (req, res) => {
   if (b.udin) {
     if (!e.partnerMembershipNo) throw ApiError.unprocessable('membership_required', "Record the signing partner's membership number on the file before adding a UDIN.")
     validateUdin(b.udin, e.partnerMembershipNo)
+    // Recorded as generated today, for a report signed on report_date.
+    validateUdinDates(b.udin, b.report_date, istToday())
   }
   const assemblyDueDate = addDays(b.report_date, 60)
   const updated = await prisma.$transaction(async (tx) => {
