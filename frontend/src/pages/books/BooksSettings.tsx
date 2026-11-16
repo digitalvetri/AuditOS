@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useToast } from '@/components/Toast';
-import { booksApi, errorText, type BooksConnection, type BooksOrg } from '@/modules/books/api';
+import { booksApi, connectionErrorText, errorText, type AccountResult, type BooksConnection, type BooksOrg } from '@/modules/books/api';
 import { orgLabel, statusKey, useBooks } from '@/modules/books/context';
 import { Badge, Btn, Cell, Empty, Field, Modal, Notice, PageHeader, Row, Section, Select, Table, TextInput, dateTime } from '@/modules/books/ui';
 
@@ -23,6 +23,9 @@ export function BooksSettingsPage() {
   const [confirm, setConfirm] = useState<BooksConnection | null>(null);
   const [codeOpen, setCodeOpen] = useState(false);
   const [addOpen, setAddOpen] = useState(false);
+  // Reconnect = the Add organisation form for an existing account (?reconnect=<id> from a Books page).
+  const [reconnecting, setReconnecting] = useState<BooksConnection | null>(null);
+  const [removing, setRemoving] = useState<BooksConnection | null>(null);
 
   // Result of the OAuth round-trip, reported once.
   useEffect(() => {
@@ -34,12 +37,25 @@ export function BooksSettingsPage() {
     setParams({}, { replace: true });
   }, [params, setParams, toast, qc]);
 
+  useEffect(() => {
+    const id = params.get('reconnect');
+    if (!id) return;
+    const c = status.connections.find((x) => x.id === id);
+    if (c && status.can_add_connection) setReconnecting(c);
+    const next = new URLSearchParams(params); next.delete('reconnect'); setParams(next, { replace: true });
+  }, [params, setParams, status.connections, status.can_add_connection]);
+
   const refresh = () => qc.invalidateQueries({ queryKey: statusKey });
   const go = (p: Promise<{ authorizeUrl: string }>) => p.then((r) => { window.location.assign(r.authorizeUrl); });
   const connect = useMutation({ mutationFn: () => go(booksApi.connect()), onError: (e) => toast.push('error', errorText(e)) });
   const disconnect = useMutation({
     mutationFn: (id: string) => booksApi.disconnect(id),
     onSuccess: () => { setConfirm(null); void refresh(); toast.push('success', 'Zoho Books disconnected.'); },
+    onError: (e) => toast.push('error', errorText(e)),
+  });
+  const remove = useMutation({
+    mutationFn: (id: string) => booksApi.removeConnection(id),
+    onSuccess: () => { setRemoving(null); void refresh(); toast.push('success', 'Zoho account removed.'); },
     onError: (e) => toast.push('error', errorText(e)),
   });
   const reload = useMutation({ mutationFn: (id: string) => booksApi.refreshOrgs(id), onSuccess: () => void refresh(), onError: (e) => toast.push('error', errorText(e)) });
@@ -57,6 +73,7 @@ export function BooksSettingsPage() {
 
       <ActiveBooksSelector />
       {addOpen ? <AddOrganisationModal onClose={() => setAddOpen(false)} onDone={() => { setAddOpen(false); void refresh(); }} /> : null}
+      {reconnecting ? <AddOrganisationModal reconnect={reconnecting} onClose={() => setReconnecting(null)} onDone={() => { setReconnecting(null); void refresh(); }} /> : null}
       {codeOpen && selfService ? (
         <ConnectWithCodeModal
           onClose={() => setCodeOpen(false)}
@@ -77,16 +94,17 @@ export function BooksSettingsPage() {
               <Row key={c.id}>
                 <Cell>{c.name ?? '—'}</Cell>
                 <Cell muted>{METHOD[c.auth_method ?? ''] ?? '—'}</Cell>
-                <Cell><Badge status={c.status} /></Cell>
+                <Cell><Badge status={c.status === 'connected' || c.status === 'disconnected' ? c.status : 'needs_reconnect'} /></Cell>
                 <Cell muted>{c.data_center?.replace('https://', '') ?? '—'}</Cell>
                 <Cell muted>{dateTime(c.connected_at)}</Cell>
-                <Cell muted>{c.last_error_code ? `${c.last_error_code} · ${dateTime(c.last_error_at)}` : '—'}</Cell>
+                <Cell muted>{c.last_error_code ? `${connectionErrorText(c.last_error_code) ?? c.last_error_code} · ${dateTime(c.last_error_at)}` : '—'}</Cell>
                 <Cell right>
                   {can.settings ? (
                     <div className="flex justify-end gap-2">
                       {c.status === 'connected' ? <Btn variant="ghost" loading={reload.isPending} onClick={() => reload.mutate(c.id)}>Refresh organisations</Btn> : null}
-                      {selfService ? <Btn variant="ghost" onClick={() => setCodeOpen(true)}>Reconnect</Btn> : null}
-                      {selfService && c.status !== 'disconnected' ? <Btn variant="danger" onClick={() => setConfirm(c)}>Disconnect</Btn> : null}
+                      {status.can_add_connection ? <Btn variant={c.status === 'connected' ? 'ghost' : 'primary'} onClick={() => setReconnecting(c)}>Reconnect</Btn> : null}
+                      {status.can_add_connection && c.status !== 'connected' ? <Btn variant="danger" onClick={() => setRemoving(c)}>Remove</Btn> : null}
+                      {selfService && c.status === 'connected' ? <Btn variant="danger" onClick={() => setConfirm(c)}>Disconnect</Btn> : null}
                     </div>
                   ) : null}
                 </Cell>
@@ -99,6 +117,11 @@ export function BooksSettingsPage() {
       <OrganizationsSection />
       {org ? <SyncSection org={org} /> : null}
 
+      {removing ? (
+        <Modal title={`Remove ${removing.name ?? 'this Zoho account'}?`} onClose={() => setRemoving(null)} footer={<><Btn onClick={() => setRemoving(null)}>Cancel</Btn><Btn variant="danger" loading={remove.isPending} onClick={() => remove.mutate(removing.id)}>Remove</Btn></>}>
+          <p className="text-13 text-ink">Audit OS deletes the stored tokens and Client Secret for this account and switches its organisations off. Their client mappings and sync history are kept, so adding the account again picks them up. Nothing in Zoho Books is deleted.</p>
+        </Modal>
+      ) : null}
       {confirm ? (
         <Modal title="Disconnect Zoho Books?" onClose={() => setConfirm(null)} footer={<><Btn onClick={() => setConfirm(null)}>Cancel</Btn><Btn variant="danger" loading={disconnect.isPending} onClick={() => disconnect.mutate(confirm.id)}>Disconnect</Btn></>}>
           <p className="text-13 text-ink">Audit OS will revoke its access at Zoho and delete the stored tokens. Organisations from this connection stop working in Books until you reconnect. Nothing in Zoho Books is deleted.</p>
@@ -127,16 +150,27 @@ const DC_OPTIONS = [
  * code for a refresh token and stores the secret and tokens encrypted; the
  * form forgets everything as soon as it closes.
  */
-function AddOrganisationModal({ onClose, onDone }: { onClose: () => void; onDone: () => void }) {
+function AddOrganisationModal({ onClose, onDone, reconnect }: { onClose: () => void; onDone: () => void; reconnect?: BooksConnection }) {
   const toast = useToast();
-  const [f, setF] = useState({ name: '', auth_method: 'SELF_CLIENT' as 'SELF_CLIENT' | 'SERVER_OAUTH', data_center: 'in', client_id: '', client_secret: '', code: '' });
+  const [f, setF] = useState({
+    name: reconnect?.name ?? '',
+    auth_method: (reconnect?.auth_method ?? 'SELF_CLIENT') as 'SELF_CLIENT' | 'SERVER_OAUTH',
+    data_center: DC_OPTIONS.find((d) => reconnect?.data_center && d.console === reconnect.data_center.replace('accounts.', 'api-console.'))?.value ?? 'in',
+    client_id: '', client_secret: '', code: '',
+  });
   const [error, setError] = useState<string | null>(null);
   const set = (k: keyof typeof f) => (v: string) => setF((x) => ({ ...x, [k]: v }));
   const consoleUrl = DC_OPTIONS.find((d) => d.value === f.data_center)?.console ?? 'https://api-console.zoho.in';
   const save = useMutation({
-    mutationFn: () => booksApi.addConnection({ ...f, name: f.name.trim(), client_id: f.client_id.trim(), client_secret: f.client_secret.trim(), code: f.code.trim() }),
-    onSuccess: (r) => {
-      toast.push('success', `"${f.name.trim()}" added — ${r.organizations.map((o) => o.name).join(', ') || 'no organisations found'}. Pick it in Active Zoho Books.`);
+    mutationFn: () => {
+      const body = { ...f, name: f.name.trim(), client_id: f.client_id.trim(), client_secret: f.client_secret.trim(), code: f.code.trim() };
+      return reconnect ? booksApi.reauthorize(reconnect.id, body) : booksApi.addConnection(body);
+    },
+    onSuccess: (r: AccountResult) => {
+      const names = r.organizations.map((o) => o.name).join(', ') || 'no new organisations';
+      const kept = r.kept.length ? ` Already linked through another Zoho account, so left there: ${r.kept.map((k) => `${k.name}${k.connection_name ? ` (${k.connection_name})` : ''}`).join(', ')}.` : '';
+      const inactive = r.organizations.some((o) => !o.is_active) ? ' Switch on the organisations to use under Zoho Books organisations.' : '';
+      toast.push('success', reconnect ? `"${f.name.trim()}" reconnected — ${names}.${kept}` : `"${f.name.trim()}" added — ${names}.${inactive}${kept}`);
       onDone();
     },
     onError: (e) => {
@@ -146,12 +180,14 @@ function AddOrganisationModal({ onClose, onDone }: { onClose: () => void; onDone
   });
   const ready = f.name.trim() && f.client_id.trim() && f.client_secret.trim() && f.code.trim();
   return (
-    <Modal title="Add organisation" onClose={onClose} wide footer={<>
+    <Modal title={reconnect ? `Reconnect ${reconnect.name ?? 'Zoho account'}` : 'Add organisation'} onClose={onClose} wide footer={<>
       <Btn onClick={onClose}>Cancel</Btn>
-      <Btn variant="primary" loading={save.isPending} disabled={!ready} onClick={() => { setError(null); save.mutate(); }}>Save and connect</Btn>
+      <Btn variant="primary" loading={save.isPending} disabled={!ready} onClick={() => { setError(null); save.mutate(); }}>{reconnect ? 'Reconnect' : 'Save and connect'}</Btn>
     </>}>
       <div className="space-y-3 text-13">
-        <p className="text-inkMuted">Connect another Zoho Books account with its own Zoho API client. Its organisations appear in Active Zoho Books for everyone to switch to.</p>
+        <p className="text-inkMuted">{reconnect
+          ? 'Sign this Zoho account in again with a fresh code. Enter its Client ID and Client Secret again — they are not shown back. Its organisations, client mappings and sync history stay as they are; nothing is added twice.'
+          : 'Connect another Zoho Books account with its own Zoho API client. If it has several organisations, switch on the ones to use below.'}</p>
         <div className="grid gap-3 sm:grid-cols-3">
           <Field label="Account name"><TextInput value={f.name} onChange={set('name')} placeholder="e.g. Kaarthi-DV" maxLength={80} /></Field>
           <Field label="Method"><Select value={f.auth_method} onChange={(v) => set('auth_method')(v)} options={[{ value: 'SELF_CLIENT', label: 'Self Client' }, { value: 'SERVER_OAUTH', label: 'Server OAuth' }]} /></Field>
@@ -173,7 +209,7 @@ function AddOrganisationModal({ onClose, onDone }: { onClose: () => void; onDone
           <Field label="Generated code"><TextInput type="password" value={f.code} onChange={set('code')} placeholder="1000.…" autoComplete="new-password" spellCheck={false} /></Field>
         </div>
         {error ? <Notice tone="warn">{error}</Notice> : null}
-        <p className="text-12 text-inkMuted">The Client Secret and tokens are encrypted on the server and never shown again. Only Super Admins and Admins can add accounts.</p>
+        <p className="text-12 text-inkMuted">The Client Secret and tokens are encrypted on the server and never shown again. Only Super Admins and Admins can add or reconnect accounts.</p>
       </div>
     </Modal>
   );
@@ -189,7 +225,7 @@ function ActiveBooksSelector() {
   const [open, setOpen] = useState(false);
   if (!activeOrgs.length || !org) return null;
   const pick = (id: string) => { setOrg(id); setOpen(false); }; // queries are keyed by organisation: they reload
-  const state = (o: typeof org) => (o.connection_status === 'connected' ? 'Connected' : o.connection_status === 'expired' || o.connection_status === 'revoked' ? 'Needs the developer to reconnect' : o.connection_status ?? '—');
+  const state = (o: typeof org) => (o.connection_status === 'connected' ? 'Connected' : 'Needs reconnecting — a Super Admin or Admin can do it under Zoho connections');
   return (
     <section className="border border-border rounded-lg bg-surface p-4">
       <div className="text-[10.5px] font-semibold uppercase tracking-[0.08em] text-inkFaint mb-2">Active Zoho Books</div>

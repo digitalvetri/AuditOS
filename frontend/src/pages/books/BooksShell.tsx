@@ -2,9 +2,9 @@ import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { Building2, RefreshCw } from 'lucide-react';
 import { useToast } from '@/components/Toast';
-import { booksApi, errorText } from '@/modules/books/api';
+import { booksApi, connectionErrorText, errorText } from '@/modules/books/api';
 import { BooksProvider, orgLabel, statusKey, useBooks } from '@/modules/books/context';
-import { Btn, Empty, ErrorState, Select, Skeleton, dateTime } from '@/modules/books/ui';
+import { Btn, Empty, ErrorState, Notice, Select, Skeleton, dateTime } from '@/modules/books/ui';
 import { NoZohoOrganisations } from './BooksSettings';
 
 /**
@@ -112,6 +112,7 @@ function Frame() {
       </div>
 
       <div className="flex-1 min-w-0">
+        {org && org.connection_status !== 'connected' ? <ConnectionBanner /> : null}
         {org ? <OrgBar /> : null}
         {org || onSettings ? <Outlet /> : <NotReady />}
       </div>
@@ -165,11 +166,31 @@ function OrgBar() {
   );
 }
 
+/** The selected organisation's Zoho account no longer works: say why, and lead to the fix. */
+function ConnectionBanner() {
+  const { org, status } = useBooks();
+  const navigate = useNavigate();
+  const conn = status.connections.find((c) => c.id === org?.connection_id);
+  if (!org) return null;
+  const why = connectionErrorText(conn?.last_error_code) ?? 'The Zoho Books connection has expired or was revoked.';
+  return (
+    <div className="mb-4">
+      <Notice tone="error">
+        <span className="font-semibold">{org.connection_name ?? 'This Zoho account'} needs reconnecting.</span> {why}{' '}
+        {status.can_add_connection && conn ? (
+          <button type="button" className="underline font-medium" onClick={() => navigate(`/books/settings?reconnect=${conn.id}`)}>Reconnect Zoho Books</button>
+        ) : 'Ask a Super Admin or Admin to reconnect it in Books → Settings.'}
+      </Notice>
+    </div>
+  );
+}
+
 function NotReady() {
   const { status, can } = useBooks();
   const navigate = useNavigate();
   const connected = status.connections.some((c) => c.status === 'connected');
-  const expired = status.connections.some((c) => ['expired', 'revoked'].includes(c.status));
+  const dead = status.connections.find((c) => ['expired', 'revoked', 'error'].includes(c.status));
+  const expired = Boolean(dead);
   return (
     <div className="dash-card">
       {!status.configured ? (
@@ -185,8 +206,10 @@ function NotReady() {
         </Empty>
       ) : (
         <Empty title={expired ? 'Reconnect Zoho Books' : 'Connect Zoho Books'}>
-          {expired ? 'The Zoho Books connection has expired or was revoked.' : 'Connect your Zoho Books organisation to start managing your accounting data from Audit OS.'}
-          {can.settings ? <div className="mt-3"><Btn variant="primary" onClick={() => navigate('/books/settings')}>{expired ? 'Reconnect' : 'Connect Zoho Books'}</Btn></div> : <div className="mt-2">Ask an administrator with Books settings access to connect it.</div>}
+          {dead ? connectionErrorText(dead.last_error_code) ?? 'The Zoho Books connection has expired or was revoked.' : 'Connect your Zoho Books organisation to start managing your accounting data from Audit OS.'}
+          {status.can_add_connection
+            ? <div className="mt-3"><Btn variant="primary" onClick={() => navigate(dead ? `/books/settings?reconnect=${dead.id}` : '/books/settings')}>{dead ? 'Reconnect Zoho Books' : 'Add organisation'}</Btn></div>
+            : <div className="mt-2">Ask a Super Admin or Admin to {dead ? 'reconnect' : 'connect'} it in Books → Settings.</div>}
         </Empty>
       )}
     </div>

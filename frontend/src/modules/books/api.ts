@@ -91,10 +91,29 @@ export function qs(params: Record<string, string | number | boolean | null | und
   return s ? `?${s}` : '';
 }
 
+export interface AccountForm { name: string; auth_method: 'SELF_CLIENT' | 'SERVER_OAUTH'; data_center: string; client_id: string; client_secret: string; code: string }
+export interface AccountResult {
+  connection_id: string;
+  organizations: { zoho_org_id: string; name: string; is_active: boolean }[];
+  /** Seen by this login but already working through another Zoho account — left there. */
+  kept: { zoho_org_id: string; name: string; connection_name: string | null }[];
+}
+
+/** Plain words for a connection's last error code. */
+export function connectionErrorText(code: string | null | undefined): string | null {
+  if (!code) return null;
+  if (code === 'key_mismatch') return 'The server’s encryption key changed, so the stored Zoho sign-in can no longer be read. Reconnect this account.';
+  if (['invalid_grant', 'invalid_code', 'invalid_client'].includes(code)) return 'Zoho no longer accepts this sign-in (revoked or expired). Reconnect this account.';
+  return null;
+}
+
 export const booksApi = {
   status: () => api.get<BooksStatus>('/api/books/status'),
-  addConnection: (input: { name: string; auth_method: 'SELF_CLIENT' | 'SERVER_OAUTH'; data_center: string; client_id: string; client_secret: string; code: string }) =>
-    api.post<{ connection_id: string; organizations: { zoho_org_id: string; name: string; is_active: boolean }[] }>('/api/books/connections', input),
+  addConnection: (input: AccountForm) => api.post<AccountResult>('/api/books/connections', input),
+  /** Re-authorise an existing Zoho account with a fresh code — updates it in place. */
+  reauthorize: (id: string, input: AccountForm) => api.post<AccountResult>(`/api/books/connections/${id}/reauthorize`, input),
+  /** Remove a Zoho account that no longer works. */
+  removeConnection: (id: string) => api.post<{ removed: boolean }>(`/api/books/connections/${id}/remove`),
   select: (orgRef: string) => api.put<{ selected_org_ref: string }>('/api/books/selection', { org_ref: orgRef }),
   connect: () => api.post<{ connectionId: string; authorizeUrl: string }>('/api/books/connect'),
   reconnect: (id: string) => api.post<{ authorizeUrl: string }>(`/api/books/connections/${id}/reconnect`),

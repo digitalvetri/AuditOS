@@ -39,8 +39,16 @@ let calls: { acct: Acct | undefined; org: string | null; path: string }[] = []
 // An account added from the Settings form with a generated code.
 const FRESH = { clientId: '1000.FRESHCLIENT0123456789', secret: 'freshsecret0123456789abcdef', code: '1000.aaaabbbbccccddddeeeeffff00001111.2222333344445555666677778888999a', org: { organization_id: '830', name: 'Kaarthi-DV' } }
 
+// A second Zoho login that also sees Main's organisation 800, plus two new ones.
+const OVERLAP = { clientId: '1000.OVERLAPCLIENT0123456789', secret: 'overlapsecret0123456789abc', code: '1000.0000111122223333444455556666777788889999.aaaabbbbccccddddeeeeffff', orgs: [{ organization_id: '800', name: 'Meridian Logistics' }, { organization_id: '840', name: 'Overlap One' }, { organization_id: '841', name: 'Overlap Two' }] }
+
 async function fakeOAuth(_url: string, init: { body?: URLSearchParams }) {
   const p = Object.fromEntries(init.body ?? new URLSearchParams())
+  if (p.grant_type === 'authorization_code' && p.code === OVERLAP.code && p.client_id === OVERLAP.clientId && p.client_secret === OVERLAP.secret) {
+    const token = `access-overlap-${++seq}`
+    tokenOwner.set(token, 'overlap' as Acct)
+    return { ok: true, status: 200, json: async () => ({ access_token: token, refresh_token: 'rt-overlap', expires_in: 3600, api_domain: 'https://www.zohoapis.in', token_type: 'Bearer' }) }
+  }
   if (p.grant_type === 'authorization_code') {
     if (p.code !== FRESH.code || p.client_id !== FRESH.clientId || p.client_secret !== FRESH.secret) return { ok: true, status: 200, json: async () => ({ error: 'invalid_code' }) }
     const token = `access-fresh-${++seq}`
@@ -67,6 +75,7 @@ async function fakeHttp(url: string, init: RequestInit): Promise<Response> {
   calls.push({ acct, org: orgId, path })
   const json = (status: number, body: unknown) => new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } })
   if (!acct) return json(401, { code: 14, message: 'Invalid OAuth token' })
+  if ((acct as string) === 'overlap') return path === 'organizations' ? json(200, { code: 0, organizations: OVERLAP.orgs }) : json(200, { code: 0 })
   if ((acct as string) === 'fresh') return path === 'organizations' ? json(200, { code: 0, organizations: [FRESH.org] }) : json(200, { code: 0 })
   if (path === 'organizations') return json(200, { code: 0, organizations: [ACCOUNTS[acct].org] })
   // An account may only read its own organisation.
@@ -259,5 +268,57 @@ describe('Add organisation (Books → Settings)', () => {
     const used = await api('/api/books/connections', { method: 'POST', as: superAdmin, body: { ...form, name: 'Again', code: '1000.ffffffffffffffffffffffffffffffff.ffffffffffffffffffffffffffffffff' } })
     expect(used.status).toBe(400)
     expect(used.body.error.message).toMatch(/code is wrong, already used or expired/)
+  })
+})
+
+describe('Reconnect and remove an existing Zoho account (Super Admin / Admin)', () => {
+  const form = { name: 'Kaarthi-DV', auth_method: 'SELF_CLIENT', data_center: 'in', client_id: FRESH.clientId, client_secret: FRESH.secret, code: FRESH.code }
+  const freshConn = () => prisma.booksZohoConnection.findFirstOrThrow({ where: { organisationId: firmId, name: 'Kaarthi-DV', deletedAt: null } })
+
+  it('re-authorises a revoked connection in place — same row, no duplicate — without self-service', async () => {
+    const conn = await freshConn()
+    await prisma.booksZohoConnection.update({ where: { id: conn.id }, data: { status: 'revoked', lastErrorCode: 'invalid_grant' } })
+    expect((await api(`/api/books/connections/${conn.id}/reauthorize`, { method: 'POST', body: form })).status).toBe(403) // staff
+    const r = await api(`/api/books/connections/${conn.id}/reauthorize`, { method: 'POST', as: admin, body: form })
+    expect(r.status).toBe(200)
+    expect(r.body.data.connection_id).toBe(conn.id)
+    expect(r.text).not.toContain(FRESH.secret)
+    const after = await prisma.booksZohoConnection.findUniqueOrThrow({ where: { id: conn.id } })
+    expect(after).toMatchObject({ status: 'connected', lastErrorCode: null })
+    expect(await prisma.booksZohoConnection.count({ where: { organisationId: firmId, name: 'Kaarthi-DV', deletedAt: null } })).toBe(1)
+    expect(await prisma.auditLog.count({ where: { action: 'books.zoho.connection_reauthorized', entityId: conn.id } })).toBe(1)
+  })
+
+  it('a wrong code leaves a working connection working', async () => {
+    const conn = await freshConn()
+    const r = await api(`/api/books/connections/${conn.id}/reauthorize`, { method: 'POST', as: superAdmin, body: { ...form, code: '1000.ffffffffffffffffffffffffffffffff.ffffffffffffffffffffffffffffffff' } })
+    expect(r.status).toBe(400)
+    expect((await prisma.booksZohoConnection.findUniqueOrThrow({ where: { id: conn.id } })).status).toBe('connected')
+  })
+
+  it('removes a dead connection, wiping tokens and the stored secret; a live one is refused', async () => {
+    const conn = await freshConn()
+    expect((await api(`/api/books/connections/${conn.id}/remove`, { method: 'POST', as: superAdmin })).status).toBe(409)
+    expect((await api(`/api/books/connections/${conn.id}/remove`, { method: 'POST' })).status).toBe(403)
+    await prisma.booksZohoConnection.update({ where: { id: conn.id }, data: { status: 'revoked' } })
+    const r = await api(`/api/books/connections/${conn.id}/remove`, { method: 'POST', as: superAdmin })
+    expect(r.status).toBe(200)
+    const after = await prisma.booksZohoConnection.findUniqueOrThrow({ where: { id: conn.id } })
+    expect(after.deletedAt).not.toBeNull()
+    expect(after).toMatchObject({ refreshTokenEncrypted: null, accessTokenEncrypted: null, clientSecretEncrypted: null })
+    expect(await prisma.booksZohoOrganization.count({ where: { connectionId: conn.id, isActive: true } })).toBe(0)
+    const st = await api('/api/books/status', { as: superAdmin })
+    expect(st.body.data.connections.some((c: any) => c.id === conn.id)).toBe(false)
+  })
+
+  it('a second login does not take over an organisation in use, and activates none of several new ones', async () => {
+    const mainOrgBefore = await prisma.booksZohoOrganization.findUniqueOrThrow({ where: { id: refs.main } })
+    const r = await api('/api/books/connections', { method: 'POST', as: superAdmin, body: { name: 'Overlap', auth_method: 'SELF_CLIENT', data_center: 'in', client_id: OVERLAP.clientId, client_secret: OVERLAP.secret, code: OVERLAP.code } })
+    expect(r.status).toBe(201)
+    expect(r.body.data.kept).toEqual([{ zoho_org_id: '800', name: 'Meridian Logistics', connection_name: 'Main Account' }])
+    expect(r.body.data.organizations.map((o: any) => [o.zoho_org_id, o.is_active]).sort()).toEqual([['840', false], ['841', false]])
+    const mainOrg = await prisma.booksZohoOrganization.findUniqueOrThrow({ where: { id: refs.main } })
+    expect(mainOrg.connectionId).toBe(mainOrgBefore.connectionId)
+    expect(mainOrg.isActive).toBe(true)
   })
 })

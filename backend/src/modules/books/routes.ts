@@ -26,7 +26,7 @@ import type { PermissionCode } from '../../platform/rbac/matrix.js'
 import { assignedClientIds, seesAllClients } from '../../platform/workstation/scope.js'
 import { BooksNotConfigured, booksConfig, booksConfigured } from './config.js'
 import { toApiError, zohoRequest, ZohoBooksError, type ZohoContext } from './client.js'
-import { addConfiguredConnection, beginConnect, completeConnect, connectWithCode, disconnect, refreshOrganizations } from './connection.js'
+import { addConfiguredConnection, beginConnect, completeConnect, connectWithCode, disconnect, reauthorizeConnection, refreshOrganizations, removeConnection } from './connection.js'
 import { ENTITIES, isZohoId, type EntityDef } from './entities.js'
 import { computeDashboard, REPORTS, runReport, istDate } from './insights.js'
 import { scanUploads } from '../../platform/virusScan.js'
@@ -197,9 +197,8 @@ const DATA_CENTRES: Record<string, string> = {
  * code are encrypted in the database and never returned; the audit row
  * records the name and client id only.
  */
-booksRouter.post('/connections', h(async (req, res) => {
-  if (!canAddZohoAccount(req)) throw ApiError.forbidden('Only a Super Admin or Admin can add a Zoho Books account.')
-  const { userId, organisationId } = await firmOf(req)
+/** The Add organisation / Reconnect form: field errors named, nothing echoed back. */
+function accountForm(req: Request) {
   const b = (req.body ?? {}) as Record<string, unknown>
   const str = (k: string) => (typeof b[k] === 'string' ? (b[k] as string).trim() : '')
   const errors: Record<string, string> = {}
@@ -216,15 +215,55 @@ booksRouter.post('/connections', h(async (req, res) => {
   const accountsServer = DATA_CENTRES[str('data_center') || 'in']
   if (!accountsServer) errors.data_center = 'Choose the data centre of the Zoho account.'
   if (Object.keys(errors).length) throw ApiError.badRequest('Check the highlighted fields.', errors)
+  return { name, authMethod: method as 'SELF_CLIENT' | 'SERVER_OAUTH', clientId, clientSecret, code, accountsServer }
+}
+
+const keptOut = (kept: { zohoOrgId: string; name: string; connectionName: string | null }[]) =>
+  kept.map((k) => ({ zoho_org_id: k.zohoOrgId, name: k.name, connection_name: k.connectionName }))
+
+/**
+ * Add a Zoho account with its own client (Books → Settings → Add organisation).
+ * Super Admin / Admin only. The Client Secret and the tokens obtained from the grant
+ * code are encrypted in the database and never returned; the audit row
+ * records the name and client id only. Organisations start inactive unless the
+ * account has exactly one; ones already working through another account stay there.
+ */
+booksRouter.post('/connections', h(async (req, res) => {
+  if (!canAddZohoAccount(req)) throw ApiError.forbidden('Only a Super Admin or Admin can add a Zoho Books account.')
+  const { userId, organisationId } = await firmOf(req)
+  const f = accountForm(req)
   let r
   try {
-    r = await addConfiguredConnection({ organisationId, name, authMethod: method as 'SELF_CLIENT' | 'SERVER_OAUTH', clientId, clientSecret, code, accountsServer })
+    r = await addConfiguredConnection({ organisationId, ...f, activate: 'single' })
   } catch (e) {
     if (e instanceof ApiError || e instanceof ZohoBooksError) throw e
     throw ApiError.badRequest(e instanceof Error ? e.message : 'The Zoho account could not be added.')
   }
-  await writeAudit({ actorUserId: userId, action: 'books.zoho.connection_added', entityType: 'books.connection', entityId: r.connectionId, after: { name, auth_method: method, client_id: clientId, organizations: r.organizations.map((o) => o.name) }, req })
-  ok(res, { connection_id: r.connectionId, organizations: r.organizations.map((o) => ({ zoho_org_id: o.zohoOrgId, name: o.name, is_active: o.isActive })) }, 201)
+  await writeAudit({ actorUserId: userId, action: 'books.zoho.connection_added', entityType: 'books.connection', entityId: r.connectionId, after: { name: f.name, auth_method: f.authMethod, client_id: f.clientId, organizations: r.organizations.map((o) => o.name) }, req })
+  ok(res, { connection_id: r.connectionId, organizations: r.organizations.map((o) => ({ zoho_org_id: o.zohoOrgId, name: o.name, is_active: o.isActive })), kept: keptOut(r.kept) }, 201)
+}))
+
+/**
+ * Reconnect an existing Zoho account with a fresh Self Client code (Super
+ * Admin / Admin) — works in production, without BOOKS_SELF_SERVICE_CONNECT.
+ * Updates the row in place; organisations, mappings and history stay.
+ */
+booksRouter.post('/connections/:id/reauthorize', h(async (req, res) => {
+  if (!canAddZohoAccount(req)) throw ApiError.forbidden('Only a Super Admin or Admin can reconnect a Zoho Books account.')
+  const { userId, organisationId } = await firmOf(req)
+  const f = accountForm(req)
+  const r = await reauthorizeConnection({ organisationId, userId, connectionId: req.params.id, ...f })
+  await writeAudit({ actorUserId: userId, action: 'books.zoho.connection_reauthorized', entityType: 'books.connection', entityId: r.connectionId, after: { name: f.name, auth_method: f.authMethod, client_id: f.clientId }, req })
+  ok(res, { connection_id: r.connectionId, organizations: r.organizations.map((o) => ({ zoho_org_id: o.zohoOrgId, name: o.name, is_active: o.isActive })), kept: keptOut(r.kept) })
+}))
+
+/** Remove a connection that no longer works (Super Admin / Admin): tokens and secret wiped, organisations switched off. */
+booksRouter.post('/connections/:id/remove', h(async (req, res) => {
+  if (!canAddZohoAccount(req)) throw ApiError.forbidden('Only a Super Admin or Admin can remove a Zoho Books account.')
+  const { userId, organisationId } = await firmOf(req)
+  await removeConnection({ organisationId, userId, connectionId: req.params.id })
+  await writeAudit({ actorUserId: userId, action: 'books.zoho.connection_removed', entityType: 'books.connection', entityId: req.params.id, req })
+  ok(res, { removed: true })
 }))
 
 // The user's active connection + organisation, kept on the server so it is restored on any device.
@@ -282,7 +321,8 @@ booksRouter.post('/connections/:id/organizations/refresh', h(async (req, res) =>
   const { organisationId } = await firmOf(req)
   const conn = await prisma.booksZohoConnection.findFirst({ where: { id: req.params.id, organisationId, deletedAt: null } })
   if (!conn) throw ApiError.notFound('No such Zoho Books connection.')
-  ok(res, { organizations: await refreshOrganizations(conn, organisationId) })
+  const r = await refreshOrganizations(conn, organisationId)
+  ok(res, { organizations: r.seen, kept: r.kept.map((k) => ({ zoho_org_id: k.zohoOrgId, name: k.name, connection_name: k.connectionName })) })
 }))
 
 booksRouter.get('/clients', h(async (req, res) => {

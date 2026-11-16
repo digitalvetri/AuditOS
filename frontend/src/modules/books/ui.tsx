@@ -189,7 +189,7 @@ export function ErrorState({ error, onRetry }: { error: string; onRetry?: () => 
 type Tone = 'green' | 'red' | 'amber' | 'grey' | 'blue';
 const TONES: Record<string, Tone> = {
   paid: 'green', closed: 'green', accepted: 'green', invoiced: 'green', billed: 'green', active: 'green', synced: 'green', connected: 'green', categorized: 'green', matched: 'green', reconciled: 'green',
-  overdue: 'red', void: 'grey', declined: 'red', failed: 'red', revoked: 'red', expired: 'red', error: 'red', cancelled: 'grey', inactive: 'grey', excluded: 'grey',
+  overdue: 'red', void: 'grey', declined: 'red', failed: 'red', revoked: 'red', expired: 'red', error: 'red', needs_reconnect: 'red', cancelled: 'grey', inactive: 'grey', excluded: 'grey',
   partially_paid: 'amber', syncing: 'amber', uncategorized: 'amber', consent_pending: 'amber', draft: 'grey',
 };
 /** A tinted status chip with a dot, as in the CRM lists. */
