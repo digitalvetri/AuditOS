@@ -24,6 +24,26 @@ function cellText(v: ExcelJS.CellValue): string {
   return String(v).trim()
 }
 
+/** Every sheet of a workbook as rows of text cells, in sheet order. */
+export async function readWorkbookSheets(buffer: Buffer): Promise<string[][][]> {
+  const wb = new ExcelJS.Workbook()
+  try {
+    await wb.xlsx.load(buffer as unknown as ArrayBuffer)
+  } catch {
+    throw ApiError.unprocessable('unreadable_xlsx', 'The Excel file could not be opened. Save it as a modern .xlsx and try again.')
+  }
+  return wb.worksheets.map((ws) => {
+    const rows: string[][] = []
+    ws.eachRow({ includeEmpty: false }, (row) => {
+      const out: string[] = []
+      row.eachCell({ includeEmpty: true }, (cell, col) => { out[col - 1] = cellText(cell.value) })
+      for (let i = 0; i < out.length; i++) out[i] ??= ''
+      rows.push(out)
+    })
+    return rows
+  })
+}
+
 export async function readStatementTable(buffer: Buffer, format: 'xlsx' | 'csv'): Promise<string[][]> {
   if (format === 'csv') {
     const text = buffer.toString('utf8').replace(/^﻿/, '')

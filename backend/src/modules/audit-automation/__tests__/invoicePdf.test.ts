@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { extractInvoice, toIsoDate, toPaise } from '../parsers/invoicePdf.js'
 import type { ExtractedPage } from '../lib/pdfInspect.js'
 
+// GSTINs carry valid check digits: a misread one is now marked low confidence.
 /** Build a one-page "extracted PDF" from a text layout. Each string is a line;
  *  the extractor sorts by y-descending then x-ascending to approximate reading
  *  order, so top-to-bottom = highest y first. */
@@ -52,13 +53,13 @@ describe('extractInvoice — a well-formed Indian tax invoice', () => {
   const invoice = page([
     'ACME TRADERS PRIVATE LIMITED',
     '12/3, Mount Road, Chennai 600002',
-    'GSTIN: 33AAACA1234A1Z5',
+    'GSTIN: 33AAACA1234A1ZR',
     '',
     'Tax Invoice',
     'Invoice No: INV-2026-0042   Date: 15/10/2026',
     '',
     'Bill To: WIDGET SUPPLIES LLP',
-    'GSTIN: 33AABLA5678B1Z7',
+    'GSTIN: 33AABLA5678B1ZH',
     '',
     'Description            HSN       Qty   Rate     Amount',
     'Audit retainer         998213    1     50000    50,000.00',
@@ -74,14 +75,14 @@ describe('extractInvoice — a well-formed Indian tax invoice', () => {
   const r = extractInvoice([invoice])
 
   it('picks the supplier GSTIN as the one before BILL TO', () => {
-    expect(r.supplierGstin.value).toBe('33AAACA1234A1Z5')
+    expect(r.supplierGstin.value).toBe('33AAACA1234A1ZR')
     // Context is 'unknown' (no 'from/seller' label); so confidence is medium
     // via the fallback 'first GSTIN wins' rule — document the behaviour.
     expect(['high', 'medium']).toContain(r.supplierGstin.confidence)
   })
 
   it('picks the recipient GSTIN under BILL TO', () => {
-    expect(r.recipientGstin.value).toBe('33AABLA5678B1Z7')
+    expect(r.recipientGstin.value).toBe('33AABLA5678B1ZH')
     expect(r.recipientGstin.confidence).toBe('high')
   })
 
@@ -119,10 +120,10 @@ describe('extractInvoice — a well-formed Indian tax invoice', () => {
 })
 
 describe('extractInvoice — a sparse invoice with no labels', () => {
-  const r = extractInvoice([page(['33AAACA1234A1Z5', 'random text', '99.00'])])
+  const r = extractInvoice([page(['33AAACA1234A1ZR', 'random text', '99.00'])])
 
   it('still finds the GSTIN', () => {
-    expect(r.supplierGstin.value).toBe('33AAACA1234A1Z5')
+    expect(r.supplierGstin.value).toBe('33AAACA1234A1ZR')
   })
 
   it('leaves missing fields as nulls with low confidence (not blank strings)', () => {

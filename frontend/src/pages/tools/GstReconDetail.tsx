@@ -26,7 +26,7 @@ const PAGE = 100;
 const STATUS: Record<MatchStatus, { label: string; hint: string; cls: string }> = {
   matched: { label: 'Matched', hint: 'Same invoice and amounts on both sides', cls: 'border-l-success text-success' },
   partial: { label: 'Partial', hint: 'Paired, but the invoice number or date differs', cls: 'border-l-amber text-amber' },
-  variance: { label: 'Variance', hint: 'Paired, but taxable value or tax differs', cls: 'border-l-danger text-danger' },
+  variance: { label: 'Variance', hint: 'Paired, but taxable value or tax differs by more than the tolerance', cls: 'border-l-danger text-danger' },
   only_2b: { label: 'Missing in books', hint: 'In GSTR-2B, not in the purchase register', cls: 'border-l-primary text-primary' },
   only_pr: { label: 'Missing in 2B', hint: 'Booked, but the supplier has not filed it', cls: 'border-l-primary text-primary' },
   duplicate: { label: 'Duplicate', hint: 'The same invoice appears twice on one side', cls: 'border-l-neutral-400 text-neutral-700' },
@@ -143,6 +143,11 @@ export function GstReconDetailPage() {
       ) : job ? (
         <>
           <Flags job={job} />
+          {job.tolerance_rupees !== undefined ? (
+            <div className="mb-3 text-12 text-neutral-500">
+              Amounts within ₹{job.tolerance_rupees.toLocaleString('en-IN')} per invoice count as agreeing; anything more is a variance.
+            </div>
+          ) : null}
           <SummaryCards job={job} onPick={(s) => { setTab(s); setOffset(0); }} />
           {job.status !== 'matched' ? (
             <div className="bg-white border border-neutral-200 rounded p-6 mt-4 text-13 text-neutral-500">
@@ -308,6 +313,9 @@ function RowsTable({ jobId, rows, loading, onChanged }: { jobId: string; rows: R
                         ))}
                       </div>
                     )}
+                    {paired && two!.taxable_value !== pr!.taxable_value ? (
+                      <div className="text-11 text-neutral-500 mt-1">taxable diff ₹{rupees(two!.taxable_value - pr!.taxable_value)}</div>
+                    ) : null}
                     {paired && diff(two!, pr!) !== 0 ? (
                       <div className="text-11 text-neutral-500 mt-1">tax diff ₹{rupees(diff(two!, pr!))}</div>
                     ) : null}

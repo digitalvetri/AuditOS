@@ -91,6 +91,8 @@ export interface AaRule {
 
 export interface AaJobDetail {
   job: AaJob;
+  /** Earlier Tally XML exports of this statement, newest first. */
+  tally_exports?: { at: string; rows: number }[];
   source_document: {
     id: string;
     original_filename: string;
@@ -217,7 +219,8 @@ export const auditAutomationApi = {
   reopen: (id: string) => api.post<AaJob>(`/api/audit-automation/jobs/${id}/reopen`),
   reprocess: (id: string) => api.post<AaJob>(`/api/audit-automation/jobs/${id}/reprocess`),
   remove: (id: string) => api.delete<{ deleted: boolean }>(`/api/audit-automation/jobs/${id}`),
-  tallyXmlUrl: (id: string) => `/api/audit-automation/jobs/${id}/export/tally.xml`,
+  /** `confirm` is needed once the statement has been exported before. */
+  tallyXmlUrl: (id: string, confirm = false) => `/api/audit-automation/jobs/${id}/export/tally.xml${confirm ? '?confirm=1' : ''}`,
   workbookUrl: (id: string) => `/api/audit-automation/jobs/${id}/export.xlsx`,
   rules: (clientId: string) => api.get<{ items: AaRule[] }>(`/api/audit-automation/rules${qs({ client_id: clientId })}`),
   /** Client's known ledgers + own bank/cash ledger set (REPOTIC §1 fix 2/4). */

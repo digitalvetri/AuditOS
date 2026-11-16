@@ -203,8 +203,11 @@ auditAutomationRouter.get('/jobs/:id', handler(async (req, res) => {
     where: { id: job.source_document_id, deletedAt: null },
     include: { bank: true, bankAccount: true, uploadedBy: { include: { employee: true } } },
   })
+  // Earlier Tally exports, so the page can warn before a second import.
+  const exportsDone = await prisma.aaExport.findMany({ where: { jobId: job.id, kind: 'tally_xml' }, orderBy: { createdAt: 'desc' }, select: { createdAt: true, rowCount: true } })
   ok(res, {
     job,
+    tally_exports: exportsDone.map((e) => ({ at: e.createdAt.toISOString(), rows: e.rowCount })),
     source_document: doc ? {
       id: doc.id,
       original_filename: doc.originalFilename,
@@ -266,7 +269,8 @@ auditAutomationRouter.post('/jobs/:id/reopen', handler(async (req, res) => {
 auditAutomationRouter.get('/jobs/:id/export/tally.xml', handler(async (req, res) => {
   const session = requireSession(req)
   requireAaView(session)
-  const { xml, filename } = await AaTxnService.tallyXml(session, req.params.id, req)
+  const confirm = String(req.query.confirm ?? '') === '1'
+  const { xml, filename } = await AaTxnService.tallyXml(session, req.params.id, req, { confirm })
   res.setHeader('Content-Type', 'application/xml; charset=utf-8')
   res.setHeader('Content-Disposition', `attachment; filename="${filename.replace(/[^\w.-]/g, '_')}"`)
   res.send(xml)
@@ -441,6 +445,11 @@ auditAutomationRouter.post('/invoices/extract', (req, res, next) => {
   try {
     const inspected = await inspectPdf(file.buffer)
     const extracted = extractInvoice(inspected.pages)
+    // A scan has no text layer: say so, rather than answer 200 with every
+    // field empty. Repotic does no OCR.
+    if (extracted.rawText.replace(/\s+/g, '').length < 20) {
+      throw ApiError.unprocessable('needs_ocr', 'No text found in this PDF — it looks like a scan. Repotic does not do OCR: enter the invoice details by hand, or upload a PDF with selectable text.')
+    }
     ok(res, {
       filename: sanitizeFilename(file.originalname),
       page_count: inspected.pageCount,
@@ -458,6 +467,7 @@ auditAutomationRouter.post('/invoices/extract', (req, res, next) => {
       hsn_candidates: extracted.hsnCandidates,
       date_candidates: extracted.dateCandidates,
       raw_text: extracted.rawText,
+      warnings: extracted.warnings,
     })
   } catch (e) {
     if (e instanceof PasswordRequiredError) throw ApiError.unprocessable('password_required', 'This invoice PDF is password-protected.')
@@ -925,6 +935,11 @@ auditAutomationRouter.post('/transit/extract', (req, res, next) => {
   try {
     const inspected = await inspectPdf(file.buffer)
     const extracted = extractTransit(inspected.pages)
+    // A scan has no text layer: say so, rather than answer 200 with every
+    // field empty. Repotic does no OCR.
+    if (extracted.rawText.replace(/\s+/g, '').length < 20) {
+      throw ApiError.unprocessable('needs_ocr', 'No text found in this PDF — it looks like a scan. Repotic does not do OCR: enter the transit document details by hand, or upload a PDF with selectable text.')
+    }
     ok(res, {
       filename: sanitizeFilename(file.originalname),
       page_count: inspected.pageCount,
@@ -943,6 +958,7 @@ auditAutomationRouter.post('/transit/extract', (req, res, next) => {
       value_paise: extracted.valuePaise,
       date_candidates: extracted.dateCandidates,
       raw_text: extracted.rawText,
+      warnings: extracted.warnings,
     })
   } catch (e) {
     if (e instanceof PasswordRequiredError) throw ApiError.unprocessable('password_required', 'This transit PDF is password-protected.')

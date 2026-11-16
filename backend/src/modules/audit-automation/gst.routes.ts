@@ -12,6 +12,7 @@ import { GstReconExportService } from './services/GstReconExportService.js'
 import type { PurchaseRegisterColumnMap } from './parsers/types.js'
 import { writeAudit } from '../../platform/audit.js'
 import { assertClientVisible } from '../../platform/workstation/scope.js'
+import { assertJobVisible } from './lib/jobScope.js'
 import { scanUploads } from '../../platform/virusScan.js'
 
 /**
@@ -44,8 +45,9 @@ async function orgIdOf(userId: string): Promise<string> {
 
 // Client assignment: Associates and Interns only reach their own clients'
 // returns, registers and reconciliations (see assertClientVisible).
-const jobClient = async (id: string) => (await prisma.aaGstReconJob.findUnique({ where: { id }, select: { clientId: true } }))?.clientId
-const rowClient = async (id: string) => (await prisma.aaGstReconRow.findUnique({ where: { id }, select: { job: { select: { clientId: true } } } }))?.job.clientId
+// The creator of a reconciliation always reaches it (assertJobVisible).
+const jobClient = async (id: string) => prisma.aaGstReconJob.findUnique({ where: { id }, select: { clientId: true, createdByUserId: true } })
+const rowClient = async (id: string) => (await prisma.aaGstReconRow.findUnique({ where: { id }, select: { job: { select: { clientId: true, createdByUserId: true } } } }))?.job
 /** For an :id that does not exist, let the service answer 404 as before. */
 async function guard(session: Session, clientId: string | undefined) {
   if (clientId !== undefined) await assertClientVisible(session, clientId)
@@ -163,8 +165,10 @@ gstRouter.post('/recon', handler(async (req, res) => {
     client_id: z.string().min(1),
     filing_2b_id: z.string().min(1),
     purchase_register_id: z.string().min(1),
+    /** Per-amount tolerance per invoice, rupees (default ₹1). */
+    tolerance_rupees: z.coerce.number().min(0).max(10_000).optional(),
   }).safeParse(req.body)
-  if (!b.success) throw ApiError.badRequest('client_id, filing_2b_id, purchase_register_id required.')
+  if (!b.success) throw ApiError.badRequest('client_id, filing_2b_id and purchase_register_id are required; tolerance is ₹0 to ₹10,000.')
   // The service also requires the 2B and the register to belong to this client.
   await assertClientVisible(session, b.data.client_id)
   const organisationId = await orgIdOf(session.userId)
@@ -173,6 +177,7 @@ gstRouter.post('/recon', handler(async (req, res) => {
     clientId: b.data.client_id,
     filing2BId: b.data.filing_2b_id,
     purchaseRegisterId: b.data.purchase_register_id,
+    tolerancePaise: b.data.tolerance_rupees === undefined ? undefined : Math.round(b.data.tolerance_rupees * 100),
     req,
   })
   // The run completes inside the request, so the answer is the finished job.
@@ -191,7 +196,7 @@ gstRouter.get('/recon', handler(async (req, res) => {
 gstRouter.get('/recon/:id', handler(async (req, res) => {
   const session = requireSession(req)
   requireGstView(session)
-  await guard(session, await jobClient(req.params.id))
+  await assertJobVisible(session, await jobClient(req.params.id))
   ok(res, await GstReconJobService.get(session, req.params.id))
 }))
 
@@ -206,7 +211,7 @@ gstRouter.get('/recon/:id/rows', handler(async (req, res) => {
     offset: z.coerce.number().int().min(0).optional(),
   }).safeParse(req.query)
   if (!q.success) throw ApiError.badRequest('Invalid filter.')
-  await guard(session, await jobClient(req.params.id))
+  await assertJobVisible(session, await jobClient(req.params.id))
   ok(res, await GstReconJobService.getRows(session, req.params.id, q.data))
 }))
 
@@ -219,14 +224,14 @@ gstRouter.patch('/recon/rows/:id', handler(async (req, res) => {
     auditor_note: z.string().max(2000).nullable().optional(),
   }).safeParse(req.body)
   if (!b.success) throw ApiError.badRequest('Invalid patch.')
-  await guard(session, await rowClient(req.params.id))
+  await assertJobVisible(session, await rowClient(req.params.id))
   ok(res, await GstReconJobService.updateRow(session, req.params.id, { ...b.data, req }))
 }))
 
 gstRouter.get('/recon/:id/export.xlsx', handler(async (req, res) => {
   const session = requireSession(req)
   requireGstView(session)
-  await guard(session, await jobClient(req.params.id))
+  await assertJobVisible(session, await jobClient(req.params.id))
   const bytes = await GstReconExportService.workbook(session, req.params.id)
   await writeAudit({
     actorUserId: session.userId,
@@ -244,7 +249,7 @@ gstRouter.get('/recon/:id/export.xlsx', handler(async (req, res) => {
 gstRouter.get('/recon/:id/export.csv', handler(async (req, res) => {
   const session = requireSession(req)
   requireGstView(session)
-  await guard(session, await jobClient(req.params.id))
+  await assertJobVisible(session, await jobClient(req.params.id))
   const text = await GstReconExportService.csv(session, req.params.id)
   await writeAudit({ actorUserId: session.userId, action: 'aa.gst.exported', entityType: 'AaGstReconJob', entityId: req.params.id, after: { kind: 'csv' }, req })
   res.setHeader('Content-Type', 'text/csv; charset=utf-8')
@@ -258,21 +263,21 @@ gstRouter.post('/recon/:id/pair', handler(async (req, res) => {
   requireGstUpload(session)
   const b = z.object({ two_b_row_id: z.string().min(1), pr_row_id: z.string().min(1) }).safeParse(req.body)
   if (!b.success) throw ApiError.badRequest('two_b_row_id and pr_row_id are required.')
-  await guard(session, await jobClient(req.params.id))
+  await assertJobVisible(session, await jobClient(req.params.id))
   ok(res, await GstReconJobService.pair(session, req.params.id, b.data.two_b_row_id, b.data.pr_row_id, req))
 }))
 
 gstRouter.post('/recon/rows/:id/unpair', handler(async (req, res) => {
   const session = requireSession(req)
   requireGstUpload(session)
-  await guard(session, await rowClient(req.params.id))
+  await assertJobVisible(session, await rowClient(req.params.id))
   ok(res, await GstReconJobService.unpair(session, req.params.id, req))
 }))
 
 gstRouter.delete('/recon/:id', handler(async (req, res) => {
   const session = requireSession(req)
   requireGstUpload(session)
-  await guard(session, await jobClient(req.params.id))
+  await assertJobVisible(session, await jobClient(req.params.id))
   await GstReconJobService.remove(session, req.params.id, req)
   ok(res, { deleted: true })
 }))

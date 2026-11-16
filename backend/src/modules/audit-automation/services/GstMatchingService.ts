@@ -18,7 +18,8 @@ import { normalizeInvoiceNumber, normalizeGstin, looseInvoiceKey, type Normalize
  *
  * Classification of a pair
  *   variance  taxable value or any tax head (IGST/CGST/SGST/cess) differs
- *             beyond max(₹1, 0.1%)
+ *             by more than the job's tolerance — an absolute amount per
+ *             invoice, ₹1 unless the reviewer set another
  *   partial   amounts agree, but the date differs or the invoice number
  *             only agreed loosely (passes 3–4)
  *   matched   everything agrees
@@ -38,6 +39,8 @@ export interface MatcherInput {
   purchaseRegister: Entry[]
   /** The 2B's return period, YYYY-MM — drives the s.16(4) time-limit check. */
   period?: string
+  /** Largest difference per amount that still counts as agreeing, paise. Default ₹1. */
+  tolerancePaise?: number
 }
 
 export type MatchStatus = 'matched' | 'partial' | 'variance' | 'only_2b' | 'only_pr' | 'duplicate'
@@ -58,22 +61,23 @@ export interface MatcherTotals { taxable: number; igst: number; cgst: number; sg
 export type TotalsByBucket = Record<MatchStatus, MatcherTotals>
 export interface MatcherResult { rows: MatchedRow[]; totals: TotalsByBucket; superseded: number }
 
-const RUPEE_TOLERANCE_PAISE = 100 // ₹1
-const PERCENT_TOLERANCE = 0.001    // 0.1%
+/** ₹1 per amount by default. Absolute, never a percentage: a percentage
+ *  lets ₹10,000 of excess ITC on a ₹1 crore invoice read as "matched". */
+export const DEFAULT_TOLERANCE_PAISE = 100
 const DATE_WINDOW_DAYS = 7
 
-export function withinTolerance(a: number, b: number): boolean {
-  return Math.abs(a - b) <= Math.max(RUPEE_TOLERANCE_PAISE, Math.round(Math.max(Math.abs(a), Math.abs(b)) * PERCENT_TOLERANCE))
+export function withinTolerance(a: number, b: number, tolerancePaise = DEFAULT_TOLERANCE_PAISE): boolean {
+  return Math.abs(a - b) <= tolerancePaise
 }
 const days = (a: string, b: string) => Math.abs(Date.parse(a) - Date.parse(b)) / 86_400_000
 const gst = (e: NormalizedEntry) => normalizeGstin(e.supplierGstin)
 const doc = (e: NormalizedEntry) => (e.docType === 'CRN' ? 'CRN' : 'INV') // debit notes pair like invoices
 
 /** Differences between a 2B entry and a books entry, by field. */
-export function compare(two: NormalizedEntry, pr: NormalizedEntry): { amounts: string[]; other: string[] } {
+export function compare(two: NormalizedEntry, pr: NormalizedEntry, tolerancePaise = DEFAULT_TOLERANCE_PAISE): { amounts: string[]; other: string[] } {
   const amounts: string[] = []
-  if (!withinTolerance(two.taxableValue, pr.taxableValue)) amounts.push('taxable_value')
-  for (const k of ['igst', 'cgst', 'sgst', 'cess'] as const) if (!withinTolerance(two[k], pr[k])) amounts.push(k)
+  if (!withinTolerance(two.taxableValue, pr.taxableValue, tolerancePaise)) amounts.push('taxable_value')
+  for (const k of ['igst', 'cgst', 'sgst', 'cess'] as const) if (!withinTolerance(two[k], pr[k], tolerancePaise)) amounts.push(k)
   const other: string[] = []
   if (two.invoiceDate && pr.invoiceDate && two.invoiceDate !== pr.invoiceDate) other.push('invoice_date')
   return { amounts, other }
@@ -149,6 +153,7 @@ function dedupe(entries: Entry[]): { keep: Entry[]; dups: Entry[] } {
 }
 
 export function runMatcher(input: MatcherInput): MatcherResult {
+  const tol = input.tolerancePaise ?? DEFAULT_TOLERANCE_PAISE
   const rows: MatchedRow[] = []
   const totals: TotalsByBucket = {
     matched: emptyTotals(), partial: emptyTotals(), variance: emptyTotals(),
@@ -169,7 +174,7 @@ export function runMatcher(input: MatcherInput): MatcherResult {
   const pr = new Map(dp.keep.map((e) => [e.id, e]))
 
   const pair = (a: Entry, b: Entry, method: MatchMethod) => {
-    const c = compare(a, b)
+    const c = compare(a, b, tol)
     const other = [...c.other]
     if (method === 'invoice_loose') other.push('invoice_number_format')
     if (method === 'amount_date') other.push('invoice_number')
@@ -196,7 +201,7 @@ export function runMatcher(input: MatcherInput): MatcherResult {
   keyed((e) => `${gst(e)}|${doc(e)}|${looseInvoiceKey(e.invoiceNumber)}`, 'invoice_loose')
 
   // Pass 4: same supplier, same amount, near date — only when unambiguous both ways.
-  const near = (a: Entry, b: Entry) => gst(a) === gst(b) && doc(a) === doc(b) && withinTolerance(a.taxableValue, b.taxableValue)
+  const near = (a: Entry, b: Entry) => gst(a) === gst(b) && doc(a) === doc(b) && withinTolerance(a.taxableValue, b.taxableValue, tol)
     && Boolean(a.invoiceDate && b.invoiceDate) && days(a.invoiceDate, b.invoiceDate) <= DATE_WINDOW_DAYS
   for (const a of [...two.values()]) {
     const cands = [...pr.values()].filter((b) => near(a, b))

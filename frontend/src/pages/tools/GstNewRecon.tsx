@@ -46,6 +46,7 @@ export function GstNewReconPage() {
   const [errorPR, setErrorPR] = useState<string | null>(null);
   const [prFormat, setPrFormat] = useState<'excel' | 'tally_xml' | null>(null);
   const [columnMap, setColumnMap] = useState<Partial<ColumnMap>>({});
+  const [tolerance, setTolerance] = useState('1');
 
   const [submitting, setSubmitting] = useState(false);
 
@@ -182,6 +183,7 @@ export function GstNewReconPage() {
     try {
       const job = await gstApi.createRecon({
         client_id: clientId, filing_2b_id: filing2BId!, purchase_register_id: registerId!,
+        tolerance_rupees: Number(tolerance) || 0,
       });
       toast.push('success', 'Reconciliation complete.');
       nav(`/audit-automation/gst/jobs/${job.id}`);
@@ -310,7 +312,13 @@ export function GstNewReconPage() {
           {errorPR ? <InlineError message={errorPR} /> : null}
         </section>
 
-        <div className="flex justify-end">
+        <div className="flex flex-wrap items-end justify-between gap-3">
+          <label className="text-12 text-neutral-600">
+            Tolerance per invoice (₹)
+            <input type="number" min={0} max={10000} step="0.01" value={tolerance} onChange={(e) => setTolerance(e.target.value)}
+              className="mt-1 block h-9 w-28 px-2 text-13 border border-neutral-300 rounded" data-testid="gst-tolerance" />
+            <span className="block text-11 text-neutral-500 mt-1">A taxable value or tax amount that differs by more than this is a mismatch.</span>
+          </label>
           <Button type="submit" variant="primary" disabled={!readyToRecon || submitting}>
             {submitting ? 'Running…' : (<>Run reconciliation <ArrowRight size={14} strokeWidth={2} className="ml-1" /></>)}
           </Button>
@@ -423,6 +431,7 @@ const TARGETS: { key: keyof ColumnMap; label: string; required: boolean }[] = [
   { key: 'sgst', label: 'SGST', required: false },
   { key: 'cess', label: 'Cess', required: false },
   { key: 'glCode', label: 'GL code', required: false },
+  { key: 'docType', label: 'Document type (invoice / credit note / debit note)', required: false },
 ];
 
 function ColumnMapping({ preview, value, onChange, onConfirm, busy }: {

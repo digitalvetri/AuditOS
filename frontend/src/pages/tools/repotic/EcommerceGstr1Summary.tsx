@@ -22,6 +22,7 @@ import { Link, useParams, useSearchParams, Navigate } from 'react-router-dom';
 import { ArrowLeft, AlertTriangle, Download, Info } from 'lucide-react';
 import { repoticApi, type SummaryRow } from '@/modules/tools/repotic/api';
 import { gstApi } from '@/modules/workstation/gst/api';
+import { BetaBadge } from '@/pages/tools/AuditAutomation';
 
 function monthLabel(iso: string): string {
   const [y, m] = iso.split('-');
@@ -46,7 +47,8 @@ export function EcommerceGstr1SummaryPage() {
     () => clients.data?.items.find((c) => c.client_id === clientId),
     [clients.data, clientId],
   );
-  const gstin = client?.gstin ?? '';
+  // The import screen passes the GSTIN it built for (a client can hold several).
+  const gstin = searchParams.get('gstin') ?? client?.gstin ?? '';
   const clientName = client?.client_name ?? client?.legal_name ?? clientId;
 
   const scoped = clientId && gstin && period ? { client_id: clientId, gstin, period } : null;
@@ -63,12 +65,16 @@ export function EcommerceGstr1SummaryPage() {
   const rows = summary.data?.summary_rows ?? [];
   // The bar row — totals across the implemented particulars.
   const totals = rows.filter((r) => r.implemented && !isCrosscheck(r.code))
-    .reduce((a, r) => ({
-      vouchers: a.vouchers + r.vouchers,
-      taxable: a.taxable + r.taxable,
-      igst: a.igst + r.igst, cgst: a.cgst + r.cgst, sgst: a.sgst + r.sgst, cess: a.cess + r.cess,
-      invoice: a.invoice + r.invoice,
-    }), { vouchers: 0, taxable: 0, igst: 0, cgst: 0, sgst: 0, cess: 0, invoice: 0 });
+    .reduce((a, r) => {
+      // Credit notes reduce the liability; every other row adds to it.
+      const k = r.code.startsWith('9B') ? -1 : 1;
+      return {
+        vouchers: a.vouchers + r.vouchers,
+        taxable: a.taxable + k * r.taxable,
+        igst: a.igst + k * r.igst, cgst: a.cgst + k * r.cgst, sgst: a.sgst + k * r.sgst, cess: a.cess + k * r.cess,
+        invoice: a.invoice + k * r.invoice,
+      };
+    }, { vouchers: 0, taxable: 0, igst: 0, cgst: 0, sgst: 0, cess: 0, invoice: 0 });
 
   const warnings = summary.data?.warnings ?? [];
   const portalUrl = scoped ? repoticApi.gstr1DownloadUrl(scoped, true) : '#';
@@ -84,7 +90,10 @@ export function EcommerceGstr1SummaryPage() {
 
       <header className="mb-5 flex flex-wrap items-baseline justify-between gap-3">
         <div>
-          <h1 className="text-20 font-semibold text-neutral-900">GSTR-1</h1>
+          <div className="flex flex-wrap items-center gap-2">
+            <h1 className="text-20 font-semibold text-neutral-900">GSTR-1</h1>
+            <BetaBadge />
+          </div>
           <p className="text-13 text-neutral-500 mt-1">
             {clientName} · <span className="font-mono text-12">{gstin}</span> · {monthLabel(period)}
           </p>
@@ -98,6 +107,15 @@ export function EcommerceGstr1SummaryPage() {
           </a>
         </div>
       </header>
+
+      <div className="mb-4 p-3 rounded border border-amber-200 bg-amber-50 text-12 text-amber-900 flex items-start gap-2">
+        <AlertTriangle size={14} className="mt-0.5 flex-shrink-0" strokeWidth={2} />
+        <div>
+          <strong>Beta — verify before filing.</strong> The Portal JSON has not been checked against the GSTN offline tool.
+          It carries Tables 5A, 7 (net of returns), 9B (credit notes on B2C-large invoices), 12 (HSN) and 14 only — no B2B,
+          exports, advances, nil-rated supplies or documents issued. Check every figure against the marketplace report before you upload it.
+        </div>
+      </div>
 
       {warnings.length > 0 && (
         <div className="mb-4 p-3 rounded border border-amber-200 bg-amber-50 text-12 text-amber-900 flex items-start gap-2">
@@ -152,9 +170,9 @@ export function EcommerceGstr1SummaryPage() {
           <div className="p-3 border-t border-neutral-100 text-11 text-neutral-500 flex items-start gap-1.5">
             <Info size={12} className="mt-0.5" />
             <span>
-              Rows marked <em>pending source</em> need data the Amazon MTR export does not carry (B2B invoices, CDN registered,
-              export invoices, advances, nil-rated supplies, document series). These will populate once the Tally books
-              ingestion ships — see the GSTR-1 full-rebuild tracker.
+              Rows marked <em>pending source</em> are not built from marketplace reports (B2B invoices, registered credit
+              notes, exports, advances, nil-rated supplies, documents issued). Add them on the portal yourself.
+              In the total, credit notes (9B) are subtracted.
             </span>
           </div>
         )}

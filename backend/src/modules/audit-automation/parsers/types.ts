@@ -64,6 +64,9 @@ export interface PurchaseRegisterColumnMap {
   sgst?: string
   cess?: string
   glCode?: string
+  /** Document type (Invoice / Credit Note / Debit Note …). Without it, a
+   *  row with a negative taxable value is a credit note. */
+  docType?: string
   /** Row number (1-based) where the data starts. Default 2 (row 1 is headers). */
   dataStartRow?: number
 }
@@ -109,6 +112,22 @@ export function toIsoDate(v: unknown): string {
   }
   const s = String(v).trim()
   if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s
+  // An ISO date-time: the date as written, not shifted into UTC.
+  if (/^\d{4}-\d{2}-\d{2}[T ]/.test(s)) return s.slice(0, 10)
+  // "10-Jun-2025", "10 Jun 2025", "1-Sept-25", "Jun 10, 2025" — read by
+  // hand: new Date() parses these in the server's local time, which turns
+  // 10 June into 9 June on an IST machine.
+  const dmy = /^(\d{1,2})[\s\-\/.]+([A-Za-z]{3,9})[\s\-\/.,]+(\d{2,4})$/.exec(s)
+  const mdy = /^([A-Za-z]{3,9})[\s\-\/.]+(\d{1,2}),?[\s\-\/.]+(\d{2,4})$/.exec(s)
+  const named = dmy ? [dmy[1], dmy[2], dmy[3]] : mdy ? [mdy[2], mdy[1], mdy[3]] : null
+  if (named) {
+    const [day, month, year] = named
+    const mo = MONTHS.indexOf(month.slice(0, 3).toLowerCase()) + 1
+    if (mo > 0) {
+      const y = year.length === 2 ? (Number(year) >= 70 ? '19' : '20') + year : year
+      return `${y}-${String(mo).padStart(2, '0')}-${day.padStart(2, '0')}`
+    }
+  }
   const m = /^(\d{1,2})[\/\-\.](\d{1,2})[\/\-\.](\d{2,4})$/.exec(s)
   if (m) {
     const d = m[1].padStart(2, '0')
@@ -118,8 +137,21 @@ export function toIsoDate(v: unknown): string {
     return `${y}-${mo}-${d}`
   }
   const parsed = new Date(s)
-  if (!Number.isNaN(parsed.getTime())) return parsed.toISOString().slice(0, 10)
+  if (!Number.isNaN(parsed.getTime())) {
+    // Local calendar date, as the text named it.
+    return `${parsed.getFullYear()}-${String(parsed.getMonth() + 1).padStart(2, '0')}-${String(parsed.getDate()).padStart(2, '0')}`
+  }
   return ''
+}
+const MONTHS = ['jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec']
+
+/** "Credit Note" / "CN" / "CRN" → CRN, "Debit Note" / "DN" → DBN, else INV. */
+export function docTypeOf(raw: string): 'INV' | 'CRN' | 'DBN' | undefined {
+  const v = raw.trim().toLowerCase().replace(/[^a-z]/g, '')
+  if (!v) return undefined
+  if (v.startsWith('credit') || v === 'cn' || v === 'crn' || v === 'c' || v === 'cdn' || v === 'creditnote') return 'CRN'
+  if (v.startsWith('debit') || v === 'dn' || v === 'dbn' || v === 'd') return 'DBN'
+  return 'INV'
 }
 
 /**

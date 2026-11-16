@@ -276,6 +276,7 @@ const SEARCH_ALIAS: Record<string, { label?: string; also?: string }> = {
   '/workstation/tds-recon': { also: 'tds 26as' },
   '/workstation/dsc': { also: 'digital signature' },
   '/audit-automation': { also: 'bank gst tds automation' },
+  '/audit-automation/gst': { also: 'gstr-2b 2b purchase register itc reconciliation' },
 };
 
 export interface Destination { label: string; to: string; hint: string; terms: string }

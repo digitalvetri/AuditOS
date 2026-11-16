@@ -5,6 +5,7 @@ import {
   type PurchaseRegisterColumnMap,
   toPaise,
   toIsoDate,
+  docTypeOf,
 } from './types.js'
 
 /**
@@ -91,6 +92,7 @@ export async function parsePurchaseRegisterExcel(
     sgst: idx(columnMap.sgst),
     cess: idx(columnMap.cess),
     glCode: idx(columnMap.glCode),
+    docType: idx(columnMap.docType),
   }
   if (!cols.supplierGstin || !cols.invoiceNumber || !cols.invoiceDate || !cols.taxableValue) {
     throw new Error('pr_column_map_incomplete')
@@ -103,17 +105,24 @@ export async function parsePurchaseRegisterExcel(
     const gstin = String(get(cols.supplierGstin)?.text ?? '').trim()
     const invNum = String(get(cols.invoiceNumber)?.text ?? '').trim()
     if (!gstin || !invNum) continue
+    const amount = (c: number) => toPaise(get(c)?.value ?? get(c)?.text ?? 0)
+    const taxableValue = amount(cols.taxableValue)
+    // The register's own Type column, else the sign: GSTR-2B carries credit
+    // notes negative, so a books credit note must be negative to pair.
+    const docType = docTypeOf(String(get(cols.docType)?.text ?? '')) ?? (taxableValue < 0 ? 'CRN' : 'INV')
+    const sign = (n: number) => (docType === 'CRN' ? -Math.abs(n) : n)
     entries.push({
       supplierGstin: gstin,
       supplierName: String(get(cols.supplierName)?.text ?? '').trim() || undefined,
       invoiceNumber: invNum,
       invoiceDate: toIsoDate(get(cols.invoiceDate)?.value ?? get(cols.invoiceDate)?.text ?? ''),
-      taxableValue: toPaise(get(cols.taxableValue)?.value ?? get(cols.taxableValue)?.text ?? 0),
-      igst: toPaise(get(cols.igst)?.value ?? get(cols.igst)?.text ?? 0),
-      cgst: toPaise(get(cols.cgst)?.value ?? get(cols.cgst)?.text ?? 0),
-      sgst: toPaise(get(cols.sgst)?.value ?? get(cols.sgst)?.text ?? 0),
-      cess: toPaise(get(cols.cess)?.value ?? get(cols.cess)?.text ?? 0),
+      taxableValue: sign(taxableValue),
+      igst: sign(amount(cols.igst)),
+      cgst: sign(amount(cols.cgst)),
+      sgst: sign(amount(cols.sgst)),
+      cess: sign(amount(cols.cess)),
       glCode: String(get(cols.glCode)?.text ?? '').trim() || undefined,
+      docType,
     })
   }
   return { entries }

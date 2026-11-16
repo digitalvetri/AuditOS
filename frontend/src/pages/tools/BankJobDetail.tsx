@@ -34,7 +34,7 @@ const FLAG_TEXT: Record<string, string> = {
   BOTH_AMOUNTS: 'Both a withdrawal and a deposit',
   DATE_ORDER: 'Date is earlier than the row above',
   OUT_OF_PERIOD: 'Date is outside the chosen financial year',
-  NO_BALANCE: 'No running balance on this row',
+  NO_BALANCE: 'No running balance on this row — check the amounts against the statement',
   // Introduced per REPOTIC §1: a row without a Tally ledger is NOT OK.
   // The row stays in "Needs review" until a ledger is picked.
   NO_LEDGER: 'No Tally ledger yet — pick one or accept to postpone',
@@ -168,6 +168,7 @@ function JobActions({ detail }: { detail: AaJobDetail }) {
   const [ledger, setLedger] = useState(job.bank_ledger_name ?? '');
   useEffect(() => { setLedger(job.bank_ledger_name ?? ''); }, [job.bank_ledger_name]);
   const approved = job.review_status === 'approved';
+  const exported = (detail.tally_exports?.length ?? 0) > 0;
   const refresh = () => { void qc.invalidateQueries({ queryKey: ['aa.job', job.id] }); void qc.invalidateQueries({ queryKey: ['aa.rows', job.id] }); };
   const err = (e: Error) => toast.push('error', e.message);
   const saveLedger = useMutation({ mutationFn: () => auditAutomationApi.updateJob(job.id, { bank_ledger_name: ledger }), onSuccess: () => { refresh(); toast.push('success', 'Bank ledger saved.'); }, onError: err });
@@ -193,9 +194,15 @@ function JobActions({ detail }: { detail: AaJobDetail }) {
             {approved ? <><RotateCcw size={13} /> Reopen</> : <><CheckCircle2 size={13} /> Approve</>}
           </Button>
           <a className={'inline-flex items-center gap-1 h-8 px-3 rounded text-13 font-medium border ' + (approved ? 'bg-primary text-white border-primary hover:opacity-90' : 'pointer-events-none opacity-40 border-neutral-300 text-neutral-500')}
-            href={approved ? auditAutomationApi.tallyXmlUrl(job.id) : undefined} download title={approved ? undefined : 'Approve first'}>
-            <Download size={13} /> Tally XML
+            href={approved ? auditAutomationApi.tallyXmlUrl(job.id, exported) : undefined} download title={approved ? undefined : 'Approve first'}
+            onClick={(e) => {
+              // Importing the same vouchers again double-posts them in Tally.
+              if (exported && !window.confirm(`This statement was already exported to Tally on ${new Date(detail.tally_exports![0].at).toLocaleDateString()}. Import the new file only if the earlier import was undone. Download again?`)) e.preventDefault();
+              else setTimeout(refresh, 1500);
+            }}>
+            <Download size={13} /> {exported ? 'Tally XML (exported)' : 'Tally XML'}
           </a>
+          <span className="text-11 text-amber" title="The XML has not been import-tested in TallyPrime. Import into a test company first.">Beta — import into a test company first</span>
           {/* Excel export is gated on the SAME condition as Tally XML — a
               half-mapped statement is the same wrong data in a different
               file (REPOTIC §1). The ?draft=1 variant stays for internal
@@ -307,7 +314,7 @@ function Transactions({ detail }: { detail: AaJobDetail }) {
                   <div className="break-words">{r.narration}</div>
                   {r.reference ? <div className="text-11 text-neutral-500 break-all">Ref {r.reference}</div> : null}
                   {r.edited ? <div className="text-11 text-primary">Edited — originally read differently</div> : null}
-                  {r.flags.filter((f) => f !== 'NO_BALANCE').map((f) => (
+                  {r.flags.map((f) => (
                     <div key={f} className={'text-11 mt-0.5 ' + (f === 'ACCEPTED' ? 'text-success' : 'text-amber')}>{FLAG_TEXT[f] ?? f}</div>
                   ))}
                 </td>

@@ -1,9 +1,10 @@
 import type { Request } from 'express'
 import { prisma, alive } from '../../../lib/prisma.js'
 import { ApiError } from '../../../lib/http.js'
-import { can, type Session } from '../../../platform/auth.js'
+import { jobVisibility } from '../lib/jobScope.js'
+import { type Session } from '../../../platform/auth.js'
 import { writeAudit } from '../../../platform/audit.js'
-import { runMatcher, compare, itcFor, type MatchStatus, type ItcClassification, type Entry } from './GstMatchingService.js'
+import { runMatcher, compare, itcFor, DEFAULT_TOLERANCE_PAISE, type MatchStatus, type ItcClassification, type Entry } from './GstMatchingService.js'
 import { isValidGstin } from '../parsers/types.js'
 import { toNum } from '../../../lib/money.js'
 
@@ -26,6 +27,8 @@ export interface ReconJobApi {
   purchase_register_id: string
   status: 'queued' | 'matching' | 'matched' | 'failed'
   progress: number
+  /** Per-amount tolerance used by this run, rupees. */
+  tolerance_rupees: number
   matched_count: number
   partial_count: number
   variance_count: number
@@ -46,7 +49,7 @@ function toApi(row: JobRow): ReconJobApi {
   if (row.totalsJson) { try { totals = JSON.parse(row.totalsJson) } catch { totals = null } }
   return {
     id: row.id, client_id: row.clientId, filing_2b_id: row.filing2BId, purchase_register_id: row.purchaseRegisterId,
-    status: row.status as ReconJobApi['status'], progress: row.progress,
+    status: row.status as ReconJobApi['status'], progress: row.progress, tolerance_rupees: row.tolerancePaise / 100,
     matched_count: row.matchedCount, partial_count: row.partialCount, variance_count: row.varianceCount,
     only_2b_count: row.only2BCount, only_pr_count: row.onlyPRCount, duplicate_count: row.duplicateCount,
     flags: row.flags ? row.flags.split(',').filter(Boolean) : [],
@@ -55,13 +58,8 @@ function toApi(row: JobRow): ReconJobApi {
   }
 }
 
-async function orgOf(session: Session) {
-  return (await prisma.user.findUniqueOrThrow({ where: { id: session.userId }, select: { organisationId: true } })).organisationId
-}
 async function scopedWhere(session: Session, base: object) {
-  const organisationId = await orgOf(session)
-  if (can(session, 'tools.audit_automation.gst.view', 'organisation')) return { ...base, organisationId }
-  return { ...base, organisationId, createdByUserId: session.userId }
+  return { ...base, ...(await jobVisibility(session, 'tools.audit_automation.gst.view')) }
 }
 
 type E2B = Awaited<ReturnType<typeof prisma.aaGstFiling2BEntry.findMany>>[number]
@@ -102,8 +100,9 @@ async function reroll(jobId: string) {
 export const GstReconJobService = {
   toApi,
 
-  async createAndRun(input: { session: Session; organisationId: string; clientId: string; filing2BId: string; purchaseRegisterId: string; req?: Request }): Promise<ReconJobApi> {
+  async createAndRun(input: { session: Session; organisationId: string; clientId: string; filing2BId: string; purchaseRegisterId: string; tolerancePaise?: number; req?: Request }): Promise<ReconJobApi> {
     const { session, organisationId, clientId, filing2BId, purchaseRegisterId, req } = input
+    const tolerancePaise = input.tolerancePaise ?? DEFAULT_TOLERANCE_PAISE
     const filing = await prisma.aaGstFiling2B.findFirst({ where: { id: filing2BId, clientId, organisationId, ...alive } })
     if (!filing) throw ApiError.notFound('No such 2B filing.')
     const pr = await prisma.aaPurchaseRegister.findFirst({ where: { id: purchaseRegisterId, clientId, organisationId, ...alive } })
@@ -114,11 +113,11 @@ export const GstReconJobService = {
       prisma.aaPurchaseRegisterEntry.findMany({ where: { registerId: purchaseRegisterId } }),
     ])
     const jobRow = await prisma.aaGstReconJob.create({
-      data: { organisationId, clientId, createdByUserId: session.userId, filing2BId, purchaseRegisterId, status: 'matching', progress: 0, startedAt: new Date() },
+      data: { organisationId, clientId, createdByUserId: session.userId, filing2BId, purchaseRegisterId, tolerancePaise, status: 'matching', progress: 0, startedAt: new Date() },
     })
     try {
       const period = periodOf(filing.periodMonth, filing.periodYear)
-      const result = runMatcher({ filing2B: filingEntries.map(from2B), purchaseRegister: prEntries.map(fromPR), period })
+      const result = runMatcher({ filing2B: filingEntries.map(from2B), purchaseRegister: prEntries.map(fromPR), period, tolerancePaise })
       const flags: string[] = []
       if (filing.periodMonth !== pr.periodMonth || filing.periodYear !== pr.periodYear) flags.push('PERIOD_MISMATCH')
       const badGstins = new Set([...filingEntries, ...prEntries].map((e) => e.supplierGstin).filter((g) => g && g !== 'IMPORT' && !isValidGstin(g)))
@@ -249,7 +248,7 @@ export const GstReconJobService = {
     if (b.matchStatus !== 'only_pr' || !b.purchaseRegisterEntry) throw ApiError.badRequest('The second row must be one that is only in the books.')
     const job = await prisma.aaGstReconJob.findUniqueOrThrow({ where: { id: jobId }, include: { filing2B: true } })
     const two = from2B(a.filing2BEntry); const pr = fromPR(b.purchaseRegisterEntry)
-    const c = compare(two, pr)
+    const c = compare(two, pr, job.tolerancePaise)
     const status: MatchStatus = c.amounts.length ? 'variance' : 'partial'
     const itc = itcFor(status, two, pr, periodOf(job.filing2B.periodMonth, job.filing2B.periodYear))
     const created = await prisma.$transaction(async (tx) => {

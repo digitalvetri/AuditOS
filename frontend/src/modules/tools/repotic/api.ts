@@ -47,15 +47,18 @@ export const repoticApi = {
   upload: (form: FormData) =>
     api.postForm<UploadResult>('/api/repotic/ecommerce/uploads', form),
   uploads: (q: { client_id: string; gstin: string; period: string }) =>
-    api.get<{ items: Array<Omit<Required<ReportEntry['upload']>, 'typeCounts' | 'drift'> & { id: string; marketplace: string; report_kind: string; original_name: string; status: string; error_message: string | null; type_counts: Record<string, number> | null; drift: { newColumns: string[]; missingColumns: string[] } | null }> }>(
+    api.get<{ items: UploadRow[] }>(
       `/api/repotic/ecommerce/uploads?client_id=${encodeURIComponent(q.client_id)}&gstin=${encodeURIComponent(q.gstin)}&period=${encodeURIComponent(q.period)}`,
     ),
+  /** Remove a wrong file; its rows leave the GSTR-1 at once. */
+  deleteUpload: (id: string) => api.delete<{ deleted: boolean }>(`/api/repotic/ecommerce/uploads/${encodeURIComponent(id)}`),
   /** Phase 3 — summary of what the GSTR-1 preview will contain for a scope. */
   gstr1Summary: (scope: { client_id: string; gstin: string; period: string }) =>
     api.get<{
       counts: {
-        b2cs: number; b2cl: number; cdnur: number; hsn: number;
-        excluded_free_replacement: number; excluded_other: number; total_rows: number;
+        b2cs: number; b2cl: number; cdnur: number; hsn: number; b2cs_returns: number;
+        excluded_free_replacement: number; excluded_other: number; excluded_other_gstin: number;
+        excluded_out_of_period: number; excluded_b2b: number; total_rows: number;
       };
       warnings: string[];
       summary_rows: SummaryRow[];
@@ -75,6 +78,20 @@ export const repoticApi = {
   gstr1DownloadUrl: (scope: { client_id: string; gstin: string; period: string }, portal = false) =>
     `/api/repotic/ecommerce/gstr1?client_id=${encodeURIComponent(scope.client_id)}&gstin=${encodeURIComponent(scope.gstin)}&period=${encodeURIComponent(scope.period)}&download=1${portal ? '&portal=1' : ''}`,
 };
+
+export interface UploadRow {
+  id: string;
+  marketplace: string;
+  report_kind: string;
+  detect_status: 'matched' | 'drifted' | 'no_match' | 'auto_detected';
+  original_name: string;
+  row_count: number;
+  type_counts: Record<string, number> | null;
+  /** parsed = the current file for its report; superseded = replaced by a later upload. */
+  status: string;
+  error_message: string | null;
+  uploaded_at: string;
+}
 
 export interface SummaryRow {
   code: string;

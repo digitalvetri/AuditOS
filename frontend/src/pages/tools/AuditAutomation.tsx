@@ -21,7 +21,7 @@ export function AuditAutomationLandingPage() {
       <header className="mb-5">
         <h1 className="text-[26px] leading-tight font-semibold tracking-[-0.01em] text-neutral-900">Repotic</h1>
         <p className="text-13 text-neutral-500 mt-1">
-          Files in, files out. Bank statements → Tally, ecommerce reports → GSTR-1.
+          Files in, files out. Bank statements → Tally, ecommerce reports → GSTR-1, GSTR-2B → reconciliation.
         </p>
       </header>
 
@@ -36,11 +36,19 @@ export function AuditAutomationLandingPage() {
             title="PDF bank statement → Tally XML / CSV"
             description="PDF, Excel or CSV statement → rows checked against the running balance → review, ledgers and rules → approve → Tally XML"
             status="active"
+            beta="Beta — import into a test company first"
           />
           <PipelineCard
             to="/audit-automation/ecommerce"
             title="File ecommerce seller's GSTR-1"
-            description="Amazon · Flipkart · Meesho · Myntra · … → one normalised set of rows → GSTR-1 tables → JSON for the portal, Tally XML or CSV"
+            description="Amazon · Flipkart · Meesho B2C reports → GSTR-1 Tables 5A, 7, 9B (B2C-large notes), 12 and 14 → JSON for review"
+            status="active"
+            beta="Beta — verify before filing"
+          />
+          <PipelineCard
+            to="/audit-automation/gst"
+            title="GSTR-2B vs purchase register"
+            description="GSTR-2B (JSON or Excel) + the client's purchase register → matched within ₹1 per invoice (or your tolerance), mismatches, missing in books, missing in 2B, ITC class → Excel"
             status="active"
           />
           <PipelineCard
@@ -55,9 +63,8 @@ export function AuditAutomationLandingPage() {
       <div className="mt-6 flex items-start gap-2 text-12 text-neutral-500 bg-white border border-neutral-200 rounded p-3">
         <Info size={14} strokeWidth={1.75} className="mt-0.5 flex-shrink-0" />
         <div>
-          GST reconciliation (GSTR-2B vs Purchase Register) lives in the GST module.
+          GSTR-2B vs purchase register reconciliations are under <Link to="/audit-automation/gst" className="text-primary underline">Repotic → GST reconciliation</Link>.
           26AS vs books reconciliation lives under <Link to="/workstation/tds-recon" className="text-primary underline">Workstation → 26AS reconciliation</Link>.
-          Repotic itself is file-in / file-out only.
         </div>
       </div>
     </div>
@@ -69,11 +76,14 @@ function PipelineCard({
   title,
   description,
   status,
+  beta,
 }: {
   to: string;
   title: string;
   description: string;
   status: 'active' | 'coming_soon';
+  /** Output not yet checked against the real target (portal / Tally). */
+  beta?: string;
 }) {
   const active = status === 'active';
   const inner = (
@@ -91,6 +101,7 @@ function PipelineCard({
       </div>
       <div className="min-w-0 flex-1 flex flex-col">
         <h3 className="text-14 font-semibold text-neutral-900 leading-5">{title}</h3>
+        {beta ? <BetaBadge text={beta} /> : null}
         <p className="text-13 text-neutral-500 mt-0.5">{description}</p>
         <div className="mt-auto pt-3">
           <span className={'text-12 font-medium ' + (active ? 'text-gold' : 'text-neutral-400')}>
@@ -101,4 +112,13 @@ function PipelineCard({
     </article>
   );
   return active ? <Link to={to}>{inner}</Link> : inner;
+}
+
+/** Marks a pipeline whose output has not been verified against its target. */
+export function BetaBadge({ text = 'Beta — verify before filing' }: { text?: string }) {
+  return (
+    <span className="mt-1 self-start inline-flex items-center h-5 px-1.5 rounded text-11 font-medium bg-amber/10 text-amber border border-amber/40">
+      {text}
+    </span>
+  );
 }

@@ -3508,6 +3508,9 @@ model AaGstReconJob {
   filing2BId         String
   purchaseRegisterId String
   /// queued | matching | matched | failed
+  /// Largest difference per amount (taxable, each tax head) that still
+  /// counts as agreeing, in paise. Absolute — ₹1 unless the reviewer set it.
+  tolerancePaise     Int       @default(100)
   status             String    @default("queued")
   progress           Int       @default(0)
   matchedCount       Int       @default(0)
@@ -8166,6 +8169,10 @@ model RpParsedRow {
   /// Credit note refs — Table 9B source.
   creditNoteNumber String?
   creditNoteDate   String?
+
+  /// The marketplace's own GSTIN when the report carries it per row
+  /// (Meesho `eco_tcs_gstin`) — the Table 14 ETIN.
+  ecoGstin String?
 
   /// Everything the mapper saw. kept so an auditor can see the untransformed
   /// data when a figure is questioned.
