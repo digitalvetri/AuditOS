@@ -54,7 +54,7 @@ function ActiveWorkspace({ toolId }: { toolId: string }) {
       <ToolWorkspaceLayout tool={tool}>
         <div className="border-l-2 border-amber pl-3">
           <div className="text-13 font-medium text-neutral-900">You do not have access to this tool</div>
-          <p className="text-13 text-neutral-500 mt-1 max-w-[520px]">Ask an administrator to grant <code className="font-mono text-12">{tool.permission}</code> to your role.</p>
+          <p className="text-13 text-neutral-500 mt-1 max-w-[520px]">Ask an administrator to give your role the Tools module in Settings → Roles &amp; permissions.</p>
         </div>
       </ToolWorkspaceLayout>
     );

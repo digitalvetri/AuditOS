@@ -1,9 +1,11 @@
 /**
  * Roles + Permissions — one row per module (HRMS, Workstation, Tools,
- * Integrations), one column per role (Super Admin … Intern).
+ * Books — view, Books — edit, Integrations), one column per role
+ * (Super Admin … Intern).
  *
  * Each cell is a dropdown: Full access grants every permission in the module
- * at organisation scope; No access removes them all. A role whose grants were
+ * (organisation scope, except that Associate and Intern see only their own
+ * tool documents); No access removes them all. A role whose grants were
  * edited code by code reads back as "Custom" until a choice is made here.
  *
  * Two lockout guards are enforced server-side and surfaced as inline errors:
