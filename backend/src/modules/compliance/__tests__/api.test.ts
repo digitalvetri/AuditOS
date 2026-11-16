@@ -298,11 +298,22 @@ describe('compliance calendar API', () => {
     const c2 = await api('/api/compliance/clocks', { method: 'POST', cookie: md.cookie, body: { client_id: other.id, form_code: 'GST_RULE_10A', anchor_date: '2026-11-01' } })
     expect(c2.status).toBe(200)
     const id2 = c2.body.data.id as string
-    const attach = await api(`/api/compliance/items/${id2}`, { method: 'PATCH', cookie: md.cookie, body: { evidence_doc_id: 'cd-fake-doc-id' } })
+    // The evidence document must be a real, live document of THIS client.
+    const cat = await prisma.documentCategory.findFirst({ where: { deletedAt: null } })
+      ?? await prisma.documentCategory.create({ data: { organisationId: o.id, code: uid('cat'), name: 'Evidence' } })
+    const doc = await prisma.clientDocument.create({ data: { clientId: other.id, categoryId: cat.id, name: 'REG-01 ack' } })
+    const elsewhere = await prisma.clientDocument.create({ data: { clientId: c.id, categoryId: cat.id, name: 'Someone else\'s ack' } })
+    const gone = await prisma.clientDocument.create({ data: { clientId: other.id, categoryId: cat.id, name: 'Deleted', deletedAt: new Date() } })
+    for (const bad of ['cd-fake-doc-id', elsewhere.id, gone.id]) {
+      const r = await api(`/api/compliance/items/${id2}`, { method: 'PATCH', cookie: md.cookie, body: { evidence_doc_id: bad } })
+      expect(r.status).toBe(400)
+      expect(r.body.error.details).toHaveProperty('evidence_doc_id')
+    }
+    const attach = await api(`/api/compliance/items/${id2}`, { method: 'PATCH', cookie: md.cookie, body: { evidence_doc_id: doc.id } })
     expect(attach.status).toBe(200)
     const close = await api(`/api/compliance/items/${id2}`, { method: 'PATCH', cookie: md.cookie, body: { status: 'filed', filed_on: istToday() } })
     expect(close.status).toBe(200)
-    expect(close.body.data).toMatchObject({ status: 'filed', evidence_doc_id: 'cd-fake-doc-id' })
+    expect(close.body.data).toMatchObject({ status: 'filed', evidence_doc_id: doc.id })
   })
 
   it('onGstRegistrationGranted — creates the clock on new grant, skips exempt types, idempotent', async () => {

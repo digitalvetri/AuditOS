@@ -12,6 +12,7 @@ import { signToken } from '../../../platform/auth.js'
 import { prisma, uid } from '../../../__tests__/helpers.js'
 import { MATRIX } from '../../../platform/rbac/matrix.js'
 import { seedPartnership } from '../../../../prisma/seed-partnership.js'
+import { seedCompliance } from '../../../../prisma/seed-compliance.js'
 import { MASTER_TEMPLATE } from '../template.js'
 
 /**
@@ -134,9 +135,17 @@ describe('Private Limited — post-registration compliance (INC-20A, ADTC)', () 
     expect((await api(`/api/post-registration-compliance/${inc.id}`, { method: 'PATCH', body: { trigger_label: 'x' } })).status).toBe(400)
 
     // Complete with a date; future dates refused; reopen keeps the row.
-    expect((await api(`/api/post-registration-compliance/${inc.id}/complete`, { method: 'POST', body: { completed_on: '2999-01-01' } })).status).toBe(400)
-    const done = await api(`/api/post-registration-compliance/${inc.id}/complete`, { method: 'POST', body: { completed_on: '2026-10-03' } })
-    expect(done.body.item).toMatchObject({ status: 'COMPLETED', completed_on: '2026-10-03', days_remaining: null })
+    expect((await api(`/api/post-registration-compliance/${inc.id}/complete`, { method: 'POST', body: { completed_on: '2999-01-01', srn: 'AB1234567' } })).status).toBe(400)
+    // INC-20A is a filing on the MCA portal: like Mark filed, it needs the SRN (or the challan / ack document).
+    const noSrn = await api(`/api/post-registration-compliance/${inc.id}/complete`, { method: 'POST', body: { completed_on: '2026-10-03' } })
+    expect(noSrn.status).toBe(400)
+    expect(noSrn.body.error.details).toHaveProperty('srn')
+    expect((await api(`/api/post-registration-compliance/${inc.id}/complete`, { method: 'POST', body: { completed_on: '2026-10-03', evidence_doc_id: 'nope' } })).status).toBe(400)
+    const done = await api(`/api/post-registration-compliance/${inc.id}/complete`, { method: 'POST', body: { completed_on: '2026-10-03', srn: 'ab1234567' } })
+    expect(done.body.item).toMatchObject({ status: 'COMPLETED', completed_on: '2026-10-03', days_remaining: null, srn: 'AB1234567' })
+    // The calendar's INC-20A item is filed with the SRN as its evidence.
+    expect(await prisma.complianceItem.findFirst({ where: { clientId: cl.id, formCode: 'INC_20A', deletedAt: null } }))
+      .toMatchObject({ status: 'filed', filedOn: '2026-10-03', evidenceRef: 'AB1234567' })
     l = await list()
     expect(l.summary.completed).toBe(1)
     expect((await list('&status=COMPLETED')).items.map((x: any) => x.code)).toEqual(['INC_20A'])
@@ -290,6 +299,7 @@ beforeAll(async () => {
   const org = await prisma.organisation.create({ data: { id: uid('org'), name: 'Firm' } })
   orgId = org.id
   await seedPartnership(prisma, org.id)
+  await seedCompliance(prisma)
   const role = await seedRole('md')
   const u = await prisma.user.create({ data: { id: uid('u'), organisationId: org.id, email: `${uid('e')}@x.local`, passwordHash: 'x', roleId: role.id } })
   cookie = `ao_access=${signToken(u.id)}`

@@ -213,6 +213,9 @@ function ComplianceRow({ item: i, canEdit }: { item: ComplianceItem; canEdit: bo
   const [doneOn, setDoneOn] = useState(todayIst());
   const [doneBy, setDoneBy] = useState('');
   const [doneNotes, setDoneNotes] = useState(i.notes ?? '');
+  const [doneSrn, setDoneSrn] = useState('');
+  // INC-20A is an MCA filing: completing it needs its SRN, as Mark filed does on the calendar.
+  const needsSrn = i.code === 'INC_20A';
   const save = useComplianceMutation(
     (v: Parameters<typeof postRegistrationApi.update>[1]) => postRegistrationApi.update(i.id, v),
     `${i.label} updated`,
@@ -294,7 +297,7 @@ function ComplianceRow({ item: i, canEdit }: { item: ComplianceItem; canEdit: bo
               onSubmit={(e) => {
                 e.preventDefault();
                 complete.mutate(
-                  { completed_on: doneOn, ...(doneBy ? { completed_by_employee_id: doneBy } : {}), notes: doneNotes.trim() || null },
+                  { completed_on: doneOn, ...(doneBy ? { completed_by_employee_id: doneBy } : {}), notes: doneNotes.trim() || null, ...(doneSrn.trim() ? { srn: doneSrn.trim() } : {}) },
                   { onSuccess: () => setCompleting(false) },
                 );
               }}
@@ -304,8 +307,11 @@ function ComplianceRow({ item: i, canEdit }: { item: ComplianceItem; canEdit: bo
                 <input type="date" className={input} value={doneOn} max={todayIst()} onChange={(e) => setDoneOn(e.target.value)} required />
               </Labelled>
               <Labelled label="Completed by"><EmployeeSelect value={doneBy} onChange={setDoneBy} placeholder="Me" className="h-8 text-13" /></Labelled>
+              <Labelled label={needsSrn ? 'SRN (required)' : 'SRN'}>
+                <input className={`${input} w-[160px] uppercase`} value={doneSrn} onChange={(e) => setDoneSrn(e.target.value)} maxLength={40} required={needsSrn} placeholder="e.g. AB1234567" />
+              </Labelled>
               <Labelled label="Notes" grow>
-                <input className={`${input} w-full`} value={doneNotes} onChange={(e) => setDoneNotes(e.target.value)} maxLength={2000} placeholder="e.g. SRN, filing reference" />
+                <input className={`${input} w-full`} value={doneNotes} onChange={(e) => setDoneNotes(e.target.value)} maxLength={2000} placeholder="Anything else about the filing" />
               </Labelled>
               <button type="submit" className={`${btn} border-neutral-900 bg-neutral-900 text-white`} disabled={complete.isPending}>Confirm completed</button>
               <button type="button" className={`${btn} border-neutral-300 bg-white`} onClick={() => setCompleting(false)}>Cancel</button>

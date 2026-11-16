@@ -335,7 +335,11 @@ async function applyPatch(item: ComplianceItem, b: Record<string, unknown>, orga
     data.evidenceRef = b.evidence_ref === null ? null : String(b.evidence_ref).trim().slice(0, 100) || null
   }
   if (b.evidence_doc_id !== undefined) {
-    data.evidenceDocId = b.evidence_doc_id === null ? null : String(b.evidence_doc_id).trim().slice(0, 100) || null
+    const docId = b.evidence_doc_id === null ? null : String(b.evidence_doc_id).trim().slice(0, 100) || null
+    // Must be a live document of this item's client — not any string.
+    if (docId && !(await prisma.clientDocument.findFirst({ where: { id: docId, clientId: item.clientId, deletedAt: null }, select: { id: true } }))) {
+      errors.evidence_doc_id = "Choose one of this client's documents."
+    } else data.evidenceDocId = docId
   }
   if (b.status !== undefined) {
     if (!ITEM_STATUSES.includes(b.status as never)) errors.status = `One of ${ITEM_STATUSES.join(', ')}.`

@@ -10,7 +10,8 @@
  *
  *   GET   /api/post-registration-compliance            list + summary (filters: kind, status, case_id)
  *   PATCH /api/post-registration-compliance/:id        trigger date / label / offset / assignee / notes
- *   POST  /api/post-registration-compliance/:id/complete   { completed_on, completed_by_employee_id?, notes? }
+ *   POST  /api/post-registration-compliance/:id/complete   { completed_on, completed_by_employee_id?, notes?, srn?, evidence_doc_id? }
+ *         INC-20A needs the SRN or the acknowledgement document, as Mark filed does.
  *   POST  /api/post-registration-compliance/:id/reopen
  *
  * The case screens, the LLP Dashboard, the Private Limited compliance tab and
@@ -63,6 +64,8 @@ export interface ComplianceRule {
   /** The trigger date starts as the Date of Incorporation (still editable). */
   prefillIncorporation: boolean
   reminder: ReminderRule
+  /** Completing needs evidence: the SRN or the acknowledgement document. */
+  evidenceRequired?: boolean
 }
 
 /**
@@ -84,6 +87,7 @@ export const POST_REG_RULES: ComplianceRule[] = [
     description: 'Declaration that subscribers have paid for their shares, before the company commences business.',
     offsetDays: 180, dueSoonDays: 30, triggerLabel: 'Date of Incorporation', fromIncorporation: true, prefillIncorporation: true,
     reminder: { everyDays: positiveInt(process.env.INC20A_REMINDER_EVERY_DAYS) ?? 20 },
+    evidenceRequired: true,
   },
   {
     code: 'ADTC', kind: 'PRIVATE_LIMITED', label: 'ADTC', title: 'ADTC — 30-day compliance',
@@ -289,6 +293,8 @@ function toApi(r: Row, now: string, p: People) {
     completed_on: r.completedOn,
     completed_by: byEmployee ?? (r.completedOn && r.completedBy ? { id: null, name: p.user(r.completedBy) ?? 'Unknown' } : null),
     notes: r.notes,
+    srn: r.evidenceRef,
+    evidence_doc_id: r.evidenceDocId,
     created_at: r.createdAt,
     updated_at: r.updatedAt,
   }
@@ -448,12 +454,35 @@ postRegistrationRouter.post('/:id/complete', handler(async (req, res) => {
   const notes = b.notes === undefined ? undefined : (e.str('notes', b.notes, { max: 2000, required: false }) ?? null)
   if (on && on > today()) e.add('completed_on', 'The completion date cannot be in the future.')
   if (on && r.triggerDate && on < r.triggerDate) e.add('completed_on', `The completion date is before the ${r.triggerLabel}.`)
+  // Evidence of the filing — the same gate as Mark filed on the calendar.
+  const srn = b.srn === undefined || b.srn === null || b.srn === ''
+    ? null : (e.str('srn', typeof b.srn === 'string' ? b.srn.trim().toUpperCase() : b.srn, { max: 40, required: false }) ?? null)
+  let docId: string | null = null
+  let badDoc = false
+  if (b.evidence_doc_id !== undefined && b.evidence_doc_id !== null && b.evidence_doc_id !== '') {
+    if (typeof b.evidence_doc_id !== 'string' || !(await prisma.clientDocument.findFirst({ where: { id: b.evidence_doc_id, clientId: r.clientId, deletedAt: null }, select: { id: true } }))) {
+      e.add('evidence_doc_id', 'Choose one of this client\'s documents.')
+      badDoc = true
+    } else docId = b.evidence_doc_id
+  }
+  if (RULE.get(r.code)?.evidenceRequired && !srn && !docId && !badDoc) {
+    e.add('srn', `Enter the SRN of the ${RULE.get(r.code)!.label} filing (or attach its acknowledgement) before marking it completed.`)
+  }
   e.throwIfAny()
   if (!on) throw ApiError.badRequest('Enter the completion date.', { completed_on: 'Enter the completion date.' })
-  const updated = await prisma.postRegistrationCompliance.update({ where: { id: r.id }, data: { completedOn: on, completedBy: session.userId, completedByEmployeeId: by ?? session.employeeId ?? null, ...(notes !== undefined ? { notes } : {}), updatedBy: session.userId }, include })
+  const updated = await prisma.postRegistrationCompliance.update({
+    where: { id: r.id },
+    data: {
+      completedOn: on, completedBy: session.userId, completedByEmployeeId: by ?? session.employeeId ?? null,
+      ...(notes !== undefined ? { notes } : {}),
+      ...(srn || docId ? { evidenceRef: srn, evidenceDocId: docId } : {}),
+      updatedBy: session.userId,
+    },
+    include,
+  })
   const name = RULE.get(r.code)?.label ?? r.code
-  await logActivity(r.caseId, session, 'compliance.completed', `${name} completed on ${on}${r.dueDate ? ` (due ${r.dueDate})` : ''}`)
-  await writeAudit({ actorUserId: session.userId, action: 'post_registration_compliance.complete', entityType: 'post_registration_compliance', entityId: r.id, before: { completedOn: r.completedOn }, after: { completedOn: on, completedByEmployeeId: updated.completedByEmployeeId }, req })
+  await logActivity(r.caseId, session, 'compliance.completed', `${name} completed on ${on}${r.dueDate ? ` (due ${r.dueDate})` : ''}${srn ? ` · SRN ${srn}` : ''}`)
+  await writeAudit({ actorUserId: session.userId, action: 'post_registration_compliance.complete', entityType: 'post_registration_compliance', entityId: r.id, before: { completedOn: r.completedOn }, after: { completedOn: on, completedByEmployeeId: updated.completedByEmployeeId, evidenceRef: updated.evidenceRef, evidenceDocId: updated.evidenceDocId }, req })
   await syncPrivateLimitedCompliance(prisma, { rowId: r.id })
   await respondItem(res, updated)
 }))
@@ -463,7 +492,7 @@ postRegistrationRouter.post('/:id/reopen', handler(async (req, res) => {
   const scope = requireWorkstation(session, ...MANAGE)
   const r = await loadRow(session, scope, req.params.id)
   if (!r.completedOn) throw ApiError.badRequest('This compliance is not completed.')
-  const updated = await prisma.postRegistrationCompliance.update({ where: { id: r.id }, data: { completedOn: null, completedBy: null, completedByEmployeeId: null, updatedBy: session.userId }, include })
+  const updated = await prisma.postRegistrationCompliance.update({ where: { id: r.id }, data: { completedOn: null, completedBy: null, completedByEmployeeId: null, evidenceRef: null, evidenceDocId: null, updatedBy: session.userId }, include })
   const name = RULE.get(r.code)?.label ?? r.code
   await logActivity(r.caseId, session, 'compliance.reopened', `${name} reopened (was completed on ${r.completedOn})`)
   await writeAudit({ actorUserId: session.userId, action: 'post_registration_compliance.reopen', entityType: 'post_registration_compliance', entityId: r.id, before: { completedOn: r.completedOn }, after: { completedOn: null }, req })

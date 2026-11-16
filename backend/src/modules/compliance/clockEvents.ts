@@ -116,7 +116,7 @@ export async function onPrivateLimitedIncorporated(prisma: PrismaClient, p: {
     where: { caseId: p.caseId, code: 'INC_20A' },
     select: {
       clientId: true, triggerDate: true, dueDate: true, completedOn: true,
-      completedBy: true, assignedEmployeeId: true, notes: true,
+      completedBy: true, assignedEmployeeId: true, notes: true, evidenceRef: true, evidenceDocId: true,
     },
   })
   if (!row) return { created: false, skipped: 'no_anchor' }
@@ -168,6 +168,8 @@ export async function onPrivateLimitedIncorporated(prisma: PrismaClient, p: {
       status: row.completedOn ? 'filed' : 'not_started',
       filedOn: row.completedOn,
       filedBy: row.completedBy,
+      evidenceRef: row.evidenceRef,
+      evidenceDocId: row.evidenceDocId,
       assignedEmployeeId: row.assignedEmployeeId,
       notes: row.notes,
     },
@@ -188,10 +190,9 @@ export async function onPrivateLimitedIncorporated(prisma: PrismaClient, p: {
  *   assignedEmployeeId       → assignedEmployeeId
  *   notes                    → notes
  *
- * Deliberately NOT mirrored: evidenceRef / evidenceDocId. Those live on the
- * unified engine; the partnership UI doesn't read or write them, and the
- * firm's "mark completed" on the old UI predates the evidence gate — the
- * seed-level migration captured whatever historical data existed.
+ *   evidenceRef / evidenceDocId → evidenceRef / evidenceDocId (the SRN or
+ *                             acknowledgement that post-registration
+ *                             "complete" now requires, like Mark filed)
  *
  * Idempotent: a re-run with the same PostRegistrationCompliance state leaves
  * ComplianceItem identical (Prisma update is a no-op when every value matches).
@@ -209,6 +210,7 @@ export async function syncPrivateLimitedCompliance(prisma: PrismaClient, p: {
     select: {
       code: true, clientId: true, triggerDate: true, dueDate: true,
       completedOn: true, completedBy: true, assignedEmployeeId: true, notes: true,
+      evidenceRef: true, evidenceDocId: true,
     },
   })
   if (!row || row.code !== 'INC_20A') return { created: false, skipped: 'no_anchor' }
@@ -261,6 +263,12 @@ export async function syncPrivateLimitedCompliance(prisma: PrismaClient, p: {
       status: row.completedOn ? 'filed' : (existing.status === 'filed' ? 'not_started' : existing.status),
       filedOn: row.completedOn,
       filedBy: row.completedBy,
+      // Reopened → the evidence goes with the completion. Completed with
+      // evidence → mirrored. Completed before evidence was recorded on the
+      // row (older data) → whatever the calendar item already holds stays.
+      ...(!row.completedOn
+        ? { evidenceRef: null, evidenceDocId: null }
+        : row.evidenceRef || row.evidenceDocId ? { evidenceRef: row.evidenceRef, evidenceDocId: row.evidenceDocId } : {}),
       assignedEmployeeId: row.assignedEmployeeId,
       notes: row.notes,
     },

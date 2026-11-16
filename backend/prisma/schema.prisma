@@ -8255,6 +8255,10 @@ model PostRegistrationCompliance {
   /// Staff responsible; defaults to the case's assigned employee.
   assignedEmployeeId    String?
   notes                 String?
+  /// Evidence of the filing, recorded on completion: the MCA SRN, and/or the
+  /// uploaded acknowledgement (ClientDocument.id). INC-20A needs one.
+  evidenceRef           String?
+  evidenceDocId         String?
 
   case PartnershipCase @relation(fields: [caseId], references: [id])
 
