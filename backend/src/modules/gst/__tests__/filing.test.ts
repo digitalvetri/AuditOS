@@ -1,4 +1,8 @@
-import { beforeAll, describe, expect, it } from 'vitest'
+import type { Server } from 'node:http'
+import { afterAll, beforeAll, describe, expect, it } from 'vitest'
+import { createApp } from '../../../app.js'
+import { signToken } from '../../../platform/auth.js'
+import { setupRoles } from '../../../../prisma/setup-roles.js'
 import { istToday } from '../../../lib/dates.js'
 import { prisma, uid } from '../../../__tests__/helpers.js'
 import { ensurePeriodJobs, generateGstFilingJobs, previousPeriod, refreshClientGst, syncGstEnrolment } from '../filing.js'
@@ -165,5 +169,36 @@ describe('ensurePeriodJobs / generateGstFilingJobs', () => {
     expect(r.filings).toBeGreaterThanOrEqual(2)
     const p = await prisma.gstProfile.findUniqueOrThrow({ where: { clientId: c.id } })
     expect(await prisma.gstFiling.count({ where: { gstProfileId: p.id, period: '2026-10' } })).toBe(2)
+  })
+})
+
+let server: Server
+let base = ''
+let cookie = ''
+export async function api(path: string, opts: { method?: string; body?: unknown } = {}) {
+  const r = await fetch(`${base}${path}`, { method: opts.method ?? 'GET', headers: { 'Content-Type': 'application/json', Cookie: cookie }, body: opts.body ? JSON.stringify(opts.body) : undefined })
+  const t = await r.text()
+  const j = t ? JSON.parse(t) : null
+  return { status: r.status, body: j && typeof j === 'object' && 'data' in j ? j.data : j }
+}
+beforeAll(async () => {
+  server = createApp().listen(0)
+  await new Promise((r) => server.once('listening', r))
+  const a = server.address()
+  base = `http://127.0.0.1:${typeof a === 'object' && a ? a.port : 0}`
+  await setupRoles(prisma, { force: true })
+  const role = await prisma.role.findUniqueOrThrow({ where: { code: 'md' } })
+  const u = await prisma.user.create({ data: { organisationId: orgId, email: `${uid('md')}@x.local`, passwordHash: 'x', roleId: role.id, employeeId: empId } })
+  cookie = `ao_access=${signToken(u.id)}`
+})
+afterAll(() => server?.close())
+
+describe('adding the GST Filing service through the API', () => {
+  it('enrols the client and opens last month at once', async () => {
+    const c = await gstClient({ withService: false })
+    const r = await api(`/api/clients/${c.id}/services`, { method: 'POST', body: { service_id: serviceId, assigned_employee_id: empId } })
+    expect(r.status).toBe(201)
+    const p = await prisma.gstProfile.findUniqueOrThrow({ where: { clientId: c.id } })
+    expect(await prisma.gstFiling.count({ where: { gstProfileId: p.id } })).toBe(2)
   })
 })

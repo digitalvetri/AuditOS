@@ -3,6 +3,7 @@ import { prisma, alive } from '../../lib/prisma.js'
 import { ApiError, handler, ok } from '../../lib/http.js'
 import { requireSession } from '../../platform/auth.js'
 import { writeAudit } from '../../platform/audit.js'
+import { refreshClientGst } from '../gst/filing.js'
 import { notifyEmployee } from '../../platform/notify.js'
 import { writeActivity } from '../../platform/workstation/activity.js'
 import {
@@ -121,6 +122,7 @@ servicesRouter.patch('/:id', handler(async (req, res) => {
     }
     return updated
   })
+  if (before.service.code === 'GST_FILING') await refreshClientGst(prisma, before.clientId, session.userId)
 
   if (nextStatus && nextStatus !== before.status) {
     await writeActivity({

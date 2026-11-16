@@ -1,5 +1,6 @@
 import { Router } from 'express'
 import { CIN_RE, LLPIN_RE } from '../gst/validate.js'
+import { refreshClientGst } from '../gst/filing.js'
 import { prisma, alive } from '../../lib/prisma.js'
 import { lockSequence, maxSuffix } from '../../lib/sequence.js'
 import { ApiError, handler, ok } from '../../lib/http.js'
@@ -382,6 +383,8 @@ clientsRouter.patch('/:id', handler(async (req, res) => {
     entityType: 'Client', entityId: client.id, before, after: client, req,
   })
 
+  if ('gstin' in b || 'status' in b) await refreshClientGst(prisma, req.params.id, session.userId)
+
   const m = await employeeMap([client.accountManagerId, client.secondaryManagerId])
   // POST-DELIVERY-CHANGES §B2 — only check for duplicates when the PATCH
   // actually touched contact_number (don't nag the firm about a pre-existing
@@ -473,6 +476,7 @@ clientsRouter.post('/:id/services', handler(async (req, res) => {
     },
     include: { service: true, client: true },
   })
+  if (service!.code === 'GST_FILING') await refreshClientGst(prisma, req.params.id, session.userId)
 
   await writeActivity({
     session, subjectType: 'client', subjectId: req.params.id,
