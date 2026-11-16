@@ -79,7 +79,7 @@ describe('a task assignee can open the task\'s client, read only', () => {
     await task(mine.id, me.emp.id)
     const r = await api(`/api/clients/${mine.id}`, me.cookie)
     expect(r.status).toBe(200)
-    expect(r.body.data.client.id).toBe(mine.id)
+    expect(r.body.data.id).toBe(mine.id)
     expect((await api(`/api/clients/${other.id}`, me.cookie)).status).toBe(403)
   })
 
