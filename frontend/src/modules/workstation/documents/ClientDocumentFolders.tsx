@@ -12,6 +12,7 @@ import { Button } from '@/components/Button';
 import { StatusSelect } from './StatusSelect';
 import { RequestButtons, SendRequestDialog, needsRequest, type RequestChannel, type RequestTarget } from './SendRequestDialog';
 import { useToast } from '@/components/Toast';
+import { DocumentRowActions, RecentlyDeletedButton } from './DocumentActions';
 import { fmtDate, fmtTime, inr } from '@/lib/format';
 
 /**
@@ -157,6 +158,7 @@ export function ClientDocumentFolders({
           onRoot={() => setOpenKey(null)}
         />
         <div className="ml-auto flex items-center gap-3">
+          <RecentlyDeletedButton clientId={clientId} canManage={actions.canManage} />
           {(() => {
             const f = openKey ? query.data?.folders.find((x) => x.key === openKey) : null;
             return f?.can_upload ? (
@@ -244,13 +246,13 @@ export function ClientDocumentFolders({
               f.items.filter((i) => matches(i, needle)).map((i) => ({ folder: f, item: i })));
             return hits.length === 0
               ? <Empty>No documents match “{q.trim()}”.</Empty>
-              : <ItemTable rows={hits} showFolder onOpen={open} actions={actions} onRequest={askClient} selection={{ isSelected, toggle, setMany }} />;
+              : <ItemTable clientId={clientId} rows={hits} showFolder onOpen={open} actions={actions} onRequest={askClient} selection={{ isSelected, toggle, setMany }} />;
           }
           const folder = openKey ? data.folders.find((f) => f.key === openKey) : null;
           if (folder) {
             return folder.items.length === 0
               ? <Empty>No documents in {folder.label} yet.</Empty>
-              : <ItemTable rows={folder.items.map((i) => ({ folder, item: i }))} onOpen={open} actions={actions} onRequest={askClient} selection={{ isSelected, toggle, setMany }} />;
+              : <ItemTable clientId={clientId} rows={folder.items.map((i) => ({ folder, item: i }))} onOpen={open} actions={actions} onRequest={askClient} selection={{ isSelected, toggle, setMany }} />;
           }
           return (
             <FolderGrid
@@ -387,8 +389,9 @@ interface Selection {
 const mergeable = (i: ClientFolderItem) => i.openable === 'pdf' || i.openable === 'file';
 
 function ItemTable({
-  rows, showFolder = false, onOpen, actions, onRequest, selection,
+  clientId, rows, showFolder = false, onOpen, actions, onRequest, selection,
 }: {
+  clientId: string;
   rows: { folder: ClientFolder; item: ClientFolderItem }[];
   showFolder?: boolean;
   onOpen: (item: ClientFolderItem) => void;
@@ -483,6 +486,12 @@ function ItemTable({
               {item.document_id && actions.canManage && needsRequest(item.status, item.openable !== 'file') ? (
                 <RequestButtons onPick={(ch) => onRequest(item, ch)} />
               ) : null}
+              {item.document_id && item.visible_to_client !== undefined ? (
+                <ShareToggle documentId={item.document_id} shared={item.visible_to_client} canManage={actions.canManage} />
+              ) : null}
+              {item.document_id && actions.canManage && !item.stored_for ? (
+                <DocumentRowActions clientId={clientId} documentId={item.document_id} title={item.title} />
+              ) : null}
             </div>
           </Cell>
         </Row>
@@ -531,6 +540,41 @@ function FolderUploadButton({
         }}
       />
     </>
+  );
+}
+
+/**
+ * Does the client's portal link show this file? Requests and what the client
+ * sent are shared by default; a staff upload stays internal until shared.
+ */
+function ShareToggle({ documentId, shared, canManage }: { documentId: string; shared: boolean; canManage: boolean }) {
+  const toast = useToast();
+  const qc = useQueryClient();
+  const [busy, setBusy] = useState(false);
+  const label = shared ? 'Shared with client' : 'Internal';
+  if (!canManage) return <span className={`text-12 ${shared ? 'text-success' : 'text-neutral-500'}`}>{label}</span>;
+  async function flip() {
+    setBusy(true);
+    try {
+      await workstationApi.updateDocument(documentId, { visible_to_client: !shared });
+      toast.push('success', shared ? 'Hidden from the client’s document link.' : 'Shared on the client’s document link.');
+      void qc.invalidateQueries({ queryKey: ['workstation', 'client'] });
+    } catch (e) {
+      toast.push('error', (e as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  }
+  return (
+    <button
+      type="button"
+      disabled={busy}
+      onClick={() => void flip()}
+      title={shared ? 'The client sees this on their document link. Click to hide it.' : 'Only the firm sees this. Click to show it on the client’s document link.'}
+      className={`text-12 underline disabled:opacity-50 ${shared ? 'text-success hover:opacity-80' : 'text-neutral-500 hover:text-neutral-900'}`}
+    >
+      {label}
+    </button>
   );
 }
 

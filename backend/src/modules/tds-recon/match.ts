@@ -9,7 +9,12 @@
  *     nearest date → matched (schema: verified).
  *  3. Leftovers within the same key are paired by the closest TDS amount →
  *     difference (schema: variance), with the fields that differ.
- *  4. Anything still unpaired is in 26AS only / in books only.
+ *  4. Unpaired lines of one TAN whose sections are the same family (194J in
+ *     a Tally register, 194JA / 194JB in 26AS) and whose TDS and amount agree
+ *     are paired → matched, with "section" as the field that differs (flag
+ *     section_differs). This runs after the exact passes, so it never takes
+ *     a line that matched on its own section.
+ *  5. Anything still unpaired is in 26AS only / in books only.
  */
 export interface MatchEntry {
   id: string
@@ -35,7 +40,7 @@ export interface MatchRow {
   a26Id: string | null
   booksId: string | null
   mismatchFields: string[]
-  matchMethod: 'exact' | 'window' | 'section' | null
+  matchMethod: 'exact' | 'window' | 'section' | 'section_family' | null
   deductorKey: string
   flags: string[]
 }
@@ -56,7 +61,51 @@ function rowFlags(a: MatchEntry | null): string[] {
   return f
 }
 
+/**
+ * Sections that are one family for pairing. 194J was split into 194J(a) /
+ * 194J(b) — 194JA / 194JB in 26AS — while books often still say 194J. Only
+ * this family: 194IA (property purchase) and 194IB (rent by individuals) are
+ * different sections from 194I, not variants of it.
+ */
+const SECTION_FAMILY: Record<string, string> = { '194J': '194J', '194JA': '194J', '194JB': '194J' }
+const familyOf = (section: string) => SECTION_FAMILY[section.toUpperCase().replace(/[^0-9A-Z]/g, '')] ?? null
+
 export function matchTds(a26: MatchEntry[], books: MatchEntry[], tolerancePaise = 100n): MatchRow[] {
+  return pairSectionFamilies(matchExact(a26, books, tolerancePaise), a26, books, tolerancePaise)
+}
+
+/** Pass 4: turn an only-26AS + only-books pair of one TAN and section family, with equal amounts, into a match. */
+function pairSectionFamilies(rows: MatchRow[], a26: MatchEntry[], books: MatchEntry[], tolerancePaise: bigint): MatchRow[] {
+  const aById = new Map(a26.map((a) => [a.id, a]))
+  const bById = new Map(books.map((b) => [b.id, b]))
+  const onlyBooks = rows.filter((r) => r.matchStatus === 'only_books' && familyOf(bById.get(r.booksId!)!.section))
+  if (!onlyBooks.length) return rows
+  const used = new Set<MatchRow>()
+  const out: MatchRow[] = []
+  for (const r of rows) {
+    if (r.matchStatus !== 'only_26as') { out.push(r); continue }
+    const a = aById.get(r.a26Id!)!
+    const fam = familyOf(a.section)
+    const hit = fam && onlyBooks.find((x) => {
+      if (used.has(x)) return false
+      const b = bById.get(x.booksId!)!
+      return x.deductorKey === r.deductorKey && familyOf(b.section) === fam && b.section !== a.section
+        && abs(b.tds - a.tds) <= tolerancePaise && abs(b.amountPaid - a.amountPaid) <= tolerancePaise
+    })
+    if (!hit) { out.push(r); continue }
+    used.add(hit)
+    const b = bById.get(hit.booksId!)!
+    out.push({
+      matchStatus: 'verified', a26Id: a.id, booksId: b.id,
+      mismatchFields: ['section', ...(b.quarter && a.quarter && b.quarter !== a.quarter ? ['quarter'] : [])],
+      matchMethod: 'section_family', deductorKey: r.deductorKey,
+      flags: [...r.flags, ...hit.flags, 'section_differs'],
+    })
+  }
+  return out.filter((r) => !used.has(r))
+}
+
+function matchExact(a26: MatchEntry[], books: MatchEntry[], tolerancePaise: bigint): MatchRow[] {
   const tanByName = new Map<string, string>()
   for (const a of a26) if (a.tan && a.name) tanByName.set(normName(a.name), a.tan)
   const bookKeyed = books.map((b) => {

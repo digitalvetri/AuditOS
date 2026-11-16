@@ -22,6 +22,7 @@ import type {
 } from '@prisma/client'
 import { prisma } from '../lib/prisma.js'
 import { toNum } from '../lib/money.js'
+import { isVisibleToClient } from '../platform/workstation/clientVisibility.js'
 
 const iso = (d: Date | null | undefined): string | null => (d ? d.toISOString() : null)
 const isoReq = (d: Date): string => d.toISOString()
@@ -297,6 +298,9 @@ export function clientDocumentToApi(
     rejection_reason: d.rejectionReason,
     expiry_date: d.expiryDate,
     source_request_id: d.sourceRequestId,
+    // What the client's portal link shows (platform/workstation/clientVisibility.ts).
+    visible_to_client: isVisibleToClient(d),
+    visible_to_client_set: d.visibleToClient !== null,
     versions: (d.versions ?? []).map((v) => documentVersionToApi(v, m)),
     ...auditable(d),
   }

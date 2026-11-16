@@ -22,6 +22,7 @@ import { prisma } from '../../lib/prisma.js'
 import { lockSequence } from '../../lib/sequence.js'
 import type { Session } from '../../platform/auth.js'
 import { KINDS, PFR_DOC_CATEGORY_CODE, type RegistrationKind } from './constants.js'
+import { activateIfOnboarding } from '../workstation/clients.shared.js'
 
 type Tx = Prisma.TransactionClient
 
@@ -152,7 +153,7 @@ export async function openCase(session: Session, kind: RegistrationKind, input: 
       ? await (async () => {
           const service = await tx.service.findUnique({ where: { code: cfg.serviceCode } })
           if (!service) throw new Error(`${cfg.label} service is not seeded.`)
-          return tx.clientService.create({
+          const enrolled = await tx.clientService.create({
             data: {
               clientId: input.clientId,
               serviceId: service.id,
@@ -163,6 +164,9 @@ export async function openCase(session: Session, kind: RegistrationKind, input: 
               createdBy: session.userId,
             },
           })
+          // The first engagement ends onboarding.
+          await activateIfOnboarding(tx, input.clientId, session.userId)
+          return enrolled
         })()
       : null
 

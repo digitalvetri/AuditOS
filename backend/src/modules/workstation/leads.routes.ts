@@ -10,6 +10,7 @@ import {
   assertCanSeeLead, leadScopeWhere, requireWorkstation,
 } from '../../platform/workstation/scope.js'
 import { activityToApi, clientToApi, employeeMap, leadToApi } from '../../api/workstation.serialize.js'
+import { gstinPanMismatch } from './clients.shared.js'
 import { assertLeadTransition, body, FieldErrors, LEAD_STATUSES, LEAD_TYPES } from './validate.js'
 import { seesAllClients } from '../../platform/workstation/scope.js'
 import { deriveShortName } from '../../platform/workstation/organization.js'
@@ -45,7 +46,7 @@ leadsRouter.get('/', handler(async (req, res) => {
     ...(status ? { status } : {}),
     ...(serviceId ? { serviceId } : {}),
     ...(employeeId ? { assignedEmployeeId: employeeId } : {}),
-    ...(q ? { OR: [{ name: { contains: q } }, { leadCode: { contains: q } }, { contactNumber: { contains: q } }] } : {}),
+    ...(q ? { OR: [{ name: { contains: q, mode: 'insensitive' as const } }, { leadCode: { contains: q, mode: 'insensitive' as const } }, { contactNumber: { contains: q } }] } : {}),
   }
 
   const rows = await prisma.lead.findMany({ where, include: leadInclude, orderBy: { createdAt: 'desc' } })
@@ -198,6 +199,15 @@ leadsRouter.patch('/:id', handler(async (req, res) => {
 
   const nextStatus = 'status' in b ? v.oneOf('status', b.status, LEAD_STATUSES) : undefined
   v.throwIfAny()
+  // A lead handed to nobody vanishes from every list but view-all staff's;
+  // an unknown service is a foreign-key error.
+  if (typeof data.assignedEmployeeId === 'string' && !(await prisma.employee.findFirst({ where: { id: data.assignedEmployeeId, ...alive } }))) {
+    v.add('assigned_employee_id', 'Select a valid employee.')
+  }
+  if (typeof data.serviceId === 'string' && !(await prisma.service.findFirst({ where: { id: data.serviceId, ...alive } }))) {
+    v.add('service_id', 'Select a valid service.')
+  }
+  v.throwIfAny()
 
   if (nextStatus && nextStatus !== before.status) {
     // A won lead is closed by conversion, not by editing it back open.
@@ -262,12 +272,21 @@ leadsRouter.post('/:id/convert', handler(async (req, res) => {
   const dueDate = v.date('due_date', b.due_date, false)
   const shortName = v.str('short_name', b.short_name, { required: false, max: 20 })
   const secondaryManagerId = v.str('secondary_manager_id', b.secondary_manager_id, { required: false })
+  const panClash = gstinPanMismatch(gstin, pan)
+  if (panClash) v.add('gstin', panClash)
   if (secondaryManagerId && secondaryManagerId === accountManagerId) {
     v.add('secondary_manager_id', 'Choose a different person from the account manager.')
   }
   // Staff who see only their assigned clients must stay on the new client.
   if (!seesAllClients(session) && session.employeeId && ![accountManagerId, secondaryManagerId].includes(session.employeeId)) {
     v.add('account_manager_id', 'Assign yourself as account manager or second staff, or the new client will not be visible to you.')
+  }
+  v.throwIfAny()
+  // The same check as POST /api/clients: a client handed to nobody is seen by
+  // nobody but view-all staff, and nobody is told about it.
+  if (!(await prisma.employee.findFirst({ where: { id: accountManagerId!, ...alive } }))) v.add('account_manager_id', 'Select a valid employee.')
+  if (secondaryManagerId && !(await prisma.employee.findFirst({ where: { id: secondaryManagerId, ...alive } }))) {
+    v.add('secondary_manager_id', 'Select a valid employee.')
   }
   v.throwIfAny()
 
@@ -307,7 +326,9 @@ leadsRouter.post('/:id/convert', handler(async (req, res) => {
         pan: pan ?? null,
         accountManagerId: accountManagerId!,
         secondaryManagerId: secondaryManagerId ?? null,
-        status: 'onboarding',
+        // Arrives with its first engagement (the lead's service, below), so
+        // it is active from the start — see clients.shared.ts activateIfOnboarding.
+        status: 'active',
         onboardingDate: today,
         sourceLeadId: lead.id,
         isOrganization,

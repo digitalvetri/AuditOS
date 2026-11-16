@@ -75,13 +75,18 @@ export function UdinRegisterPage() {
       {miss.length > 0 ? (
         <section className="dash-card p-5 mb-5">
           <h2 className="text-15 font-semibold text-neutral-900 flex items-center gap-2 mb-1"><AlertTriangle size={16} className="text-warning" /> Signed files missing a UDIN</h2>
-          <p className="text-12 text-neutral-500 mb-3">A UDIN should be generated for every report signed; record it against the file.</p>
+          <p className="text-12 text-neutral-500 mb-3">ICAI requires a UDIN at signing or within 60 days of it; record it against the file.</p>
           <ul className="divide-y divide-neutral-100">
             {miss.map((m) => (
               <li key={m.id} className="py-2 flex items-center gap-3 flex-wrap text-13">
                 <Link to={`/workstation/audits/${m.id}`} className="font-semibold text-neutral-900 hover:underline">{m.audit_code}</Link>
                 <span className="text-neutral-700 min-w-0 flex-1 truncate">{m.client?.company_name ?? '—'} · {auditTypeLabel(m.audit_type)} · FY {m.financial_year}</span>
                 <span className="text-neutral-500 whitespace-nowrap">Signed {fmtDay(m.report_date)}{m.signing_partner_name ? ` · ${m.signing_partner_name}` : ''}</span>
+                {m.udin_days_left !== undefined ? (
+                  <span className={`whitespace-nowrap ${m.udin_days_left < 0 ? 'text-danger font-medium' : m.udin_days_left <= 7 ? 'text-warning' : 'text-neutral-500'}`}>
+                    {m.udin_days_left < 0 ? `${-m.udin_days_left} days past the 60-day limit` : `Due by ${fmtDay(m.udin_due_by ?? null)} · ${m.udin_days_left} days left`}
+                  </span>
+                ) : null}
                 {me.canManage ? <button type="button" className={linkBtn} onClick={() => setAdding(m)}>Record UDIN</button> : null}
               </li>
             ))}
@@ -111,7 +116,10 @@ export function UdinRegisterPage() {
                   <TD muted nowrap>{fmtDay(u.document_date)}</TD>
                   <TD muted>{u.client_name ?? '—'}</TD>
                   <TD muted nowrap>{u.partner_name ?? '—'}{u.membership_no ? <div className="text-11 text-neutral-500">M.No. {u.membership_no}</div> : null}</TD>
-                  <TD muted nowrap>{fmtDay(u.generated_on)}</TD>
+                  <TD muted nowrap>
+                    {fmtDay(u.generated_on)}
+                    {u.late ? <div className="text-11 text-danger" title="Generated more than 60 days after signing (ICAI limit)">Late · {u.days_after_signing} days</div> : null}
+                  </TD>
                   <TD nowrap>{u.revoked_at ? <span title={u.revoked_reason ?? undefined}><Chip value="revoked" text="Revoked" /></span> : <Chip value="active" text="Active" />}</TD>
                   <TD last right>
                     {!u.revoked_at && me.canManage ? <button type="button" className={linkBtn} onClick={() => setRevoking(u)}>Revoke</button> : null}

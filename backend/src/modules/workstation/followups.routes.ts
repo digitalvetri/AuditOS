@@ -11,6 +11,9 @@ import {
 import { employeeMap, followUpToApi } from '../../api/workstation.serialize.js'
 import { body, FieldErrors, FOLLOWUP_STATUSES, FOLLOWUP_TYPES } from './validate.js'
 import { clientAndMembers, FOLLOW_UP_CLIENT } from '../../platform/workstation/organization.js'
+import { MAX_REMINDER_MINUTES } from './followupReminders.js'
+import type { Session } from '../../platform/auth.js'
+import type { Scope } from '../../platform/rbac/matrix.js'
 
 /**
  * FOLLOW-UPS (AUDIT_OS_WORKSTATION.md §7.5).
@@ -22,6 +25,37 @@ import { clientAndMembers, FOLLOW_UP_CLIENT } from '../../platform/workstation/o
 export const followUpsRouter = Router()
 
 const include = { lead: { include: { service: true } }, client: FOLLOW_UP_CLIENT } as const
+
+/** Minutes before the follow-up to ring the bell: null (none) or 0–10080 (a week). */
+function readReminder(v: FieldErrors, value: unknown): number | null | undefined {
+  if (value === undefined) return undefined
+  if (value === null || value === '') return null
+  const n = Number(value)
+  if (!Number.isInteger(n) || n < 0 || n > MAX_REMINDER_MINUTES) {
+    v.add('reminder_minutes_before', `Reminder must be 0 to ${MAX_REMINDER_MINUTES} minutes before (a week).`)
+    return undefined
+  }
+  return n
+}
+
+/**
+ * May the caller act on this follow-up? Anyone who sees its lead or client —
+ * or the person it is assigned to, who may not be on that client (a partner
+ * hands a colleague one call). The assignee may update and complete it, not
+ * hand it on (`reassigning` is refused for them).
+ */
+async function assertCanActOn(
+  session: Session, scope: Scope,
+  f: { leadId: string | null; clientId: string | null; assignedEmployeeId: string },
+  reassigning = false,
+): Promise<void> {
+  try {
+    if (f.leadId) await assertCanSeeLead(session, scope, f.leadId)
+    if (f.clientId) await assertCanSeeClient(session, scope, f.clientId)
+  } catch (e) {
+    if (reassigning || !session.employeeId || f.assignedEmployeeId !== session.employeeId) throw e
+  }
+}
 
 // GET /api/follow-ups
 followUpsRouter.get('/', handler(async (req, res) => {
@@ -45,7 +79,8 @@ followUpsRouter.get('/', handler(async (req, res) => {
     : range === 'upcoming' ? { scheduledAt: { gte: dayEnd } }
     // Overdue means "past and still open" — a completed follow-up from last
     // week is history, not a task.
-    : range === 'overdue' ? { scheduledAt: { lt: now }, status: 'pending' }
+    // Missed (its day is over) is still overdue work.
+    : range === 'overdue' ? { scheduledAt: { lt: now }, status: { in: ['pending', 'missed'] } }
     : {}
 
   const rows = await prisma.followUp.findMany({
@@ -82,6 +117,7 @@ followUpsRouter.post('/', handler(async (req, res) => {
   const notes = v.str('notes', b.notes, { required: false, max: 2000 })
   const leadId = v.str('lead_id', b.lead_id, { required: false })
   const clientId = v.str('client_id', b.client_id, { required: false })
+  const reminder = readReminder(v, b.reminder_minutes_before)
 
   // The XOR (§3). Both or neither is a client bug, reported as a field error.
   if (!leadId && !clientId) {
@@ -91,6 +127,9 @@ followUpsRouter.post('/', handler(async (req, res) => {
   }
   v.throwIfAny()
 
+  if (!(await prisma.employee.findFirst({ where: { id: assignedEmployeeId!, ...alive }, select: { id: true } }))) {
+    throw ApiError.badRequest('Select a valid employee.', { assigned_employee_id: 'Select a valid employee.' })
+  }
   // Whichever side it hangs off, the caller must be able to see it.
   if (leadId) await assertCanSeeLead(session, scope, leadId)
   if (clientId) await assertCanSeeClient(session, scope, clientId)
@@ -106,7 +145,7 @@ followUpsRouter.post('/', handler(async (req, res) => {
       assignedEmployeeId: assignedEmployeeId!,
       status: 'pending',
       notes: notes ?? null,
-      reminderMinutesBefore: typeof b.reminder_minutes_before === 'number' ? b.reminder_minutes_before : 30,
+      reminderMinutesBefore: reminder === undefined ? 30 : reminder,
       createdBy: session.userId,
       updatedBy: session.userId,
     },
@@ -158,11 +197,12 @@ followUpsRouter.patch('/:id', handler(async (req, res) => {
 
   const before = await prisma.followUp.findFirst({ where: { id: req.params.id, ...alive }, include })
   if (!before) throw ApiError.notFound('Follow-up not found.')
-  if (before.leadId) await assertCanSeeLead(session, scope, before.leadId)
-  if (before.clientId) await assertCanSeeClient(session, scope, before.clientId)
+  const reassigning = 'assigned_employee_id' in b && b.assigned_employee_id !== before.assignedEmployeeId
+  await assertCanActOn(session, scope, before, reassigning)
 
   const v = new FieldErrors()
   const data: Record<string, unknown> = {}
+  if ('reminder_minutes_before' in b) data.reminderMinutesBefore = readReminder(v, b.reminder_minutes_before)
   if ('title' in b) data.title = v.str('title', b.title, { max: 200 })
   if ('type' in b) data.type = v.oneOf('type', b.type, FOLLOWUP_TYPES)
   if ('scheduled_at' in b) data.scheduledAt = v.datetime('scheduled_at', b.scheduled_at)
@@ -170,7 +210,16 @@ followUpsRouter.patch('/:id', handler(async (req, res) => {
   if ('status' in b) data.status = v.oneOf('status', b.status, FOLLOWUP_STATUSES)
   if ('notes' in b) data.notes = v.str('notes', b.notes, { required: false, max: 2000 }) ?? null
   v.throwIfAny()
+  if (typeof data.assignedEmployeeId === 'string' && !(await prisma.employee.findFirst({ where: { id: data.assignedEmployeeId, ...alive }, select: { id: true } }))) {
+    throw ApiError.badRequest('Select a valid employee.', { assigned_employee_id: 'Select a valid employee.' })
+  }
   data.updatedBy = session.userId
+
+  // Rescheduling a missed follow-up into the future makes it pending again,
+  // so it reminds and shows as upcoming instead of staying "missed".
+  if (before.status === 'missed' && !('status' in b) && data.scheduledAt instanceof Date && data.scheduledAt.getTime() > Date.now()) {
+    data.status = 'pending'
+  }
 
   // A status change keeps the completion stamp honest: set when a follow-up
   // becomes completed, cleared when it is moved back out of completed.
@@ -214,8 +263,7 @@ followUpsRouter.post('/:id/complete', handler(async (req, res) => {
 
   const before = await prisma.followUp.findFirst({ where: { id: req.params.id, ...alive }, include })
   if (!before) throw ApiError.notFound('Follow-up not found.')
-  if (before.leadId) await assertCanSeeLead(session, scope, before.leadId)
-  if (before.clientId) await assertCanSeeClient(session, scope, before.clientId)
+  await assertCanActOn(session, scope, before)
   if (before.status === 'completed') {
     throw ApiError.conflict('already_completed', 'This follow-up is already marked completed.')
   }

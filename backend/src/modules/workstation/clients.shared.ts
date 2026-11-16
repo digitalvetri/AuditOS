@@ -1,4 +1,4 @@
-import type { Prisma } from '@prisma/client'
+import type { Prisma, PrismaClient } from '@prisma/client'
 import { CIN_RE, LLPIN_RE } from '../gst/validate.js'
 import { alive, prisma } from '../../lib/prisma.js'
 import type { Session } from '../../platform/auth.js'
@@ -9,6 +9,10 @@ import { assignedClientIds, clientIdWhere } from '../../platform/workstation/sco
 import { ORGANIZATION_REF } from '../../api/workstation.serialize.js'
 import { TAN_RE } from '../gst/validate.js'
 import { FieldErrors } from './validate.js'
+import { istToday } from '../../lib/dates.js'
+import { lockSequence } from '../../lib/sequence.js'
+import { stringifyJson } from '../../lib/json.js'
+import { AUDIT_CHAIN_LOCK, auditHash, type AuditHashInput } from '../../platform/audit.js'
 
 /**
  * The pieces of "make a client" and "list clients" that more than one route
@@ -82,6 +86,10 @@ export function readClientFields(v: FieldErrors, b: Record<string, unknown>): Cl
     }
   }
   const onboardingDate = v.date('onboarding_date', b.onboarding_date, false)
+  if (gstin && pan) {
+    const msg = gstinPanMismatch(gstin, pan)
+    if (msg) v.add('gstin', msg)
+  }
 
   return {
     companyName: companyName ?? '',
@@ -174,25 +182,51 @@ export async function findDuplicatePhoneClients(
   session: Session,
   phone: string | null | undefined,
   excludeId?: string,
-): Promise<{ visible: Array<{ id: string; client_code: string; company_name: string }>; hidden: number }> {
+): Promise<DuplicateClients> {
   if (!phone) return { visible: [], hidden: 0 }
+  return findDuplicateClients(session, { contactNumber: phone }, excludeId)
+}
+
+/**
+ * GSTIN collision scan: a GSTIN belongs to one taxpayer, so a second client
+ * with it is almost always a duplicate (two GST filing jobs, two sets of
+ * invoices). Warned, not blocked — a branch kept as its own client is a
+ * legitimate exception — and scoped exactly like the phone warning.
+ */
+export async function findDuplicateGstinClients(
+  session: Session,
+  gstin: string | null | undefined,
+  excludeId?: string,
+): Promise<DuplicateClients> {
+  if (!gstin) return { visible: [], hidden: 0 }
+  return findDuplicateClients(session, { gstin }, excludeId)
+}
+
+export interface DuplicateClients {
+  visible: Array<{ id: string; client_code: string; company_name: string }>
+  hidden: number
+}
+
+async function findDuplicateClients(
+  session: Session,
+  match: Prisma.ClientWhereInput,
+  excludeId?: string,
+): Promise<DuplicateClients> {
   const where: Prisma.ClientWhereInput = {
-    contactNumber: phone,
+    ...match,
     deletedAt: null,
     ...(excludeId ? { id: { not: excludeId } } : {}),
   }
   // Only clients the caller may see are named. Staff who see only their
-  // assigned clients are told how many OTHER clients share the number, never
-  // which — the warning must not become a way to discover unseen clients.
+  // assigned clients are told how many OTHER clients match, never which —
+  // the warning must not become a way to discover unseen clients.
   const ids = await assignedClientIds(session, 'organisation')
   const visibleWhere: Prisma.ClientWhereInput = ids === 'ALL' ? where : { AND: [where, { id: { in: ids } }] }
   const [matches, total] = await Promise.all([
     prisma.client.findMany({
       where: visibleWhere,
       select: { id: true, clientCode: true, companyName: true },
-      // Cap defensively — a number shared across dozens of rows is almost
-      // always a data-entry mistake and the warning only needs a nudge, not
-      // a full list.
+      // Cap defensively — the warning only needs a nudge, not a full list.
       take: 5,
     }),
     prisma.client.count({ where }),
@@ -202,6 +236,103 @@ export async function findDuplicatePhoneClients(
     visible: matches.map((c) => ({ id: c.id, client_code: c.clientCode, company_name: c.companyName })),
     hidden: total - visibleCount,
   }
+}
+
+/**
+ * Characters 3–12 of a GSTIN are the holder's PAN. Null when they agree (or
+ * either is missing); otherwise the message for the `gstin` field.
+ */
+export function gstinPanMismatch(gstin: string | null | undefined, pan: string | null | undefined): string | null {
+  if (!gstin || !pan) return null
+  const embedded = gstin.slice(2, 12).toUpperCase()
+  return embedded === pan.toUpperCase()
+    ? null
+    : `This GSTIN belongs to PAN ${embedded}, but the PAN entered is ${pan.toUpperCase()}. Correct whichever is wrong.`
+}
+
+// ── Lifecycle ───────────────────────────────────────────────────────────────
+
+/**
+ * A client is `onboarding` until the firm takes on its first piece of work:
+ * assigning a service moves it to `active` (so "Active clients" counts it).
+ * Only `onboarding` moves — a client set to another status by hand keeps it.
+ * Returns true when it changed.
+ */
+export async function activateIfOnboarding(tx: Prisma.TransactionClient, clientId: string, userId: string | null): Promise<boolean> {
+  const r = await tx.client.updateMany({ where: { id: clientId, status: 'onboarding' }, data: { status: 'active', updatedBy: userId } })
+  return r.count > 0
+}
+
+/**
+ * One-time deploy correction (run from seed): before activateIfOnboarding
+ * existed nothing moved a client out of `onboarding`, so clients that already
+ * have a service are moved to `active` once. Marked by its audit row, so a
+ * client deliberately set back to onboarding later is never touched again.
+ * Returns how many clients moved (0 when already done).
+ */
+export const ONBOARDING_BACKFILL_ACTION = 'client.onboarding_backfill'
+export async function backfillOnboardingWithServices(db: PrismaClient): Promise<number> {
+  return db.$transaction(async (tx) => {
+    await lockSequence(tx, AUDIT_CHAIN_LOCK)
+    if (await tx.auditLog.findFirst({ where: { action: ONBOARDING_BACKFILL_ACTION }, select: { id: true } })) return 0
+    const rows = await tx.client.findMany({
+      where: { status: 'onboarding', deletedAt: null, services: { some: { deletedAt: null } } }, select: { id: true },
+    })
+    const ids = rows.map((r) => r.id)
+    if (ids.length) await tx.client.updateMany({ where: { id: { in: ids } }, data: { status: 'active' } })
+    const content: AuditHashInput = {
+      actorUserId: null, action: ONBOARDING_BACKFILL_ACTION, entityType: 'Client', entityId: 'all',
+      beforeJson: null, afterJson: stringifyJson({ moved_to_active: ids.length, client_ids: ids }), ip: null, createdAt: new Date(),
+    }
+    const last = await tx.auditLog.findFirst({ where: { hash: { not: null } }, orderBy: { seq: 'desc' }, select: { hash: true } })
+    const prevHash = last?.hash ?? null
+    await tx.auditLog.create({ data: { ...content, prevHash, hash: auditHash(prevHash, content) } })
+    return ids.length
+  }, { maxWait: 15_000, timeout: 30_000 })
+}
+
+/**
+ * The client master's contact fields ARE the primary contact: keep the
+ * primary ClientContact row in step (create it if a legacy client has none),
+ * so the header's tel:/mailto: never reach the old person or number.
+ */
+export async function syncPrimaryContact(
+  tx: Prisma.TransactionClient,
+  client: { id: string; contactPerson: string; contactNumber: string; email: string | null },
+  userId: string | null,
+): Promise<void> {
+  const primary = await tx.clientContact.findFirst({ where: { clientId: client.id, isPrimary: true, deletedAt: null }, orderBy: { createdAt: 'asc' } })
+  const data = { name: client.contactPerson, phone: client.contactNumber, email: client.email }
+  if (!primary) {
+    await tx.clientContact.create({ data: { clientId: client.id, ...data, designation: 'Primary contact', isPrimary: true, createdBy: userId } })
+  } else if (primary.name !== data.name || primary.phone !== data.phone || primary.email !== data.email) {
+    await tx.clientContact.update({ where: { id: primary.id }, data: { ...data, updatedBy: userId } })
+  }
+}
+
+// ── Exit date ───────────────────────────────────────────────────────────────
+
+/**
+ * The exit-date half of a status change. The exit date is the day the firm
+ * stopped acting, and the retention period (data-protection/retention.ts)
+ * runs from it, so every path that changes a client's status goes through
+ * here:
+ *  - leaving `inactive` clears the exit date and reason, so a stale date can
+ *    never come back with the next exit;
+ *  - an inactive client always has an exit date: the one given, else the one
+ *    it already had if it was already inactive, else today.
+ */
+export function exitFieldsFor(
+  before: { status: string; exitDate: string | null },
+  nextStatus: string,
+  givenExitDate?: string | null,
+): { exitDate?: string | null; exitReason?: null } {
+  if (nextStatus !== 'inactive') {
+    return before.status === 'inactive' || before.exitDate ? { exitDate: null, exitReason: null } : {}
+  }
+  if (givenExitDate) return { exitDate: givenExitDate }
+  if (before.status === 'inactive' && before.exitDate && givenExitDate === undefined) return {}
+  return { exitDate: istToday() }
 }
 
 // ── List filters ────────────────────────────────────────────────────────────

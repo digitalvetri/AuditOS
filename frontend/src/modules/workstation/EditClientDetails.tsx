@@ -8,6 +8,7 @@ import { useState } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { Pencil } from 'lucide-react';
 import { workstationApi } from './api';
+import { duplicateWarnings } from '@/modules/workstation/duplicateWarnings';
 import { Field, Modal, fieldErrors, inputClass } from './components';
 import type { ClientDetail } from './types';
 import { Button } from '@/components/Button';
@@ -74,15 +75,9 @@ function EditClientModal({ client, onClose }: { client: ClientDetail; onClose: (
       // it, surface the overlap as an info toast. The server only sets this
       // when contact_number was actually in the patch body, so an unrelated
       // edit doesn't nag.
-      const dup = updated as unknown as { phone_duplicates?: Array<{ client_code: string; company_name: string }>; phone_duplicates_hidden?: number };
-      const dupes = dup.phone_duplicates ?? [];
+      // Same for a GSTIN already on another client (a likely duplicate).
       // Clients the user is not assigned to are only counted, never named.
-      const hidden = dup.phone_duplicates_hidden ?? 0;
-      if (dupes.length || hidden) {
-        const named = dupes.map((d) => `${d.client_code} ${d.company_name}`);
-        if (hidden) named.push(`${hidden} other client${hidden === 1 ? '' : 's'} you are not assigned to`);
-        toast.push('info', `This phone number is also on: ${named.join(', ')}`);
-      }
+      for (const w of duplicateWarnings(updated)) toast.push('info', w);
       onClose();
     },
   });

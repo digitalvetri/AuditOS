@@ -1,5 +1,7 @@
 import { api } from '@/services/api';
 import type {
+  CalendarEvent,
+  ClientContact,
   Activity, AssignableEmployee, ClientDetail, ClientDocument, ClientListItem,
   ClientService, DashboardResponse, DocumentCategory, EwayResponse, FollowUp,
   GstProfile, Lead, ListResponse, SearchResponse, ServiceCatalogItem, Task,
@@ -124,6 +126,14 @@ export const workstationApi = {
   updateClient: (id: string, patch: Record<string, unknown>) =>
     api.patch<ClientDetail>(`/api/clients/${id}`, patch),
   clientActivity: (id: string) => api.get<ListResponse<Activity>>(`/api/clients/${id}/activity`),
+  // Contacts. The primary contact is the client's own contact details.
+  clientContacts: (clientId: string) => api.get<ListResponse<ClientContact>>(`/api/clients/${clientId}/contacts`),
+  addClientContact: (clientId: string, input: Record<string, unknown>) =>
+    api.post<ClientContact>(`/api/clients/${clientId}/contacts`, input),
+  updateClientContact: (clientId: string, id: string, patch: Record<string, unknown>) =>
+    api.patch<ClientContact>(`/api/clients/${clientId}/contacts/${id}`, patch),
+  removeClientContact: (clientId: string, id: string) =>
+    api.delete<{ id: string; deleted: boolean }>(`/api/clients/${clientId}/contacts/${id}`),
   clientTasks: (id: string) => api.get<ListResponse<Task>>(`/api/clients/${id}/tasks`),
 
   // ── Services ────────────────────────────────────────────────────────────
@@ -137,6 +147,9 @@ export const workstationApi = {
     api.patch<ClientService>(`/api/services/${id}`, patch),
 
   // ── Follow-ups ──────────────────────────────────────────────────────────
+  /** Follow-ups, task due dates and compliance due dates the caller can see, by IST day. */
+  calendar: (from: string, to: string) =>
+    api.get<{ from: string; to: string; items: CalendarEvent[]; count: number }>(`/api/workstation/calendar${qs({ from, to })}`),
   listFollowUps: (f: FollowUpFilters = {}) =>
     api.get<ListResponse<FollowUp>>(`/api/follow-ups${qs({ ...f })}`),
   createFollowUp: (input: Record<string, unknown>) => api.post<FollowUp>('/api/follow-ups', input),
@@ -154,6 +167,16 @@ export const workstationApi = {
     api.post<ClientDocument>(`/api/clients/${clientId}/documents`, input),
   updateDocument: (id: string, patch: Record<string, unknown>) =>
     api.patch<ClientDocument>(`/api/client-documents/${id}`, patch),
+  /** Soft delete: the document goes to Recently Deleted and can be restored. */
+  deleteDocument: (id: string) => api.delete<{ id: string; deleted_at: string }>(`/api/client-documents/${id}`),
+  /** To another folder (category_id) and/or another client (client_id). */
+  moveDocument: (id: string, to: { category_id?: string; client_id?: string }) =>
+    api.post<ClientDocument>(`/api/client-documents/${id}/move`, to),
+  copyDocument: (id: string, to: { category_id?: string; client_id?: string; name?: string }) =>
+    api.post<ClientDocument>(`/api/client-documents/${id}/copy`, to),
+  deletedDocuments: (clientId: string) =>
+    api.get<ListResponse<ClientDocument & { deleted_at: string }>>(`/api/client-documents/deleted${qs({ client_id: clientId })}`),
+  restoreDocument: (id: string) => api.post<ClientDocument>(`/api/client-documents/${id}/restore`, {}),
   verifyDocument: (id: string, approve: boolean, rejection_reason?: string) =>
     api.post<ClientDocument>(`/api/client-documents/${id}/verify`, { approve, rejection_reason }),
   /** A new version always carries the file. `document_date` is the date printed on it. */

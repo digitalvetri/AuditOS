@@ -116,7 +116,9 @@ servicesRouter.patch('/:id', handler(async (req, res) => {
         where: { clientId: updated.clientId, deletedAt: null, status: { in: ['requested', 'pending'] } },
       })
       const nextClientStatus = pendingDocs > 0 ? 'pending_documents' : open > 0 ? 'active' : 'active'
-      if (updated.client.status !== nextClientStatus) {
+      // A former client stays former: finishing leftover work is not a
+      // reactivation (that would also keep a stale exit date).
+      if (updated.client.status !== nextClientStatus && updated.client.status !== 'inactive') {
         await tx.client.update({ where: { id: updated.clientId }, data: { status: nextClientStatus } })
       }
     }

@@ -8,20 +8,15 @@ import { QueryState } from '@/modules/workstation/components';
 import { ListAction, ListCard, ListHeader } from '@/modules/workstation/listUi';
 import { can } from '@/platform/rbac/can';
 import { useAuth } from '@/platform/auth/AuthContext';
-import type { FollowUp, FollowUpType, ListResponse } from '@/modules/workstation/types';
+import type { CalendarEvent, FollowUpType } from '@/modules/workstation/types';
 
 /**
- * Month-view calendar of scheduled follow-ups.
+ * Month view of what is due: follow-ups, task due dates and statutory
+ * compliance due dates, each only for what the user can see. The server
+ * returns just the six weeks on screen (/api/workstation/calendar).
  *
- * Click a chip → open the lead or client it belongs to.
- * Click an empty day → open the "New follow-up" modal with the day prefilled,
- *   so whatever you say gets scheduled on that day. (Follow-ups ARE how
- *   Workstation schedules a thing to do with a lead or client.)
- *
- * Backend has no date-range filter on /api/follow-ups yet, so the client
- * pulls the full list and filters in-memory. Fine for a CA firm (hundreds,
- * not millions). Swap for a `scheduled_from`/`scheduled_to` server param
- * when the list grows past a few thousand entries.
+ * Click a chip → open the lead, client, task or compliance calendar.
+ * Click a day → open the "New follow-up" modal with the day prefilled.
  */
 export function WorkstationCalendarPage() {
   const navigate = useNavigate();
@@ -32,14 +27,16 @@ export function WorkstationCalendarPage() {
   const [cursor, setCursor] = useState<Date>(startOfMonth(today));
   const [addState, setAddState] = useState<{ open: boolean; dateTime?: string }>({ open: false });
 
-  const list = useQuery({
-    queryKey: ['workstation', 'follow-ups', 'calendar'],
-    queryFn: () => workstationApi.listFollowUps(),
-  });
-
   // 42 cells (6 rows × 7 cols), aligned so the first row contains the first of
   // the month. Days from the previous / next month fill the edges, dimmed.
   const cells = useMemo(() => buildMonthGrid(cursor), [cursor]);
+  const from = dayKey(cells[0].date);
+  const to = dayKey(cells[cells.length - 1].date);
+
+  const list = useQuery({
+    queryKey: ['workstation', 'calendar', from, to],
+    queryFn: () => workstationApi.calendar(from, to),
+  });
 
   const byDay = useMemo(() => groupByDay(list.data?.items ?? []), [list.data]);
 
@@ -50,7 +47,7 @@ export function WorkstationCalendarPage() {
     <div className="max-w-[1400px]">
       <ListHeader
         title="Calendar"
-        meta={<>Follow-ups scheduled across your leads and clients. Click an empty day to add one.</>}
+        meta={<>Follow-ups, task due dates and compliance due dates for your clients. Click a day to add a follow-up.</>}
         action={canManage ? (
           <ListAction onClick={() => setAddState({ open: true, dateTime: defaultTimeOn(today) })} icon={<Plus size={15} />}>
             New Follow-up
@@ -60,7 +57,7 @@ export function WorkstationCalendarPage() {
 
       <ListCard>
         <QueryState query={list} empty={null}>
-          {(_: ListResponse<FollowUp>) => (
+          {() => (
             <>
               <div className="flex items-center justify-between px-4 py-3 border-b border-neutral-200">
                 <div className="flex items-center gap-2">
@@ -128,8 +125,8 @@ export function WorkstationCalendarPage() {
                         {items.length > 3 ? <span className="text-10 text-neutral-500">+{items.length - 3} more</span> : null}
                       </div>
                       <div className="flex flex-col gap-0.5">
-                        {items.slice(0, 3).map((f) => (
-                          <FollowUpChip key={f.id} followUp={f} onOpen={() => openSubject(navigate, f)} />
+                        {items.slice(0, 3).map((ev) => (
+                          <EventChip key={`${ev.kind}:${ev.id}`} event={ev} onOpen={() => openEvent(navigate, ev)} />
                         ))}
                       </div>
                     </div>
@@ -168,9 +165,19 @@ const TYPE_TONE: Record<FollowUpType, string> = {
   other: 'bg-neutral-100 text-neutral-700 border-neutral-200',
 };
 
-function FollowUpChip({ followUp, onOpen }: { followUp: FollowUp; onOpen: () => void }) {
-  const tone = TYPE_TONE[followUp.type] ?? TYPE_TONE.other;
-  const dim = followUp.status === 'completed' || followUp.status === 'cancelled';
+/** Tasks and compliance due dates: outlined, so they read apart from follow-ups. */
+const KIND_TONE = {
+  task: 'bg-white text-neutral-800 border-neutral-400 border-dashed',
+  compliance: 'bg-white text-red border-red/50',
+};
+
+function EventChip({ event, onOpen }: { event: CalendarEvent; onOpen: () => void }) {
+  const tone = event.kind === 'followup'
+    ? (TYPE_TONE[event.type as FollowUpType] ?? TYPE_TONE.other)
+    : KIND_TONE[event.kind];
+  const dim = event.status === 'completed' || event.status === 'cancelled';
+  const lead = event.kind === 'followup' && event.at ? hhmm(event.at) : event.kind === 'task' ? 'Task' : 'Due';
+  const who = event.client_name ?? event.lead_name ?? '';
   return (
     <button
       type="button" onClick={onOpen}
@@ -179,17 +186,19 @@ function FollowUpChip({ followUp, onOpen }: { followUp: FollowUp; onOpen: () => 
         + tone
         + (dim ? ' opacity-50 line-through' : '')
       }
-      title={`${followUp.title} · ${followUp.subject_name ?? ''}`}
+      title={`${event.title}${who ? ` · ${who}` : ''}`}
     >
-      <span className="font-medium">{hhmm(followUp.scheduled_at)}</span>{' '}
-      {followUp.title}
+      <span className="font-medium">{lead}</span>{' '}
+      {event.title}{event.kind !== 'followup' && who ? ` · ${who}` : ''}
     </button>
   );
 }
 
-function openSubject(navigate: ReturnType<typeof useNavigate>, f: FollowUp): void {
-  if (f.subject_type === 'lead' && f.lead_id) navigate(`/workstation/leads/${f.lead_id}`);
-  else if (f.subject_type === 'client' && f.client_id) navigate(`/workstation/clients/${f.client_id}/follow-ups`);
+function openEvent(navigate: ReturnType<typeof useNavigate>, ev: CalendarEvent): void {
+  if (ev.kind === 'task') navigate(`/workstation/tasks/${ev.id}`);
+  else if (ev.kind === 'compliance') navigate('/workstation/compliance');
+  else if (ev.lead_id) navigate(`/workstation/leads/${ev.lead_id}`);
+  else if (ev.client_id) navigate(`/workstation/clients/${ev.client_id}/follow-ups`);
 }
 
 /* ──────────────────────────────────────────────────────────────────────── */
@@ -209,16 +218,17 @@ function buildMonthGrid(monthStart: Date): Cell[] {
   return cells;
 }
 
-function groupByDay(items: FollowUp[]): Map<string, FollowUp[]> {
-  const m = new Map<string, FollowUp[]>();
-  for (const f of items) {
-    const key = dayKey(new Date(f.scheduled_at));
+function groupByDay(items: CalendarEvent[]): Map<string, CalendarEvent[]> {
+  const m = new Map<string, CalendarEvent[]>();
+  for (const ev of items) {
+    // The server's `date` is the IST day; follow-ups are placed by local time.
+    const key = ev.at ? dayKey(new Date(ev.at)) : ev.date;
     const bucket = m.get(key);
-    if (bucket) bucket.push(f);
-    else m.set(key, [f]);
+    if (bucket) bucket.push(ev);
+    else m.set(key, [ev]);
   }
-  // Earlier in the day first.
-  for (const bucket of m.values()) bucket.sort((a, b) => a.scheduled_at.localeCompare(b.scheduled_at));
+  // Due dates first, then follow-ups by time.
+  for (const bucket of m.values()) bucket.sort((a, b) => (a.at ?? '').localeCompare(b.at ?? ''));
   return m;
 }
 

@@ -41,6 +41,7 @@ import { ChevronRight } from 'lucide-react';
 import { OrganizationBadge } from '@/modules/workstation/organization/badges';
 import { AssignedStaffDetails } from '@/modules/workstation/AssignedStaff';
 import { EditClientDetailsButton } from '@/modules/workstation/EditClientDetails';
+import { ClientContactsCard } from '@/modules/workstation/ClientContacts';
 import { ClientExitDetail } from '@/modules/workstation/ClientExit';
 import { LevelBanner, OrganizationOverview } from '@/modules/workstation/organization/OrganizationOverview';
 import { OrganizationClients } from '@/modules/workstation/organization/OrganizationClients';
@@ -381,6 +382,7 @@ function DetailsTab({ client }: { client: ClientDetail }) {
           />
         </div>
       </Card>
+      <ClientContactsCard client={client} />
     </div>
   );
 }

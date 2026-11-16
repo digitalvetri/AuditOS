@@ -30,6 +30,7 @@ import { migrateInc20aFromPartnership, seedCompliance } from './seed-compliance.
 import { seedAudit } from './seed-audit.js'
 import { backfillReceiptNumbers } from '../src/modules/invoice/payments.js'
 import { backfillFirmGstin } from '../src/modules/invoice/supply.js'
+import { backfillOnboardingWithServices } from '../src/modules/workstation/clients.shared.js'
 
 const prisma = new PrismaClient()
 
@@ -282,6 +283,8 @@ async function main() {
   // so sending is not blocked after the deploy that introduced the setting.
   // Idempotent: only while it is still unset.
   console.log('Firm GSTIN backfilled:', await backfillFirmGstin(prisma) ?? 'nothing to do')
+  // Clients with a service that still say "onboarding" are active. Once only.
+  console.log('Onboarding clients with services moved to active:', await backfillOnboardingWithServices(prisma))
 
   console.log('Seed complete (reference data only):', {
     roles: await prisma.role.count(),

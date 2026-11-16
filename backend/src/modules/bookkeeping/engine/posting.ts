@@ -1,4 +1,4 @@
-import type { Prisma } from '@prisma/client'
+import { Prisma } from '@prisma/client'
 import { prisma, alive } from '../../../lib/prisma.js'
 import { ApiError } from '../../../lib/http.js'
 import { lockSequence } from '../../../lib/sequence.js'
@@ -44,6 +44,10 @@ export interface EntryInput {
   costCentre?: string | null
   bankDate?: string | null
   billAllocations?: BillAllocationInput[]
+  /** Foreign side of the line, for display and audit only (amountPaise stays the INR posting). */
+  currency?: string | null
+  foreignAmountMinor?: number | null
+  exchangeRate?: string | null
 }
 
 export interface ItemInput {
@@ -80,6 +84,9 @@ export interface PostVoucherInput {
   placeOfSupply?: string | null
   dueDate?: string | null
   roundOffPaise?: number
+  /** Source-document currency and the rate typed on it (display and audit only). */
+  currency?: string | null
+  exchangeRate?: string | null
   entries?: EntryInput[]
   items?: ItemInput[]
 }
@@ -253,6 +260,21 @@ async function validateAndRollUp(
     if (e.entryType === 'dr') totalDebit += e.amountPaise
     else if (e.entryType === 'cr') totalCredit += e.amountPaise
     else throw ApiError.badRequest('Entry type must be dr or cr.')
+    // Bills split the line they sit on: each part positive, the parts never
+    // more than the line — or outstandings and ageing stop meaning anything.
+    let allocated = 0
+    for (const b of e.billAllocations ?? []) {
+      if (!Number.isInteger(b.amountPaise) || b.amountPaise <= 0) {
+        throw ApiError.unprocessable('invalid_bill_allocation', `Bill allocation ${b.billRef ?? ''} must carry a positive amount.`.trim())
+      }
+      allocated += b.amountPaise
+    }
+    if (allocated > e.amountPaise) {
+      throw ApiError.unprocessable(
+        'invalid_bill_allocation',
+        `Bill allocations (${(allocated / 100).toFixed(2)}) exceed the line amount (${(e.amountPaise / 100).toFixed(2)}).`,
+      )
+    }
 
     const led = ledgerById.get(e.ledgerId)!
     const cfg = parseTaxConfig(led.taxConfigJson)
@@ -386,6 +408,7 @@ export async function postVoucher(
         cessPaise: rolled.cess,
         roundOffPaise: input.roundOffPaise ?? 0,
         grandTotalPaise: rolled.grandTotal,
+        ...foreignHeader(input),
         createdByUserId: actorUserId,
       },
     })
@@ -407,6 +430,26 @@ export async function postVoucher(
   })
 }
 
+/**
+ * The foreign side of an imported document: kept for display and audit.
+ * Nothing reads it for balances — every report reads the INR paise.
+ * INR (or no currency) stores nothing, as before.
+ */
+function foreignHeader(input: PostVoucherInput) {
+  const currency = input.currency?.trim().toUpperCase()
+  if (!currency || currency === 'INR') return {}
+  return { currency, exchangeRate: input.exchangeRate ? new Prisma.Decimal(input.exchangeRate) : null }
+}
+function foreignLine(e: EntryInput) {
+  const currency = e.currency?.trim().toUpperCase()
+  if (!currency || currency === 'INR') return {}
+  return {
+    currency,
+    foreignAmountMinor: e.foreignAmountMinor ?? null,
+    exchangeRate: e.exchangeRate ? new Prisma.Decimal(e.exchangeRate) : null,
+  }
+}
+
 /** Write entries, bill allocations and stock lines for a voucher. */
 async function writeLines(tx: Tx, companyId: string, voucherId: string, date: string, rolled: ValidatedLines) {
   let position = 0
@@ -423,6 +466,7 @@ async function writeLines(tx: Tx, companyId: string, voucherId: string, date: st
         isPartyLedger: e.isPartyLedger ?? false,
         costCentre: e.costCentre || null,
         bankDate: e.bankDate || null,
+        ...foreignLine(e),
       },
     })
     for (const b of e.billAllocations ?? []) {
@@ -522,6 +566,16 @@ export async function alterVoucher(
     const type = existing.voucherType
     const fy = await resolveFinancialYear(tx, companyId, input.date)
     const rolled = await validateAndRollUp(tx, companyId, type, input)
+    // The same clash check as postVoucher; without it the unique index
+    // answers with a 500.
+    const nextNumber = input.voucherNumber?.trim() || existing.voucherNumber
+    if (nextNumber !== existing.voucherNumber) {
+      const clash = await tx.bookkeepingVoucher.findFirst({
+        where: { tallyCompanyId: companyId, voucherTypeId: existing.voucherTypeId, voucherNumber: nextNumber, id: { not: voucherId } },
+        select: { id: true },
+      })
+      if (clash) throw ApiError.conflict('duplicate_voucher_number', `Voucher number ${nextNumber} already exists for ${type.name}.`)
+    }
 
     const before = {
       voucher_number: existing.voucherNumber,
@@ -541,7 +595,7 @@ export async function alterVoucher(
       data: {
         financialYearId: fy.id,
         date: input.date,
-        voucherNumber: input.voucherNumber?.trim() || existing.voucherNumber,
+        voucherNumber: nextNumber,
         referenceNumber: input.referenceNumber?.trim() || null,
         referenceDate: input.referenceDate || null,
         narration: input.narration?.trim() || null,

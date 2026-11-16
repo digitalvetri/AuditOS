@@ -280,6 +280,9 @@ export interface AuditUdin {
   partner_name: string | null;
   membership_no: string | null;
   generated_on: string;
+  /** Days from signing to generation; late = more than ICAI's 60 days. */
+  days_after_signing?: number;
+  late?: boolean;
   revoked?: boolean;
   revoked_at: string | null;
   revoked_reason: string | null;
@@ -287,7 +290,11 @@ export interface AuditUdin {
 }
 
 /** Signed files with a report date and no live UDIN — the file shape without progress. */
-export type MissingUdin = AuditListItem;
+export type MissingUdin = AuditListItem & {
+  /** Report date + 60 days (ICAI), and days left — negative once overdue. */
+  udin_due_by?: string;
+  udin_days_left?: number;
+};
 
 /** Sent with every write once the file is locked (SA 230 para A24). */
 export interface AddendumFields {
