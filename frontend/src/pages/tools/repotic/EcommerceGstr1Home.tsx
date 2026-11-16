@@ -21,6 +21,7 @@ import { ArrowLeft, Upload, Check, AlertTriangle, Info, Trash2 } from 'lucide-re
 import { useToast } from '@/components/Toast';
 import { repoticApi, type ReportEntry } from '@/modules/tools/repotic/api';
 import { gstApi, recentPeriods } from '@/modules/workstation/gst/api';
+import { BetaBadge } from '@/pages/tools/AuditAutomation';
 
 function currentMonth(): string {
   const d = new Date();
@@ -59,7 +60,10 @@ export function EcommerceGstr1HomePage() {
       </div>
 
       <header className="mb-5">
-        <h1 className="text-20 font-semibold text-neutral-900">Ecommerce GSTR-1</h1>
+        <div className="flex flex-wrap items-center gap-2">
+          <h1 className="text-20 font-semibold text-neutral-900">Ecommerce GSTR-1</h1>
+          <BetaBadge />
+        </div>
         <p className="text-13 text-neutral-500 mt-1">
           One normalised set of rows from the marketplaces the seller uses, built into the government's GSTR-1 tables.
         </p>

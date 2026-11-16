@@ -22,6 +22,7 @@ import { Link, useParams, useSearchParams, Navigate } from 'react-router-dom';
 import { ArrowLeft, AlertTriangle, Download, Info } from 'lucide-react';
 import { repoticApi, type SummaryRow } from '@/modules/tools/repotic/api';
 import { gstApi } from '@/modules/workstation/gst/api';
+import { BetaBadge } from '@/pages/tools/AuditAutomation';
 
 function monthLabel(iso: string): string {
   const [y, m] = iso.split('-');
@@ -89,7 +90,10 @@ export function EcommerceGstr1SummaryPage() {
 
       <header className="mb-5 flex flex-wrap items-baseline justify-between gap-3">
         <div>
-          <h1 className="text-20 font-semibold text-neutral-900">GSTR-1</h1>
+          <div className="flex flex-wrap items-center gap-2">
+            <h1 className="text-20 font-semibold text-neutral-900">GSTR-1</h1>
+            <BetaBadge />
+          </div>
           <p className="text-13 text-neutral-500 mt-1">
             {clientName} · <span className="font-mono text-12">{gstin}</span> · {monthLabel(period)}
           </p>

@@ -202,6 +202,7 @@ function JobActions({ detail }: { detail: AaJobDetail }) {
             }}>
             <Download size={13} /> {exported ? 'Tally XML (exported)' : 'Tally XML'}
           </a>
+          <span className="text-11 text-amber" title="The XML has not been import-tested in TallyPrime. Import into a test company first.">Beta — import into a test company first</span>
           {/* Excel export is gated on the SAME condition as Tally XML — a
               half-mapped statement is the same wrong data in a different
               file (REPOTIC §1). The ?draft=1 variant stays for internal

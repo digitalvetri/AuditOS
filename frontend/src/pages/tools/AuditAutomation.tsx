@@ -36,12 +36,14 @@ export function AuditAutomationLandingPage() {
             title="PDF bank statement → Tally XML / CSV"
             description="PDF, Excel or CSV statement → rows checked against the running balance → review, ledgers and rules → approve → Tally XML"
             status="active"
+            beta="Beta — import into a test company first"
           />
           <PipelineCard
             to="/audit-automation/ecommerce"
             title="File ecommerce seller's GSTR-1"
-            description="Amazon · Flipkart · Meesho B2C reports → GSTR-1 Tables 5A, 7, 9B (B2C-large notes), 12 and 14 → JSON for review. Beta — verify before filing."
+            description="Amazon · Flipkart · Meesho B2C reports → GSTR-1 Tables 5A, 7, 9B (B2C-large notes), 12 and 14 → JSON for review"
             status="active"
+            beta="Beta — verify before filing"
           />
           <PipelineCard
             to="/audit-automation/gst"
@@ -74,11 +76,14 @@ function PipelineCard({
   title,
   description,
   status,
+  beta,
 }: {
   to: string;
   title: string;
   description: string;
   status: 'active' | 'coming_soon';
+  /** Output not yet checked against the real target (portal / Tally). */
+  beta?: string;
 }) {
   const active = status === 'active';
   const inner = (
@@ -96,6 +101,7 @@ function PipelineCard({
       </div>
       <div className="min-w-0 flex-1 flex flex-col">
         <h3 className="text-14 font-semibold text-neutral-900 leading-5">{title}</h3>
+        {beta ? <BetaBadge text={beta} /> : null}
         <p className="text-13 text-neutral-500 mt-0.5">{description}</p>
         <div className="mt-auto pt-3">
           <span className={'text-12 font-medium ' + (active ? 'text-gold' : 'text-neutral-400')}>
@@ -106,4 +112,13 @@ function PipelineCard({
     </article>
   );
   return active ? <Link to={to}>{inner}</Link> : inner;
+}
+
+/** Marks a pipeline whose output has not been verified against its target. */
+export function BetaBadge({ text = 'Beta — verify before filing' }: { text?: string }) {
+  return (
+    <span className="mt-1 self-start inline-flex items-center h-5 px-1.5 rounded text-11 font-medium bg-amber/10 text-amber border border-amber/40">
+      {text}
+    </span>
+  );
 }
