@@ -262,7 +262,12 @@ describe('compliance calendar API', () => {
     const created = await api('/api/compliance/clocks', { method: 'POST', cookie: md.cookie, body: { client_id: c.id, form_code: 'GST_RULE_10A', assigned_employee_id: emp.id } })
     expect(created.status).toBe(200)
     expect(created.body.data).toMatchObject({ form_code: 'GST_RULE_10A', anchor_date: null, assigned_employee_id: emp.id })
+    // No trigger date → no real due date: not "due today", not overdue, flagged as needing the date.
+    expect(created.body.data).toMatchObject({ needs_date: true, overdue: false, days_left: null, late_fee_estimate: null })
     const clockId = created.body.data.id as string
+    const md2 = await login(o, 'md')
+    const listed = ((await api(`/api/compliance/items?client_id=${c.id}`, { cookie: md2.cookie })).body.data as Item[]).find((i) => i.id === clockId)
+    expect(listed).toMatchObject({ needs_date: true, overdue: false, days_left: null })
 
     // Second attempt for the same (client, form) conflicts.
     const dup = await api('/api/compliance/clocks', { method: 'POST', cookie: md.cookie, body: { client_id: c.id, form_code: 'GST_RULE_10A' } })
@@ -506,4 +511,27 @@ describe('compliance calendar API', () => {
     const r2 = await onPrivateLimitedIncorporated(prisma, { caseId: caseRow.id })
     expect(r2.skipped).toBe('already_exists')
   })
+
+  it('a corrected GST grant date moves the open Rule 10A clock — also across a year — and never a filed one', async () => {
+    const o = await org()
+    const emp = await employee(o, 'Mgr')
+    const c = await client(o, 'Regrant Co', { businessType: 'Pvt Ltd', accountManagerId: emp.id })
+    const grant = (registrationDate: string) => onGstRegistrationGranted(prisma, {
+      clientId: c.id, organisationId: o.id, registrationDate, registrationType: 'regular', assignedEmployeeId: emp.id, isNewGrant: true,
+    })
+    expect((await grant('2026-11-11')).created).toBe(true)
+    const moved = await grant('2026-11-14')
+    expect(moved).toMatchObject({ created: false })
+    let items = await prisma.complianceItem.findMany({ where: { clientId: c.id, formCode: 'GST_RULE_10A', deletedAt: null } })
+    expect(items).toHaveLength(1)
+    expect(items[0]).toMatchObject({ anchorDate: '2026-11-14', dueDate: '2026-12-14', internalDueDate: '2026-11-29' })
+    await grant('2027-01-02') // another calendar year: still the same clock
+    items = await prisma.complianceItem.findMany({ where: { clientId: c.id, formCode: 'GST_RULE_10A', deletedAt: null } })
+    expect(items).toHaveLength(1)
+    expect(items[0]).toMatchObject({ anchorDate: '2027-01-02', dueDate: '2027-02-01' })
+    await prisma.complianceItem.update({ where: { id: items[0].id }, data: { status: 'filed', filedOn: '2027-01-20', evidenceRef: 'AA1' } })
+    expect(await grant('2027-01-05')).toMatchObject({ created: false, skipped: 'already_exists' })
+    expect(await prisma.complianceItem.findUniqueOrThrow({ where: { id: items[0].id } })).toMatchObject({ anchorDate: '2027-01-02', status: 'filed' })
+  })
 })
+

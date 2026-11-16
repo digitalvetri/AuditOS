@@ -493,7 +493,8 @@ clientPortalPublicRouter.get('/client-portal/:token/status', handler(async (req,
   const ctx = await buildContext(prisma, client.organisationId, items, today)
   const compliance = items
     .map((i) => itemToApi(i, ctx))
-    .filter((i) => i.due_date <= horizon && i.due_date >= lookback)
+    // A clock with no trigger date has no real due date yet: not shown.
+    .filter((i) => !i.needs_date && i.due_date <= horizon && i.due_date >= lookback)
     .sort((a, b) => a.due_date.localeCompare(b.due_date))
     .map((i) => ({
       id: i.id, form: i.form_name, form_code: i.form_code, period: i.period_label,

@@ -20,6 +20,7 @@ import { Prisma, type PrismaClient } from '@prisma/client'
 import { istToday } from '../../lib/dates.js'
 import { createRuleResolver, dueForProfile, kindsOwed, type RuleResolver } from './dueDate.js'
 import { financialYearOf, writeGstAudit } from './service.js'
+import { onGstRegistrationGranted } from '../compliance/clockEvents.js'
 import { normaliseFilingStatus } from './validate.js'
 
 export const GST_FILING_SERVICE_CODE = 'GST_FILING'
@@ -372,4 +373,56 @@ export function dataReminderBody(
       ...(firmName?.trim() ? [`\u2014 ${firmName.trim()}`] : []),
     ].join('\n'),
   }
+}
+
+/**
+ * A GST registration case was completed: the registration is granted. Hand
+ * it over to the GST side in one go —
+ *   - the GSTIN goes on the client (the caller has already refused a
+ *     different GSTIN already there);
+ *   - the GST profile is created, or revived and brought up to date, with the
+ *     date of grant;
+ *   - the client is enrolled in GST Filing when the firm has that service
+ *     and the client is not already on it (then the usual enrolment runs);
+ *   - the Rule 10A clock starts from the date of grant (or moves, when the
+ *     date was corrected).
+ * Idempotent: completing the same case again adds nothing.
+ */
+export async function handOverGstRegistration(db: PrismaClient, p: {
+  clientId: string; gstin: string; registrationDate: string; assigneeId: string; userId: string | null
+}): Promise<void> {
+  const client = await db.client.findUniqueOrThrow({ where: { id: p.clientId }, select: { organisationId: true, gstin: true } })
+  if (client.gstin?.trim().toUpperCase() !== p.gstin) {
+    await db.client.update({ where: { id: p.clientId }, data: { gstin: p.gstin, updatedBy: p.userId } })
+  }
+  const existing = await db.gstProfile.findUnique({ where: { clientId: p.clientId } })
+  const profile = existing
+    ? await db.gstProfile.update({
+        where: { id: existing.id },
+        data: { gstin: p.gstin, registrationDate: p.registrationDate, registrationStatus: 'active', active: true, pausedByUser: false, deletedAt: null, updatedBy: p.userId },
+      })
+    : await db.gstProfile.create({
+        data: {
+          clientId: p.clientId, gstin: p.gstin, registrationDate: p.registrationDate, assignedEmployeeId: p.assigneeId,
+          syncedAssigneeId: p.assigneeId, active: true, createdBy: p.userId, updatedBy: p.userId,
+        },
+      })
+  await writeGstAudit({
+    gstProfileId: profile.id, action: existing ? 'GST_CLIENT_UPDATED' : 'GST_CLIENT_CREATED', stage: 'client',
+    userId: p.userId, meta: { via: 'gst_registration_case', gstin: p.gstin, registrationDate: p.registrationDate },
+  })
+  const svc = await db.service.findFirst({ where: { code: GST_FILING_SERVICE_CODE, deletedAt: null } })
+  if (svc) {
+    const onIt = await db.clientService.findFirst({ where: { clientId: p.clientId, serviceId: svc.id, deletedAt: null } })
+    if (!onIt) {
+      await db.clientService.create({
+        data: { clientId: p.clientId, serviceId: svc.id, assignedEmployeeId: p.assigneeId, status: 'not_started', createdBy: p.userId, updatedBy: p.userId },
+      })
+    }
+    await refreshClientGst(db, p.clientId, p.userId)
+  }
+  await onGstRegistrationGranted(db, {
+    clientId: p.clientId, organisationId: client.organisationId, registrationDate: p.registrationDate,
+    registrationType: profile.registrationType, assignedEmployeeId: profile.assignedEmployeeId, isNewGrant: true,
+  })
 }

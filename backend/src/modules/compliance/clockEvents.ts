@@ -17,6 +17,9 @@
 import type { PrismaClient } from '@prisma/client'
 import { applyRule } from './engine.js'
 
+/** Same as service.ts CLOSED_STATUSES (not imported: service.ts imports the engine too). */
+const CLOSED = new Set<string>(['filed', 'not_applicable'])
+
 export interface ClockEventResult {
   created: boolean
   skipped?: 'exempt' | 'already_exists' | 'form_missing' | 'no_anchor' | 'client_inactive'
@@ -71,6 +74,24 @@ export async function onGstRegistrationGranted(prisma: PrismaClient, p: {
   if (!form || !form.isActive) return { created: false, skipped: 'form_missing' }
 
   const anchor = p.registrationDate
+  const dueDate = applyRule(anchor, { offsetMonths: 0, dueDay: null, offsetDays: form.offsetDays })
+  const internalDueDate = form.internalTargetDays != null
+    ? applyRule(anchor, { offsetMonths: 0, dueDay: null, offsetDays: form.internalTargetDays })
+    : null
+  // One Rule 10A clock per client, whatever year its key carries: a grant
+  // date corrected later (even into another calendar year) moves the open
+  // clock rather than starting a second one. A filed clock is history and is
+  // left alone.
+  const current = await prisma.complianceItem.findFirst({
+    where: { clientId: p.clientId, formCode: 'GST_RULE_10A', deletedAt: null },
+    orderBy: { createdAt: 'desc' },
+    select: { id: true, status: true, anchorDate: true },
+  })
+  if (current) {
+    if (CLOSED.has(current.status) || current.anchorDate === anchor) return { created: false, skipped: 'already_exists', itemId: current.id }
+    await prisma.complianceItem.update({ where: { id: current.id }, data: { anchorDate: anchor, dueDate, internalDueDate } })
+    return { created: false, itemId: current.id }
+  }
   // periodKey mirrors POST /clocks: '<anchorYear>-<formCode>'. Matches the
   // migration (seed-compliance.ts migrateInc20aFromPartnership) convention.
   const periodKey = `${anchor.slice(0, 4)}-GST_RULE_10A`
@@ -87,11 +108,9 @@ export async function onGstRegistrationGranted(prisma: PrismaClient, p: {
       formCode: 'GST_RULE_10A',
       periodKey,
       periodLabel: form.name,
-      dueDate: applyRule(anchor, { offsetMonths: 0, dueDay: null, offsetDays: form.offsetDays }),
+      dueDate,
       anchorDate: anchor,
-      internalDueDate: form.internalTargetDays != null
-        ? applyRule(anchor, { offsetMonths: 0, dueDay: null, offsetDays: form.internalTargetDays })
-        : null,
+      internalDueDate,
       assignedEmployeeId: p.assignedEmployeeId,
     },
   })

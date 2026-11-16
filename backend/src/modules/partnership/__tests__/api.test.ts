@@ -13,6 +13,7 @@ import { prisma, uid } from '../../../__tests__/helpers.js'
 import { MATRIX } from '../../../platform/rbac/matrix.js'
 import { seedPartnership } from '../../../../prisma/seed-partnership.js'
 import { seedCompliance } from '../../../../prisma/seed-compliance.js'
+import { gstinCheckChar } from '../../gst/validate.js'
 import { MASTER_TEMPLATE } from '../template.js'
 
 /**
@@ -581,3 +582,45 @@ describe('GST Registration (same engine, /api/gst-registration)', () => {
     expect((await api(`/api/llp/cases/${id}`)).status).toBe(404)
   })
 })
+
+describe('GST Registration — completing the case hands over to GST Filing', () => {
+  const gstin = (pan: string) => { const first = `33${pan}1Z`; return first + gstinCheckChar(first) }
+  it('records the GSTIN on the client, creates the GST profile, enrols GST Filing and starts Rule 10A', async () => {
+    const svc = await prisma.service.findFirst({ where: { code: 'GST_FILING', deletedAt: null } })
+      ?? await prisma.service.create({ data: { organisationId: orgId, code: 'GST_FILING', name: 'GST Filing' } })
+    const cl = await client('Kumar & Sons')
+    const id = (await api('/api/gst-registration/cases', { method: 'POST', body: { client_id: cl.id } })).body.id
+    const no = gstin('AAGFK1234L')
+    // The GSTIN and the date of grant are needed to complete.
+    const missing = await api(`/api/gst-registration/cases/${id}`, { method: 'PATCH', body: { status: 'COMPLETED' } })
+    expect(missing.status).toBe(400)
+    expect(Object.keys(missing.body.error.details)).toEqual(expect.arrayContaining(['registration_number', 'registration_date']))
+    expect((await api(`/api/gst-registration/cases/${id}`, { method: 'PATCH', body: { status: 'COMPLETED', registration_number: '33AAGFK1234L1Z0', registration_date: '2026-11-10' } })).status).toBe(400)
+    expect((await api(`/api/gst-registration/cases/${id}`, { method: 'PATCH', body: { status: 'COMPLETED', registration_number: no, registration_date: '2999-01-01' } })).status).toBe(400)
+    expect((await prisma.partnershipCase.findUniqueOrThrow({ where: { id } })).status).not.toBe('COMPLETED')
+
+    const done = await api(`/api/gst-registration/cases/${id}`, { method: 'PATCH', body: { status: 'COMPLETED', registration_number: no.toLowerCase(), registration_date: '2026-11-10' } })
+    expect(done.status).toBe(200)
+    expect((await prisma.client.findUniqueOrThrow({ where: { id: cl.id } })).gstin).toBe(no)
+    expect(await prisma.gstProfile.findUniqueOrThrow({ where: { clientId: cl.id } })).toMatchObject({ gstin: no, registrationDate: '2026-11-10', active: true })
+    expect(await prisma.clientService.count({ where: { clientId: cl.id, serviceId: svc.id, deletedAt: null } })).toBe(1)
+    expect(await prisma.complianceItem.findFirst({ where: { clientId: cl.id, formCode: 'GST_RULE_10A', deletedAt: null } }))
+      .toMatchObject({ anchorDate: '2026-11-10', dueDate: '2026-12-10' })
+
+    // Completing again does not add a second service row or clock.
+    await api(`/api/gst-registration/cases/${id}`, { method: 'PATCH', body: { status: 'SUBMITTED' } })
+    expect((await api(`/api/gst-registration/cases/${id}`, { method: 'PATCH', body: { status: 'COMPLETED', registration_number: no, registration_date: '2026-11-10' } })).status).toBe(200)
+    expect(await prisma.clientService.count({ where: { clientId: cl.id, serviceId: svc.id, deletedAt: null } })).toBe(1)
+    expect(await prisma.complianceItem.count({ where: { clientId: cl.id, formCode: 'GST_RULE_10A', deletedAt: null } })).toBe(1)
+  })
+
+  it('does not silently overwrite a different GSTIN already on the client', async () => {
+    const cl = await client('Other State Traders')
+    await prisma.client.update({ where: { id: cl.id }, data: { gstin: gstin('AAGFK9999L') } })
+    const id = (await api('/api/gst-registration/cases', { method: 'POST', body: { client_id: cl.id } })).body.id
+    const r = await api(`/api/gst-registration/cases/${id}`, { method: 'PATCH', body: { status: 'COMPLETED', registration_number: gstin('AAGFK1234L'), registration_date: '2026-11-10' } })
+    expect(r.status).toBe(409)
+    expect((await prisma.client.findUniqueOrThrow({ where: { id: cl.id } })).gstin).toBe(gstin('AAGFK9999L'))
+  })
+})
+

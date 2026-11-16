@@ -112,23 +112,30 @@ export function AgmDialog({ item, onClose }: { item: ComplianceItem; onClose: ()
     mutationFn: () => complianceApi.patchItem(item.id, { anchor_date: date || null }),
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: complianceKeys.all });
-      toast.push('success', 'AGM date saved — due date recalculated');
+      toast.push('success', `${item.is_clock ? 'Trigger date' : 'AGM date'} saved — due date recalculated`);
       onClose();
     },
     onError: (e) => toast.push('error', errorText(e)),
   });
   return (
-    <Modal open title={`AGM date — ${item.client_name ?? ''}`} onClose={onClose} width="w-[420px]"
+    <Modal open title={`${item.is_clock ? 'Trigger date' : 'AGM date'} — ${item.client_name ?? ''}`} onClose={onClose} width="w-[420px]"
       footer={<>
         <Button size="sm" variant="ghost" onClick={onClose}>Cancel</Button>
         <Button size="sm" variant="primary" disabled={save.isPending} onClick={() => save.mutate()}>Save</Button>
       </>}>
-      <p className="text-13 text-neutral-600 mb-3">
-        {item.form_name ?? item.form_code} for {item.period_label ?? item.period_key} is due a fixed number of days after the AGM.
-        Until the date is entered the last permitted day (30 September) is assumed.
-      </p>
-      <Labelled label="AGM held / to be held on">
-        <input type="date" className={fieldClass} value={date} onChange={(e) => setDate(e.target.value)} />
+      {item.is_clock ? (
+        <p className="text-13 text-neutral-600 mb-3">
+          {item.form_name ?? item.form_code} counts from an event — the GST registration being granted, or the company being incorporated.
+          Until that date is entered the clock has no due date.
+        </p>
+      ) : (
+        <p className="text-13 text-neutral-600 mb-3">
+          {item.form_name ?? item.form_code} for {item.period_label ?? item.period_key} is due a fixed number of days after the AGM.
+          Until the date is entered the last permitted day (30 September) is assumed.
+        </p>
+      )}
+      <Labelled label={item.is_clock ? 'Event date' : 'AGM held / to be held on'}>
+        <input type="date" className={fieldClass} value={date} max={item.is_clock ? new Date(Date.now() + 5.5 * 3600_000).toISOString().slice(0, 10) : undefined} onChange={(e) => setDate(e.target.value)} />
       </Labelled>
     </Modal>
   );

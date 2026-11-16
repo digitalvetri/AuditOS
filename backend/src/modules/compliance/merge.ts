@@ -33,7 +33,7 @@ function monthsBetween(fromYm: string, toYm: string): string[] {
 
 function base(today: string, due: string, closed: boolean) {
   return {
-    statutory_due_date: due, due_date: due, extension: null, anchor_date: null, anchor_missing: false, anchor_note: null,
+    statutory_due_date: due, due_date: due, extension: null, anchor_date: null, anchor_missing: false, anchor_note: null, needs_date: false,
     days_left: closed ? null : daysBetween(today, due), overdue: !closed && due < today, late_fee_estimate: null,
     filed_on: null, acknowledgement_no: null, late_fee_paid_paise: null, notes: null, last_client_reminder_at: null,
     updated_at: null, read_only: true,

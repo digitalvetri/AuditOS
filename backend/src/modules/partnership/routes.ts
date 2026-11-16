@@ -26,6 +26,8 @@ import {
 } from './storage.js'
 import { ensurePostRegistrationCompliances, hasCompliance, rulesFor } from './compliance.js'
 import { setUploadedFileHeaders } from '../../lib/fileResponse.js'
+import { isValidGstin } from '../gst/validate.js'
+import { handOverGstRegistration } from '../gst/filing.js'
 import { scanUploads } from '../../platform/virusScan.js'
 
 /**
@@ -774,11 +776,32 @@ partnershipRouter.patch('/cases/:id', handler(async (req, res) => {
   // (INC-20A +180 days, LLP Form 3 +30 days…).
   const incorporationDate = hasCompliance(c.kind) && b.incorporation_date ? e.date('incorporation_date', b.incorporation_date) : undefined
   if (incorporationDate && incorporationDate > today()) e.add('incorporation_date', 'The Date of Incorporation cannot be in the future.')
-  // LLPIN / CIN — issued with the Certificate of Incorporation.
+  // LLPIN / CIN — issued with the Certificate of Incorporation. GSTIN for a
+  // GST registration.
   const regNo = b.registration_number === undefined ? undefined
     : (e.str('registration_number', typeof b.registration_number === 'string' ? b.registration_number.trim().toUpperCase() : b.registration_number, { max: 40, required: false }) ?? null)
+  // GST registration: completing it means the registration was granted. The
+  // GSTIN and the date of grant (REG-06) are needed — Rule 10A counts from it.
+  let gstGrant: { gstin: string; registrationDate: string } | null = null
+  if (c.kind === 'GST') {
+    if (regNo && !isValidGstin(regNo)) e.add('registration_number', 'That is not a valid GSTIN (15 characters, with a correct check character).')
+    const grant = b.registration_date ? e.date('registration_date', b.registration_date) : undefined
+    if (grant && grant > today()) e.add('registration_date', 'The date of grant cannot be in the future.')
+    if (status === 'COMPLETED') {
+      const g = regNo ?? c.registrationNumber
+      if (!g) e.add('registration_number', 'Enter the GSTIN that was granted.')
+      if (!b.registration_date) e.add('registration_date', 'Enter the date the registration was granted.')
+      if (g && grant && isValidGstin(g)) gstGrant = { gstin: g, registrationDate: grant }
+    }
+  }
   e.throwIfAny()
   if (status === 'COMPLETED') mustCan(session, 'workstation.document.verify')
+  if (gstGrant) {
+    const onClient = c.client.gstin?.trim().toUpperCase()
+    if (onClient && onClient !== gstGrant.gstin) {
+      throw ApiError.conflict('gstin_differs', `This client already has GSTIN ${onClient}. Correct it on the client first if the new registration replaces it.`)
+    }
+  }
 
   const data: Prisma.PartnershipCaseUpdateInput = { updatedBy: session.userId }
   const log: [string, string][] = []
@@ -803,7 +826,7 @@ partnershipRouter.patch('/cases/:id', handler(async (req, res) => {
   if (reviewer !== undefined && reviewer !== c.reviewerEmployeeId) { data.reviewerEmployeeId = reviewer; log.push(['case.reviewer_assigned', `Reviewer set to ${name(reviewer)}`]) }
   if (approver !== undefined && approver !== c.approverEmployeeId) { data.approverEmployeeId = approver; log.push(['case.approver_assigned', `Approver set to ${name(approver)}`]) }
   if (b.due_date !== undefined && (dueDate ?? null) !== c.dueDate) { data.dueDate = dueDate ?? null; log.push(['case.due_changed', `Due date ${c.dueDate ?? '—'} → ${dueDate ?? '—'}`]) }
-  if (regNo !== undefined && (regNo || null) !== c.registrationNumber) { data.registrationNumber = regNo || null; log.push(['case.registration_number_changed', `${c.kind === 'LLP' ? 'LLPIN' : 'CIN'} set to ${regNo || '—'}`]) }
+  if (regNo !== undefined && (regNo || null) !== c.registrationNumber) { data.registrationNumber = regNo || null; log.push(['case.registration_number_changed', `${c.kind === 'LLP' ? 'LLPIN' : c.kind === 'GST' ? 'GSTIN' : 'CIN'} set to ${regNo || '—'}`]) }
 
   const updated = await prisma.partnershipCase.update({ where: { id: c.id }, data })
   if (c.clientServiceId) {
@@ -825,6 +848,15 @@ partnershipRouter.patch('/cases/:id', handler(async (req, res) => {
   if (hasCompliance(c.kind) && updated.status === 'COMPLETED') {
     const n = await ensurePostRegistrationCompliances(c.id, { incorporationDate: incorporationDate ?? null, userId: session.userId })
     if (n) log.push(['compliance.created', `Post-registration compliance created: ${rulesFor(c.kind).map((r) => r.label).join(', ')}${incorporationDate ? ` (incorporated ${incorporationDate})` : ''}`])
+  }
+  // Completed GST registration → GSTIN on the client, GST profile, GST
+  // Filing enrolment and the Rule 10A clock.
+  if (gstGrant && updated.status === 'COMPLETED') {
+    await handOverGstRegistration(prisma, {
+      clientId: c.clientId, gstin: gstGrant.gstin, registrationDate: gstGrant.registrationDate,
+      assigneeId: updated.assignedEmployeeId ?? c.client.accountManagerId, userId: session.userId,
+    })
+    log.push(['gst.handed_over', `GSTIN ${gstGrant.gstin} granted ${gstGrant.registrationDate}: GST profile set up and Rule 10A started`])
   }
   for (const [action, detail] of log) await logActivity(c.id, session, action, detail)
   if (log.length) {
