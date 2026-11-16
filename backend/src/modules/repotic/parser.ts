@@ -19,7 +19,8 @@
  * thousands of these, so float drift at display time would be visible.
  */
 import type { PrismaClient, Prisma } from '@prisma/client'
-import { readStatementTable } from '../audit-automation/lib/tableFile.js'
+import { readWorkbookSheets } from '../audit-automation/lib/tableFile.js'
+import { autoMap } from './auto-mapper.js'
 import { parseCsv } from '../zpay/invoice-import.js'
 import { stateNameToCode, gstinStateCode } from './states.js'
 
@@ -53,6 +54,12 @@ export interface ColumnMap {
   igst_rate?: string
   /** The GST rate when the file has one rate column (Meesho "gst_rate"). */
   single_rate?: string
+  /** The marketplace's own GSTIN per row (Meesho "eco_tcs_gstin") — the
+   *  Table 14 ETIN. */
+  eco_gstin?: string
+  /** Row kind when the file has no (or an unrecognised) type column:
+   *  Meesho's tcs_sales is all sales, tcs_sales_return all returns. */
+  default_tx_type?: 'shipment' | 'refund' 
   hsn?: string
   quantity?: string
   ship_to_state?: string
@@ -70,8 +77,10 @@ type TxType = 'shipment' | 'cancel' | 'refund' | 'free_replacement' | 'other'
 function classifyTxType(raw: string | undefined): TxType {
   if (!raw) return 'other'
   const v = raw.trim().toLowerCase()
+  // Flipkart "Return Cancellation": the return was called off, the sale stands.
+  if (v.includes('return') && v.includes('cancel')) return 'shipment'
   if (v.includes('cancel')) return 'cancel'
-  if (v.includes('refund')) return 'refund'
+  if (v.includes('refund') || v === 'return' || v === 'returned' || v === 'rto') return 'refund'
   if (v.includes('freereplacement') || v.includes('free_replacement') || v.includes('free replacement'))
     return 'free_replacement'
   if (v.includes('shipment') || v === 'invoice' || v === 'order' || v === 'sale') return 'shipment'
@@ -174,11 +183,12 @@ export async function parseFromBuffer(args: {
   prisma: PrismaClient
   /** The upload's GSTIN: the seller's state when a row carries no GSTIN. */
   scopeGstin?: string
+  marketplace?: string
 }): Promise<ParseOutcome> {
   const { uploadId, organisationId, buffer, ext, adapterColumnMapJson, prisma } = args
   const scopeStateCode = gstinStateCode(args.scopeGstin ?? '')
   const columnMap = safeParseColumnMap(adapterColumnMapJson)
-  const rows = await readRowsFromBuffer(buffer, ext)
+  const rows = await readRowsFromBuffer(buffer, ext, args.marketplace)
   if (rows.length === 0) return emptyOutcome('empty file')
   const header = rows[0]
   const body = rows.slice(1)
@@ -213,6 +223,7 @@ export async function parseFromBuffer(args: {
     txType: colIndex(columnMap.transaction_type),
     creditNoteNumber: colIndex(columnMap.credit_note_number),
     creditNoteDate: colIndex(columnMap.credit_note_date),
+    ecoGstin: colIndex(columnMap.eco_gstin),
   }
 
   const warnings: string[] = []
@@ -227,7 +238,8 @@ export async function parseFromBuffer(args: {
   }
   const inserts: Prisma.RpParsedRowCreateManyInput[] = []
   body.forEach((row, i) => {
-    const txType = classifyTxType(cell(row, cells.txType))
+    const classified = classifyTxType(cell(row, cells.txType))
+    const txType: TxType = classified === 'other' && columnMap.default_tx_type ? columnMap.default_tx_type : classified
     typeCounts[txType]++
     let cgstTax = sum(row, cells.cgstTax)
     let sgstTax = sum(row, cells.sgstTax) + sum(row, cells.utgstTax)
@@ -273,6 +285,7 @@ export async function parseFromBuffer(args: {
       stateCodeIntra,
       creditNoteNumber: cell(row, cells.creditNoteNumber) || null,
       creditNoteDate: toDate(cell(row, cells.creditNoteDate)),
+      ecoGstin: cell(row, cells.ecoGstin).toUpperCase() || null,
       rawJson: JSON.stringify(zip(header, row)),
     })
   })
@@ -314,15 +327,28 @@ function safeParseColumnMap(json: string): ColumnMap {
   } catch { return {} }
 }
 
-export async function readRowsFromBuffer(buffer: Buffer, ext: string): Promise<string[][]> {
+/**
+ * The report table: header row first. A marketplace workbook may open on a
+ * help sheet, and a file may carry title rows above the header, so the
+ * first sheet/row (within the first 10) whose headers carry every required
+ * field wins; otherwise the first sheet as it is.
+ */
+export async function readRowsFromBuffer(buffer: Buffer, ext: string, marketplace?: string): Promise<string[][]> {
   const kind = (ext || '').toLowerCase().replace(/^\./, '')
-  if (kind === 'xlsx' || kind === 'xls') {
-    return await readStatementTable(buffer, 'xlsx')
+  let tables: string[][][]
+  if (kind === 'xlsx') {
+    tables = await readWorkbookSheets(buffer)
+  } else {
+    const text = buffer.toString('utf8')
+    // Strip UTF-8 BOM Amazon loves to prepend.
+    tables = [parseCsv(text.charCodeAt(0) === 0xfeff ? text.slice(1) : text)]
   }
-  const text = buffer.toString('utf8')
-  // Strip UTF-8 BOM Amazon loves to prepend.
-  const clean = text.charCodeAt(0) === 0xfeff ? text.slice(1) : text
-  return parseCsv(clean)
+  for (const rows of tables) {
+    for (let i = 0; i < Math.min(rows.length, 10); i++) {
+      if (autoMap(rows[i], marketplace).missingRequired.length === 0) return rows.slice(i)
+    }
+  }
+  return tables[0] ?? []
 }
 
 // Re-exports used by tests + states helpers.

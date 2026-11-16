@@ -24,17 +24,14 @@ import crypto from 'node:crypto'
 import type { Request } from 'express'
 import { Router } from 'express'
 import multer from 'multer'
-import ExcelJS from 'exceljs'
 import { prisma } from '../../lib/prisma.js'
 import { ApiError, handler, ok } from '../../lib/http.js'
 import { can, requireSession, type Session } from '../../platform/auth.js'
-import { readStatementTable } from '../audit-automation/lib/tableFile.js'
-import { parseCsv } from '../zpay/invoice-import.js'
 import { MARKETPLACES, isMarketplaceKey, findReportKind } from './marketplaces.js'
 import { detect, fingerprintOf } from './fingerprint.js'
 import { parseFromBuffer, readRowsFromBuffer } from './parser.js'
 import { buildGstr1Preview, type Gstr1Preview, type Gstr1BuildResult } from './gstr1-builder.js'
-import { autoMap } from './auto-mapper.js'
+import { autoMap, missingColumnsMessage } from './auto-mapper.js'
 import { assertClientVisible } from '../../platform/workstation/scope.js'
 import { assertFilesClean } from '../../platform/virusScan.js'
 import { writeAudit } from '../../platform/audit.js'
@@ -182,7 +179,7 @@ repoticRouter.post('/ecommerce/uploads', (req, res, next) => {
 
         // 1. Read the file's header row. XLSX and CSV are accepted.
         const ext = (file.originalname.split('.').pop() ?? '').toLowerCase()
-        const headerRow = await readHeaderRow(file.buffer, ext)
+        const headerRow = await readHeaderRow(file.buffer, ext, marketplace)
         if (headerRow.length === 0) {
           throw ApiError.unprocessable('empty_header', 'The file does not have a readable header row.')
         }
@@ -214,8 +211,9 @@ repoticRouter.post('/ecommerce/uploads', (req, res, next) => {
         // auto-mapper would have agreed.
         let autoColumnMapJson: string | null = null
         let autoMappedFields: string[] = []
+        const noMatchMessage = missingColumnsMessage(marketplace, autoMap(fp.original, marketplace).missingRequired)
         if (result.status === 'no_match') {
-          const auto = autoMap(fp.original)
+          const auto = autoMap(fp.original, marketplace)
           if (auto.missingRequired.length === 0) {
             autoColumnMapJson = JSON.stringify(auto.columnMap)
             autoMappedFields = auto.mappedFields as string[]
@@ -262,9 +260,7 @@ repoticRouter.post('/ecommerce/uploads', (req, res, next) => {
               ? JSON.stringify({ newColumns: result.newColumns, missingColumns: result.missingColumns })
               : null,
             status: result.status === 'no_match' ? 'errored' : 'pending',
-            errorMessage: result.status === 'no_match'
-              ? `This file's columns don't include invoice number, invoice date, amount and taxable value — we couldn't read it. Check that you've exported the right report from the marketplace.`
-              : null,
+            errorMessage: result.status === 'no_match' ? noMatchMessage : null,
             uploadedByUserId: session.userId,
           },
           select: {
@@ -295,6 +291,7 @@ repoticRouter.post('/ecommerce/uploads', (req, res, next) => {
               adapterColumnMapJson: columnMapJson,
               prisma,
               scopeGstin: gstin,
+              marketplace,
             })
             parseOutcome = { rows: out.rowsWritten, typeCounts: out.typeCounts, warnings: out.warnings }
             // One current upload per (scope, marketplace, report): a
@@ -546,29 +543,12 @@ repoticRouter.get('/adapters', handler(async (req, res) => {
 
 // ── Helpers ─────────────────────────────────────────────────────────────
 
-async function readHeaderRow(buffer: Buffer, ext: string): Promise<string[]> {
+async function readHeaderRow(buffer: Buffer, ext: string, marketplace: string): Promise<string[]> {
   if (ext === 'xls') throw ApiError.unprocessable('unsupported_type', 'Old .xls files cannot be read. Open the file in Excel and save it as .xlsx (or download the report as CSV).')
-  if (ext === 'xlsx') {
-    const wb = new ExcelJS.Workbook()
-    try {
-      await wb.xlsx.load(buffer as unknown as ArrayBuffer)
-    } catch {
-      throw ApiError.unprocessable('unreadable_xlsx', 'The Excel file could not be opened. Save it as a modern .xlsx and try again.')
-    }
-    const ws = wb.worksheets[0]
-    if (!ws) throw ApiError.unprocessable('no_sheets', 'The workbook has no sheets.')
-    // Use readStatementTable to find the header row the same way the bank
-    // pipeline does — handles the "metadata block above the real header"
-    // case that marketplace exports often have.
-    const rows = await readStatementTable(buffer, 'xlsx')
-    return rows[0] ?? []
-  }
-  if (ext === 'csv') {
-    const text = buffer.toString('utf8')
-    const rows = parseCsv(text)
-    return rows[0] ?? []
-  }
-  throw ApiError.unprocessable('unsupported_type', 'Supported file types: .xlsx and .csv.')
+  if (ext !== 'xlsx' && ext !== 'csv') throw ApiError.unprocessable('unsupported_type', 'Supported file types: .xlsx and .csv.')
+  // The same sheet and header row the parser will read.
+  const rows = await readRowsFromBuffer(buffer, ext, marketplace)
+  return rows[0] ?? []
 }
 
 function safeArray(json: string): unknown[] {

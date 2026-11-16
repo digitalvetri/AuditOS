@@ -5,6 +5,7 @@ import { createApp } from '../../../app.js'
 import { signToken } from '../../../platform/auth.js'
 import { prisma, uid } from '../../../__tests__/helpers.js'
 import { setupRoles } from '../../../../prisma/setup-roles.js'
+import ExcelJS from 'exceljs'
 import { buildFromRows } from '../gstr1-builder.js'
 
 /**
@@ -92,11 +93,11 @@ beforeAll(async () => {
 })
 afterAll(async () => { server.close(); await prisma.$disconnect() })
 
-async function upload(csv: string, over: Record<string, string> = {}) {
+async function upload(csv: string | Buffer, over: Record<string, string> = {}, filename = 'mtr.csv') {
   const fd = new FormData()
   const fields = { client_id: clientId, gstin: SELLER, period: '2025-12', marketplace: 'amazon', report_kind: 'mtr_b2c', ...over }
   for (const [k, v] of Object.entries(fields)) fd.append(k, v)
-  fd.append('file', new Blob([csv], { type: 'text/csv' }), 'mtr.csv')
+  fd.append('file', new Blob([csv]), filename)
   const res = await fetch(`${base}/api/repotic/ecommerce/uploads`, { method: 'POST', headers: { Cookie: cookie }, body: fd })
   return { status: res.status, body: await res.json() as any }
 }
@@ -186,7 +187,7 @@ describe('GSTR-1 builder: Table 14 per marketplace', () => {
   const row = (over: Partial<RpParsedRow>): RpParsedRow => ({
     id: uid('r'), organisationId: 'o', uploadId: 'amz', sourceRowIndex: 2, txType: 'shipment', invoiceNumber: uid('I'), invoiceDate: '2025-12-01',
     invoiceAmount: 118_00, taxableValue: 100_00, cgstTax: 9_00, sgstTax: 9_00, igstTax: 0, cessTax: 0, rate: 1800, hsn: '6109', quantity: 1,
-    shipToState: 'TAMIL NADU', sellerGstin: SELLER, stateCodeIntra: true, creditNoteNumber: null, creditNoteDate: null, rawJson: '{}', createdAt: new Date(), ...over,
+    shipToState: 'TAMIL NADU', sellerGstin: SELLER, stateCodeIntra: true, creditNoteNumber: null, creditNoteDate: null, ecoGstin: null, rawJson: '{}', createdAt: new Date(), ...over,
   })
   it('each marketplace gets its own supplies, not an equal split', () => {
     const { preview, warnings } = buildFromRows([
@@ -194,5 +195,118 @@ describe('GSTR-1 builder: Table 14 per marketplace', () => {
     ], SELLER, '2025-12', { marketplaceOf: { amz: 'amazon', fk: 'flipkart' } })
     expect(preview.supeco?.clttx).toEqual([{ etin: '33AAICA3918J1C0', suppval: 200, igst: 0, cgst: 18, sgst: 18, cess: 0, flag: 'N' }])
     expect(warnings.join(' ')).toMatch(/Table 14 omitted for flipkart/)
+  })
+})
+
+// Ported from the old tsx-run script (gstr1-builder.ts), which vitest never ran.
+describe('parser value helpers', () => {
+  it('money, rates, dates and states', async () => {
+    const { toPaise, toRateBps, toDate } = await import('../parser.js')
+    const { stateNameToCode, gstinStateCode } = await import('../states.js')
+    expect([toPaise('423.73'), toPaise('₹1,00,000.50'), toPaise(''), toPaise('abc'), toPaise('-42.29')]).toEqual([42373, 10000050, 0, 0, -4229])
+    expect([toRateBps('0.18'), toRateBps('18'), toRateBps('18%'), toRateBps('0')]).toEqual([1800, 1800, 1800, 0])
+    expect([toDate('2025-12-01 10:00:00'), toDate('01/12/2025'), toDate('')]).toEqual(['2025-12-01', '2025-12-01', null])
+    expect([stateNameToCode('TAMIL NADU'), stateNameToCode('Tamil Nadu'), stateNameToCode('TN'), stateNameToCode('MIDDLE EARTH')]).toEqual(['33', '33', '33', null])
+    expect([gstinStateCode(SELLER), gstinStateCode('XX')]).toEqual(['33', null])
+  })
+})
+
+/** An .xlsx with the given sheets (name → rows, first row = headers). */
+async function xlsx(sheets: Record<string, Array<Array<string | number>>>): Promise<Buffer> {
+  const wb = new ExcelJS.Workbook()
+  for (const [name, rows] of Object.entries(sheets)) {
+    const ws = wb.addWorksheet(name)
+    for (const r of rows) ws.addRow(r)
+  }
+  return Buffer.from(await wb.xlsx.writeBuffer())
+}
+
+// Flipkart Seller Hub "Sales Report" headers (see the fix report for the source).
+const FK_HEAD = ['Seller GSTIN', 'Order ID', 'Order Item ID', 'Product Title/Description', 'FSN', 'SKU', 'HSN Code', 'Event Type', 'Event Sub Type',
+  'Order Type', 'Fulfilment Type', 'Order Date', 'Order Approval Date', 'Item Quantity', 'Order Shipped From (State)', 'Warehouse ID',
+  'Price before discount', 'Total Discount', 'Seller Share', 'Bank Offer Share', 'Price after discount (Price before discount-Total discount)', 'Shipping Charges',
+  'Final Invoice Amount (Price after discount+Shipping Charges)', 'Type of tax', 'Taxable Value (Final Invoice Amount -Taxes)',
+  'CST Rate', 'CST Amount', 'VAT Rate', 'VAT Amount', 'Luxury Cess Rate', 'Luxury Cess Amount',
+  'IGST Rate', 'IGST Amount', 'CGST Rate', 'CGST Amount', 'SGST Rate (or UTGST as applicable)', 'SGST Amount (Or UTGST as applicable)',
+  'TCS IGST Rate', 'TCS IGST Amount', 'TCS CGST Rate', 'TCS CGST Amount', 'TCS SGST Rate', 'TCS SGST Amount', 'Total TCS Deducted',
+  'Buyer Invoice ID', 'Buyer Invoice Date', 'Buyer Invoice Amount', "Customer's Billing Pincode", "Customer's Billing State",
+  "Customer's Delivery Pincode", "Customer's Delivery State", 'Usual Price', 'Is Shopsy Order?', 'TDS Rate', 'TDS Amount', 'IRN',
+  'Business Name', 'Business GST Number', 'Beneficiary Name', 'IMEI']
+const fk = (r: Record<string, string | number>) => FK_HEAD.map((h) => r[h] ?? (/(Rate|Amount|Value|Charges|Discount|Share|Price|Deducted)/.test(h) ? 0 : ''))
+
+const MEESHO_HEAD = ['identifier', 'sup_name', 'gstin', 'sub_order_num', 'order_date', 'hsn_code', 'quantity', 'gst_rate', 'total_taxable_sale_value',
+  'tax_amount', 'total_invoice_value', 'taxable_shipping', 'end_customer_state_new', 'enrollment_no', 'manifest_date', 'transaction_type',
+  'eco_tcs_gstin', 'financial_year', 'month_number', 'supplier_id']
+const MEESHO_ETIN = gstin('33AARCM9332R1C')
+const ms = (r: Record<string, string | number>) => MEESHO_HEAD.map((h) => r[h] ?? '')
+
+describe('Flipkart Sales Report and Meesho tcs_sales', () => {
+  it('Flipkart: invoice is Buyer Invoice ID, returns net Table 7, a help sheet before the report is skipped', async () => {
+    const file = await xlsx({
+      Help: [['How to read this report'], ['Each row is one order item event.']],
+      'Sales Report': [FK_HEAD,
+        fk({ 'Seller GSTIN': SELLER, 'Order ID': 'OD1', 'HSN Code': '6109', 'Event Type': 'Sale', 'Event Sub Type': 'Sale', 'Item Quantity': 1,
+          'Final Invoice Amount (Price after discount+Shipping Charges)': 1180, 'Taxable Value (Final Invoice Amount -Taxes)': 1000, 'IGST Rate': 18, 'IGST Amount': 180,
+          'Buyer Invoice ID': 'FK-INV-1', 'Buyer Invoice Date': '2026-01-03', 'Buyer Invoice Amount': 1180, "Customer's Delivery State": 'Karnataka' }),
+        fk({ 'Seller GSTIN': SELLER, 'Order ID': 'OD1', 'HSN Code': '6109', 'Event Type': 'Return', 'Event Sub Type': 'Return', 'Item Quantity': 1,
+          'Final Invoice Amount (Price after discount+Shipping Charges)': -1180, 'Taxable Value (Final Invoice Amount -Taxes)': -1000, 'IGST Rate': 18, 'IGST Amount': -180,
+          'Buyer Invoice ID': 'FK-INV-1', 'Buyer Invoice Date': '2026-01-03', 'Buyer Invoice Amount': -1180, "Customer's Delivery State": 'Karnataka' }),
+        fk({ 'Seller GSTIN': SELLER, 'Order ID': 'OD2', 'HSN Code': '6109', 'Event Type': 'Sale', 'Event Sub Type': 'Sale', 'Item Quantity': 1,
+          'Final Invoice Amount (Price after discount+Shipping Charges)': 590, 'Taxable Value (Final Invoice Amount -Taxes)': 500,
+          'CGST Rate': 9, 'CGST Amount': 45, 'SGST Rate (or UTGST as applicable)': 9, 'SGST Amount (Or UTGST as applicable)': 45,
+          'Buyer Invoice ID': 'FK-INV-2', 'Buyer Invoice Date': '2026-01-05', 'Buyer Invoice Amount': 590, "Customer's Delivery State": 'Tamil Nadu' }),
+      ],
+    })
+    const up = await upload(file, { period: '2026-01', marketplace: 'flipkart', report_kind: 'sales' }, 'sales_report.xlsx')
+    expect(up.status, JSON.stringify(up.body)).toBe(201)
+    expect(up.body.data.detect_status).toBe('auto_detected')
+    expect(up.body.data.parse.typeCounts).toMatchObject({ shipment: 2, refund: 1 })
+    const rows = await prisma.rpParsedRow.findMany({ where: { uploadId: up.body.data.upload_id }, orderBy: { sourceRowIndex: 'asc' } })
+    expect(rows.map((r) => r.invoiceNumber)).toEqual(['FK-INV-1', 'FK-INV-1', 'FK-INV-2'])
+    const p = (await get(`/api/repotic/ecommerce/gstr1?client_id=${clientId}&gstin=${SELLER}&period=2026-01&download=1`)).body
+    expect(p.b2cs).toEqual([expect.objectContaining({ pos: '33', rt: 18, sply_ty: 'INTRA', txval: 500, camt: 45, samt: 45 })])
+    expect(p.cdnur).toEqual([])
+  })
+
+  it('Meesho: one tax column is split by place of supply; the returns file nets it; Table 14 uses eco_tcs_gstin', async () => {
+    const sales = await xlsx({ tcs_sales: [MEESHO_HEAD,
+      ms({ identifier: 1, gstin: SELLER, sub_order_num: 'M1_1', order_date: '2026-02-04', hsn_code: '6109', quantity: 1, gst_rate: 5,
+        total_taxable_sale_value: 111.43, tax_amount: 5.57, total_invoice_value: 117, end_customer_state_new: 'PUNJAB', eco_tcs_gstin: MEESHO_ETIN }),
+      ms({ identifier: 2, gstin: SELLER, sub_order_num: 'M2_1', order_date: '2026-02-06', hsn_code: '6109', quantity: 1, gst_rate: 5,
+        total_taxable_sale_value: 200, tax_amount: 10, total_invoice_value: 210, end_customer_state_new: 'TAMIL NADU', eco_tcs_gstin: MEESHO_ETIN }),
+    ] })
+    const returns = await xlsx({ tcs_sales_return: [[...MEESHO_HEAD, 'cancel_return_date'],
+      [...ms({ identifier: 1, gstin: SELLER, sub_order_num: 'M1_1', order_date: '2026-02-04', hsn_code: '6109', quantity: 1, gst_rate: 5,
+        total_taxable_sale_value: 111.43, tax_amount: 5.57, total_invoice_value: 117, end_customer_state_new: 'PUNJAB', eco_tcs_gstin: MEESHO_ETIN }), '2026-02-15'],
+    ] })
+    const scope = { period: '2026-02', marketplace: 'meesho', report_kind: 'sales' }
+    const a = await upload(sales, scope, 'tcs_sales.xlsx')
+    expect(a.status, JSON.stringify(a.body)).toBe(201)
+    let p = (await get(`/api/repotic/ecommerce/gstr1?client_id=${clientId}&gstin=${SELLER}&period=2026-02&download=1`)).body
+    expect(p.b2cs).toEqual([
+      expect.objectContaining({ pos: '03', rt: 5, sply_ty: 'INTER', txval: 111.43, iamt: 5.57, camt: 0 }),
+      expect.objectContaining({ pos: '33', rt: 5, sply_ty: 'INTRA', txval: 200, camt: 5, samt: 5 }),
+    ])
+    // The returns file is its own report: upload it as Meesho "Sales returns".
+    const b = await upload(returns, { ...scope, report_kind: 'sales_return' }, 'tcs_sales_return.xlsx')
+    expect(b.status, JSON.stringify(b.body)).toBe(201)
+    expect(b.body.data.parse.typeCounts).toMatchObject({ refund: 1 })
+    p = (await get(`/api/repotic/ecommerce/gstr1?client_id=${clientId}&gstin=${SELLER}&period=2026-02&download=1`)).body
+    expect(p.b2cs).toEqual([expect.objectContaining({ pos: '33', txval: 200, camt: 5, samt: 5 })])
+    expect(p.supeco.clttx).toEqual([{ etin: MEESHO_ETIN, suppval: 200, igst: 0, cgst: 5, sgst: 5, cess: 0, flag: 'N' }])
+  })
+
+  it('a file that matches no layout is refused with the headers it should have', async () => {
+    const r = await upload('Order,Amount\nX,1\n', { period: '2026-03', marketplace: 'flipkart', report_kind: 'sales' })
+    expect(r.status).toBe(201)
+    expect(r.body.data.detect_status).toBe('no_match')
+    expect(r.body.data.error_message).toMatch(/Buyer Invoice ID/)
+    expect(r.body.data.error_message).toMatch(/Taxable Value/)
+  })
+
+  it('an old .xls is refused with a clear message', async () => {
+    const r = await upload('x', { period: '2026-03' }, 'report.xls')
+    expect(r.status).toBe(422)
+    expect(r.body.error?.message ?? JSON.stringify(r.body)).toMatch(/\.xlsx/)
   })
 })

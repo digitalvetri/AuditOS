@@ -73,6 +73,70 @@ const FIELD_GUESSES: FieldGuess[] = [
     synonyms: ['creditnotedate', 'cndate', 'returndate', 'refunddate'] },
 ]
 
+/**
+ * Marketplace layouts, tried BEFORE the generic synonyms. A trailing `*`
+ * matches by prefix: Flipkart's headers carry explanations in brackets
+ * ("Taxable Value (Final Invoice Amount -Taxes)") that change wording.
+ *
+ * Flipkart — Seller Hub "Sales Report" (sheet "Sales Report"): the GST
+ *   invoice is "Buyer Invoice ID / Date", not the Order ID; the row kind is
+ *   "Event Sub Type" (Sale / Return / Cancellation / Return Cancellation).
+ * Meesho — supplier panel GST report `tcs_sales` (and `tcs_sales_return`):
+ *   one `tax_amount` column with no CGST/SGST/IGST split and a `gst_rate`;
+ *   `eco_tcs_gstin` is Meesho's own GSTIN (the Table 14 ETIN).
+ * Sources: header lists in the report (tools-fix-2-repotic-report.md);
+ * neither marketplace publishes them officially, so the generic synonyms
+ * stay as a fallback.
+ */
+const MARKETPLACE_SYNONYMS: Record<string, Partial<Record<keyof ColumnMap, string[]>>> = {
+  flipkart: {
+    invoice_number: ['buyerinvoiceid', 'buyerinvoiceno', 'invoiceid'],
+    invoice_date: ['buyerinvoicedate', 'invoicedate'],
+    invoice_amount: ['buyerinvoiceamount', 'finalinvoiceamount*'],
+    taxable_value: ['taxablevalue*'],
+    igst_tax: ['igstamount'],
+    cgst_tax: ['cgstamount'],
+    sgst_tax: ['sgstamount*'],
+    cess_tax: ['luxurycessamount', 'cessamount'],
+    igst_rate: ['igstrate'],
+    cgst_rate: ['cgstrate'],
+    sgst_rate: ['sgstrate*'],
+    quantity: ['itemquantity', 'quantity'],
+    ship_to_state: ['customersdeliverystate', 'customerdeliverystate', 'customersbillingstate'],
+    transaction_type: ['eventsubtype', 'eventtype'],
+    credit_note_number: ['creditnoteiddebitnoteid', 'creditnoteid*'],
+  },
+  meesho: {
+    invoice_number: ['subordernum', 'subordernumber', 'ordernum', 'suborderno'],
+    invoice_date: ['orderdate'],
+    invoice_amount: ['totalinvoicevalue', 'invoicevalue'],
+    taxable_value: ['totaltaxablesalevalue', 'tcstaxableamount', 'taxablevalue'],
+    single_tax: ['taxamount'],
+    single_rate: ['gstrate'],
+    hsn: ['hsncode'],
+    ship_to_state: ['endcustomerstatenew', 'endcustomerstate', 'resellerstate'],
+    seller_gstin: ['gstin'],
+    transaction_type: ['transactiontype', 'orderstatus'],
+    credit_note_date: ['cancelreturndate'],
+    eco_gstin: ['ecotcsgstin'],
+  },
+}
+
+/** Header strings each required field is looked for under — for the error
+ *  shown when a file cannot be read. */
+const EXPECTED_HEADERS: Record<string, Record<string, string>> = {
+  amazon: { 'invoice number': 'Invoice Number', 'invoice date': 'Invoice Date', 'invoice amount': 'Invoice Amount', 'taxable value': 'Tax Exclusive Gross' },
+  flipkart: { 'invoice number': 'Buyer Invoice ID', 'invoice date': 'Buyer Invoice Date', 'invoice amount': 'Buyer Invoice Amount or Final Invoice Amount (…)', 'taxable value': 'Taxable Value (…)' },
+  meesho: { 'invoice number': 'sub_order_num', 'invoice date': 'order_date', 'invoice amount': 'total_invoice_value', 'taxable value': 'total_taxable_sale_value' },
+}
+
+/** "Missing: invoice number (expected "Buyer Invoice ID"), …" */
+export function missingColumnsMessage(marketplace: string, missing: string[]): string {
+  const ex = EXPECTED_HEADERS[marketplace] ?? EXPECTED_HEADERS.amazon
+  const list = missing.map((m) => `${m} (expected a column like "${ex[m] ?? m}")`).join('; ')
+  return `This file's columns could not be read. Missing: ${list}. Check that you exported the right report from the marketplace and uploaded the sheet with the column headings.`
+}
+
 function norm(h: string): string {
   return (h ?? '').toLowerCase().replace(/[^a-z0-9]+/g, '')
 }
@@ -82,6 +146,10 @@ export interface AutoMapResult {
   mappedFields: Array<keyof ColumnMap>
   missingRequired: string[]
 }
+
+const MP_ONLY: Array<{ key: keyof ColumnMap; label: string }> = [
+  { key: 'single_tax', label: 'tax amount' }, { key: 'single_rate', label: 'GST rate' }, { key: 'eco_gstin', label: 'ECO GSTIN' },
+]
 
 /**
  * Try to derive a column map from the file's header row.
@@ -93,29 +161,44 @@ export interface AutoMapResult {
  *     value) that couldn't be mapped — if non-empty, caller should refuse
  *     the upload
  */
-export function autoMap(headers: string[]): AutoMapResult {
-  const normalisedHeaders = new Map<string, string>()
+export function autoMap(headers: string[], marketplace?: string): AutoMapResult {
+  const normalised: Array<[string, string]> = []
+  const seen = new Set<string>()
   for (const h of headers) {
     const k = norm(h)
-    if (k && !normalisedHeaders.has(k)) normalisedHeaders.set(k, h)
+    if (k && !seen.has(k)) { seen.add(k); normalised.push([k, h]) }
   }
+  const find = (syn: string) => syn.endsWith('*')
+    ? normalised.find(([k]) => k.startsWith(syn.slice(0, -1)))?.[1]
+    : normalised.find(([k]) => k === syn)?.[1]
+  const profile = (marketplace && MARKETPLACE_SYNONYMS[marketplace]) || {}
   const columnMap: ColumnMap = {}
   const mappedFields: Array<keyof ColumnMap> = []
   const missingRequired: string[] = []
+  const set = (key: keyof ColumnMap, v: string | string[]) => {
+    ;(columnMap as Record<string, string | string[]>)[key] = v
+    mappedFields.push(key)
+  }
 
   for (const guess of FIELD_GUESSES) {
-    const hit = guess.synonyms
-      .map((s) => normalisedHeaders.get(s))
-      .find((h): h is string => Boolean(h))
+    const hit = [...(profile[guess.key] ?? []), ...guess.synonyms].map(find).find((h): h is string => Boolean(h))
     if (hit) {
       // The ColumnMap stores the ORIGINAL header string — the parser's
       // header-index lookup normalises both sides at compare time.
-      const extra = (guess.addSynonyms ?? []).map((s) => normalisedHeaders.get(s)).filter((h): h is string => Boolean(h))
-      ;(columnMap as Record<string, string | string[]>)[guess.key] = extra.length ? [hit, ...extra] : hit
-      mappedFields.push(guess.key)
+      const extra = (guess.addSynonyms ?? []).map(find).filter((h): h is string => Boolean(h))
+      set(guess.key, extra.length ? [hit, ...extra] : hit)
     } else if (guess.required) {
       missingRequired.push(guess.label)
     }
+  }
+  for (const { key } of MP_ONLY) {
+    const hit = (profile[key] ?? []).map(find).find((h): h is string => Boolean(h))
+    if (hit) set(key, hit)
+  }
+  // Meesho sends returns as a separate file with the same columns plus
+  // `cancel_return_date`: every row of it is a return.
+  if (marketplace === 'meesho') {
+    columnMap.default_tx_type = find('cancelreturndate') ? 'refund' : 'shipment'
   }
   return { columnMap, mappedFields, missingRequired }
 }

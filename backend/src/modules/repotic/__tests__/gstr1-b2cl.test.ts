@@ -14,7 +14,7 @@ function row(over: Partial<RpParsedRow>): RpParsedRow {
     invoiceNumber: 'INV-1', invoiceDate: '2025-12-01', invoiceAmount: 0, taxableValue: 0,
     cgstTax: 0, sgstTax: 0, igstTax: 0, cessTax: 0, rate: 1800, hsn: '85437099', quantity: 1,
     shipToState: 'KARNATAKA', sellerGstin: '33COAST7890K1Z4', stateCodeIntra: false,
-    creditNoteNumber: null, creditNoteDate: null, rawJson: '{}', createdAt: new Date(),
+    creditNoteNumber: null, creditNoteDate: null, ecoGstin: null, rawJson: '{}', createdAt: new Date(),
     ...over,
   }
 }

@@ -70,7 +70,13 @@ export const MARKETPLACES: Marketplace[] = [
       { key: 'gst', label: 'GST', intendedCoverage: B2C },
     ],
   },
-  { key: 'meesho', label: 'Meesho', reports: [{ key: 'sales', label: 'Sales', intendedCoverage: B2C }] },
+  {
+    key: 'meesho', label: 'Meesho',
+    reports: [
+      { key: 'sales', label: 'Sales (tcs_sales)', intendedCoverage: B2C },
+      { key: 'sales_return', label: 'Returns (tcs_sales_return)', intendedCoverage: B2C },
+    ],
+  },
   { key: 'myntra', label: 'Myntra', reports: [{ key: 'sales', label: 'Sales', intendedCoverage: B2C }] },
   { key: 'ajio',   label: 'Ajio',   reports: [{ key: 'sales', label: 'Sales', intendedCoverage: B2C }] },
   {

@@ -195,7 +195,7 @@ export function buildFromRows(
   const b2clByPos = new Map<string, B2clEntry>()
   const cdnurByNote = new Map<string, CdnurEntry>()
   const hsn = new Map<string, HsnEntry>()     // key: hsn|rate
-  const eco = new Map<string, Totals>()       // key: marketplace
+  const eco = new Map<string, Totals>()       // key: marketplace|etin from the row
   const counts: Gstr1BuildResult['counts'] = {
     b2cs: 0, b2cl: 0, cdnur: 0, hsn: 0, b2cs_returns: 0,
     excluded_free_replacement: 0, excluded_other: 0, excluded_other_gstin: 0, excluded_out_of_period: 0,
@@ -319,13 +319,14 @@ export function buildFromRows(
     // report it came from; returns reduce it.
     const mp = marketplaceOf[r.uploadId]
     if (mp) {
-      const e = eco.get(mp) ?? zeroTotals()
+      const ecoKey = `${mp}|${r.ecoGstin ?? ''}`
+      const e = eco.get(ecoKey) ?? zeroTotals()
       e.txval = round2(e.txval + sign * t.txval)
       e.iamt = round2(e.iamt + sign * t.iamt)
       e.camt = round2(e.camt + sign * t.camt)
       e.samt = round2(e.samt + sign * t.samt)
       e.csamt = round2(e.csamt + sign * t.csamt)
-      eco.set(mp, e)
+      eco.set(ecoKey, e)
     }
 
     // Table 12 — HSN summary, net of returns.
@@ -359,8 +360,20 @@ export function buildFromRows(
   // for the seller's state (eco-etins.ts), carrying that marketplace's own
   // B2C supplies (B2CS + B2CL, net of returns).
   const supecoEntries: SupecoEntry[] = []
-  for (const [mp, e] of eco) {
-    const etin = (mp === 'amazon' || mp === 'flipkart' || mp === 'myntra' || mp === 'meesho') ? lookupEtin(mp as MarketplaceKey, sellerStateCode) : null
+  // The ETIN is the one the report states on the row (Meesho), else the
+  // one known for the seller's state.
+  const merged = new Map<string, { mp: string; e: Totals }>()
+  for (const [key, e] of eco) {
+    const [mp, rowEtin] = key.split('|')
+    const etin = (rowEtin && isValidEtin(rowEtin) ? rowEtin : null)
+      ?? ((mp === 'amazon' || mp === 'flipkart' || mp === 'myntra' || mp === 'meesho') ? lookupEtin(mp as MarketplaceKey, sellerStateCode) : null)
+    const k = etin ?? `?${mp}`
+    const m = merged.get(k) ?? { mp, e: zeroTotals() }
+    for (const f of ['txval', 'iamt', 'camt', 'samt', 'csamt'] as const) m.e[f] = round2(m.e[f] + e[f])
+    merged.set(k, m)
+  }
+  for (const [k, { mp, e }] of merged) {
+    const etin = k.startsWith('?') ? null : k
     if (!etin) {
       warnings.push(`Table 14 omitted for ${mp}: no ETIN registered for state ${sellerStateCode}. Add it to backend/src/modules/repotic/eco-etins.ts before uploading to the GST portal.`)
       continue
@@ -381,6 +394,19 @@ export function buildFromRows(
     ...(supecoEntries.length ? { supeco: { clttx: supecoEntries } } : {}),
   }
   return { preview, counts, warnings }
+}
+
+const GSTIN_CHARS = '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ'
+/** An e-commerce operator's TCS registration (e.g. 33AAICA3918J1C0): the
+ *  GSTIN shape with "C" (not "Z") at position 14, and the same check digit. */
+function isValidEtin(g: string): boolean {
+  if (!/^\d{2}[A-Z]{5}\d{4}[A-Z][0-9A-Z]{3}$/.test(g)) return false
+  let sum = 0
+  for (let i = 0; i < 14; i++) {
+    const v = GSTIN_CHARS.indexOf(g[i]) * (i % 2 ? 2 : 1)
+    sum += Math.floor(v / 36) + (v % 36)
+  }
+  return GSTIN_CHARS[(36 - (sum % 36)) % 36] === g[14]
 }
 
 function paiseToRupees(paise: number): number {

@@ -8164,6 +8164,10 @@ model RpParsedRow {
   creditNoteNumber String?
   creditNoteDate   String?
 
+  /// The marketplace's own GSTIN when the report carries it per row
+  /// (Meesho `eco_tcs_gstin`) — the Table 14 ETIN.
+  ecoGstin String?
+
   /// Everything the mapper saw. kept so an auditor can see the untransformed
   /// data when a figure is questioned.
   rawJson String
