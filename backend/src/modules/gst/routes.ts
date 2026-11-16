@@ -76,12 +76,12 @@ gstRouter.get('/filing-board', handler(async (req, res) => {
   const scope = requireWorkstation(session, ...READ)
   const t = today()
   const q = typeof req.query.period === 'string' ? req.query.period : ''
-  const period = /^\d{4}-\d{2}$/.test(q) ? q : previousPeriod(t)
+  const period = /^\d{4}-(0[1-9]|1[0-2])$/.test(q) ? q : previousPeriod(t)
   const ids = await assignedClientIds(session, scope)
   const clientWhere = ids === 'ALL' ? {} : { clientId: { in: ids } }
 
   const periods = await prisma.gstCompliancePeriod.findMany({
-    where: { ...alive, period, gstProfile: { ...clientWhere, deletedAt: null } },
+    where: { ...alive, period, gstProfile: { ...clientWhere, deletedAt: null, active: true } },
     include: { gstProfile: { include: { client: { select: { id: true, companyName: true } } } }, filings: { where: alive } },
     orderBy: { gstProfile: { client: { companyName: 'asc' } } },
   })
