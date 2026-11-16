@@ -259,6 +259,7 @@ const IMPLEMENTATIONS: Record<string, Implementation> = {
     return {
       filename: withExtension(doc.originalFilename, 'json'), mime: OUTPUT_MIME.json, bytes: r.bytes,
       meta: { direction: 'excel_to_json', sections: r.sections, invoices: r.invoices, rows: r.rows },
+      warning: r.warning,
     }
   },
 

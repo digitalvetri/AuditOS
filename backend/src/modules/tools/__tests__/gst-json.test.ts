@@ -62,6 +62,23 @@ describe('GST JSON ⇄ Excel', () => {
     expect(out.hsn.hsn_b2b[0].hsn_sc).toBe('0402')
   })
 
+  it('a hand-made sheet: B2CS supply type from the tax, missing invoice type named in the warning', async () => {
+    const wb = new ExcelJS.Workbook()
+    wb.addWorksheet('B2B').addRows([
+      ['Recipient GSTIN', 'Invoice No', 'Invoice Date', 'Invoice Value', 'Place of Supply', 'Reverse Charge', 'Rate', 'Taxable Value', 'CGST', 'SGST'],
+      ['33AAACS1234A1Z5', 'KT/26-27/101', '05-04-2026', 11800, '33', 'N', 18, 10000, 900, 900],
+    ])
+    wb.addWorksheet('B2CS').addRows([
+      ['Place of Supply', 'Rate', 'Taxable Value', 'IGST'],
+      ['29', 18, 5000, 900],
+    ])
+    const r = await ComplianceService.gstExcelToJson(Buffer.from(await wb.xlsx.writeBuffer()))
+    const out = JSON.parse(r.bytes.toString('utf8'))
+    expect(out.b2cs[0]).toMatchObject({ sply_ty: 'INTER', typ: 'OE', pos: '29' })
+    expect(out.b2b[0].inv[0].inv_typ).toBeUndefined()
+    expect(r.warning).toMatch(/B2B KT\/26-27\/101 \(inv_typ\)/)
+  })
+
   it('names sections it does not convert instead of dropping them silently', async () => {
     const src = JSON.parse((await fixture('gstr1.json')).toString('utf8'))
     src.b2ba = [{ ctin: '33AAACS1234A1Z5', inv: [] }]

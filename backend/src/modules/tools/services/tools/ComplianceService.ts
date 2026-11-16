@@ -639,7 +639,7 @@ export const ComplianceService = {
   },
 
   /** Workbook → GSTR-1 JSON. Reverses gstJsonToExcel sheet for sheet. */
-  async gstExcelToJson(bytes: Buffer): Promise<{ bytes: Buffer; sections: string[]; invoices: number; rows: number }> {
+  async gstExcelToJson(bytes: Buffer): Promise<{ bytes: Buffer; sections: string[]; invoices: number; rows: number; warning?: string }> {
     const wb = new ExcelJS.Workbook()
     try {
       await wb.xlsx.load(bytes as unknown as ArrayBuffer)
@@ -699,7 +699,35 @@ export const ComplianceService = {
     if (sections.length === 0) {
       throw new ToolError('empty', `No sheet named ${GST_SECTIONS.map((s) => s.label).join(', ')} was found in this workbook.`)
     }
-    return { bytes: Buffer.from(JSON.stringify(out, null, 2), 'utf8'), sections, invoices, rows }
+
+    // B2CS rows from a hand-made sheet: the supply type follows from the tax
+    // (IGST alone is inter-state), and a line without an e-commerce GSTIN is "OE".
+    for (const line of (Array.isArray(out.b2cs) ? out.b2cs : []) as Record<string, unknown>[]) {
+      line.sply_ty ??= line.iamt !== undefined && line.camt === undefined && line.samt === undefined ? 'INTER' : 'INTRA'
+      if (line.typ === undefined && line.etin === undefined) line.typ = 'OE'
+    }
+    // Mandatory keys the sheet did not supply are named, never invented.
+    const missing: string[] = []
+    const need = (label: string, id: unknown, o: Record<string, unknown>, keys: string[]) => {
+      const gone = keys.filter((k) => o[k] === undefined || o[k] === '')
+      if (gone.length) missing.push(`${label} ${String(id ?? '?')} (${gone.join(', ')})`)
+    }
+    const list = (v: unknown) => (Array.isArray(v) ? v : []) as Record<string, unknown>[]
+    for (const g of list(out.b2b)) for (const i of list(g.inv)) need('B2B', i.inum, i, ['idt', 'val', 'pos', 'rchrg', 'inv_typ'])
+    for (const g of list(out.b2cl)) for (const i of list(g.inv)) need('B2CL', i.inum, i, ['idt', 'val'])
+    for (const g of list(out.cdnr)) for (const n of list(g.nt)) need('CDNR', n.nt_num, n, ['ntty', 'nt_dt', 'val', 'pos', 'rchrg', 'inv_typ'])
+    for (const n of list(out.cdnur)) need('CDNUR', n.nt_num, n, ['typ', 'ntty', 'nt_dt', 'val'])
+    for (const l of list(out.b2cs)) need('B2CS', l.pos, l, ['pos', 'rt', 'txval'])
+    for (const g of list(out.exp)) {
+      need('EXP', g.exp_typ, g, ['exp_typ'])
+      for (const i of list(g.inv)) need('EXP', i.inum, i, ['idt', 'val'])
+    }
+    return {
+      bytes: Buffer.from(JSON.stringify(out, null, 2), 'utf8'), sections, invoices, rows,
+      warning: missing.length
+        ? `${missing.length} ${missing.length === 1 ? 'entry is' : 'entries are'} missing fields GSTR-1 requires, and the offline tool will reject the file until they are filled in: ${missing.slice(0, 5).join('; ')}${missing.length > 5 ? '; …' : ''}.`
+        : undefined,
+    }
   },
 
   // ── 2. Bank statement (PDF) → Excel ────────────────────────────────────
