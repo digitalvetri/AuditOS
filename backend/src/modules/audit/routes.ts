@@ -363,7 +363,10 @@ auditFilesRouter.post('/:id/sign', handler(async (req, res) => {
     opinion_type: z.enum(OPINIONS),
     report_place: z.string().trim().min(1, 'Give the place of signature.').max(100),
     udin: z.string().trim().toUpperCase().nullish(),
+    // The day the UDIN was generated on the ICAI portal; today when not given.
+    udin_generated_on: ISO_DATE.nullish(),
   }), req.body, 'Invalid sign-off.')
+  const udinGeneratedOn = b.udin_generated_on ?? istToday()
   if (e.status === 'signed' || e.status === 'archived') throw ApiError.conflict('already_signed', 'This file is already signed.')
   if (b.report_date > istToday()) throw ApiError.badRequest('The report date cannot be in the future.', { report_date: 'In the future.' })
   const d = (await progressFor([e])).get(e.id)!
@@ -375,7 +378,7 @@ auditFilesRouter.post('/:id/sign', handler(async (req, res) => {
     if (!e.partnerMembershipNo) throw ApiError.unprocessable('membership_required', "Record the signing partner's membership number on the file before adding a UDIN.")
     validateUdin(b.udin, e.partnerMembershipNo)
     // Recorded as generated today, for a report signed on report_date.
-    validateUdinDates(b.udin, b.report_date, istToday())
+    validateUdinDates(b.udin, b.report_date, udinGeneratedOn)
   }
   const assemblyDueDate = addDays(b.report_date, 60)
   const updated = await prisma.$transaction(async (tx) => {
@@ -391,7 +394,7 @@ auditFilesRouter.post('/:id/sign', handler(async (req, res) => {
         data: {
           organisationId: e.organisationId, engagementId: e.id, clientId: e.clientId, udin: b.udin,
           documentType: udinDocType(e.auditType), documentDescription: e.title, documentDate: b.report_date,
-          partnerId: e.signingPartnerId, membershipNo: e.partnerMembershipNo, generatedOn: istToday(), createdBy: session.userId,
+          partnerId: e.signingPartnerId, membershipNo: e.partnerMembershipNo, generatedOn: udinGeneratedOn, createdBy: session.userId,
         },
       })
     }

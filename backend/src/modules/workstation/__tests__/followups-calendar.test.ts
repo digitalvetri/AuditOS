@@ -65,6 +65,18 @@ describe('reminders and missed', () => {
   })
 })
 
+describe('rescheduling a missed follow-up', () => {
+  it('makes it pending again, and it reminds', async () => {
+    const f = await followUp({ status: 'missed', scheduledAt: new Date(`${addDays(istToday(), -3)}T05:00:00Z`), reminderMinutesBefore: 120 })
+    const at = new Date(Date.now() + 3600_000)
+    const r = await h.api(`/api/follow-ups/${f.id}`, arun.cookie, { method: 'PATCH', body: { scheduled_at: at.toISOString() } })
+    expect(r.status).toBe(200)
+    expect(r.body.status).toBe('pending')
+    await sendFollowUpReminders(prisma, new Date())
+    expect(await prisma.notification.count({ where: { userId: arun.userId, type: 'followup.reminder', entityId: { contains: f.id } } })).toBe(1)
+  })
+})
+
 describe('the assignee', () => {
   it('can complete and update a follow-up assigned to them on a client they are not on, but not reassign it', async () => {
     const f = await followUp({})
@@ -108,6 +120,11 @@ describe('calendar', () => {
     expect(ids).toEqual(expect.arrayContaining([`followup:${f.id}`, `task:${task.id}`, `compliance:${item.id}`]))
     expect(ids).not.toContain(`compliance:${hidden.id}`)
     expect(ids).not.toContain(`compliance:${filed.id}`)
+    // Someone else's task on a client Priya cannot see is not on her calendar.
+    const othersTask = await prisma.task.create({ data: { title: uid('Task'), clientId: otherClientId, assignedEmployeeId: md.emp.id, dueDate: due } })
+    expect(ids).not.toContain(`task:${othersTask.id}`)
+    const again = await h.api(`/api/workstation/calendar?from=${addDays(istToday(), -1)}&to=${addDays(istToday(), 10)}`, priya.cookie)
+    expect((again.body.items as any[]).map((e) => e.id)).not.toContain(othersTask.id)
     const c = (r.body.items as any[]).find((e) => e.id === item.id)
     expect(c).toMatchObject({ date: due, client_id: clientId })
 

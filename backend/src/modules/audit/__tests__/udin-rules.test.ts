@@ -57,6 +57,15 @@ describe('UDIN dates', () => {
   })
 })
 
+describe('UDIN on sign-off', () => {
+  it('accepts the date the UDIN was generated, so last year\'s prefix is valid', async () => {
+    const { validateUdinDates } = await import('../udin.js')
+    // Generated 31 Dec, recorded 2 Jan: the prefix is the generation year.
+    expect(() => validateUdinDates(`25${MNO}${tail()}`, '2025-12-30', '2025-12-31', '2026-01-02')).not.toThrow()
+    expect(() => validateUdinDates(`25${MNO}${tail()}`, '2025-12-30', '2026-01-02', '2026-01-02')).toThrow()
+  })
+})
+
 describe('missing UDINs', () => {
   it('say by when the UDIN is due and how many days are left', async () => {
     const { prisma, uid } = await import('../../../__tests__/helpers.js')

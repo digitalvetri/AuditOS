@@ -215,6 +215,12 @@ followUpsRouter.patch('/:id', handler(async (req, res) => {
   }
   data.updatedBy = session.userId
 
+  // Rescheduling a missed follow-up into the future makes it pending again,
+  // so it reminds and shows as upcoming instead of staying "missed".
+  if (before.status === 'missed' && !('status' in b) && data.scheduledAt instanceof Date && data.scheduledAt.getTime() > Date.now()) {
+    data.status = 'pending'
+  }
+
   // A status change keeps the completion stamp honest: set when a follow-up
   // becomes completed, cleared when it is moved back out of completed.
   const statusChanged = typeof data.status === 'string' && data.status !== before.status
