@@ -255,7 +255,6 @@ const IMPLEMENTATIONS: Record<string, Implementation> = {
     const r = await ComplianceService.bankStatementToExcel(bytes, progress)
     const parts: string[] = []
     if (r.skipped) parts.push(`${r.skipped} dated ${r.skipped === 1 ? 'line' : 'lines'} could not be read and ${r.skipped === 1 ? 'is' : 'are'} listed on the Skipped sheet.`)
-    if (!r.balanced) parts.push('Opening + credits − debits does not tie to the closing balance, so check the statement against the Summary sheet before using it.')
     return {
       filename: withExtension(doc.originalFilename, 'xlsx'), mime: OUTPUT_MIME.xlsx, bytes: r.bytes,
       meta: {

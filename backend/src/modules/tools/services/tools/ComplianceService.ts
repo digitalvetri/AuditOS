@@ -334,6 +334,69 @@ function checkDeductor(o: TdsStatementOptions) {
   }
 }
 
+// ── Bank statement helpers ──────────────────────────────────────────────
+
+interface BankPiece { text: string; x0: number; x1: number; money: number | null; mark: 'dr' | 'cr' | null; marker: boolean }
+
+const BANK_MONEY = /^\(?-?(?:\d{1,3}(?:,\d{2,3})*|\d+)\.\d{2}\)?$/
+
+/**
+ * A line's cells as pieces. A cell that is nothing but amounts and Cr/Dr
+ * markers ("20,000.00 1,00,000.00", "10,000.00 Dr") is split, because
+ * tightly printed columns arrive as one span; each piece gets a share of the
+ * cell's width so its right edge still says which column it sits in.
+ */
+function bankPieces(cells: { text: string; x0: number; x1: number }[]): BankPiece[] {
+  const out: BankPiece[] = []
+  for (const c of cells) {
+    const text = c.text.replace(/₹/g, '').trim()
+    if (!text) continue
+    const words = text.split(/\s+/)
+    const isMoney = (w: string) => BANK_MONEY.test(w.replace(/(cr|dr)$/i, ''))
+    const isMarker = (w: string) => /^(cr|dr)\.?$/i.test(w)
+    const all = words.length > 1 && words.every((w) => isMoney(w) || isMarker(w))
+    if (!all) { out.push(piece(text, c.x0, c.x1)); continue }
+    let pos = 0
+    for (const w of words) {
+      const at = text.indexOf(w, pos); pos = at + w.length
+      const span = c.x1 - c.x0
+      out.push(piece(w, c.x0 + (at / text.length) * span, c.x0 + (pos / text.length) * span))
+    }
+  }
+  // A lone Cr/Dr marker belongs to the amount before it.
+  for (let i = 1; i < out.length; i++) {
+    if (out[i].marker && out[i - 1].money !== null && !out[i - 1].mark) out[i - 1].mark = /^d/i.test(out[i].text) ? 'dr' : 'cr'
+  }
+  return out
+}
+
+function piece(text: string, x0: number, x1: number): BankPiece {
+  const marker = /^(cr|dr)\.?$/i.test(text)
+  const m = text.match(/^(.*?)(cr|dr)$/i)
+  const body = m && BANK_MONEY.test(m[1].trim()) ? m[1].trim() : text
+  let money: number | null = null
+  if (BANK_MONEY.test(body)) {
+    const neg = /^\(.*\)$/.test(body) || body.startsWith('-')
+    money = Number(body.replace(/[(),-]/g, ''))
+    if (neg) money = -money
+  }
+  return { text, x0, x1, money, mark: money !== null && m && body !== text ? (/^d/i.test(m[2]) ? 'dr' : 'cr') : null, marker }
+}
+
+/** A Dr balance is an overdraft — a negative balance. */
+const signed = (p: BankPiece) => (p.mark === 'dr' ? -Math.abs(p.money!) : p.money!)
+
+/** The transaction date: the first cell, or the second after a serial number. */
+function bankDate(pieces: BankPiece[]): { date: string; at: number } | null {
+  const d0 = parseDate(pieces[0]?.text ?? '')
+  if (d0) return { date: d0, at: 0 }
+  if (/^\d{1,5}\.?$/.test(pieces[0]?.text ?? '')) {
+    const d1 = parseDate(pieces[1]?.text ?? '')
+    if (d1) return { date: d1, at: 1 }
+  }
+  return null
+}
+
 export const ComplianceService = {
   /** JSON → workbook. One sheet per section present, plus Summary. */
   async gstJsonToExcel(bytes: Buffer): Promise<{ bytes: Buffer; sections: string[]; invoices: number; rows: number }> {
@@ -550,11 +613,20 @@ export const ComplianceService = {
 
   /**
    * Bank PDFs share no layout, so this reads structurally rather than per
-   * bank: a transaction line starts with a date and ends with one to three
-   * money columns. The right-most is the running balance when it tracks the
-   * previous balance; what remains is debit/credit, assigned by whether the
-   * balance went down or up. When the balance column is absent the two
-   * amounts are read in column order.
+   * bank: a transaction line starts with a date (after an optional serial
+   * number) and carries one to three money columns, the last of which is the
+   * running balance. Money is anything printed with paise ("1,25,000.00"),
+   * which keeps cheque numbers, serials and branch codes out.
+   *
+   * Direction is never guessed from column order alone:
+   *  - three amounts → withdrawal, deposit, balance (every Indian bank's order);
+   *  - two amounts → the change in the running balance says which side, and
+   *    the amount's x-position is learned per side so the first row (which
+   *    has no previous balance) is read from the column it sits in;
+   *  - a Cr/Dr marker on the amount, when printed, is taken as given.
+   * Then the whole chain is checked row by row — opening + credits − debits
+   * must equal every printed balance — and a statement that does not tie is
+   * refused with the row that breaks, never handed back reversed.
    */
   async bankStatementToExcel(bytes: Buffer, onProgress?: (pct: number) => void): Promise<{
     bytes: Buffer; transactions: number; pageCount: number; skipped: number
@@ -565,90 +637,154 @@ export const ComplianceService = {
       throw new ToolError('no_text_layer', 'This statement is a scan with no text layer. Run OCR Scan on it first, then try again.')
     }
 
+    interface Amt { v: number; x1: number; mark: 'dr' | 'cr' | null }
+    interface Raw { page: number; date: string; narration: string; ref: string; amts: Amt[] }
     interface Txn { page: number; date: string; narration: string; ref: string; debit: number | null; credit: number | null; balance: number | null }
-    const txns: Txn[] = []
+    const raws: Raw[] = []
     const skipped: SkipNote[] = []
-    let prevBalance: number | null = null
-    let opening: number | null = null
+    let opening: number | null = null      // printed before the first transaction
+    let openingHint: number | null = null  // printed in an end-of-statement summary
+    let summaryOpeningX: number | null = null
 
     for (const page of pages) {
       for (const line of page.lines) {
-        const cells = line.cells.map((c) => c.text.trim()).filter((t) => t !== '')
-        if (cells.length < 2) continue
-        const joined = cells.join(' ')
-        // An opening / brought-forward line carries a date and one amount,
-        // and looks exactly like a transaction. Treated as one it becomes a
-        // phantom debit AND leaves the running balance unseeded, which then
-        // mis-splits every two-column row after it — so it is matched first,
-        // whether or not it is dated.
-        if (/\b(opening\s+balance|balance\s+b\/?f|brought\s+forward|b\/f)\b/i.test(joined)) {
-          const amounts = cells.map(parseAmount).filter((v): v is number => v !== null)
-          if (amounts.length) { opening = amounts[amounts.length - 1]; prevBalance = opening }
+        const pieces = bankPieces(line.cells)
+        if (pieces.length === 0) continue
+        const joined = pieces.map((p) => p.text).join(' ')
+
+        // A summary block prints "Opening Balance" as a column header and the
+        // figure on the line below it.
+        if (summaryOpeningX !== null) {
+          const under = pieces.filter((p) => p.money !== null).find((p) => Math.abs(p.x0 - summaryOpeningX!) < 25)
+          if (under) openingHint = signed(under)
+          summaryOpeningX = null
+        }
+        if (/\b(opening\s+bal(ance)?|balance\s+b\/?f|brought\s+forward|balance\s+as\s+on|balance\s+forward)\b/i.test(joined) && !bankDate(pieces)) {
+          // The figure may share a cell with its label: "Balance as on 1 Apr 2026 : 80,000.00".
+          const m = bankPieces(pieces.flatMap((p) => p.text.split(/\s+/).map((w) => ({ text: w, x0: p.x0, x1: p.x1 }))))
+            .filter((p) => p.money !== null)
+          if (m.length) {
+            if (raws.length === 0) opening = signed(m[m.length - 1])
+            else openingHint ??= signed(m[m.length - 1])
+          } else {
+            const head = pieces.find((p) => /opening\s+bal/i.test(p.text))
+            if (head) summaryOpeningX = head.x0
+          }
           continue
         }
-        // A closing / carried-forward line is a total, not a transaction.
-        if (/\b(closing\s+balance|balance\s+c\/?f|carried\s+forward|c\/f)\b/i.test(joined)) continue
+        const dated = bankDate(pieces)
+        if (!dated) continue
 
-        const date = parseDate(cells[0])
-        if (!date) continue
-
-        // Trailing money columns.
-        const money: number[] = []
-        let i = cells.length - 1
-        while (i > 0 && money.length < 3) {
-          const n = parseAmount(cells[i])
-          if (n === null) break
-          money.unshift(n)
-          i--
-        }
-        if (money.length === 0) {
-          skipped.push({ row: page.page, reason: `page ${page.page}: a dated line with no amount — "${cells.join(' ').slice(0, 60)}"` })
+        // The money run: the last one-to-three amounts on the line. Anything
+        // after it (Axis prints the branch code) is not part of the run.
+        let last = -1
+        for (let k = pieces.length - 1; k > dated.at; k--) if (pieces[k].money !== null) { last = k; break }
+        if (last < 0) {
+          skipped.push({ row: page.page, reason: `page ${page.page}: a dated line with no amount — "${joined.slice(0, 60)}"` })
           continue
         }
-
-        const middle = cells.slice(1, i + 1)
+        const run: BankPiece[] = []
+        let k = last
+        while (k > dated.at && run.length < 3) {
+          if (pieces[k].money !== null) run.unshift(pieces[k])
+          else if (!pieces[k].marker) break
+          k--
+        }
+        const middle = pieces.slice(dated.at + 1, k + 1)
+          .filter((p) => !parseDate(p.text) && p.text !== '-' && p.money === null && !p.marker)
+          .map((p) => p.text)
         const ref = middle.find((t) => /^[A-Z0-9/-]{6,}$/.test(t) && /\d/.test(t)) ?? ''
         const narration = middle.filter((t) => t !== ref).join(' ').trim()
-
-        let debit: number | null = null
-        let credit: number | null = null
-        let balance: number | null = null
-
-        if (money.length === 3) {
-          debit = money[0] || null; credit = money[1] || null; balance = money[2]
-        } else if (money.length === 2) {
-          // Is the last column a running balance?
-          const delta = prevBalance === null ? null : round2(money[1] - prevBalance)
-          if (delta !== null && Math.abs(Math.abs(delta) - money[0]) < 0.02) {
-            balance = money[1]
-            if (delta < 0) debit = money[0]; else credit = money[0]
-          } else {
-            debit = money[0] || null; credit = money[1] || null
-          }
-        } else {
-          // A single amount with no balance: direction from the narration.
-          if (/\b(cr|credit|deposit|by )\b/i.test(narration)) credit = money[0]
-          else debit = money[0]
-        }
-
-        if (balance !== null) prevBalance = balance
-        if (opening === null && balance !== null) {
-          opening = round2(balance - (credit ?? 0) + (debit ?? 0))
-        }
-        txns.push({ page: page.page, date, narration, ref, debit, credit, balance })
+        raws.push({ page: page.page, date: dated.date, narration, ref, amts: run.map((p) => ({ v: p.money!, x1: p.x1, mark: p.mark })) })
       }
       onProgress?.(60 + (page.page / pages.length) * 30)
     }
 
-    if (txns.length === 0) {
+    if (raws.length === 0) {
       throw new ToolError('no_tables', 'No transaction rows were found. This may not be a bank statement, or its layout puts the date somewhere other than the first column.')
     }
+    const noBalance = raws.filter((r) => r.amts.length < 2)
+    if (noBalance.length === raws.length) {
+      throw new ToolError('no_tables', 'This statement has no running balance column, so whether each amount is a debit or a credit cannot be verified. Download the statement with the balance column (the standard "detailed" statement) and try again.')
+    }
+    if (noBalance.length) {
+      const r = noBalance[0]
+      throw new ToolError('partial', `The line dated ${r.date} on page ${r.page} has an amount but no running balance, so its direction cannot be checked. Nothing was converted — check that page of the statement.`)
+    }
+
+    const fmt = (n: number) => `${n < 0 ? '-' : ''}₹${Math.abs(n).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+    const balOf = (r: Raw) => { const b = r.amts[r.amts.length - 1]; return b.mark === 'dr' ? -b.v : b.v }
+    const near = (a: number, b: number) => Math.abs(a - b) < 0.01
+
+    // Pass 1 — direction of single-amount rows from the balance delta, and the
+    // x-position of each side's amounts for the row that has no previous balance.
+    const dir: ('dr' | 'cr' | null)[] = raws.map((r) => (r.amts.length === 2 ? r.amts[0].mark : null))
+    const xs: Record<'dr' | 'cr', number[]> = { dr: [], cr: [] }
+    raws.forEach((r, i) => {
+      if (r.amts.length !== 2) return
+      const prev = i > 0 ? balOf(raws[i - 1]) : opening
+      if (dir[i] === null && prev !== null) {
+        const delta = round2(balOf(r) - prev)
+        if (near(Math.abs(delta), r.amts[0].v)) dir[i] = delta < 0 ? 'dr' : 'cr'
+      }
+      if (dir[i] && (i > 0 || opening !== null)) xs[dir[i]!].push(r.amts[0].x1)
+    })
+    if (raws[0].amts.length === 2 && dir[0] === null) {
+      const x = raws[0].amts[0].x1
+      const mean = (a: number[]) => (a.length ? a.reduce((s, v) => s + v, 0) / a.length : null)
+      const dX = mean(xs.dr); const cX = mean(xs.cr)
+      if (dX !== null && cX !== null && Math.abs(dX - cX) > 4) dir[0] = Math.abs(x - dX) < Math.abs(x - cX) ? 'dr' : 'cr'
+      else if (openingHint !== null) {
+        const delta = round2(balOf(raws[0]) - openingHint)
+        if (near(Math.abs(delta), raws[0].amts[0].v)) dir[0] = delta < 0 ? 'dr' : 'cr'
+      }
+      if (dir[0] === null) {
+        throw new ToolError('partial', `The first transaction (${raws[0].date}, page ${raws[0].page}) has no opening balance before it, and its column could not be told apart from the others, so it cannot be read as a debit or a credit safely. Nothing was converted.`)
+      }
+    }
+
+    // Pass 2 — build rows and check the running balance at every line. A
+    // three-column layout is read withdrawal-first; only if the whole chain
+    // fails that way and ties deposit-first is the other order used.
+    const build = (depositFirst: boolean): Txn[] => raws.map((r, i) => {
+      const balance = balOf(r)
+      if (r.amts.length === 3) {
+        const [a0, a1] = depositFirst ? [r.amts[1], r.amts[0]] : [r.amts[0], r.amts[1]]
+        return { ...r, debit: a0.v || null, credit: a1.v || null, balance }
+      }
+      const amt = r.amts[0].v
+      return { ...r, debit: dir[i] === 'dr' ? amt : null, credit: dir[i] === 'cr' ? amt : null, balance }
+    })
+    const openingFor = (t: Txn[]) => opening ?? round2(t[0].balance! - (t[0].credit ?? 0) + (t[0].debit ?? 0))
+    const firstBreak = (t: Txn[]) => {
+      let prev = openingFor(t)
+      for (const x of t) {
+        const expected = round2(prev + (x.credit ?? 0) - (x.debit ?? 0))
+        if (!near(expected, x.balance!)) return { t: x, prev, expected }
+        prev = x.balance!
+      }
+      return null
+    }
+    let txns = build(false)
+    const broken = firstBreak(txns)
+    if (broken) {
+      const alt = build(true)
+      if (raws.some((r) => r.amts.length === 3) && !firstBreak(alt)) txns = alt
+      else {
+        const { t, prev, expected } = broken
+        throw new ToolError('partial',
+          `The running balance does not tie at the line dated ${t.date} on page ${t.page} ("${t.narration.slice(0, 40)}"): ` +
+          `${fmt(prev)} plus credits minus debits should give ${fmt(expected)}, but the statement shows ${fmt(t.balance!)}. ` +
+          'Nothing was converted, because a statement that does not tie would import with wrong or reversed entries. ' +
+          'Check for a line missing from the text layer, a multi-line entry, or a statement that lists the newest transaction first.')
+      }
+    }
+    opening = openingFor(txns)
 
     const totalDebit = round2(txns.reduce((s, t) => s + (t.debit ?? 0), 0))
     const totalCredit = round2(txns.reduce((s, t) => s + (t.credit ?? 0), 0))
     const closing = txns[txns.length - 1].balance
-    const balanced = opening !== null && closing !== null
-      && Math.abs(round2(opening + totalCredit - totalDebit) - closing) < 0.05
+    const balanced = true
 
     const wb = newBook()
     const ws = wb.addWorksheet('Transactions')
@@ -673,7 +809,7 @@ export const ComplianceService = {
     sum.addRow({ k: 'Total debit', v: totalDebit })
     sum.addRow({ k: 'Total credit', v: totalCredit })
     sum.addRow({ k: 'Closing balance', v: closing ?? '—' })
-    sum.addRow({ k: 'Opening + credits − debits ties to closing', v: balanced ? 'Yes' : 'Not verified' })
+    sum.addRow({ k: 'Running balance checked on every line', v: 'Yes' })
     autoWidth(sum)
     addSkippedSheet(wb, skipped)
 

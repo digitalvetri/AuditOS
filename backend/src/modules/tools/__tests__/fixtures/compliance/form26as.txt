@@ -1,0 +1,30 @@
+Annual Tax Statement under Section 203AA of the Income Tax Act, 1961^
+File Creation Date^15-11-2026^
+Permanent Account Number (PAN)^AAAPA1111A^Current Status of PAN^Active^Financial Year^2025-26^Assessment Year^2026-27^
+Name of Assessee^ARUN KUMAR^
+PART-I - Details of Tax Deducted at Source^
+Sr. No.^Name of Deductor^TAN of Deductor^^^^Total Amount Paid / Credited(Rs.)^Total Tax Deducted(Rs.)^Total TDS Deposited(Rs.)^
+1^KAVERI TRADERS PRIVATE LIMITED^CHEK12345B^^^^150000.00^15000.00^15000.00^
+^Sr. No.^Section^Transaction Date^Status of Booking^Date of Booking^Remarks^Amount Paid / Credited(Rs.)^Tax Deducted(Rs.)^TDS Deposited(Rs.)^
+^1^194J^15-Jun-2025^F^31-Jul-2025^-^100000.00^10000.00^10000.00^
+^2^194J^15-Sep-2025^F^31-Oct-2025^-^50000.00^5000.00^5000.00^
+2^HDFC BANK LIMITED^MUMH03189E^^^^20000.00^2000.00^2000.00^
+^Sr. No.^Section^Transaction Date^Status of Booking^Date of Booking^Remarks^Amount Paid / Credited(Rs.)^Tax Deducted(Rs.)^TDS Deposited(Rs.)^
+^1^194A^31-Mar-2026^F^15-May-2026^-^20000.00^2000.00^2000.00^
+PART-II - Details of Tax Deducted at Source for 15G / 15H^
+No Transactions Present^
+PART-III - Details of Transactions under Proviso to section 194B/First Proviso to sub-section (1) of section 194R/ Proviso to sub-section(1) of section 194S/Sub-section (2) of section 194BA^
+No Transactions Present^
+PART-IV - Details of Tax Deducted at Source u/s 194IA/ 194IB / 194M/ 194S (For Seller/Landlord of Property/Contractors or Professionals/Seller of Virtual Digital Asset)^
+No Transactions Present^
+PART-V - Details of Transactions under Proviso to sub-section (1) of section 194S as per Form-26QE (for seller of Virtual Digital Asset)^
+No Transactions Present^
+PART-VI-Details of Tax Collected at Source^
+Sr. No.^Name of Collector^TAN of Collector^^^^Total Amount Paid/ Debited(Rs.)^Total Tax Collected(Rs.)^Total TCS Deposited(Rs.)^
+1^MARUTI SUZUKI DEALER PVT LTD^DELM12345C^^^^1200000.00^12000.00^12000.00^
+^Sr. No.^Section^Transaction Date^Status of Booking^Date of Booking^Remarks^Amount Paid/ Debited(Rs.)^Tax Collected(Rs.)^TCS Deposited(Rs.)^
+^1^206CL^10-Aug-2025^F^15-Oct-2025^-^1200000.00^12000.00^12000.00^
+PART-VII- Details of Paid Refund (For which source is CPC TDS. For other details refer AS26 statement)^
+No Transactions Present^
+PART-VIII - Details of Tax Deducted at Source u/s 194IA/ 194IB /194M/194S (For Buyer/Tenant of Property /Payer of resident contractors and professionals/ Buyer of Virtual Digital Asset)^
+No Transactions Present^

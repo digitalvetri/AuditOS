@@ -78,11 +78,12 @@ export const bankStatementToExcelUI: ToolUI = {
   Options: () => (
     <Notice tone="info">
       <div className="text-13">
-        Any bank's PDF statement, read by structure rather than by layout: a transaction is a line that
-        starts with a date and ends with its amounts.
+        A PDF statement with a running balance column — tested on HDFC, ICICI, SBI and Axis layouts.
+        Debit or credit is decided by how the balance moves, not by guessing the column.
         <div className="text-12 text-neutral-500 mt-1">
-          A scanned statement has no text to read — run OCR Scan on it first. The Summary sheet checks
-          that opening + credits − debits ties to the closing balance.
+          Every line is checked: opening + credits − debits must equal the printed balance. If it does
+          not tie on any line, nothing is converted and the line that breaks is named. A scanned
+          statement has no text to read — run OCR Scan on it first.
         </div>
       </div>
     </Notice>
@@ -95,10 +96,7 @@ export const bankStatementToExcelUI: ToolUI = {
         debit ₹{money(output.meta.total_debit)} · credit ₹{money(output.meta.total_credit)}
         {output.meta.closing !== null && output.meta.closing !== undefined
           ? ` · closing ₹${money(output.meta.closing)}` : ''}
-        .{' '}
-        {output.meta.balanced
-          ? 'The balances tie.'
-          : 'The balances do not tie — check the Summary sheet.'}
+        . The running balance ties on every line.
         {skipped ? ` ${skipped}` : ''}
       </div>
     );
