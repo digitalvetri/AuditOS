@@ -28,9 +28,9 @@ const ZERO: GstComponentTotals = { cgstPaise: 0, sgstPaise: 0, igstPaise: 0, ces
 export interface GstSummary {
   from: string | null
   to: string | null
-  /** Input tax credit accumulated in the period (debit balances). */
+  /** ITC on purchase vouchers less debit notes in the period. */
   input: GstComponentTotals & { totalPaise: number }
-  /** Output tax charged in the period (credit balances). */
+  /** Output tax on sales vouchers less credit notes in the period. */
   output: GstComponentTotals & { totalPaise: number }
   /** Output − input, per component. Positive = payable, negative = credit. */
   net: GstComponentTotals & { totalPaise: number }
@@ -47,51 +47,74 @@ export interface GstSummary {
   inwardTaxableValuePaise: number
 }
 
-/** Ledger-level GST position for a period — the heart of GST reporting. */
+/** Voucher types whose GST is a supply (outward) or a credit (inward). Notes reverse their side. */
+const OUTWARD_TYPES = ['sales', 'credit_note']
+const INWARD_TYPES = ['purchase', 'debit_note']
+const REVERSING_TYPES = new Set(['credit_note', 'debit_note'])
+
+/**
+ * GST position for a period. Output tax and ITC come from the voucher
+ * lines of sales, purchase, credit-note and debit-note vouchers (the same
+ * source GSTR-1 reads) — a credit note reduces output, a debit note
+ * (purchase return) reduces ITC. Payment vouchers and set-off journals
+ * move the GST ledgers but are not supplies, so they never touch these
+ * figures. The ledger rows are listed for reference only.
+ */
 export async function gstSummary(companyId: string, filter: { from?: string | null; to?: string | null } = {}): Promise<GstSummary> {
-  const [ledgerRows, balances] = await Promise.all([
+  const dateFilter = filter.from || filter.to
+    ? { date: { ...(filter.from ? { gte: filter.from } : {}), ...(filter.to ? { lte: filter.to } : {}) } }
+    : {}
+  const [ledgerRows, balances, byType] = await Promise.all([
     prisma.bookkeepingLedger.findMany({
       where: { tallyCompanyId: companyId, ...alive, NOT: { taxConfigJson: null } },
       select: { id: true, name: true, taxConfigJson: true },
     }),
     ledgerBalances(companyId, filter),
+    prisma.bookkeepingVoucher.groupBy({
+      by: ['voucherTypeCode'],
+      where: { tallyCompanyId: companyId, status: 'active', ...alive, voucherTypeCode: { in: [...OUTWARD_TYPES, ...INWARD_TYPES] }, ...dateFilter },
+      _sum: { taxableValuePaise: true, cgstPaise: true, sgstPaise: true, igstPaise: true, cessPaise: true },
+    }),
   ])
   const balanceById = new Map(balances.map((b) => [b.ledgerId, b]))
 
   const input = { ...ZERO, totalPaise: 0 }
   const output = { ...ZERO, totalPaise: 0 }
-  const ledgers: GstSummary['ledgers'] = []
+  let outwardTaxableValuePaise = 0
+  let inwardTaxableValuePaise = 0
+  for (const g of byType) {
+    const sign = REVERSING_TYPES.has(g.voucherTypeCode) ? -1 : 1
+    const outward = OUTWARD_TYPES.includes(g.voucherTypeCode)
+    const bucket = outward ? output : input
+    const s = g._sum
+    const c = {
+      cgstPaise: sign * toNum(s.cgstPaise ?? 0),
+      sgstPaise: sign * toNum(s.sgstPaise ?? 0),
+      igstPaise: sign * toNum(s.igstPaise ?? 0),
+      cessPaise: sign * toNum(s.cessPaise ?? 0),
+    }
+    bucket.cgstPaise += c.cgstPaise
+    bucket.sgstPaise += c.sgstPaise
+    bucket.igstPaise += c.igstPaise
+    bucket.cessPaise += c.cessPaise
+    bucket.totalPaise += c.cgstPaise + c.sgstPaise + c.igstPaise + c.cessPaise
+    const taxable = sign * toNum(s.taxableValuePaise ?? 0)
+    if (outward) outwardTaxableValuePaise += taxable
+    else inwardTaxableValuePaise += taxable
+  }
 
+  const ledgers: GstSummary['ledgers'] = []
   for (const l of ledgerRows) {
     const cfg = parseTaxConfig(l.taxConfigJson)
     if (!cfg.gst_component) continue
     const b = balanceById.get(l.id)
     if (!b) continue
     const direction = cfg.gst_direction ?? (b.debitPaise >= b.creditPaise ? 'input' : 'output')
-    const amount = direction === 'input' ? b.debitPaise - b.creditPaise : b.creditPaise - b.debitPaise
-    const bucket = direction === 'input' ? input : output
-    const key = `${cfg.gst_component}Paise` as keyof GstComponentTotals
-    bucket[key] += amount
-    bucket.totalPaise += amount
     ledgers.push({
       ledgerId: l.id, ledgerName: l.name, component: cfg.gst_component, direction,
       debitPaise: b.debitPaise, creditPaise: b.creditPaise, closingPaise: b.closingPaise,
     })
   }
-
-  const dateFilter = filter.from || filter.to
-    ? { date: { ...(filter.from ? { gte: filter.from } : {}), ...(filter.to ? { lte: filter.to } : {}) } }
-    : {}
-  const [outward, inward] = await Promise.all([
-    prisma.bookkeepingVoucher.aggregate({
-      where: { tallyCompanyId: companyId, status: 'active', ...alive, voucherTypeCode: { in: ['sales', 'credit_note'] }, ...dateFilter },
-      _sum: { taxableValuePaise: true },
-    }),
-    prisma.bookkeepingVoucher.aggregate({
-      where: { tallyCompanyId: companyId, status: 'active', ...alive, voucherTypeCode: { in: ['purchase', 'debit_note'] }, ...dateFilter },
-      _sum: { taxableValuePaise: true },
-    }),
-  ])
 
   return {
     from: filter.from ?? null,
@@ -106,8 +129,8 @@ export async function gstSummary(companyId: string, filter: { from?: string | nu
       totalPaise: output.totalPaise - input.totalPaise,
     },
     ledgers: ledgers.sort((a, b) => a.direction.localeCompare(b.direction) || a.ledgerName.localeCompare(b.ledgerName)),
-    outwardTaxableValuePaise: toNum(outward._sum.taxableValuePaise ?? 0),
-    inwardTaxableValuePaise: toNum(inward._sum.taxableValuePaise ?? 0),
+    outwardTaxableValuePaise,
+    inwardTaxableValuePaise,
   }
 }
 
@@ -305,7 +328,7 @@ export async function gstr3b(companyId: string, from: string, to: string): Promi
       totalPaise: Math.max(s.net.cgstPaise, 0) + Math.max(s.net.sgstPaise, 0) + Math.max(s.net.igstPaise, 0) + Math.max(s.net.cessPaise, 0),
     },
     inwardSupplies: { taxableValuePaise: s.inwardTaxableValuePaise },
-    note: 'Prepared from posted vouchers. Cross-utilisation of IGST credit against CGST/SGST is not applied — set-off is shown per component.',
+    note: 'Prepared from the sales, purchase, credit-note and debit-note vouchers of the period; GST payments and set-off journals are not supplies and are left out. Cross-utilisation of IGST credit against CGST/SGST is not applied — set-off is shown per component.',
   }
 }
 
