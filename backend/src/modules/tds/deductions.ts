@@ -39,6 +39,23 @@ export interface RegisterHelpers<C extends ScopedClientLike> {
 const READ = ['workstation.service.read', 'workstation.service.manage'] as const
 const MANAGE = ['workstation.service.manage'] as const
 const PAN_RE = /^[A-Z]{5}[0-9]{4}[A-Z]$/
+
+/** PAN 4th character → holder type (Income-tax PAN structure). */
+const PAN_HOLDER: Record<string, string> = {
+  P: 'an individual', H: 'a HUF', C: 'a company', F: 'a firm / LLP', A: 'an AOP', B: 'a BOI',
+  T: 'a trust', L: 'a local authority', J: 'an artificial juridical person', G: 'a government body', E: 'an LLP',
+}
+
+/**
+ * Only an individual (P) or HUF (H) PAN may be tagged "Individual / HUF" —
+ * the lower 194C / 194D rates follow from it. Returns the reason, or null.
+ */
+export function panCategoryMismatch(pan: string | null | undefined, category: string | null | undefined): string | null {
+  if (!pan || category !== 'individual_huf') return null
+  const kind = pan.charAt(3).toUpperCase()
+  if (kind === 'P' || kind === 'H') return null
+  return `PAN ${pan} belongs to ${PAN_HOLDER[kind] ?? 'an entity that is not an individual or HUF'} (4th character ${kind}). Choose "Company / other".`
+}
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/
 const FY_RE = /^\d{4}-\d{2}$/
 const n = (d: Prisma.Decimal | null) => (d === null ? null : Number(d))
@@ -75,6 +92,12 @@ function reader(b: Record<string, unknown>, e: FieldErrors, partial: boolean) {
       if (!(options as readonly unknown[]).includes(b[k])) { e.add(k, `Must be one of ${options.join(', ')}.`); return undefined }
       return b[k] as T
     },
+    months(k: string): number | null | undefined {
+      if (!has(k) || b[k] === null || b[k] === '') return has(k) ? null : undefined
+      const num = Number(b[k])
+      if (!Number.isInteger(num) || num < 1 || num > 12) { e.add(k, 'Months covered is a whole number from 1 to 12.'); return undefined }
+      return num
+    },
     pan(k: string): string | null | undefined {
       if (!has(k) || b[k] === null || b[k] === '') return has(k) ? null : undefined
       const v = typeof b[k] === 'string' ? (b[k] as string).trim().toUpperCase() : ''
@@ -98,7 +121,7 @@ const dedApi = (d: DedRow) => {
   const actual = Number(d.tdsAmount)
   return {
     id: d.id, tan: d.tan, fy: d.fy, month: d.month, deductee_id: d.deducteeId, section: d.section,
-    payment_date: d.paymentDate, deduction_date: d.deductionDate, amount_paid: Number(d.amountPaid),
+    payment_date: d.paymentDate, deduction_date: d.deductionDate, amount_paid: Number(d.amountPaid), period_months: d.periodMonths,
     expected_tds: expected, tds_amount: actual, rate_pct: n(d.ratePct), basis: d.basis,
     invoice_ref: d.invoiceRef, notes: d.notes,
     /** Positive = deducted less than the rules give. */
@@ -107,7 +130,7 @@ const dedApi = (d: DedRow) => {
 }
 
 // ── the calculation, with the register's own history ─────────────────────
-async function expectedFor(clientId: string, deducteeId: string, section: string, deductionDate: string, amount: number, exceptId?: string) {
+async function expectedFor(clientId: string, deducteeId: string, section: string, deductionDate: string, amount: number, exceptId?: string, months?: number | null) {
   const deductee = await prisma.tdsDeductee.findFirst({ where: { id: deducteeId, clientId, deletedAt: null } })
   if (!deductee) throw ApiError.badRequest('Choose a deductee of this client.', { deductee_id: 'Unknown deductee.' })
   const fy = fyOf(deductionDate)
@@ -141,14 +164,18 @@ async function expectedFor(clientId: string, deducteeId: string, section: string
   // fact deducted on it (many deductors deduct from the first payment). Those
   // are what the payment crossing the aggregate catches up (sections.ts). A
   // larger payment with no TDS is already flagged short on its own row.
-  const single = sectionByCode(section)?.singleThreshold
-  const priorUntaxedFyTotal = single === undefined ? 0
-    : priorRows.reduce((t, r) => t + (Number(r.amountPaid) <= single && Number(r.tdsAmount) === 0 ? Number(r.amountPaid) : 0), 0)
+  // Sections with only an annual limit (194J, 194H, 194A…): every earlier
+  // payment with nothing deducted escaped under the limit.
+  const rule = sectionByCode(section)
+  const single = rule?.singleThreshold
+  const priorUntaxedFyTotal = rule?.annualThreshold === undefined ? 0
+    : priorRows.reduce((t, r) => t + ((single === undefined || Number(r.amountPaid) <= single) && Number(r.tdsAmount) === 0 ? Number(r.amountPaid) : 0), 0)
   const result = computeTds({
     section,
     category: deductee.category as DeducteeCategory,
     hasPan: Boolean(deductee.pan),
     amount,
+    months: months ?? undefined,
     priorFyTotal,
     priorUntaxedFyTotal,
     declaration: Boolean(declaration),
@@ -218,6 +245,8 @@ export function registerDeductionRoutes<C extends ScopedClientLike>(router: Rout
   router.post('/:clientId/deductees', handler(async (req, res) => {
     const { session, client } = await ctx(req, true)
     const data = parseDeductee(body(req), false)
+    const mismatch = panCategoryMismatch(data.pan, data.category)
+    if (mismatch) throw ApiError.badRequest(mismatch, { category: mismatch })
     if (data.pan && await prisma.tdsDeductee.findFirst({ where: { clientId: client.id, pan: data.pan, deletedAt: null } })) {
       throw ApiError.conflict('duplicate', `A deductee with PAN ${data.pan} already exists.`, { pan: 'Already in the register.' })
     }
@@ -230,6 +259,8 @@ export function registerDeductionRoutes<C extends ScopedClientLike>(router: Rout
     const row = await prisma.tdsDeductee.findFirst({ where: { id: req.params.id, clientId: client.id, deletedAt: null } })
     if (!row) throw ApiError.notFound('Deductee not found.')
     const data = parseDeductee(body(req), true)
+    const mismatch = panCategoryMismatch(data.pan !== undefined ? data.pan : row.pan, data.category ?? row.category)
+    if (mismatch) throw ApiError.badRequest(mismatch, { category: mismatch })
     if (data.pan && await prisma.tdsDeductee.findFirst({ where: { clientId: client.id, pan: data.pan, deletedAt: null, id: { not: row.id } } })) {
       throw ApiError.conflict('duplicate', `A deductee with PAN ${data.pan} already exists.`, { pan: 'Already in the register.' })
     }
@@ -361,6 +392,7 @@ export function registerDeductionRoutes<C extends ScopedClientLike>(router: Rout
       paymentDate: r.date('payment_date', true) ?? undefined,
       deductionDate: r.date('deduction_date', true) ?? undefined,
       amountPaid: r.money('amount_paid', true) ?? undefined,
+      periodMonths: r.months('period_months'),
       tdsAmount: r.money('tds_amount'),
       invoiceRef: r.text('invoice_ref', 60),
       notes: r.text('notes', 1000),
@@ -372,8 +404,9 @@ export function registerDeductionRoutes<C extends ScopedClientLike>(router: Rout
   }
   const saveDeduction = async (clientId: string, forTan: string | null, d: {
     deducteeId: string; section: string; paymentDate: string; deductionDate: string; amountPaid: number; tdsAmount: number | null | undefined
+    periodMonths?: number | null
   }, exceptId?: string) => {
-    const { deductee, result } = await expectedFor(clientId, d.deducteeId, d.section, d.deductionDate, d.amountPaid, exceptId)
+    const { deductee, result } = await expectedFor(clientId, d.deducteeId, d.section, d.deductionDate, d.amountPaid, exceptId, d.periodMonths)
     const rule = sectionByCode(d.section)!
     if (deductee.residency === 'non_resident' && rule.returnForm === '26Q') {
       // Non-residents are reported in 27Q; 195 is the usual section. Allowed, but flagged via the export.
@@ -400,9 +433,10 @@ export function registerDeductionRoutes<C extends ScopedClientLike>(router: Rout
     const section = r.pick('section', SECTIONS.map((s) => s.code), true)
     const date = r.date('deduction_date', true)
     const amount = r.money('amount_paid', true)
+    const months = r.months('period_months')
     const exceptId = typeof b.except_id === 'string' ? b.except_id : undefined
     e.throwIfAny()
-    const { result, lowerCertificateNo, declaration, deductee } = await expectedFor(client.id, deducteeId!, section!, date!, amount!, exceptId)
+    const { result, lowerCertificateNo, declaration, deductee } = await expectedFor(client.id, deducteeId!, section!, date!, amount!, exceptId, months)
     ok(res, {
       expected_tds: result.tds, rate: result.rate, basis: result.basis, note: result.note,
       lower_certificate_no: lowerCertificateNo, declaration,
@@ -420,7 +454,7 @@ export function registerDeductionRoutes<C extends ScopedClientLike>(router: Rout
     const row = await prisma.tdsDeduction.create({
       data: {
         clientId: client.id, deducteeId: data.deducteeId!, section: data.section!, paymentDate: data.paymentDate!, deductionDate: data.deductionDate!,
-        amountPaid: dec(data.amountPaid!), invoiceRef: data.invoiceRef ?? null, notes: data.notes ?? null, ...computed,
+        amountPaid: dec(data.amountPaid!), periodMonths: data.periodMonths ?? null, invoiceRef: data.invoiceRef ?? null, notes: data.notes ?? null, ...computed,
         createdBy: session.userId, updatedBy: session.userId,
       },
     })
@@ -436,9 +470,10 @@ export function registerDeductionRoutes<C extends ScopedClientLike>(router: Rout
       deducteeId: data.deducteeId ?? row.deducteeId, section: data.section ?? row.section,
       paymentDate: data.paymentDate ?? row.paymentDate, deductionDate: data.deductionDate ?? row.deductionDate,
       amountPaid: data.amountPaid ?? Number(row.amountPaid),
+      periodMonths: data.periodMonths !== undefined ? data.periodMonths : row.periodMonths,
       // A changed amount / section / date re-proposes the TDS unless one is given.
       tdsAmount: data.tdsAmount !== undefined ? data.tdsAmount
-        : (data.amountPaid !== undefined || data.section !== undefined || data.deducteeId !== undefined || data.deductionDate !== undefined) ? null
+        : (data.amountPaid !== undefined || data.periodMonths !== undefined || data.section !== undefined || data.deducteeId !== undefined || data.deductionDate !== undefined) ? null
         : Number(row.tdsAmount),
     }
     const computed = await saveDeduction(client.id, row.tan, merged, row.id)
@@ -446,7 +481,7 @@ export function registerDeductionRoutes<C extends ScopedClientLike>(router: Rout
       where: { id: row.id },
       data: {
         deducteeId: merged.deducteeId, section: merged.section, paymentDate: merged.paymentDate, deductionDate: merged.deductionDate,
-        amountPaid: dec(merged.amountPaid), ...(data.invoiceRef !== undefined ? { invoiceRef: data.invoiceRef } : {}),
+        amountPaid: dec(merged.amountPaid), periodMonths: merged.periodMonths ?? null, ...(data.invoiceRef !== undefined ? { invoiceRef: data.invoiceRef } : {}),
         ...(data.notes !== undefined ? { notes: data.notes } : {}), ...computed, tan: row.tan, updatedBy: session.userId,
       },
     })

@@ -2237,6 +2237,9 @@ model TdsDeduction {
   section       String
   paymentDate   String
   amountPaid    Decimal  @db.Decimal(14, 2)
+  /// Months the payment covers (rent paid quarterly / in advance, 194-I /
+  /// 194-IB): the monthly limit is tested per month. Null = one month.
+  periodMonths  Int?
   /// What the rules give (calculator); what was actually deducted.
   expectedTds   Decimal? @db.Decimal(14, 2)
   tdsAmount     Decimal  @db.Decimal(14, 2)

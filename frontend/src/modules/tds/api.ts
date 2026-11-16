@@ -110,6 +110,8 @@ export interface TdsDeclaration { id: string; deductee_id: string; fy: string; f
 export interface TdsDeduction {
   id: string; tan: string | null; fy: string; month: string; deductee_id: string; section: string;
   payment_date: string; deduction_date: string; amount_paid: number; expected_tds: number | null; tds_amount: number;
+  /** Months a rent payment covers (194-I / 194-IB); null = one month. */
+  period_months: number | null;
   rate_pct: number | null; basis: TdsBasis; invoice_ref: string | null; notes: string | null;
   /** Positive = deducted less than the rules give. */
   shortfall: number;
@@ -129,7 +131,7 @@ const qs = (p: Record<string, string | null | undefined>) => {
 export const tdsApi = {
   overview: (fy: string) => api.get<TdsOverview>(`/api/tds/overview${qs({ fy })}`),
   register: (clientId: string, fy: string, tan?: string | null) => api.get<TdsRegister>(`/api/tds/${clientId}/register${qs({ fy, tan })}`),
-  preview: (clientId: string, input: { deductee_id: string; section: string; deduction_date: string; amount_paid: number; except_id?: string }) =>
+  preview: (clientId: string, input: { deductee_id: string; section: string; deduction_date: string; amount_paid: number; period_months?: number | null; except_id?: string }) =>
     api.post<TdsPreview>(`/api/tds/${clientId}/deductions/preview`, input),
   save: <T>(clientId: string, kind: 'deductees' | 'lower-certificates' | 'declarations' | 'deductions', input: Record<string, unknown>, id?: string) =>
     id ? api.patch<T>(`/api/tds/${clientId}/${kind}/${id}`, input) : api.post<T>(`/api/tds/${clientId}/${kind}`, input),

@@ -258,7 +258,11 @@ function DeductionForm({ clientId, tan, reg, row, onClose }: { clientId: string;
     deductee_id: row?.deductee_id ?? '', section: row?.section ?? '', payment_date: row?.payment_date ?? today,
     deduction_date: row?.deduction_date ?? today, amount_paid: row ? String(row.amount_paid) : '', tds_amount: row ? String(row.tds_amount) : '',
     invoice_ref: row?.invoice_ref ?? '', notes: row?.notes ?? '',
+    period_months: row?.period_months ? String(row.period_months) : '',
   });
+  // Rent sections test the limit per month, so a quarterly / advance payment says how many months it covers.
+  const isRent = ['194I(a)', '194I(b)', '194IB'].includes(v.section);
+  const months = isRent && v.period_months ? Number(v.period_months) : null;
   const [tdsTouched, setTdsTouched] = useState(!!row);
   const [preview, setPreview] = useState<TdsPreview | null>(null);
   const { save, remove } = useSaver(clientId, 'deductions', onClose);
@@ -268,19 +272,19 @@ function DeductionForm({ clientId, tan, reg, row, onClose }: { clientId: string;
   useEffect(() => {
     if (!v.deductee_id || !v.section || !v.deduction_date || !(amount > 0)) { setPreview(null); return; }
     const t = setTimeout(() => {
-      tdsApi.preview(clientId, { deductee_id: v.deductee_id, section: v.section, deduction_date: v.deduction_date, amount_paid: amount, except_id: row?.id })
+      tdsApi.preview(clientId, { deductee_id: v.deductee_id, section: v.section, deduction_date: v.deduction_date, amount_paid: amount, period_months: months, except_id: row?.id })
         .then((p) => { setPreview(p); if (!tdsTouched && p.expected_tds !== null) setV((s) => ({ ...s, tds_amount: String(p.expected_tds) })); })
         .catch(() => setPreview(null));
     }, 300);
     return () => clearTimeout(t);
-  }, [clientId, v.deductee_id, v.section, v.deduction_date, amount, row?.id, tdsTouched]);
+  }, [clientId, v.deductee_id, v.section, v.deduction_date, amount, months, row?.id, tdsTouched]);
 
   const set = (k: keyof typeof v) => (x: string) => setV((s) => ({ ...s, [k]: x }));
   const submit = () => save.mutate({
     id: row?.id,
     input: {
       ...(row ? {} : { for_tan: tan }), deductee_id: v.deductee_id, section: v.section, payment_date: v.payment_date,
-      deduction_date: v.deduction_date, amount_paid: v.amount_paid, tds_amount: v.tds_amount === '' ? null : v.tds_amount,
+      deduction_date: v.deduction_date, amount_paid: v.amount_paid, period_months: months, tds_amount: v.tds_amount === '' ? null : v.tds_amount,
       invoice_ref: v.invoice_ref || null, notes: v.notes || null,
     },
   });
@@ -302,6 +306,11 @@ function DeductionForm({ clientId, tan, reg, row, onClose }: { clientId: string;
         </select>
       </Field>
       <Field label="Amount paid / credited (₹) *"><input className={inputCls} type="number" min={0} step="0.01" value={v.amount_paid} onChange={(e) => set('amount_paid')(e.target.value)} required /></Field>
+      {isRent ? (
+        <Field label="Months covered" hint="Rent for a quarter or in advance: the ₹50,000 limit is per month.">
+          <input className={inputCls} type="number" min={1} max={12} step={1} placeholder="1" value={v.period_months} onChange={(e) => set('period_months')(e.target.value)} />
+        </Field>
+      ) : null}
       <Field label="Invoice / bill ref"><input className={inputCls} value={v.invoice_ref} onChange={(e) => set('invoice_ref')(e.target.value)} /></Field>
       <Field label="Payment / credit date *"><input className={inputCls} type="date" max={today} value={v.payment_date} onChange={(e) => { set('payment_date')(e.target.value); if (!row && v.deduction_date === v.payment_date) set('deduction_date')(e.target.value); }} required /></Field>
       <Field label="Deduction date *" hint="Usually the earlier of credit and payment"><input className={inputCls} type="date" max={today} value={v.deduction_date} onChange={(e) => set('deduction_date')(e.target.value)} required /></Field>

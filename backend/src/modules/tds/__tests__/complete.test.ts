@@ -264,4 +264,38 @@ describe('TDS — deductee register', () => {
     // A deductee with deductions can't be deleted
     expect((await api(`/api/tds/${c.id}/deductees/${contractor.id}`, { method: 'DELETE', cookie })).status).toBe(409)
   })
+
+  it('194J(b) through the register: ₹30,000 then ₹30,000 → the second proposes ₹6,000 (10% on ₹60,000)', async () => {
+    const c = await newClient(orgId, 'Professional Fees Ltd', mgr.emp.id, 'CHEA66661A')
+    const post = (p: string, body: unknown) => api(`/api/tds/${c.id}/${p}`, { method: 'POST', cookie, body })
+    const pro = (await post('deductees', { name: 'R. Iyer', pan: 'ABCPI1234K', category: 'individual_huf' })).body.data.deductee
+    const first = await post('deductions', { deductee_id: pro.id, section: '194J(b)', payment_date: '2026-05-10', deduction_date: '2026-05-10', amount_paid: 30000 })
+    expect(first.body.data.deduction).toMatchObject({ tds_amount: 0, basis: 'below_threshold' })
+    const second = await post('deductions/preview', { deductee_id: pro.id, section: '194J(b)', deduction_date: '2026-06-10', amount_paid: 30000 })
+    expect(second.body.data).toMatchObject({ expected_tds: 6000, basis: 'normal' })
+  })
+
+  it('quarterly rent ₹1,20,000 for 3 months (₹40,000 a month) proposes no TDS u/s 194-I(b); a bad months value is 400', async () => {
+    const c = await newClient(orgId, 'Rent Payer Ltd', mgr.emp.id, 'CHEA66662A')
+    const post = (p: string, body: unknown) => api(`/api/tds/${c.id}/${p}`, { method: 'POST', cookie, body })
+    const owner = (await post('deductees', { name: 'Landlord', pan: 'ABCPL1234K', category: 'individual_huf' })).body.data.deductee
+    const q = await post('deductions', { deductee_id: owner.id, section: '194I(b)', payment_date: '2026-07-01', deduction_date: '2026-07-01', amount_paid: 120000, period_months: 3 })
+    expect(q.status, q.raw).toBe(201)
+    expect(q.body.data.deduction).toMatchObject({ tds_amount: 0, basis: 'below_threshold', period_months: 3 })
+    expect((await post('deductions/preview', { deductee_id: owner.id, section: '194I(b)', deduction_date: '2026-07-01', amount_paid: 120000 })).body.data.expected_tds).toBe(12000)
+    expect((await post('deductions', { deductee_id: owner.id, section: '194I(b)', payment_date: '2026-07-01', deduction_date: '2026-07-01', amount_paid: 120000, period_months: 0 })).status).toBe(400)
+  })
+
+  it('a company PAN (4th character C) cannot be tagged Individual/HUF, on create or edit', async () => {
+    const c = await newClient(orgId, 'Pan Check Ltd', mgr.emp.id, 'CHEA66663A')
+    const post = (p: string, body: unknown) => api(`/api/tds/${c.id}/${p}`, { method: 'POST', cookie, body })
+    const bad = await post('deductees', { name: 'Sun Pvt Ltd', pan: 'AAACS7777Q', category: 'individual_huf' })
+    expect(bad.status).toBe(400)
+    expect(bad.raw).toMatch(/company/)
+    const ok = await post('deductees', { name: 'Sun Pvt Ltd', pan: 'AAACS7777Q', category: 'other' })
+    expect(ok.status).toBe(201)
+    const flip = await api(`/api/tds/${c.id}/deductees/${ok.body.data.deductee.id}`, { method: 'PATCH', cookie, body: { category: 'individual_huf' } })
+    expect(flip.status).toBe(400)
+  })
+
 })

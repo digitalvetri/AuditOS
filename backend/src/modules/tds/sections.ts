@@ -54,6 +54,10 @@ export const SECTIONS: SectionRule[] = [
   { code: '194O', label: 'E-commerce operator payments', rateIndividual: 0.1, rateOther: 0.1, noPanRate: 5, returnForm: '26Q' },
   { code: '194Q', label: 'Purchase of goods (buyer turnover > ₹10 cr)', rateIndividual: 0.1, rateOther: 0.1, annualThreshold: 50_00_000, noPanRate: 5, returnForm: '26Q' },
   { code: '194R', label: 'Business perquisites / benefits', rateIndividual: 10, rateOther: 10, annualThreshold: 20_000, returnForm: '26Q' },
+  // s.194T (Finance (No. 2) Act 2024, from 1 Apr 2025): salary, remuneration,
+  // commission, bonus or interest a firm pays / credits to a partner — 10%
+  // once the year's aggregate to that partner exceeds ₹20,000.
+  { code: '194T', label: 'Partner salary, remuneration, commission, bonus, interest (firm → partner)', rateIndividual: 10, rateOther: 10, annualThreshold: 20_000, returnForm: '26Q' },
   { code: '194S', label: 'Transfer of virtual digital assets', rateIndividual: 1, rateOther: 1, returnForm: '26Q' },
   { code: '194IA', label: 'Purchase of immovable property (26QB)', rateIndividual: 1, rateOther: 1, singleThreshold: 50_00_000, taxAtThreshold: true, returnForm: '26QB' },
   { code: '194IB', label: 'Rent paid by individuals / HUFs (26QC)', rateIndividual: 2, rateOther: 2, monthlyThreshold: 50_000, returnForm: '26QC' },
@@ -74,9 +78,16 @@ export interface TdsCalcInput {
   /** FY total already paid to this deductee under this section, before this payment. */
   priorFyTotal: number
   /**
+   * Months the payment covers (rent paid quarterly / in advance). The 194-I /
+   * 194-IB limit is per month ("for a month or part of a month"), so the
+   * payment is compared month by month. Default 1.
+   */
+  months?: number
+  /**
    * The part of priorFyTotal paid WITHOUT TDS because it stayed under the
    * thresholds (194C: payments of ₹30,000 or less while the year was within
-   * ₹1,00,000). Caught up on the payment that takes the year past the
+   * ₹1,00,000; 194J / 194H / 194A…: every payment while the year was within
+   * the annual limit). Caught up on the payment that takes the year past the
    * aggregate limit. Default 0.
    */
   priorUntaxedFyTotal?: number
@@ -110,8 +121,14 @@ export function computeTds(i: TdsCalcInput): TdsCalcResult {
   const fyTotal = i.priorFyTotal + i.amount
   const withinSingle = rule.singleThreshold !== undefined
     && (rule.taxAtThreshold ? i.amount < rule.singleThreshold : i.amount <= rule.singleThreshold)
-  if (rule.monthlyThreshold !== undefined && i.amount <= rule.monthlyThreshold) {
-    return { tds: 0, rate: 0, basis: 'below_threshold', note: `Within ₹${rule.monthlyThreshold.toLocaleString('en-IN')} a month — no deduction.` }
+  const months = Math.max(1, Math.floor(i.months ?? 1))
+  if (rule.monthlyThreshold !== undefined && i.amount / months <= rule.monthlyThreshold) {
+    return {
+      tds: 0, rate: 0, basis: 'below_threshold',
+      note: months > 1
+        ? `₹${Math.round(i.amount / months).toLocaleString('en-IN')} a month over ${months} months is within ₹${rule.monthlyThreshold.toLocaleString('en-IN')} a month — no deduction.`
+        : `Within ₹${rule.monthlyThreshold.toLocaleString('en-IN')} a month — no deduction.`,
+    }
   }
   if (rule.singleThreshold !== undefined && rule.annualThreshold === undefined && withinSingle) {
     return { tds: 0, rate: 0, basis: 'below_threshold', note: `Within ₹${rule.singleThreshold.toLocaleString('en-IN')} — no deduction.` }
@@ -120,10 +137,13 @@ export function computeTds(i: TdsCalcInput): TdsCalcResult {
     && (rule.singleThreshold === undefined || withinSingle)) {
     return { tds: 0, rate: 0, basis: 'below_threshold', note: `FY total ₹${fyTotal.toLocaleString('en-IN')} is within ₹${rule.annualThreshold.toLocaleString('en-IN')} — no deduction yet.` }
   }
-  // 194C(5): once the year's aggregate exceeds ₹1,00,000, TDS is due on the
-  // whole aggregate — so the payment that crosses it also carries the TDS on
-  // the earlier payments that escaped deduction under the thresholds.
-  const crossesAggregate = rule.singleThreshold !== undefined && rule.annualThreshold !== undefined
+  // Once the year's aggregate exceeds the annual limit, TDS is due on the
+  // whole aggregate (194C(5); and 193, 194, 194A, 194D, 194H, 194J, 194M,
+  // 194R, 194T say "does not exceed" of the sum OR AGGREGATE) — so the payment
+  // that crosses it also carries the TDS on the earlier payments that escaped
+  // deduction under the thresholds. 194Q is the exception: it taxes only the
+  // part above ₹50 lakh (handled below).
+  const crossesAggregate = rule.annualThreshold !== undefined && rule.code !== '194Q'
     && i.priorFyTotal <= rule.annualThreshold && fyTotal > rule.annualThreshold
   const catchUp = crossesAggregate ? Math.max(0, Math.min(i.priorUntaxedFyTotal ?? 0, i.priorFyTotal)) : 0
   const catchUpNote = catchUp > 0
