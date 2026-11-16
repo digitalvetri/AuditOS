@@ -251,7 +251,7 @@ export function itemToApi(i: ComplianceItem, ctx: ItemContext) {
     notes: i.notes,
     days_left: closed || needsDate ? null : daysLeft,
     overdue: !closed && !needsDate && due < ctx.today,
-    late_fee_estimate: form && !needsDate ? lateFeeEstimate(form, due, { today: ctx.today, filedOn: i.filedOn, status: i.status }) : null,
+    late_fee_estimate: form && !needsDate ? lateFeeEstimate(form, due, { today: ctx.today, filedOn: i.filedOn, status: i.status, periodKey: i.periodKey }) : null,
     last_client_reminder_at: i.lastClientReminderAt,
     updated_at: i.updatedAt as Date | null,
     link: null as string | null,

@@ -83,8 +83,8 @@ describe('compliance calendar API', () => {
     const old = await list(`client_id=${a.id}&from=2025-04-01&to=2026-03-31`)
     const gstr9 = old.find((i) => i.form_code === 'GSTR9')!
     expect(gstr9).toMatchObject({ period_key: '2024-25', statutory_due_date: '2025-12-31', due_date: '2025-12-31', overdue: true, status: 'not_started', source: 'compliance', extension: null })
-    expect(gstr9.late_fee_estimate.amount_paise).toBeGreaterThan(0)
-    expect(gstr9.late_fee_estimate.note).toMatch(/^Estimate:/)
+    // Turnover-tiered (Notification 07/2023-CT): every tier in the note, no single amount.
+    expect(gstr9.late_fee_estimate.note).toMatch(/^Estimate: by aggregate turnover/)
     const aoc = old.find((i) => i.form_code === 'AOC4')!
     expect(aoc).toMatchObject({ due_date: '2025-10-30', anchor_missing: true, anchor_note: 'AGM date not entered' })
     expect((await list(`client_id=${a.id}&form_code=PF_ECR&from=2025-04-01&to=2026-03-31`)).every((i) => i.form_code === 'PF_ECR')).toBe(true)

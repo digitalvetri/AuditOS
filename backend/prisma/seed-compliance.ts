@@ -74,7 +74,7 @@ export const COMPLIANCE_CATALOGUE: CatalogueForm[] = [
   f('FORM_10B', 'Audit report of charitable trust', 'income_tax', 'annual', 'trust,society', 'fy_end', 6, 30,
     { description: 'Due 30 September after the FY.' }),
   f('GSTR9', 'GST annual return', 'gst', 'annual', 'any', 'fy_end', 9, 31,
-    { lateFeeNote: '₹200/day, capped at 0.5% of turnover', description: 'Due 31 December after the FY.' }),
+    { lateFeeNote: 'From FY 2022-23 (Notification 07/2023-CT): ₹50/day up to ₹5 cr turnover, ₹100/day ₹5–20 cr (cap 0.04%), ₹200/day above ₹20 cr (cap 0.5%)', description: 'Due 31 December after the FY.' }),
   f('GSTR9C', 'GST reconciliation statement', 'gst', 'annual', 'any', 'fy_end', 9, 31,
     { description: 'Due 31 December after the FY, with GSTR-9.' }),
   f('CMP08', 'Composition quarterly payment', 'gst', 'quarterly', 'any', 'period_end', 1, 18,

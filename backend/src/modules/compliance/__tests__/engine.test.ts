@@ -165,8 +165,24 @@ describe('suggested obligations', () => {
 
 describe('late fee estimates', () => {
   const t = { today: '2027-01-10' }
-  it('GSTR-9 ₹200/day; ROC ₹100/day; ITR ₹5,000; DIR-3 KYC ₹5,000; notes elsewhere', () => {
-    expect(lateFeeEstimate(form('GSTR9'), '2026-12-31', t)).toMatchObject({ amount_paise: 200_00 * 10 })
+  it('GSTR-9 from FY 2022-23 (Notification 07/2023-CT): tiered by turnover, so every tier is shown, no single amount', () => {
+    const g = lateFeeEstimate(form('GSTR9'), '2026-12-31', { ...t, periodKey: '2025-26' })!
+    expect(g.amount_paise).toBeUndefined()
+    // 10 days late: ≤ ₹5 cr ₹50/day → ₹500; ₹5–20 cr ₹100/day → ₹1,000; above ₹20 cr ₹200/day → ₹2,000.
+    expect(g.note).toMatch(/up to ₹5 crore: ₹500 \(₹50\/day\), capped at 0\.04%/)
+    expect(g.note).toMatch(/₹5–20 crore: ₹1,000 \(₹100\/day\), capped at 0\.04%/)
+    expect(g.note).toMatch(/above ₹20 crore: ₹2,000 \(₹200\/day\), capped at 0\.5%/)
+    expect(g.note).toMatch(/07\/2023/)
+    // Before FY 2022-23 the flat ₹200/day still applies.
+    expect(lateFeeEstimate(form('GSTR9'), '2022-12-31', { today: '2023-01-10', periodKey: '2021-22' })).toMatchObject({ amount_paise: 200_00 * 10 })
+  })
+  it('GSTR-4 from FY 2021-22 (Notification 21/2021-CT): ₹50/day up to ₹2,000; nil return ₹20/day up to ₹500', () => {
+    const g = lateFeeEstimate(form('GSTR4'), '2026-06-30', { today: '2026-07-10', periodKey: '2025-26' })!
+    expect(g.amount_paise).toBe(50_00 * 10)
+    expect(g.note).toMatch(/nil return.*₹20\/day.*₹500/)
+    expect(lateFeeEstimate(form('GSTR4'), '2026-06-30', { today: '2026-12-31', periodKey: '2025-26' })!.amount_paise).toBe(2000_00)
+  })
+  it('ROC ₹100/day; ITR ₹5,000; DIR-3 KYC ₹5,000; notes elsewhere', () => {
     expect(lateFeeEstimate({ code: 'AOC4', lateFeeNote: null }, '2026-12-31', t)).toMatchObject({ amount_paise: 100_00 * 10 })
     expect(lateFeeEstimate(form('ITR_AUDIT'), '2026-10-31', t)).toMatchObject({ amount_paise: 5000_00 })
     expect(lateFeeEstimate(form('DIR3_KYC'), '2026-09-30', t)).toMatchObject({ amount_paise: 5000_00 })
@@ -179,7 +195,7 @@ describe('late fee estimates', () => {
   it('none when on time, filed on time or not applicable', () => {
     expect(lateFeeEstimate(form('GSTR9'), '2027-12-31', t)).toBeNull()
     expect(lateFeeEstimate(form('GSTR9'), '2026-12-31', { ...t, filedOn: '2026-12-20', status: 'filed' })).toBeNull()
-    expect(lateFeeEstimate(form('GSTR9'), '2026-12-31', { ...t, filedOn: '2027-01-02', status: 'filed' })).toMatchObject({ amount_paise: 400_00 })
+    expect(lateFeeEstimate(form('GSTR9'), '2026-12-31', { ...t, filedOn: '2027-01-02', status: 'filed' })!.note).toMatch(/up to ₹5 crore: ₹100 /)
     expect(lateFeeEstimate(form('GSTR9'), '2026-12-31', { ...t, status: 'not_applicable' })).toBeNull()
   })
 })

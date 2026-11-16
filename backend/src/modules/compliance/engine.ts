@@ -222,7 +222,7 @@ const ROC_PER_DAY = new Set(['AOC4', 'MGT7', 'ADT1', 'DPT3', 'LLP11', 'LLP8'])
 export function lateFeeEstimate(
   form: Pick<FormRule, 'code' | 'lateFeeNote'>,
   dueDate: string,
-  opts: { today: string; filedOn?: string | null; status?: string },
+  opts: { today: string; filedOn?: string | null; status?: string; periodKey?: string },
 ): LateFeeEstimate | null {
   if (opts.status === 'not_applicable') return null
   const end = opts.filedOn ?? (opts.status === 'filed' ? null : opts.today)
@@ -231,14 +231,37 @@ export function lateFeeEstimate(
   if (days <= 0) return null
   const est = (s: string) => `Estimate: ${s}`
   switch (true) {
-    case form.code === 'GSTR9':
-      return { amount_paise: 200_00 * days, note: est(`₹200/day (₹100 CGST + ₹100 SGST) for ${days} day${days === 1 ? '' : 's'}, capped at 0.5% of turnover in the State/UT.`) }
+    case form.code === 'GSTR9': {
+      // FY of the return: the period key ('2025-26'), else the due date (31 Dec after the FY).
+      const fyStart = opts.periodKey && /^\d{4}-\d{2}$/.test(opts.periodKey) ? Number(opts.periodKey.slice(0, 4)) : Number(dueDate.slice(0, 4)) - 1
+      if (fyStart < 2022) {
+        return { amount_paise: 200_00 * days, note: est(`₹200/day (₹100 CGST + ₹100 SGST) for ${days} day${days === 1 ? '' : 's'}, capped at 0.5% of turnover in the State/UT.`) }
+      }
+      // Notification 07/2023-Central Tax (31 Mar 2023), FY 2022-23 onwards,
+      // per Act (CGST; the SGST notification mirrors it), so doubled here:
+      // AATO ≤ ₹5 cr ₹25+25/day, cap 0.02%+0.02%; ₹5–20 cr ₹50+50/day, same
+      // cap; above ₹20 cr no waiver — s.47(2) ₹100+100/day, cap 0.25%+0.25%.
+      // The tier depends on the client's aggregate turnover, which is not
+      // recorded, so every tier is shown.
+      const r = (perDay: number) => `₹${(perDay * days).toLocaleString('en-IN')} (₹${perDay}/day)`
+      return {
+        note: est(`by aggregate turnover — up to ₹5 crore: ${r(50)}, capped at 0.04% of State/UT turnover; ` +
+          `₹5–20 crore: ${r(100)}, capped at 0.04%; above ₹20 crore: ${r(200)}, capped at 0.5%. ` +
+          `CGST + SGST, Notification 07/2023-CT.`),
+      }
+    }
     case form.code === 'GSTR9C':
-      return { note: est('GSTR-9C is filed with GSTR-9 — the GSTR-9 late fee of ₹200/day applies until both are filed.') }
+      return { note: est('GSTR-9C is filed with GSTR-9 — the GSTR-9 late fee applies until both are filed.') }
     case form.code === 'CMP08':
       return { note: est('Interest at 18% p.a. on the tax paid late, from the day after the due date.') }
     case form.code === 'GSTR4':
-      return { amount_paise: Math.min(200_00 * days, 2000_00), note: est('₹200/day (₹100 CGST + ₹100 SGST), capped at ₹2,000 where there is no tax liability.') }
+      // Notification 21/2021-Central Tax (FY 2021-22 onwards) caps the CGST
+      // late fee at ₹1,000 (₹250 for a nil return); 73/2017-CT keeps it at
+      // ₹25/day (₹10/day nil). With SGST: ₹50/day up to ₹2,000; nil ₹20/day up to ₹500.
+      return {
+        amount_paise: Math.min(50_00 * days, 2000_00),
+        note: est('₹50/day (₹25 CGST + ₹25 SGST), capped at ₹2,000; for a nil return ₹20/day, capped at ₹500 (Notification 21/2021-CT).'),
+      }
     case form.code === 'PMT06':
       return { note: est('Interest at 18% p.a. on the tax paid late.') }
     case ITR.has(form.code):
