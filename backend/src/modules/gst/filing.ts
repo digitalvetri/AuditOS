@@ -15,7 +15,7 @@
 import { Prisma, type PrismaClient } from '@prisma/client'
 import { istToday } from '../../lib/dates.js'
 import { createRuleResolver, dueForProfile, kindsOwed, type RuleResolver } from './dueDate.js'
-import { financialYearOf } from './service.js'
+import { financialYearOf, writeGstAudit } from './service.js'
 
 export const GST_FILING_SERVICE_CODE = 'GST_FILING'
 
@@ -186,5 +186,43 @@ export async function refreshClientGst(db: PrismaClient, clientId: string, userI
     if (p?.active && !p.deletedAt) await ensurePeriodJobs(db, p.id, previousPeriod(istToday()), userId)
   } catch (e) {
     console.error('[gst-filing] refresh failed', clientId, e instanceof Error ? e.message : e)
+  }
+}
+
+export async function setDataStatus(db: PrismaClient, periodId: string, received: boolean, by: string): Promise<void> {
+  const before = await db.gstCompliancePeriod.findUniqueOrThrow({ where: { id: periodId } })
+  await db.gstCompliancePeriod.update({
+    where: { id: periodId },
+    data: received
+      ? { dataStatus: 'received', dataReceivedAt: new Date(), dataReceivedBy: by }
+      : { dataStatus: 'pending', dataReceivedAt: null, dataReceivedBy: null },
+  })
+  await writeGstAudit({
+    compliancePeriodId: periodId, action: received ? 'GST_DATA_RECEIVED' : 'GST_DATA_PENDING',
+    userId: by === 'portal' ? null : by, oldValue: before.dataStatus, newValue: received ? 'received' : 'pending',
+    meta: by === 'portal' ? { via: 'client_portal' } : undefined,
+  })
+}
+
+/** Called after any portal upload: true when it answered a GST data request. */
+export async function markDataFromPortal(db: PrismaClient, clientDocumentId: string): Promise<boolean> {
+  const period = await db.gstCompliancePeriod.findFirst({ where: { dataRequestDocId: clientDocumentId, deletedAt: null } })
+  if (!period || period.dataStatus === 'received') return false
+  await setDataStatus(db, period.id, true, 'portal')
+  return true
+}
+
+export function dataReminderBody(clientName: string, period: string, gstr1Due: string | null, portalUrl: string | null): { subject: string; body: string } {
+  const month = periodName(period)
+  return {
+    subject: `GST data for ${month} \u2014 ${clientName}`,
+    body: [
+      'Dear Sir/Madam,',
+      '',
+      `Please send your sales and purchase details for ${month} so that we can file your GST returns${gstr1Due ? ` (GSTR-1 is due on ${gstr1Due})` : ''}.`,
+      portalUrl ? `You can upload them here: ${portalUrl}` : 'You can reply to this email with the files.',
+      '',
+      'Thank you.',
+    ].join('\n'),
   }
 }

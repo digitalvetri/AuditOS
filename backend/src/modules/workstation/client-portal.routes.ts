@@ -10,6 +10,7 @@ import { writeAudit } from '../../platform/audit.js'
 import { writeActivity } from '../../platform/workstation/activity.js'
 import { assertCanSeeClient, requireWorkstation } from '../../platform/workstation/scope.js'
 import JSZip from 'jszip'
+import { markDataFromPortal } from '../gst/filing.js'
 import { renderPdf } from '../../platform/pdfBuffer.js'
 import { streamInvoicePdf, INVOICE_PDF_INCLUDE } from '../invoice/pdf.js'
 import { streamQuotationPdf, QUOTATION_PDF_INCLUDE } from '../quotation/pdf.js'
@@ -443,6 +444,8 @@ clientPortalPublicRouter.post('/client-portal/:token/requests/:docId/upload', po
     actorUserId: null, action: 'client_document.portal_upload', entityType: 'ClientDocument', entityId: doc.id,
     after: { via: 'client_portal', link_id: link.id, version: version.version, originalName: file.originalname, sizeBytes: file.size }, req,
   })
+  // A GST data request answered through the portal marks that month received.
+  await markDataFromPortal(prisma, doc.id).catch((e) => console.error('[gst-filing] portal mark', e))
   try {
     await notifyEmployee(client.accountManagerId, {
       type: 'client_document.portal_upload', module: 'workstation',

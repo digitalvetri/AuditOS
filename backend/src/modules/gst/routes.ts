@@ -27,6 +27,8 @@ import {
   backfillPeriods, daysRemaining, deriveOverall, financialYearOf,
   nextDueOf, today, writeGstAudit,
 } from './service.js'
+import { env } from '../../lib/env.js'
+import { setDataStatus, dataReminderBody } from './filing.js'
 import { openCase } from '../partnership/service.js'
 import { TaskService } from '../task/service.js'
 import {
@@ -1063,6 +1065,50 @@ gstRouter.post('/periods/:id/payment', handler(async (req, res) => {
     userId: session.userId, newValue: date, meta: { challan_ref: b.challan_ref ?? null },
   })
   ok(res, { ok: true })
+}))
+
+/** POST /api/gst/periods/:id/data — GST Filing: data received from the client (tick) or not. */
+gstRouter.post('/periods/:id/data', handler(async (req, res) => {
+  const { session, row } = await periodForWrite(req, req.params.id)
+  const received = req.body?.received
+  if (typeof received !== 'boolean') throw ApiError.badRequest('received must be true or false.')
+  await setDataStatus(prisma, row.id, received, session.userId)
+  ok(res, { ok: true })
+}))
+
+/** POST /api/gst/filing/remind — email each pending client asking for the month's data. */
+gstRouter.post('/filing/remind', handler(async (req, res) => {
+  const session = requireSession(req)
+  const scope = requireWorkstation(session, 'workstation.gst.manage')
+  const ids = Array.isArray(req.body?.period_ids) ? (req.body.period_ids as unknown[]).filter((x): x is string => typeof x === 'string') : []
+  if (ids.length === 0 || ids.length > 200) throw ApiError.badRequest('Choose between 1 and 200 clients to remind.')
+  const rows = await prisma.gstCompliancePeriod.findMany({
+    where: { ...alive, id: { in: ids }, ...(await periodScopeWhere(session, scope)) },
+    include: { gstProfile: { select: { clientId: true, client: { select: { companyName: true } } } }, filings: { where: alive } },
+  })
+  let sent = 0
+  const failed: { period_id: string; reason: string }[] = []
+  for (const r of rows) {
+    if (r.dataStatus === 'received') { failed.push({ period_id: r.id, reason: 'Data already received.' }); continue }
+    const clientId = r.gstProfile.clientId
+    const { primary } = await clientAddresses(prisma, clientId)
+    if (!primary) { failed.push({ period_id: r.id, reason: 'No email address on file.' }); continue }
+    const gstr1 = r.filings.find((f) => f.returnType === 'GSTR-1') ?? r.filings[0]
+    const link = await prisma.clientDocumentShareLink.findFirst({ where: { clientId, revokedAt: null, pausedAt: null }, orderBy: { createdAt: 'desc' } })
+    const url = link ? `${env.publicAppUrl ?? ''}/portal/documents/${link.token}` : null
+    const msg = dataReminderBody(r.gstProfile.client.companyName, r.period, gstr1?.dueDate ?? null, url)
+    try {
+      await sendClientReminder(prisma, {
+        caseId: null, clientId, kind: 'GSTR1', period: r.period,
+        dueDate: gstr1?.dueDate ?? istDateOf(new Date()), subject: msg.subject, body: msg.body, to: primary,
+      }, session.userId)
+      sent++
+    } catch (e) {
+      failed.push({ period_id: r.id, reason: e instanceof Error ? e.message : 'Could not send.' })
+    }
+  }
+  await writeAudit({ actorUserId: session.userId, action: 'gst.filing.data_reminder', entityType: 'GstCompliancePeriod', entityId: ids.join(','), after: { sent, failed: failed.length }, req })
+  ok(res, { sent, failed })
 }))
 
 /**

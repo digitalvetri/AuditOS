@@ -5,7 +5,7 @@ import { signToken } from '../../../platform/auth.js'
 import { setupRoles } from '../../../../prisma/setup-roles.js'
 import { istToday } from '../../../lib/dates.js'
 import { prisma, uid } from '../../../__tests__/helpers.js'
-import { ensurePeriodJobs, generateGstFilingJobs, previousPeriod, refreshClientGst, syncGstEnrolment } from '../filing.js'
+import { ensurePeriodJobs, generateGstFilingJobs, markDataFromPortal, previousPeriod, refreshClientGst, syncGstEnrolment } from '../filing.js'
 import { assertGstr1Transition, assertGstr3bTransition } from '../validate.js'
 
 let orgId = ''
@@ -212,5 +212,31 @@ describe('Start → Finish', () => {
   it('still refuses filing a return nobody started', () => {
     expect(() => assertGstr1Transition('pending', 'filed')).toThrow()
     expect(() => assertGstr3bTransition('pending', 'filed')).toThrow()
+  })
+})
+
+describe('data received', () => {
+  async function openPeriod() {
+    const c = await gstClient()
+    await syncGstEnrolment(prisma, { clientId: c.id })
+    const p = await prisma.gstProfile.findUniqueOrThrow({ where: { clientId: c.id } })
+    const { periodId } = await ensurePeriodJobs(prisma, p.id, '2026-10')
+    return prisma.gstCompliancePeriod.findUniqueOrThrow({ where: { id: periodId! } })
+  }
+  it('staff tick and untick', async () => {
+    const period = await openPeriod()
+    expect((await api(`/api/gst/periods/${period.id}/data`, { method: 'POST', body: { received: true } })).status).toBe(200)
+    expect(await prisma.gstCompliancePeriod.findUniqueOrThrow({ where: { id: period.id } })).toMatchObject({ dataStatus: 'received' })
+    await api(`/api/gst/periods/${period.id}/data`, { method: 'POST', body: { received: false } })
+    expect(await prisma.gstCompliancePeriod.findUniqueOrThrow({ where: { id: period.id } })).toMatchObject({ dataStatus: 'pending', dataReceivedAt: null })
+  })
+  it('a portal upload to the request marks it received', async () => {
+    const period = await openPeriod()
+    expect(await markDataFromPortal(prisma, period.dataRequestDocId!)).toBe(true)
+    expect(await prisma.gstCompliancePeriod.findUniqueOrThrow({ where: { id: period.id } })).toMatchObject({ dataStatus: 'received', dataReceivedBy: 'portal' })
+    expect(await markDataFromPortal(prisma, 'not-a-gst-request')).toBe(false)
+  })
+  it('remind refuses an empty list', async () => {
+    expect((await api('/api/gst/filing/remind', { method: 'POST', body: { period_ids: [] } })).status).toBe(400)
   })
 })
