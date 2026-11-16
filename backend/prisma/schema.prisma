@@ -3854,6 +3854,80 @@ model AaInvoiceExtraction {
 }
 
 // ============================================================
+// AUDIT AUTOMATION · TRANSIT EXTRACTION (POST-DELIVERY-CHANGES §F2)
+// ============================================================
+// Persists reviewed lorry-receipt / delivery-challan extractions. Same
+// upload -> extract -> confirm -> export pipeline as the bank statement
+// and invoice readers; the reviewer confirms every figure because, like
+// invoices, a misread vehicle number or value is an audit failure.
+//
+// docType is one of 'lorry_receipt' | 'delivery_challan' — detected from
+// the header on extract, correctable by the reviewer on PATCH.
+//
+// Status lifecycle: extracted -> confirmed -> exported (same as invoice).
+
+model AaTransitExtraction {
+  id             String @id @default(uuid())
+  organisationId String
+  clientId       String
+
+  filename   String
+  pdfSha256  String
+  pageCount  Int    @default(1)
+
+  /// lorry_receipt | delivery_challan | unknown
+  docType             String @default("unknown")
+  docNumber           String?
+  docNumberConfidence String  @default("low")
+  docDate             String?
+  docDateConfidence   String  @default("low")
+
+  consignor              String?
+  consignorConfidence    String  @default("low")
+  consignorGstin         String?
+  consignorGstinConfidence String @default("low")
+  consignee              String?
+  consigneeConfidence    String  @default("low")
+  consigneeGstin         String?
+  consigneeGstinConfidence String @default("low")
+
+  /// Compact form, uppercased — 'TN01AB1234'.
+  vehicleNumber           String?
+  vehicleNumberConfidence String  @default("low")
+  fromPlace               String?
+  fromPlaceConfidence     String  @default("low")
+  toPlace                 String?
+  toPlaceConfidence       String  @default("low")
+
+  goodsDescription           String?
+  goodsDescriptionConfidence String @default("low")
+  /// Free-form, e.g. '50 bundles' / '12 cartons' / '250 kgs'.
+  quantity                   String?
+  quantityConfidence         String @default("low")
+  /// Nullable — LRs often omit value entirely.
+  valuePaise                 Int?
+  valueConfidence            String @default("low")
+
+  /// Future: a JSON array if we extract per-package detail. Reserved now.
+  lineItemsJson        String?
+
+  status               String @default("extracted")
+  reviewedByEmployeeId String?
+  reviewedAt           DateTime?
+  notes                String?
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  createdBy String?
+  updatedBy String?
+  deletedAt DateTime?
+
+  @@index([organisationId, clientId, status])
+  @@index([pdfSha256])
+  @@index([createdAt])
+}
+
+// ============================================================
 // TALLY — native double-entry accounting module (AUDITOSTALLYMODULEPROMPT.md)
 // Foundation slice: companies, financial years, groups, ledgers.
 // Every table carries tallyCompanyId; every service enforces strict
