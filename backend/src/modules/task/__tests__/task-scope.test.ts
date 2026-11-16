@@ -66,13 +66,18 @@ beforeAll(async () => {
   await new Promise((r) => server.once('listening', r))
   const addr = server.address()
   base = `http://127.0.0.1:${typeof addr === 'object' && addr ? addr.port : 0}`
-  orgId = (await prisma.organisation.findFirst({ where: { deletedAt: null } }))?.id
-    ?? (await prisma.organisation.create({ data: { id: uid('org'), name: 'Firm' } })).id
+  // A firm of its own: other suites clear the first organisation's employees.
+  orgId = (await prisma.organisation.create({ data: { id: uid('org'), name: 'Firm' } })).id
   wsId = (await prisma.workSchedule.create({ data: { id: uid('ws'), organisationId: orgId, name: 'Std', standardStart: '09:30', standardEnd: '18:30' } })).id
   await setupRoles(prisma, { force: true })
   roleId = Object.fromEntries((await prisma.role.findMany()).map((r) => [r.code, r.id]))
 })
-afterAll(() => server?.close())
+afterAll(async () => {
+  // Tasks pin their assignee (RESTRICT); other suites wipe every employee.
+  const emps = (await prisma.employee.findMany({ where: { organisationId: orgId }, select: { id: true } })).map((e) => e.id)
+  await prisma.task.deleteMany({ where: { assignedEmployeeId: { in: emps } } })
+  server?.close()
+})
 
 describe('task actions outside the caller\'s scope: 404 and nothing written', () => {
   it('an Associate cannot start, pause, resume, complete, cancel, reopen, rename or reassign a colleague\'s task', async () => {
