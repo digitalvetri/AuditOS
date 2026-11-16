@@ -240,6 +240,7 @@ const IMPLEMENTATIONS: Record<string, Implementation> = {
       return {
         filename: withExtension(doc.originalFilename, 'xlsx'), mime: OUTPUT_MIME.xlsx, bytes: r.bytes,
         meta: { direction: 'json_to_excel', sections: r.sections, invoices: r.invoices, rows: r.rows },
+        warning: r.warning,
       }
     }
     const r = await ComplianceService.gstExcelToJson(bytes)

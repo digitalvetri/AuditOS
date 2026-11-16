@@ -134,10 +134,10 @@ export const TOOLS: ToolDefinition[] = [
     keywords: ['pdf', 'ocr', 'scan', 'text', 'searchable', 'image', 'recognise'], permission: 'tools.ocr_scan', status: 'active' },
 
   // ── Compliance converters — cards only this phase ──────────────────────
-  { id: 'gst-json-excel', name: 'GST JSON ⇄ Excel', description: 'GSTR-1/3B offline utility format',
+  { id: 'gst-json-excel', name: 'GST JSON ⇄ Excel', description: 'GSTR-1 offline utility format',
     badge: { text: 'JSON', tint: 'blue' }, groupId: 'compliance-converters', route: '/tools/gst-json-excel',
     accepts: [MIME.json, MIME.xlsx], extensions: ['json', 'xlsx'], maxFileSizeMB: 25, multiple: false, outputType: 'xlsx',
-    keywords: ['gst', 'gstr', 'gstr-1', 'gstr-3b', 'json', 'excel', 'offline utility'], permission: 'tools.gst_json_excel', status: 'active' },
+    keywords: ['gst', 'gstr', 'gstr-1', 'json', 'excel', 'offline utility'], permission: 'tools.gst_json_excel', status: 'active' },
   { id: 'bank-statement-to-excel', name: 'Bank Statement to Excel', description: 'Parse PDF statements to ledger rows',
     badge: { text: 'BANK', tint: 'green' }, groupId: 'compliance-converters', route: '/tools/bank-statement-to-excel',
     ...PDF, maxFileSizeMB: 25, multiple: false, outputType: 'xlsx',

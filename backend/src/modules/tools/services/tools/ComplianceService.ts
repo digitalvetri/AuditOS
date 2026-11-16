@@ -199,38 +199,166 @@ function addSkippedSheet(wb: ExcelJS.Workbook, skipped: SkipNote[]) {
 // ── 1. GST JSON ⇄ Excel ──────────────────────────────────────────────────
 
 /**
- * The GSTR-1 offline utility's JSON keeps each section as an array of
- * invoices, every invoice carrying its own line items (`itms`). Analysts
- * read it as flat rows, so each section becomes one sheet with the invoice
- * fields repeated down its item rows — and the same shape rebuilds the JSON
- * on the way back, grouping rows by invoice number again.
+ * GSTR-1 sections as the offline tool's JSON nests them. GSTN publishes no
+ * formal JSON schema; the shapes and key names here follow the portal /
+ * offline-tool export (cross-checked against a community schema built by
+ * validating against the portal). Each section is a list of levels — e.g.
+ * B2B is recipient → invoice → item — and becomes one sheet with the outer
+ * levels repeated down the item rows. The same table rebuilds the JSON,
+ * regrouping rows whose outer fields match.
+ *
+ *   kind  num   → a number in Excel and in JSON (amounts, rates, counts)
+ *         text  → a string; codes like "33" or "KT/001" never become numbers
+ *         date  → "dd-mm-yyyy" text; a real Excel date is converted back
+ *         state → two-digit state code, "7" → "07"
+ *         hsn   → digits, a dropped leading zero restored ("402" → "0402")
  */
-const GST_SECTIONS: Record<string, { label: string; key: string; party: string; flat?: boolean }> = {
-  b2b: { label: 'B2B', key: 'ctin', party: 'Recipient GSTIN' },
-  b2cl: { label: 'B2CL', key: 'pos', party: 'Place of supply' },
-  // b2cs carries no invoice wrapper — each entry IS a rate line, so it is
-  // rebuilt flat. Wrapping it in `inv` produces JSON the offline utility
-  // rejects, which is invisible until upload.
-  b2cs: { label: 'B2CS', key: 'pos', party: 'Place of supply', flat: true },
-  cdnr: { label: 'CDNR', key: 'ctin', party: 'Recipient GSTIN' },
-  cdnur: { label: 'CDNUR', key: 'pos', party: 'Place of supply' },
-  exp: { label: 'EXP', key: 'exp_typ', party: 'Export type' },
+type GstKind = 'num' | 'text' | 'date' | 'state' | 'hsn'
+interface GstField { key: string; header: string; kind: GstKind }
+interface GstLevel { fields: GstField[]; child?: string; wrap?: 'itm_det' }
+interface GstSection { key: string; label: string; container?: string; tables?: string[]; levels: GstLevel[] }
+
+const F = (key: string, header: string, kind: GstKind = 'text'): GstField => ({ key, header, kind })
+const TAX_ITEM: GstField[] = [F('rt', 'Rate', 'num'), F('txval', 'Taxable Value', 'num'), F('iamt', 'IGST', 'num'), F('camt', 'CGST', 'num'), F('samt', 'SGST', 'num'), F('csamt', 'Cess', 'num')]
+const ITEM_NUM = F('num', 'Item No', 'num')
+const WRAPPED_ITEMS: GstLevel = { fields: [ITEM_NUM, ...TAX_ITEM], wrap: 'itm_det' }
+
+const GST_SECTIONS: GstSection[] = [
+  { key: 'b2b', label: 'B2B', levels: [
+    { fields: [F('ctin', 'Recipient GSTIN')], child: 'inv' },
+    { fields: [F('inum', 'Invoice No'), F('idt', 'Invoice Date', 'date'), F('val', 'Invoice Value', 'num'), F('pos', 'Place of Supply', 'state'),
+      F('rchrg', 'Reverse Charge'), F('inv_typ', 'Invoice Type'), F('etin', 'E-commerce GSTIN'), F('diff_percent', 'Applicable % of Tax Rate', 'num')], child: 'itms' },
+    WRAPPED_ITEMS,
+  ] },
+  { key: 'b2cl', label: 'B2CL', levels: [
+    { fields: [F('pos', 'Place of Supply', 'state')], child: 'inv' },
+    { fields: [F('inum', 'Invoice No'), F('idt', 'Invoice Date', 'date'), F('val', 'Invoice Value', 'num'), F('etin', 'E-commerce GSTIN'),
+      F('diff_percent', 'Applicable % of Tax Rate', 'num'), F('rchrg', 'Reverse Charge'), F('inv_typ', 'Invoice Type')], child: 'itms' },
+    WRAPPED_ITEMS,
+  ] },
+  // b2cs carries no invoice wrapper — each entry IS a rate line.
+  { key: 'b2cs', label: 'B2CS', levels: [
+    { fields: [F('sply_ty', 'Supply Type'), F('pos', 'Place of Supply', 'state'), F('typ', 'Type'), F('etin', 'E-commerce GSTIN'),
+      F('diff_percent', 'Applicable % of Tax Rate', 'num'), ...TAX_ITEM] },
+  ] },
+  { key: 'cdnr', label: 'CDNR', levels: [
+    { fields: [F('ctin', 'Recipient GSTIN')], child: 'nt' },
+    { fields: [F('ntty', 'Note Type'), F('nt_num', 'Note No'), F('nt_dt', 'Note Date', 'date'), F('val', 'Note Value', 'num'), F('pos', 'Place of Supply', 'state'),
+      F('rchrg', 'Reverse Charge'), F('inv_typ', 'Invoice Type'), F('diff_percent', 'Applicable % of Tax Rate', 'num')], child: 'itms' },
+    WRAPPED_ITEMS,
+  ] },
+  // cdnur is a flat list of notes, each with its unregistered-type `typ`.
+  { key: 'cdnur', label: 'CDNUR', levels: [
+    { fields: [F('typ', 'UR Type'), F('ntty', 'Note Type'), F('nt_num', 'Note No'), F('nt_dt', 'Note Date', 'date'), F('val', 'Note Value', 'num'),
+      F('pos', 'Place of Supply', 'state'), F('diff_percent', 'Applicable % of Tax Rate', 'num')], child: 'itms' },
+    WRAPPED_ITEMS,
+  ] },
+  // Export items are NOT wrapped in itm_det.
+  { key: 'exp', label: 'EXP', levels: [
+    { fields: [F('exp_typ', 'Export Type')], child: 'inv' },
+    { fields: [F('inum', 'Invoice No'), F('idt', 'Invoice Date', 'date'), F('val', 'Invoice Value', 'num'), F('sbpcode', 'Shipping Bill Port Code'),
+      F('sbnum', 'Shipping Bill No'), F('sbdt', 'Shipping Bill Date', 'date'), F('diff_percent', 'Applicable % of Tax Rate', 'num')], child: 'itms' },
+    { fields: [F('num', 'Item No', 'num'), F('rt', 'Rate', 'num'), F('txval', 'Taxable Value', 'num'), F('iamt', 'IGST', 'num'), F('csamt', 'Cess', 'num')] },
+  ] },
+  // Table 12 — split into hsn_b2b / hsn_b2c on current returns, `data` on older ones.
+  { key: 'hsn', label: 'HSN', tables: ['hsn_b2b', 'hsn_b2c', 'data'], levels: [
+    { fields: [F('num', 'Line No', 'num'), F('hsn_sc', 'HSN', 'hsn'), F('desc', 'Description'), F('user_desc', 'User Description'), F('uqc', 'UQC'),
+      F('qty', 'Quantity', 'num'), F('rt', 'Rate', 'num'), F('txval', 'Taxable Value', 'num'), F('iamt', 'IGST', 'num'), F('camt', 'CGST', 'num'),
+      F('samt', 'SGST', 'num'), F('csamt', 'Cess', 'num'), F('val', 'Total Value', 'num')] },
+  ] },
+  // Table 13 — documents issued.
+  { key: 'doc_issue', label: 'DOCS', container: 'doc_det', levels: [
+    { fields: [F('doc_num', 'Document Type No', 'num'), F('doc_typ', 'Document Type')], child: 'docs' },
+    { fields: [F('num', 'Line No', 'num'), F('from', 'Sr. No. From'), F('to', 'Sr. No. To'), F('totnum', 'Total Number', 'num'),
+      F('cancel', 'Cancelled', 'num'), F('net_issue', 'Net Issued', 'num')] },
+  ] },
+  // Table 8 — nil rated, exempted and non-GST supplies.
+  { key: 'nil', label: 'NIL', container: 'inv', levels: [
+    { fields: [F('sply_ty', 'Supply Type'), F('nil_amt', 'Nil Rated', 'num'), F('expt_amt', 'Exempted', 'num'), F('ngsup_amt', 'Non-GST', 'num')] },
+  ] },
+]
+
+const GST_TOP_LEVEL = new Set(['gstin', 'fp', 'version', 'hash', 'gt', 'cur_gt', 'filing_typ', ...GST_SECTIONS.map((s) => s.key)])
+const TABLE_HEADER = 'Table'
+
+/** Excel/JSON value → the JSON value for a field, or undefined when blank. */
+function gstValue(kind: GstKind, raw: string): string | number | undefined {
+  const v = raw.trim()
+  if (v === '') return undefined
+  switch (kind) {
+    case 'num': { const n = parseAmount(v); return n === null ? v : n }
+    case 'date': {
+      // A date re-entered in a text-formatted cell can come back as its Excel serial.
+      if (/^\d{5}(\.\d+)?$/.test(v)) return isoDate(new Date(Date.UTC(1899, 11, 30) + Math.floor(Number(v)) * 86_400_000)).split('-').reverse().join('-')
+      const d = parseDate(v); return d ? d.replace(/\//g, '-') : v
+    }
+    case 'state': return /^\d{1,2}$/.test(v) ? v.padStart(2, '0') : v
+    case 'hsn': return /^\d+$/.test(v) && v.length % 2 === 1 ? `0${v}` : v
+    default: return v
+  }
 }
 
-interface GstFlatRow {
-  section: string
-  party: string
-  invoiceNo: string
-  invoiceDate: string
-  invoiceValue: string
-  pos: string
-  reverseCharge: string
-  rate: string
-  taxableValue: string
-  igst: string
-  cgst: string
-  sgst: string
-  cess: string
+/** One section's JSON → flat rows (one per leaf), keyed by header. */
+function gstFlatten(sec: GstSection, nodes: Record<string, unknown>[]): { rows: Record<string, unknown>[]; docs: number } {
+  const rows: Record<string, unknown>[] = []
+  let docs = 0
+  const walk = (list: Record<string, unknown>[], depth: number, acc: Record<string, unknown>) => {
+    const lv = sec.levels[depth]
+    for (const node of list) {
+      if (depth === Math.min(1, sec.levels.length - 1)) docs++
+      const row = { ...acc }
+      const src = lv.wrap ? { ...(node[lv.wrap] as Record<string, unknown> ?? {}), num: node.num } : node
+      for (const f of lv.fields) {
+        const v = src[f.key]
+        if (v === undefined || v === null || v === '') continue
+        row[f.header] = f.kind === 'num' && typeof v === 'number' ? v : f.kind === 'num' ? (parseAmount(String(v)) ?? String(v)) : String(v)
+      }
+      const kids = lv.child ? node[lv.child] : undefined
+      if (lv.child && Array.isArray(kids) && kids.length) walk(kids as Record<string, unknown>[], depth + 1, row)
+      else rows.push(row)
+    }
+  }
+  walk(nodes, 0, {})
+  return { rows, docs }
+}
+
+/** Flat sheet rows → the section's nested JSON list. */
+function gstNest(sec: GstSection, sheet: SheetRows): { list: Record<string, unknown>[]; docs: number } {
+  const root: Record<string, unknown>[] = []
+  const index = new Map<string, Record<string, unknown>>()
+  let docs = 0
+  sheet.rows.forEach((r) => {
+    let parentList = root
+    let path = ''
+    sec.levels.forEach((lv, depth) => {
+      const obj: Record<string, unknown> = {}
+      for (const f of lv.fields) {
+        const v = gstValue(f.kind, at(r, col(sheet, f.header, f.key)))
+        if (v !== undefined) obj[f.key] = v
+      }
+      const leaf = depth === sec.levels.length - 1
+      if (leaf) {
+        let node: Record<string, unknown> = obj
+        if (lv.wrap) {
+          const { num, ...det } = obj
+          node = { num: num ?? parentList.length + 1, [lv.wrap]: det }
+        }
+        parentList.push(node)
+        if (depth === Math.min(1, sec.levels.length - 1)) docs++
+        return
+      }
+      path += '|' + JSON.stringify(obj)
+      let node = index.get(path)
+      if (!node) {
+        node = { ...obj, [lv.child!]: [] }
+        index.set(path, node)
+        parentList.push(node)
+        if (depth === 1) docs++
+      }
+      parentList = node[lv.child!] as Record<string, unknown>[]
+    })
+  })
+  return { list: root, docs }
 }
 
 // ── Form 140 deductor details ────────────────────────────────────────────
@@ -428,12 +556,19 @@ const PARTY_DEBITED: Record<TallyKind, boolean> = {
 
 export const ComplianceService = {
   /** JSON → workbook. One sheet per section present, plus Summary. */
-  async gstJsonToExcel(bytes: Buffer): Promise<{ bytes: Buffer; sections: string[]; invoices: number; rows: number }> {
+  async gstJsonToExcel(bytes: Buffer): Promise<{ bytes: Buffer; sections: string[]; invoices: number; rows: number; warning?: string }> {
     let doc: Record<string, unknown>
     try {
       doc = JSON.parse(bytes.toString('utf8')) as Record<string, unknown>
     } catch {
       throw new ToolError('unreadable', "This file isn't valid JSON. Export it again from the GST offline utility.")
+    }
+    if (!doc || typeof doc !== 'object' || Array.isArray(doc)) {
+      throw new ToolError('unreadable', "This JSON isn't a GSTR-1 return file.")
+    }
+    const hasGstr1 = GST_SECTIONS.some((s) => doc[s.key] !== undefined)
+    if (!hasGstr1 && (doc.ret_period !== undefined || doc.sup_details !== undefined || doc.itc_elg !== undefined)) {
+      throw new ToolError('unreadable', 'This looks like a GSTR-3B JSON. Only GSTR-1 is supported by this tool.')
     }
     const wb = newBook()
     const sections: string[] = []
@@ -445,74 +580,62 @@ export const ComplianceService = {
       { header: 'Field', key: 'k', width: 24 },
       { header: 'Value', key: 'v', width: 34 },
     ]
-    for (const [k, label] of [['gstin', 'GSTIN'], ['fp', 'Return period'], ['gt', 'Gross turnover'], ['cur_gt', 'Current turnover'], ['version', 'Version']] as const) {
-      if (doc[k] !== undefined) summary.addRow({ k: label, v: String(doc[k]) })
+    for (const [k, label] of [['gstin', 'GSTIN'], ['fp', 'Return period'], ['gt', 'Gross turnover'], ['cur_gt', 'Current turnover'], ['version', 'Version'], ['hash', 'Hash'], ['filing_typ', 'Filing type']] as const) {
+      if (doc[k] !== undefined) summary.addRow({ k: label, v: typeof doc[k] === 'number' ? doc[k] : String(doc[k]) })
     }
 
-    for (const [sec, meta] of Object.entries(GST_SECTIONS)) {
-      const raw = doc[sec]
-      if (!Array.isArray(raw) || raw.length === 0) continue
-      sections.push(meta.label)
-      const flat: GstFlatRow[] = []
-
-      for (const group of raw as Record<string, unknown>[]) {
-        const party = String(group[meta.key] ?? '')
-        // b2cs has no invoice wrapper — the group IS the rate line.
-        const invList = Array.isArray(group.inv) ? group.inv as Record<string, unknown>[]
-          : Array.isArray(group.nt) ? group.nt as Record<string, unknown>[]
-          : [group]
-        for (const inv of invList) {
-          invoices++
-          const itms = Array.isArray(inv.itms) ? inv.itms as Record<string, unknown>[] : [inv]
-          for (const itm of itms) {
-            const d = (itm.itm_det ?? itm) as Record<string, unknown>
-            flat.push({
-              section: meta.label,
-              party,
-              invoiceNo: String(inv.inum ?? inv.nt_num ?? ''),
-              invoiceDate: String(inv.idt ?? inv.nt_dt ?? ''),
-              invoiceValue: inv.val !== undefined ? String(inv.val) : '',
-              pos: String(inv.pos ?? group.pos ?? ''),
-              reverseCharge: String(inv.rchrg ?? ''),
-              rate: d.rt !== undefined ? String(d.rt) : '',
-              taxableValue: d.txval !== undefined ? String(d.txval) : '',
-              igst: d.iamt !== undefined ? String(d.iamt) : '',
-              cgst: d.camt !== undefined ? String(d.camt) : '',
-              sgst: d.samt !== undefined ? String(d.samt) : '',
-              cess: d.csamt !== undefined ? String(d.csamt) : '',
-            })
-            rows++
-          }
+    for (const sec of GST_SECTIONS) {
+      const raw = doc[sec.key]
+      if (raw === undefined || raw === null) continue
+      let flat: Record<string, unknown>[] = []
+      let docs = 0
+      if (sec.tables) {
+        for (const t of sec.tables) {
+          const list = (raw as Record<string, unknown>)[t]
+          if (!Array.isArray(list)) continue
+          const f = gstFlatten(sec, list as Record<string, unknown>[])
+          flat.push(...f.rows.map((r) => ({ [TABLE_HEADER]: t, ...r })))
+          docs += f.docs
         }
+      } else {
+        const list = sec.container ? (raw as Record<string, unknown>)[sec.container] : raw
+        if (!Array.isArray(list)) continue
+        const f = gstFlatten(sec, list as Record<string, unknown>[])
+        flat = f.rows; docs = f.docs
       }
+      if (flat.length === 0) continue
+      sections.push(sec.label)
+      invoices += docs
+      rows += flat.length
 
-      const ws = wb.addWorksheet(meta.label)
-      ws.columns = [
-        { header: meta.party, key: 'party', width: 20 },
-        { header: 'Invoice No', key: 'invoiceNo', width: 16 },
-        { header: 'Invoice Date', key: 'invoiceDate', width: 14 },
-        { header: 'Invoice Value', key: 'invoiceValue', width: 14 },
-        { header: 'Place of Supply', key: 'pos', width: 14 },
-        { header: 'Reverse Charge', key: 'reverseCharge', width: 14 },
-        { header: 'Rate', key: 'rate', width: 8 },
-        { header: 'Taxable Value', key: 'taxableValue', width: 14 },
-        { header: 'IGST', key: 'igst', width: 12 },
-        { header: 'CGST', key: 'cgst', width: 12 },
-        { header: 'SGST', key: 'sgst', width: 12 },
-        { header: 'Cess', key: 'cess', width: 12 },
-      ]
-      flat.forEach((r) => ws.addRow(r))
-      autoWidth(ws)
+      const fields = sec.levels.flatMap((l) => l.fields)
+      // Only the columns this file uses, in schema order — plus Table for HSN.
+      const used = fields.filter((f, i) => fields.findIndex((g) => g.header === f.header) === i && flat.some((r) => r[f.header] !== undefined))
+      const ws = wb.addWorksheet(sec.label)
+      const heads = [...(sec.tables ? [TABLE_HEADER] : []), ...used.map((f) => f.header)]
+      ws.addRow(heads)
+      flat.forEach((r) => ws.addRow(heads.map((h) => r[h] ?? null)))
+      used.forEach((f, i) => { if (f.kind !== 'num') ws.getColumn(i + 1 + (sec.tables ? 1 : 0)).numFmt = '@' })
+      ws.columns.forEach((c, i) => { c.width = Math.max(10, Math.min(40, String(heads[i] ?? '').length + 4)) })
+      ws.getRow(1).font = { bold: true }
+      ws.views = [{ state: 'frozen', ySplit: 1 }]
     }
 
+    const notConverted = Object.keys(doc).filter((k) => !GST_TOP_LEVEL.has(k))
     if (sections.length === 0) {
-      throw new ToolError('empty', 'No GSTR sections (b2b, b2cl, b2cs, cdnr, cdnur, exp) were found in this JSON.')
+      throw new ToolError('empty', `No GSTR-1 sections (${GST_SECTIONS.map((s) => s.key).join(', ')}) were found in this JSON.${notConverted.length ? ` It has: ${notConverted.join(', ')}.` : ''}`)
     }
     summary.addRow({ k: 'Sections', v: sections.join(', ') })
-    summary.addRow({ k: 'Invoices', v: String(invoices) })
-    summary.addRow({ k: 'Line rows', v: String(rows) })
+    summary.addRow({ k: 'Invoices / notes / entries', v: invoices })
+    summary.addRow({ k: 'Line rows', v: rows })
+    if (notConverted.length) summary.addRow({ k: 'Not converted', v: notConverted.join(', ') })
     autoWidth(summary)
-    return { bytes: Buffer.from(await wb.xlsx.writeBuffer()), sections, invoices, rows }
+    return {
+      bytes: Buffer.from(await wb.xlsx.writeBuffer()), sections, invoices, rows,
+      warning: notConverted.length
+        ? `These parts of the JSON are not converted and are NOT in the workbook: ${notConverted.join(', ')}. Add them in the offline tool before filing.`
+        : undefined,
+    }
   },
 
   /** Workbook → GSTR-1 JSON. Reverses gstJsonToExcel sheet for sheet. */
@@ -523,117 +646,58 @@ export const ComplianceService = {
     } catch {
       throw new ToolError('unreadable', "We couldn't open this spreadsheet. It may be corrupted or not a real Excel file.")
     }
-    const out: Record<string, unknown> = { version: 'GST3.1.6', hash: 'hash' }
+    const out: Record<string, unknown> = {}
     const summary = wb.getWorksheet('Summary')
     if (summary) {
       summary.eachRow((row) => {
         const k = norm(cellText(row.getCell(1).value))
         const v = cellText(row.getCell(2).value).trim()
         if (!v) return
-        if (k === 'gstin') out.gstin = v
-        if (k === 'returnperiod') out.fp = v
-        if (k === 'grossturnover') out.gt = Number(v) || v
-        if (k === 'currentturnover') out.cur_gt = Number(v) || v
+        if (k === 'gstin') out.gstin = v.toUpperCase()
+        if (k === 'returnperiod') out.fp = v.padStart(6, '0')
+        if (k === 'grossturnover') out.gt = parseAmount(v) ?? v
+        if (k === 'currentturnover') out.cur_gt = parseAmount(v) ?? v
+        if (k === 'version') out.version = v
+        if (k === 'hash') out.hash = v
+        if (k === 'filingtype') out.filing_typ = v
       })
     }
+    out.version ??= 'GST3.1.6'
+    out.hash ??= 'hash'
 
     const sections: string[] = []
     let invoices = 0
     let rows = 0
 
-    for (const [sec, meta] of Object.entries(GST_SECTIONS)) {
-      const ws = wb.getWorksheet(meta.label)
-      if (!ws) continue
-      // Re-read through the shared reader so header matching is identical.
-      const sub = newBook()
-      const copy = sub.addWorksheet(meta.label)
-      ws.eachRow({ includeEmpty: false }, (row) => {
-        copy.addRow(row.values as ExcelJS.CellValue[])
-      })
+    for (const sec of GST_SECTIONS) {
+      if (!wb.getWorksheet(sec.label)) continue
       let sheet: SheetRows
       try {
-        sheet = await readSheet(Buffer.from(await sub.xlsx.writeBuffer()), meta.label)
+        sheet = await readSheet(bytes, sec.label)
       } catch {
         continue
       }
-
-      const c = {
-        party: col(sheet, meta.party, 'ctin', 'gstin', 'pos'),
-        inum: col(sheet, 'Invoice No', 'invoice number', 'inum', 'note no'),
-        idt: col(sheet, 'Invoice Date', 'idt', 'note date'),
-        val: col(sheet, 'Invoice Value', 'val'),
-        pos: col(sheet, 'Place of Supply', 'pos'),
-        rchrg: col(sheet, 'Reverse Charge', 'rchrg'),
-        rt: col(sheet, 'Rate', 'rt'),
-        txval: col(sheet, 'Taxable Value', 'txval'),
-        iamt: col(sheet, 'IGST', 'iamt'),
-        camt: col(sheet, 'CGST', 'camt'),
-        samt: col(sheet, 'SGST', 'samt'),
-        csamt: col(sheet, 'Cess', 'csamt'),
-      }
-
-      if (meta.flat) {
-        const lines: Record<string, unknown>[] = []
-        for (const r of sheet.rows) {
-          const line: Record<string, unknown> = { pos: at(r, c.pos) || at(r, c.party), typ: 'OE' }
-          for (const [k, i] of [['rt', c.rt], ['txval', c.txval], ['iamt', c.iamt], ['camt', c.camt], ['samt', c.samt], ['csamt', c.csamt]] as const) {
-            const v = parseAmount(at(r, i))
-            if (v !== null) line[k] = v
-          }
-          // INTER when the tax is IGST, INTRA when it is split CGST/SGST.
-          line.sply_ty = line.iamt !== undefined && line.camt === undefined ? 'INTER' : 'INTRA'
-          lines.push(line)
-          rows++
-          invoices++
+      if (sec.tables) {
+        const tCol = col(sheet, TABLE_HEADER)
+        const obj: Record<string, unknown> = {}
+        for (const t of sec.tables) {
+          const part = { ...sheet, rows: sheet.rows.filter((r) => (at(r, tCol) || sec.tables![0]) === t) }
+          if (!part.rows.length) continue
+          const n = gstNest(sec, part)
+          obj[t] = n.list; invoices += n.docs
         }
-        if (lines.length) { out[sec] = lines; sections.push(meta.label) }
-        continue
+        out[sec.key] = obj
+      } else {
+        const n = gstNest(sec, sheet)
+        out[sec.key] = sec.container ? { [sec.container]: n.list } : n.list
+        invoices += n.docs
       }
-
-      // party → invoice no → line items, preserving first-seen order.
-      const byParty = new Map<string, Map<string, { inv: Record<string, unknown>; itms: Record<string, unknown>[] }>>()
-      for (const r of sheet.rows) {
-        const party = at(r, c.party)
-        const inum = at(r, c.inum)
-        if (!byParty.has(party)) byParty.set(party, new Map())
-        const invs = byParty.get(party)!
-        if (!invs.has(inum)) {
-          invs.set(inum, {
-            inv: {
-              inum,
-              idt: at(r, c.idt),
-              val: parseAmount(at(r, c.val)) ?? undefined,
-              pos: at(r, c.pos) || undefined,
-              rchrg: at(r, c.rchrg) || undefined,
-            },
-            itms: [],
-          })
-          invoices++
-        }
-        const entry = invs.get(inum)!
-        const det: Record<string, unknown> = {}
-        for (const [k, i] of [['rt', c.rt], ['txval', c.txval], ['iamt', c.iamt], ['camt', c.camt], ['samt', c.samt], ['csamt', c.csamt]] as const) {
-          const n = parseAmount(at(r, i))
-          if (n !== null) det[k] = n
-        }
-        entry.itms.push({ num: entry.itms.length + 1, itm_det: det })
-        rows++
-      }
-
-      const groups: Record<string, unknown>[] = []
-      for (const [party, invs] of byParty) {
-        const invArr = [...invs.values()].map((e) => {
-          const inv: Record<string, unknown> = { ...e.inv, itms: e.itms }
-          for (const k of Object.keys(inv)) if (inv[k] === undefined || inv[k] === '') delete inv[k]
-          return inv
-        })
-        groups.push({ [meta.key]: party, inv: invArr })
-      }
-      if (groups.length) { out[sec] = groups; sections.push(meta.label) }
+      rows += sheet.rows.length
+      sections.push(sec.label)
     }
 
     if (sections.length === 0) {
-      throw new ToolError('empty', 'No sheet named B2B, B2CL, B2CS, CDNR, CDNUR or EXP was found in this workbook.')
+      throw new ToolError('empty', `No sheet named ${GST_SECTIONS.map((s) => s.label).join(', ')} was found in this workbook.`)
     }
     return { bytes: Buffer.from(JSON.stringify(out, null, 2), 'utf8'), sections, invoices, rows }
   },

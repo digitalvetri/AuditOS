@@ -46,15 +46,18 @@ function Columns({ required, optional }: { required: string[]; optional?: string
 
 export const gstJsonExcelUI: ToolUI = {
   actionLabel: 'Convert',
-  processingLabel: 'Reading GSTR sections…',
+  processingLabel: 'Reading GSTR-1 sections…',
   Options: () => (
     <Notice tone="info">
       <div className="text-13">
-        The direction follows the file you upload: a <strong className="font-medium">.json</strong> from
+        GSTR-1 only. The direction follows the file you upload: a <strong className="font-medium">.json</strong> from
         the offline utility becomes a workbook with one sheet per section, and a workbook in that same
         shape becomes JSON again.
         <div className="text-12 text-neutral-500 mt-1">
-          Sections handled: B2B, B2CL, B2CS, CDNR, CDNUR, EXP. Each invoice repeats down its line-item rows.
+          Sections handled: B2B, B2CL, B2CS, CDNR, CDNUR, EXP (with shipping bill), HSN (Table 12), DOCS
+          (Table 13) and NIL (Table 8). Invoice and note types are kept; amounts are numbers. Any other
+          section (amendments, advances, e-commerce tables) is named in the result and on the Summary
+          sheet — it is not carried over. GSTR-3B is not supported.
         </div>
       </div>
     </Notice>

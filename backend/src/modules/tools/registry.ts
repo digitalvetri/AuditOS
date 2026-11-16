@@ -119,7 +119,7 @@ export const TOOLS: ToolDef[] = [
     maxFileSizeMB: 25, multiple: false, outputType: 'pdf', permission: 'tools.ocr_scan', status: 'active' },
 
   // ── Compliance converters — cards only this phase ──────────────────────
-  { id: 'gst-json-excel', name: 'GST JSON ⇄ Excel', description: 'GSTR-1/3B offline utility format',
+  { id: 'gst-json-excel', name: 'GST JSON ⇄ Excel', description: 'GSTR-1 offline utility format',
     groupId: 'compliance-converters', accepts: [MIME.json, MIME.xlsx], extensions: ['json', 'xlsx'],
     maxFileSizeMB: 25, multiple: false, outputType: 'xlsx', permission: 'tools.gst_json_excel', status: 'active' },
   { id: 'bank-statement-to-excel', name: 'Bank Statement to Excel', description: 'Parse PDF statements to ledger rows',
