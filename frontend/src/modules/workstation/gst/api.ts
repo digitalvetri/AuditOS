@@ -365,7 +365,11 @@ export interface FilingBoardRow {
 }
 export interface FilingBoard {
   period: string;
-  tiles: { clients: number; data_pending: number; gstr1_filed: number; gstr3b_filed: number; overdue: number };
+  tiles: {
+    clients: number; data_pending: number; gstr1_filed: number; gstr3b_filed: number; overdue: number;
+    /** Every GSTR-1 / GSTR-3B owed this period (the sidebar's "X of Y filed"). */
+    returns: { total: number; filed: number; overdue: number };
+  };
   rows: FilingBoardRow[];
   needs_setup: { client_id: string; client_name: string }[];
 }

@@ -111,6 +111,8 @@ gstRouter.get('/filing-board', handler(async (req, res) => {
     }
   })
   const isFiled = (c: ReturnType<typeof cell>) => !!c && DONE.includes(c.status)
+  // Every GSTR-1 / GSTR-3B owed this period — the sidebar's "X of Y filed".
+  const cells = rows.flatMap((r) => [r.gstr1, r.gstr3b]).filter((c) => c !== null)
 
   // Needs setup: live GST Filing service, no GSTIN (null or blank) on the client.
   const svc = await prisma.service.findFirst({ where: { code: GST_FILING_SERVICE_CODE, deletedAt: null } })
@@ -133,6 +135,11 @@ gstRouter.get('/filing-board', handler(async (req, res) => {
       gstr1_filed: rows.filter((r) => isFiled(r.gstr1)).length,
       gstr3b_filed: rows.filter((r) => isFiled(r.gstr3b)).length,
       overdue: rows.filter((r) => r.gstr1?.overdue || r.gstr3b?.overdue).length,
+      returns: {
+        total: cells.length,
+        filed: cells.filter(isFiled).length,
+        overdue: cells.filter((c) => c.overdue).length,
+      },
     },
     rows,
     needs_setup: bare

@@ -51,8 +51,8 @@ import { api } from '@/services/api';
 import { Avatar } from '@/components/viz';
 import { usePinnedClients } from '@/modules/workstation/pins';
 import { clientsBulkApi } from '@/modules/workstation/clientImport';
-import { gstApi } from '@/modules/workstation/gst/api';
-import { filingStats, istToday, periodName, previousPeriod, returnCells } from '@/modules/dashboardV2/brief';
+import { gstFilingApi } from '@/modules/workstation/gst/api';
+import { istToday, periodName, previousPeriod } from '@/modules/dashboardV2/brief';
 import { employeeApi } from '@/modules/employees/api';
 import { TOOLS } from '@/modules/tools/registry';
 // The rail lists the registrations from the same catalogue the pages
@@ -762,24 +762,25 @@ function Pinned() {
 }
 
 /**
- * This month's GST filing progress — the same return-case data and period
- * the dashboard gauge uses (modules/dashboardV2/brief.ts), so they agree.
+ * This month's GST filing progress — the GSTR-1 / GSTR-3B returns recorded on
+ * Services → GST Filing (`/api/gst/filing-board`), so the card and that page
+ * agree. Shares the page's query key, so filing a return there updates it.
  */
 function FilingSeason() {
   const { session } = useAuth();
   const seesGst = can(session?.role.code, 'workstation.gst.read', 'self');
   const period = previousPeriod(istToday());
-  const gst = useQuery({
-    queryKey: ['gst', 'client-dashboard', period],
-    queryFn: () => gstApi.clientDashboard(period),
+  const board = useQuery({
+    queryKey: ['gst-filing', period],
+    queryFn: () => gstFilingApi.board(period),
     enabled: seesGst, staleTime: 120_000,
   });
-  if (!seesGst || !gst.data) return null;
-  const st = filingStats(returnCells(gst.data));
-  if (!st.total) return null;
-  const pct = Math.round(st.progress * 100);
+  if (!seesGst || !board.data) return null;
+  const st = board.data.tiles.returns;
+  if (!st?.total) return null;
+  const pct = Math.round((st.filed / st.total) * 100);
   return (
-    <Link to="/workstation/services/registration/gst/dashboard"
+    <Link to="/workstation/services/gst-filing"
       className="sb-season mx-3 mb-2 mt-2 block rounded-[12px] px-3 py-[10px] shrink-0">
       <div className="flex items-center justify-between text-12 font-medium text-white/85">
         <span>GST · {periodName(period)} returns</span>
@@ -789,7 +790,7 @@ function FilingSeason() {
         <i className="sb-season-bar block h-full rounded-full" style={{ width: `${Math.max(pct, 2)}%` }} />
       </div>
       <div className="text-11 text-sidebarMuted">
-        {st.filed} of {st.total} filed{st.atRisk ? ` · ${st.atRisk} at risk` : ''}
+        {st.filed} of {st.total} filed{st.overdue ? ` · ${st.overdue} at risk` : ''}
       </div>
     </Link>
   );

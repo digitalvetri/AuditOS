@@ -355,6 +355,30 @@ describe('GET /api/gst/filing-board', () => {
     await syncGstEnrolment(prisma, { clientId: c.id })
     expect((await api('/api/gst/filing-board?period=2026-10')).body.rows.some((x: any) => x.client_id === c.id)).toBe(false)
   })
+  it('counts the period\'s GSTR-1/3B returns for the sidebar card: filed, total and overdue', async () => {
+    const period = '2025-05'
+    const c = await gstClient()
+    await syncGstEnrolment(prisma, { clientId: c.id })
+    const p = await prisma.gstProfile.findUniqueOrThrow({ where: { clientId: c.id } })
+    await ensurePeriodJobs(prisma, p.id, period)
+    const derived = (b: any) => {
+      const cells = b.rows.flatMap((r: any) => [r.gstr1, r.gstr3b]).filter(Boolean)
+      return {
+        total: cells.length,
+        filed: cells.filter((x: any) => ['filed', 'payment_pending', 'completed'].includes(x.status)).length,
+        overdue: cells.filter((x: any) => x.overdue).length,
+      }
+    }
+    const before = (await api(`/api/gst/filing-board?period=${period}`)).body
+    expect(before.tiles.returns).toEqual(derived(before))
+    // Filed with the payment still due counts as filed; the GSTR-1 stays open and late.
+    await prisma.gstFiling.updateMany({ where: { gstProfileId: p.id, period, returnType: 'GSTR-3B' }, data: { status: 'payment_pending', arn: 'AA1' } })
+    const after = (await api(`/api/gst/filing-board?period=${period}`)).body
+    expect(after.tiles.returns).toEqual(derived(after))
+    expect(after.tiles.returns.total).toBe(before.tiles.returns.total)
+    expect(after.tiles.returns.filed).toBe(before.tiles.returns.filed + 1)
+    expect(after.tiles.returns.overdue).toBe(before.tiles.returns.overdue - 1)
+  })
 })
 
 describe('bell reminders and compliance calendar follow GST Filing', () => {
