@@ -2474,6 +2474,15 @@ model GstCompliancePeriod {
   /// The earliest unmet stage due date, for calendar and sorting (§30).
   nextDueDate   String?
 
+  /// GST Filing: has the client sent this month's sales/purchase data?
+  /// pending | received. Set by a staff tick or a client portal upload.
+  dataStatus       String    @default("pending")
+  dataReceivedAt   DateTime?
+  /// User id of the staff member who ticked it, or 'portal'.
+  dataReceivedBy   String?
+  /// The ClientDocument request ("GST data — Oct 2026") shown in the client portal.
+  dataRequestDocId String?
+
   assignedEmployeeId String?
   reviewerEmployeeId String?
   managerEmployeeId  String?
