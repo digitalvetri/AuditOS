@@ -191,6 +191,19 @@ describe('TDS — deductee register', () => {
     expect(cross.body.data).toMatchObject({ expected_tds: 2100, basis: 'normal' })
   })
 
+  it('194C catch-up skips earlier payments the deductor already deducted on', async () => {
+    const c = await newClient(orgId, 'Early Deductor Ltd', mgr.emp.id, 'CHEA88888A')
+    const post = (p: string, body: unknown) => api(`/api/tds/${c.id}/${p}`, { method: 'POST', cookie, body })
+    const builder = (await post('deductees', { name: 'Early Build Co', pan: 'AAACE1234E', category: 'other' })).body.data.deductee
+    // The first 25k was deducted on up front (₹500); the other two were not.
+    await post('deductions', { deductee_id: builder.id, section: '194C', payment_date: '2026-04-10', deduction_date: '2026-04-10', amount_paid: 25000, tds_amount: 500 })
+    for (const d of ['2026-04-20', '2026-04-25']) {
+      await post('deductions', { deductee_id: builder.id, section: '194C', payment_date: d, deduction_date: d, amount_paid: 25000 })
+    }
+    const cross = await post('deductions/preview', { deductee_id: builder.id, section: '194C', deduction_date: '2026-04-28', amount_paid: 30000 })
+    expect(cross.body.data).toMatchObject({ expected_tds: 1600, basis: 'normal' })
+  })
+
   it('computes TDS, flags short deduction, honours 15G and certificates, and exports the quarter', async () => {
     const c = await newClient(orgId, 'Register Ltd', mgr.emp.id, 'CHEA66666A')
     const post = (p: string, body: unknown) => api(`/api/tds/${c.id}/${p}`, { method: 'POST', cookie, body })
