@@ -11,8 +11,9 @@ import { Button } from '@/components/Button';
 import { useToast } from '@/components/Toast';
 import { confirmAction } from '@/components/ConfirmDialog';
 import { fmtDate, formatPaise } from '@/lib/format';
-import { gstFilingApi, periodLabel, recentPeriods, type FilingBoardRow, type FilingCell } from '@/modules/workstation/gst/api';
+import { gstApi, gstFilingApi, periodLabel, recentPeriods, type FilingBoardRow, type FilingCell } from '@/modules/workstation/gst/api';
 import { FinishModal, type FinishValues } from './FinishModal';
+import { PaymentModal, type PaymentValues } from './PaymentModal';
 
 type Tab = 'data' | 'gstr1' | 'gstr3b';
 const STARTED: Record<'gstr1' | 'gstr3b', string> = { gstr1: 'in_preparation', gstr3b: 'preparation' };
@@ -46,6 +47,8 @@ export function GstFilingPage() {
   const [picked, setPicked] = useState<Set<string>>(new Set());
   const [finish, setFinish] = useState<{ row: FilingBoardRow; kind: 'gstr1' | 'gstr3b' } | null>(null);
   const [finishError, setFinishError] = useState<string | null>(null);
+  const [paying, setPaying] = useState<FilingBoardRow | null>(null);
+  const [payError, setPayError] = useState<string | null>(null);
 
   const board = useQuery({ queryKey: ['gst-filing', period], queryFn: () => gstFilingApi.board(period) });
   const refresh = () => qc.invalidateQueries({ queryKey: ['gst-filing'] });
@@ -95,6 +98,15 @@ export function GstFilingPage() {
     onError: (e) => setFinishError(errText(e)),
   });
 
+  const pay = useMutation({
+    mutationFn: (v: { row: FilingBoardRow; values: PaymentValues }) => gstApi.recordPayment(v.row.period_id, {
+      payment_date: v.values.payment_date,
+      ...(v.values.challan_ref.trim() ? { challan_ref: v.values.challan_ref.trim() } : {}),
+    }),
+    onSuccess: () => { setPaying(null); refresh(); toast.push('success', 'Payment recorded.'); },
+    onError: (e) => setPayError(errText(e)),
+  });
+
   const rows = useMemo(() => {
     const all = board.data?.rows ?? [];
     const s = q.trim().toLowerCase();
@@ -128,6 +140,7 @@ export function GstFilingPage() {
             {c.filed_at ? <span className="text-12 text-neutral-500">on {fmtDate(c.filed_at)}</span> : null}
             {kind === 'gstr3b' && c.net_payable_paise !== null ? <span className="text-12 text-neutral-600">Net payable {formatPaise(c.net_payable_paise)}</span> : null}
             {kind === 'gstr3b' && c.challan_ref ? <span className="text-12 font-mono text-neutral-500">Challan {c.challan_ref}</span> : null}
+            {paymentDue ? <Button size="sm" variant="primary" onClick={() => { setPayError(null); setPaying(row); }}>Record payment</Button> : null}
             <Button size="sm" disabled={reopen.isPending} onClick={async () => {
               if (!(await confirmAction('Reopen this return? It goes back to Not started so it can be corrected and filed again.', { action: 'Reopen', danger: true }))) return;
               reopen.mutate({ row, kind });
@@ -230,6 +243,10 @@ export function GstFilingPage() {
       {finish ? (
         <FinishModal kind={finish.kind} clientName={finish.row.client_name} period={periodLabel(period)} busy={save.isPending} error={finishError}
           onClose={() => setFinish(null)} onSave={(values) => save.mutate({ row: finish.row, kind: finish.kind, values })} />
+      ) : null}
+      {paying ? (
+        <PaymentModal clientName={paying.client_name} period={periodLabel(period)} challanRef={paying.gstr3b?.challan_ref ?? null}
+          busy={pay.isPending} error={payError} onClose={() => setPaying(null)} onSave={(values) => pay.mutate({ row: paying, values })} />
       ) : null}
     </div>
   );

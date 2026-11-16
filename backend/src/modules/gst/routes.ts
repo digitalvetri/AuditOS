@@ -1121,7 +1121,9 @@ gstRouter.post('/periods/:id/payment', handler(async (req, res) => {
   const b = req.body ?? {}
   const filing = row.filings.find((f) => f.returnType === 'GSTR-3B')
   if (!filing) throw ApiError.badRequest('There is no GSTR-3B on this period yet.')
-  if (normaliseFilingStatus(filing.status, 'GSTR-3B') !== 'filed' &&
+  // Filed with the payment still due: `filed` + pending payment, or the
+  // `payment_pending` status — both read "Filed · payment due" on the board.
+  if (!['filed', 'payment_pending'].includes(normaliseFilingStatus(filing.status, 'GSTR-3B')) &&
       filing.paymentStatus !== 'pending') {
     throw ApiError.badRequest('Record the GSTR-3B as filed before recording its payment.')
   }

@@ -381,6 +381,36 @@ describe('GET /api/gst/filing-board', () => {
   })
 })
 
+describe('POST /api/gst/periods/:id/payment — record a GSTR-3B payment later', () => {
+  async function filed3b(data: Record<string, unknown>) {
+    const c = await gstClient()
+    await syncGstEnrolment(prisma, { clientId: c.id })
+    const p = await prisma.gstProfile.findUniqueOrThrow({ where: { clientId: c.id } })
+    const { periodId } = await ensurePeriodJobs(prisma, p.id, '2026-09')
+    await prisma.gstFiling.updateMany({ where: { gstProfileId: p.id, period: '2026-09', returnType: 'GSTR-3B' }, data: { arn: 'AA9', ...data } })
+    const read = () => prisma.gstFiling.findFirstOrThrow({ where: { gstProfileId: p.id, period: '2026-09', returnType: 'GSTR-3B' } })
+    return { periodId: periodId!, read }
+  }
+  it('a 3B filed with payment due becomes completed, with the date and challan', async () => {
+    const f = await filed3b({ status: 'filed', paymentStatus: 'pending' })
+    const r = await api(`/api/gst/periods/${f.periodId}/payment`, { method: 'POST', body: { payment_date: '2026-10-22', challan_ref: 'CIN123' } })
+    expect(r.status).toBe(200)
+    expect(await f.read()).toMatchObject({ status: 'completed', paymentStatus: 'completed', paymentDate: '2026-10-22', challanRef: 'CIN123' })
+  })
+  it('accepts a 3B in payment_pending status too (the board shows it as payment due)', async () => {
+    const f = await filed3b({ status: 'payment_pending', paymentStatus: 'not_applicable' })
+    const r = await api(`/api/gst/periods/${f.periodId}/payment`, { method: 'POST', body: { payment_date: '2026-10-22' } })
+    expect(r.status).toBe(200)
+    expect(await f.read()).toMatchObject({ status: 'completed', paymentStatus: 'completed', challanRef: null })
+  })
+  it('needs a payment date, and a filed 3B', async () => {
+    const f = await filed3b({ status: 'filed', paymentStatus: 'pending' })
+    expect((await api(`/api/gst/periods/${f.periodId}/payment`, { method: 'POST', body: {} })).status).toBe(400)
+    const open = await filed3b({ status: 'preparation', paymentStatus: 'not_applicable' })
+    expect((await api(`/api/gst/periods/${open.periodId}/payment`, { method: 'POST', body: { payment_date: '2026-10-22' } })).status).toBe(400)
+  })
+})
+
 describe('bell reminders and compliance calendar follow GST Filing', () => {
   async function enrolled(period = '2026-09') {
     const c = await gstClient()
