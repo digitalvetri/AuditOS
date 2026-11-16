@@ -467,6 +467,332 @@ auditAutomationRouter.post('/invoices/extract', (req, res, next) => {
   }
 }))
 
+// ── INVOICE EXTRACTION · persist + review + export ────────────────────────
+//
+// POST-DELIVERY-CHANGES §F1 part 2. The /extract endpoint above is pure
+// (stateless, no persistence). These endpoints wrap the review-and-save
+// half: the UI calls /extract first for the preview, the reviewer edits
+// the fields, then POST /invoices persists the corrected shape; PATCH
+// updates it; GET /:id/export.xlsx produces the Excel.
+
+interface InvoicePayload {
+  client_id?: unknown
+  pdf_sha256?: unknown
+  filename?: unknown
+  page_count?: unknown
+  supplier_gstin?: unknown; supplier_gstin_confidence?: unknown
+  recipient_gstin?: unknown; recipient_gstin_confidence?: unknown
+  supplier_name?: unknown; supplier_name_confidence?: unknown
+  invoice_number?: unknown; invoice_number_confidence?: unknown
+  invoice_date?: unknown; invoice_date_confidence?: unknown
+  total_paise?: unknown; total_confidence?: unknown
+  taxable_paise?: unknown; taxable_confidence?: unknown
+  cgst_paise?: unknown; cgst_confidence?: unknown
+  sgst_paise?: unknown; sgst_confidence?: unknown
+  igst_paise?: unknown; igst_confidence?: unknown
+  hsn_candidates?: unknown
+  line_items?: unknown
+  status?: unknown
+  notes?: unknown
+}
+
+const CONFIDENCES = new Set(['high', 'medium', 'low'])
+const STATUSES = new Set(['extracted', 'confirmed', 'exported'])
+
+function strOrNull(v: unknown, max: number): string | null {
+  if (v === null || v === undefined || v === '') return null
+  if (typeof v !== 'string') return null
+  const t = v.trim()
+  return t.length === 0 ? null : t.slice(0, max)
+}
+function intOrNull(v: unknown): number | null {
+  if (v === null || v === undefined || v === '') return null
+  const n = Number(v)
+  return Number.isFinite(n) && Number.isInteger(n) ? n : null
+}
+function confOrDefault(v: unknown, fallback = 'low'): string {
+  if (typeof v === 'string' && CONFIDENCES.has(v)) return v
+  return fallback
+}
+function isoDateOrNull(v: unknown): string | null {
+  if (v === null || v === undefined || v === '') return null
+  if (typeof v !== 'string') return null
+  return /^\d{4}-\d{2}-\d{2}$/.test(v) ? v : null
+}
+
+function serializeExtraction(r: {
+  id: string; clientId: string; filename: string; pdfSha256: string; pageCount: number
+  supplierGstin: string | null; supplierGstinConfidence: string
+  recipientGstin: string | null; recipientGstinConfidence: string
+  supplierName: string | null; supplierNameConfidence: string
+  invoiceNumber: string | null; invoiceNumberConfidence: string
+  invoiceDate: string | null; invoiceDateConfidence: string
+  totalPaise: number | null; totalConfidence: string
+  taxablePaise: number | null; taxableConfidence: string
+  cgstPaise: number | null; cgstConfidence: string
+  sgstPaise: number | null; sgstConfidence: string
+  igstPaise: number | null; igstConfidence: string
+  hsnCandidatesJson: string | null; lineItemsJson: string | null
+  status: string; reviewedByEmployeeId: string | null; reviewedAt: Date | null; notes: string | null
+  createdAt: Date; updatedAt: Date
+}) {
+  const safeJson = (s: string | null): unknown => {
+    if (!s) return null
+    try { return JSON.parse(s) as unknown } catch { return null }
+  }
+  return {
+    id: r.id,
+    client_id: r.clientId,
+    filename: r.filename,
+    pdf_sha256: r.pdfSha256,
+    page_count: r.pageCount,
+    supplier_gstin: r.supplierGstin, supplier_gstin_confidence: r.supplierGstinConfidence,
+    recipient_gstin: r.recipientGstin, recipient_gstin_confidence: r.recipientGstinConfidence,
+    supplier_name: r.supplierName, supplier_name_confidence: r.supplierNameConfidence,
+    invoice_number: r.invoiceNumber, invoice_number_confidence: r.invoiceNumberConfidence,
+    invoice_date: r.invoiceDate, invoice_date_confidence: r.invoiceDateConfidence,
+    total_paise: r.totalPaise, total_confidence: r.totalConfidence,
+    taxable_paise: r.taxablePaise, taxable_confidence: r.taxableConfidence,
+    cgst_paise: r.cgstPaise, cgst_confidence: r.cgstConfidence,
+    sgst_paise: r.sgstPaise, sgst_confidence: r.sgstConfidence,
+    igst_paise: r.igstPaise, igst_confidence: r.igstConfidence,
+    hsn_candidates: (safeJson(r.hsnCandidatesJson) as string[] | null) ?? [],
+    line_items: (safeJson(r.lineItemsJson) as unknown[] | null) ?? [],
+    status: r.status,
+    reviewed_by_employee_id: r.reviewedByEmployeeId,
+    reviewed_at: r.reviewedAt ? r.reviewedAt.toISOString() : null,
+    notes: r.notes,
+    created_at: r.createdAt.toISOString(),
+    updated_at: r.updatedAt.toISOString(),
+  }
+}
+
+/**
+ * POST /api/audit-automation/invoices
+ * Persist the reviewed shape. client_id is REQUIRED (unlike /extract,
+ * which is stateless and may run before the reviewer picks a client).
+ * The row lands in status 'extracted' unless the body explicitly says
+ * 'confirmed'.
+ */
+auditAutomationRouter.post('/invoices', handler(async (req, res) => {
+  const session = requireSession(req)
+  requireAaUpload(session)
+  const organisationId = await orgIdOf(session.userId)
+  const b = (req.body ?? {}) as InvoicePayload
+
+  const clientId = strOrNull(b.client_id, 64)
+  if (!clientId) throw ApiError.unprocessable('client_required', 'Pick a client before saving.')
+  await assertClientVisible(session, clientId)
+
+  const pdfSha256 = strOrNull(b.pdf_sha256, 64)
+  if (!pdfSha256) throw ApiError.unprocessable('pdf_sha256_required', 'pdf_sha256 is required (returned by /extract).')
+
+  const status = typeof b.status === 'string' && STATUSES.has(b.status) ? b.status : 'extracted'
+  const reviewed = status === 'confirmed'
+
+  const row = await prisma.aaInvoiceExtraction.create({
+    data: {
+      organisationId, clientId,
+      filename: strOrNull(b.filename, 200) ?? 'invoice.pdf',
+      pdfSha256,
+      pageCount: intOrNull(b.page_count) ?? 1,
+      supplierGstin: strOrNull(b.supplier_gstin, 20)?.toUpperCase() ?? null,
+      supplierGstinConfidence: confOrDefault(b.supplier_gstin_confidence),
+      recipientGstin: strOrNull(b.recipient_gstin, 20)?.toUpperCase() ?? null,
+      recipientGstinConfidence: confOrDefault(b.recipient_gstin_confidence),
+      supplierName: strOrNull(b.supplier_name, 200),
+      supplierNameConfidence: confOrDefault(b.supplier_name_confidence),
+      invoiceNumber: strOrNull(b.invoice_number, 50),
+      invoiceNumberConfidence: confOrDefault(b.invoice_number_confidence),
+      invoiceDate: isoDateOrNull(b.invoice_date),
+      invoiceDateConfidence: confOrDefault(b.invoice_date_confidence),
+      totalPaise: intOrNull(b.total_paise), totalConfidence: confOrDefault(b.total_confidence),
+      taxablePaise: intOrNull(b.taxable_paise), taxableConfidence: confOrDefault(b.taxable_confidence),
+      cgstPaise: intOrNull(b.cgst_paise), cgstConfidence: confOrDefault(b.cgst_confidence),
+      sgstPaise: intOrNull(b.sgst_paise), sgstConfidence: confOrDefault(b.sgst_confidence),
+      igstPaise: intOrNull(b.igst_paise), igstConfidence: confOrDefault(b.igst_confidence),
+      hsnCandidatesJson: Array.isArray(b.hsn_candidates) ? JSON.stringify(b.hsn_candidates) : null,
+      lineItemsJson: Array.isArray(b.line_items) ? JSON.stringify(b.line_items) : null,
+      status,
+      reviewedByEmployeeId: reviewed ? (session.employeeId ?? null) : null,
+      reviewedAt: reviewed ? new Date() : null,
+      notes: strOrNull(b.notes, 2000),
+      createdBy: session.userId, updatedBy: session.userId,
+    },
+  })
+  await writeAudit({
+    actorUserId: session.userId, action: 'aa.invoice_extracted',
+    entityType: 'AaInvoiceExtraction', entityId: row.id,
+    after: { client_id: clientId, status, pdf_sha256: pdfSha256 }, req,
+  })
+  res.status(201)
+  ok(res, serializeExtraction(row))
+}))
+
+/**
+ * GET /api/audit-automation/invoices/:id — single extraction for the review UI.
+ */
+auditAutomationRouter.get('/invoices/:id', handler(async (req, res) => {
+  const session = requireSession(req)
+  requireAaView(session)
+  const organisationId = await orgIdOf(session.userId)
+  const row = await prisma.aaInvoiceExtraction.findFirst({
+    where: { id: req.params.id, organisationId, deletedAt: null },
+  })
+  if (!row) throw ApiError.notFound('Invoice extraction not found.')
+  await assertClientVisible(session, row.clientId)
+  ok(res, serializeExtraction(row))
+}))
+
+/**
+ * PATCH /api/audit-automation/invoices/:id — the human-correction step.
+ * Only the fields present in the body are touched. Setting status=
+ * 'confirmed' stamps reviewedAt + reviewedByEmployeeId; moving away from
+ * confirmed clears them (a reopened row is no longer "reviewed").
+ */
+auditAutomationRouter.patch('/invoices/:id', handler(async (req, res) => {
+  const session = requireSession(req)
+  requireAaUpload(session)
+  const organisationId = await orgIdOf(session.userId)
+  const before = await prisma.aaInvoiceExtraction.findFirst({
+    where: { id: req.params.id, organisationId, deletedAt: null },
+  })
+  if (!before) throw ApiError.notFound('Invoice extraction not found.')
+  await assertClientVisible(session, before.clientId)
+
+  const b = (req.body ?? {}) as InvoicePayload
+  const has = (k: keyof InvoicePayload): boolean => k in b
+  const data: Record<string, unknown> = { updatedBy: session.userId }
+
+  // Correction fields — each pair (value, confidence) moves together.
+  // When the reviewer corrects a field, its confidence becomes 'high'
+  // unless they explicitly set a different level.
+  const correct = <V>(valueKey: keyof InvoicePayload, confKey: keyof InvoicePayload, dataField: string, confField: string, parse: (v: unknown) => V) => {
+    if (!has(valueKey)) return
+    data[dataField] = parse(b[valueKey])
+    data[confField] = confOrDefault(b[confKey], 'high')
+  }
+  correct('supplier_gstin', 'supplier_gstin_confidence', 'supplierGstin', 'supplierGstinConfidence', (v) => strOrNull(v, 20)?.toUpperCase() ?? null)
+  correct('recipient_gstin', 'recipient_gstin_confidence', 'recipientGstin', 'recipientGstinConfidence', (v) => strOrNull(v, 20)?.toUpperCase() ?? null)
+  correct('supplier_name', 'supplier_name_confidence', 'supplierName', 'supplierNameConfidence', (v) => strOrNull(v, 200))
+  correct('invoice_number', 'invoice_number_confidence', 'invoiceNumber', 'invoiceNumberConfidence', (v) => strOrNull(v, 50))
+  correct('invoice_date', 'invoice_date_confidence', 'invoiceDate', 'invoiceDateConfidence', (v) => isoDateOrNull(v))
+  correct('total_paise', 'total_confidence', 'totalPaise', 'totalConfidence', intOrNull)
+  correct('taxable_paise', 'taxable_confidence', 'taxablePaise', 'taxableConfidence', intOrNull)
+  correct('cgst_paise', 'cgst_confidence', 'cgstPaise', 'cgstConfidence', intOrNull)
+  correct('sgst_paise', 'sgst_confidence', 'sgstPaise', 'sgstConfidence', intOrNull)
+  correct('igst_paise', 'igst_confidence', 'igstPaise', 'igstConfidence', intOrNull)
+
+  if (has('hsn_candidates')) {
+    data.hsnCandidatesJson = Array.isArray(b.hsn_candidates) ? JSON.stringify(b.hsn_candidates) : null
+  }
+  if (has('line_items')) {
+    data.lineItemsJson = Array.isArray(b.line_items) ? JSON.stringify(b.line_items) : null
+  }
+  if (has('notes')) data.notes = strOrNull(b.notes, 2000)
+
+  if (has('status')) {
+    const status = typeof b.status === 'string' && STATUSES.has(b.status) ? b.status : before.status
+    data.status = status
+    if (status === 'confirmed' && before.status !== 'confirmed') {
+      data.reviewedByEmployeeId = session.employeeId ?? null
+      data.reviewedAt = new Date()
+    } else if (status !== 'confirmed' && before.status === 'confirmed') {
+      data.reviewedByEmployeeId = null
+      data.reviewedAt = null
+    }
+  }
+
+  const after = await prisma.aaInvoiceExtraction.update({ where: { id: before.id }, data })
+  await writeAudit({
+    actorUserId: session.userId, action: 'aa.invoice_updated',
+    entityType: 'AaInvoiceExtraction', entityId: after.id,
+    before: { status: before.status, totalPaise: before.totalPaise },
+    after: { status: after.status, totalPaise: after.totalPaise },
+    req,
+  })
+  ok(res, serializeExtraction(after))
+}))
+
+/**
+ * GET /api/audit-automation/invoices/:id/export.xlsx — the confirmed shape
+ * as an Excel workbook. Two sheets: Header (one row of the top-level
+ * fields) and Line Items (one row per typed line). Opening and downloading
+ * does NOT change status on its own — call PATCH with status='exported'
+ * if the firm wants to mark it so. Re-export is allowed.
+ */
+auditAutomationRouter.get('/invoices/:id/export.xlsx', handler(async (req, res) => {
+  const session = requireSession(req)
+  requireAaView(session)
+  const organisationId = await orgIdOf(session.userId)
+  const row = await prisma.aaInvoiceExtraction.findFirst({
+    where: { id: req.params.id, organisationId, deletedAt: null },
+  })
+  if (!row) throw ApiError.notFound('Invoice extraction not found.')
+  await assertClientVisible(session, row.clientId)
+
+  // Lazy-load exceljs — matches the pattern other export routes use so
+  // the ~3 MB lib isn't in the hot-boot path.
+  const ExcelJS = (await import('exceljs')).default
+  const wb = new ExcelJS.Workbook()
+  const header = wb.addWorksheet('Invoice')
+  header.columns = [
+    { header: 'Field', key: 'field', width: 32 },
+    { header: 'Value', key: 'value', width: 60 },
+    { header: 'Confidence', key: 'conf', width: 14 },
+  ]
+  const asRupees = (p: number | null) => p === null ? '' : (p / 100).toFixed(2)
+  const rows: Array<[string, string, string]> = [
+    ['Filename', row.filename, ''],
+    ['Supplier GSTIN', row.supplierGstin ?? '', row.supplierGstinConfidence],
+    ['Supplier name', row.supplierName ?? '', row.supplierNameConfidence],
+    ['Recipient GSTIN', row.recipientGstin ?? '', row.recipientGstinConfidence],
+    ['Invoice number', row.invoiceNumber ?? '', row.invoiceNumberConfidence],
+    ['Invoice date', row.invoiceDate ?? '', row.invoiceDateConfidence],
+    ['Taxable (₹)', asRupees(row.taxablePaise), row.taxableConfidence],
+    ['CGST (₹)', asRupees(row.cgstPaise), row.cgstConfidence],
+    ['SGST (₹)', asRupees(row.sgstPaise), row.sgstConfidence],
+    ['IGST (₹)', asRupees(row.igstPaise), row.igstConfidence],
+    ['Total (₹)', asRupees(row.totalPaise), row.totalConfidence],
+    ['Status', row.status, ''],
+    ['Notes', row.notes ?? '', ''],
+  ]
+  for (const [field, value, conf] of rows) header.addRow({ field, value, conf })
+  header.getRow(1).font = { bold: true }
+
+  const items = wb.addWorksheet('Line Items')
+  items.columns = [
+    { header: 'Description', key: 'description', width: 42 },
+    { header: 'HSN/SAC', key: 'hsn', width: 12 },
+    { header: 'Qty', key: 'quantity', width: 8 },
+    { header: 'Rate (₹)', key: 'rate', width: 12 },
+    { header: 'Taxable (₹)', key: 'taxable', width: 14 },
+    { header: 'CGST (₹)', key: 'cgst', width: 12 },
+    { header: 'SGST (₹)', key: 'sgst', width: 12 },
+    { header: 'IGST (₹)', key: 'igst', width: 12 },
+  ]
+  const lineItems = row.lineItemsJson ? (JSON.parse(row.lineItemsJson) as Array<Record<string, unknown>>) : []
+  for (const li of lineItems) {
+    items.addRow({
+      description: String(li.description ?? ''),
+      hsn: String(li.hsn ?? ''),
+      quantity: typeof li.quantity_centi === 'number' ? Number(li.quantity_centi) / 100 : '',
+      rate: typeof li.unit_rate_paise === 'number' ? Number(li.unit_rate_paise) / 100 : '',
+      taxable: typeof li.taxable_paise === 'number' ? Number(li.taxable_paise) / 100 : '',
+      cgst: typeof li.cgst_paise === 'number' ? Number(li.cgst_paise) / 100 : '',
+      sgst: typeof li.sgst_paise === 'number' ? Number(li.sgst_paise) / 100 : '',
+      igst: typeof li.igst_paise === 'number' ? Number(li.igst_paise) / 100 : '',
+    })
+  }
+  items.getRow(1).font = { bold: true }
+
+  const buffer = await wb.xlsx.writeBuffer()
+  const safeName = (row.invoiceNumber || row.id).replace(/[^A-Za-z0-9._-]/g, '_').slice(0, 60)
+  res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+  res.setHeader('Content-Disposition', `attachment; filename="invoice-${safeName}.xlsx"`)
+  res.end(Buffer.from(buffer))
+}))
+
 auditAutomationRouter.delete('/rules/:id', handler(async (req, res) => {
   const session = requireSession(req)
   requireAaUpload(session)
