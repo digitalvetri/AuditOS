@@ -18,7 +18,7 @@ import {
 } from '../../api/workstation.serialize.js'
 import { body, DOCUMENT_STATUSES, FieldErrors } from './validate.js'
 import {
-  CLIENT_DOC_MAX_MB, CLIENT_DOC_MIME, clientDocumentStorage, readVersionBytes, sendFile,
+  CLIENT_DOC_MAX_MB, CLIENT_DOC_MIME, clientDocContentMatches, clientDocumentStorage, readVersionBytes, sendFile,
 } from './client-folders.routes.js'
 import { scanUploads } from '../../platform/virusScan.js'
 
@@ -441,6 +441,11 @@ documentsRouter.post('/:id/versions', (req, res, next) => {
   const mimeType = CLIENT_DOC_MIME[ext]
   if (!mimeType) {
     throw ApiError.unprocessable('file_type', `Allowed types: ${Object.keys(CLIENT_DOC_MIME).join(', ').toUpperCase()}.`)
+  }
+  // The same check as the folder and portal uploads: the extension is only a
+  // claim, and a renamed executable or HTML page must not be stored as a PDF.
+  if (!clientDocContentMatches(req.file.buffer, ext)) {
+    throw ApiError.unprocessable('file_content', `This file's content does not match its .${ext} extension. Re-save it in its real format and upload again.`)
   }
   const safe = req.file.originalname.replace(/[^A-Za-z0-9._-]/g, '_').slice(-120)
   const key = `${doc.clientId}/${doc.id}/${crypto.randomUUID()}-${safe}`
