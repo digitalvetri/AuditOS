@@ -178,6 +178,19 @@ describe('TDS — firm-wide board and reminders', () => {
 })
 
 describe('TDS — deductee register', () => {
+  it('194C: the payment that takes the year past ₹1,00,000 catches up TDS on the earlier untaxed ones', async () => {
+    const c = await newClient(orgId, 'Aggregate Ltd', mgr.emp.id, 'CHEA77777A')
+    const post = (p: string, body: unknown) => api(`/api/tds/${c.id}/${p}`, { method: 'POST', cookie, body })
+    // 194C aggregate: 25k ×3 escape TDS; the 30k that takes the year past ₹1,00,000 carries the catch-up.
+    const builder = (await post('deductees', { name: 'Build Co', pan: 'AAACB1234B', category: 'other' })).body.data.deductee
+    for (const d of ['2026-04-10', '2026-04-20', '2026-04-25']) {
+      const r = await post('deductions', { deductee_id: builder.id, section: '194C', payment_date: d, deduction_date: d, amount_paid: 25000 })
+      expect(r.body.data.deduction).toMatchObject({ tds_amount: 0, basis: 'below_threshold' })
+    }
+    const cross = await post('deductions/preview', { deductee_id: builder.id, section: '194C', deduction_date: '2026-04-28', amount_paid: 30000 })
+    expect(cross.body.data).toMatchObject({ expected_tds: 2100, basis: 'normal' })
+  })
+
   it('computes TDS, flags short deduction, honours 15G and certificates, and exports the quarter', async () => {
     const c = await newClient(orgId, 'Register Ltd', mgr.emp.id, 'CHEA66666A')
     const post = (p: string, body: unknown) => api(`/api/tds/${c.id}/${p}`, { method: 'POST', cookie, body })

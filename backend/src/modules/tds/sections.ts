@@ -73,6 +73,13 @@ export interface TdsCalcInput {
   amount: number
   /** FY total already paid to this deductee under this section, before this payment. */
   priorFyTotal: number
+  /**
+   * The part of priorFyTotal paid WITHOUT TDS because it stayed under the
+   * thresholds (194C: payments of ₹30,000 or less while the year was within
+   * ₹1,00,000). Caught up on the payment that takes the year past the
+   * aggregate limit. Default 0.
+   */
+  priorUntaxedFyTotal?: number
   /** A valid 15G / 15H for the FY. */
   declaration: boolean
   /** A valid lower-deduction certificate (Form 13 / s. 197) covering this payment. */
@@ -113,15 +120,24 @@ export function computeTds(i: TdsCalcInput): TdsCalcResult {
     && (rule.singleThreshold === undefined || withinSingle)) {
     return { tds: 0, rate: 0, basis: 'below_threshold', note: `FY total ₹${fyTotal.toLocaleString('en-IN')} is within ₹${rule.annualThreshold.toLocaleString('en-IN')} — no deduction yet.` }
   }
+  // 194C(5): once the year's aggregate exceeds ₹1,00,000, TDS is due on the
+  // whole aggregate — so the payment that crosses it also carries the TDS on
+  // the earlier payments that escaped deduction under the thresholds.
+  const crossesAggregate = rule.singleThreshold !== undefined && rule.annualThreshold !== undefined
+    && i.priorFyTotal <= rule.annualThreshold && fyTotal > rule.annualThreshold
+  const catchUp = crossesAggregate ? Math.max(0, Math.min(i.priorUntaxedFyTotal ?? 0, i.priorFyTotal)) : 0
+  const catchUpNote = catchUp > 0
+    ? ` Includes ₹${catchUp.toLocaleString('en-IN')} paid earlier this year without TDS — the year crossed ₹${rule.annualThreshold!.toLocaleString('en-IN')}.`
+    : ''
   // 194Q taxes only the part above ₹50 lakh.
   const taxable = rule.code === '194Q' && rule.annualThreshold !== undefined
     ? Math.min(i.amount, Math.max(0, fyTotal - rule.annualThreshold))
-    : i.amount
+    : i.amount + catchUp
 
   if (!i.hasPan) {
     // s. 206AA: the higher of the section rate and 20% ("twice the rate" is s. 206AB, not this).
     const rate = rule.noPanRate ?? Math.max(20, base)
-    return { tds: roundRupee((taxable * rate) / 100), rate, basis: 'no_pan', note: `No PAN — s. 206AA higher rate ${rate}%.` }
+    return { tds: roundRupee((taxable * rate) / 100), rate, basis: 'no_pan', note: `No PAN — s. 206AA higher rate ${rate}%.${catchUpNote}` }
   }
   if (i.lowerCertificate) {
     const { rate, remainingLimit } = i.lowerCertificate
@@ -129,10 +145,10 @@ export function computeTds(i: TdsCalcInput): TdsCalcResult {
     const tds = (covered * rate) / 100 + ((taxable - covered) * base) / 100
     return {
       tds: roundRupee(tds), rate, basis: 'lower_certificate',
-      note: covered < taxable ? `Lower-deduction certificate at ${rate}% up to its limit, ${base}% on the rest.` : `Lower-deduction certificate — ${rate}%.`,
+      note: (covered < taxable ? `Lower-deduction certificate at ${rate}% up to its limit, ${base}% on the rest.` : `Lower-deduction certificate — ${rate}%.`) + catchUpNote,
     }
   }
-  return { tds: roundRupee((taxable * base) / 100), rate: base, basis: 'normal', note: `${rule.code} at ${base}%.` }
+  return { tds: roundRupee((taxable * base) / 100), rate: base, basis: 'normal', note: `${rule.code} at ${base}%.${catchUpNote}` }
 }
 
 /** Which quarterly return a deduction belongs in. */

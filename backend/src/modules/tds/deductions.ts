@@ -111,10 +111,10 @@ async function expectedFor(clientId: string, deducteeId: string, section: string
   const deductee = await prisma.tdsDeductee.findFirst({ where: { id: deducteeId, clientId, deletedAt: null } })
   if (!deductee) throw ApiError.badRequest('Choose a deductee of this client.', { deductee_id: 'Unknown deductee.' })
   const fy = fyOf(deductionDate)
-  const [prior, declaration, certs] = await Promise.all([
-    prisma.tdsDeduction.aggregate({
+  const [priorRows, declaration, certs] = await Promise.all([
+    prisma.tdsDeduction.findMany({
       where: { clientId, deducteeId, section, fy, deletedAt: null, deductionDate: { lte: deductionDate }, ...(exceptId ? { id: { not: exceptId } } : {}) },
-      _sum: { amountPaid: true },
+      select: { amountPaid: true },
     }),
     prisma.tdsDeclaration.findFirst({ where: { clientId, deducteeId, fy, deletedAt: null } }),
     prisma.tdsLowerCertificate.findMany({
@@ -135,12 +135,20 @@ async function expectedFor(clientId: string, deducteeId: string, section: string
     }
     lower = { rate: Number(cert.rate), remainingLimit: remaining, certificateNo: cert.certificateNo }
   }
+  const priorFyTotal = priorRows.reduce((t, r) => t + Number(r.amountPaid), 0)
+  // While the year is within an aggregate limit, a payment escaped TDS when it
+  // was within the single-payment limit (194C: ₹30,000). Those are what the
+  // payment crossing the aggregate catches up (sections.ts).
+  const single = sectionByCode(section)?.singleThreshold
+  const priorUntaxedFyTotal = single === undefined ? 0
+    : priorRows.reduce((t, r) => t + (Number(r.amountPaid) <= single ? Number(r.amountPaid) : 0), 0)
   const result = computeTds({
     section,
     category: deductee.category as DeducteeCategory,
     hasPan: Boolean(deductee.pan),
     amount,
-    priorFyTotal: Number(prior._sum.amountPaid ?? 0),
+    priorFyTotal,
+    priorUntaxedFyTotal,
     declaration: Boolean(declaration),
     lowerCertificate: lower,
   })

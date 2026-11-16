@@ -50,6 +50,18 @@ describe('TDS calculator', () => {
     expect(computeTds({ ...base, section: '194C', category: 'other', amount: 25_000 }).basis).toBe('below_threshold')
     expect(computeTds({ ...base, section: '194C', category: 'other', amount: 25_000, priorFyTotal: 80_000 })).toMatchObject({ tds: 500, basis: 'normal' })
   })
+  it('194C: crossing ₹1,00,000 in the year catches up TDS on the earlier untaxed payments', () => {
+    // 25k, 25k, 25k: each within ₹30,000 and the year within ₹1,00,000 → nothing.
+    expect(computeTds({ ...base, section: '194C', category: 'other', amount: 25_000, priorFyTotal: 50_000, priorUntaxedFyTotal: 50_000 }).tds).toBe(0)
+    // 30k (single limit not crossed) takes the year to ₹1,05,000 → TDS on the whole ₹1,05,000.
+    const crossing = computeTds({ ...base, section: '194C', category: 'other', amount: 30_000, priorFyTotal: 75_000, priorUntaxedFyTotal: 75_000 })
+    expect(crossing).toMatchObject({ tds: 2_100, rate: 2, basis: 'normal' })
+    expect(crossing.note).toMatch(/75,000/)
+    // Only payments that escaped TDS are caught up (a 40k payment was taxed when made).
+    expect(computeTds({ ...base, section: '194C', category: 'individual_huf', amount: 20_000, priorFyTotal: 90_000, priorUntaxedFyTotal: 50_000 }).tds).toBe(700)
+    // Once the year is over the limit, later payments carry no catch-up.
+    expect(computeTds({ ...base, section: '194C', category: 'other', amount: 10_000, priorFyTotal: 1_05_000, priorUntaxedFyTotal: 75_000 }).tds).toBe(200)
+  })
   it('uses the monthly rent threshold for 194I', () => {
     expect(computeTds({ ...base, section: '194I(b)', category: 'other', amount: 50_000 }).tds).toBe(0)
     expect(computeTds({ ...base, section: '194I(b)', category: 'other', amount: 60_000 }).tds).toBe(6000)
