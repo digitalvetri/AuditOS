@@ -13,7 +13,7 @@ import {
   ChevronDown, FileSignature, Handshake, Menu, Moon, PhoneCall, Plane, Plus, ReceiptText, Receipt,
   ScrollText, Search, Sun, UserPlus,
 } from 'lucide-react';
-import { useAuth } from '@/platform/auth/AuthContext';
+import { tracksHr, useAuth } from '@/platform/auth/AuthContext';
 import { can } from '@/platform/rbac/can';
 import { Avatar } from '@/components/viz';
 import { BrandLogo } from '@/components/BrandLogo';
@@ -195,7 +195,7 @@ function CreateMenu() {
     { to: '/workstation/clients?add=1', label: 'Client', icon: Handshake, show: can(role, 'workstation.client.manage', 'self') },
     { to: '/workstation/leads?add=1', label: 'Lead', icon: PhoneCall, show: can(role, 'workstation.lead.manage', 'self') },
     { to: '/hrms/employees?add=1', label: 'Employee', icon: UserPlus, show: can(role, 'employee.manage', 'organisation') },
-    { to: '/me/leave', label: 'Leave request', icon: Plane, show: can(role, 'leave.request', 'self') },
+    { to: '/me/leave', label: 'Leave request', icon: Plane, show: can(role, 'leave.request', 'self') || tracksHr(session) },
     { to: '/me/expenses', label: 'Expense claim', icon: Receipt, show: can(role, 'expense.submit', 'self') },
   ].filter((i) => i.show);
   if (!items.length) return null;

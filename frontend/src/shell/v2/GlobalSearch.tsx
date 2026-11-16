@@ -105,9 +105,9 @@ export const GlobalSearch = forwardRef<GlobalSearchHandle>(function GlobalSearch
     { label: 'Add client', to: '/workstation/clients?add=1', icon: Handshake, show: can(role, 'workstation.client.manage', 'self') },
     { label: 'Add lead', to: '/workstation/leads?add=1', icon: PhoneCall, show: can(role, 'workstation.lead.manage', 'self') },
     { label: 'Add employee', to: '/hrms/employees?add=1', icon: UserPlus, show: can(role, 'employee.manage', 'organisation') },
-    { label: 'Request leave', to: '/me/leave', icon: Plane, show: can(role, 'leave.request', 'self') },
+    { label: 'Request leave', to: '/me/leave', icon: Plane, show: can(role, 'leave.request', 'self') || tracksHr(session) },
     { label: 'Submit an expense', to: '/me/expenses', icon: Receipt, show: can(role, 'expense.submit', 'self') },
-  ].filter((a) => a.show).map(({ label, to, icon }) => ({ group: 'Actions', label, to, icon })), [role]);
+  ].filter((a) => a.show).map(({ label, to, icon }) => ({ group: 'Actions', label, to, icon })), [role, session]);
 
   const hits = useMemo<Hit[]>(() => {
     if (!q) {

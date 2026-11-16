@@ -45,7 +45,7 @@ import {
   CalendarClock, FileWarning, GitCompareArrows, KeyRound, GraduationCap, X,
   type LucideIcon,
 } from 'lucide-react';
-import { useAuth } from '@/platform/auth/AuthContext';
+import { tracksHr, useAuth } from '@/platform/auth/AuthContext';
 import { can } from '@/platform/rbac/can';
 import { api } from '@/services/api';
 import { Avatar } from '@/components/viz';
@@ -146,7 +146,7 @@ function matchRow(rows: ReturnType<typeof flatten>, path: string) {
  */
 export function buildNav(
   role: Parameters<typeof can>[0],
-  session: { employee?: unknown } | null | undefined,
+  session: { employee: { exclude_from_hr?: boolean } | null } | null | undefined,
   { pendingCount = 0, clientCount }: { pendingCount?: number; clientCount?: number } = {},
 ): NavGroup[] {
   // Role-scoped nav (§6.1). Employee: no Employees / Accounts /
@@ -161,10 +161,16 @@ export function buildNav(
     || can(role, 'payroll.view', 'organisation')
     || can(role, 'expense.submit', 'self')
     || can(role, 'expense.approve', 'department')
+  // Every staff member with an attendance record checks in and applies for
+  // leave as themselves — even without the HRMS module (Associates). Those
+  // reach only their own rows (/me/…); the API keeps everyone else's closed.
+  const ownHr = tracksHr(session)
+  const seesAttendance = can(role, 'attendance.read', 'self')
+  const seesLeave = can(role, 'leave.read', 'self')
   const auditItems: NavItem[] = [
     { section: 'People', to: '/hrms/employees',  label: 'Employees',  icon: Users,                visible: can(role, 'employee.read', 'department') },
-    { section: 'People', to: '/hrms/attendance', label: 'Attendance', icon: Clock,                visible: can(role, 'attendance.read', 'self') },
-    { section: 'People', to: '/hrms/leave',      label: 'Leave',      icon: CalendarDays,         visible: can(role, 'leave.read', 'self') },
+    { section: 'People', to: seesAttendance ? '/hrms/attendance' : '/me/attendance', label: 'Attendance', icon: Clock, visible: seesAttendance || ownHr },
+    { section: 'People', to: seesLeave ? '/hrms/leave' : '/me/leave', label: 'Leave', icon: CalendarDays, visible: seesLeave || ownHr },
     { section: 'People', to: '/hrms/articleship', label: 'Articleship', icon: GraduationCap,      visible: can(role, 'employee.manage', 'organisation') || can(role, 'employee.read', 'organisation') },
     { section: 'People', to: '/hrms/documents',  label: 'Employee records', icon: FileText,       visible: can(role, 'document.read', 'self') },
     // Chats are between staff; the owner logins have no staff record.
