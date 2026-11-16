@@ -1,6 +1,6 @@
 import { api } from '@/services/api';
 import type {
-  Activity, AssignableEmployee, ClientDetail, ClientDocument, ClientListItem,
+  Activity, AssignableEmployee, ClientContact, ClientDetail, ClientDocument, ClientListItem,
   ClientService, DashboardResponse, DocumentCategory, EwayResponse, FollowUp,
   GstProfile, Lead, ListResponse, SearchResponse, ServiceCatalogItem, Task,
   ClientDocumentFolders, OrganizationDocuments, OrganizationOverview,
@@ -125,6 +125,16 @@ export const workstationApi = {
     api.patch<ClientDetail>(`/api/clients/${id}`, patch),
   clientActivity: (id: string) => api.get<ListResponse<Activity>>(`/api/clients/${id}/activity`),
   clientTasks: (id: string) => api.get<ListResponse<Task>>(`/api/clients/${id}/tasks`),
+
+  // ── Contacts (POST-DELIVERY-CHANGES §B2) ───────────────────────────────
+  clientContacts: (clientId: string) =>
+    api.get<ListResponse<ClientContact>>(`/api/clients/${clientId}/contacts`),
+  addClientContact: (clientId: string, input: Record<string, unknown>) =>
+    api.post<ClientContact>(`/api/clients/${clientId}/contacts`, input),
+  updateClientContact: (clientId: string, contactId: string, patch: Record<string, unknown>) =>
+    api.patch<ClientContact>(`/api/clients/${clientId}/contacts/${contactId}`, patch),
+  deleteClientContact: (clientId: string, contactId: string) =>
+    api.delete<{ deleted: boolean }>(`/api/clients/${clientId}/contacts/${contactId}`),
 
   // ── Services ────────────────────────────────────────────────────────────
   listServices: (f: ServiceFilters = {}) =>

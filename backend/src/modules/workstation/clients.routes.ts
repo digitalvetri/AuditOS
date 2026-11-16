@@ -423,6 +423,153 @@ clientsRouter.get('/:id/tasks', handler(async (req, res) => {
   ok(res, { items: rows.map((r) => taskToApi(r, m)), count: rows.length })
 }))
 
+// ── Contacts on a client (POST-DELIVERY-CHANGES §B2) ──────────────────────
+//
+// A client starts with one primary contact (seeded from the Create form).
+// Firms often need more — owner, accountant, authorised signatory, bank
+// manager — and the client complained because only one phone number could
+// live on a client. This writes the additional contacts.
+//
+// Invariant: AT MOST ONE primary per client. Adding or promoting a primary
+// demotes any existing one in the same transaction. When the primary is
+// deleted, we leave the rest alone — the firm chooses the next primary
+// explicitly rather than us guessing. Client.contactNumber (the top-level
+// single-string column many dashboards still read) mirrors whichever
+// contact is primary so those paths don't need to join.
+//
+// Permission: workstation.client.manage (same as editing the client).
+
+// GET /api/clients/:id/contacts
+clientsRouter.get('/:id/contacts', handler(async (req, res) => {
+  const session = requireSession(req)
+  const scope = requireWorkstation(session, 'workstation.client.read', 'workstation.client.manage')
+  await assertCanSeeClient(session, scope, req.params.id)
+  const contacts = await prisma.clientContact.findMany({
+    where: { clientId: req.params.id, ...alive },
+    orderBy: [{ isPrimary: 'desc' }, { createdAt: 'asc' }],
+  })
+  ok(res, { items: contacts.map(clientContactToApi), count: contacts.length })
+}))
+
+// POST /api/clients/:id/contacts
+clientsRouter.post('/:id/contacts', handler(async (req, res) => {
+  const session = requireSession(req)
+  const scope = requireWorkstation(session, 'workstation.client.manage')
+  await assertCanSeeClient(session, scope, req.params.id)
+  const b = body(req)
+
+  const v = new FieldErrors()
+  const name = v.str('name', b.name, { max: 120 })
+  const designation = v.str('designation', b.designation, { required: false, max: 80 }) ?? null
+  const phone = v.phone('phone', b.phone)
+  const email = v.email('email', b.email, false) ?? null
+  const isPrimary = b.is_primary === true
+  v.throwIfAny()
+  if (!name || !phone) throw ApiError.badRequest('name and phone are required.')
+
+  const created = await prisma.$transaction(async (tx) => {
+    if (isPrimary) {
+      // Demote any existing primary first — the schema's isPrimary is a
+      // boolean, not a unique index, so enforcing the invariant is our job.
+      await tx.clientContact.updateMany({
+        where: { clientId: req.params.id, isPrimary: true, deletedAt: null },
+        data: { isPrimary: false, updatedBy: session.userId },
+      })
+    }
+    const row = await tx.clientContact.create({
+      data: {
+        clientId: req.params.id,
+        name, designation, phone, email, isPrimary,
+        createdBy: session.userId, updatedBy: session.userId,
+      },
+    })
+    if (isPrimary) {
+      await tx.client.update({ where: { id: req.params.id }, data: { contactNumber: phone, updatedBy: session.userId } })
+    }
+    return row
+  })
+  await writeAudit({
+    actorUserId: session.userId, action: 'client.contact_added',
+    entityType: 'ClientContact', entityId: created.id,
+    after: { name, phone, is_primary: isPrimary }, req,
+  })
+  ok(res, clientContactToApi(created), 201)
+}))
+
+// PATCH /api/clients/:id/contacts/:contactId
+clientsRouter.patch('/:id/contacts/:contactId', handler(async (req, res) => {
+  const session = requireSession(req)
+  const scope = requireWorkstation(session, 'workstation.client.manage')
+  await assertCanSeeClient(session, scope, req.params.id)
+
+  const before = await prisma.clientContact.findFirst({
+    where: { id: req.params.contactId, clientId: req.params.id, ...alive },
+  })
+  if (!before) throw ApiError.notFound('Contact not found.')
+
+  const b = body(req)
+  const v = new FieldErrors()
+  const data: Record<string, unknown> = { updatedBy: session.userId }
+  if ('name' in b) data.name = v.str('name', b.name, { max: 120 })
+  if ('designation' in b) data.designation = v.str('designation', b.designation, { required: false, max: 80 }) ?? null
+  if ('phone' in b) data.phone = v.phone('phone', b.phone)
+  if ('email' in b) data.email = v.email('email', b.email, false) ?? null
+  const promoting = 'is_primary' in b && b.is_primary === true && !before.isPrimary
+  const demoting  = 'is_primary' in b && b.is_primary === false && before.isPrimary
+  v.throwIfAny()
+
+  const after = await prisma.$transaction(async (tx) => {
+    if (promoting) {
+      await tx.clientContact.updateMany({
+        where: { clientId: req.params.id, isPrimary: true, deletedAt: null, NOT: { id: before.id } },
+        data: { isPrimary: false, updatedBy: session.userId },
+      })
+      data.isPrimary = true
+    } else if (demoting) {
+      // Allowed — leaves the client with no primary until one is set explicitly.
+      // Client.contactNumber keeps its last value rather than becoming null;
+      // dashboards still show something sensible.
+      data.isPrimary = false
+    }
+    const row = await tx.clientContact.update({ where: { id: before.id }, data })
+    if (promoting || (row.isPrimary && 'phone' in b)) {
+      await tx.client.update({ where: { id: req.params.id }, data: { contactNumber: row.phone, updatedBy: session.userId } })
+    }
+    return row
+  })
+  await writeAudit({
+    actorUserId: session.userId, action: 'client.contact_updated',
+    entityType: 'ClientContact', entityId: after.id,
+    before: { name: before.name, phone: before.phone, is_primary: before.isPrimary, email: before.email },
+    after: { name: after.name, phone: after.phone, is_primary: after.isPrimary, email: after.email },
+    req,
+  })
+  ok(res, clientContactToApi(after))
+}))
+
+// DELETE /api/clients/:id/contacts/:contactId
+clientsRouter.delete('/:id/contacts/:contactId', handler(async (req, res) => {
+  const session = requireSession(req)
+  const scope = requireWorkstation(session, 'workstation.client.manage')
+  await assertCanSeeClient(session, scope, req.params.id)
+
+  const before = await prisma.clientContact.findFirst({
+    where: { id: req.params.contactId, clientId: req.params.id, ...alive },
+  })
+  if (!before) throw ApiError.notFound('Contact not found.')
+
+  await prisma.clientContact.update({
+    where: { id: before.id },
+    data: { deletedAt: new Date(), updatedBy: session.userId },
+  })
+  await writeAudit({
+    actorUserId: session.userId, action: 'client.contact_deleted',
+    entityType: 'ClientContact', entityId: before.id,
+    before: { name: before.name, phone: before.phone, is_primary: before.isPrimary }, req,
+  })
+  ok(res, { deleted: true })
+}))
+
 // ── Services on a client (§7.4) ───────────────────────────────────────────
 
 // GET /api/clients/:id/services
