@@ -205,6 +205,9 @@ describe('POST /api/payroll/runs/:id/process — concurrency', () => {
     const a = await financeUser()
     const b = await financeUser()
     const ctx = await seedOrg()
+    // Earlier tests' employees are still active and payable; Process now
+    // refuses a run that omits a payable employee, so retire them here.
+    await prisma.employee.updateMany({ where: { id: { in: createdEmployees } }, data: { status: 'inactive' } })
     const emp = await makeEmployee(ctx, { withStructure: true, name: 'Bala' })
     const structure = await prisma.salaryStructure.findFirstOrThrow({ where: { employeeId: emp.id } })
     const runs = []

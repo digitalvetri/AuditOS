@@ -229,7 +229,7 @@ payrollRouter.get('/runs/:id', handler(async (req, res) => {
 
   const blockers: {
     employee: ReturnType<typeof employeeRefWithDept>
-    reason: 'no_salary_structure' | 'tds_plan_missing'
+    reason: 'no_salary_structure' | 'tds_plan_missing' | 'not_in_run'
     message: string
   }[] = []
   for (const { employee: e, structure: s, stipend } of headcount) {
@@ -238,6 +238,16 @@ payrollRouter.get('/runs/:id', handler(async (req, res) => {
         employee: employeeRefWithDept(e),
         reason: 'no_salary_structure',
         message: `No salary structure covering ${run.periodStart} to ${run.periodEnd}.`,
+      })
+      continue
+    }
+    // Payable but not on the calculated run (structure added, or employee
+    // joined, after Calculate). Process refuses this; surface it here too.
+    if (run.headcount > 0 && !items.some((i) => i.employeeId === e.id)) {
+      blockers.push({
+        employee: employeeRefWithDept(e),
+        reason: 'not_in_run',
+        message: 'Payable this period but has no line in the run. Recalculate the run.',
       })
       continue
     }
@@ -569,6 +579,17 @@ payrollRouter.post('/runs/:id/process', handler(async (req, res) => {
       `${missingTdsPlan.length} employee(s) above the ₹${(TDS_PLAN_GROSS_THRESHOLD_PAISE / 100).toLocaleString('en-IN')} monthly threshold have no annual TDS plan and are not marked exempt: ${missingTdsPlan.join(', ')}. Set the plan or mark "no TDS applicable" with a reason.`)
   }
 
+  // No silent omission: everyone payable this period (salary structure or
+  // stipend) must have a line in the run. A structure added, or an employee
+  // joined, after Calculate would otherwise go unpaid without a trace.
+  const notInRun = headcount
+    .filter(({ employee: e, structure: s, stipend }) =>
+      (s || stipend !== null) && !itemsForCheck.some((i) => i.employeeId === e.id))
+    .map(({ employee: e }) => e.fullName)
+  if (notInRun.length > 0) {
+    throw ApiError.conflict('employees_missing_from_run',
+      `${notInRun.length} payable employee(s) have no line in this run: ${notInRun.join(', ')}. Recalculate the run before processing.`)
+  }
   const items = await prisma.payrollItem.findMany({
     where: { payrollRunId: run.id, deletedAt: null }, include: { employee: true },
   })
