@@ -360,12 +360,22 @@ export async function commitBatch(
           referenceNumber: voucher.invoiceOrBillNo,
           partyLedgerId,
           narration: `Imported from ${input.fileName}`,
+          // The document's own currency and rate are kept for display and
+          // audit; the foreign amount is the document total, so it sits on
+          // the party line. Every posting stays in INR paise.
+          currency: voucher.currency,
+          exchangeRate: voucher.exchangeRate,
           entries: voucher.entries.map((e) => ({
             ledgerId: e.role === 'party'
               ? partyLedgerId!
               : (e.ledgerId ?? ''),
             entryType: e.side,
             amountPaise: e.amountPaise,
+            ...(e.role === 'party' ? {
+              currency: voucher.currency,
+              foreignAmountMinor: voucher.foreignAmountMinor,
+              exchangeRate: voucher.exchangeRate,
+            } : {}),
           })),
         },
         actorUserId,

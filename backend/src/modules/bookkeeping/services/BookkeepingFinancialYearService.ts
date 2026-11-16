@@ -55,6 +55,16 @@ export const BookkeepingFinancialYearService = {
       where: { tallyCompanyId: companyId, label },
     })
     if (clash) throw ApiError.conflict('duplicate_label', `FY "${label}" already exists.`)
+    // Years may not overlap: resolveFinancialYear takes whichever row it finds
+    // first, so a voucher could land in (or be blocked by) the wrong year.
+    // A short first or last year is fine; only the overlap is refused.
+    const overlap = await prisma.bookkeepingFinancialYear.findFirst({
+      where: { tallyCompanyId: companyId, startDate: { lte: input.endDate }, endDate: { gte: input.startDate } },
+      select: { label: true, startDate: true, endDate: true },
+    })
+    if (overlap) {
+      throw ApiError.conflict('overlapping_year', `This overlaps FY "${overlap.label}" (${overlap.startDate} to ${overlap.endDate}).`)
+    }
     const row = await prisma.bookkeepingFinancialYear.create({
       data: { tallyCompanyId: companyId, label, startDate: input.startDate, endDate: input.endDate },
     })
