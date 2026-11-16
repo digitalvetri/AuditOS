@@ -12,9 +12,9 @@
  * Every function is idempotent: the unique keys on period and filing make a
  * second run a no-op, so the scheduler can tick as often as it likes.
  */
-import type { PrismaClient } from '@prisma/client'
+import { Prisma, type PrismaClient } from '@prisma/client'
 import { istToday } from '../../lib/dates.js'
-import { createRuleResolver, dueForProfile, kindsOwed } from './dueDate.js'
+import { createRuleResolver, dueForProfile, kindsOwed, type RuleResolver } from './dueDate.js'
 import { financialYearOf } from './service.js'
 
 export const GST_FILING_SERVICE_CODE = 'GST_FILING'
@@ -49,7 +49,9 @@ async function liveGstServices(db: PrismaClient, clientId?: string) {
 export async function syncGstEnrolment(
   db: PrismaClient, opts: { clientId?: string; userId?: string | null } = {},
 ): Promise<{ enrolled: number; deactivated: number }> {
-  const { live } = await liveGstServices(db, opts.clientId)
+  const { live, serviceId } = await liveGstServices(db, opts.clientId)
+  // No live GST Filing service row: do nothing rather than deactivating everyone.
+  if (!serviceId) return { enrolled: 0, deactivated: 0 }
   let enrolled = 0
   let deactivated = 0
   for (const [clientId, s] of live) {
@@ -64,10 +66,10 @@ export async function syncGstEnrolment(
         },
       })
       enrolled++
-    } else if (!existing.active || existing.deletedAt || existing.gstin !== gstin) {
+    } else if (!existing.active || existing.deletedAt || existing.gstin !== gstin || existing.assignedEmployeeId !== s.assignedEmployeeId) {
       await db.gstProfile.update({
         where: { id: existing.id },
-        data: { active: true, deletedAt: null, gstin, updatedBy: opts.userId ?? null },
+        data: { active: true, deletedAt: null, gstin, assignedEmployeeId: s.assignedEmployeeId, updatedBy: opts.userId ?? null },
       })
       enrolled++
     }
@@ -87,7 +89,7 @@ export async function syncGstEnrolment(
 }
 
 export async function ensurePeriodJobs(
-  db: PrismaClient, gstProfileId: string, period: string, userId: string | null = null,
+  db: PrismaClient, gstProfileId: string, period: string, userId: string | null = null, resolver?: RuleResolver,
 ): Promise<{ periodId: string | null; created: number }> {
   const profile = await db.gstProfile.findUnique({ where: { id: gstProfileId } })
   if (!profile || !profile.active || profile.deletedAt) return { periodId: null, created: 0 }
@@ -107,7 +109,7 @@ export async function ensurePeriodJobs(
     update: {},
   })
 
-  const resolver = await createRuleResolver(db)
+  const rules = resolver ?? await createRuleResolver(db)
   let created = 0
   for (const kind of wanted) {
     const returnType = kind === 'GSTR1' ? 'GSTR-1' : 'GSTR-3B'
@@ -120,27 +122,38 @@ export async function ensurePeriodJobs(
       }
       continue
     }
-    await db.gstFiling.create({
-      data: {
-        gstProfileId, period, returnType, status: 'pending', financialYear, compliancePeriodId: row.id,
-        dueDate: dueForProfile(resolver, profile, period, returnType, periodType),
-        assignedEmployeeId: profile.assignedEmployeeId, reviewerEmployeeId: profile.reviewerEmployeeId,
-        createdBy: userId, updatedBy: userId,
-      },
-    })
-    created++
+    try {
+      await db.gstFiling.create({
+        data: {
+          gstProfileId, period, returnType, status: 'pending', financialYear, compliancePeriodId: row.id,
+          dueDate: dueForProfile(rules, profile, period, returnType, periodType),
+          assignedEmployeeId: profile.assignedEmployeeId, reviewerEmployeeId: profile.reviewerEmployeeId,
+          createdBy: userId, updatedBy: userId,
+        },
+      })
+      created++
+    } catch (e) {
+      // A concurrent creator won the unique key: it already exists.
+      if (!(e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2002')) throw e
+    }
   }
 
   if (!row.dataRequestDocId) {
     const category = await db.documentCategory.findFirst({ where: { code: 'gst', deletedAt: null } })
     if (category) {
-      const doc = await db.clientDocument.create({
-        data: {
-          clientId: profile.clientId, categoryId: category.id, name: `GST data — ${periodName(period)}`,
-          financialYear, status: 'requested', requestedAt: new Date(), createdBy: userId, updatedBy: userId,
-        },
+      await db.$transaction(async (tx) => {
+        const doc = await tx.clientDocument.create({
+          data: {
+            clientId: profile.clientId, categoryId: category.id, name: `GST data — ${periodName(period)}`,
+            financialYear, status: 'requested', requestedAt: new Date(), createdBy: userId, updatedBy: userId,
+          },
+        })
+        const claimed = await tx.gstCompliancePeriod.updateMany({
+          where: { id: row.id, dataRequestDocId: null }, data: { dataRequestDocId: doc.id },
+        })
+        // Someone else claimed the slot first: discard our never-visible copy.
+        if (claimed.count === 0) await tx.clientDocument.delete({ where: { id: doc.id } })
       })
-      await db.gstCompliancePeriod.update({ where: { id: row.id }, data: { dataRequestDocId: doc.id } })
     }
   }
   return { periodId: row.id, created }
@@ -152,10 +165,15 @@ export async function generateGstFilingJobs(db: PrismaClient, today = istToday()
   const profiles = await db.gstProfile.findMany({ where: { active: true, deletedAt: null }, select: { id: true } })
   let periods = 0
   let filings = 0
+  const resolver = await createRuleResolver(db)
   for (const p of profiles) {
-    const r = await ensurePeriodJobs(db, p.id, period)
-    if (r.periodId) periods++
-    filings += r.created
+    try {
+      const r = await ensurePeriodJobs(db, p.id, period, null, resolver)
+      if (r.periodId) periods++
+      filings += r.created
+    } catch (e) {
+      console.error('[gst-filing] profile', p.id, e instanceof Error ? e.message : e)
+    }
   }
   return { ...sync, periods, filings }
 }

@@ -1,6 +1,7 @@
 import { beforeAll, describe, expect, it } from 'vitest'
+import { istToday } from '../../../lib/dates.js'
 import { prisma, uid } from '../../../__tests__/helpers.js'
-import { ensurePeriodJobs, generateGstFilingJobs, previousPeriod, syncGstEnrolment } from '../filing.js'
+import { ensurePeriodJobs, generateGstFilingJobs, previousPeriod, refreshClientGst, syncGstEnrolment } from '../filing.js'
 
 let orgId = ''
 let serviceId = ''
@@ -74,6 +75,44 @@ describe('syncGstEnrolment', () => {
     expect((await prisma.gstProfile.findUniqueOrThrow({ where: { clientId: c.id } })).active).toBe(false)
     expect(await prisma.gstCompliancePeriod.count({ where: { gstProfileId: p.id } })).toBe(1)
   })
+  it('deactivates when the service goes on hold', async () => {
+    const c = await gstClient()
+    await syncGstEnrolment(prisma, { clientId: c.id })
+    await prisma.clientService.updateMany({ where: { clientId: c.id }, data: { status: 'on_hold' } })
+    await syncGstEnrolment(prisma, { clientId: c.id })
+    expect((await prisma.gstProfile.findUniqueOrThrow({ where: { clientId: c.id } })).active).toBe(false)
+  })
+  it('deactivates when the client GSTIN is cleared', async () => {
+    const c = await gstClient()
+    await syncGstEnrolment(prisma, { clientId: c.id })
+    await prisma.client.update({ where: { id: c.id }, data: { gstin: null } })
+    await syncGstEnrolment(prisma, { clientId: c.id })
+    expect((await prisma.gstProfile.findUniqueOrThrow({ where: { clientId: c.id } })).active).toBe(false)
+  })
+  it('reactivates with the new service assignee', async () => {
+    const c = await gstClient()
+    await syncGstEnrolment(prisma, { clientId: c.id })
+    await prisma.clientService.updateMany({ where: { clientId: c.id }, data: { deletedAt: new Date() } })
+    await syncGstEnrolment(prisma, { clientId: c.id })
+    const ws = (await prisma.workSchedule.findFirstOrThrow()).id
+    const other = await prisma.employee.create({
+      data: { organisationId: orgId, employeeCode: uid('E'), firstName: 'Gst', lastName: 'Other', fullName: uid('Gst Other'), email: `${uid('g')}@x.local`, joiningDate: '2026-01-01', workScheduleId: ws },
+    })
+    await prisma.clientService.create({ data: { clientId: c.id, serviceId, assignedEmployeeId: other.id, status: 'not_started' } })
+    await syncGstEnrolment(prisma, { clientId: c.id })
+    expect(await prisma.gstProfile.findUniqueOrThrow({ where: { clientId: c.id } })).toMatchObject({ active: true, assignedEmployeeId: other.id })
+  })
+  it('does not mass-deactivate when the GST_FILING service is soft-deleted', async () => {
+    const c = await gstClient()
+    await syncGstEnrolment(prisma, { clientId: c.id })
+    await prisma.service.update({ where: { id: serviceId }, data: { deletedAt: new Date() } })
+    try {
+      expect(await syncGstEnrolment(prisma)).toEqual({ enrolled: 0, deactivated: 0 })
+      expect((await prisma.gstProfile.findUniqueOrThrow({ where: { clientId: c.id } })).active).toBe(true)
+    } finally {
+      await prisma.service.update({ where: { id: serviceId }, data: { deletedAt: null } })
+    }
+  })
 })
 
 describe('ensurePeriodJobs / generateGstFilingJobs', () => {
@@ -98,6 +137,27 @@ describe('ensurePeriodJobs / generateGstFilingJobs', () => {
     const p = await prisma.gstProfile.findUniqueOrThrow({ where: { clientId: c.id } })
     expect((await ensurePeriodJobs(prisma, p.id, '2026-10')).created).toBe(0)
     expect((await ensurePeriodJobs(prisma, p.id, '2026-09')).created).toBe(2)
+  })
+  it('gives a composition dealer nothing', async () => {
+    const c = await gstClient()
+    await syncGstEnrolment(prisma, { clientId: c.id })
+    const p = await prisma.gstProfile.update({ where: { clientId: c.id }, data: { registrationType: 'composition' } })
+    expect((await ensurePeriodJobs(prisma, p.id, '2026-10')).created).toBe(0)
+  })
+  it('creates exactly one data-request document across repeated runs', async () => {
+    const c = await gstClient()
+    await syncGstEnrolment(prisma, { clientId: c.id })
+    const p = await prisma.gstProfile.findUniqueOrThrow({ where: { clientId: c.id } })
+    await ensurePeriodJobs(prisma, p.id, '2026-10')
+    await ensurePeriodJobs(prisma, p.id, '2026-10')
+    expect(await prisma.clientDocument.count({ where: { clientId: c.id, name: 'GST data — Oct 2026' } })).toBe(1)
+  })
+  it('refreshClientGst enrols the client and creates last month\'s two filings', async () => {
+    const c = await gstClient()
+    await refreshClientGst(prisma, c.id, null)
+    const p = await prisma.gstProfile.findUniqueOrThrow({ where: { clientId: c.id } })
+    expect(p.active).toBe(true)
+    expect(await prisma.gstFiling.count({ where: { gstProfileId: p.id, period: previousPeriod(istToday()) } })).toBe(2)
   })
   it('the daily run enrols and generates last month for every GST Filing client', async () => {
     const c = await gstClient()
