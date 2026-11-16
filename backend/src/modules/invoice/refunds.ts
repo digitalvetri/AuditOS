@@ -28,6 +28,12 @@ export const refundBodySchema = z.object({
   reference: z.string().trim().max(120).nullish(),
   note: z.string().trim().max(500).nullish(),
   credit_note_id: z.string().max(64).nullish(),
+  /**
+   * Pay back the TDS portion too. Without it a refund is capped at the cash
+   * actually received: the client's TDS was paid to the government, and is
+   * normally undone by the deductor's revised return, not by cash from us.
+   */
+  include_tds: z.boolean().optional(),
 })
 
 export interface RefundInput {
@@ -37,6 +43,8 @@ export interface RefundInput {
   reference?: string | null
   note?: string | null
   creditNoteId?: string | null
+  /** Partner override: allow the refund to reach into the TDS portion. */
+  includeTds: boolean
 }
 
 export function toRefundInput(b: z.infer<typeof refundBodySchema>): RefundInput {
@@ -45,6 +53,7 @@ export function toRefundInput(b: z.infer<typeof refundBodySchema>): RefundInput 
   return {
     amountPaise: b.amount_paise, refundedOn, mode: b.mode ?? 'bank_transfer',
     reference: b.reference, note: b.note, creditNoteId: b.credit_note_id ?? null,
+    includeTds: b.include_tds ?? false,
   }
 }
 
@@ -79,6 +88,16 @@ function overRefundDue(due: number) {
   )
 }
 
+/** "Refund is more than the cash received …" — 422; the TDS portion needs include_tds. */
+function overCashReceived(left: number) {
+  return ApiError.unprocessable(
+    'refund_exceeds_cash',
+    `Refund is more than the cash received from the client (${formatINR(left)} left to refund). `
+      + 'The rest was TDS — a partner may refund it only by ticking "include TDS".',
+    { cash_refundable_paise: left },
+  )
+}
+
 /**
  * Record one refund. The cap (the current refund due) is re-read under the
  * per-invoice lock — the same lock payments and credit notes take — so a
@@ -102,6 +121,9 @@ export async function addRefund(invoiceId: string, input: RefundInput, userId: s
     await lockSequence(tx, `invoice:${invoiceId}`)
     const m = await liveSettlement(tx, invoiceId)
     if (input.amountPaise > m.refundDue) throw overRefundDue(m.refundDue)
+    // Cumulative: every refund so far plus this one, against cash received.
+    const cashLeft = Math.max(0, m.paid - m.refunded)
+    if (!input.includeTds && input.amountPaise > cashLeft) throw overCashReceived(cashLeft)
     const row = await tx.invoiceRefund.create({
       data: {
         organisationId: inv.organisationId,

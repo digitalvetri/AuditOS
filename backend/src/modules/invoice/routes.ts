@@ -374,10 +374,12 @@ invoicesRouter.get('/:id/payments/:paymentId/receipt-url', handler(async (req, r
 
 // ── Refunds ────────────────────────────────────────────────────────────────
 // Money paid back to the client when the invoice is settled beyond its total
-// (a credit note after payment). Same permission as recording a payment.
+// (a credit note after payment). Partners only (workstation.invoice.refund).
+// Capped at the cash actually received; paying back the TDS portion needs an
+// explicit include_tds, which is recorded in the audit row.
 invoicesRouter.post('/:id/refunds', handler(async (req, res) => {
   const session = requireSession(req)
-  const scope = requireWorkstation(session, 'workstation.invoice.manage')
+  const scope = requireWorkstation(session, 'workstation.invoice.refund')
   const body = parse(refundBodySchema, req.body, 'Check the refund.')
   const input = toRefundInput(body)
   const { invoice, refund } = await InvoiceService.recordRefund(session, scope, req.params.id, input)
@@ -386,6 +388,7 @@ invoicesRouter.post('/:id/refunds', handler(async (req, res) => {
     after: {
       refund_id: refund.id, refund_number: refund.refund_number, amount_paise: input.amountPaise, refunded_on: input.refundedOn,
       mode: input.mode, reference: input.reference ?? null, credit_note_id: input.creditNoteId ?? null,
+      include_tds: input.includeTds,
     },
     req,
   })
@@ -394,7 +397,7 @@ invoicesRouter.post('/:id/refunds', handler(async (req, res) => {
 
 invoicesRouter.delete('/:id/refunds/:refundId', handler(async (req, res) => {
   const session = requireSession(req)
-  const scope = requireWorkstation(session, 'workstation.invoice.manage')
+  const scope = requireWorkstation(session, 'workstation.invoice.refund')
   const before = await prisma.invoiceRefund.findFirst({ where: { id: req.params.refundId, invoiceId: req.params.id, deletedAt: null } })
   const invoice = await InvoiceService.removeRefund(session, scope, req.params.id, req.params.refundId)
   await writeAudit({
@@ -429,9 +432,10 @@ invoicesRouter.get('/:id/reminders', handler(async (req, res) => {
   ok(res, { items: await listReminders(req.params.id) })
 }))
 
+// Cancelling a sent invoice: Senior Associate and above.
 invoicesRouter.post('/:id/cancel', handler(async (req, res) => {
   const session = requireSession(req)
-  const scope = requireWorkstation(session, 'workstation.invoice.manage')
+  const scope = requireWorkstation(session, 'workstation.invoice.cancel')
   const body = parse(z.object({ reason: z.string().trim().max(500).optional() }), req.body ?? {}, 'Check the reason.')
   ok(res, await InvoiceService.cancel(session, scope, req.params.id, body.reason))
 }))

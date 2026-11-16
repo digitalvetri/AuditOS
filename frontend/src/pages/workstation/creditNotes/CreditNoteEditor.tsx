@@ -80,6 +80,9 @@ function Editor({ cn, invoiceId, cr, clientName }: { cn: CreditNote | null; invo
   const toast = useToast();
   const { session } = useAuth();
   const mayWrite = can(session?.role.code, 'workstation.invoice.manage', 'self');
+  // Drafting is day-to-day work; issuing or cancelling a credit note needs a
+  // Senior Associate or a partner.
+  const mayIssue = can(session?.role.code, 'workstation.invoice.credit', 'self');
   const editable = mayWrite && (!cn || cn.status === 'draft');
   const interState = cn ? cn.is_inter_state : cr.is_inter_state;
 
@@ -242,8 +245,8 @@ function Editor({ cn, invoiceId, cr, clientName }: { cn: CreditNote | null; invo
             {editable ? (
               <>
                 <Button disabled={!canSave || busy} onClick={() => save.mutate()}>{save.isPending ? 'Saving…' : 'Save draft'}</Button>
-                <Button variant="primary" disabled={!canSave || overLimit || busy} onClick={() => issue.mutate()}
-                  title={overLimit ? 'The note is more than the invoice total less earlier credits' : 'Allocates the CN number — the note is then fixed'}>
+                <Button variant="primary" disabled={!mayIssue || !canSave || overLimit || busy} onClick={() => issue.mutate()}
+                  title={!mayIssue ? 'Save the draft — a Senior Associate or a partner issues it' : overLimit ? 'The note is more than the invoice total less earlier credits' : 'Allocates the CN number — the note is then fixed'}>
                   <Send size={14} className="mr-2" />{issue.isPending ? 'Issuing…' : 'Issue'}
                 </Button>
                 {cn ? <Button variant="danger" onClick={() => setDeleting(true)}><Trash2 size={14} className="mr-2" />Delete draft</Button> : null}
@@ -252,7 +255,7 @@ function Editor({ cn, invoiceId, cr, clientName }: { cn: CreditNote | null; invo
             {cn && cn.status !== 'draft' ? (
               <Button disabled={pdf.isPending} onClick={() => pdf.mutate()}><Download size={14} className="mr-2" />Download PDF</Button>
             ) : null}
-            {cn && cn.status === 'issued' && mayWrite ? (
+            {cn && cn.status === 'issued' && mayIssue ? (
               <Button variant="danger" onClick={() => setCancelling(true)}><Ban size={14} className="mr-2" />Cancel</Button>
             ) : null}
           </span>

@@ -115,6 +115,9 @@ function Body({ inv }: { inv: Invoice }) {
   const navigate = useNavigate();
   const { session } = useAuth();
   const mayWrite = can(session?.role.code, 'workstation.invoice.manage', 'self');
+  // Role tiers: cancelling needs a Senior Associate, a refund a partner.
+  const mayCancel = can(session?.role.code, 'workstation.invoice.cancel', 'self');
+  const mayRefund = can(session?.role.code, 'workstation.invoice.refund', 'self');
   const [payOpen, setPayOpen] = useState(false);
   const [refundOpen, setRefundOpen] = useState(false);
   const [cancelOpen, setCancelOpen] = useState(false);
@@ -258,14 +261,14 @@ function Body({ inv }: { inv: Invoice }) {
               {mayWrite && inv.balance_due_paise > 0 && inv.stored_status !== 'draft' && inv.stored_status !== 'cancelled' ? (
                 <Button variant="primary" onClick={() => setPayOpen(true)}>Record payment</Button>
               ) : null}
-              {mayWrite && inv.refund_due_paise > 0 ? (
+              {mayRefund && inv.refund_due_paise > 0 ? (
                 <Button variant="primary" onClick={() => setRefundOpen(true)}>Record refund</Button>
               ) : null}
               <InvoiceActionsMenu
                 inv={inv} mayWrite={mayWrite} pdfBusy={pdf.isPending}
                 onDownload={() => pdf.mutate()} onWhatsApp={() => setWhatsapping(true)} onEmail={() => setEmailing(true)}
                 onSend={() => send.mutate()} onPay={() => setPayOpen(true)} onRefund={() => setRefundOpen(true)} onCancel={() => setCancelOpen(true)}
-                onDelete={() => setDeleting(true)} mayCredit={mayCredit}
+                onDelete={() => setDeleting(true)} mayCredit={mayCredit} mayCancel={mayCancel} mayRefund={mayRefund}
               />
             </span>
           }
@@ -332,7 +335,7 @@ function Body({ inv }: { inv: Invoice }) {
 
         {inv.stored_status !== 'draft' ? (
           <>
-            <PaymentsCard inv={inv} mayWrite={mayWrite} />
+            <PaymentsCard inv={inv} mayWrite={mayWrite} mayRefund={mayRefund} />
             <PaymentLinksCard inv={inv} mayWrite={mayWrite} />
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-4">
               <CreditNotesCard inv={inv} mayCredit={mayCredit} />
@@ -485,7 +488,7 @@ function PaymentModal({ inv, open, onClose, onDone }: {
 }
 
 /** Every payment against the invoice, with its receipt and the TDS it carried. */
-function PaymentsCard({ inv, mayWrite }: { inv: Invoice; mayWrite: boolean }) {
+function PaymentsCard({ inv, mayWrite, mayRefund }: { inv: Invoice; mayWrite: boolean; mayRefund: boolean }) {
   const toast = useToast();
   const qc = useQueryClient();
   const q = useQuery({ queryKey: ['invoices.payments', inv.id], queryFn: () => invoicesApi.payments(inv.id) });
@@ -543,14 +546,14 @@ function PaymentsCard({ inv, mayWrite }: { inv: Invoice; mayWrite: boolean }) {
             </ListTable>
           )}
         </QueryState>
-        {inv.refunds.length > 0 ? <RefundsTable inv={inv} mayWrite={mayWrite} /> : null}
+        {inv.refunds.length > 0 ? <RefundsTable inv={inv} mayRefund={mayRefund} /> : null}
       </Card>
     </div>
   );
 }
 
 /** Refunds paid back to the client, shown under the payments they reverse. */
-function RefundsTable({ inv, mayWrite }: { inv: Invoice; mayWrite: boolean }) {
+function RefundsTable({ inv, mayRefund }: { inv: Invoice; mayRefund: boolean }) {
   const toast = useToast();
   const qc = useQueryClient();
   const voucher = useMutation({
@@ -592,7 +595,7 @@ function RefundsTable({ inv, mayWrite }: { inv: Invoice; mayWrite: boolean }) {
                   className="inline-flex items-center gap-1 text-13 text-primary hover:underline whitespace-nowrap disabled:opacity-50">
                   <Receipt size={13} /> Voucher
                 </button>
-                {mayWrite ? (
+                {mayRefund ? (
                   <button type="button" disabled={remove.isPending}
                     onClick={async () => {
                       if (await confirmAction(`Remove refund ${r.refund_number ?? ''} of ₹${inrAmount(r.amount_paise)}? The invoice is recomputed without it.`, { title: 'Remove refund?', action: 'Remove refund' })) remove.mutate(r);
@@ -622,6 +625,12 @@ function RefundModal({ inv, open, onClose, onDone }: {
   const [reference, setReference] = useState('');
   const [note, setNote] = useState('');
   const [creditNoteId, setCreditNoteId] = useState('');
+  const [includeTds, setIncludeTds] = useState(false);
+  // A refund pays back cash received (amount_paid is cash only); the TDS
+  // portion needs an explicit, audited "include TDS".
+  const cashLeft = Math.max(0, inv.amount_paid_paise - inv.refunded_paise);
+  const cap = includeTds ? inv.refund_due_paise : Math.min(inv.refund_due_paise, cashLeft);
+  const tdsInDue = inv.refund_due_paise > cashLeft;
   const notes = useQuery({
     queryKey: ['creditNotes.list', { invoice_id: inv.id }],
     queryFn: () => creditNotesApi.list({ invoice_id: inv.id }),
@@ -630,20 +639,22 @@ function RefundModal({ inv, open, onClose, onDone }: {
   const issued = (notes.data?.items ?? []).filter((cn) => cn.status === 'issued');
   useEffect(() => {
     if (!open) return;
-    setAmount(String(inv.refund_due_paise / 100));
+    setAmount(String(Math.min(inv.refund_due_paise, cashLeft) / 100));
     setRefundedOn(istToday());
     setMode('bank_transfer');
     setReference('');
     setNote('');
     setCreditNoteId('');
-  }, [open, inv.refund_due_paise]);
+    setIncludeTds(false);
+  }, [open, inv.refund_due_paise, cashLeft]);
   const amountPaise = Math.max(0, Math.round((Number(amount) || 0) * 100));
-  const over = amountPaise > inv.refund_due_paise;
+  const over = amountPaise > cap;
   const save = useMutation({
     mutationFn: () => invoicesApi.recordRefund(inv.id, {
       amount_paise: amountPaise, refunded_on: refundedOn, mode,
       reference: reference.trim() || undefined, note: note.trim() || undefined,
       credit_note_id: creditNoteId || undefined,
+      include_tds: includeTds || undefined,
     }),
     onSuccess: (i) => {
       void qc.invalidateQueries({ queryKey: ['payment-summary'] });
@@ -669,9 +680,15 @@ function RefundModal({ inv, open, onClose, onDone }: {
       </Field>
       <p className={'text-12 -mt-1 mb-3 ' + (over ? 'text-red' : 'text-neutral-500')}>
         {over
-          ? `At most ₹ ${inrAmount(inv.refund_due_paise)} is due back to the client.`
-          : `₹ ${inrAmount(inv.refund_due_paise)} is due back to the client on this invoice.`}
+          ? `At most ₹ ${inrAmount(cap)} can be refunded${includeTds || !tdsInDue ? '' : ' in cash'}.`
+          : `₹ ${inrAmount(inv.refund_due_paise)} is due back to the client on this invoice${tdsInDue ? `; ₹ ${inrAmount(cashLeft)} of it was received in cash` : ''}.`}
       </p>
+      {tdsInDue ? (
+        <label className="flex items-start gap-2 text-13 text-neutral-700 mb-3">
+          <input type="checkbox" className="mt-0.5" checked={includeTds} onChange={(e) => setIncludeTds(e.target.checked)} />
+          <span>Include TDS — pay back the tax the client deducted as well. Normally the deductor revises their TDS return instead; this override is recorded in the audit log.</span>
+        </label>
+      ) : null}
       <div className="grid grid-cols-2 gap-3">
         <Field label="Refunded on" error={errs.refunded_on}>
           <input className={inputClass} type="date" max={istToday()} value={refundedOn} onChange={(e) => setRefundedOn(e.target.value)} />
@@ -794,8 +811,8 @@ function CancelModal({ inv, open, onClose, onDone }: {
  * quotation's Actions menu. Each item is enabled only in the states the
  * server accepts it.
  */
-function InvoiceActionsMenu({ inv, mayWrite, pdfBusy, onDownload, onWhatsApp, onEmail, onSend, onPay, onRefund, onCancel, onDelete, mayCredit }: {
-  inv: Invoice; mayWrite: boolean; pdfBusy: boolean; mayCredit: boolean;
+function InvoiceActionsMenu({ inv, mayWrite, pdfBusy, onDownload, onWhatsApp, onEmail, onSend, onPay, onRefund, onCancel, onDelete, mayCredit, mayCancel, mayRefund }: {
+  inv: Invoice; mayWrite: boolean; pdfBusy: boolean; mayCredit: boolean; mayCancel: boolean; mayRefund: boolean;
   onDownload: () => void; onWhatsApp: () => void; onEmail: () => void;
   onSend: () => void; onPay: () => void; onRefund: () => void; onCancel: () => void; onDelete: () => void;
 }) {
@@ -854,8 +871,8 @@ function InvoiceActionsMenu({ inv, mayWrite, pdfBusy, onDownload, onWhatsApp, on
             title={canPay ? undefined : st === 'draft' ? 'Send the invoice first' : 'Nothing is due on this invoice'} onClick={act(onPay)}>
             <Wallet size={14} /> Record payment
           </button>
-          <button type="button" className={item(!mayWrite || inv.refund_due_paise <= 0)} disabled={!mayWrite || inv.refund_due_paise <= 0}
-            title={inv.refund_due_paise > 0 ? undefined : 'Nothing is due back to the client'} onClick={act(onRefund)}>
+          <button type="button" className={item(!mayRefund || inv.refund_due_paise <= 0)} disabled={!mayRefund || inv.refund_due_paise <= 0}
+            title={!mayRefund ? 'Only a partner can record a refund' : inv.refund_due_paise > 0 ? undefined : 'Nothing is due back to the client'} onClick={act(onRefund)}>
             <Undo2 size={14} /> Record refund
           </button>
           {mayCredit ? (
@@ -867,8 +884,8 @@ function InvoiceActionsMenu({ inv, mayWrite, pdfBusy, onDownload, onWhatsApp, on
               <FileMinus size={14} /> Issue credit note
             </button>
           )}
-          <button type="button" className={item(!mayWrite || st === 'cancelled' || st === 'paid')} disabled={!mayWrite || st === 'cancelled' || st === 'paid'}
-            title={st === 'cancelled' ? 'Already cancelled' : st === 'paid' ? 'A paid invoice cannot be cancelled' : undefined} onClick={act(onCancel)}>
+          <button type="button" className={item(!mayCancel || st === 'cancelled' || st === 'paid')} disabled={!mayCancel || st === 'cancelled' || st === 'paid'}
+            title={!mayCancel ? 'Cancelling an invoice needs a Senior Associate or a partner' : st === 'cancelled' ? 'Already cancelled' : st === 'paid' ? 'A paid invoice cannot be cancelled' : undefined} onClick={act(onCancel)}>
             <Ban size={14} /> Cancel invoice
           </button>
           <div className="my-1 border-t border-neutral-200" />

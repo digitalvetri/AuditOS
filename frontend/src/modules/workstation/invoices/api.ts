@@ -360,10 +360,13 @@ export const invoicesApi = {
   /** A signed link to the payment receipt PDF. */
   receiptUrl: (id: string, paymentId: string) =>
     api.get<{ url: string; expires_at: string }>(`/api/invoices/${id}/payments/${paymentId}/receipt-url`),
-  /** Pay money back to the client — at most the invoice's refund due. */
+  /**
+   * Pay money back to the client — at most the invoice's refund due, and at
+   * most the cash received unless a partner sets include_tds (audited).
+   */
   recordRefund: (id: string, body: {
     amount_paise: number; refunded_on: string; mode: RefundMode;
-    reference?: string; note?: string; credit_note_id?: string;
+    reference?: string; note?: string; credit_note_id?: string; include_tds?: boolean;
   }) => api.post<Invoice>(`/api/invoices/${id}/refunds`, body),
   removeRefund: (id: string, refundId: string) =>
     api.delete<Invoice>(`/api/invoices/${id}/refunds/${refundId}`),

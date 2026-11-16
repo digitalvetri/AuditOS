@@ -81,9 +81,12 @@ creditNotesRouter.put('/:id', handler(async (req, res) => {
   ok(res, note)
 }))
 
+// Issuing or cancelling a credit note changes revenue and GST: Senior
+// Associate and above (workstation.invoice.credit). Drafting stays with
+// invoice.manage.
 creditNotesRouter.post('/:id/issue', handler(async (req, res) => {
   const session = requireSession(req)
-  const scope = requireWorkstation(session, 'workstation.invoice.manage')
+  const scope = requireWorkstation(session, 'workstation.invoice.credit')
   const note = await CreditNoteService.issue(session, scope, req.params.id)
   await writeAudit({ actorUserId: session.userId, action: 'credit_note.issued', entityType: 'CreditNote', entityId: note.id, after: { number: note.credit_note_number, invoice_id: note.invoice_id, total_paise: note.total_paise }, req })
   ok(res, note)
@@ -91,7 +94,7 @@ creditNotesRouter.post('/:id/issue', handler(async (req, res) => {
 
 creditNotesRouter.post('/:id/cancel', handler(async (req, res) => {
   const session = requireSession(req)
-  const scope = requireWorkstation(session, 'workstation.invoice.manage')
+  const scope = requireWorkstation(session, 'workstation.invoice.credit')
   const b = parse(z.object({ reason: z.string().trim().max(500).optional() }), req.body ?? {}, 'Check the reason.')
   const note = await CreditNoteService.cancel(session, scope, req.params.id, b.reason)
   await writeAudit({ actorUserId: session.userId, action: 'credit_note.cancelled', entityType: 'CreditNote', entityId: note.id, after: { number: note.credit_note_number, reason: b.reason ?? null }, req })

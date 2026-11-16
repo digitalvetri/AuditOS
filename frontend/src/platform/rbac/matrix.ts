@@ -99,6 +99,11 @@ export type PermissionCode =
   | 'workstation.quotation.manage'
   | 'workstation.invoice.read'
   | 'workstation.invoice.manage'
+  // Role tiers (backend rbac/modules.ts): credit notes and cancelling an
+  // invoice need a Senior Associate; a refund needs a partner.
+  | 'workstation.invoice.credit'
+  | 'workstation.invoice.cancel'
+  | 'workstation.invoice.refund'
   | 'workstation.quotation.approve'
   | 'workstation.engagement.read'
   | 'workstation.engagement.manage'
@@ -116,6 +121,12 @@ export type PermissionCode =
   | 'workstation.tds.portal.reveal'
   | 'workstation.registration.portal.view'
   | 'workstation.registration.portal.reveal'
+  | 'workstation.gst.portal.view'
+  | 'workstation.gst.portal.reveal'
+  // Add, change or delete a saved portal login (Senior Associate+).
+  | 'workstation.gst.portal.manage'
+  | 'workstation.tds.portal.manage'
+  | 'workstation.registration.portal.manage'
   | 'workstation.gst.manage'
   | 'workstation.eway.read'
   | 'workstation.eway.generate'
@@ -123,6 +134,8 @@ export type PermissionCode =
   // Compliance calendar, notices register, DSC register (docs/compliance/README.md).
   | 'workstation.compliance.read'
   | 'workstation.compliance.manage'
+  // Firm-wide calendar changes (extensions, generate, catalogue): partners.
+  | 'workstation.compliance.firm'
   | 'workstation.notice.read'
   | 'workstation.notice.manage'
   | 'workstation.dsc.read'
@@ -172,6 +185,9 @@ export type PermissionCode =
   | 'tools.audit_automation.bookkeeping.audit.read'
   | 'tools.audit_automation.bookkeeping.settings.manage'
   | 'tools.audit_automation.bookkeeping.data.manage'
+  // Financial years: add one (Senior Associate+); close or reopen (partner).
+  | 'tools.audit_automation.bookkeeping.year.manage'
+  | 'tools.audit_automation.bookkeeping.year.close'
   // ── Books (docs/books-zoho/README.md) — Tools → Books, backed by Zoho Books.
   // Organisation scope only: a Zoho organisation has no per-user membership,
   // so a `self` grant would mean nothing narrower than the whole firm.
@@ -400,6 +416,12 @@ export const MATRIX: Record<RoleCode, Grant[]> = {
     { permission: 'books.settings', scope: 'organisation' },
     { permission: 'books.reports', scope: 'organisation' },
     { permission: 'books.accountant', scope: 'organisation' },
+    { permission: 'workstation.invoice.credit', scope: 'organisation' },
+    { permission: 'workstation.invoice.cancel', scope: 'organisation' },
+    { permission: 'workstation.gst.portal.manage', scope: 'organisation' },
+    { permission: 'workstation.tds.portal.manage', scope: 'organisation' },
+    { permission: 'workstation.registration.portal.manage', scope: 'organisation' },
+    { permission: 'tools.audit_automation.bookkeeping.year.manage', scope: 'organisation' },
   ],
   hr_admin: [
     { permission: 'profile.read', scope: 'self' },
@@ -581,6 +603,15 @@ export const MATRIX: Record<RoleCode, Grant[]> = {
     { permission: 'books.settings', scope: 'organisation' },
     { permission: 'books.reports', scope: 'organisation' },
     { permission: 'books.accountant', scope: 'organisation' },
+    { permission: 'workstation.invoice.credit', scope: 'organisation' },
+    { permission: 'workstation.invoice.cancel', scope: 'organisation' },
+    { permission: 'workstation.gst.portal.manage', scope: 'organisation' },
+    { permission: 'workstation.tds.portal.manage', scope: 'organisation' },
+    { permission: 'workstation.registration.portal.manage', scope: 'organisation' },
+    { permission: 'tools.audit_automation.bookkeeping.year.manage', scope: 'organisation' },
+    { permission: 'workstation.invoice.refund', scope: 'organisation' },
+    { permission: 'workstation.compliance.firm', scope: 'organisation' },
+    { permission: 'tools.audit_automation.bookkeeping.year.close', scope: 'organisation' },
   ],
 };
 
