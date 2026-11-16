@@ -1653,6 +1653,12 @@ model ClientDocument {
   /// raised on its organization: the request stays on the organization, the
   /// file lives with the client it belongs to.
   sourceRequestId       String?
+  /// Shown on the client's portal link? null = the default rule: shown only
+  /// when the document was asked of the client (requestedAt / sourceRequestId)
+  /// or the client sent a version through the portal; a staff upload is
+  /// internal. true / false = staff shared or hid it on purpose.
+  /// (client-folders.routes.ts CLIENT_VISIBLE_DOC is the one place this rule lives.)
+  visibleToClient       Boolean?
 
   client              Client                         @relation(fields: [clientId], references: [id])
   category            DocumentCategory               @relation(fields: [categoryId], references: [id])

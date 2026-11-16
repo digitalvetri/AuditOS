@@ -717,7 +717,7 @@ clientsRouter.post('/:id/documents', handler(async (req, res) => {
     ...clientDocumentToApi(doc, m),
     /* Honest about what did NOT happen (§9). */
     portal_notice: isRequest
-      ? 'Client Portal is not yet available. This request is recorded in Audit OS; no message has been sent to the client.'
+      ? 'The request is recorded and shows on the client\'s document link (if one is on). No message has been sent to the client.'
       : null,
   }, 201)
 }))

@@ -13,6 +13,7 @@ import { mailConfigured, MailError, sendMail } from '../../lib/mailer.js'
 import {
   assertCanSeeClient, clientScopeWhere, requireWorkstation,
 } from '../../platform/workstation/scope.js'
+import { isVisibleToClient } from '../../platform/workstation/clientVisibility.js'
 import {
   clientDocumentToApi, documentCategoryToApi, documentVersionToApi, employeeMap,
 } from '../../api/workstation.serialize.js'
@@ -108,6 +109,12 @@ documentsRouter.patch('/:id', handler(async (req, res) => {
   if ('category_id' in b) data.categoryId = v.str('category_id', b.category_id)
   if ('financial_year' in b) data.financialYear = v.str('financial_year', b.financial_year, { required: false, max: 12 }) ?? null
   if ('client_service_id' in b) data.clientServiceId = v.str('client_service_id', b.client_service_id, { required: false }) ?? null
+  // Share with the client's portal link, or hide it (null = back to the
+  // default rule, platform/workstation/clientVisibility.ts).
+  if ('visible_to_client' in b) {
+    if (b.visible_to_client === null || typeof b.visible_to_client === 'boolean') data.visibleToClient = b.visible_to_client
+    else v.add('visible_to_client', 'Must be true, false or null.')
+  }
   if ('status' in b) {
     const s = v.oneOf('status', b.status, DOCUMENT_STATUSES)
     // Verifying and rejecting are supervisory acts with their own permission
@@ -122,9 +129,13 @@ documentsRouter.patch('/:id', handler(async (req, res) => {
   data.updatedBy = session.userId
 
   const doc = await prisma.clientDocument.update({ where: { id: before.id }, data, include })
+  const shareChanged = 'visibleToClient' in data && isVisibleToClient(doc) !== isVisibleToClient(before)
   await writeActivity({
     session, subjectType: 'client', subjectId: doc.clientId,
-    action: 'document.updated', description: `${doc.name} updated.`,
+    action: shareChanged ? (isVisibleToClient(doc) ? 'document.shared' : 'document.unshared') : 'document.updated',
+    description: shareChanged
+      ? `${doc.name} ${isVisibleToClient(doc) ? 'shared with the client' : 'hidden from the client'}.`
+      : `${doc.name} updated.`,
     entityType: 'ClientDocument', entityId: doc.id,
   })
   await writeAudit({

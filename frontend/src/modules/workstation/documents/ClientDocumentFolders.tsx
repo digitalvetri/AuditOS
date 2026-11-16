@@ -483,6 +483,9 @@ function ItemTable({
               {item.document_id && actions.canManage && needsRequest(item.status, item.openable !== 'file') ? (
                 <RequestButtons onPick={(ch) => onRequest(item, ch)} />
               ) : null}
+              {item.document_id && item.visible_to_client !== undefined ? (
+                <ShareToggle documentId={item.document_id} shared={item.visible_to_client} canManage={actions.canManage} />
+              ) : null}
             </div>
           </Cell>
         </Row>
@@ -531,6 +534,41 @@ function FolderUploadButton({
         }}
       />
     </>
+  );
+}
+
+/**
+ * Does the client's portal link show this file? Requests and what the client
+ * sent are shared by default; a staff upload stays internal until shared.
+ */
+function ShareToggle({ documentId, shared, canManage }: { documentId: string; shared: boolean; canManage: boolean }) {
+  const toast = useToast();
+  const qc = useQueryClient();
+  const [busy, setBusy] = useState(false);
+  const label = shared ? 'Shared with client' : 'Internal';
+  if (!canManage) return <span className={`text-12 ${shared ? 'text-success' : 'text-neutral-500'}`}>{label}</span>;
+  async function flip() {
+    setBusy(true);
+    try {
+      await workstationApi.updateDocument(documentId, { visible_to_client: !shared });
+      toast.push('success', shared ? 'Hidden from the client’s document link.' : 'Shared on the client’s document link.');
+      void qc.invalidateQueries({ queryKey: ['workstation', 'client'] });
+    } catch (e) {
+      toast.push('error', (e as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  }
+  return (
+    <button
+      type="button"
+      disabled={busy}
+      onClick={() => void flip()}
+      title={shared ? 'The client sees this on their document link. Click to hide it.' : 'Only the firm sees this. Click to show it on the client’s document link.'}
+      className={`text-12 underline disabled:opacity-50 ${shared ? 'text-success hover:opacity-80' : 'text-neutral-500 hover:text-neutral-900'}`}
+    >
+      {label}
+    </button>
   );
 }
 

@@ -320,6 +320,9 @@ export interface ClientDocument extends Auditable {
   verified_at: string | null;
   rejection_reason: string | null;
   expiry_date: string | null;
+  /** Whether the client's portal link shows it; `_set` = staff chose, not the default rule. */
+  visible_to_client?: boolean;
+  visible_to_client_set?: boolean;
   versions: DocumentVersion[];
   /** Present on create — says the portal request went nowhere yet. */
   portal_notice?: string | null;
@@ -485,6 +488,8 @@ export interface ClientFolderItem {
   document_id: string | null;
   /** An organization request received for one of its clients. */
   stored_for?: { client_id: string; client_name: string; document_id: string } | null;
+  /** Uploaded files (staff view): whether the client's portal link shows it. */
+  visible_to_client?: boolean;
 }
 
 /** The client's live document link (null when none is active). */

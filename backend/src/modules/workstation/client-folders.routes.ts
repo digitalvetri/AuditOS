@@ -18,6 +18,7 @@ import { partnershipStorage } from '../partnership/storage.js'
 import { streamEInvoicePdf, streamEwayBillPdf, streamGstFilingPdf } from './record-pdf.js'
 import { setUploadedFileHeaders } from '../../lib/fileResponse.js'
 import { toNum } from '../../lib/money.js'
+import { CLIENT_VISIBLE_DOC } from '../../platform/workstation/clientVisibility.js'
 import { sniffDocument, sniffImage } from '../messages/attachments.js'
 import { scanUploads } from '../../platform/virusScan.js'
 
@@ -59,6 +60,8 @@ interface FolderItem {
   /** An organization's request that was received for one of its clients:
    *  the file lives with that client, not here. */
   stored_for?: { client_id: string; client_name: string; document_id: string } | null
+  /** Uploaded files, staff view only: does the client's portal link show it? */
+  visible_to_client?: boolean
 }
 
 export interface Folder {
@@ -207,23 +210,27 @@ export async function buildClientFolders(who: Session | FolderAccess, client: { 
   const canDoc = access.doc
   const canService = access.service
   const canAa = access.aa
-  // Records the firm has not issued yet never reach the client.
+  // Records the firm has not issued yet never reach the client; nor do
+  // simulated (locally generated) e-way bills and e-invoices, whose numbers
+  // are not real; nor documents that were not shared with the client.
   const issued = access.clientView ? { status: { not: 'draft' } } : {}
+  const real = access.clientView ? { isSimulated: false } : {}
+  const shared = access.clientView ? CLIENT_VISIBLE_DOC : {}
 
   const none = Promise.resolve([])
   const [
     ewbs, irns, invoices, quotations, letters, wsdocs, gstFilings,
     uploads, bkImports, prs, gstr2b, tds26as, tdsBooks,
   ] = await Promise.all([
-    canEway ? prisma.ewayBill.findMany({ where: { clientId, ...alive }, orderBy: { generatedAt: 'desc' } }) : none,
-    canEway ? prisma.eInvoiceIrn.findMany({ where: { clientId, ...alive }, orderBy: { documentDate: 'desc' } }) : none,
+    canEway ? prisma.ewayBill.findMany({ where: { clientId, ...alive, ...real }, orderBy: { generatedAt: 'desc' } }) : none,
+    canEway ? prisma.eInvoiceIrn.findMany({ where: { clientId, ...alive, ...real }, orderBy: { documentDate: 'desc' } }) : none,
     canInvoice ? prisma.invoice.findMany({ where: { clientId, ...alive, ...issued }, orderBy: { invoiceDate: 'desc' } }) : none,
     canQuote ? prisma.quotation.findMany({ where: { clientId, ...alive, ...issued }, orderBy: { quoteDate: 'desc' } }) : none,
     canEngagement ? prisma.engagementLetter.findMany({ where: { clientId, ...alive, ...issued }, orderBy: { letterDate: 'desc' } }) : none,
     canDoc ? prisma.workstationDoc.findMany({ where: { clientId, ...alive, ...issued }, orderBy: { docDate: 'desc' } }) : none,
     canGst ? prisma.gstFiling.findMany({ where: { gstProfile: { clientId }, ...alive }, orderBy: [{ period: 'desc' }, { returnType: 'asc' }] }) : none,
     prisma.clientDocument.findMany({
-      where: { clientId, ...alive },
+      where: { clientId, ...alive, ...shared },
       include: { category: true, versions: { orderBy: { version: 'desc' }, take: 1 } },
       orderBy: { updatedAt: 'desc' },
     }),
@@ -336,6 +343,12 @@ export async function buildClientFolders(who: Session | FolderAccess, client: { 
       })
     : []
   const storedFor = new Map(answered.map((a) => [a.sourceRequestId!, { client_id: a.client.id, client_name: a.client.companyName, document_id: a.id }]))
+  // Staff see which uploads the client's portal link shows.
+  const sharedIds = !access.clientView && uploads.length
+    ? new Set((await prisma.clientDocument.findMany({
+        where: { id: { in: uploads.map((d) => d.id) }, ...CLIENT_VISIBLE_DOC }, select: { id: true },
+      })).map((d) => d.id))
+    : null
 
   const intoFolder = new Map<string, FolderItem[]>()
   const byCategory = new Map<string, Folder>()
@@ -357,6 +370,7 @@ export async function buildClientFolders(who: Session | FolderAccess, client: { 
       date: iso(v?.uploadedAt ?? d.updatedAt), status: d.status,
       file_name: v?.originalName ?? null, mime_type: v?.mimeType ?? null, document_id: d.id,
       uploaded_by_id: v?.uploadedBy ?? null,
+      ...(sharedIds ? { visible_to_client: sharedIds.has(d.id) } : {}),
     })
     if (d.category.code.startsWith(FOLDER_CATEGORY_PREFIX)) {
       const target = d.category.code.slice(FOLDER_CATEGORY_PREFIX.length)

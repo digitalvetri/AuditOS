@@ -28,6 +28,7 @@ import { lockSequence } from '../../lib/sequence.js'
 import { addDays, istToday } from '../../lib/dates.js'
 import { notifyEmployee } from '../../platform/notify.js'
 import { buildContext, itemToApi } from '../compliance/service.js'
+import { CLIENT_VISIBLE_DOC } from '../../platform/workstation/clientVisibility.js'
 
 /**
  * CLIENT DOCUMENT LINK — the client's own live view of their Documents tab.
@@ -171,9 +172,12 @@ async function resolveToken(token: string) {
   if (!/^[A-Za-z0-9_-]{20,100}$/.test(token)) throw ApiError.notFound('This link is not valid.')
   const link = await prisma.clientDocumentShareLink.findUnique({
     where: { token },
-    include: { client: { select: { id: true, organisationId: true, companyName: true, clientCode: true, gstin: true, accountManagerId: true, deletedAt: true } } },
+    include: { client: { select: { id: true, organisationId: true, companyName: true, clientCode: true, gstin: true, accountManagerId: true, deletedAt: true, status: true } } },
   })
   if (!link || link.client.deletedAt) throw ApiError.notFound('This link is not valid.')
+  // A former client keeps no window into the firm's records. Reactivating
+  // the client brings the same link back.
+  if (link.client.status === 'inactive') throw new ApiError(410, 'client_inactive', 'This link is no longer active. Contact your accountant if you need your documents.')
   if (link.revokedAt) throw new ApiError(410, 'link_revoked', 'This link has been replaced by a newer one. Ask your accountant for the new link.')
   if (link.pausedAt) throw new ApiError(410, 'link_paused', 'This link is turned off for now. Ask your accountant to turn it back on.')
   return link
@@ -247,11 +251,11 @@ async function itemFile(clientId: string, source: string, ref: string): Promise<
       return d ? pdf(`${d.docCode}.pdf`, (res) => streamDocPdf(res, d)) : null
     }
     case 'eway': {
-      const e = await prisma.ewayBill.findFirst({ where, include: { client: true } })
+      const e = await prisma.ewayBill.findFirst({ where: { ...where, isSimulated: false }, include: { client: true } })
       return e ? pdf(`${e.ewbNo}.pdf`, (res) => streamEwayBillPdf(res, e)) : null
     }
     case 'einvoice': {
-      const e = await prisma.eInvoiceIrn.findFirst({ where, include: { client: true } })
+      const e = await prisma.eInvoiceIrn.findFirst({ where: { ...where, isSimulated: false }, include: { client: true } })
       return e ? pdf(`e-invoice-${e.documentNo}.pdf`, (res) => streamEInvoicePdf(res, e)) : null
     }
     case 'gst_filing': {
@@ -262,7 +266,7 @@ async function itemFile(clientId: string, source: string, ref: string): Promise<
     }
     case 'upload': {
       const v = await prisma.clientDocumentVersion.findFirst({
-        where: { id: ref, document: { clientId, ...alive } }, include: { document: true },
+        where: { id: ref, document: { clientId, ...alive, ...CLIENT_VISIBLE_DOC } }, include: { document: true },
       })
       if (!v?.mimeType) return null
       const bytes = await readVersionBytes(v.fileKey)
@@ -339,7 +343,7 @@ const OPEN_REQUEST_STATUSES = ['requested', 'rejected', 'replacement_required']
 clientPortalPublicRouter.get('/client-portal/:token/requests', handler(async (req, res) => {
   const link = await resolveToken(req.params.token)
   const docs = await prisma.clientDocument.findMany({
-    where: { clientId: link.client.id, ...alive, status: { in: OPEN_REQUEST_STATUSES } },
+    where: { clientId: link.client.id, ...alive, ...CLIENT_VISIBLE_DOC, status: { in: OPEN_REQUEST_STATUSES } },
     include: { category: { select: { name: true } } },
     orderBy: [{ requestedAt: 'asc' }, { createdAt: 'asc' }],
   })
@@ -393,7 +397,7 @@ clientPortalPublicRouter.post('/client-portal/:token/requests/:docId/upload', po
   const link = res.locals.portalLink as PortalLink
   const { client } = link
   const doc = await prisma.clientDocument.findFirst({
-    where: { id: req.params.docId, clientId: client.id, ...alive },
+    where: { id: req.params.docId, clientId: client.id, ...alive, ...CLIENT_VISIBLE_DOC },
   })
   if (!doc) throw ApiError.notFound('This request is not available.')
   if (!OPEN_REQUEST_STATUSES.includes(doc.status)) {

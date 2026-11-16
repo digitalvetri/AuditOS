@@ -105,7 +105,8 @@ function ShareLinkDialog({ client, canManage, onClose }: { client: ClientDetail;
             ) : null}
             <p className="text-13 text-neutral-600">
               {client.company_name} can open this link any time to see their documents as they are now and download them.
-              New documents appear on it automatically — no need to send it again.
+              It shows invoices, letters, filings and the documents asked of the client. Files the firm uploads stay
+              internal until marked “Shared with client” in the Documents tab. The link stops working if the client is made inactive.
             </p>
             <div className="flex items-stretch gap-2">
               <input
