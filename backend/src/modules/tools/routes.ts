@@ -66,7 +66,7 @@ toolsRouter.get('/', handler(async (req, res) => {
     categories: TOOL_CATEGORIES,
     groups: TOOL_GROUPS,
     tools: TOOLS.map((t) => ({
-      id: t.id, status: t.status, permitted: can(session, t.permission, 'self'), implemented: isImplemented(t.id),
+      id: t.id, status: t.status, beta: t.beta === true, permitted: can(session, t.permission, 'self'), implemented: isImplemented(t.id),
       accepts: t.accepts, extensions: t.extensions, max_file_size_mb: t.maxFileSizeMB, multiple: t.multiple, output_type: t.outputType,
     })),
   })

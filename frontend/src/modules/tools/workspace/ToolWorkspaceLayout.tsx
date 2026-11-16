@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import { ArrowLeft } from 'lucide-react';
 import type { ToolDefinition } from '../registry';
 import { ToolBadge } from '../ToolBadge';
+import { BetaBadge } from '../BetaBadge';
 
 /**
  * Every tool opens inside this frame (§6): back link, name + description
@@ -20,6 +21,7 @@ export function ToolWorkspaceLayout({ tool, children, aside }: { tool: ToolDefin
         <div className="min-w-0">
           <h1 className="text-20 font-semibold text-neutral-900">{tool.name}</h1>
           <p className="text-13 text-neutral-500 mt-1">{tool.description}</p>
+          {tool.beta ? <div className="mt-1.5"><BetaBadge /></div> : null}
         </div>
       </header>
       <div className={aside ? 'grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_320px] gap-4 items-start' : ''}>

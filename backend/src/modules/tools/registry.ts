@@ -45,6 +45,11 @@ export interface ToolDef {
   outputType: OutputType
   permission: PermissionCode
   status: ToolStatus
+  /**
+   * Not validated against the real consumer (GST offline tool, IRP, Tally,
+   * FVU, a real bank/TRACES file). The card and workspace say so.
+   */
+  beta?: boolean
 }
 
 export const MIME = {
@@ -121,22 +126,22 @@ export const TOOLS: ToolDef[] = [
   // ── Compliance converters — cards only this phase ──────────────────────
   { id: 'gst-json-excel', name: 'GST JSON ⇄ Excel', description: 'GSTR-1 offline utility format',
     groupId: 'compliance-converters', accepts: [MIME.json, MIME.xlsx], extensions: ['json', 'xlsx'],
-    maxFileSizeMB: 25, multiple: false, outputType: 'xlsx', permission: 'tools.gst_json_excel', status: 'active' },
+    maxFileSizeMB: 25, multiple: false, outputType: 'xlsx', permission: 'tools.gst_json_excel', status: 'active', beta: true },
   { id: 'bank-statement-to-excel', name: 'Bank Statement to Excel', description: 'Parse PDF statements to ledger rows',
     groupId: 'compliance-converters', ...PDF_ONLY, maxFileSizeMB: 25, multiple: false, outputType: 'xlsx',
-    permission: 'tools.bank_statement_to_excel', status: 'active' },
+    permission: 'tools.bank_statement_to_excel', status: 'active', beta: true },
   { id: 'form-26as-to-excel', name: 'Form 26AS to Excel', description: 'TDS reconciliation sheet',
     groupId: 'compliance-converters', accepts: [MIME.pdf, MIME.txt], extensions: ['pdf', 'txt'],
-    maxFileSizeMB: 25, multiple: false, outputType: 'xlsx', permission: 'tools.form_26as_to_excel', status: 'active' },
+    maxFileSizeMB: 25, multiple: false, outputType: 'xlsx', permission: 'tools.form_26as_to_excel', status: 'active', beta: true },
   { id: 'excel-to-tally-xml', name: 'Excel to Tally XML', description: 'Import-ready vouchers for Tally',
     groupId: 'compliance-converters', accepts: [MIME.xlsx], extensions: ['xlsx'],
-    maxFileSizeMB: 25, multiple: false, outputType: 'xml', permission: 'tools.excel_to_tally_xml', status: 'active' },
+    maxFileSizeMB: 25, multiple: false, outputType: 'xml', permission: 'tools.excel_to_tally_xml', status: 'active', beta: true },
   { id: 'tds-fvu-generator', name: 'TDS Text/FVU Generator', description: 'Form 140 (was 26Q) TDS return file',
     groupId: 'compliance-converters', accepts: [MIME.xlsx], extensions: ['xlsx'],
-    maxFileSizeMB: 25, multiple: false, outputType: 'txt', permission: 'tools.tds_fvu_generator', status: 'active' },
+    maxFileSizeMB: 25, multiple: false, outputType: 'txt', permission: 'tools.tds_fvu_generator', status: 'active', beta: true },
   { id: 'invoice-to-einvoice-json', name: 'Invoice to e-Invoice JSON', description: 'IRP-ready schema from Excel',
     groupId: 'compliance-converters', accepts: [MIME.xlsx], extensions: ['xlsx'],
-    maxFileSizeMB: 25, multiple: false, outputType: 'json', permission: 'tools.invoice_to_einvoice_json', status: 'active' },
+    maxFileSizeMB: 25, multiple: false, outputType: 'json', permission: 'tools.invoice_to_einvoice_json', status: 'active', beta: true },
 ]
 
 const BY_ID = new Map(TOOLS.map((t) => [t.id, t]))

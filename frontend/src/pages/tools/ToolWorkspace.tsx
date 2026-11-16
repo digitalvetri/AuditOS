@@ -20,7 +20,7 @@ import { NotFoundPage } from '@/pages/NotFound';
 /**
  * /tools/:toolId — ONE page for all twelve tools (§6). The registry names
  * the tool, TOOL_UI supplies its options form and button label, the hook
- * runs the state machine. Compliance tools fall through to Coming soon.
+ * runs the state machine.
  */
 export function ToolWorkspacePage() {
   const { toolId } = useParams();
