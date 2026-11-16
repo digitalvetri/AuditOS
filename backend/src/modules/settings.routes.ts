@@ -6,7 +6,7 @@ import { addDays } from '../lib/dates.js'
 import { can, requireSession, type Session } from '../platform/auth.js'
 import { canEditRole } from '../platform/roleRank.js'
 import { writeAudit } from '../platform/audit.js'
-import type { Scope } from '../platform/rbac/matrix.js'
+import type { PermissionCode, Scope } from '../platform/rbac/matrix.js'
 import { MODULES, moduleCodes, scopeFor, VISIBLE_ROLE_CODES } from '../platform/rbac/modules.js'
 import {
   departmentToApi, designationToApi, expenseCategoryToApi, holidayToApi,
@@ -31,6 +31,18 @@ export const settingsRouter = Router()
 
 function requireManage(session: Session) {
   if (!can(session, 'settings.manage', 'organisation')) throw ApiError.forbidden()
+}
+
+/**
+ * No one hands out access they do not hold themselves: a Senior Associate
+ * holds Settings (through HRMS) but not Partner sign-off, so they must not be
+ * able to give it to the Associate role. Checked before any write.
+ */
+function requireHolds(session: Session, grants: { code: string; scope: Scope }[]) {
+  const missing = grants.filter((g) => !can(session, g.code as PermissionCode, g.scope))
+  if (missing.length) {
+    throw ApiError.forbidden('You can only give a role access that your own role holds.')
+  }
 }
 
 /**
@@ -667,6 +679,8 @@ settingsRouter.put('/roles/:roleId/permissions/:permissionCode', handler(async (
     }
   }
 
+  if (!isRevoke) requireHolds(session, [{ code: permission.code, scope: nextScope }])
+
   let after: { permission: string; scope: Scope } | null
   if (isRevoke) {
     if (before) {
@@ -761,6 +775,7 @@ settingsRouter.put('/roles/:roleId/modules/:module', handler(async (req, res) =>
   }
 
   const permissions = await prisma.permission.findMany({ where: { code: { in: codes }, deletedAt: null } })
+  if (body.data.access === 'full') requireHolds(session, permissions.map((p) => ({ code: p.code, scope: scopeFor(role.code, p.code) })))
   const ids = permissions.map((p) => p.id)
   await prisma.$transaction([
     prisma.rolePermission.deleteMany({ where: { roleId: role.id, permissionId: { in: ids } } }),

@@ -112,6 +112,25 @@ describe('Role-tier defaults', () => {
   })
 })
 
+describe('Settings cannot hand out what the caller does not hold', () => {
+  it('a Senior Associate (who holds Settings) cannot give the Associate role Partner sign-off, by module or by code', async () => {
+    await setupRoles(prisma, { force: true })
+    const senior = await user('dept_manager')
+    const employee = await prisma.role.findUniqueOrThrow({ where: { code: 'employee' } })
+    const before = await grantsOf('employee')
+    expect((await api(`/api/settings/roles/${employee.id}/modules/partner`, senior.cookie, { method: 'PUT', body: { access: 'full' } })).status).toBe(403)
+    expect((await api(`/api/settings/roles/${employee.id}/permissions/workstation.invoice.refund`, senior.cookie, { method: 'PUT', body: { scope: 'organisation' } })).status).toBe(403)
+    expect(await grantsOf('employee')).toEqual(before)
+    // What they hold themselves they may still grant (and take away).
+    expect((await api(`/api/settings/roles/${employee.id}/modules/approvals`, senior.cookie, { method: 'PUT', body: { access: 'full' } })).status).toBe(200)
+    expect((await api(`/api/settings/roles/${employee.id}/modules/approvals`, senior.cookie, { method: 'PUT', body: { access: 'none' } })).status).toBe(200)
+    // A partner may.
+    const admin = await user('hr_admin')
+    expect((await api(`/api/settings/roles/${employee.id}/permissions/workstation.invoice.refund`, admin.cookie, { method: 'PUT', body: { scope: 'organisation' } })).status).toBe(200)
+    await setupRoles(prisma, { force: true })
+  })
+})
+
 describe('Deploy correction for databases set up before the role tiers', () => {
   async function oldGrants() {
     // What setupRoles wrote before: Workstation (and the bookkeeping year
