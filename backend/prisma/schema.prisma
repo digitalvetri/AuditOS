@@ -2507,6 +2507,7 @@ model GstCompliancePeriod {
   @@index([financialYear, period])
   @@index([assignedEmployeeId])
   @@index([reviewerEmployeeId])
+  @@index([dataRequestDocId])
 }
 
 /// GSTR-2B (§14). NOT a return anyone files — it is the auto-drafted ITC
