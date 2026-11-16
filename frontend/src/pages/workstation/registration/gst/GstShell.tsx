@@ -22,9 +22,9 @@ export function GstShell() {
     // (GSTR-1 → 2B → 3B), then the client roster, and finally the one-time
     // REG-01 reference — which is read once per client, not every month.
     { to: 'dashboard', label: 'Dashboard' },
-    { to: 'gstr1', label: 'GSTR-1' },
+    { to: '/workstation/services/gst-filing', label: 'GSTR-1' },
     { to: 'gstr2b', label: 'GSTR-2B' },
-    { to: 'gstr3b', label: 'GSTR-3B' },
+    { to: '/workstation/services/gst-filing', label: 'GSTR-3B' },
     { to: 'clients', label: 'Clients' },
     { to: 'registration', label: 'Registration' },
     ...(can(session?.role.code, 'workstation.registration.template.manage', 'organisation')
