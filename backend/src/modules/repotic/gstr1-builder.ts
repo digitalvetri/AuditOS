@@ -134,7 +134,13 @@ export async function buildGstr1Preview(scope: Gstr1BuildScope, prisma: PrismaCl
         gstin: scope.gstin,
         period: scope.period,
         deletedAt: null,
-        detectStatus: { in: ['matched', 'drifted'] },
+        // `auto_detected` is the auto-mapper fallback (routes.ts): a file
+        // with no stored adapter but whose headers match the synonym list
+        // still parses cleanly into RpParsedRow. The builder has to see
+        // those rows too — otherwise the firm uploads a file, sees "35
+        // rows parsed", and finds the GSTR-1 preview empty because no
+        // adapter happened to be seeded yet.
+        detectStatus: { in: ['matched', 'drifted', 'auto_detected'] },
       },
     },
     include: { upload: { select: { marketplace: true } } },

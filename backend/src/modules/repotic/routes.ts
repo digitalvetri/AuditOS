@@ -98,15 +98,19 @@ repoticRouter.get('/marketplaces', handler(async (req, res) => {
       where: { organisationId, clientId, gstin, period, deletedAt: null },
       orderBy: { uploadedAt: 'desc' },
     })
-    // Prefer the most recent MATCHED/DRIFTED upload per (marketplace, report)
+    // Prefer the most recent USABLE upload per (marketplace, report)
     // over a more recent no_match attempt — a bad file following a good one
-    // shouldn't hide the valid data. If every attempt is no_match, surface
-    // the latest no_match so the UI can offer manual mapping.
+    // shouldn't hide the valid data. "Usable" is matched / drifted /
+    // auto_detected: a stored adapter matched, a stored adapter overlapped,
+    // or the auto-mapper fallback recognised every required field. If every
+    // attempt is no_match, surface the latest no_match so the UI can offer
+    // manual mapping.
+    const USABLE = new Set(['matched', 'drifted', 'auto_detected'])
     for (const r of rows) {
       const key = `${r.marketplace}:${r.reportKind}`
       const existing = uploadsByKey.get(key)
-      const isUsable = r.detectStatus === 'matched' || r.detectStatus === 'drifted'
-      if (existing && (existing.detectStatus === 'matched' || existing.detectStatus === 'drifted')) continue
+      const isUsable = USABLE.has(r.detectStatus)
+      if (existing && USABLE.has(existing.detectStatus)) continue
       if (existing && !isUsable) continue
       uploadsByKey.set(key, {
         rows: r.rowCount,
