@@ -315,16 +315,17 @@ function UploadsList({ scope }: { scope: { client_id: string; gstin: string; per
         </thead>
         <tbody>
           {items.map((u) => {
-            const current = u.status !== 'superseded' && u.detect_status !== 'no_match';
+            const current = u.status === 'parsed' && u.detect_status !== 'no_match';
             return (
               <tr key={u.id} className="border-b border-neutral-100">
                 <td className="px-4 py-2 text-neutral-800 truncate max-w-[280px]">{u.original_name}</td>
                 <td className="px-2 py-2 text-neutral-600">{u.marketplace} · {u.report_kind}</td>
                 <td className="px-2 py-2 text-right text-neutral-700">{u.row_count}</td>
                 <td className="px-2 py-2">
-                  {u.detect_status === 'no_match' ? <span className="text-danger">Not read</span>
+                  {u.detect_status === 'no_match' ? <span className="text-danger" title={u.error_message ?? undefined}>Not read</span>
                     : current ? <span className="text-success">Current</span>
-                    : <span className="text-neutral-500">Replaced</span>}
+                    : u.status === 'superseded' ? <span className="text-neutral-500">Replaced</span>
+                    : <span className="text-danger" title={u.error_message ?? undefined}>Not used</span>}
                 </td>
                 <td className="px-2 py-2 text-neutral-500">{new Date(u.uploaded_at).toLocaleString()}</td>
                 <td className="px-4 py-2 text-right">

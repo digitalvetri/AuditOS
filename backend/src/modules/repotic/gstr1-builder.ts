@@ -132,37 +132,57 @@ export const B2B_REPORT_KINDS = new Set(['mtr_b2b', 'b2b_sheet', 'tcs_b2b'])
 /** Build the GSTR-1 preview for one scope. Pure — same inputs give the
  *  same output; the only I/O is the prisma query at the start. */
 export async function buildGstr1Preview(scope: Gstr1BuildScope, prisma: PrismaClient): Promise<Gstr1BuildResult> {
-  const rows = await prisma.rpParsedRow.findMany({
+  // The current file of each (marketplace, report): the newest upload that
+  // parsed and was not replaced. Re-uploads mark older ones `superseded`
+  // (routes.ts); taking only the newest here also keeps scopes that held
+  // two uploads from before that rule from doubling.
+  const uploads = await prisma.rpEcommerceUpload.findMany({
     where: {
-      organisationId: scope.organisationId,
-      upload: {
-        organisationId: scope.organisationId,
-        clientId: scope.clientId,
-        gstin: scope.gstin,
-        period: scope.period,
-        deletedAt: null,
-        // A re-upload for the same (marketplace, report) supersedes the
-        // earlier file (routes.ts) — only the current one counts, so a
-        // corrected file never doubles the return.
-        status: { not: 'superseded' },
-        // `auto_detected` is the auto-mapper fallback (routes.ts): a file
-        // with no stored adapter but whose headers match the synonym list
-        // still parses cleanly into RpParsedRow.
-        detectStatus: { in: ['matched', 'drifted', 'auto_detected'] },
-      },
+      organisationId: scope.organisationId, clientId: scope.clientId, gstin: scope.gstin, period: scope.period,
+      deletedAt: null, status: 'parsed',
+      // `auto_detected` is the auto-mapper fallback (routes.ts).
+      detectStatus: { in: ['matched', 'drifted', 'auto_detected'] },
     },
-    include: { upload: { select: { marketplace: true, reportKind: true } } },
-    orderBy: [{ invoiceDate: 'asc' }, { sourceRowIndex: 'asc' }],
+    orderBy: { uploadedAt: 'desc' },
+    select: { id: true, marketplace: true, reportKind: true },
   })
+  const current = new Map<string, (typeof uploads)[number]>()
+  for (const u of uploads) if (!current.has(`${u.marketplace}|${u.reportKind}`)) current.set(`${u.marketplace}|${u.reportKind}`, u)
   const marketplaceOf: Record<string, string> = {}
   const b2bUploads = new Set<string>()
-  for (const r of rows) {
-    marketplaceOf[r.uploadId] = r.upload.marketplace
-    if (B2B_REPORT_KINDS.has(r.upload.reportKind)) b2bUploads.add(r.uploadId)
+  for (const u of current.values()) {
+    marketplaceOf[u.id] = u.marketplace
+    if (B2B_REPORT_KINDS.has(u.reportKind)) b2bUploads.add(u.id)
   }
-  const result = buildFromRows(rows.filter((r) => !b2bUploads.has(r.uploadId)), scope.gstin, scope.period, { marketplaceOf })
+  const rows = await prisma.rpParsedRow.findMany({
+    where: { organisationId: scope.organisationId, uploadId: { in: [...current.values()].map((u) => u.id) } },
+    orderBy: [{ invoiceDate: 'asc' }, { sourceRowIndex: 'asc' }],
+  })
+  const b2c = rows.filter((r) => !b2bUploads.has(r.uploadId))
+
+  // A return in this period against an invoice of an earlier one: find the
+  // original sale in that period's current uploads, so a return on a B2C
+  // large invoice still goes to CDNUR.
+  const sold = new Set(b2c.filter((r) => r.txType === 'shipment' && r.invoiceNumber).map((r) => r.invoiceNumber!))
+  const orphanReturns = [...new Set(b2c.filter((r) => (r.txType === 'refund' || r.txType === 'cancel') && r.invoiceNumber && !sold.has(r.invoiceNumber)).map((r) => r.invoiceNumber!))]
+  const originalValues: Record<string, number> = {}
+  if (orphanReturns.length) {
+    const earlier = await prisma.rpParsedRow.findMany({
+      where: {
+        organisationId: scope.organisationId, txType: 'shipment', invoiceNumber: { in: orphanReturns },
+        upload: { clientId: scope.clientId, gstin: scope.gstin, period: { not: scope.period }, deletedAt: null, status: 'parsed' },
+      },
+      select: { invoiceNumber: true, invoiceAmount: true, sellerGstin: true },
+    })
+    for (const r of earlier) {
+      if (r.sellerGstin && r.sellerGstin.toUpperCase() !== scope.gstin.toUpperCase()) continue
+      originalValues[r.invoiceNumber!] = (originalValues[r.invoiceNumber!] ?? 0) + r.invoiceAmount
+    }
+  }
+
+  const result = buildFromRows(b2c, scope.gstin, scope.period, { marketplaceOf, originalValues })
   if (b2bUploads.size) {
-    const n = rows.filter((r) => b2bUploads.has(r.uploadId)).length
+    const n = rows.length - b2c.length
     result.counts.excluded_b2b += n
     result.counts.total_rows += n
     result.warnings.unshift(`${n} row(s) from B2B reports are not included: this preview does not build Table 4 (B2B). File B2B invoices separately.`)
@@ -185,7 +205,12 @@ function isIntra(r: RpParsedRow): boolean {
  *  marketplace from it (no map → no Table 14). */
 export function buildFromRows(
   allRows: RpParsedRow[], gstin: string, period: string,
-  opts: { marketplaceOf?: Record<string, string> } = {},
+  opts: {
+    marketplaceOf?: Record<string, string>
+    /** Invoice number → value (paise) of sales found in earlier periods,
+     *  for returns whose sale is not in these rows. */
+    originalValues?: Record<string, number>
+  } = {},
 ): Gstr1BuildResult {
   const sellerStateCode = gstinStateCode(gstin) ?? '00'
   const marketplaceOf = opts.marketplaceOf ?? {}
@@ -229,6 +254,7 @@ export function buildFromRows(
     else if (r.txType === 'cancel' || r.txType === 'refund') returnValue.set(r.invoiceNumber, (returnValue.get(r.invoiceNumber) ?? 0) + Math.abs(r.invoiceAmount))
   }
   const b2clInvoices = new Map<string, B2clEntry['inv'][number]>()
+  const unknownOriginals = new Set<string>()
 
   const addB2cs = (pos: string, ratePct: number, splyTy: 'INTRA' | 'INTER', sign: 1 | -1, t: Totals) => {
     const key = `${pos}|${ratePct}|${splyTy}`
@@ -267,7 +293,9 @@ export function buildFromRows(
       // Every other B2C return reduces Table 7 (B2CS) of this period —
       // B2CS is reported net. When the original invoice is not in this
       // period's rows, the returned value stands in for it.
-      const original = r.invoiceNumber ? (invoiceValue.get(r.invoiceNumber) ?? returnValue.get(r.invoiceNumber) ?? 0) : Math.abs(r.invoiceAmount)
+      const known = r.invoiceNumber ? (invoiceValue.get(r.invoiceNumber) ?? opts.originalValues?.[r.invoiceNumber]) : undefined
+      const original = known ?? (r.invoiceNumber ? (returnValue.get(r.invoiceNumber) ?? 0) : Math.abs(r.invoiceAmount))
+      if (known === undefined && !intra) unknownOriginals.add(r.invoiceNumber ?? r.creditNoteNumber ?? '(no number)')
       if (!intra && original > B2CL_THRESHOLD_PAISE) {
         if (!r.creditNoteNumber) {
           counts.excluded_other++
@@ -344,6 +372,10 @@ export function buildFromRows(
       bucket.samt = round2(bucket.samt + sign * t.samt)
       bucket.csamt = round2(bucket.csamt + sign * t.csamt)
     }
+  }
+  if (unknownOriginals.size) {
+    const list = [...unknownOriginals]
+    warnings.push(`${list.length} inter-state return(s) have no original sale in the uploaded files (${list.slice(0, 5).join(', ')}${list.length > 5 ? ', …' : ''}). They are netted in B2CS; if the original invoice was over ₹1 lakh, report the return in CDNUR (Table 9B) instead.`)
   }
   const hsnList = [...hsn.values()].filter((h) => h.qty !== 0 || h.txval !== 0)
   hsnList.forEach((h, i) => { h.num = i + 1 })

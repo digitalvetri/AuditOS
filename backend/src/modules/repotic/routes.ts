@@ -100,7 +100,8 @@ repoticRouter.get('/marketplaces', handler(async (req, res) => {
   }>()
   if (clientId && gstin && period) {
     const rows = await prisma.rpEcommerceUpload.findMany({
-      where: { organisationId, clientId, gstin, period, deletedAt: null },
+      // A replaced file is history, not the report's state.
+      where: { organisationId, clientId, gstin, period, deletedAt: null, status: { not: 'superseded' } },
       orderBy: { uploadedAt: 'desc' },
     })
     // Prefer the most recent USABLE upload per (marketplace, report)
@@ -111,15 +112,20 @@ repoticRouter.get('/marketplaces', handler(async (req, res) => {
     // attempt is no_match, surface the latest no_match so the UI can offer
     // manual mapping.
     const USABLE = new Set(['matched', 'drifted', 'auto_detected'])
+    const usableKeys = new Set<string>()
     for (const r of rows) {
       const key = `${r.marketplace}:${r.reportKind}`
       const existing = uploadsByKey.get(key)
-      const isUsable = USABLE.has(r.detectStatus)
-      if (existing && USABLE.has(existing.detectStatus)) continue
+      // Usable = recognised AND parsed (a file whose parse failed or that
+      // lacked a needed column is kept but not built).
+      const isUsable = USABLE.has(r.detectStatus) && r.status === 'parsed'
+      if (existing && usableKeys.has(key)) continue
       if (existing && !isUsable) continue
+      if (isUsable) usableKeys.add(key)
       uploadsByKey.set(key, {
         rows: r.rowCount,
-        detectStatus: r.detectStatus,
+        // An upload that was recognised but not usable reads as no_match.
+        detectStatus: isUsable || !USABLE.has(r.detectStatus) ? r.detectStatus : 'no_match',
         adapterVersion: r.adapterVersion,
         typeCounts: r.typeCountsJson ? (JSON.parse(r.typeCountsJson) as Record<string, number>) : null,
         drift: r.driftJson ? (JSON.parse(r.driftJson) as { newColumns: string[]; missingColumns: string[] }) : null,
@@ -294,13 +300,23 @@ repoticRouter.post('/ecommerce/uploads', (req, res, next) => {
               marketplace,
             })
             parseOutcome = { rows: out.rowsWritten, typeCounts: out.typeCounts, warnings: out.warnings }
-            // One current upload per (scope, marketplace, report): a
-            // corrected file replaces the earlier one instead of adding to
-            // it. The earlier rows stay for the record but are not built.
-            await prisma.rpEcommerceUpload.updateMany({
-              where: { organisationId, clientId, gstin, period, marketplace, reportKind, deletedAt: null, id: { not: row.id }, status: { not: 'superseded' } },
-              data: { status: 'superseded' },
-            })
+            const broken = out.rowsWritten === 0 || out.warnings.some((w) => /not found/.test(w))
+            if (broken) {
+              // A worse file never replaces a good one: it is kept, marked
+              // unusable, and the earlier upload stays current.
+              await prisma.rpEcommerceUpload.update({
+                where: { id: row.id },
+                data: { status: 'errored', errorMessage: `Not used: ${out.warnings.join('; ') || 'no rows read'}.` },
+              })
+            } else {
+              // One current upload per (scope, marketplace, report): a
+              // corrected file replaces the earlier one instead of adding to
+              // it. The earlier rows stay for the record but are not built.
+              await prisma.rpEcommerceUpload.updateMany({
+                where: { organisationId, clientId, gstin, period, marketplace, reportKind, deletedAt: null, id: { not: row.id }, status: { not: 'superseded' } },
+                data: { status: 'superseded' },
+              })
+            }
           } catch (parseErr) {
             await prisma.rpEcommerceUpload.update({
               where: { id: row.id },

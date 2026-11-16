@@ -168,6 +168,9 @@ describe('Amazon MTR → GSTR-1', () => {
     expect(del.status).toBe(200)
     p = await portal()
     expect(p.b2cs ?? []).toEqual([])
+    // The replaced file does not show as the report's upload either.
+    const mps = (await get(`/api/repotic/marketplaces?client_id=${clientId}&gstin=${SELLER}&period=2025-12`)).body.data.items
+    expect(mps.find((m: any) => m.key === 'amazon').reports.find((r: any) => r.key === 'mtr_b2c').upload).toBeUndefined()
     expect((await get(`/api/repotic/ecommerce/uploads?client_id=${clientId}&gstin=${SELLER}&period=2025-12`)).body.data.items).toHaveLength(1)
 
     // The same file again is the current upload once more.
@@ -180,6 +183,35 @@ describe('Amazon MTR → GSTR-1', () => {
     expect((await upload(mtr(), { gstin: 'NOTAGSTIN' })).status).toBe(400)
     expect((await upload(mtr(), { gstin: SELLER.slice(0, 14) + (SELLER[14] === 'A' ? 'B' : 'A') })).status).toBe(400)
     expect((await get(`/api/repotic/ecommerce/gstr1?client_id=${clientId}&gstin=NOTAGSTIN&period=2025-12`)).status).toBe(400)
+  })
+})
+
+describe('current upload and earlier-period returns', () => {
+  const big = (date: string, extra: R = {}): R => ({ 'Seller Gstin': SELLER, 'Invoice Number': 'BIG-1', 'Invoice Date': date, 'Transaction Type': 'Shipment', Quantity: 1, 'Hsn/sac': '6109', 'Ship To State': 'MAHARASHTRA',
+    'Invoice Amount': 141600, 'Tax Exclusive Gross': 120000, 'Igst Rate': 0.18, 'Igst Tax': 21600, ...extra })
+  const csv = (rows: R[]) => [HEAD.join(','), ...rows.map(line)].join('\n')
+
+  it('a return of an earlier month\'s B2C-large invoice goes to CDNUR', async () => {
+    expect((await upload(csv([big('2026-04-20')]), { period: '2026-04' })).status).toBe(201)
+    const ret = big('2026-04-20', { 'Transaction Type': 'Refund', 'Invoice Amount': -11800, 'Tax Exclusive Gross': -10000, 'Igst Tax': -1800, 'Credit Note No': 'CN-M1', 'Credit Note Date': '2026-05-03' })
+    expect((await upload(csv([ret]), { period: '2026-05' })).status).toBe(201)
+    const p = (await get(`/api/repotic/ecommerce/gstr1?client_id=${clientId}&gstin=${SELLER}&period=2026-05&download=1`)).body
+    expect(p.b2cs).toEqual([])
+    expect(p.cdnur).toEqual([expect.objectContaining({ typ: 'B2CL', nt_num: 'CN-M1', val: 11800, pos: '27' })])
+  })
+
+  it('a file with no rows does not replace the good one', async () => {
+    const r = await upload(HEAD.join(',') + '\n', { period: '2026-04' })
+    expect(r.status).toBe(201)
+    const p = (await get(`/api/repotic/ecommerce/gstr1?client_id=${clientId}&gstin=${SELLER}&period=2026-04&download=1`)).body
+    expect(p.b2cl).toHaveLength(1)
+  })
+
+  it('two uploads both left current (from before superseding existed) do not double', async () => {
+    // Undo the supersede the second upload did, as in data from before this rule.
+    await prisma.rpEcommerceUpload.updateMany({ where: { clientId, period: '2025-12', status: 'superseded', deletedAt: null }, data: { status: 'parsed' } })
+    const p = (await get(`/api/repotic/ecommerce/gstr1?client_id=${clientId}&gstin=${SELLER}&period=2025-12&download=1`)).body
+    expect(p.b2cs.find((e: any) => e.pos === '33')).toMatchObject({ txval: 1150 })
   })
 })
 
