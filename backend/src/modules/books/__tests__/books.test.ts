@@ -2,8 +2,8 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
 import type { Server } from 'node:http'
 import { createApp } from '../../../app.js'
 import { signToken } from '../../../platform/auth.js'
-import { MATRIX } from '../../../platform/rbac/matrix.js'
 import { prisma, uid } from '../../../__tests__/helpers.js'
+import { setupRoles } from '../../../../prisma/setup-roles.js'
 import { resetBooksConfigForTests } from '../config.js'
 import { clearBooksCacheForTests, setBooksFetchForTests } from '../client.js'
 
@@ -87,18 +87,10 @@ let firmId = ''
 let admin = { id: '', cookie: '' }
 let employee = { id: '', cookie: '' }
 
-async function seedRole(code: keyof typeof MATRIX) {
-  for (const g of MATRIX[code]) {
-    await prisma.permission.upsert({ where: { code: g.permission }, update: {}, create: { id: `perm-${g.permission}`, code: g.permission, description: g.permission } })
-  }
-  const role = await prisma.role.upsert({ where: { code }, update: {}, create: { id: `role-${code}`, code, name: code } })
-  await prisma.rolePermission.deleteMany({ where: { roleId: role.id } })
-  for (const g of MATRIX[code]) {
-    await prisma.rolePermission.create({ data: { roleId: role.id, permissionId: `perm-${g.permission}`, scope: g.scope } }).catch(() => undefined)
-  }
-  return role
-}
-async function mkUser(roleId: string) {
+/** Role ids as a deployed firm has them: the module grants written by setupRoles. */
+let roleIds: Record<string, string> = {}
+async function mkUser(code: string) {
+  const roleId = roleIds[code]
   const u = await prisma.user.create({ data: { id: uid('u'), organisationId: firmId, email: `${uid('e')}@x.local`, passwordHash: 'x', roleId } })
   return { id: u.id, cookie: `ao_access=${signToken(u.id)}` }
 }
@@ -114,8 +106,15 @@ async function api(path: string, opts: { method?: string; cookie?: string; body?
   try { body = text ? JSON.parse(text) : null } catch { body = text }
   return { status: res.status, body, text, location: res.headers.get('location') }
 }
-async function mkClient(name: string) {
-  return prisma.client.create({ data: { id: uid('cli'), organisationId: firmId, clientCode: uid('CLI'), companyName: name, contactPerson: 'C', contactNumber: '9840011111', accountManagerId: uid('emp'), onboardingDate: '2026-01-01' } })
+async function mkClient(name: string, accountManagerId = uid('emp')) {
+  return prisma.client.create({ data: { id: uid('cli'), organisationId: firmId, clientCode: uid('CLI'), companyName: name, contactPerson: 'C', contactNumber: '9840011111', accountManagerId, onboardingDate: '2026-01-01' } })
+}
+/** A login with an employee record, so clients can be assigned to them. */
+async function mkStaff(code: string) {
+  const ws = (await prisma.workSchedule.findFirst()) ?? await prisma.workSchedule.create({ data: { organisationId: firmId, name: 'Std', standardStart: '09:30', standardEnd: '18:30' } })
+  const emp = await prisma.employee.create({ data: { organisationId: firmId, employeeCode: uid('BK'), firstName: 'S', lastName: code, fullName: `S ${code}`, email: `${uid('s')}@x.local`, joiningDate: '2026-01-01', workScheduleId: ws.id } })
+  const u = await prisma.user.create({ data: { id: uid('u'), organisationId: firmId, email: emp.email, passwordHash: 'x', roleId: roleIds[code], employeeId: emp.id } })
+  return { id: u.id, employeeId: emp.id, cookie: `ao_access=${signToken(u.id)}` }
 }
 
 /** Connect end-to-end through the real routes; returns the activated org ref. */
@@ -131,6 +130,8 @@ async function connectAndActivate(): Promise<string> {
 }
 
 beforeAll(async () => {
+  await setupRoles(prisma, { force: true })
+  roleIds = Object.fromEntries((await prisma.role.findMany()).map((r) => [r.code, r.id]))
   server = createApp().listen(0)
   await new Promise((r) => server.once('listening', r))
   const addr = server.address()
@@ -145,8 +146,8 @@ beforeEach(async () => {
   clearBooksCacheForTests()
   const firm = await prisma.organisation.create({ data: { id: uid('firm'), name: 'Firm' } })
   firmId = firm.id
-  admin = await mkUser((await seedRole('md')).id)
-  employee = await mkUser((await seedRole('employee')).id)
+  admin = await mkUser('md')
+  employee = await mkUser('employee')
 })
 
 describe('Books — OAuth', () => {
@@ -261,9 +262,71 @@ describe('Books — connect with a Self Client code', () => {
 })
 
 describe('Books — permissions and organisations', () => {
-  it('an employee cannot open Books', async () => {
-    expect((await api('/api/books/status', { cookie: employee.cookie })).status).toBe(403)
+  it('an Associate can view Books but holds no edit permission, and sees no unassigned organisation', async () => {
+    await connectAndActivate()
+    const r = await api('/api/books/status', { cookie: employee.cookie })
+    expect(r.status).toBe(200)
+    expect(r.body.data.permissions).toEqual({ manage: false, accountant: false, settings: false, reports: true })
+    expect(r.body.data.organizations).toEqual([])
   })
+
+  // Roles exactly as production has them (setupRoles). Associates and Interns
+  // hold no Books code at all; Admin, Super Admin and Senior Associate hold
+  // every one. Each write below reached Zoho for an Intern before the fix.
+  const WRITES: { label: string; method: string; path: (ref: string) => string; body?: unknown }[] = [
+    { label: 'invoice delete', method: 'DELETE', path: (r) => `/api/books/o/${r}/e/invoices/1001` },
+    { label: 'invoice void', method: 'POST', path: (r) => `/api/books/o/${r}/e/invoices/1001/a/void` },
+    { label: 'tax delete', method: 'DELETE', path: (r) => `/api/books/o/${r}/e/taxes/55` },
+    { label: 'period unlock', method: 'POST', path: (r) => `/api/books/o/${r}/transactionlock/77/unlock`, body: { reason: 'Correct a filed invoice' } },
+    { label: 'bulk move', method: 'PUT', path: (r) => `/api/books/o/${r}/registers/5/bulkupdate`, body: { account_id: '6', reason: 'Wrong account', entities: [{ entity_id: '1', entity_type: 'invoice' }] } },
+  ]
+  function acceptWrites() {
+    overrides.push((url, init) => {
+      const p = url.pathname.replace('/books/v3/', '')
+      const m = init.method ?? 'GET'
+      if (m === 'DELETE' && (p === 'invoices/1001' || p === 'settings/taxes/55' || p === 'transactionlock')) return { json: { code: 0, message: 'Deleted.' } }
+      if (m === 'PUT' && p === 'registers/5/transactions/bulkupdate') return { json: { code: 0, message: 'Updated.' } }
+      return undefined
+    })
+  }
+
+  for (const role of ['intern', 'employee'] as const) {
+    it(`${role}: 403 on every Books write and on Books settings for an assigned client, nothing reaches Zoho`, async () => {
+      const ref = await connectAndActivate()
+      acceptWrites()
+      const who = await mkStaff(role)
+      const codes = (await prisma.rolePermission.findMany({ where: { roleId: roleIds[role] }, include: { permission: true } }))
+        .map((rp) => rp.permission.code).filter((c) => c.startsWith('books.')).sort()
+      expect(codes).toEqual(['books.access', 'books.reports'])
+      // Their client: reads work, so every 403 below is the permission, not visibility.
+      const client = await mkClient('Assigned Co', who.employeeId)
+      expect((await api(`/api/books/organizations/${ref}`, { method: 'PATCH', cookie: admin.cookie, body: { client_id: client.id } })).status).toBe(200)
+      expect((await api(`/api/books/o/${ref}/e/invoices`, { cookie: who.cookie })).status).toBe(200)
+      const before = calls.length
+      for (const w of WRITES) {
+        const r = await api(w.path(ref), { method: w.method, cookie: who.cookie, body: w.body })
+        expect(r.status, w.label).toBe(403)
+      }
+      expect((await api(`/api/books/organizations/${ref}`, { method: 'PATCH', cookie: who.cookie, body: { is_active: false } })).status).toBe(403)
+      expect((await api(`/api/books/o/${ref}/e/taxes`, { method: 'POST', cookie: who.cookie, body: { tax_name: 'X', tax_percentage: 5 } })).status).toBe(403)
+      expect((await api(`/api/books/o/${ref}/e/invoices`, { method: 'POST', cookie: who.cookie, body: { customer_id: '11' } })).status).toBe(403)
+      expect(calls.length).toBe(before)
+    })
+  }
+
+  for (const role of ['dept_manager', 'hr_admin', 'md'] as const) {
+    it(`${role}: Books writes go through`, async () => {
+      const ref = await connectAndActivate()
+      acceptWrites()
+      const who = await mkUser(role)
+      for (const w of WRITES) {
+        const r = await api(w.path(ref), { method: w.method, cookie: who.cookie, body: w.body })
+        expect(r.status, `${w.label}: ${r.text}`).toBe(200)
+      }
+      expect(calls.some((c) => c.method === 'DELETE' && c.url.pathname.endsWith('/settings/taxes/55'))).toBe(true)
+      expect(calls.some((c) => c.method === 'PUT' && c.url.pathname.endsWith('/registers/5/transactions/bulkupdate'))).toBe(true)
+    })
+  }
 
   it('maps a client to one organisation only', async () => {
     const ref = await connectAndActivate()
