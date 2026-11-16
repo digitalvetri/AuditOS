@@ -4,6 +4,7 @@ import { createApp } from '../../../app.js'
 import { signToken } from '../../../platform/auth.js'
 import { prisma, setFirmGstin, uid } from '../../../__tests__/helpers.js'
 import { setupRoles } from '../../../../prisma/setup-roles.js'
+import { istToday } from '../../../lib/dates.js'
 
 /**
  * Billing powers by role (roles from setupRoles):
@@ -52,7 +53,7 @@ async function sentInvoice(cookie: string) {
   const r = await api('/api/invoices', cookie, {
     method: 'POST',
     body: {
-      client_id: clientId, invoice_date: '2026-09-01', terms: 'net_15', place_of_supply: 'Tamil Nadu', is_inter_state: false,
+      client_id: clientId, invoice_date: istToday(), terms: 'net_15', place_of_supply: 'Tamil Nadu', is_inter_state: false,
       items: [{ item_name: 'Audit fee', hsn_sac: '998221', quantity_centi: 100, rate_paise: 10_000_00, gst_rate_percent: 18 }],
     },
   })
@@ -65,7 +66,7 @@ async function sentInvoice(cookie: string) {
 async function draftCredit(cookie: string, invoiceId: string, taxable = 10_000_00) {
   const r = await api('/api/credit-notes', cookie, {
     method: 'POST',
-    body: { invoice_id: invoiceId, note_date: '2026-09-12', reason: 'fee_reduction', lines: [{ description: 'Fee waived', sac_code: '998222', taxable_paise: taxable, gst_rate: 18 }] },
+    body: { invoice_id: invoiceId, note_date: istToday(), reason: 'fee_reduction', lines: [{ description: 'Fee waived', sac_code: '998222', taxable_paise: taxable, gst_rate: 18 }] },
   })
   expect(r.status, JSON.stringify(r.body)).toBe(201)
   return r.body.id as string

@@ -557,6 +557,7 @@ export const InvoiceService = {
   async cancel(session: Session, scope: Scope, id: string, reason?: string): Promise<SerializedInvoice> {
     const inv = await this.get(session, scope, id)
     assertTransition(inv.stored_status as InvoiceStatus, 'cancelled', inv.invoice_number)
+    if (inv.invoice_number) assertCancellablePeriod(inv.invoice_number, inv.invoice_date, istToday())
     // Cancelling would leave money received against an invoice nobody owes.
     // The checks run under the same per-invoice lock addPayment and credit-note
     // issue take, and the status flip is a conditional claim on the status
@@ -770,6 +771,38 @@ export async function sendInvoiceTx(tx: Prisma.TransactionClient, id: string, us
     throw ApiError.conflict('invalid_transition', 'This invoice has already been sent.')
   }
   return invoiceNumber
+}
+
+/** 'YYYY-MM-DD' → the GSTR-1 due date of its month: the 11th of the next month. */
+export function gstr1DueDate(invoiceDate: string): string {
+  const y = Number(invoiceDate.slice(0, 4))
+  const m = Number(invoiceDate.slice(5, 7))
+  const ny = m === 12 ? y + 1 : y
+  const nm = m === 12 ? 1 : m + 1
+  return `${ny}-${String(nm).padStart(2, '0')}-11`
+}
+
+const fyOf = (d: string) => (Number(d.slice(5, 7)) >= 4 ? Number(d.slice(0, 4)) : Number(d.slice(0, 4)) - 1)
+
+/**
+ * A sent invoice may be cancelled only while it cannot yet have been reported:
+ * in the current financial year and on or before the GSTR-1 due date of its
+ * month (11th of the next month — the monthly filer's date, the earlier of the
+ * two, since the app does not track the firm's own GSTR-1 filings). After
+ * that it is in (or due in) a return, and is reversed by a credit note.
+ * Drafts have no number and are always cancellable.
+ */
+function assertCancellablePeriod(invoiceNumber: string, invoiceDate: string, today: string) {
+  const due = gstr1DueDate(invoiceDate)
+  if (fyOf(invoiceDate) < fyOf(today) || today > due) {
+    throw ApiError.conflict(
+      'cancel_needs_credit_note',
+      fyOf(invoiceDate) < fyOf(today)
+        ? `Invoice ${invoiceNumber} is from an earlier financial year and has been reported in GST returns. Issue a credit note instead of cancelling it.`
+        : `Invoice ${invoiceNumber}'s GSTR-1 was due on ${due}, so it may already be reported. Issue a credit note instead of cancelling it.`,
+      { gstr1_due_date: due },
+    )
+  }
 }
 
 function assertTransition(from: InvoiceStatus, to: InvoiceStatus, number: string | null) {

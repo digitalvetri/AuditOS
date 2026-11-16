@@ -4,6 +4,7 @@ import { createHmac, randomBytes } from 'node:crypto'
 import { createApp } from '../../../app.js'
 import { signToken } from '../../../platform/auth.js'
 import { prisma, setFirmGstin, uid } from '../../../__tests__/helpers.js'
+import { istToday } from '../../../lib/dates.js'
 import { setupRoles } from '../../../../prisma/setup-roles.js'
 import { decryptPortalSecret } from '../../../platform/portalCrypto.js'
 import { __setGatewayFetchForTests, rupeesToPaise, verifyCashfreeSignature, verifyRazorpaySignature } from '../gateways.js'
@@ -70,7 +71,7 @@ async function user(code: string) {
 async function sentInvoice() {
   const d = await api('/api/invoices', {
     method: 'POST',
-    body: { client_id: clientId, invoice_date: '2026-10-01', terms: 'net_15', place_of_supply: 'Tamil Nadu', items: [{ item_name: 'Audit fee', hsn_sac: '998221', quantity_centi: 100, rate_paise: 10_000_00, gst_rate_percent: 18 }] },
+    body: { client_id: clientId, invoice_date: istToday(), terms: 'net_15', place_of_supply: 'Tamil Nadu', items: [{ item_name: 'Audit fee', hsn_sac: '998221', quantity_centi: 100, rate_paise: 10_000_00, gst_rate_percent: 18 }] },
   })
   expect(d.status).toBe(201)
   const s = await api(`/api/invoices/${d.body.id}/send`, { method: 'POST' })

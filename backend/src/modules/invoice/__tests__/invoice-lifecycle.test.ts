@@ -4,6 +4,7 @@ import { createApp } from '../../../app.js'
 import { signToken } from '../../../platform/auth.js'
 import { prisma, setFirmGstin, uid } from '../../../__tests__/helpers.js'
 import { setupRoles } from '../../../../prisma/setup-roles.js'
+import { istToday } from '../../../lib/dates.js'
 
 /**
  * The invoice lifecycle rules that live on the server:
@@ -44,7 +45,7 @@ async function adminCookie() {
 
 const body = (extra: Record<string, unknown> = {}) => ({
   client_id: clientId,
-  invoice_date: '2026-10-01',
+  invoice_date: istToday(),
   terms: 'net_15', place_of_supply: 'Tamil Nadu',
   items: [{ item_name: 'Audit fee', hsn_sac: '998221', quantity_centi: 100, rate_paise: 10_000_00, gst_rate_percent: 18 }],
   ...extra,
