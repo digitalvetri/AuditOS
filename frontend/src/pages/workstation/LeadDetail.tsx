@@ -96,7 +96,10 @@ function LeadBody({ lead }: { lead: Lead }) {
   });
 
   const canManage = can(role, 'workstation.lead.manage', 'self');
-  const canConvert = can(role, 'workstation.lead.convert', 'self');
+  // Your own lead needs lead.convert; someone else's needs it at organisation
+  // scope (Senior Associate and above).
+  const ownLead = !!session?.employee?.id && lead.assigned_employee_id === session.employee.id;
+  const canConvert = can(role, 'workstation.lead.convert', ownLead ? 'self' : 'organisation');
   const canFollowUp = can(role, 'workstation.followup.manage', 'self');
   const next = NEXT[lead.status];
 

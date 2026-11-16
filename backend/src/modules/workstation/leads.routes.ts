@@ -1,7 +1,7 @@
 import { Router } from 'express'
 import { prisma, alive } from '../../lib/prisma.js'
 import { ApiError, handler, ok } from '../../lib/http.js'
-import { requireSession } from '../../platform/auth.js'
+import { can, requireSession } from '../../platform/auth.js'
 import { writeAudit } from '../../platform/audit.js'
 import { notifyEmployee } from '../../platform/notify.js'
 import { writeActivity } from '../../platform/workstation/activity.js'
@@ -166,6 +166,15 @@ leadsRouter.patch('/:id', handler(async (req, res) => {
 
   const before = await prisma.lead.findFirst({ where: { id: req.params.id, ...alive } })
   if (!before) throw ApiError.notFound('Lead not found.')
+  // Reassigning a lead someone else holds is a manager's call (it would let
+  // anyone take a colleague's lead and convert it): lead.convert at
+  // organisation scope — Senior Associate and above. Handing over your own
+  // lead is fine.
+  if ('assigned_employee_id' in b && b.assigned_employee_id !== before.assignedEmployeeId
+    && before.assignedEmployeeId !== session.employeeId
+    && !can(session, 'workstation.lead.convert', 'organisation')) {
+    throw ApiError.forbidden('Only a Senior Associate or a partner can reassign a colleague’s lead.')
+  }
 
   const v = new FieldErrors()
   const data: Record<string, unknown> = {}

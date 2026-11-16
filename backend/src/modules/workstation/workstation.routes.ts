@@ -1,7 +1,7 @@
 import { Router } from 'express'
 import { prisma, alive } from '../../lib/prisma.js'
 import { handler, ok } from '../../lib/http.js'
-import { requireSession } from '../../platform/auth.js'
+import { requireSession, type Session } from '../../platform/auth.js'
 import {
   clientIdWhere, clientScopeWhere, followUpScopeWhere, leadScopeWhere, requireWorkstation, workstationScope,
 } from '../../platform/workstation/scope.js'
@@ -31,6 +31,17 @@ function istDayBounds() {
   return { now, start, end: new Date(start.getTime() + 86_400_000) }
 }
 
+/**
+ * Leads have their own scope (an Intern's are only their own), so the
+ * dashboard and search take it from workstation.lead.read / manage — not from
+ * workstation.access, which is firm-wide for every Workstation user.
+ */
+async function leadsVisibleWhere(session: Session) {
+  const leadScope = workstationScope(session, 'workstation.lead.read', 'workstation.lead.manage')
+  if (!leadScope) return { id: '__none__' }
+  return leadScopeWhere(session, leadScope)
+}
+
 // GET /api/workstation/dashboard
 workstationRouter.get('/dashboard', handler(async (req, res) => {
   const session = requireSession(req)
@@ -40,7 +51,7 @@ workstationRouter.get('/dashboard', handler(async (req, res) => {
   const today = new Date().toISOString().slice(0, 10)
   const soon = new Date(Date.now() + 7 * 86_400_000).toISOString().slice(0, 10)
 
-  const leadWhere = { ...alive, ...(await leadScopeWhere(session, scope)) }
+  const leadWhere = { ...alive, ...(await leadsVisibleWhere(session)) }
   const clientWhere = { ...alive, ...(await clientIdWhere(session, scope)) }
   const serviceWhere = { ...alive, ...(await clientScopeWhere(session, scope)) }
   const followWhere = { ...alive, ...(await followUpScopeWhere(session, scope)) }
@@ -150,7 +161,7 @@ workstationRouter.get('/search', handler(async (req, res) => {
   const [leads, clients, services, followUps, documents] = await Promise.all([
     prisma.lead.findMany({
       where: {
-        ...alive, ...(await leadScopeWhere(session, scope)),
+        ...alive, ...(await leadsVisibleWhere(session)),
         OR: [{ name: { contains: q, mode: 'insensitive' as const } }, { leadCode: { contains: q, mode: 'insensitive' as const } }, { contactNumber: { contains: q, mode: 'insensitive' as const } }],
       },
       include: { service: true }, take: 10,
