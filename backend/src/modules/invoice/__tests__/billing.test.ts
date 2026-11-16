@@ -231,6 +231,19 @@ describe('credit notes', () => {
     expect((await api(`/api/credit-notes/creditable/${inv.id}`)).body).toMatchObject({ creditable_paise: 10_000_00, balance_due_paise: 0 })
   })
 
+  it('refuses a line at a GST rate the invoice did not charge, on create and on update', async () => {
+    const inv = await sentInvoice()
+    const bad = await api('/api/credit-notes', { method: 'POST', body: { invoice_id: inv.id, note_date: '2026-09-05', reason: 'discount', lines: [{ description: 'x', taxable_paise: 100_00, gst_rate: 12 }] } })
+    expect(bad.status).toBe(400)
+    expect(JSON.stringify(bad.body)).toContain('18%')
+
+    const ok = await api('/api/credit-notes', { method: 'POST', body: { invoice_id: inv.id, note_date: '2026-09-05', reason: 'discount', lines: [{ description: 'x', taxable_paise: 100_00, gst_rate: 18 }] } })
+    expect(ok.status).toBe(201)
+    const upd = await api(`/api/credit-notes/${ok.body.id}`, { method: 'PUT', body: { note_date: '2026-09-05', reason: 'discount', lines: [{ description: 'x', taxable_paise: 100_00, gst_rate: 5 }] } })
+    expect(upd.status).toBe(400)
+    expect((await api(`/api/credit-notes/${ok.body.id}`)).body.lines[0].gst_rate).toBe(18)
+  })
+
   it('accepts the GST 2.0 40% slab', async () => {
     const r = await api('/api/invoices', { method: 'POST', body: { client_id: clientId, invoice_date: '2026-09-25', terms: 'net_15', is_inter_state: false, items: [{ item_name: 'Fee', quantity_centi: 100, rate_paise: 1_000_00, gst_rate_percent: 40 }] } })
     expect(r.status).toBe(201)

@@ -151,9 +151,22 @@ async function creditLimit(tx: Tx | typeof prisma, invoiceId: string, excludeId?
   return Math.max(0, inv.totalPaise - credited)
 }
 
-function assertLines(lines: CreditLineInput[]) {
+/**
+ * Each line must credit at a GST rate the invoice actually charged — a credit
+ * note reverses tax that was levied, so it cannot carry a rate the invoice
+ * never used (s.34: the note corrects THAT invoice). 400 otherwise.
+ */
+function assertLines(lines: CreditLineInput[], invoiceRates: number[]) {
   if (lines.length === 0) throw ApiError.badRequest('A credit note needs at least one line.')
   if (lines.some((l) => l.taxablePaise <= 0)) throw ApiError.badRequest('Each line must credit more than zero.')
+  const allowed = [...new Set(invoiceRates)].sort((a, b) => a - b)
+  const bad = lines.find((l) => !allowed.includes(l.gstRate))
+  if (bad) {
+    throw ApiError.badRequest(
+      `GST rate ${bad.gstRate}% was not charged on this invoice. A credit note line must use a rate from the invoice (${allowed.map((r) => `${r}%`).join(', ')}).`,
+      { allowed_gst_rates: allowed },
+    )
+  }
 }
 
 export const CreditNoteService = {
@@ -224,7 +237,7 @@ export const CreditNoteService = {
     if (!CREDITABLE.includes(inv.stored_status)) {
       throw ApiError.conflict('invoice_not_creditable', 'A credit note can only be raised against a sent, partially paid or paid invoice.')
     }
-    assertLines(input.lines)
+    assertLines(input.lines, inv.items.map((i) => i.gst_rate_percent))
     const t = creditTotals(input.lines, inv.is_inter_state)
     const remaining = await creditLimit(prisma, invoiceId)
     if (t.totalPaise > remaining) throw overLimit(remaining)
@@ -256,7 +269,8 @@ export const CreditNoteService = {
   async update(session: Session, scope: Scope, id: string, input: CreditNoteInput): Promise<SerializedCreditNote> {
     const n = await this.get(session, scope, id)
     if (n.status !== 'draft') throw ApiError.conflict('credit_note_not_editable', `Credit note ${n.display_number} has been issued and cannot be edited.`)
-    assertLines(input.lines)
+    const inv = await InvoiceService.get(session, scope, n.invoice_id)
+    assertLines(input.lines, inv.items.map((i) => i.gst_rate_percent))
     const t = creditTotals(input.lines, n.is_inter_state)
     const remaining = await creditLimit(prisma, n.invoice_id, id)
     if (t.totalPaise > remaining) throw overLimit(remaining)
