@@ -248,3 +248,19 @@ describe('dataReminderBody', () => {
     expect(body).not.toContain('/portal/')
   })
 })
+
+describe('GET /api/gst/filing-board', () => {
+  it('lists enrolled clients with their two jobs and Needs setup clients', async () => {
+    const c = await gstClient()
+    const bare = await gstClient({ gstin: null })
+    const blank = await gstClient({ gstin: '' })
+    await generateGstFilingJobs(prisma, '2026-11-05')
+    const r = await api('/api/gst/filing-board?period=2026-10')
+    expect(r.status).toBe(200)
+    const row = r.body.rows.find((x: any) => x.client_id === c.id)
+    expect(row).toMatchObject({ data_status: 'pending', gstr1: { status: 'pending' }, gstr3b: { status: 'pending' } })
+    expect(r.body.needs_setup.some((x: any) => x.client_id === bare.id)).toBe(true)
+    expect(r.body.needs_setup.some((x: any) => x.client_id === blank.id)).toBe(true)
+    expect(r.body.tiles.clients).toBeGreaterThanOrEqual(1)
+  })
+})

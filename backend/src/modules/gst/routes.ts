@@ -28,7 +28,7 @@ import {
   nextDueOf, today, writeGstAudit,
 } from './service.js'
 import { env } from '../../lib/env.js'
-import { setDataStatus, dataReminderBody } from './filing.js'
+import { setDataStatus, dataReminderBody, previousPeriod, GST_FILING_SERVICE_CODE } from './filing.js'
 import { openCase } from '../partnership/service.js'
 import { TaskService } from '../task/service.js'
 import {
@@ -69,6 +69,77 @@ const str = (q: unknown) => (typeof q === 'string' && q ? q : null)
 // the right day (13/22, not 11/20).
 
 // ── Dashboard ──────────────────────────────────────────────────────────────
+
+/** GET /api/gst/filing-board?period=YYYY-MM — Services → GST Filing. */
+gstRouter.get('/filing-board', handler(async (req, res) => {
+  const session = requireSession(req)
+  const scope = requireWorkstation(session, ...READ)
+  const t = today()
+  const q = typeof req.query.period === 'string' ? req.query.period : ''
+  const period = /^\d{4}-\d{2}$/.test(q) ? q : previousPeriod(t)
+  const ids = await assignedClientIds(session, scope)
+  const clientWhere = ids === 'ALL' ? {} : { clientId: { in: ids } }
+
+  const periods = await prisma.gstCompliancePeriod.findMany({
+    where: { ...alive, period, gstProfile: { ...clientWhere, deletedAt: null } },
+    include: { gstProfile: { include: { client: { select: { id: true, companyName: true } } } }, filings: { where: alive } },
+    orderBy: { gstProfile: { client: { companyName: 'asc' } } },
+  })
+  const emp = await employeeMap(periods.map((p) => p.assignedEmployeeId))
+  const DONE = ['filed', 'payment_pending', 'completed']
+  const cell = (f: (typeof periods)[number]['filings'][number] | undefined) => {
+    if (!f) return null
+    const status = normaliseFilingStatus(f.status, f.returnType)
+    const days = daysRemaining(f.dueDate, t)
+    return {
+      status, due_date: f.dueDate, days_left: days, overdue: !DONE.includes(status) && days !== null && days < 0,
+      arn: f.arn, filed_at: f.filedAt ? istDateOf(f.filedAt) : null,
+      net_payable_paise: f.netPayable === null ? null : Number(f.netPayable),
+      challan_ref: f.challanRef, payment_status: f.paymentStatus,
+    }
+  }
+  const rows = periods.map((p) => {
+    const a = p.assignedEmployeeId ? emp.get(p.assignedEmployeeId) : null
+    return {
+      period_id: p.id, client_id: p.gstProfile.client.id, client_name: p.gstProfile.client.companyName,
+      gstin: p.gstProfile.gstin, frequency: p.periodType === 'quarterly' ? 'quarterly' as const : 'monthly' as const,
+      assigned: a ? { id: a.id, name: a.full_name } : null,
+      data_status: p.dataStatus === 'received' ? 'received' as const : 'pending' as const,
+      data_received_at: p.dataReceivedAt?.toISOString() ?? null, data_received_by: p.dataReceivedBy,
+      gstr1: cell(p.filings.find((f) => f.returnType === 'GSTR-1')),
+      gstr3b: cell(p.filings.find((f) => f.returnType === 'GSTR-3B')),
+    }
+  })
+  const isFiled = (c: ReturnType<typeof cell>) => !!c && DONE.includes(c.status)
+
+  // Needs setup: live GST Filing service, no GSTIN (null or blank) on the client.
+  const svc = await prisma.service.findFirst({ where: { code: GST_FILING_SERVICE_CODE, deletedAt: null } })
+  const bare = svc ? await prisma.clientService.findMany({
+    where: {
+      serviceId: svc.id, deletedAt: null, status: { not: 'on_hold' },
+      client: {
+        deletedAt: null, status: { not: 'inactive' }, OR: [{ gstin: null }, { gstin: '' }],
+        ...(ids === 'ALL' ? {} : { id: { in: ids } }),
+      },
+    },
+    select: { client: { select: { id: true, companyName: true } } }, distinct: ['clientId'],
+  }) : []
+
+  ok(res, {
+    period,
+    tiles: {
+      clients: rows.length,
+      data_pending: rows.filter((r) => r.data_status === 'pending').length,
+      gstr1_filed: rows.filter((r) => isFiled(r.gstr1)).length,
+      gstr3b_filed: rows.filter((r) => isFiled(r.gstr3b)).length,
+      overdue: rows.filter((r) => r.gstr1?.overdue || r.gstr3b?.overdue).length,
+    },
+    rows,
+    needs_setup: bare
+      .map((b) => ({ client_id: b.client.id, client_name: b.client.companyName }))
+      .sort((x, y) => x.client_name.localeCompare(y.client_name)),
+  })
+}))
 
 /**
  * GET /api/gst/overview — the §8 summary cards.
