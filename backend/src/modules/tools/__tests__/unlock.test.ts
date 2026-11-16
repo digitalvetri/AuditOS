@@ -23,6 +23,11 @@ describe.skipIf(!qpdf)('Unlock PDF', () => {
     }
   })
 
+  it('removes owner-only restrictions with a blank password', async () => {
+    const out = await PDFService.unlock(await fs.readFile(path.join(path.dirname(fileURLToPath(import.meta.url)), 'fixtures', 'compliance', 'owner-only.pdf')), '')
+    expect((await PDFService.load(out)).isEncrypted).toBe(false)
+  })
+
   it('says so when the password is wrong', async () => {
     await expect(PDFService.unlock(await fixture('locked-aes128.pdf'), 'nope')).rejects.toThrow(/^Incorrect password\.$/)
   })

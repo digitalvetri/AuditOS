@@ -1,5 +1,36 @@
-import { PDFDocument, StandardFonts, rgb } from 'pdf-lib'
+import fs from 'node:fs/promises'
+import { existsSync } from 'node:fs'
+import path from 'node:path'
+import { fileURLToPath } from 'node:url'
+import { PDFDocument, rgb, type PDFFont } from 'pdf-lib'
+// @ts-expect-error fontkit 1.x ships no type declarations; pdf-lib only needs its `create`.
+import fontkit from 'fontkit'
 import { ToolError } from '../errors.js'
+
+/**
+ * Carlito (bundled under backend/assets/fonts, copied into the image) covers
+ * Latin, ₹ and the · separator. Helvetica's WinAnsi encoding covers neither
+ * ₹ nor any Indian script, and failed with a generic error.
+ */
+// src/modules/tools/services/tools → backend/assets; dist/src/… → /app/assets.
+const HERE = path.dirname(fileURLToPath(import.meta.url))
+const FONT_DIR = [path.resolve(HERE, '../../../../../assets/fonts'), path.resolve(HERE, '../../../../../../assets/fonts')]
+  .find((p) => existsSync(path.join(p, 'Carlito-Regular.ttf'))) ?? path.resolve(HERE, '../../../../../assets/fonts')
+let fontBytes: Promise<{ regular: Buffer; bold: Buffer }> | null = null
+const loadFonts = () => (fontBytes ??= Promise.all([
+  fs.readFile(path.join(FONT_DIR, 'Carlito-Regular.ttf')), fs.readFile(path.join(FONT_DIR, 'Carlito-Bold.ttf')),
+]).then(([regular, bold]) => ({ regular, bold })))
+
+/** Refuse, naming the field, when the font cannot draw a character. */
+function checkDrawable(font: PDFFont, label: string, text: string | undefined) {
+  if (!text) return
+  const have = new Set(font.getCharacterSet())
+  const missing = [...new Set([...text].filter((ch) => !/\s/.test(ch) && !have.has(ch.codePointAt(0)!)))]
+  if (missing.length) {
+    throw new ToolError('invalid_options',
+      `${label} has characters the signature mark cannot be drawn with (${missing.slice(0, 5).join(' ')}). Write it in English letters — ₹ and common punctuation are fine.`)
+  }
+}
 
 /**
  * SignatureProvider — the seam a real DSC / ASP integration plugs into.
@@ -67,9 +98,17 @@ export class VisibleMarkProvider implements SignatureProvider {
 
     const page = doc.getPage(req.page - 1)
     const { width, height } = page.getSize()
-    const font = await doc.embedFont(StandardFonts.HelveticaOblique)
-    const fontBold = await doc.embedFont(StandardFonts.HelveticaBold)
-    const fontSmall = await doc.embedFont(StandardFonts.Helvetica)
+    doc.registerFontkit(fontkit)
+    const ttf = await loadFonts()
+    const font = await doc.embedFont(ttf.regular, { subset: true })
+    const fontBold = await doc.embedFont(ttf.bold, { subset: true })
+    const fontSmall = font
+    checkDrawable(font, 'Signer name', req.signerName)
+    checkDrawable(fontBold, 'Signer name', req.signerName)
+    checkDrawable(font, 'Designation', req.designation)
+    checkDrawable(fontBold, 'Designation', req.designation)
+    checkDrawable(font, 'Reason', req.reason)
+    checkDrawable(font, 'Date', req.date)
 
     const boxW = Math.min(220, width * 0.4)
     const hasDrawn = Boolean(req.drawnPng)

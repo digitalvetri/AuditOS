@@ -11,7 +11,15 @@ import type { OptionsProps, ToolUI } from './types';
 import type { LocalFile } from '../workspace/useToolWorkspace';
 
 const pageNote = (f: LocalFile) => (typeof f.doc?.meta.page_count === 'number' ? `${f.doc.meta.page_count} page${f.doc.meta.page_count === 1 ? '' : 's'}` : null);
-const encryptedGuard = (_v: unknown, files: LocalFile[]) => (files.some((f) => f.doc?.meta.encrypted === true) ? 'One of the files is password-protected. Use Unlock PDF first.' : null);
+const encryptedGuard = (_v: unknown, files: LocalFile[]) => {
+  const locked = files.filter((f) => f.doc?.meta.encrypted === true);
+  if (!locked.length) return null;
+  // Owner-password-only files open fine but cannot be rewritten until the restrictions are removed.
+  if (locked.every((f) => f.doc?.meta.owner_only === true)) {
+    return 'One of the files has only print/copy restrictions (no password to open it). Run Unlock PDF on it with the password left blank, then use the unlocked copy.';
+  }
+  return 'One of the files is password-protected. Use Unlock PDF first.';
+};
 
 /* ── Page thumbnails (Split, e-Sign) ───────────────────────────────────── */
 function useThumbs(doc: LocalFile['doc']) {
@@ -177,7 +185,9 @@ function UnlockOptions({ files, value, onChange, disabled }: OptionsProps) {
   return (
     <div className={'space-y-3 ' + (disabled ? 'opacity-60 pointer-events-none' : '')}>
       <TextField label="Password" type="password" autoComplete="off" value={String(value.password ?? '')} onChange={(v) => onChange({ password: v })} className="max-w-[320px]"
-        hint="The password is used once to decrypt this file and is not stored." />
+        hint={doc?.meta.owner_only === true
+          ? 'This PDF has only print/copy restrictions and no password to open it — leave this blank to remove them.'
+          : 'The password is used once to decrypt this file and is not stored.'} />
       <Checkbox checked={value.authorised === true} onChange={(v) => onChange({ authorised: v })}>
         I am authorised to decrypt this document
         <span className="block text-12 text-neutral-500">This confirmation is recorded in the audit trail with your name and the time.</span>
@@ -194,7 +204,7 @@ export const unlockPdfUI: ToolUI = {
   Options: UnlockOptions,
   validate: (v, files) => {
     if (files[0]?.doc?.meta.encrypted === false) return "This PDF isn't password-protected.";
-    if (!String(v.password ?? '')) return 'Enter the password for this PDF.';
+    if (!String(v.password ?? '') && files[0]?.doc?.meta.owner_only !== true) return 'Enter the password for this PDF.';
     if (v.authorised !== true) return 'Confirm you are authorised to decrypt this document.';
     return null;
   },

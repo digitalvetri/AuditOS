@@ -117,7 +117,7 @@ async function inspect(bytes: Buffer, mime: string, name: string): Promise<Recor
   try {
     if (mime === 'application/pdf') {
       const doc = await PDFService.load(bytes)
-      return { page_count: doc.getPageCount(), encrypted: doc.isEncrypted }
+      return { page_count: doc.getPageCount(), encrypted: doc.isEncrypted, ...(doc.isEncrypted ? { owner_only: await PDFService.ownerOnly(bytes) } : {}) }
     }
     if (mime.startsWith('image/')) {
       const info = await ImageService.info(bytes)
