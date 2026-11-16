@@ -25,6 +25,7 @@ import { addDays, istToday } from '../../lib/dates.js'
 import {
   createRuleResolver, kindsOwed, stateGroupOf, type FilingFrequency, type ReturnKind,
 } from './dueDate.js'
+import { filingStateLookup } from './filing.js'
 
 export const DUE_SOON_DAYS = 3
 /** How far back an unfinished return can still surface as overdue. */
@@ -126,6 +127,8 @@ export async function computeUpcoming(
   for (const c of cases) caseByKey.set(`${c.clientId}::${c.kind}::${c.period}`, c)
 
   const resolver = await createRuleResolver(prisma)
+  // GST Filing records: a filed return is done; GSTR-2B only while a 2B record tracks it.
+  const filingState = await filingStateLookup(prisma, profiles.map((p) => p.id), [...recent, ...older])
   const out: UpcomingItem[] = []
 
   for (const p of profiles) {
@@ -139,6 +142,8 @@ export async function computeUpcoming(
       for (const kind of kindsOwed(p, period)) {
         const c = caseByKey.get(`${p.clientId}::${kind}::${period}`)
         if (c?.status === 'COMPLETED') continue
+        const fs = filingState(p.id, kind, period)
+        if (fs === 'done' || fs === 'skip') continue
         if (isOlder && !c) continue // no open case → nothing to say it is unfiled
         const due = c?.dueDate ?? resolver.resolve(period, kind, freq, group)
         if (!due) continue
@@ -206,9 +211,7 @@ export async function sendGstReminders(
     const body = i.state === 'overdue'
       ? `${KIND_LABEL[i.kind]} for ${i.period} was due ${fmt(i.dueDate)} (${Math.abs(i.daysToDue)} day${Math.abs(i.daysToDue) === 1 ? '' : 's'} overdue).`
       : `${KIND_LABEL[i.kind]} for ${i.period} is due ${fmt(i.dueDate)}${i.daysToDue === 0 ? ' — today' : ` (in ${i.daysToDue} day${i.daysToDue === 1 ? '' : 's'})`}.`
-    const actionUrl = i.caseId
-      ? `/workstation/registration/gst?caseId=${i.caseId}`
-      : `/workstation/registration/gst?client=${i.clientId}&kind=${i.kind}&period=${i.period}`
+    const actionUrl = '/workstation/services/gst-filing'
     const row = await notifyEmployee(i.assignedEmployeeId, {
       type: 'gst_reminder',
       module: 'workstation',

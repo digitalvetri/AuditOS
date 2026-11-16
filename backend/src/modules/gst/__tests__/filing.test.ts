@@ -6,7 +6,9 @@ import { setupRoles } from '../../../../prisma/setup-roles.js'
 import { istToday } from '../../../lib/dates.js'
 import { prisma, uid } from '../../../__tests__/helpers.js'
 import { dataReminderBody, ensurePeriodJobs, generateGstFilingJobs, markDataFromPortal, previousPeriod, refreshClientGst, syncGstEnrolment } from '../filing.js'
-import { assertGstr1Transition, assertGstr3bTransition } from '../validate.js'
+import { assertGstr1Transition, assertGstr3bTransition, toPaise } from '../validate.js'
+import { computeUpcoming, sendGstReminders } from '../reminders.js'
+import { gstRows } from '../../compliance/merge.js'
 
 let orgId = ''
 let serviceId = ''
@@ -272,5 +274,46 @@ describe('GET /api/gst/filing-board', () => {
     await prisma.clientService.updateMany({ where: { clientId: c.id }, data: { deletedAt: new Date() } })
     await syncGstEnrolment(prisma, { clientId: c.id })
     expect((await api('/api/gst/filing-board?period=2026-10')).body.rows.some((x: any) => x.client_id === c.id)).toBe(false)
+  })
+})
+
+describe('bell reminders and compliance calendar follow GST Filing', () => {
+  async function enrolled(period = '2026-09') {
+    const c = await gstClient()
+    await syncGstEnrolment(prisma, { clientId: c.id })
+    const p = await prisma.gstProfile.findUniqueOrThrow({ where: { clientId: c.id } })
+    const { periodId } = await ensurePeriodJobs(prisma, p.id, period)
+    return { c, p, periodId: periodId! }
+  }
+  it('a filed GSTR-1 produces no reminder; an unfiled overdue one still does; no GSTR-2B without a 2B record', async () => {
+    const filed = await enrolled()
+    const open = await enrolled()
+    await prisma.gstFiling.updateMany({ where: { gstProfileId: filed.p.id, period: '2026-09', returnType: 'GSTR-1' }, data: { status: 'filed', arn: 'AA1' } })
+    const items = await computeUpcoming(prisma, { today: '2026-10-12', clientIdFilter: [filed.c.id, open.c.id] })
+    expect(items.filter((i) => i.clientId === filed.c.id)).toEqual([])
+    expect(items.filter((i) => i.clientId === open.c.id).map((i) => `${i.kind}:${i.period}:${i.state}`)).toEqual(['GSTR1:2026-09:overdue'])
+  })
+  it('GSTR-2B is reminded only while its 2B record is still open', async () => {
+    const a = await enrolled()
+    await prisma.gstR2BRecord.create({ data: { compliancePeriodId: a.periodId, status: 'pending' } })
+    const kinds = async () => (await computeUpcoming(prisma, { today: '2026-10-17', clientIdFilter: [a.c.id] })).map((i) => i.kind)
+    expect(await kinds()).toContain('GSTR2B')
+    await prisma.gstR2BRecord.update({ where: { compliancePeriodId: a.periodId }, data: { status: 'reconciliation_completed' } })
+    expect(await kinds()).not.toContain('GSTR2B')
+  })
+  it('the bell links to Services → GST Filing', async () => {
+    const a = await enrolled()
+    await sendGstReminders(prisma, { today: '2026-10-12' })
+    const u = await prisma.user.findFirst({ where: { employeeId: empId } })
+    const n = await prisma.notification.findFirst({ where: { userId: u!.id, entityId: `gst:${a.c.id}:GSTR1:2026-09:overdue` } })
+    expect(n?.actionUrl).toBe('/workstation/services/gst-filing')
+  })
+  it('the compliance calendar shows a filed GSTR-1 as filed and drops an untracked GSTR-2B', async () => {
+    const a = await enrolled()
+    await prisma.gstFiling.updateMany({ where: { gstProfileId: a.p.id, period: '2026-09', returnType: 'GSTR-1' }, data: { status: 'completed', arn: 'AA1' } })
+    const rows = await gstRows(prisma, { clientIds: [a.c.id], organisationId: orgId, from: '2026-10-01', to: '2026-10-31', today: '2026-10-12', employees: new Map() })
+    expect(rows.find((r) => r.form_code === 'GSTR1' && r.period_key === '2026-09')).toMatchObject({ status: 'filed', overdue: false })
+    expect(rows.find((r) => r.form_code === 'GSTR3B' && r.period_key === '2026-09')).toMatchObject({ status: 'not_started' })
+    expect(rows.some((r) => r.form_code === 'GSTR2B')).toBe(false)
   })
 })

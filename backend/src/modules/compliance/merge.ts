@@ -10,6 +10,7 @@
 import type { PrismaClient } from '@prisma/client'
 import { addDays, daysBetween } from '../../lib/dates.js'
 import { createRuleResolver, kindsOwed, stateGroupOf, type FilingFrequency, type ReturnKind } from '../gst/dueDate.js'
+import { filingStateLookup } from '../gst/filing.js'
 import { buildOverview } from '../tds/overview.js'
 import { fyOfDate, shiftFy, fyStartYear } from './engine.js'
 import type { ItemApi } from './service.js'
@@ -61,6 +62,8 @@ export async function gstRows(
   })
   const caseByKey = new Map(cases.map((c) => [`${c.clientId}::${c.kind}::${c.period}`, c]))
   const resolver = await createRuleResolver(prisma)
+  // GST Filing records: a filed return is done; GSTR-2B only while a 2B record tracks it.
+  const filingState = await filingStateLookup(prisma, profiles.map((p) => p.id), periods)
   const staleBefore = addDays(opts.today, -31)
   const out: ItemApi[] = []
   for (const p of profiles) {
@@ -69,11 +72,13 @@ export async function gstRows(
       if (reg && period < reg) continue
       for (const kind of kindsOwed(p, period)) {
         const c = caseByKey.get(`${p.clientId}::${kind}::${period}`)
+        const fs = filingState(p.id, kind, period)
+        if (fs === 'skip') continue
         const due = c?.dueDate ?? resolver.resolve(period, kind, p.filingFrequency as FilingFrequency, stateGroupOf(p))
         if (!due || due < opts.from || due > opts.to) continue
         // Like computeUpcoming: an old period with no case is not guessed at.
         if (!c && due < staleBefore) continue
-        const done = c?.status === 'COMPLETED'
+        const done = c?.status === 'COMPLETED' || fs === 'done'
         const [y, m] = period.split('-').map(Number)
         out.push({
           ...base(opts.today, due, done),

@@ -68,12 +68,25 @@ describe('computeUpcoming — default window (what the scheduler sees)', () => {
   })
 
   it('flags last month’s returns as overdue once their due date has passed', async () => {
+    // GSTR-2B is reminded only while a 2B record tracks it (GST Filing never does).
+    const profile = await prisma.gstProfile.findUniqueOrThrow({ where: { clientId: monthlyClientId } })
+    const cp = await prisma.gstCompliancePeriod.create({ data: { gstProfileId: profile.id, financialYear: '2026-27', period: '2026-09' } })
+    await prisma.gstR2BRecord.create({ data: { compliancePeriodId: cp.id, status: 'available' } })
+    try {
+      const items = await computeUpcoming(prisma, { today: '2026-10-21', clientIdFilter: [monthlyClientId] })
+      const byKind = Object.fromEntries(items.map((i) => [i.kind, i]))
+      expect(byKind.GSTR3B).toMatchObject({ period: '2026-09', dueDate: '2026-10-20', state: 'overdue', daysToDue: -1 })
+      expect(byKind.GSTR1).toMatchObject({ period: '2026-09', state: 'overdue' })
+      expect(byKind.GSTR2B).toMatchObject({ period: '2026-09', state: 'overdue' })
+      expect(items.every((i) => i.period === '2026-09')).toBe(true)
+    } finally {
+      await prisma.gstCompliancePeriod.delete({ where: { id: cp.id } })
+    }
+  })
+
+  it('does not remind GSTR-2B when no 2B record tracks it', async () => {
     const items = await computeUpcoming(prisma, { today: '2026-10-21', clientIdFilter: [monthlyClientId] })
-    const byKind = Object.fromEntries(items.map((i) => [i.kind, i]))
-    expect(byKind.GSTR3B).toMatchObject({ period: '2026-09', dueDate: '2026-10-20', state: 'overdue', daysToDue: -1 })
-    expect(byKind.GSTR1).toMatchObject({ period: '2026-09', state: 'overdue' })
-    expect(byKind.GSTR2B).toMatchObject({ period: '2026-09', state: 'overdue' })
-    expect(items.every((i) => i.period === '2026-09')).toBe(true)
+    expect(items.map((i) => i.kind).sort()).toEqual(['GSTR1', 'GSTR3B'])
   })
 
   it('drops a return once its case for that period is COMPLETED', async () => {

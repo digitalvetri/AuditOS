@@ -16,6 +16,7 @@ import { Prisma, type PrismaClient } from '@prisma/client'
 import { istToday } from '../../lib/dates.js'
 import { createRuleResolver, dueForProfile, kindsOwed, type RuleResolver } from './dueDate.js'
 import { financialYearOf, writeGstAudit } from './service.js'
+import { normaliseFilingStatus } from './validate.js'
 
 export const GST_FILING_SERVICE_CODE = 'GST_FILING'
 
@@ -157,6 +158,40 @@ export async function ensurePeriodJobs(
     }
   }
   return { periodId: row.id, created }
+}
+
+const FILING_DONE = ['filed', 'payment_pending', 'completed']
+const R2B_DONE = ['downloaded', 'reconciliation_pending', 'reconciliation_in_progress', 'reconciliation_completed', 'exceptions_found']
+
+/**
+ * What the GST Filing records say about a (profile, period, return):
+ *   'done'  — the GstFiling is filed / payment pending / completed, or the 2B is downloaded or reconciled;
+ *   'open'  — tracked and not done;
+ *   'skip'  — GSTR-2B with no 2B record: GST Filing never tracks 2B, so it is not reminded or listed;
+ *   null    — nothing recorded (GSTR-1 / 3B): the caller decides as before.
+ * Shared by the bell reminders and the compliance calendar.
+ */
+export async function filingStateLookup(db: PrismaClient, gstProfileIds: string[], periods: string[]) {
+  const [filings, r2bs] = await Promise.all([
+    db.gstFiling.findMany({
+      where: { gstProfileId: { in: gstProfileIds }, period: { in: periods }, returnType: { in: ['GSTR-1', 'GSTR-3B'] }, deletedAt: null },
+      select: { gstProfileId: true, period: true, returnType: true, status: true },
+    }),
+    db.gstR2BRecord.findMany({
+      where: { deletedAt: null, compliancePeriod: { gstProfileId: { in: gstProfileIds }, period: { in: periods }, deletedAt: null } },
+      select: { status: true, compliancePeriod: { select: { gstProfileId: true, period: true } } },
+    }),
+  ])
+  const map = new Map<string, 'done' | 'open'>()
+  for (const f of filings) {
+    const kind = f.returnType === 'GSTR-1' ? 'GSTR1' : 'GSTR3B'
+    map.set(`${f.gstProfileId}::${kind}::${f.period}`, FILING_DONE.includes(normaliseFilingStatus(f.status, f.returnType)) ? 'done' : 'open')
+  }
+  for (const r of r2bs) {
+    map.set(`${r.compliancePeriod.gstProfileId}::GSTR2B::${r.compliancePeriod.period}`, R2B_DONE.includes(r.status) ? 'done' : 'open')
+  }
+  return (gstProfileId: string, kind: string, period: string): 'done' | 'open' | 'skip' | null =>
+    map.get(`${gstProfileId}::${kind}::${period}`) ?? (kind === 'GSTR2B' ? 'skip' : null)
 }
 
 export async function generateGstFilingJobs(db: PrismaClient, today = istToday()) {

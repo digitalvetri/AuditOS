@@ -133,6 +133,10 @@ describe('kindsOwed', () => {
 describe('computeUpcoming', () => {
   it('reminds a QRMP filer of GSTR-2B outside the quarter-end month', async () => {
     const id = await makeClient({ frequency: 'quarterly' })
+    // GSTR-2B is reminded only while a 2B record tracks it (GST Filing never does).
+    const profile = await prisma.gstProfile.findUniqueOrThrow({ where: { clientId: id } })
+    const cp = await prisma.gstCompliancePeriod.create({ data: { gstProfileId: profile.id, financialYear: '2026-27', period: '2026-10', periodType: 'quarterly' } })
+    await prisma.gstR2BRecord.create({ data: { compliancePeriodId: cp.id, status: 'expected' } })
     const items = await computeUpcoming(prisma, { today: '2026-11-13', clientIdFilter: [id] })
     expect(items.map((i) => [i.kind, i.period, i.dueDate, i.state])).toEqual([
       ['GSTR2B', '2026-10', '2026-11-16', 'due'],
