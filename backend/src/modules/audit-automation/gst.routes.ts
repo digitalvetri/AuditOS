@@ -165,8 +165,10 @@ gstRouter.post('/recon', handler(async (req, res) => {
     client_id: z.string().min(1),
     filing_2b_id: z.string().min(1),
     purchase_register_id: z.string().min(1),
+    /** Per-amount tolerance per invoice, rupees (default ₹1). */
+    tolerance_rupees: z.coerce.number().min(0).max(10_000).optional(),
   }).safeParse(req.body)
-  if (!b.success) throw ApiError.badRequest('client_id, filing_2b_id, purchase_register_id required.')
+  if (!b.success) throw ApiError.badRequest('client_id, filing_2b_id and purchase_register_id are required; tolerance is ₹0 to ₹10,000.')
   // The service also requires the 2B and the register to belong to this client.
   await assertClientVisible(session, b.data.client_id)
   const organisationId = await orgIdOf(session.userId)
@@ -175,6 +177,7 @@ gstRouter.post('/recon', handler(async (req, res) => {
     clientId: b.data.client_id,
     filing2BId: b.data.filing_2b_id,
     purchaseRegisterId: b.data.purchase_register_id,
+    tolerancePaise: b.data.tolerance_rupees === undefined ? undefined : Math.round(b.data.tolerance_rupees * 100),
     req,
   })
   // The run completes inside the request, so the answer is the finished job.

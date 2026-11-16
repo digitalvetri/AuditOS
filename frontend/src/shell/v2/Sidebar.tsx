@@ -232,7 +232,12 @@ export function buildNav(
     { to: '/tools', label: 'Tools', icon: Wrench,
       visible: can(role, 'tools.access', 'self') },
     { to: '/audit-automation', label: 'Repotic', icon: Landmark,
-      visible: can(role, 'tools.audit_automation.access', 'self') },
+      visible: can(role, 'tools.audit_automation.access', 'self'),
+      children: [
+        { to: '/audit-automation/bank', label: 'Bank → Tally' },
+        { to: '/audit-automation/ecommerce', label: 'Ecommerce GSTR-1' },
+        ...(can(role, 'tools.audit_automation.gst.view', 'self') ? [{ to: '/audit-automation/gst', label: 'GSTR-2B reconciliation' }] : []),
+      ] },
     { to: '/books', label: 'Books', icon: Wallet,
       visible: can(role, 'books.access', 'organisation') },
   ];

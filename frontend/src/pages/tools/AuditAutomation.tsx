@@ -21,7 +21,7 @@ export function AuditAutomationLandingPage() {
       <header className="mb-5">
         <h1 className="text-[26px] leading-tight font-semibold tracking-[-0.01em] text-neutral-900">Repotic</h1>
         <p className="text-13 text-neutral-500 mt-1">
-          Files in, files out. Bank statements → Tally, ecommerce reports → GSTR-1.
+          Files in, files out. Bank statements → Tally, ecommerce reports → GSTR-1, GSTR-2B → reconciliation.
         </p>
       </header>
 
@@ -44,6 +44,12 @@ export function AuditAutomationLandingPage() {
             status="active"
           />
           <PipelineCard
+            to="/audit-automation/gst"
+            title="GSTR-2B vs purchase register"
+            description="GSTR-2B (JSON or Excel) + the client's purchase register → matched within ₹1 per invoice (or your tolerance), mismatches, missing in books, missing in 2B, ITC class → Excel"
+            status="active"
+          />
+          <PipelineCard
             to="/workstation/tds-recon"
             title="26AS vs books reconciliation"
             description="Form 26AS + TDS receivable from the books → matched by TAN and section, then amount → matched, only in 26AS, only in books, differences → Excel"
@@ -55,9 +61,8 @@ export function AuditAutomationLandingPage() {
       <div className="mt-6 flex items-start gap-2 text-12 text-neutral-500 bg-white border border-neutral-200 rounded p-3">
         <Info size={14} strokeWidth={1.75} className="mt-0.5 flex-shrink-0" />
         <div>
-          GST reconciliation (GSTR-2B vs Purchase Register) lives in the GST module.
+          GSTR-2B vs purchase register reconciliations are under <Link to="/audit-automation/gst" className="text-primary underline">Repotic → GST reconciliation</Link>.
           26AS vs books reconciliation lives under <Link to="/workstation/tds-recon" className="text-primary underline">Workstation → 26AS reconciliation</Link>.
-          Repotic itself is file-in / file-out only.
         </div>
       </div>
     </div>

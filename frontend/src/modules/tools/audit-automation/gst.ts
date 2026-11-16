@@ -48,6 +48,8 @@ export interface ColumnMap {
   sgst?: string;
   cess?: string;
   glCode?: string;
+  /** Invoice / Credit note / Debit note column. Without it a negative amount is a credit note. */
+  docType?: string;
   dataStartRow?: number;
 }
 
@@ -67,6 +69,8 @@ export interface ReconJob {
   purchase_register_id: string;
   status: 'queued' | 'matching' | 'matched' | 'failed';
   progress: number;
+  /** Per-amount tolerance this run used, rupees. */
+  tolerance_rupees?: number;
   matched_count: number;
   partial_count: number;
   variance_count: number;
@@ -196,7 +200,7 @@ export const gstApi = {
   listPR: (clientId: string) => api.get<{ items: RegisterSummary[] }>(`/api/audit-automation/gst/purchase-registers${qs({ client_id: clientId })}`),
 
   // Recon jobs
-  createRecon: (input: { client_id: string; filing_2b_id: string; purchase_register_id: string }) =>
+  createRecon: (input: { client_id: string; filing_2b_id: string; purchase_register_id: string; tolerance_rupees?: number }) =>
     api.post<ReconJob>('/api/audit-automation/gst/recon', input),
   listRecon: (clientId: string) => api.get<{ items: ReconJob[] }>(`/api/audit-automation/gst/recon${qs({ client_id: clientId })}`),
   getRecon: (id: string) => api.get<ReconJob>(`/api/audit-automation/gst/recon/${id}`),
