@@ -3,7 +3,7 @@ import path from 'node:path'
 import {
   AlignmentType, Document, HeadingLevel, Packer, Paragraph, Table, TableCell, TableRow, TextRun, WidthType,
 } from 'docx'
-import { convertWithLibreOffice, withTempDir } from '../../lib/exec.js'
+import { convertWithLibreOffice, withTempDir, requireBinary } from '../../lib/exec.js'
 import { ToolError } from '../errors.js'
 import { PDFService, findTableBlocks, type PageText, type TextLine } from './PDFService.js'
 
@@ -31,6 +31,7 @@ export const WordService = {
       try {
         out = await convertWithLibreOffice(input, 'pdf', dir)
       } catch {
+        await requireBinary('soffice', 'LibreOffice')
         throw new ToolError('unreadable', "We couldn't open this document. It may be corrupted or not a real Word file.")
       }
       return fs.readFile(out)

@@ -1,10 +1,13 @@
 import fs from 'node:fs/promises'
 import path from 'node:path'
 import ExcelJS from 'exceljs'
-import { convertWithLibreOffice, withTempDir } from '../../lib/exec.js'
+import { convertWithLibreOffice, withTempDir, requireBinary } from '../../lib/exec.js'
 import { ToolError } from '../errors.js'
 import { PDFService, type PageText } from './PDFService.js'
 import { CSVService, parseNumber, type ColumnType, type Delimiter, type Encoding } from './CSVService.js'
+
+/** Rows CSV to Excel converts in one job — ExcelJS holds the workbook in memory. */
+export const MAX_CSV_ROWS = 500_000
 
 /**
  * ExcelService — .xlsx in and out.
@@ -73,6 +76,7 @@ export const ExcelService = {
       try {
         out = await convertWithLibreOffice(input, 'pdf', dir)
       } catch {
+        await requireBinary('soffice', 'LibreOffice')
         throw new ToolError('unreadable', "We couldn't open this spreadsheet. It may be corrupted or not a real Excel file.")
       }
       return fs.readFile(out)
@@ -120,6 +124,10 @@ export const ExcelService = {
 
   async csvToExcel(bytes: Buffer, opts: CsvToExcelOptions = {}): Promise<CsvToExcelResult> {
     const parsed = CSVService.parse(bytes, { delimiter: opts.delimiter, encoding: opts.encoding, hasHeader: opts.hasHeader })
+    if (parsed.rows.length > MAX_CSV_ROWS + 1) {
+      throw new ToolError('too_large',
+        `This CSV has ${(parsed.rows.length - 1).toLocaleString('en-IN')} rows. CSV to Excel converts up to ${MAX_CSV_ROWS.toLocaleString('en-US')} rows in one go (Excel itself stops at 1,048,576). Split the file — for example by month — and convert each part.`)
+    }
     const keep = opts.keepAsText === 'all'
       ? new Set(parsed.columns.map((_, i) => i))
       : new Set(opts.keepAsText ?? [])

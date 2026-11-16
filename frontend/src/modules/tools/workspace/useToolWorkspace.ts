@@ -30,7 +30,8 @@ export interface LocalFile {
 export interface RunState {
   job: ToolJob | null;
   output: ToolDocument | null;
-  error: { code: string; message: string } | null;
+  /** `problems`: every row-level reason, when the tool reported them (e-invoice validation). */
+  error: { code: string; message: string; problems?: string[] } | null;
   warning: string | null;
 }
 
@@ -139,7 +140,7 @@ export function useToolWorkspace(tool: ToolDefinition) {
           if (j.status === 'failed') {
             // A failed job still has a document record (status: failed) — that is
             // history, not an output. The workspace shows the error, not a file.
-            setRun({ job: j, output: null, error: { code: String(j.meta.code ?? 'failed'), message: j.error_message ?? 'Conversion failed. Please try again.' }, warning: null });
+            setRun({ job: j, output: null, error: { code: String(j.meta.code ?? 'failed'), message: j.error_message ?? 'Conversion failed. Please try again.', problems: Array.isArray(j.meta.problems) ? (j.meta.problems as unknown[]).map(String) : undefined }, warning: null });
             setRunning(false);
             return;
           }

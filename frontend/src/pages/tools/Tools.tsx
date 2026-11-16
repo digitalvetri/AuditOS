@@ -4,6 +4,7 @@ import { FolderOpen, Search } from 'lucide-react';
 import { useAuth } from '@/platform/auth/AuthContext';
 import { can } from '@/platform/rbac/can';
 import { DOCUMENTS_ROUTE, searchTools, TOOL_GROUPS, TOOLS, type ToolDefinition } from '@/modules/tools/registry';
+import { BetaBadge } from '@/modules/tools/BetaBadge';
 import { ToolBadge } from '@/modules/tools/ToolBadge';
 
 /**
@@ -92,6 +93,7 @@ function ToolCard({ tool, permitted }: { tool: ToolDefinition; permitted: boolea
       <div className="min-w-0 flex-1 flex flex-col">
         <h3 className="text-14 font-semibold text-neutral-900 leading-5">{tool.name}</h3>
         <p className="text-13 text-neutral-500 mt-0.5">{tool.description}</p>
+        {tool.beta ? <div className="mt-1.5"><BetaBadge /></div> : null}
         <div className="mt-auto pt-3">
           <Link
             to={tool.route}

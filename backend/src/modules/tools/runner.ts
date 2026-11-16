@@ -14,6 +14,7 @@ import { OCRService } from './services/tools/OCRService.js'
 import { signatureProvider } from './services/tools/SignatureProvider.js'
 import { ComplianceService } from './services/tools/ComplianceService.js'
 import { fmtDateIST } from './lib/dates.js'
+import { suspectIdentifiers } from './lib/identifiers.js'
 import { notifyUser } from '../../platform/notify.js'
 
 /**
@@ -47,6 +48,9 @@ export interface RunOutput {
 }
 
 type Implementation = (ctx: RunContext) => Promise<RunOutput>
+
+/** OCR pages below this average confidence get a check-against-the-original warning. */
+const OCR_LOW_CONFIDENCE = 75
 
 const num = (v: unknown, d: number) => (typeof v === 'number' && Number.isFinite(v) ? v : typeof v === 'string' && v.trim() !== '' && Number.isFinite(Number(v)) ? Number(v) : d)
 const str = (v: unknown, d = '') => (typeof v === 'string' ? v : d)
@@ -170,7 +174,8 @@ const IMPLEMENTATIONS: Record<string, Implementation> = {
   'unlock-pdf': async ({ inputs, options, progress, session, jobId }) => {
     const { doc, bytes } = inputs[0]
     const password = str(options.password)
-    if (!password) throw new ToolError('invalid_options', 'Enter the password for this PDF.')
+    // A restrictions-only PDF (owner password, nothing to open it) unlocks with a blank password.
+    if (!password && !(await PDFService.ownerOnly(bytes))) throw new ToolError('invalid_options', 'Enter the password for this PDF.')
     if (options.authorised !== true) throw new ToolError('not_authorised', 'Confirm you are authorised to decrypt this document.')
     await AuditLogService.log({ session, action: 'unlock_authorised', toolId: 'unlock-pdf', documentId: doc.id, jobId, status: 'info', meta: { filename: doc.originalFilename } })
     progress(10)
@@ -214,10 +219,16 @@ const IMPLEMENTATIONS: Record<string, Implementation> = {
       pages: r.pages.map((p) => ({ page: p.page, confidence: Math.round(p.confidence), chars: p.text.length })),
       text: r.text.slice(0, 200_000),
     }
-    const lowPages = r.pages.filter((p) => p.confidence < 60).map((p) => p.page)
+    const lowPages = r.pages.filter((p) => p.confidence < OCR_LOW_CONFIDENCE).map((p) => p.page)
+    // A misread GSTIN or PAN can come back at high confidence; name the
+    // tokens that fail the identifier's shape or check digit.
+    const suspects = suspectIdentifiers(r.text)
+    const notes: string[] = []
+    if (lowPages.length) notes.push(`Low confidence on ${lowPages.length === 1 ? 'page' : 'pages'} ${lowPages.join(', ')} — check those against the original.`)
+    if (suspects.length) notes.push(`${suspects.length === 1 ? 'This looks like a GSTIN or PAN but is' : 'These look like GSTINs or PANs but are'} not valid as read: ${suspects.slice(0, 5).join(', ')}${suspects.length > 5 ? ', …' : ''}. Verify ${suspects.length === 1 ? 'it' : 'them'} against the original before use.`)
     const warning = r.pages.every((p) => !p.text)
       ? 'No text could be recognised. The scan may be too faint or rotated.'
-      : lowPages.length ? `Low confidence on ${lowPages.length === 1 ? 'page' : 'pages'} ${lowPages.join(', ')} — check those against the original.` : undefined
+      : notes.length ? notes.join(' ') : undefined
     const txtName = `${stripExtension(doc.originalFilename)}.txt`
     if (r.pdf && outputs.includes('pdf')) {
       const extras = outputs.includes('txt') ? [{ filename: txtName, mime: OUTPUT_MIME.txt, bytes: r.txt, meta: { page_count: r.pages.length, average_confidence: meta.average_confidence } }] : []
@@ -240,6 +251,7 @@ const IMPLEMENTATIONS: Record<string, Implementation> = {
       return {
         filename: withExtension(doc.originalFilename, 'xlsx'), mime: OUTPUT_MIME.xlsx, bytes: r.bytes,
         meta: { direction: 'json_to_excel', sections: r.sections, invoices: r.invoices, rows: r.rows },
+        warning: r.warning,
       }
     }
     const r = await ComplianceService.gstExcelToJson(bytes)
@@ -247,6 +259,7 @@ const IMPLEMENTATIONS: Record<string, Implementation> = {
     return {
       filename: withExtension(doc.originalFilename, 'json'), mime: OUTPUT_MIME.json, bytes: r.bytes,
       meta: { direction: 'excel_to_json', sections: r.sections, invoices: r.invoices, rows: r.rows },
+      warning: r.warning,
     }
   },
 
@@ -255,7 +268,6 @@ const IMPLEMENTATIONS: Record<string, Implementation> = {
     const r = await ComplianceService.bankStatementToExcel(bytes, progress)
     const parts: string[] = []
     if (r.skipped) parts.push(`${r.skipped} dated ${r.skipped === 1 ? 'line' : 'lines'} could not be read and ${r.skipped === 1 ? 'is' : 'are'} listed on the Skipped sheet.`)
-    if (!r.balanced) parts.push('Opening + credits − debits does not tie to the closing balance, so check the statement against the Summary sheet before using it.')
     return {
       filename: withExtension(doc.originalFilename, 'xlsx'), mime: OUTPUT_MIME.xlsx, bytes: r.bytes,
       meta: {
@@ -272,7 +284,10 @@ const IMPLEMENTATIONS: Record<string, Implementation> = {
     const r = await ComplianceService.form26asToExcel(bytes, isText, progress)
     return {
       filename: withExtension(doc.originalFilename, 'xlsx'), mime: OUTPUT_MIME.xlsx, bytes: r.bytes,
-      meta: { rows: r.rows, deductors: r.deductors, total_credited: r.totalCredited, total_tds: r.totalTds, skipped: r.skipped, source: isText ? 'text' : 'pdf' },
+      meta: {
+        rows: r.rows, deductors: r.deductors, total_credited: r.totalCredited, total_tds: r.totalTds, total_tds_deposited: r.totalDeposited,
+        tcs_rows: r.tcsRows, total_tcs: r.totalTcs, skipped: r.skipped, source: isText ? 'text' : 'pdf',
+      },
       warning: r.skipped ? `${r.skipped} dated ${r.skipped === 1 ? 'line' : 'lines'} could not be read and ${r.skipped === 1 ? 'is' : 'are'} listed on the Skipped sheet.` : undefined,
     }
   },
@@ -392,13 +407,15 @@ async function execute(session: Session, organisationId: string, jobId: string, 
     // PDF, a queue) is worth a ping.
     if (Date.now() - queuedAt > LONG_JOB_MS) await notifyToolJob(session, jobId, tool, false, out.filename)
   } catch (err) {
-    const { code, message } = userMessage(err)
+    const { code, message, details } = userMessage(err)
+    // Row-level problems (e-invoice validation) are kept on the job in full.
+    const problems = Array.isArray(details?.problems) ? (details.problems as string[]).slice(0, 500) : undefined
     if (code === 'failed') console.error('[tools] job failed', tool.id, err instanceof Error ? err.stack ?? err.message : err)
     const failedDoc = await DocumentService.saveFailedDocument({
       session, organisationId, toolId: tool.id, filename: expectedName, mimeType: OUTPUT_MIME[tool.outputType],
       parentDocumentId: primary?.id ?? null, errorMessage: message, meta: { code },
     }).catch(() => null)
-    await ToolJobService.failJob(jobId, message, failedDoc?.id ?? null, { code }).catch(() => undefined)
+    await ToolJobService.failJob(jobId, message, failedDoc?.id ?? null, { code, ...(problems ? { problems } : {}) }).catch(() => undefined)
     await AuditLogService.log({ session, action: 'conversion_failed', toolId: tool.id, documentId: failedDoc?.id ?? primary?.id ?? null, jobId, status: 'failed', meta: { code, message, from: inputDocs.map((d) => d.originalFilename).join(', ') } })
     await notifyToolJob(session, jobId, tool, true, message)
   } finally {

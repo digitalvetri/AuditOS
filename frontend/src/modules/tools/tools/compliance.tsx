@@ -46,15 +46,18 @@ function Columns({ required, optional }: { required: string[]; optional?: string
 
 export const gstJsonExcelUI: ToolUI = {
   actionLabel: 'Convert',
-  processingLabel: 'Reading GSTR sections…',
+  processingLabel: 'Reading GSTR-1 sections…',
   Options: () => (
     <Notice tone="info">
       <div className="text-13">
-        The direction follows the file you upload: a <strong className="font-medium">.json</strong> from
+        GSTR-1 only. The direction follows the file you upload: a <strong className="font-medium">.json</strong> from
         the offline utility becomes a workbook with one sheet per section, and a workbook in that same
         shape becomes JSON again.
         <div className="text-12 text-neutral-500 mt-1">
-          Sections handled: B2B, B2CL, B2CS, CDNR, CDNUR, EXP. Each invoice repeats down its line-item rows.
+          Sections handled: B2B, B2CL, B2CS, CDNR, CDNUR, EXP (with shipping bill), HSN (Table 12), DOCS
+          (Table 13) and NIL (Table 8). Invoice and note types are kept; amounts are numbers. Any other
+          section (amendments, advances, e-commerce tables) is named in the result and on the Summary
+          sheet — it is not carried over. GSTR-3B is not supported.
         </div>
       </div>
     </Notice>
@@ -78,11 +81,12 @@ export const bankStatementToExcelUI: ToolUI = {
   Options: () => (
     <Notice tone="info">
       <div className="text-13">
-        Any bank's PDF statement, read by structure rather than by layout: a transaction is a line that
-        starts with a date and ends with its amounts.
+        A PDF statement with a running balance column — tested on HDFC, ICICI, SBI and Axis layouts.
+        Debit or credit is decided by how the balance moves, not by guessing the column.
         <div className="text-12 text-neutral-500 mt-1">
-          A scanned statement has no text to read — run OCR Scan on it first. The Summary sheet checks
-          that opening + credits − debits ties to the closing balance.
+          Every line is checked: opening + credits − debits must equal the printed balance. If it does
+          not tie on any line, nothing is converted and the line that breaks is named. A scanned
+          statement has no text to read — run OCR Scan on it first.
         </div>
       </div>
     </Notice>
@@ -95,10 +99,7 @@ export const bankStatementToExcelUI: ToolUI = {
         debit ₹{money(output.meta.total_debit)} · credit ₹{money(output.meta.total_credit)}
         {output.meta.closing !== null && output.meta.closing !== undefined
           ? ` · closing ₹${money(output.meta.closing)}` : ''}
-        .{' '}
-        {output.meta.balanced
-          ? 'The balances tie.'
-          : 'The balances do not tie — check the Summary sheet.'}
+        . The running balance ties on every line.
         {skipped ? ` ${skipped}` : ''}
       </div>
     );
@@ -109,14 +110,17 @@ export const bankStatementToExcelUI: ToolUI = {
 
 export const form26asToExcelUI: ToolUI = {
   actionLabel: 'Convert to Excel',
-  processingLabel: 'Reading Part A…',
+  processingLabel: 'Reading Part I…',
   Options: () => (
     <Notice tone="info">
       <div className="text-13">
-        Takes the PDF or the caret-delimited text export from TRACES and lifts Part A — TDS by deductor —
-        into a transaction sheet plus per-deductor totals.
+        Takes the PDF or the caret-delimited text export from TRACES and lifts Part I (and Part II) TDS —
+        amount paid / credited, tax deducted and TDS deposited — into a transaction sheet plus
+        per-deductor totals. Part VI TCS goes to its own sheet.
         <div className="text-12 text-neutral-500 mt-1">
-          The text export parses more reliably than the PDF; prefer it when TRACES offers both.
+          The text export parses more reliably than the PDF; prefer it when TRACES offers both. TRACES
+          delivers the text file inside a password-protected ZIP — unzip it first. A password-protected
+          26AS PDF needs Unlock PDF first.
         </div>
       </div>
     </Notice>
@@ -125,8 +129,9 @@ export const form26asToExcelUI: ToolUI = {
     const skipped = skippedLine(output.meta.skipped);
     return (
       <div className="text-13 text-neutral-500">
-        {n(output.meta.rows)} entries from {n(output.meta.deductors)} deductors ·
-        credited ₹{money(output.meta.total_credited)} · TDS ₹{money(output.meta.total_tds)}.
+        {n(output.meta.rows)} TDS entries from {n(output.meta.deductors)} deductors ·
+        paid / credited ₹{money(output.meta.total_credited)} · TDS ₹{money(output.meta.total_tds)}
+        {n(output.meta.tcs_rows) ? ` · ${n(output.meta.tcs_rows)} TCS entries ₹${money(output.meta.total_tcs)} (separate sheet)` : ''}.
         {skipped ? ` ${skipped}` : ''}
       </div>
     );
@@ -154,11 +159,15 @@ function TallyOptions({ value, onChange, disabled }: OptionsProps) {
       <div className="mt-3">
         <Notice tone="warn">
           <div className="text-13">
-            Each row becomes a two-sided voucher: the party ledger and one nominal account.
+            Each row becomes a two-sided voucher: the party ledger and the account in Ledger Name.
             <div className="text-12 text-neutral-500 mt-1">
-              Without a <strong className="font-medium">Dr/Cr</strong> column the party is debited on a
-              sale or receipt and credited on a purchase or payment. Ledgers must already exist in Tally —
-              this file posts vouchers, it does not create masters.
+              Without a <strong className="font-medium">Dr/Cr</strong> column (which describes the party
+              side): a sale or debit note debits the party; a purchase, credit note or receipt credits the
+              party; a payment debits the party. On a receipt the bank or cash ledger is debited, on a
+              payment it is credited. Receipt, Payment, Contra and note rows need Ledger Name (the bank,
+              cash or returns ledger) and Contra rows need Dr/Cr — rows without them are skipped, never
+              posted to Sales or Purchase. Ledgers must already exist in Tally — this file posts vouchers,
+              it does not create masters.
             </div>
           </div>
         </Notice>
@@ -384,16 +393,22 @@ export const invoiceToEInvoiceJsonUI: ToolUI = {
   Options: () => (
     <div>
       <Columns
-        required={['Invoice No', 'Invoice Date', 'Seller GSTIN', 'Buyer GSTIN', 'Taxable Value']}
-        optional={['Seller Name', 'Seller Address', 'Buyer Name', 'Buyer Address', 'Place of Supply', 'Item Description', 'HSN', 'Quantity', 'Unit', 'Unit Price', 'GST Rate', 'IGST', 'CGST', 'SGST', 'Cess']}
+        required={['Invoice No', 'Invoice Date', 'Seller GSTIN', 'Seller Name', 'Seller Address', 'Seller City', 'Seller Pincode',
+          'Buyer GSTIN', 'Buyer Name', 'Buyer Address', 'Buyer City', 'Buyer Pincode', 'HSN', 'Taxable Value',
+          'Unit Price (or Quantity)', 'Quantity and Unit for goods', 'IGST or CGST + SGST']}
+        optional={['Seller / Buyer State Code (taken from the GSTIN when blank)', 'Place of Supply (buyer\'s state when blank)', 'Supply Type (B2B, SEZWP, SEZWOP, EXPWP, EXPWOP, DEXP)', 'Document Type (INV, CRN, DBN)', 'Reverse Charge', 'Item Description', 'GST Rate (read from the tax when blank)', 'Cess']}
       />
       <div className="mt-3">
-        <Notice tone="info">
+        <Notice tone="warn">
           <div className="text-13">
-            One row is one line item; rows sharing an invoice number become a single invoice with an ItemList.
+            Every row is checked against e-invoice schema 1.1 before anything is written. If any row would
+            be rejected by the IRP — a missing name, address or PIN, a bad HSN, a rate that does not match
+            the tax — no JSON is produced and each problem row is listed.
             <div className="text-12 text-neutral-500 mt-1">
-              Schema 1.1. Invoice totals are summed from the line items rather than read from the sheet,
-              so they always tie to the lines the IRP sees — a mismatch there is the most common rejection.
+              B2C invoices are not e-invoiced: a row without a buyer GSTIN is refused unless its Supply Type
+              is EXPWP or EXPWOP (the buyer is then written as URP; use 96 for state and place of supply and
+              999999 for PIN). One row is one line item; rows sharing an invoice number become one invoice,
+              and totals are summed from the lines.
             </div>
           </div>
         </Notice>
@@ -405,7 +420,7 @@ export const invoiceToEInvoiceJsonUI: ToolUI = {
     return (
       <div className="text-13 text-neutral-500">
         {n(output.meta.invoices)} invoices from {n(output.meta.items)} line items ·
-        ₹{money(output.meta.total_value)}.
+        ₹{money(output.meta.total_value)}. Every row passed the schema 1.1 checks.
         {skipped ? ` ${skipped} ${skipped === 1 ? 'row was' : 'rows were'} skipped.` : ''}
       </div>
     );

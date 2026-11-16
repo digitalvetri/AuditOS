@@ -115,7 +115,7 @@ export const CSVService = {
 
   inferColumns(rows: string[][], skipHeader: boolean): ColumnType[] {
     const body = skipHeader ? rows.slice(1) : rows
-    const width = Math.max(0, ...rows.map((r) => r.length))
+    const width = rows.reduce((w, r) => (r.length > w ? r.length : w), 0)
     const types: ColumnType[] = []
     for (let c = 0; c < width; c++) {
       let numbers = 0, dates = 0, texts = 0
@@ -141,7 +141,9 @@ export const CSVService = {
     if (!text.trim()) throw new ToolError('empty', 'This file is empty.')
     const delimiter = !opts.delimiter || opts.delimiter === 'auto' ? CSVService.detectDelimiter(text) : opts.delimiter
     const raw = CSVService.parseRows(text, delimiter)
-    const width = Math.max(...raw.map((r) => r.length))
+    // A loop, not Math.max(...spread): a spread of 100k+ rows overflows the stack.
+    let width = 0
+    for (const r of raw) if (r.length > width) width = r.length
     // Rows that are wildly narrower than the header are usually stray notes; keep
     // them but count them so the caller can report an honest partial result.
     const rows = raw.map((r) => (r.length < width ? [...r, ...new Array(width - r.length).fill('')] : r))

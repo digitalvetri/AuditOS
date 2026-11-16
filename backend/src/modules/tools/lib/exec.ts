@@ -3,6 +3,7 @@ import fs from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
 import crypto from 'node:crypto'
+import { ToolError } from '../services/errors.js'
 
 /**
  * External-process helpers for the converters that lean on system tools:
@@ -47,6 +48,16 @@ export async function withTempDir<T>(prefix: string, fn: (dir: string) => Promis
 
 export function haveBinary(name: string): Promise<boolean> {
   return run('which', [name]).then(() => true, () => false)
+}
+
+/**
+ * Throw `engine_unavailable` when a system tool is missing, so a failed
+ * conversion on a host without it is not reported as a corrupt file.
+ */
+export async function requireBinary(name: string, label: string): Promise<void> {
+  if (await haveBinary(name)) return
+  throw new ToolError('engine_unavailable',
+    `${label} is not installed on this server, so this conversion cannot run here. Your file was not the problem — ask your administrator (the Docker image includes ${label}).`)
 }
 
 // ── LibreOffice ──────────────────────────────────────────────────────────

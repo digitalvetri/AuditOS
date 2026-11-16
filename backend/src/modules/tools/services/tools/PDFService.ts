@@ -2,7 +2,7 @@ import fs from 'node:fs/promises'
 import path from 'node:path'
 import { createRequire } from 'node:module'
 import { PDFDocument } from 'pdf-lib'
-import { run, withTempDir, ToolProcessError } from '../../lib/exec.js'
+import { run, withTempDir, ToolProcessError, requireBinary } from '../../lib/exec.js'
 import { ToolError } from '../errors.js'
 
 /**
@@ -130,7 +130,12 @@ export const PDFService = {
     let done = 0
     for (const bytes of files) {
       const src = await PDFService.load(bytes)
-      if (src.isEncrypted) throw new ToolError('encrypted', 'One of the files is password-protected. Unlock it first, then merge.')
+      if (src.isEncrypted) {
+        if (await PDFService.ownerOnly(bytes)) {
+          throw new ToolError('encrypted', `File ${done + 1} has only print/copy restrictions (an owner password, no password to open). Run Unlock PDF on it with the password left blank, then merge the unlocked copy.`)
+        }
+        throw new ToolError('encrypted', 'One of the files is password-protected. Unlock it first, then merge.')
+      }
       const pages = await out.copyPages(src, src.getPageIndices())
       pages.forEach((p) => out.addPage(p))
       done++
@@ -186,10 +191,28 @@ export const PDFService = {
           `-sOutputFile=${output}`, input,
         ], { timeoutMs: 240_000 })
       } catch (err) {
+        await requireBinary('gs', 'Ghostscript')
         throw translateGs(err)
       }
       return fs.readFile(output)
     })
+  },
+
+  /**
+   * Encrypted with an owner password only — print/copy restrictions, no
+   * password to open. pdfjs opens such a file without a password.
+   */
+  async ownerOnly(bytes: Buffer): Promise<boolean> {
+    const doc = await PDFService.load(bytes)
+    if (!doc.isEncrypted) return false
+    const lib = await pdfjs()
+    try {
+      const d = await lib.getDocument({ data: new Uint8Array(bytes), isEvalSupported: false }).promise
+      await d.destroy().catch(() => undefined)
+      return true
+    } catch {
+      return false
+    }
   },
 
   /** Decrypt with a password the user already knows. Never guesses. */
@@ -243,6 +266,7 @@ export const PDFService = {
       } catch (err) {
         log = err instanceof ToolProcessError ? err.stderr.toLowerCase() : ''
         if (log.includes('password') || log.includes('decrypt')) throw new ToolError('wrong_password', 'Incorrect password. If you are sure it is right, this PDF uses encryption the server can only open once qpdf is installed — ask your administrator.')
+        await requireBinary('gs', 'qpdf or Ghostscript')
         throw translateGs(err)
       }
       if (log.includes('password did not work') || log.includes('cannot decrypt') || log.includes("couldn't initialise")) {

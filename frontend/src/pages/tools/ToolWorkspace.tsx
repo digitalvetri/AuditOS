@@ -20,7 +20,7 @@ import { NotFoundPage } from '@/pages/NotFound';
 /**
  * /tools/:toolId — ONE page for all twelve tools (§6). The registry names
  * the tool, TOOL_UI supplies its options form and button label, the hook
- * runs the state machine. Compliance tools fall through to Coming soon.
+ * runs the state machine.
  */
 export function ToolWorkspacePage() {
   const { toolId } = useParams();
@@ -90,7 +90,7 @@ function ActiveWorkspace({ toolId }: { toolId: string }) {
           {ws.phase === 'processing' ? (
             <ProcessingState label={ui.processingLabel} progress={ws.progress} />
           ) : ws.phase === 'failed' && ws.run.error ? (
-            <ToolErrorState code={ws.run.error.code} message={ws.run.error.message} onRetry={ws.retry} onReset={ws.reset} />
+            <ToolErrorState code={ws.run.error.code} message={ws.run.error.message} problems={ws.run.error.problems} onRetry={ws.retry} onReset={ws.reset} />
           ) : null}
 
           {(ws.phase === 'ready' || ws.phase === 'failed') && validation ? <Notice tone="warn">{validation}</Notice> : null}
