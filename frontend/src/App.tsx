@@ -144,6 +144,7 @@ const SettingsPage = lazy(() => import('@/pages/hrms/Settings').then((m) => ({ d
 const AuditLogPage = lazy(() => import('@/pages/hrms/AuditLog').then((m) => ({ default: m.AuditLogPage })));
 const ZohoPaymentsIntegrationPage = lazy(() => import('@/pages/integrations/ZohoPayments').then((m) => ({ default: m.ZohoPaymentsIntegrationPage })));
 const AiProviderIntegrationPage = lazy(() => import('@/pages/integrations/AiProvider').then((m) => ({ default: m.AiProviderIntegrationPage })));
+const PaymentGatewaysIntegrationPage = lazy(() => import('@/pages/integrations/PaymentGateways').then((m) => ({ default: m.PaymentGatewaysIntegrationPage })));
 const PayrollPage = lazy(() => import('@/pages/hrms/Payroll').then((m) => ({ default: m.PayrollPage })));
 const PayrollRunDetailPage = lazy(() => import('@/pages/hrms/Payroll').then((m) => ({ default: m.PayrollRunDetailPage })));
 const PayslipDetailPage = lazy(() => import('@/pages/hrms/PayslipDetail').then((m) => ({ default: m.PayslipDetailPage })));
@@ -304,6 +305,7 @@ export default function App() {
               <Route path="hrms/audit-log" element={<AuditLogPage />} />
               <Route path="integrations/zoho-payments" element={<ZohoPaymentsIntegrationPage />} />
               <Route path="integrations/ai-provider" element={<AiProviderIntegrationPage />} />
+              <Route path="integrations/payment-gateways" element={<PaymentGatewaysIntegrationPage />} />
 
               <Route path="me/profile" element={<MyProfileRoute />} />
               <Route path="me/attendance" element={<AttendancePage />} />

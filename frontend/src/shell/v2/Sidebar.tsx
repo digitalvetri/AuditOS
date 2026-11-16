@@ -245,6 +245,8 @@ export function buildNav(
       visible: can(role, 'integrations.access', 'organisation') },
     { to: '/integrations/ai-provider', label: 'AI provider', icon: Plug,
       visible: can(role, 'integrations.access', 'organisation') },
+    { to: '/integrations/payment-gateways', label: 'Payment gateways', icon: Plug,
+      visible: can(role, 'integrations.access', 'organisation') },
   ];
   return [
     { label: null, items: [{ to: '/', label: 'Dashboard', icon: Home, end: true, visible: true, badge: pendingCount || undefined, hot: true }] },

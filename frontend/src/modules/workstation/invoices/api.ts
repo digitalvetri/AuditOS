@@ -310,6 +310,31 @@ function qs(f: Record<string, unknown>): string {
   return s ? `?${s}` : '';
 }
 
+/** A Razorpay / Cashfree payment link for an invoice (Integrations → Payment gateways). */
+export interface InvoicePaymentLink {
+  id: string;
+  invoice_id: string;
+  gateway: 'razorpay' | 'cashfree';
+  gateway_label: string;
+  gateway_link_id: string;
+  url: string;
+  amount_paise: number;
+  status: 'created' | 'partially_paid' | 'paid' | 'expired' | 'cancelled';
+  /** Recorded on the invoice through this link. */
+  paid_paise: number;
+  /** Paid at the gateway but not recorded (above the balance due / invoice cancelled). */
+  excess_paise: number;
+  payments_recorded: number;
+  last_checked_at: string | null;
+  created_at: string;
+}
+
+export interface InvoicePaymentLinks {
+  items: InvoicePaymentLink[];
+  gateways: { gateway: 'razorpay' | 'cashfree'; label: string; mode: 'live' | 'test'; is_default: boolean }[];
+  default_gateway: 'razorpay' | 'cashfree' | null;
+}
+
 export const invoicesApi = {
   list: (f: InvoiceFilters = {}) =>
     api.get<{ items: Invoice[]; total: number }>(`/api/invoices${qs({ ...f })}`),
@@ -353,6 +378,14 @@ export const invoicesApi = {
   cancel: (id: string, reason?: string) =>
     api.post<Invoice>(`/api/invoices/${id}/cancel`, { reason }),
   remove: (id: string) => api.delete<void>(`/api/invoices/${id}`),
+  paymentLinks: (id: string) =>
+    api.get<InvoicePaymentLinks>(`/api/invoices/${id}/payment-links`),
+  /** A link for the balance due at the default (or named) gateway; an open one for the same amount is reused. */
+  createPaymentLink: (id: string, gateway?: 'razorpay' | 'cashfree') =>
+    api.post<{ link: InvoicePaymentLink; reused: boolean }>(`/api/invoices/${id}/payment-links`, gateway ? { gateway } : {}),
+  /** Ask the gateway about the link and record any payments not yet recorded. */
+  checkPaymentLink: (id: string, linkId: string) =>
+    api.post<{ link: InvoicePaymentLink; recorded: number }>(`/api/invoices/${id}/payment-links/${linkId}/check`),
   /** A signed, public link to the invoice PDF — for WhatsApp and email. */
   pdfUrl: (id: string) =>
     api.get<{ url: string; expires_at: string }>(`/api/invoices/${id}/pdf-url`),

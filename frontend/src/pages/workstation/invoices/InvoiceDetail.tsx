@@ -15,6 +15,7 @@ import {
   type BlockSpec, type CompanyInfo, type LayoutConfig,
 } from '@/modules/workstation/invoices/document';
 import { InvoiceDocument, type InvoiceDoc } from './InvoiceDocument';
+import { PaymentLinksCard } from './PaymentLinksCard';
 import { StatusPill } from './InvoiceBuilder';
 import {
   Card, Detail, Field, Modal, QueryState, fieldErrors, inputClass,
@@ -332,6 +333,7 @@ function Body({ inv }: { inv: Invoice }) {
         {inv.stored_status !== 'draft' ? (
           <>
             <PaymentsCard inv={inv} mayWrite={mayWrite} />
+            <PaymentLinksCard inv={inv} mayWrite={mayWrite} />
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-4">
               <CreditNotesCard inv={inv} mayCredit={mayCredit} />
               <RemindersCard inv={inv} />
