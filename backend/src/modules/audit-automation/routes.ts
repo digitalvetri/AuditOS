@@ -792,6 +792,345 @@ auditAutomationRouter.get('/invoices/:id/export.xlsx', handler(async (req, res) 
   res.end(Buffer.from(buffer))
 }))
 
+// ── TRANSIT (LR / delivery challan) EXTRACTION ──────────────────────────
+//
+// POST-DELIVERY-CHANGES §F2. Same upload -> extract -> confirm -> export
+// pipeline as the invoice flow. /transit/extract is pure; /transit (POST)
+// persists the reviewed shape; GET / PATCH / export.xlsx are the review
+// surface. Authorization reuses the audit-automation gates — firms that
+// can upload bank statements can upload transit docs; no new permission.
+
+interface TransitPayload {
+  client_id?: unknown
+  pdf_sha256?: unknown
+  filename?: unknown
+  page_count?: unknown
+  doc_type?: unknown
+  doc_number?: unknown; doc_number_confidence?: unknown
+  doc_date?: unknown; doc_date_confidence?: unknown
+  consignor?: unknown; consignor_confidence?: unknown
+  consignor_gstin?: unknown; consignor_gstin_confidence?: unknown
+  consignee?: unknown; consignee_confidence?: unknown
+  consignee_gstin?: unknown; consignee_gstin_confidence?: unknown
+  vehicle_number?: unknown; vehicle_number_confidence?: unknown
+  from_place?: unknown; from_place_confidence?: unknown
+  to_place?: unknown; to_place_confidence?: unknown
+  goods_description?: unknown; goods_description_confidence?: unknown
+  quantity?: unknown; quantity_confidence?: unknown
+  value_paise?: unknown; value_confidence?: unknown
+  status?: unknown
+  notes?: unknown
+}
+
+const TRANSIT_CONFIDENCES = new Set(['high', 'medium', 'low'])
+const TRANSIT_STATUSES = new Set(['extracted', 'confirmed', 'exported'])
+const TRANSIT_DOC_TYPES = new Set(['lorry_receipt', 'delivery_challan', 'unknown'])
+
+function tStr(v: unknown, max: number): string | null {
+  if (v === null || v === undefined || v === '') return null
+  if (typeof v !== 'string') return null
+  const t = v.trim()
+  return t.length === 0 ? null : t.slice(0, max)
+}
+function tInt(v: unknown): number | null {
+  if (v === null || v === undefined || v === '') return null
+  const n = Number(v)
+  return Number.isFinite(n) && Number.isInteger(n) ? n : null
+}
+function tConf(v: unknown, fallback = 'low'): string {
+  if (typeof v === 'string' && TRANSIT_CONFIDENCES.has(v)) return v
+  return fallback
+}
+function tIsoDate(v: unknown): string | null {
+  if (v === null || v === undefined || v === '') return null
+  if (typeof v !== 'string') return null
+  return /^\d{4}-\d{2}-\d{2}$/.test(v) ? v : null
+}
+function tDocType(v: unknown): string {
+  if (typeof v === 'string' && TRANSIT_DOC_TYPES.has(v)) return v
+  return 'unknown'
+}
+
+function serializeTransit(r: {
+  id: string; clientId: string; filename: string; pdfSha256: string; pageCount: number
+  docType: string
+  docNumber: string | null; docNumberConfidence: string
+  docDate: string | null; docDateConfidence: string
+  consignor: string | null; consignorConfidence: string
+  consignorGstin: string | null; consignorGstinConfidence: string
+  consignee: string | null; consigneeConfidence: string
+  consigneeGstin: string | null; consigneeGstinConfidence: string
+  vehicleNumber: string | null; vehicleNumberConfidence: string
+  fromPlace: string | null; fromPlaceConfidence: string
+  toPlace: string | null; toPlaceConfidence: string
+  goodsDescription: string | null; goodsDescriptionConfidence: string
+  quantity: string | null; quantityConfidence: string
+  valuePaise: number | null; valueConfidence: string
+  status: string; reviewedByEmployeeId: string | null; reviewedAt: Date | null; notes: string | null
+  createdAt: Date; updatedAt: Date
+}) {
+  return {
+    id: r.id,
+    client_id: r.clientId,
+    filename: r.filename,
+    pdf_sha256: r.pdfSha256,
+    page_count: r.pageCount,
+    doc_type: r.docType,
+    doc_number: r.docNumber, doc_number_confidence: r.docNumberConfidence,
+    doc_date: r.docDate, doc_date_confidence: r.docDateConfidence,
+    consignor: r.consignor, consignor_confidence: r.consignorConfidence,
+    consignor_gstin: r.consignorGstin, consignor_gstin_confidence: r.consignorGstinConfidence,
+    consignee: r.consignee, consignee_confidence: r.consigneeConfidence,
+    consignee_gstin: r.consigneeGstin, consignee_gstin_confidence: r.consigneeGstinConfidence,
+    vehicle_number: r.vehicleNumber, vehicle_number_confidence: r.vehicleNumberConfidence,
+    from_place: r.fromPlace, from_place_confidence: r.fromPlaceConfidence,
+    to_place: r.toPlace, to_place_confidence: r.toPlaceConfidence,
+    goods_description: r.goodsDescription, goods_description_confidence: r.goodsDescriptionConfidence,
+    quantity: r.quantity, quantity_confidence: r.quantityConfidence,
+    value_paise: r.valuePaise, value_confidence: r.valueConfidence,
+    status: r.status,
+    reviewed_by_employee_id: r.reviewedByEmployeeId,
+    reviewed_at: r.reviewedAt ? r.reviewedAt.toISOString() : null,
+    notes: r.notes,
+    created_at: r.createdAt.toISOString(),
+    updated_at: r.updatedAt.toISOString(),
+  }
+}
+
+/**
+ * POST /api/audit-automation/transit/extract — pure PDF read.
+ * Mirrors /invoices/extract: no persistence, no client binding required.
+ */
+auditAutomationRouter.post('/transit/extract', (req, res, next) => {
+  upload.single('file')(req, res, (err: unknown) => {
+    if (err instanceof Error && err.message.includes('File too large')) {
+      return next(ApiError.unprocessable('too_large', `The PDF is over ${MAX_MB} MB.`))
+    }
+    if (err) return next(err)
+    scanUploads(req, res, next)
+  })
+}, handler(async (req, res) => {
+  const session = requireSession(req)
+  requireAaUpload(session)
+  const file = req.file
+  if (!file) throw ApiError.unprocessable('empty', 'Choose a transit document PDF to upload.')
+  if (file.size === 0) throw ApiError.unprocessable('empty', 'The uploaded file is empty.')
+  const mime = await sniffMime(file.buffer, file.originalname)
+  const ext = extensionOf(file.originalname)
+  if (mime !== 'application/pdf' && ext !== 'pdf') {
+    throw ApiError.unprocessable('not_pdf', 'Upload the transit document as a PDF — image + OCR support lands in a follow-up.')
+  }
+  const { inspectPdf, PasswordRequiredError, WrongPasswordError, UnreadablePdfError } = await import('./lib/pdfInspect.js')
+  const { extractTransit } = await import('./parsers/transitPdf.js')
+  try {
+    const inspected = await inspectPdf(file.buffer)
+    const extracted = extractTransit(inspected.pages)
+    ok(res, {
+      filename: sanitizeFilename(file.originalname),
+      page_count: inspected.pageCount,
+      doc_type: extracted.docType,
+      doc_number: extracted.docNumber,
+      doc_date: extracted.docDate,
+      consignor: extracted.consignor,
+      consignor_gstin: extracted.consignorGstin,
+      consignee: extracted.consignee,
+      consignee_gstin: extracted.consigneeGstin,
+      vehicle_number: extracted.vehicleNumber,
+      from_place: extracted.fromPlace,
+      to_place: extracted.toPlace,
+      goods_description: extracted.goodsDescription,
+      quantity: extracted.quantity,
+      value_paise: extracted.valuePaise,
+      date_candidates: extracted.dateCandidates,
+      raw_text: extracted.rawText,
+    })
+  } catch (e) {
+    if (e instanceof PasswordRequiredError) throw ApiError.unprocessable('password_required', 'This transit PDF is password-protected.')
+    if (e instanceof WrongPasswordError) throw ApiError.unprocessable('wrong_password', 'The password did not open the PDF.')
+    if (e instanceof UnreadablePdfError) throw ApiError.unprocessable('unreadable', 'Could not read this PDF — try a different export or a scan + OCR.')
+    throw e
+  }
+}))
+
+/** POST /api/audit-automation/transit — persist the reviewed shape. */
+auditAutomationRouter.post('/transit', handler(async (req, res) => {
+  const session = requireSession(req)
+  requireAaUpload(session)
+  const organisationId = await orgIdOf(session.userId)
+  const b = (req.body ?? {}) as TransitPayload
+
+  const clientId = tStr(b.client_id, 64)
+  if (!clientId) throw ApiError.unprocessable('client_required', 'Pick a client before saving.')
+  await assertClientVisible(session, clientId)
+  const pdfSha256 = tStr(b.pdf_sha256, 64)
+  if (!pdfSha256) throw ApiError.unprocessable('pdf_sha256_required', 'pdf_sha256 is required (returned by /transit/extract).')
+
+  const status = typeof b.status === 'string' && TRANSIT_STATUSES.has(b.status) ? b.status : 'extracted'
+  const reviewed = status === 'confirmed'
+
+  const row = await prisma.aaTransitExtraction.create({
+    data: {
+      organisationId, clientId,
+      filename: tStr(b.filename, 200) ?? 'transit.pdf',
+      pdfSha256,
+      pageCount: tInt(b.page_count) ?? 1,
+      docType: tDocType(b.doc_type),
+      docNumber: tStr(b.doc_number, 50), docNumberConfidence: tConf(b.doc_number_confidence),
+      docDate: tIsoDate(b.doc_date), docDateConfidence: tConf(b.doc_date_confidence),
+      consignor: tStr(b.consignor, 200), consignorConfidence: tConf(b.consignor_confidence),
+      consignorGstin: tStr(b.consignor_gstin, 20)?.toUpperCase() ?? null,
+      consignorGstinConfidence: tConf(b.consignor_gstin_confidence),
+      consignee: tStr(b.consignee, 200), consigneeConfidence: tConf(b.consignee_confidence),
+      consigneeGstin: tStr(b.consignee_gstin, 20)?.toUpperCase() ?? null,
+      consigneeGstinConfidence: tConf(b.consignee_gstin_confidence),
+      vehicleNumber: tStr(b.vehicle_number, 20)?.toUpperCase() ?? null,
+      vehicleNumberConfidence: tConf(b.vehicle_number_confidence),
+      fromPlace: tStr(b.from_place, 60), fromPlaceConfidence: tConf(b.from_place_confidence),
+      toPlace: tStr(b.to_place, 60), toPlaceConfidence: tConf(b.to_place_confidence),
+      goodsDescription: tStr(b.goods_description, 200), goodsDescriptionConfidence: tConf(b.goods_description_confidence),
+      quantity: tStr(b.quantity, 60), quantityConfidence: tConf(b.quantity_confidence),
+      valuePaise: tInt(b.value_paise), valueConfidence: tConf(b.value_confidence),
+      status,
+      reviewedByEmployeeId: reviewed ? (session.employeeId ?? null) : null,
+      reviewedAt: reviewed ? new Date() : null,
+      notes: tStr(b.notes, 2000),
+      createdBy: session.userId, updatedBy: session.userId,
+    },
+  })
+  await writeAudit({
+    actorUserId: session.userId, action: 'aa.transit_extracted',
+    entityType: 'AaTransitExtraction', entityId: row.id,
+    after: { client_id: clientId, status, doc_type: row.docType, pdf_sha256: pdfSha256 }, req,
+  })
+  ok(res, serializeTransit(row), 201)
+}))
+
+/** GET /api/audit-automation/transit/:id */
+auditAutomationRouter.get('/transit/:id', handler(async (req, res) => {
+  const session = requireSession(req)
+  requireAaView(session)
+  const organisationId = await orgIdOf(session.userId)
+  const row = await prisma.aaTransitExtraction.findFirst({
+    where: { id: req.params.id, organisationId, deletedAt: null },
+  })
+  if (!row) throw ApiError.notFound('Transit extraction not found.')
+  await assertClientVisible(session, row.clientId)
+  ok(res, serializeTransit(row))
+}))
+
+/** PATCH /api/audit-automation/transit/:id — reviewer corrections. */
+auditAutomationRouter.patch('/transit/:id', handler(async (req, res) => {
+  const session = requireSession(req)
+  requireAaUpload(session)
+  const organisationId = await orgIdOf(session.userId)
+  const before = await prisma.aaTransitExtraction.findFirst({
+    where: { id: req.params.id, organisationId, deletedAt: null },
+  })
+  if (!before) throw ApiError.notFound('Transit extraction not found.')
+  await assertClientVisible(session, before.clientId)
+
+  const b = (req.body ?? {}) as TransitPayload
+  const has = (k: keyof TransitPayload): boolean => k in b
+  const data: Record<string, unknown> = { updatedBy: session.userId }
+
+  const correct = <V>(
+    valueKey: keyof TransitPayload, confKey: keyof TransitPayload | null,
+    dataField: string, confField: string | null,
+    parse: (v: unknown) => V,
+  ) => {
+    if (!has(valueKey)) return
+    data[dataField] = parse(b[valueKey])
+    if (confField) data[confField] = tConf(confKey ? b[confKey] : undefined, 'high')
+  }
+
+  if (has('doc_type')) data.docType = tDocType(b.doc_type)
+  correct('doc_number', 'doc_number_confidence', 'docNumber', 'docNumberConfidence', (v) => tStr(v, 50))
+  correct('doc_date', 'doc_date_confidence', 'docDate', 'docDateConfidence', (v) => tIsoDate(v))
+  correct('consignor', 'consignor_confidence', 'consignor', 'consignorConfidence', (v) => tStr(v, 200))
+  correct('consignor_gstin', 'consignor_gstin_confidence', 'consignorGstin', 'consignorGstinConfidence', (v) => tStr(v, 20)?.toUpperCase() ?? null)
+  correct('consignee', 'consignee_confidence', 'consignee', 'consigneeConfidence', (v) => tStr(v, 200))
+  correct('consignee_gstin', 'consignee_gstin_confidence', 'consigneeGstin', 'consigneeGstinConfidence', (v) => tStr(v, 20)?.toUpperCase() ?? null)
+  correct('vehicle_number', 'vehicle_number_confidence', 'vehicleNumber', 'vehicleNumberConfidence', (v) => tStr(v, 20)?.toUpperCase() ?? null)
+  correct('from_place', 'from_place_confidence', 'fromPlace', 'fromPlaceConfidence', (v) => tStr(v, 60))
+  correct('to_place', 'to_place_confidence', 'toPlace', 'toPlaceConfidence', (v) => tStr(v, 60))
+  correct('goods_description', 'goods_description_confidence', 'goodsDescription', 'goodsDescriptionConfidence', (v) => tStr(v, 200))
+  correct('quantity', 'quantity_confidence', 'quantity', 'quantityConfidence', (v) => tStr(v, 60))
+  correct('value_paise', 'value_confidence', 'valuePaise', 'valueConfidence', tInt)
+
+  if (has('notes')) data.notes = tStr(b.notes, 2000)
+
+  if (has('status')) {
+    const status = typeof b.status === 'string' && TRANSIT_STATUSES.has(b.status) ? b.status : before.status
+    data.status = status
+    if (status === 'confirmed' && before.status !== 'confirmed') {
+      data.reviewedByEmployeeId = session.employeeId ?? null
+      data.reviewedAt = new Date()
+    } else if (status !== 'confirmed' && before.status === 'confirmed') {
+      data.reviewedByEmployeeId = null
+      data.reviewedAt = null
+    }
+  }
+
+  const after = await prisma.aaTransitExtraction.update({ where: { id: before.id }, data })
+  await writeAudit({
+    actorUserId: session.userId, action: 'aa.transit_updated',
+    entityType: 'AaTransitExtraction', entityId: after.id,
+    before: { status: before.status, docType: before.docType, vehicleNumber: before.vehicleNumber },
+    after: { status: after.status, docType: after.docType, vehicleNumber: after.vehicleNumber },
+    req,
+  })
+  ok(res, serializeTransit(after))
+}))
+
+/** GET /api/audit-automation/transit/:id/export.xlsx */
+auditAutomationRouter.get('/transit/:id/export.xlsx', handler(async (req, res) => {
+  const session = requireSession(req)
+  requireAaView(session)
+  const organisationId = await orgIdOf(session.userId)
+  const row = await prisma.aaTransitExtraction.findFirst({
+    where: { id: req.params.id, organisationId, deletedAt: null },
+  })
+  if (!row) throw ApiError.notFound('Transit extraction not found.')
+  await assertClientVisible(session, row.clientId)
+
+  const ExcelJS = (await import('exceljs')).default
+  const wb = new ExcelJS.Workbook()
+  const sheet = wb.addWorksheet('Transit')
+  sheet.columns = [
+    { header: 'Field', key: 'field', width: 28 },
+    { header: 'Value', key: 'value', width: 60 },
+    { header: 'Confidence', key: 'conf', width: 14 },
+  ]
+  const asRupees = (p: number | null) => p === null ? '' : (p / 100).toFixed(2)
+  const docTypeLabel = row.docType === 'lorry_receipt' ? 'Lorry Receipt' : row.docType === 'delivery_challan' ? 'Delivery Challan' : 'Transit document'
+  const rows: Array<[string, string, string]> = [
+    ['Document type', docTypeLabel, ''],
+    ['Document number', row.docNumber ?? '', row.docNumberConfidence],
+    ['Date', row.docDate ?? '', row.docDateConfidence],
+    ['Consignor', row.consignor ?? '', row.consignorConfidence],
+    ['Consignor GSTIN', row.consignorGstin ?? '', row.consignorGstinConfidence],
+    ['Consignee', row.consignee ?? '', row.consigneeConfidence],
+    ['Consignee GSTIN', row.consigneeGstin ?? '', row.consigneeGstinConfidence],
+    ['Vehicle number', row.vehicleNumber ?? '', row.vehicleNumberConfidence],
+    ['From', row.fromPlace ?? '', row.fromPlaceConfidence],
+    ['To', row.toPlace ?? '', row.toPlaceConfidence],
+    ['Goods', row.goodsDescription ?? '', row.goodsDescriptionConfidence],
+    ['Quantity', row.quantity ?? '', row.quantityConfidence],
+    ['Value (₹)', asRupees(row.valuePaise), row.valueConfidence],
+    ['Status', row.status, ''],
+    ['Notes', row.notes ?? '', ''],
+    ['Filename', row.filename, ''],
+  ]
+  for (const [field, value, conf] of rows) sheet.addRow({ field, value, conf })
+  sheet.getRow(1).font = { bold: true }
+
+  const buffer = await wb.xlsx.writeBuffer()
+  const safeName = (row.docNumber || row.id).replace(/[^A-Za-z0-9._-]/g, '_').slice(0, 60)
+  res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+  res.setHeader('Content-Disposition', `attachment; filename="transit-${safeName}.xlsx"`)
+  res.end(Buffer.from(buffer))
+}))
+
 auditAutomationRouter.delete('/rules/:id', handler(async (req, res) => {
   const session = requireSession(req)
   requireAaUpload(session)
