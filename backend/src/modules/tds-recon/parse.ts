@@ -184,10 +184,10 @@ export async function parse26AS(bytes: Buffer, filename: string): Promise<ParseR
     if (e instanceof ToolError) throw ApiError.unprocessable(e.code, e.message)
     throw e
   }
-  const sheet = (await sheets(out.bytes)).find((s) => s.name === 'Part A - TDS')
+  // Part I (with Part II) TDS only — the converter puts Part VI TCS on its own sheet.
+  const sheet = (await sheets(out.bytes)).find((s) => s.name === 'Part I - TDS')
   const r = sheet ? fromTable(sheet.rows, '') : null
-  if (!r?.entries.length) throw ApiError.unprocessable('no_tables', 'No Part A rows could be read from this 26AS.')
-  // The converter's sheet has no TDS-deposited column: treat deducted as deposited.
+  if (!r?.entries.length) throw ApiError.unprocessable('no_tables', 'No Part I TDS rows could be read from this 26AS.')
   return { ...r, format: text ? 'text' : 'pdf', sourceFormat: text ? 'text' : 'excel' }
 }
 

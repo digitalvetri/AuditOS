@@ -979,10 +979,12 @@ export const ComplianceService = {
         if (c && c.paid >= 0 && c.deducted >= 0 && c.deposited >= 0) {
           paid = parseAmount(f[c.paid] ?? ''); deducted = parseAmount(f[c.deducted] ?? ''); deposited = parseAmount(f[c.deposited] ?? '')
         } else {
-          // No header seen: the three amounts are the last three decimal fields.
+          // No header seen: the amounts are the decimal fields in TRACES order —
+          // paid / credited, tax deducted, then TDS deposited when printed.
+          // (Counting from the left keeps the Sr. No. out and never shifts a column.)
           const money = f.filter((v) => /\.\d{2}$/.test(v)).map(parseAmount).filter((v): v is number => v !== null)
-          if (money.length < 3) { skipped.push({ row: n + 1, reason: 'a dated line without its column header, and fewer than three amounts' }); return }
-          ;[paid, deducted, deposited] = money.slice(-3)
+          if (money.length < 2 || money.length > 3) { skipped.push({ row: n + 1, reason: `a dated line without its column header and ${money.length} amounts (expected paid, deducted and deposited)` }); return }
+          ;[paid, deducted, deposited = null] = money
         }
         if (paid === null) { skipped.push({ row: n + 1, reason: 'no Amount Paid / Credited on a dated line' }); return }
         const dates = f.map((v) => parseDate(v)).filter((v): v is string => v !== null)
