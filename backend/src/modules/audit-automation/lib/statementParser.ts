@@ -175,14 +175,24 @@ function mergeLines(a: Line, b: Line): Line {
   return { y: a.y, page: a.page, items: merged.map((m) => ({ str: m.text, x: m.left, y: a.y, width: m.right - m.left, height: 8, fontName: '' })) }
 }
 
-/** Column bands: halfway between neighbouring header cells. */
-function bands(header: HeaderCol[]): { col: Col; from: number; to: number }[] {
-  const h = [...header].sort((a, b) => a.left - b.left)
-  return h.map((c, i) => ({
-    col: c.col,
-    from: i === 0 ? -Infinity : (h[i - 1].right + c.left) / 2,
-    to: i === h.length - 1 ? Infinity : (c.right + h[i + 1].left) / 2,
-  }))
+/**
+ * Column bands: halfway between neighbouring header cells. Header cells we
+ * do not read (Axis's "Init. Br" after Balance, a "Sl No" before Date) still
+ * end the band next to them — otherwise their values are appended to the
+ * neighbouring column ("9,550.00 1234" in the balance cell).
+ */
+function bands(header: HeaderCol[], others: { left: number; right: number }[] = []): { col: Col; from: number; to: number }[] {
+  const all = [...header.map((c) => ({ left: c.left, right: c.right })), ...others.filter((o) => !header.some((c) => c.left === o.left && c.right === o.right))]
+    .sort((a, b) => a.left - b.left)
+  return [...header].sort((a, b) => a.left - b.left).map((c) => {
+    const prev = all.filter((o) => o.right <= c.left).pop()
+    const next = all.find((o) => o.left >= c.right)
+    return {
+      col: c.col,
+      from: prev ? (prev.right + c.left) / 2 : -Infinity,
+      to: next ? (c.right + next.left) / 2 : Infinity,
+    }
+  })
 }
 
 // Lines that are statement furniture, not transactions.
@@ -199,13 +209,16 @@ function rawRowsFromPdf(pages: ExtractedPage[]): { raws: Raw[]; columns: Col[]; 
   let columns: Col[] = []
   const raws: Raw[] = []
   const notes: string[] = []
-  const headerAt = (lines: Line[], i: number): { hdr: HeaderCol[]; span: number } | null => {
-    const one = headerFromCells(cellsOf(lines[i].items))
+  type Cells = ReturnType<typeof cellsOf>
+  const headerAt = (lines: Line[], i: number): { hdr: HeaderCol[]; span: number; cells: Cells } | null => {
+    const oneCells = cellsOf(lines[i].items)
+    const one = headerFromCells(oneCells)
     if (lines[i + 1]) {
-      const two = headerFromCells(cellsOf(mergeLines(lines[i], lines[i + 1]).items))
-      if (isHeader(two) && two.length > one.length) return { hdr: two, span: 2 }
+      const twoCells = cellsOf(mergeLines(lines[i], lines[i + 1]).items)
+      const two = headerFromCells(twoCells)
+      if (isHeader(two) && two.length > one.length) return { hdr: two, span: 2, cells: twoCells }
     }
-    return isHeader(one) ? { hdr: one, span: 1 } : null
+    return isHeader(one) ? { hdr: one, span: 1, cells: oneCells } : null
   }
   for (const page of pages) {
     const lines = linesOf(page)
@@ -219,7 +232,7 @@ function rawRowsFromPdf(pages: ExtractedPage[]): { raws: Raw[]; columns: Col[]; 
       if (BALANCE_NOTE.test(text)) { notes.push(text); continue }
       if (i < start) continue
       const h = headerAt(lines, i)
-      if (h) { active = bands(h.hdr); columns = h.hdr.map((x) => x.col); i += h.span - 1; lastRowY = null; continue }
+      if (h) { active = bands(h.hdr, h.cells); columns = h.hdr.map((x) => x.col); i += h.span - 1; lastRowY = null; continue }
       if (!active) continue
       if (SKIP.test(text)) { notes.push(text); continue }
 
@@ -286,7 +299,11 @@ function assemble(raws: Raw[]): ParsedTxn[] {
       const amt = parseMoney(r.amount)
       if (amt !== null) {
         const ind = (r.drcr ?? r.amount).toLowerCase()
-        if (/\bcr\b|credit|cr$/.test(ind)) credit = amt < 0n ? -amt : amt
+        // A one-letter type column (Canara / Indian Bank): "C" / "D".
+        const letter = (r.drcr ?? '').trim().toLowerCase().replace(/\.$/, '')
+        if (letter === 'c') credit = amt < 0n ? -amt : amt
+        else if (letter === 'd') debit = amt < 0n ? -amt : amt
+        else if (/\bcr\b|credit|cr$/.test(ind)) credit = amt < 0n ? -amt : amt
         else if (/\bdr\b|debit|dr$/.test(ind)) debit = amt < 0n ? -amt : amt
         else if (amt < 0n) debit = -amt
         else credit = amt

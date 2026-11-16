@@ -21,7 +21,7 @@ import { notifyUser } from '../../../platform/notify.js'
  */
 
 /** Flags that need a person to look at the row before it can go to Tally. */
-const REVIEW_FLAGS = new Set(['BALANCE_BREAK', 'NO_AMOUNT', 'BOTH_AMOUNTS', 'AUTO_SWAPPED', 'DATE_ORDER', 'OUT_OF_PERIOD'])
+const REVIEW_FLAGS = new Set(['BALANCE_BREAK', 'NO_AMOUNT', 'BOTH_AMOUNTS', 'AUTO_SWAPPED', 'DATE_ORDER', 'OUT_OF_PERIOD', 'NO_BALANCE'])
 
 const normNarration = (s: string) => s.toUpperCase().replace(/[^A-Z0-9]/g, '')
 

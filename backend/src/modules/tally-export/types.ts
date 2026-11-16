@@ -46,6 +46,9 @@ export interface PreviewRow {
   voucher_type: VoucherType | null
   /** Deterministic voucher number computed from bank code + period + row order. */
   voucher_number: string
+  /** Stable id written as the voucher's REMOTEID, so re-importing the same
+   *  voucher is recognised by Tally rather than posted again. */
+  remote_id?: string
   /** True when this row's target ledger has never been used before for this client. */
   new_ledger: boolean
 }

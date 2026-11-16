@@ -30,7 +30,9 @@ import { fingerprintOf } from './AaExtractService.js'
  * ledger assigned as "OK" while the header counted them as "without a
  * ledger", so staff learned to ignore both.
  */
-const REVIEW_FLAGS = ['BALANCE_BREAK', 'NO_AMOUNT', 'BOTH_AMOUNTS', 'AUTO_SWAPPED', 'DATE_ORDER', 'OUT_OF_PERIOD', 'NO_LEDGER']
+// NO_BALANCE: without a balance the row's amounts cannot be checked against
+// the running balance, so a person looks at it (Axis-style misreads hid here).
+const REVIEW_FLAGS = ['BALANCE_BREAK', 'NO_AMOUNT', 'BOTH_AMOUNTS', 'AUTO_SWAPPED', 'DATE_ORDER', 'OUT_OF_PERIOD', 'NO_LEDGER', 'NO_BALANCE']
 type Txn = Awaited<ReturnType<typeof prisma.aaBankTxn.findMany>>[number]
 
 const csv = (s: string) => (s ? s.split(',').filter(Boolean) : [])
@@ -65,6 +67,7 @@ async function recheck(jobId: string): Promise<void> {
     if (r.status !== 'excluded' && r.status !== 'duplicate') {
       if (r.debitPaise === 0n && r.creditPaise === 0n) flags.add('NO_AMOUNT')
       if (r.debitPaise > 0n && r.creditPaise > 0n) flags.add('BOTH_AMOUNTS')
+      if (r.balancePaise === null) flags.add('NO_BALANCE')
       if (period && (r.txnDate < period[0] || r.txnDate > period[1])) flags.add('OUT_OF_PERIOD')
       if (!r.ledgerName || !r.ledgerName.trim()) flags.add('NO_LEDGER')
       if (prev) {
@@ -216,11 +219,20 @@ export const AaTxnService = {
     await writeAudit({ actorUserId: session.userId, action: approve ? 'aa.bank.job_approved' : 'aa.bank.job_reopened', entityType: 'AaJob', entityId: job.id, req })
   },
 
-  async tallyXml(session: Session, jobId: string, req?: Request): Promise<{ xml: string; filename: string }> {
+  async tallyXml(session: Session, jobId: string, req?: Request, opts: { confirm?: boolean } = {}): Promise<{ xml: string; filename: string }> {
     const job = await jobFor(session, jobId)
     if (job.reviewStatus !== 'approved') throw ApiError.conflict('not_approved', 'Approve the reviewed statement before exporting to Tally.')
+    // Importing the same vouchers twice double-posts them in Tally: a second
+    // export needs an explicit confirmation.
+    const last = await prisma.aaExport.findFirst({ where: { jobId: job.id, kind: 'tally_xml' }, orderBy: { createdAt: 'desc' } })
+    if (last && !opts.confirm) {
+      throw ApiError.conflict('already_exported', `This statement was already exported to Tally on ${last.createdAt.toISOString().slice(0, 10)}. Import it again only if the earlier import was undone — confirm to download it again.`)
+    }
     const rows = await prisma.aaBankTxn.findMany({ where: { jobId: job.id, status: 'ok' }, orderBy: { seq: 'asc' } })
-    const bankCode = (job.sourceDocument.bank.key.replace(/[^a-z]/gi, '').slice(0, 5) || 'BANK').toUpperCase()
+    // The account is part of the voucher number: two accounts at one bank
+    // would otherwise produce the same numbers.
+    const acct4 = job.sourceDocument.bankAccount.accountNumberMasked.replace(/[^A-Za-z0-9]/g, '').slice(-4)
+    const bankCode = `${(job.sourceDocument.bank.key.replace(/[^a-z]/gi, '').slice(0, 5) || 'BANK').toUpperCase()}-${acct4}`
     // Contra awareness — resolve the client's OTHER bank-ledger names from
     // every other approved statement on the same client, then pass that
     // set to classifyVoucherType. Keeps the "transfer between own
@@ -251,6 +263,8 @@ export const AaTxnService = {
         matched_rule_id: r.matchedRuleId, ledger_name: r.ledgerName,
         voucher_type: (r.voucherType ?? defaultType) as VoucherType,
         voucher_number: `${bankCode}/${r.txnDate.replace(/-/g, '')}/${String(r.seq).padStart(4, '0')}`,
+        // Stable per statement row, the same in every export of it.
+        remote_id: `AUDITOS-AA-${r.id}`,
         new_ledger: false,
       }
     })
@@ -264,8 +278,7 @@ export const AaTxnService = {
       },
     })
     await writeAudit({ actorUserId: session.userId, action: 'aa.bank.exported', entityType: 'AaJob', entityId: job.id, after: { export_id: exp.id, kind: 'tally_xml', rows: rows.length }, req })
-    const acct = job.sourceDocument.bankAccount.accountNumberMasked.replace(/[^A-Za-z0-9]/g, '').slice(-4)
-    return { xml, filename: `${bankCode}-${acct}-${job.periodFrom ?? ''}_${job.periodTo ?? ''}-tally.xml` }
+    return { xml, filename: `${bankCode}-${job.periodFrom ?? ''}_${job.periodTo ?? ''}-tally.xml` }
   },
 
   /**

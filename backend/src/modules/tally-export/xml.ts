@@ -98,7 +98,7 @@ export function formatVouchersXml(input: {
 
     messages.push(`
       <TALLYMESSAGE>
-        <VOUCHER VCHTYPE="${esc(vchType)}" ACTION="Create">
+        <VOUCHER${row.remote_id ? ` REMOTEID="${esc(row.remote_id)}"` : ''} VCHTYPE="${esc(vchType)}" ACTION="Create">
           <DATE>${date}</DATE>
           <VOUCHERTYPENAME>${esc(vchType)}</VOUCHERTYPENAME>
           <VOUCHERNUMBER>${esc(row.voucher_number)}</VOUCHERNUMBER>

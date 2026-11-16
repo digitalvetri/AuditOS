@@ -203,8 +203,11 @@ auditAutomationRouter.get('/jobs/:id', handler(async (req, res) => {
     where: { id: job.source_document_id, deletedAt: null },
     include: { bank: true, bankAccount: true, uploadedBy: { include: { employee: true } } },
   })
+  // Earlier Tally exports, so the page can warn before a second import.
+  const exportsDone = await prisma.aaExport.findMany({ where: { jobId: job.id, kind: 'tally_xml' }, orderBy: { createdAt: 'desc' }, select: { createdAt: true, rowCount: true } })
   ok(res, {
     job,
+    tally_exports: exportsDone.map((e) => ({ at: e.createdAt.toISOString(), rows: e.rowCount })),
     source_document: doc ? {
       id: doc.id,
       original_filename: doc.originalFilename,
@@ -266,7 +269,8 @@ auditAutomationRouter.post('/jobs/:id/reopen', handler(async (req, res) => {
 auditAutomationRouter.get('/jobs/:id/export/tally.xml', handler(async (req, res) => {
   const session = requireSession(req)
   requireAaView(session)
-  const { xml, filename } = await AaTxnService.tallyXml(session, req.params.id, req)
+  const confirm = String(req.query.confirm ?? '') === '1'
+  const { xml, filename } = await AaTxnService.tallyXml(session, req.params.id, req, { confirm })
   res.setHeader('Content-Type', 'application/xml; charset=utf-8')
   res.setHeader('Content-Disposition', `attachment; filename="${filename.replace(/[^\w.-]/g, '_')}"`)
   res.send(xml)
