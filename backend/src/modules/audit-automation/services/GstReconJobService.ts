@@ -1,7 +1,8 @@
 import type { Request } from 'express'
 import { prisma, alive } from '../../../lib/prisma.js'
 import { ApiError } from '../../../lib/http.js'
-import { can, type Session } from '../../../platform/auth.js'
+import { jobVisibility } from '../lib/jobScope.js'
+import { type Session } from '../../../platform/auth.js'
 import { writeAudit } from '../../../platform/audit.js'
 import { runMatcher, compare, itcFor, type MatchStatus, type ItcClassification, type Entry } from './GstMatchingService.js'
 import { isValidGstin } from '../parsers/types.js'
@@ -55,13 +56,8 @@ function toApi(row: JobRow): ReconJobApi {
   }
 }
 
-async function orgOf(session: Session) {
-  return (await prisma.user.findUniqueOrThrow({ where: { id: session.userId }, select: { organisationId: true } })).organisationId
-}
 async function scopedWhere(session: Session, base: object) {
-  const organisationId = await orgOf(session)
-  if (can(session, 'tools.audit_automation.gst.view', 'organisation')) return { ...base, organisationId }
-  return { ...base, organisationId, createdByUserId: session.userId }
+  return { ...base, ...(await jobVisibility(session, 'tools.audit_automation.gst.view')) }
 }
 
 type E2B = Awaited<ReturnType<typeof prisma.aaGstFiling2BEntry.findMany>>[number]

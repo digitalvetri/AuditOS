@@ -1,7 +1,8 @@
 import ExcelJS from 'exceljs'
 import { prisma, alive } from '../../../lib/prisma.js'
 import { ApiError } from '../../../lib/http.js'
-import { can, type Session } from '../../../platform/auth.js'
+import { type Session } from '../../../platform/auth.js'
+import { jobVisibility } from '../lib/jobScope.js'
 import { numify } from '../../../lib/money.js'
 
 /**
@@ -17,12 +18,7 @@ const RUPEES = '#,##,##0.00'
 function paiseToRupees(p: number): number { return p / 100 }
 
 async function scopedJob(session: Session, jobId: string) {
-  const { organisationId } = await prisma.user.findUniqueOrThrow({
-    where: { id: session.userId }, select: { organisationId: true },
-  })
-  const where = can(session, 'tools.audit_automation.gst.view', 'organisation')
-    ? { id: jobId, organisationId }
-    : { id: jobId, organisationId, createdByUserId: session.userId }
+  const where = { id: jobId, ...(await jobVisibility(session, 'tools.audit_automation.gst.view')) }
   const job = await prisma.aaGstReconJob.findFirst({
     where,
     include: {
