@@ -170,9 +170,12 @@ bookkeepingRouter.get('/companies/:id/financial-years', handler(async (req, res)
   ok(res, { items: await BookkeepingFinancialYearService.list(session, req.params.id) })
 }))
 
+// Adding a financial year: Senior Associate and above.
 bookkeepingRouter.post('/companies/:id/financial-years', handler(async (req, res) => {
   const session = requireSession(req)
-  requireCompanyManage(session)
+  if (!can(session, 'tools.audit_automation.bookkeeping.year.manage', 'self')) {
+    throw ApiError.forbidden('Adding a financial year needs a Senior Associate or a partner.')
+  }
   const b = z.object({
     label: z.string().min(1),
     start_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
@@ -190,9 +193,16 @@ bookkeepingRouter.post('/companies/:id/financial-years', handler(async (req, res
   ok(res, fy, 201)
 }))
 
+// Closing or reopening a financial year: partners only, both audited.
+function requireYearClose(session: Session) {
+  if (!can(session, 'tools.audit_automation.bookkeeping.year.close', 'self')) {
+    throw ApiError.forbidden('Only a partner can close or reopen a financial year.')
+  }
+}
+
 bookkeepingRouter.patch('/companies/:id/financial-years/:fyId/close', handler(async (req, res) => {
   const session = requireSession(req)
-  requireCompanyManage(session)
+  requireYearClose(session)
   const closed = await BookkeepingFinancialYearService.close(session, req.params.id, req.params.fyId)
   await writeAudit({
     actorUserId: session.userId, action: 'tally.fy_closed',
@@ -200,6 +210,19 @@ bookkeepingRouter.patch('/companies/:id/financial-years/:fyId/close', handler(as
     after: { company_id: req.params.id, label: closed.label }, req,
   })
   ok(res, closed)
+}))
+
+bookkeepingRouter.patch('/companies/:id/financial-years/:fyId/reopen', handler(async (req, res) => {
+  const session = requireSession(req)
+  requireYearClose(session)
+  const reason = typeof req.body?.reason === 'string' ? req.body.reason.trim().slice(0, 500) || null : null
+  const reopened = await BookkeepingFinancialYearService.reopen(session, req.params.id, req.params.fyId)
+  await writeAudit({
+    actorUserId: session.userId, action: 'tally.fy_reopened',
+    entityType: 'TallyFinancialYear', entityId: reopened.id,
+    before: { closed: true }, after: { company_id: req.params.id, label: reopened.label, closed: false, reason }, req,
+  })
+  ok(res, reopened)
 }))
 
 // ── Groups ──────────────────────────────────────────────────────────────

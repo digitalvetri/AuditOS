@@ -4,7 +4,7 @@ import type { Session } from '../../../platform/auth.js'
 import { BookkeepingCompanyService } from './BookkeepingCompanyService.js'
 
 /**
- * BookkeepingFinancialYearService — list / create / close FYs for a company.
+ * BookkeepingFinancialYearService — list / create / close / reopen FYs for a company.
  * The first FY is seeded at company creation (BookkeepingCompanyService.create);
  * subsequent FYs are added here.
  */
@@ -69,6 +69,20 @@ export const BookkeepingFinancialYearService = {
     if (!row) throw ApiError.notFound('No such financial year.')
     const updated = await prisma.bookkeepingFinancialYear.update({
       where: { id: fyId }, data: { closed: true },
+    })
+    return toApi(updated)
+  },
+
+  /** Open a closed year again so it can be posted into (the route audits it). */
+  async reopen(session: Session, companyId: string, fyId: string): Promise<FinancialYearApi> {
+    await BookkeepingCompanyService.requireOwned(session, companyId)
+    const row = await prisma.bookkeepingFinancialYear.findFirst({
+      where: { id: fyId, tallyCompanyId: companyId },
+    })
+    if (!row) throw ApiError.notFound('No such financial year.')
+    if (!row.closed) throw ApiError.conflict('financial_year_open', `FY "${row.label}" is not closed.`)
+    const updated = await prisma.bookkeepingFinancialYear.update({
+      where: { id: fyId }, data: { closed: false },
     })
     return toApi(updated)
   },
