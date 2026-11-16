@@ -90,6 +90,8 @@ interface SheetRows {
   /** norm(header) → column index */
   index: Map<string, number>
   rows: string[][]
+  /** The worksheet row number of each entry in `rows`, for messages. */
+  rowNos: number[]
   sheetName: string
 }
 
@@ -104,7 +106,9 @@ async function readSheet(bytes: Buffer, sheetName?: string): Promise<SheetRows> 
   if (!ws) throw new ToolError('empty', 'This workbook has no sheets.')
 
   const matrix: string[][] = []
-  ws.eachRow({ includeEmpty: false }, (row) => {
+  const numbers: number[] = []
+  ws.eachRow({ includeEmpty: false }, (row, rowNumber) => {
+    numbers.push(rowNumber)
     const vals: string[] = []
     row.eachCell({ includeEmpty: true }, (cell, col) => { vals[col - 1] = cellText(cell.value).trim() })
     for (let i = 0; i < vals.length; i++) vals[i] ??= ''
@@ -118,9 +122,11 @@ async function readSheet(bytes: Buffer, sheetName?: string): Promise<SheetRows> 
   const headers = matrix[headerAt].map((h) => h.trim())
   const index = new Map<string, number>()
   headers.forEach((h, i) => { if (h && !index.has(norm(h))) index.set(norm(h), i) })
-  const rows = matrix.slice(headerAt + 1).filter((r) => r.some((c) => c !== ''))
+  const keep = matrix.map((r, i) => i > headerAt && r.some((c) => c !== ''))
+  const rows = matrix.filter((_, i) => keep[i])
+  const rowNos = numbers.filter((_, i) => keep[i])
   if (rows.length === 0) throw new ToolError('empty', 'This sheet has a header but no data rows.')
-  return { headers, index, rows, sheetName: ws.name }
+  return { headers, index, rows, rowNos, sheetName: ws.name }
 }
 
 /** First header present from `names`, else -1. */
@@ -395,6 +401,29 @@ function bankDate(pieces: BankPiece[]): { date: string; at: number } | null {
     if (d1) return { date: d1, at: 1 }
   }
   return null
+}
+
+// ── Tally helpers ───────────────────────────────────────────────────────
+
+type TallyKind = 'sales' | 'purchase' | 'receipt' | 'payment' | 'credit_note' | 'debit_note' | 'contra' | 'journal'
+
+/** A voucher type name ("Sales GST", "Receipt - HDFC", "Credit Note") → its accounting kind. */
+function tallyKind(vchType: string): TallyKind {
+  const t = vchType.toLowerCase()
+  if (/credit\s*note|sales\s*return/.test(t)) return 'credit_note'
+  if (/debit\s*note|purchase\s*return/.test(t)) return 'debit_note'
+  if (/receipt/.test(t)) return 'receipt'
+  if (/payment/.test(t)) return 'payment'
+  if (/contra/.test(t)) return 'contra'
+  if (/sales|sale\b/.test(t)) return 'sales'
+  if (/purchase/.test(t)) return 'purchase'
+  return 'journal'
+}
+
+/** The party ledger's ordinary side per voucher kind (true = debited). */
+const PARTY_DEBITED: Record<TallyKind, boolean> = {
+  sales: true, purchase: false, receipt: false, payment: true,
+  credit_note: false, debit_note: true, contra: true, journal: true,
 }
 
 export const ComplianceService = {
@@ -957,7 +986,10 @@ export const ComplianceService = {
    * Tally imports a `TALLYMESSAGE` per voucher inside an `ENVELOPE` with
    * `VCHTYPE`/`ACTION` headers. Each voucher gets exactly two ledger
    * entries — party and the nominal account — because a two-sided voucher is
-   * what a one-row-per-transaction sheet can honestly describe. Tally's sign
+   * what a one-row-per-transaction sheet can honestly describe. Which side
+   * the party sits on comes from PARTY_DEBITED (Receipt: Cr party, Dr bank;
+   * Payment: Dr party, Cr bank), and a money voucher with no bank/cash
+   * ledger is skipped rather than defaulted. Tally's sign
    * convention is the trap: a positive AMOUNT is a CREDIT, a negative one a
    * DEBIT, so ISDEEMEDPOSITIVE and the sign must agree or the voucher
    * imports inverted.
@@ -985,7 +1017,7 @@ export const ComplianceService = {
     let vouchers = 0
 
     sheet.rows.forEach((r, i) => {
-      const rowNo = i + 2
+      const rowNo = sheet.rowNos[i]
       const date = parseDate(at(r, c.date))
       if (!date) { skipped.push({ row: rowNo, reason: `unreadable date "${at(r, c.date)}"` }); return }
       const amount = parseAmount(at(r, c.amount))
@@ -994,12 +1026,32 @@ export const ComplianceService = {
       if (!party) { skipped.push({ row: rowNo, reason: 'no party ledger' }); return }
 
       const vchType = at(r, cType) || 'Journal'
-      types.add(vchType)
-      const against = at(r, cAgainst) || (/(sales|receipt)/i.test(vchType) ? 'Sales' : /purchase|payment/i.test(vchType) ? 'Purchase' : 'Suspense A/c')
-      // Dr/Cr describes the PARTY side. Default: the party is debited on a
-      // sale, credited on a purchase — the ordinary direction for each.
+      const kind = tallyKind(vchType)
       const drcr = at(r, cDrCr).toLowerCase()
-      const partyIsDebit = drcr ? drcr.startsWith('d') : !/purchase|payment/i.test(vchType)
+      let against = at(r, cAgainst)
+      if (!against) {
+        // Money vouchers have no safe default: posting a receipt to "Sales"
+        // books the income twice and leaves the bank untouched.
+        if (kind === 'receipt' || kind === 'payment') {
+          skipped.push({ row: rowNo, reason: `${vchType} needs the Bank or Cash ledger in the Ledger Name column` }); return
+        }
+        if (kind === 'contra') {
+          skipped.push({ row: rowNo, reason: 'Contra needs both ledgers — the Bank or Cash ledger in the Ledger Name column' }); return
+        }
+        if (kind === 'credit_note' || kind === 'debit_note') {
+          skipped.push({ row: rowNo, reason: `${vchType} needs the returns or adjustment ledger in the Ledger Name column` }); return
+        }
+        against = kind === 'sales' ? 'Sales' : kind === 'purchase' ? 'Purchase' : 'Suspense A/c'
+      }
+      // Dr/Cr, when given, says which side the PARTY ledger is on. Otherwise
+      // the ordinary side for the voucher type: the customer is debited on a
+      // sale and credited on a receipt or credit note; the supplier is
+      // credited on a purchase and debited on a payment or debit note.
+      if (!drcr && kind === 'contra') {
+        skipped.push({ row: rowNo, reason: 'Contra needs a Dr/Cr column saying whether the Party Ledger account is debited or credited' }); return
+      }
+      const partyIsDebit = drcr ? drcr.startsWith('d') : PARTY_DEBITED[kind]
+      types.add(vchType)
       const abs = Math.abs(amount)
       const [tallyDate] = [date.split('/').reverse().join('')]
 

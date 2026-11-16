@@ -152,11 +152,15 @@ function TallyOptions({ value, onChange, disabled }: OptionsProps) {
       <div className="mt-3">
         <Notice tone="warn">
           <div className="text-13">
-            Each row becomes a two-sided voucher: the party ledger and one nominal account.
+            Each row becomes a two-sided voucher: the party ledger and the account in Ledger Name.
             <div className="text-12 text-neutral-500 mt-1">
-              Without a <strong className="font-medium">Dr/Cr</strong> column the party is debited on a
-              sale or receipt and credited on a purchase or payment. Ledgers must already exist in Tally —
-              this file posts vouchers, it does not create masters.
+              Without a <strong className="font-medium">Dr/Cr</strong> column (which describes the party
+              side): a sale or debit note debits the party; a purchase, credit note or receipt credits the
+              party; a payment debits the party. On a receipt the bank or cash ledger is debited, on a
+              payment it is credited. Receipt, Payment, Contra and note rows need Ledger Name (the bank,
+              cash or returns ledger) and Contra rows need Dr/Cr — rows without them are skipped, never
+              posted to Sales or Purchase. Ledgers must already exist in Tally — this file posts vouchers,
+              it does not create masters.
             </div>
           </div>
         </Notice>
