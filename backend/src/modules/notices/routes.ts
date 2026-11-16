@@ -215,11 +215,12 @@ noticesRouter.post('/', upload.single('file'), scanUploads, handler(async (req, 
 
   // 3. Ask the LLM for structured fields, then (in parallel) draft both the
   //    client-facing letter and a first-cut department reply with placeholders.
-  //    If GROQ_API_KEY is missing we still create the row with the raw text
+  //    If no AI provider is configured we still create the row with the raw text
   //    so the practitioner can enter fields and generate drafts manually; the
   //    UI shows a "configure LLM" hint in that case.
   let fields: ExtractedFields | null = null
   let llmModel: string | null = null
+  let llmProvider: string | null = null
   let clientLetter: string | null = null
   let autoDraft: string | null = null
   if (extracted.text) {
@@ -233,6 +234,7 @@ noticesRouter.post('/', upload.single('file'), scanUploads, handler(async (req, 
       })
       fields = toExtracted(r.content)
       llmModel = r.model
+      llmProvider = r.provider
     } catch (err) {
       if (!(err instanceof ApiError && (err.code === 'llm_unconfigured' || err.code === 'ai_disabled'))) throw err
       // Soft-fail: let the user fill it in by hand.
@@ -287,7 +289,7 @@ noticesRouter.post('/', upload.single('file'), scanUploads, handler(async (req, 
       extractionSource: extracted.source,
       clientLetter,
       draftContent: autoDraft,
-      llmProvider: llmModel ? 'groq' : null,
+      llmProvider,
       llmModel,
       generatedAt: autoDraft || clientLetter ? new Date() : null,
       status: autoDraft ? 'review' : 'draft',
@@ -420,7 +422,7 @@ noticesRouter.post('/:id/generate', handler(async (req, res) => {
     where: { id: existing.id },
     data: {
       draftContent: r.content,
-      llmProvider: 'groq',
+      llmProvider: r.provider,
       llmModel: r.model,
       generatedAt: new Date(),
       replyInputs: reply as unknown as object,
@@ -470,7 +472,7 @@ noticesRouter.post('/:id/client-letter', handler(async (req, res) => {
     where: { id: existing.id },
     data: {
       clientLetter: r.content,
-      llmProvider: 'groq',
+      llmProvider: r.provider,
       llmModel: r.model,
       updatedBy: session.userId,
     },

@@ -46,6 +46,10 @@ model Organisation {
   /// Firm switch for features that send client text to an outside AI
   /// service (notice reply drafting). PAN/GSTIN are masked before sending.
   aiExternalProcessing  Boolean   @default(true)
+  /// The AI provider used by AI features ('groq' | 'anthropic' | 'openai' |
+  /// 'gemini'). Null = the first configured AiProviderConfig, else the
+  /// server-wide GROQ_API_KEY fallback.
+  aiProvider            String?
   /// Years a former client's records are kept after they leave before the
   /// purge job may remove them (SQC 1: at least 7 years from the report).
   dataRetentionYears    Int       @default(8)
@@ -1789,7 +1793,7 @@ model GstProfile {
 model AiProviderConfig {
   id               String   @id @default(uuid())
   organisationId   String
-  /// 'groq' | 'anthropic' | 'openai'
+  /// 'groq' | 'anthropic' | 'openai' | 'gemini'
   provider         String
   /// Base64 of iv|ciphertext|tag — same shape as PortalAccess passwords.
   apiKeyCiphertext String
