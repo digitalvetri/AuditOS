@@ -81,6 +81,7 @@ const BookkeepingBanking = lazy(() => import('@/pages/workstation/services/bookk
 const BookkeepingImportPage = lazy(() => import('@/pages/workstation/services/bookkeeping/BookkeepingImport').then((m) => ({ default: m.BookkeepingImportPage })));
 const BookkeepingClientDashboardPage = lazy(() => import('@/pages/workstation/services/bookkeeping/BookkeepingClientDashboard').then((m) => ({ default: m.BookkeepingClientDashboardPage })));
 const TallyExportPage = lazy(() => import('@/pages/workstation/services/tally-export/TallyExportPage').then((m) => ({ default: m.TallyExportPage })));
+const GstFilingPage = lazy(() => import('@/pages/workstation/services/gst-filing/GstFilingPage').then((m) => ({ default: m.GstFilingPage })));
 const BookkeepingGst = lazy(() => import('@/pages/workstation/services/bookkeeping/BookkeepingGst').then((m) => ({ default: m.BookkeepingGst })));
 const BookkeepingTrade = lazy(() => import('@/pages/workstation/services/bookkeeping/BookkeepingTrade').then((m) => ({ default: m.BookkeepingTrade })));
 const BookkeepingPayroll = lazy(() => import('@/pages/workstation/services/bookkeeping/BookkeepingPayroll').then((m) => ({ default: m.BookkeepingPayroll })));
@@ -331,6 +332,7 @@ export default function App() {
               <Route path="workstation/services/tds/:slug" element={<TdsServiceHandoff />} />
               {/* Tally Export — its own Services module (docs/tally-export/README.md). */}
               <Route path="workstation/services/tally-export" element={<TallyExportPage />} />
+              <Route path="workstation/services/gst-filing" element={<GstFilingPage />} />
               {/* Services → E-Invoice and Services → E-Way Bill are not built
                   yet. Their addresses are pinned to a Coming soon page so the
                   :category catch-all below cannot serve them as a generic Services page.

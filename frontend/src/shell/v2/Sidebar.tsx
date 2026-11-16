@@ -190,6 +190,7 @@ export function buildNav(
     { section: 'Compliance', to: '/workstation/compliance', label: 'Compliance calendar', icon: CalendarClock, visible: can(role, 'workstation.compliance.read', 'self') },
     { section: 'Compliance', to: '/workstation/services',   label: 'Services',   icon: Briefcase,     end: true, visible: can(role, 'workstation.service.read', 'self'),
       children: [
+        { to: '/workstation/services/gst-filing', label: 'GST Filing' },
         { to: '/workstation/services/tds',           label: 'TDS' },
         /* BOOKKEEPING-REBUILD §7 renames "Bookkeeping" (the
            accounting engine) to "Books". */

@@ -352,3 +352,27 @@ export function errorMessage(e: unknown): string {
   const m = (e as { message?: unknown } | undefined)?.message;
   return typeof m === 'string' && m ? m : 'Could not save this. Please try again.';
 }
+
+export interface FilingCell {
+  status: string; due_date: string | null; days_left: number | null; overdue: boolean; arn: string | null;
+  filed_at: string | null; net_payable_paise: number | null; challan_ref: string | null; payment_status: string;
+}
+export interface FilingBoardRow {
+  period_id: string; client_id: string; client_name: string; gstin: string; frequency: 'monthly' | 'quarterly';
+  assigned: { id: string; name: string } | null;
+  data_status: 'pending' | 'received'; data_received_at: string | null; data_received_by: string | null;
+  gstr1: FilingCell | null; gstr3b: FilingCell | null;
+}
+export interface FilingBoard {
+  period: string;
+  tiles: { clients: number; data_pending: number; gstr1_filed: number; gstr3b_filed: number; overdue: number };
+  rows: FilingBoardRow[];
+  needs_setup: { client_id: string; client_name: string }[];
+}
+export const gstFilingApi = {
+  board: (period?: string) => api.get<FilingBoard>(`/api/gst/filing-board${period ? `?period=${encodeURIComponent(period)}` : ''}`),
+  setData: (periodId: string, received: boolean) => api.post<{ ok: true }>(`/api/gst/periods/${periodId}/data`, { received }),
+  remind: (periodIds: string[]) => api.post<{ sent: number; failed: { period_id: string; reason: string }[] }>('/api/gst/filing/remind', { period_ids: periodIds }),
+  /** Start = in_preparation (GSTR-1) / preparation (GSTR-3B); Finish = filed with ARN + date (+ 3B money). */
+  stage: (periodId: string, stage: 'gstr1' | 'gstr3b', body: Record<string, unknown>) => api.post<{ ok: true }>(`/api/gst/periods/${periodId}/stages/${stage}`, body),
+};
