@@ -21,8 +21,9 @@ const ENTITY_TYPES = ['company', 'llp', 'firm', 'individual', 'huf', 'trust', 's
 export function DueDateExtensionsPage() {
   const { session } = useAuth();
   const role = session?.role.code;
-  const canManage = can(role, 'workstation.compliance.manage', 'self');
-  const canRead = canManage || can(role, 'workstation.compliance.read', 'self');
+  // An extension moves a due date for every client: partners only.
+  const canManage = can(role, 'workstation.compliance.firm', 'organisation');
+  const canRead = canManage || can(role, 'workstation.compliance.manage', 'self') || can(role, 'workstation.compliance.read', 'self');
   const qc = useQueryClient();
   const toast = useToast();
   const [adding, setAdding] = useState(false);

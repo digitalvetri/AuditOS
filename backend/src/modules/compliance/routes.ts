@@ -35,6 +35,18 @@ async function caller(req: Request, perms: readonly ('workstation.compliance.rea
   return { session, scope, organisationId }
 }
 
+/**
+ * Firm-wide calendar changes — due-date extensions, generating items for
+ * every client, the statutory catalogue — are a partner's call. Checked at
+ * organisation scope with `can`, not requireWorkstation (which would accept
+ * an assignment-narrowed grant): these touch every client.
+ */
+function requireFirmWide(session: Session) {
+  if (!can(session, 'workstation.compliance.firm', 'organisation')) {
+    throw ApiError.forbidden('Only a partner can change the calendar for the whole firm.')
+  }
+}
+
 const str = (v: unknown) => (typeof v === 'string' && v.trim() ? v.trim() : null)
 
 async function assertEmployee(organisationId: string, id: unknown): Promise<string | null> {
@@ -56,6 +68,7 @@ complianceRouter.get('/forms', handler(async (req, res) => {
 complianceRouter.patch('/forms/:code', handler(async (req, res) => {
   const { session } = await caller(req, MANAGE)
   if (!can(session, 'settings.manage')) throw ApiError.forbidden('Editing the catalogue needs Settings → manage.')
+  requireFirmWide(session)
   const form = await prisma.complianceForm.findUnique({ where: { code: req.params.code } })
   if (!form) throw ApiError.notFound('No such form.')
   const b = req.body ?? {}
@@ -193,6 +206,7 @@ complianceRouter.put('/clients/:clientId/obligations', handler(async (req, res) 
 
 complianceRouter.post('/generate', handler(async (req, res) => {
   const { session, organisationId } = await caller(req, MANAGE)
+  requireFirmWide(session)
   const fy = req.body?.financial_year
   if (fy !== undefined && fy !== null && !isFy(fy)) throw ApiError.badRequest('financial_year must look like 2025-26.')
   const fys = fy ? [fy as string] : defaultFys(istToday())
@@ -558,6 +572,7 @@ complianceRouter.get('/extensions', handler(async (req, res) => {
 
 complianceRouter.post('/extensions', handler(async (req, res) => {
   const { session, organisationId } = await caller(req, MANAGE)
+  requireFirmWide(session)
   const b = req.body ?? {}
   const errors: Record<string, string> = {}
   const form = typeof b.form_code === 'string' ? await prisma.complianceForm.findUnique({ where: { code: b.form_code } }) : null
@@ -585,6 +600,7 @@ complianceRouter.post('/extensions', handler(async (req, res) => {
 
 complianceRouter.delete('/extensions/:id', handler(async (req, res) => {
   const { session, organisationId } = await caller(req, MANAGE)
+  requireFirmWide(session)
   const row = await prisma.dueDateExtension.findFirst({ where: { id: req.params.id, organisationId, deletedAt: null } })
   if (!row) throw ApiError.notFound()
   await prisma.dueDateExtension.update({ where: { id: row.id }, data: { deletedAt: new Date() } })
