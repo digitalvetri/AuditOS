@@ -45,7 +45,7 @@ leadsRouter.get('/', handler(async (req, res) => {
     ...(status ? { status } : {}),
     ...(serviceId ? { serviceId } : {}),
     ...(employeeId ? { assignedEmployeeId: employeeId } : {}),
-    ...(q ? { OR: [{ name: { contains: q } }, { leadCode: { contains: q } }, { contactNumber: { contains: q } }] } : {}),
+    ...(q ? { OR: [{ name: { contains: q, mode: 'insensitive' as const } }, { leadCode: { contains: q, mode: 'insensitive' as const } }, { contactNumber: { contains: q } }] } : {}),
   }
 
   const rows = await prisma.lead.findMany({ where, include: leadInclude, orderBy: { createdAt: 'desc' } })
@@ -198,6 +198,15 @@ leadsRouter.patch('/:id', handler(async (req, res) => {
 
   const nextStatus = 'status' in b ? v.oneOf('status', b.status, LEAD_STATUSES) : undefined
   v.throwIfAny()
+  // A lead handed to nobody vanishes from every list but view-all staff's;
+  // an unknown service is a foreign-key error.
+  if (typeof data.assignedEmployeeId === 'string' && !(await prisma.employee.findFirst({ where: { id: data.assignedEmployeeId, ...alive } }))) {
+    v.add('assigned_employee_id', 'Select a valid employee.')
+  }
+  if (typeof data.serviceId === 'string' && !(await prisma.service.findFirst({ where: { id: data.serviceId, ...alive } }))) {
+    v.add('service_id', 'Select a valid service.')
+  }
+  v.throwIfAny()
 
   if (nextStatus && nextStatus !== before.status) {
     // A won lead is closed by conversion, not by editing it back open.
@@ -268,6 +277,13 @@ leadsRouter.post('/:id/convert', handler(async (req, res) => {
   // Staff who see only their assigned clients must stay on the new client.
   if (!seesAllClients(session) && session.employeeId && ![accountManagerId, secondaryManagerId].includes(session.employeeId)) {
     v.add('account_manager_id', 'Assign yourself as account manager or second staff, or the new client will not be visible to you.')
+  }
+  v.throwIfAny()
+  // The same check as POST /api/clients: a client handed to nobody is seen by
+  // nobody but view-all staff, and nobody is told about it.
+  if (!(await prisma.employee.findFirst({ where: { id: accountManagerId!, ...alive } }))) v.add('account_manager_id', 'Select a valid employee.')
+  if (secondaryManagerId && !(await prisma.employee.findFirst({ where: { id: secondaryManagerId, ...alive } }))) {
+    v.add('secondary_manager_id', 'Select a valid employee.')
   }
   v.throwIfAny()
 
