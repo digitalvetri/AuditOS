@@ -100,7 +100,7 @@ function typeFromText(raw: string): ExtractedTransit['docType'] {
   // 'delivery' or 'challan' incidentally, so look for the LR/GC/CN markers
   // first and fall back to the challan markers.
   const lower = raw.slice(0, 1_000).toLowerCase()
-  if (/\b(?:lorry\s*receipt|consignment\s*(?:note|no)|gc\s*no|cn\s*no)\b/.test(lower)) return 'lorry_receipt'
+  if (/\b(?:lorry\s*receipt|consignment\s*(?:note|no)|gc\s*no|cn\s*no|lr\s*no|l\.?r\.?\s*no)\b/.test(lower)) return 'lorry_receipt'
   if (/\b(?:delivery\s*challan|dc\s*no|challan\s*no)\b/.test(lower)) return 'delivery_challan'
   return 'unknown'
 }
