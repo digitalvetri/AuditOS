@@ -17,7 +17,12 @@ export function BooksDashboardPage() {
   if (q.isError) return <Section><ErrorState error={errorText(q.error)} onRetry={() => q.refetch()} /></Section>;
   const d = q.data!;
   const s = d.snapshot;
-  if (!s) return <Section><Empty title="No data yet">Run “Sync now” to load this organisation’s figures from Zoho Books.</Empty></Section>;
+  if (!s) return (
+    <div className="space-y-4">
+      {d.last_sync_error ? <Notice tone="error">{d.last_sync_error}</Notice> : null}
+      <Section><Empty title="No data yet">Run “Sync now” to load this organisation’s figures from Zoho Books.</Empty></Section>
+    </div>
+  );
   const cur = s.currency_code ?? org.currency_code;
   const m = (v: unknown) => money(v, cur);
   const t = s.totals;

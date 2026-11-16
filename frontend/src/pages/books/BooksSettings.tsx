@@ -311,6 +311,16 @@ function OrganizationsSection() {
   );
 }
 
+/**
+ * Each sync costs roughly 10–60 Zoho API calls, and Zoho caps calls per day
+ * (1,000 on the Free plan), so the shortest automatic interval is one hour.
+ * An older, shorter setting is still shown so the select is truthful.
+ */
+function refreshOptions(current: number) {
+  const opts = [{ value: '0', label: 'Manual only' }, { value: '60', label: 'Every hour' }, { value: '240', label: 'Every 4 hours' }, { value: '720', label: 'Every 12 hours' }, { value: '1440', label: 'Daily' }];
+  return opts.some((o) => o.value === String(current)) ? opts : [...opts, { value: String(current), label: `Every ${current} min` }];
+}
+
 function SyncSection({ org }: { org: BooksOrg }) {
   const { can } = useBooks();
   const qc = useQueryClient();
@@ -326,7 +336,7 @@ function SyncSection({ org }: { org: BooksOrg }) {
       <div className="flex items-center gap-2 text-12 text-inkMuted">
         Refresh dashboard automatically
         <Select value={String(org.auto_refresh_minutes)} onChange={(v) => update.mutate(Number(v))} className="w-40"
-          options={[{ value: '0', label: 'Manual only' }, { value: '30', label: 'Every 30 min' }, { value: '60', label: 'Every hour' }, { value: '240', label: 'Every 4 hours' }, { value: '1440', label: 'Daily' }]} />
+          options={refreshOptions(org.auto_refresh_minutes)} />
       </div>
     ) : null}>
       <div className="px-4 py-3 text-13 text-inkMuted flex flex-wrap gap-x-6 gap-y-1">
@@ -335,6 +345,8 @@ function SyncSection({ org }: { org: BooksOrg }) {
         <span>Last attempt: {dateTime(org.last_sync_attempt_at)}</span>
         <span>Activated: {dateTime(org.activated_at)}</span>
       </div>
+      {org.sync_paused_until && new Date(org.sync_paused_until).getTime() > Date.now()
+        ? <div className="px-4 pb-3"><Notice tone="warn">Automatic sync is paused until {dateTime(org.sync_paused_until)} because the daily Zoho API limit was reached. “Sync now” still works once Zoho allows calls again.</Notice></div> : null}
       {org.last_sync_error ? <div className="px-4 pb-3"><Notice tone="error">Last error: {org.last_sync_error}</Notice></div> : null}
       <Table cols={[{ label: 'Started' }, { label: 'Trigger' }, { label: 'Result' }, { label: 'API calls', right: true }, { label: 'Error' }]} minWidth={640}>
         {(logs.data?.items ?? []).map((l) => (

@@ -84,13 +84,13 @@ function idOf(req: Request): string {
 function serializeOrg(o: {
   id: string; zohoOrgId: string; name: string; currencyCode: string | null; countryCode: string | null; isActive: boolean
   clientId: string | null; connectionId: string; syncStatus: string; lastSyncAt: Date | null; lastSyncAttemptAt: Date | null
-  lastSyncError: string | null; activatedAt: Date | null; autoRefreshMinutes: number
+  lastSyncError: string | null; activatedAt: Date | null; autoRefreshMinutes: number; syncPausedUntil?: Date | null
 }, extra: Record<string, unknown> = {}) {
   return {
     id: o.id, zoho_org_id: o.zohoOrgId, name: o.name, currency_code: o.currencyCode, country: o.countryCode,
     is_active: o.isActive, client_id: o.clientId, connection_id: o.connectionId, sync_status: o.syncStatus,
     last_sync_at: o.lastSyncAt, last_sync_attempt_at: o.lastSyncAttemptAt, last_sync_error: o.lastSyncError,
-    activated_at: o.activatedAt, auto_refresh_minutes: o.autoRefreshMinutes, ...extra,
+    activated_at: o.activatedAt, auto_refresh_minutes: o.autoRefreshMinutes, sync_paused_until: o.syncPausedUntil ?? null, ...extra,
   }
 }
 
@@ -401,6 +401,12 @@ booksRouter.use('/o/:ref', h(async (req, res) => {
 /** A sync still marked running after this long crashed; the next one takes over. */
 const SYNC_CLAIM_MS = 5 * 60_000
 
+/** 00:00 IST on the next calendar day — when automatic syncs resume after Zoho's daily limit. */
+export function nextIstMidnight(now = new Date()): Date {
+  return new Date(Date.parse(`${istDate(now)}T00:00:00+05:30`) + 86_400_000)
+}
+const pausedNow = (o: { syncPausedUntil: Date | null }) => Boolean(o.syncPausedUntil && o.syncPausedUntil.getTime() > Date.now())
+
 async function runSync(res: Response, trigger: 'manual' | 'auto', req: Request) {
   const { org, userId } = loc(res)
   return syncOrganization(org.id, trigger, userId, req)
@@ -420,19 +426,32 @@ export async function syncOrganization(orgId: string, trigger: 'manual' | 'auto'
     data: { syncStatus: 'syncing', lastSyncAttemptAt: new Date() },
   })
   if (claim.count === 0) throw ApiError.conflict('books_sync_in_progress', 'A sync is already running for this organisation.')
+  // We hold the claim, so any log still "running" belongs to a sync that died (restart, crash).
+  await prisma.booksSyncLog.updateMany({
+    where: { zohoOrgRef: org.id, status: 'running' },
+    data: { status: 'failed', finishedAt: new Date(), error: 'This sync did not finish (the server may have restarted); a later sync took over.' },
+  })
   const log = await prisma.booksSyncLog.create({ data: { zohoOrgRef: org.id, trigger, status: 'running', startedBy: userId } })
   const counter = { calls: 0 }
   try {
     const snapshot = await computeDashboard({ ...ctx, counter }, org.currencyCode)
     const now = new Date()
-    await prisma.booksZohoOrganization.update({ where: { id: org.id }, data: { syncStatus: 'synced', lastSyncAt: now, lastSyncError: null, snapshotJson: JSON.stringify(snapshot) } })
+    await prisma.booksZohoOrganization.update({ where: { id: org.id }, data: { syncStatus: 'synced', lastSyncAt: now, lastSyncError: null, syncPausedUntil: null, snapshotJson: JSON.stringify(snapshot) } })
     await prisma.booksSyncLog.update({ where: { id: log.id }, data: { status: 'succeeded', finishedAt: now, apiCalls: counter.calls } })
     if (trigger === 'manual') await writeAudit({ actorUserId: userId, action: 'books.sync.completed', entityType: 'books.organization', entityId: org.id, after: { api_calls: counter.calls }, req })
     return { snapshot, lastSyncAt: now }
   } catch (e) {
     const t = translate(e)
-    const message = t instanceof ApiError ? t.message : 'Sync failed.'
-    await prisma.booksZohoOrganization.update({ where: { id: org.id }, data: { syncStatus: 'failed', lastSyncError: message } })
+    let message = t instanceof ApiError ? t.message : 'Sync failed.'
+    let syncPausedUntil: Date | undefined
+    if (e instanceof ZohoBooksError && e.kind === 'daily_limit') {
+      // Zoho does not document when its daily quota resets; Audit OS stops
+      // spending calls on this organisation until the next day (IST).
+      syncPausedUntil = nextIstMidnight()
+      const when = new Intl.DateTimeFormat('en-IN', { timeZone: 'Asia/Kolkata', day: 'numeric', month: 'short', year: 'numeric' }).format(syncPausedUntil)
+      message = `Daily Zoho API limit reached for this organisation — automatic sync is paused until 00:00 IST on ${when}. Zoho's limit depends on its plan (1,000 calls a day on Free).`
+    }
+    await prisma.booksZohoOrganization.update({ where: { id: org.id }, data: { syncStatus: 'failed', lastSyncError: message, ...(syncPausedUntil ? { syncPausedUntil } : {}) } })
     await prisma.booksSyncLog.update({ where: { id: log.id }, data: { status: 'failed', finishedAt: new Date(), error: message, apiCalls: counter.calls } })
     await writeAudit({ actorUserId: userId, action: 'books.sync.failed', entityType: 'books.organization', entityId: org.id, after: { error: message, trigger }, req })
     // A manual run shows the error to the person who ran it; a background run
@@ -468,7 +487,8 @@ orgRouter.get('/dashboard', h(async (req, res) => {
   const { org } = loc(res)
   const stale = !org.snapshotJson || (org.autoRefreshMinutes > 0 && (!org.lastSyncAt || Date.now() - org.lastSyncAt.getTime() > org.autoRefreshMinutes * 60_000))
   const syncStuck = org.syncStatus === 'syncing' && (!org.lastSyncAttemptAt || Date.now() - org.lastSyncAttemptAt.getTime() > SYNC_CLAIM_MS)
-  if (stale && (org.syncStatus !== 'syncing' || syncStuck)) {
+  // Paused after Zoho's daily limit: serve the last snapshot without spending calls.
+  if (stale && !pausedNow(org) && (org.syncStatus !== 'syncing' || syncStuck)) {
     try {
       const r = await runSync(res, 'auto', req)
       return ok(res, { snapshot: r.snapshot, last_sync_at: r.lastSyncAt, sync_status: 'synced', last_sync_error: null })

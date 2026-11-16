@@ -19,7 +19,7 @@ import { exchangeRefreshTokenForAccess, ZohoOAuthError, type FetchLike } from '.
 import { BooksNotConfigured, booksConfig, isTrustedZohoHost } from './config.js'
 
 export type ZohoErrorKind =
-  | 'reconnect' | 'key_mismatch' | 'permission' | 'validation' | 'not_found' | 'rate_limit'
+  | 'reconnect' | 'key_mismatch' | 'permission' | 'validation' | 'not_found' | 'rate_limit' | 'daily_limit' | 'blocked'
   | 'network' | 'timeout' | 'upstream' | 'bad_response'
 
 export class ZohoBooksError extends Error {
@@ -35,18 +35,20 @@ export class ZohoBooksError extends Error {
 }
 
 const STATUS: Record<ZohoErrorKind, number> = {
-  reconnect: 409, key_mismatch: 409, permission: 403, validation: 422, not_found: 404, rate_limit: 429,
+  reconnect: 409, key_mismatch: 409, permission: 403, validation: 422, not_found: 404, rate_limit: 429, daily_limit: 429, blocked: 429,
   network: 502, timeout: 504, upstream: 502, bad_response: 502,
 }
 const CODE: Record<ZohoErrorKind, string> = {
   reconnect: 'books_reconnect_required', key_mismatch: 'books_key_mismatch', permission: 'books_forbidden', validation: 'books_validation',
-  not_found: 'books_not_found', rate_limit: 'books_rate_limited', network: 'books_unreachable',
+  not_found: 'books_not_found', rate_limit: 'books_rate_limited', daily_limit: 'books_daily_limit', blocked: 'books_org_blocked', network: 'books_unreachable',
   timeout: 'books_timeout', upstream: 'books_upstream_error', bad_response: 'books_bad_response',
 }
 const FRIENDLY: Partial<Record<ZohoErrorKind, string>> = {
   reconnect: 'The Zoho Books connection has expired or was revoked. Reconnect it in Books → Settings.',
   key_mismatch: 'Audit OS can no longer read the stored Zoho sign-in for this account — the server\'s encryption key has changed. A Super Admin or Admin must reconnect this Zoho account in Books → Settings.',
   rate_limit: 'Zoho Books is rate-limiting requests. Wait a minute and try again.',
+  daily_limit: 'The daily Zoho API limit for this Zoho Books organisation has been reached (Zoho allows 1,000–10,000 calls a day, depending on the plan). Automatic sync is paused until tomorrow; try again then.',
+  blocked: 'Zoho has blocked API access for this Zoho Books organisation for security reasons. Retrying will not help — the organisation\'s Zoho admin must contact Zoho support.',
   network: 'Could not reach Zoho Books. Check the network and try again.',
   timeout: 'Zoho Books took too long to respond. Try again.',
   upstream: 'Zoho Books returned a server error. Try again shortly.',
@@ -242,7 +244,11 @@ function apiBase(conn: ConnectionRow): string {
 
 function classify(httpStatus: number, zohoCode: number | undefined, message: string): ZohoBooksError {
   if (httpStatus === 401 || zohoCode === 14) return new ZohoBooksError('reconnect', message, zohoCode, httpStatus)
-  if (httpStatus === 429 || zohoCode === 44 || zohoCode === 45) return new ZohoBooksError('rate_limit', message, zohoCode, httpStatus)
+  // Zoho: 45 = the organisation's daily call quota is used up; 44 = the organisation is blocked;
+  // 1070 = too many calls in flight at once (a short wait helps, like the per-minute limit).
+  if (zohoCode === 45) return new ZohoBooksError('daily_limit', message, zohoCode, httpStatus)
+  if (zohoCode === 44) return new ZohoBooksError('blocked', message, zohoCode, httpStatus)
+  if (httpStatus === 429 || zohoCode === 1070) return new ZohoBooksError('rate_limit', message, zohoCode, httpStatus)
   if (httpStatus === 403 || zohoCode === 57) return new ZohoBooksError('permission', message || 'Your Zoho Books user is not allowed to do this.', zohoCode, httpStatus)
   if (httpStatus === 404) return new ZohoBooksError('not_found', message || 'This record no longer exists in Zoho Books.', zohoCode, httpStatus)
   if (httpStatus >= 500) return new ZohoBooksError('upstream', message, zohoCode, httpStatus)

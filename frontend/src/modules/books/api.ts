@@ -27,6 +27,8 @@ export interface BooksOrg {
   last_sync_error: string | null;
   activated_at: string | null;
   auto_refresh_minutes: number;
+  /** Zoho's daily API limit was reached: automatic syncs wait until this time. */
+  sync_paused_until?: string | null;
 }
 
 export interface BooksConnection {

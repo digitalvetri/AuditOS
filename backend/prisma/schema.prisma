@@ -5199,7 +5199,10 @@ model BooksZohoOrganization {
   lastSyncAttemptAt  DateTime?
   lastSyncError      String?
   /// Minutes after which opening the dashboard refreshes the snapshot; 0 = manual only.
-  autoRefreshMinutes Int       @default(60)
+  /// Default 4 h: a full sync costs ~10–60 Zoho calls and Zoho caps calls per day.
+  autoRefreshMinutes Int       @default(240)
+  /// Zoho's daily API limit was hit: background / automatic syncs wait until then.
+  syncPausedUntil    DateTime?
   /// JSON dashboard snapshot computed from Zoho at the last successful sync.
   snapshotJson       String?
 

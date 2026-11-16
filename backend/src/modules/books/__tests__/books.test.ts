@@ -6,6 +6,7 @@ import { prisma, uid } from '../../../__tests__/helpers.js'
 import { setupRoles } from '../../../../prisma/setup-roles.js'
 import { resetBooksConfigForTests } from '../config.js'
 import { clearBooksCacheForTests, setBooksFetchForTests } from '../client.js'
+import { runBooksSyncPass } from '../scheduler.js'
 
 /**
  * Books over a fake Zoho: the real Express app, real RBAC and Postgres, with
@@ -685,5 +686,62 @@ describe('Books — audit round 2', () => {
     const again = await api(`/api/books/o/${ref}/e/customers`, { cookie: admin.cookie })
     expect(again.body.error.code).toBe('books_key_mismatch')
     expect((await api(`/api/books/o/${ref}/sync`, { method: 'POST', cookie: admin.cookie })).body.error.code).toBe('books_key_mismatch')
+  })
+
+  it('the background sync takes over a sync stuck for over 30 minutes and logs the interrupted one as failed', async () => {
+    const ref = await connectAndActivate()
+    const old = new Date(Date.now() - 3 * 3600_000)
+    await prisma.booksZohoOrganization.update({ where: { id: ref }, data: { syncStatus: 'syncing', lastSyncAttemptAt: old, lastSyncAt: old } })
+    const stuck = await prisma.booksSyncLog.create({ data: { zohoOrgRef: ref, trigger: 'scheduled', status: 'running', startedAt: old } })
+    const r = await runBooksSyncPass(new Date(), { only: [ref] })
+    expect(r.synced).toEqual([ref])
+    const log = await prisma.booksSyncLog.findUniqueOrThrow({ where: { id: stuck.id } })
+    expect(log.status).toBe('failed')
+    expect(log.error).toMatch(/did not finish/)
+    expect(log.finishedAt).not.toBeNull()
+    expect((await prisma.booksZohoOrganization.findUniqueOrThrow({ where: { id: ref } })).syncStatus).toBe('synced')
+  })
+
+  it('a sync started under 30 minutes ago is left alone by the background sync', async () => {
+    const ref = await connectAndActivate()
+    await prisma.booksZohoOrganization.update({ where: { id: ref }, data: { syncStatus: 'syncing', lastSyncAttemptAt: new Date(Date.now() - 60_000), lastSyncAt: null } })
+    expect((await runBooksSyncPass(new Date(), { only: [ref] })).synced).toEqual([])
+  })
+
+  it('Zoho\'s daily limit says so, and pauses background and automatic syncs until the next day', async () => {
+    const ref = await connectAndActivate()
+    overrides.push((url) => (url.pathname.endsWith('/invoices') ? { status: 429, json: { code: 45, message: 'The API call for this organization has exceeded the maximum call rate limit of 1000.' } } : undefined))
+    const r = await api(`/api/books/o/${ref}/sync`, { method: 'POST', cookie: admin.cookie })
+    expect(r.status).toBe(429)
+    expect(r.body.error.code).toBe('books_daily_limit')
+    expect(r.body.error.message).toMatch(/daily Zoho API limit/i)
+    expect(r.body.error.message).not.toMatch(/wait a minute/i)
+    const org = await prisma.booksZohoOrganization.findUniqueOrThrow({ where: { id: ref } })
+    expect(org.syncPausedUntil!.getTime()).toBeGreaterThan(Date.now())
+    expect(org.lastSyncError).toMatch(/paused until/)
+    const log = await prisma.booksSyncLog.findFirstOrThrow({ where: { zohoOrgRef: ref }, orderBy: { startedAt: 'desc' } })
+    expect(log.error).toMatch(/daily Zoho API limit/i)
+    overrides = []
+    const n = calls.length
+    expect((await runBooksSyncPass(new Date(), { only: [ref] })).synced).toEqual([])
+    const d = await api(`/api/books/o/${ref}/dashboard`, { cookie: admin.cookie })
+    expect(d.status).toBe(200)
+    expect(calls.length).toBe(n) // nothing spent on Zoho while paused
+    // A manual sync is still the user's call; success lifts the pause.
+    expect((await api(`/api/books/o/${ref}/sync`, { method: 'POST', cookie: admin.cookie })).status).toBe(200)
+    expect((await prisma.booksZohoOrganization.findUniqueOrThrow({ where: { id: ref } })).syncPausedUntil).toBeNull()
+  })
+
+  it('a blocked organisation (Zoho code 44) is not described as a per-minute limit', async () => {
+    const ref = await connectAndActivate()
+    overrides.push((url) => (url.pathname.endsWith('/items') ? { status: 429, json: { code: 44, message: 'For security reasons your organization has been blocked.' } } : undefined))
+    const r = await api(`/api/books/o/${ref}/e/items`, { cookie: admin.cookie })
+    expect(r.body.error.code).toBe('books_org_blocked')
+    expect(r.body.error.message).not.toMatch(/wait a minute/i)
+  })
+
+  it('new organisations default to a 4-hour automatic refresh', async () => {
+    const ref = await connectAndActivate()
+    expect((await prisma.booksZohoOrganization.findUniqueOrThrow({ where: { id: ref } })).autoRefreshMinutes).toBe(240)
   })
 })
