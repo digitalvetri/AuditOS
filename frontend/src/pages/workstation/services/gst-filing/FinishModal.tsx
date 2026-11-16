@@ -45,7 +45,7 @@ export function FinishModal({ kind, clientName, period, busy, error, onClose, on
             </div>
           </>
         )}
-        {error ? <p className="text-13 text-red-700">{error}</p> : null}
+        {error ? <p className="text-13 text-danger">{error}</p> : null}
         <p className="text-12 text-neutral-500">Recorded here after you file on the GST portal — Audit OS does not submit returns.</p>
       </div>
     </Modal>
