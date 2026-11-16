@@ -1152,11 +1152,15 @@ gstRouter.post('/filing/remind', handler(async (req, res) => {
   const session = requireSession(req)
   const scope = requireWorkstation(session, 'workstation.gst.manage')
   const ids = Array.isArray(req.body?.period_ids) ? (req.body.period_ids as unknown[]).filter((x): x is string => typeof x === 'string') : []
-  if (ids.length === 0 || ids.length > 200) throw ApiError.badRequest('Choose between 1 and 200 clients to remind.')
+  if (ids.length === 0 || ids.length > 50) throw ApiError.badRequest('Choose between 1 and 50 clients to remind.')
   const rows = await prisma.gstCompliancePeriod.findMany({
     where: { ...alive, id: { in: ids }, ...(await periodScopeWhere(session, scope)) },
-    include: { gstProfile: { select: { clientId: true, client: { select: { companyName: true } } } }, filings: { where: alive } },
+    include: { gstProfile: { select: { clientId: true, client: { select: { companyName: true, organisationId: true } } } }, filings: { where: alive } },
   })
+  // The firm's name signs off the mail.
+  const firms = new Map((await prisma.organisation.findMany({
+    where: { id: { in: [...new Set(rows.map((r) => r.gstProfile.client.organisationId))] } }, select: { id: true, name: true },
+  })).map((o) => [o.id, o.name]))
   let sent = 0
   const failed: { period_id: string; reason: string }[] = []
   for (const r of rows) {
@@ -1167,7 +1171,7 @@ gstRouter.post('/filing/remind', handler(async (req, res) => {
     const gstr1 = r.filings.find((f) => f.returnType === 'GSTR-1') ?? r.filings[0]
     const link = await prisma.clientDocumentShareLink.findFirst({ where: { clientId, revokedAt: null, pausedAt: null }, orderBy: { createdAt: 'desc' } })
     const url = link && env.publicAppUrl ? `${env.publicAppUrl}/portal/documents/${link.token}` : null
-    const msg = dataReminderBody(r.gstProfile.client.companyName, r.period, gstr1?.dueDate ?? null, url)
+    const msg = dataReminderBody(r.gstProfile.client.companyName, r.period, gstr1?.dueDate ?? null, url, firms.get(r.gstProfile.client.organisationId))
     try {
       await sendClientReminder(prisma, {
         caseId: null, clientId, kind: 'GSTR1', period: r.period,

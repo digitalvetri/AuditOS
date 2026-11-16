@@ -302,9 +302,21 @@ describe('data received', () => {
   it('remind refuses an empty list', async () => {
     expect((await api('/api/gst/filing/remind', { method: 'POST', body: { period_ids: [] } })).status).toBe(400)
   })
+  it('remind takes at most 50 clients at a time', async () => {
+    const ids = Array.from({ length: 51 }, (_, i) => `p${i}`)
+    const r = await api('/api/gst/filing/remind', { method: 'POST', body: { period_ids: ids } })
+    expect(r.status).toBe(400)
+    expect(JSON.stringify(r.body)).toContain('between 1 and 50')
+  })
 })
 
 describe('dataReminderBody', () => {
+  it('writes the due date for people and signs off with the firm', () => {
+    const { body } = dataReminderBody('Acme', '2026-10', '2026-11-11', null, 'Kumar & Co')
+    expect(body).toContain('GSTR-1 is due on 11 Nov 2026')
+    expect(body.trimEnd().endsWith('\u2014 Kumar & Co')).toBe(true)
+    expect(dataReminderBody('Acme', '2026-10', null, null).body.trimEnd().endsWith('Thank you.')).toBe(true)
+  })
   it('without a portal link asks the client to reply, with no relative path', () => {
     const { body } = dataReminderBody('Acme', '2026-10', null, null)
     expect(body).toContain('reply to this email')

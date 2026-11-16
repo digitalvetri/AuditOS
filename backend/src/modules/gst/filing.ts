@@ -276,17 +276,26 @@ export async function markDataFromPortal(db: PrismaClient, clientDocumentId: str
   return true
 }
 
-export function dataReminderBody(clientName: string, period: string, gstr1Due: string | null, portalUrl: string | null): { subject: string; body: string } {
+/** '2026-11-11' → '11 Nov 2026' (same as the GST reminder mail). */
+function humanDate(iso: string): string {
+  return new Date(`${iso}T00:00:00Z`).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'UTC' })
+}
+
+export function dataReminderBody(
+  clientName: string, period: string, gstr1Due: string | null, portalUrl: string | null, firmName?: string | null,
+): { subject: string; body: string } {
   const month = periodName(period)
+  const due = gstr1Due && /^\d{4}-\d{2}-\d{2}$/.test(gstr1Due) ? humanDate(gstr1Due) : gstr1Due
   return {
     subject: `GST data for ${month} \u2014 ${clientName}`,
     body: [
       'Dear Sir/Madam,',
       '',
-      `Please send your sales and purchase details for ${month} so that we can file your GST returns${gstr1Due ? ` (GSTR-1 is due on ${gstr1Due})` : ''}.`,
+      `Please send your sales and purchase details for ${month} so that we can file your GST returns${due ? ` (GSTR-1 is due on ${due})` : ''}.`,
       portalUrl ? `You can upload them here: ${portalUrl}` : 'You can reply to this email with the files.',
       '',
       'Thank you.',
+      ...(firmName?.trim() ? [`\u2014 ${firmName.trim()}`] : []),
     ].join('\n'),
   }
 }
