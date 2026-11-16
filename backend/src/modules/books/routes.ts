@@ -188,7 +188,7 @@ function canAddZohoAccount(req: Request): boolean {
 
 const DATA_CENTRES: Record<string, string> = {
   in: 'https://accounts.zoho.in', com: 'https://accounts.zoho.com', eu: 'https://accounts.zoho.eu', 'com.au': 'https://accounts.zoho.com.au',
-  jp: 'https://accounts.zoho.jp', ca: 'https://accounts.zohocloud.ca', sa: 'https://accounts.zoho.sa', uk: 'https://accounts.zoho.uk',
+  jp: 'https://accounts.zoho.jp', ca: 'https://accounts.zohocloud.ca', sa: 'https://accounts.zoho.sa', uk: 'https://accounts.zoho.uk', ae: 'https://accounts.zoho.ae',
 }
 
 /**

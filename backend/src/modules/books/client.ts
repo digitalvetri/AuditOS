@@ -20,7 +20,7 @@ import { BooksNotConfigured, booksConfig, isTrustedZohoHost } from './config.js'
 
 export type ZohoErrorKind =
   | 'reconnect' | 'key_mismatch' | 'permission' | 'validation' | 'not_found' | 'rate_limit' | 'daily_limit' | 'blocked'
-  | 'network' | 'timeout' | 'upstream' | 'bad_response'
+  | 'network' | 'timeout' | 'write_timeout' | 'upstream' | 'bad_response'
 
 export class ZohoBooksError extends Error {
   constructor(
@@ -36,12 +36,12 @@ export class ZohoBooksError extends Error {
 
 const STATUS: Record<ZohoErrorKind, number> = {
   reconnect: 409, key_mismatch: 409, permission: 403, validation: 422, not_found: 404, rate_limit: 429, daily_limit: 429, blocked: 429,
-  network: 502, timeout: 504, upstream: 502, bad_response: 502,
+  network: 502, timeout: 504, write_timeout: 504, upstream: 502, bad_response: 502,
 }
 const CODE: Record<ZohoErrorKind, string> = {
   reconnect: 'books_reconnect_required', key_mismatch: 'books_key_mismatch', permission: 'books_forbidden', validation: 'books_validation',
   not_found: 'books_not_found', rate_limit: 'books_rate_limited', daily_limit: 'books_daily_limit', blocked: 'books_org_blocked', network: 'books_unreachable',
-  timeout: 'books_timeout', upstream: 'books_upstream_error', bad_response: 'books_bad_response',
+  timeout: 'books_timeout', write_timeout: 'books_write_unconfirmed', upstream: 'books_upstream_error', bad_response: 'books_bad_response',
 }
 const FRIENDLY: Partial<Record<ZohoErrorKind, string>> = {
   reconnect: 'The Zoho Books connection has expired or was revoked. Reconnect it in Books → Settings.',
@@ -51,6 +51,8 @@ const FRIENDLY: Partial<Record<ZohoErrorKind, string>> = {
   blocked: 'Zoho has blocked API access for this Zoho Books organisation for security reasons. Retrying will not help — the organisation\'s Zoho admin must contact Zoho support.',
   network: 'Could not reach Zoho Books. Check the network and try again.',
   timeout: 'Zoho Books took too long to respond. Try again.',
+  // A write may have landed: "try again" would risk a duplicate invoice or payment.
+  write_timeout: 'Zoho Books took too long to confirm this change, so Audit OS cannot tell whether it was saved. Zoho may have saved it — check the list before retrying, or you may create a duplicate.',
   upstream: 'Zoho Books returned a server error. Try again shortly.',
   bad_response: 'Zoho Books returned a response Audit OS could not read.',
 }
@@ -195,12 +197,13 @@ async function tokenFor(conn: ConnectionRow, force: boolean): Promise<string> {
 
 // ── rate limit: stay under Zoho's 100 requests/minute/organisation ───────
 const WINDOW_MS = 60_000
-const BUDGET = Number(process.env.ZBOOKS_RATE_PER_MINUTE ?? 90)
+// `||`: an empty `ZBOOKS_RATE_PER_MINUTE=` line (or 0 / junk) means the default, not "no calls".
+const budget = () => Number(process.env.ZBOOKS_RATE_PER_MINUTE) || 90
 const calls = new Map<string, number[]>()
 function takeBudget(zohoOrgId: string): void {
   const now = Date.now()
   const recent = (calls.get(zohoOrgId) ?? []).filter((t) => now - t < WINDOW_MS)
-  if (recent.length >= BUDGET) throw new ZohoBooksError('rate_limit', 'local per-minute budget exhausted')
+  if (recent.length >= budget()) throw new ZohoBooksError('rate_limit', 'local per-minute budget exhausted')
   recent.push(now)
   calls.set(zohoOrgId, recent)
 }
@@ -236,10 +239,22 @@ export interface ZohoContext {
 const TIMEOUT_MS = 25_000
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
 
-function apiBase(conn: ConnectionRow): string {
+/**
+ * The Books API host of the connection's data centre. Zoho's token response
+ * names it (api_domain); without it (e.g. connections added from a refresh
+ * token) it follows the accounts host: accounts.zoho.eu → www.zohoapis.eu,
+ * accounts.zohocloud.ca → www.zohoapis.ca. India only when nothing is known.
+ */
+export function apiDomainFor(conn: Pick<ConnectionRow, 'apiDomain' | 'accountsServer'>): string {
   const cfg = booksConfig()
-  const domain = conn.apiDomain && isTrustedZohoHost(conn.apiDomain, cfg) ? conn.apiDomain.replace(/\/$/, '') : 'https://www.zohoapis.in'
-  return `${domain}/books/v3`
+  if (conn.apiDomain && isTrustedZohoHost(conn.apiDomain, cfg)) return conn.apiDomain.replace(/\/$/, '')
+  const m = conn.accountsServer && /^https:\/\/accounts\.zoho(?:cloud)?\.([a-z.]+?)\/?$/.exec(conn.accountsServer)
+  const derived = m ? `https://www.zohoapis.${m[1]}` : null
+  return derived && isTrustedZohoHost(derived, cfg) ? derived : 'https://www.zohoapis.in'
+}
+
+function apiBase(conn: ConnectionRow): string {
+  return `${apiDomainFor(conn)}/books/v3`
 }
 
 function classify(httpStatus: number, zohoCode: number | undefined, message: string): ZohoBooksError {
@@ -290,6 +305,7 @@ export async function zohoRequest<T = Record<string, unknown>>(ctx: ZohoContext,
       const kind: ZohoErrorKind = (e as Error)?.name === 'AbortError' ? 'timeout' : 'network'
       console.warn('[books] zoho', method, req.path, kind)
       if (method === 'GET' && attempt < 2) { await sleep(400 * 2 ** attempt); continue }
+      if (kind === 'timeout' && method !== 'GET') throw new ZohoBooksError('write_timeout', 'Zoho Books timed out on a write')
       throw new ZohoBooksError(kind, kind === 'timeout' ? 'Zoho Books timed out' : 'Zoho Books unreachable')
     }
     clearTimeout(timer)

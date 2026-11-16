@@ -142,6 +142,7 @@ const DC_OPTIONS = [
   { value: 'ca', label: 'Canada — zohocloud.ca', console: 'https://api-console.zohocloud.ca' },
   { value: 'sa', label: 'Saudi Arabia — zoho.sa', console: 'https://api-console.zoho.sa' },
   { value: 'uk', label: 'UK — zoho.uk', console: 'https://api-console.zoho.uk' },
+  { value: 'ae', label: 'UAE — zoho.ae', console: 'https://api-console.zoho.ae' },
 ];
 
 /**
@@ -372,6 +373,8 @@ const DATA_CENTRES = [
   { value: 'https://accounts.zoho.jp', label: 'Japan — zoho.jp' },
   { value: 'https://accounts.zohocloud.ca', label: 'Canada — zohocloud.ca' },
   { value: 'https://accounts.zoho.sa', label: 'Saudi Arabia — zoho.sa' },
+  { value: 'https://accounts.zoho.uk', label: 'UK — zoho.uk' },
+  { value: 'https://accounts.zoho.ae', label: 'UAE — zoho.ae' },
 ];
 
 /**

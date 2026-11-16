@@ -91,7 +91,7 @@ export function isTrustedZohoHost(url: string, cfg: Pick<BooksConfig, 'accountsB
   if (url.replace(/\/$/, '') === cfg.accountsBase) return true
   try {
     const u = new URL(url)
-    return u.protocol === 'https:' && /(^|\.)zoho(apis|cloud)?\.(com|in|eu|com\.au|jp|com\.cn|ca|sa|uk)$/.test(u.hostname)
+    return u.protocol === 'https:' && /(^|\.)zoho(apis|cloud)?\.(com|in|eu|com\.au|jp|com\.cn|ca|sa|uk|ae)$/.test(u.hostname)
   } catch {
     return false
   }

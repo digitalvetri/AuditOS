@@ -776,4 +776,32 @@ describe('Books — audit round 2', () => {
     expect(s.totals.credit_card_balance).toBe(40000)
     expect(s.bank_accounts.find((b: any) => b.account_id === '2').bcy_balance).toBe(83000)
   })
+
+  it('a write that times out says Zoho may have saved it, and is not retried', async () => {
+    const ref = await connectAndActivate()
+    overrides.push((url, init) => (url.pathname.endsWith('/invoices') && init.method === 'POST' ? Promise.reject(Object.assign(new Error('aborted'), { name: 'AbortError' })) : undefined))
+    const r = await api(`/api/books/o/${ref}/e/invoices`, { method: 'POST', cookie: admin.cookie, body: { customer_id: '11', line_items: [{ name: 'x', rate: 1, quantity: 1 }] } })
+    expect(r.status).toBe(504)
+    expect(r.body.error.message).toMatch(/may have saved it/i)
+    expect(r.body.error.message).not.toMatch(/try again\.$/i)
+    expect(calls.filter((c) => c.method === 'POST' && c.url.pathname.endsWith('/invoices'))).toHaveLength(1)
+  })
+
+  it('an empty ZBOOKS_RATE_PER_MINUTE= falls back to the default budget', async () => {
+    const ref = await connectAndActivate()
+    process.env.ZBOOKS_RATE_PER_MINUTE = ''
+    try {
+      expect((await api(`/api/books/o/${ref}/e/customers`, { cookie: admin.cookie })).status).toBe(200)
+    } finally {
+      process.env.ZBOOKS_RATE_PER_MINUTE = '10000'
+    }
+  })
+
+  it('without an api_domain, calls go to the account\'s own data centre, not India', async () => {
+    const ref = await connectAndActivate()
+    await prisma.booksZohoConnection.updateMany({ where: { organisationId: firmId, status: 'connected' }, data: { apiDomain: null, accountsServer: 'https://accounts.zoho.eu' } })
+    clearBooksCacheForTests()
+    expect((await api(`/api/books/o/${ref}/e/customers`, { cookie: admin.cookie })).status).toBe(200)
+    expect(calls.at(-1)!.url.host).toBe('www.zohoapis.eu')
+  })
 })
