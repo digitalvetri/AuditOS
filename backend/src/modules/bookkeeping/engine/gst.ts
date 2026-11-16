@@ -152,8 +152,14 @@ export interface Gstr1 {
   exceptions: { voucherId: string; voucherNumber: string; issue: string }[]
 }
 
-/** B2CL threshold: inter-state supply to an unregistered person above ₹2.5 lakh. */
-const B2CL_THRESHOLD_PAISE = 250_000_00
+/**
+ * B2CL threshold: inter-state supply to an unregistered person whose INVOICE
+ * value is more than ₹1 lakh for invoices from 1 Aug 2024 (Notification
+ * 12/2024-CT); ₹2.5 lakh before that.
+ */
+export function b2clThresholdPaise(invoiceDate: string): number {
+  return invoiceDate >= '2024-08-01' ? 1_00_000_00 : 2_50_000_00
+}
 
 /**
  * GSTR-1 working — outward supplies for a period, split the way the
@@ -207,12 +213,12 @@ export async function gstr1(companyId: string, from: string, to: string): Promis
     const row = map(v)
     if (v.voucherTypeCode === 'credit_note') creditNotes.push(row)
     else if (row.partyGstin) b2b.push(row)
-    else if (row.invoiceValuePaise > B2CL_THRESHOLD_PAISE && row.igstPaise > 0) b2cl.push(row)
+    else if (row.invoiceValuePaise > b2clThresholdPaise(row.date) && row.igstPaise > 0) b2cl.push(row)
     else b2cs.push(row)
 
     if (!row.placeOfSupply) exceptions.push({ voucherId: v.id, voucherNumber: v.voucherNumber, issue: 'Place of supply is not set.' })
-    if (!row.partyGstin && row.invoiceValuePaise > B2CL_THRESHOLD_PAISE) {
-      exceptions.push({ voucherId: v.id, voucherNumber: v.voucherNumber, issue: 'Invoice above ₹2.5 lakh with no counter-party GSTIN.' })
+    if (!row.partyGstin && row.invoiceValuePaise > b2clThresholdPaise(row.date)) {
+      exceptions.push({ voucherId: v.id, voucherNumber: v.voucherNumber, issue: `Invoice above ₹${row.date >= '2024-08-01' ? '1' : '2.5'} lakh with no counter-party GSTIN.` })
     }
     if (row.taxableValuePaise > 0 && row.cgstPaise + row.sgstPaise + row.igstPaise === 0) {
       exceptions.push({ voucherId: v.id, voucherNumber: v.voucherNumber, issue: 'Taxable value with no tax posted — check the tax ledgers.' })

@@ -131,7 +131,7 @@ function Gstr1Tab({ companyId, from, to }: { companyId: string; from: string; to
         </Button>
       </div>
       <InvoiceTable title="B2B — registered counterparties" rows={d.b2b} base={base} />
-      <InvoiceTable title="B2C large — inter-state, above ₹2.5 lakh" rows={d.b2cl} base={base} />
+      <InvoiceTable title="B2C large — inter-state, above ₹1 lakh (₹2.5 lakh before Aug 2024)" rows={d.b2cl} base={base} />
       <InvoiceTable title="B2C small" rows={d.b2cs} base={base} />
       <InvoiceTable title="Credit notes" rows={d.creditNotes} base={base} />
       <Panel title="HSN summary">

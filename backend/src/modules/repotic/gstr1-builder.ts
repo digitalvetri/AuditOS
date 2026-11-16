@@ -27,6 +27,7 @@ import { gstinStateCode, stateNameToCode } from './states.js'
 import { lookupEtin, type MarketplaceKey } from './eco-etins.js'
 
 /** B2CL threshold — ₹1 lakh, effective 2024-08-01 (REPOTIC-MODULE.md §3.1).
+ *  An invoice goes to B2CL when its value is MORE THAN this (GSTR-1 Table 5).
  *  Stored in paise so we never compare across unit boundaries. */
 export const B2CL_THRESHOLD_PAISE = 1_00_000 * 100
 
@@ -165,6 +166,16 @@ export function buildFromRows(rows: RpParsedRow[], gstin: string, period: string
   }
   const warnings: string[] = []
 
+  // B2CL is decided on the INVOICE value, not the line: a marketplace report
+  // has one row per item, so add up every shipment line of an invoice first.
+  const invoiceKey = (r: RpParsedRow) => `${r.uploadId}|${r.invoiceNumber}`
+  const invoiceValue = new Map<string, number>()
+  for (const r of rows) {
+    if (r.txType !== 'shipment' || !r.invoiceNumber) continue
+    invoiceValue.set(invoiceKey(r), (invoiceValue.get(invoiceKey(r)) ?? 0) + r.invoiceAmount)
+  }
+  const b2clInvoices = new Map<string, B2clEntry['inv'][number]>()
+
   for (const r of rows) {
     if (r.txType === 'free_replacement') { counts.excluded_free_replacement++; continue }
     if (r.txType === 'other') { counts.excluded_other++; continue }
@@ -198,8 +209,10 @@ export function buildFromRows(rows: RpParsedRow[], gstin: string, period: string
     } else if (r.txType === 'shipment') {
       const interState = !r.stateCodeIntra
       // §3.1 — B2CL threshold is ₹1 lakh, and only applies to inter-state.
-      if (interState && r.invoiceAmount >= B2CL_THRESHOLD_PAISE) {
-        // Table 5A — B2CL. Grouped by place-of-supply, one invoice per entry.
+      const value = r.invoiceNumber ? (invoiceValue.get(invoiceKey(r)) ?? r.invoiceAmount) : r.invoiceAmount
+      if (interState && value > B2CL_THRESHOLD_PAISE) {
+        // Table 5A — B2CL. Grouped by place-of-supply, one entry per invoice
+        // carrying every line of it.
         if (!r.invoiceNumber) continue
         let bucket = b2clByPos.get(pos)
         if (!bucket) {
@@ -207,21 +220,22 @@ export function buildFromRows(rows: RpParsedRow[], gstin: string, period: string
           b2clByPos.set(pos, bucket)
           b2cl.push(bucket)
         }
-        bucket.inv.push({
-          inum: r.invoiceNumber,
-          idt: toDdMmYyyy(r.invoiceDate),
-          val: paiseToRupees(r.invoiceAmount),
-          itms: [{
-            num: 1,
-            itm_det: {
-              txval: paiseToRupees(r.taxableValue),
-              rt: ratePct,
-              iamt: paiseToRupees(r.igstTax),
-              camt: paiseToRupees(r.cgstTax),
-              samt: paiseToRupees(r.sgstTax),
-              csamt: paiseToRupees(r.cessTax),
-            },
-          }],
+        let inv = b2clInvoices.get(invoiceKey(r))
+        if (!inv) {
+          inv = { inum: r.invoiceNumber, idt: toDdMmYyyy(r.invoiceDate), val: paiseToRupees(value), itms: [] }
+          b2clInvoices.set(invoiceKey(r), inv)
+          bucket.inv.push(inv)
+        }
+        inv.itms.push({
+          num: inv.itms.length + 1,
+          itm_det: {
+            txval: paiseToRupees(r.taxableValue),
+            rt: ratePct,
+            iamt: paiseToRupees(r.igstTax),
+            camt: paiseToRupees(r.cgstTax),
+            samt: paiseToRupees(r.sgstTax),
+            csamt: paiseToRupees(r.cessTax),
+          },
         })
         counts.b2cl++
       } else {

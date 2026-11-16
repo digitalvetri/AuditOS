@@ -6,7 +6,7 @@
  * file is wrong by exactly the amount we'd under- or over-pay. So every
  * threshold here is checked against §3.1 of REPOTIC-MODULE.md:
  *
- *   - B2CL threshold is ₹1 lakh (10,00,000 paise), effective 2024-08-01
+ *   - B2CL threshold is more than ₹1 lakh (1,00,00,000 paise), effective 2024-08-01, on the invoice value
  *   - B2CL applies only to inter-state (ship-to state differs from seller)
  *   - Cancels become Table 9B credit notes (NOT subtracted from B2CS totals)
  *   - Free-replacement rows contribute nothing
@@ -104,10 +104,10 @@ async function b2csSuite() {
 
 async function b2clSuite() {
   console.log('\n── B2CL (Table 5A) ──────────────────────────────────────')
-  // Interstate invoice ≥ ₹1 lakh — must go to B2CL, not B2CS.
+  // Interstate invoice over ₹1 lakh — must go to B2CL, not B2CS.
   const bigInterstate = row({
     invoiceNumber: 'INV-BIG',
-    invoiceAmount: B2CL_THRESHOLD_PAISE,  // exactly ₹1 lakh — threshold is >=
+    invoiceAmount: B2CL_THRESHOLD_PAISE + 100,  // ₹1,00,001 — the threshold is "more than" ₹1 lakh
     taxableValue: 8474576,
     cgstTax: 0, sgstTax: 0, igstTax: 1525424,
     rate: 1800, stateCodeIntra: false,
@@ -137,7 +137,7 @@ async function b2clSuite() {
   check('B2CL has one PoS group', preview.b2cl.length, 1)
   check('B2CL PoS is Karnataka', preview.b2cl[0]?.pos, '29')
   check('B2CL invoice is INV-BIG', preview.b2cl[0]?.inv[0]?.inum, 'INV-BIG')
-  check('B2CL invoice value', preview.b2cl[0]?.inv[0]?.val, 100000)
+  check('B2CL invoice value', preview.b2cl[0]?.inv[0]?.val, 100001)
   check('B2CL idt is DD-MM-YYYY', preview.b2cl[0]?.inv[0]?.idt, '01-12-2025')
   // Small interstate is INTER sply_ty, big intra is INTRA.
   const splyTypes = new Set(preview.b2cs.map((e) => e.sply_ty))
