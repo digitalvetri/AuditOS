@@ -64,9 +64,37 @@ export function computePF(basicPaise: number, snap: StatutorySnapshot): PFResult
 // ── ESI ───────────────────────────────────────────────────────────────────
 export interface ESIResult { employee_paise: number; employer_paise: number; applies: boolean }
 
-export function computeESI(grossPaise: number, snap: StatutorySnapshot): ESIResult {
+/**
+ * ESI contribution periods run Apr–Sep and Oct–Mar. Returns the first day of
+ * the period containing `periodStart` ('YYYY-MM-DD').
+ */
+export function esiContributionPeriodStart(periodStart: string): string {
+  const [y, m] = periodStart.split('-').map(Number)
+  if (m >= 4 && m <= 9) return `${y}-04-01`
+  if (m >= 10) return `${y}-10-01`
+  return `${y - 1}-10-01`
+}
+
+/**
+ * Coverage for a whole contribution period (ESI Act s.2(9) proviso, ESI
+ * (General) Regulations reg. 2): an employee whose wages were within the
+ * ceiling at the start of the period (or on joining, if later) stays covered
+ * until the period ends, even if wages rise above it mid-period; one above
+ * the ceiling at the start is not covered for that period.
+ */
+export function esiCoveredForPeriod(wageAtPeriodStartPaise: number, snap: StatutorySnapshot): boolean {
   const thresholdRupees = num(snap, 'esi.gross_threshold')
-  const applies = thresholdRupees > 0 && grossPaise <= thresholdRupees * 100
+  return thresholdRupees > 0 && wageAtPeriodStartPaise <= thresholdRupees * 100
+}
+
+/**
+ * `covered` is the contribution-period decision (esiCoveredForPeriod). When
+ * given, contributions are on actual gross whatever this month's gross is;
+ * when omitted, this month's gross is tested against the ceiling.
+ */
+export function computeESI(grossPaise: number, snap: StatutorySnapshot, covered?: boolean): ESIResult {
+  const thresholdRupees = num(snap, 'esi.gross_threshold')
+  const applies = covered ?? (thresholdRupees > 0 && grossPaise <= thresholdRupees * 100)
   if (!applies) return { employee_paise: 0, employer_paise: 0, applies: false }
   return {
     employee_paise: roundHalfUp(grossPaise * num(snap, 'esi.employee_rate')),

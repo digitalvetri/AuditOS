@@ -9,6 +9,8 @@ import { applyPayrollInvariants } from '../db/invariants.js'
 /**
  * Audit round 2 — payroll guards:
  *   1. Process refuses a run that silently omits a payable employee.
+ *   2. Attendance-gap warnings (informational; pay unchanged).
+ *   3. ESI coverage decided per contribution period, not per month.
  */
 
 let server: Server
@@ -247,5 +249,67 @@ describe('2. Attendance-gap warnings (pay unchanged)', () => {
     const detail = await api(`/api/payroll/runs/${run.id}`, { cookie })
     expect(byEmp(detail.body.data.warnings)).toEqual({ [gappy.id]: 3, [joiner.id]: 3 })
     expect(detail.body.data.can_process).toBe(true)
+  })
+})
+
+describe('3. ESI coverage is fixed for the contribution period (Apr–Sep, Oct–Mar)', () => {
+  const months: [string, number][] = [['2026-07', 31], ['2026-08', 31], ['2026-09', 30], ['2026-10', 31]]
+
+  async function esiByMonth(cookie: string, ctx: Ctx, employeeId: string) {
+    const out: Record<string, { employee: number; employer: number }> = {}
+    for (const [ym, last] of months) {
+      const run = await makeRun(ctx, ym, last)
+      const calc = await api(`/api/payroll/runs/${run.id}/calculate`, { method: 'POST', cookie })
+      expect(calc.status).toBe(200)
+      const item = (calc.body.data.items as { employee_id: string; deductions: { esi_employee_paise: number; esi_employer_paise: number } }[])
+        .find((i) => i.employee_id === employeeId)!
+      out[ym] = { employee: item.deductions.esi_employee_paise, employer: item.deductions.esi_employer_paise }
+    }
+    return out
+  }
+
+  it('raise to ₹25,000 in July: ESI stays ₹188 (was ₹0) Jul–Sep, then ₹0 from October', async () => {
+    const ctx = await seedOrg()
+    const { cookie } = await mdUser(ctx.org.id)
+    const emp = await makeEmployee(ctx, {
+      name: 'Raised', joining: '2026-01-01',
+      structures: [
+        { from: '2026-01-01', to: '2026-06-30', grossRupees: 20_000 },
+        { from: '2026-07-01', grossRupees: 25_000 },
+      ],
+    })
+    const esi = await esiByMonth(cookie, ctx, emp.id)
+    // ₹25,000 × 0.75% = ₹187.50 → ₹188; employer ₹25,000 × 3.25% = ₹812.50 → ₹813.
+    expect(esi['2026-07']).toEqual({ employee: 188_00, employer: 813_00 })
+    expect(esi['2026-08']).toEqual({ employee: 188_00, employer: 813_00 })
+    expect(esi['2026-09']).toEqual({ employee: 188_00, employer: 813_00 })
+    expect(esi['2026-10']).toEqual({ employee: 0, employer: 0 })
+  })
+
+  it('cut to ₹20,000 in July: ESI stays ₹0 (was ₹150) Jul–Sep, then ₹150 from October', async () => {
+    const ctx = await seedOrg()
+    const { cookie } = await mdUser(ctx.org.id)
+    const emp = await makeEmployee(ctx, {
+      name: 'Cut', joining: '2026-01-01',
+      structures: [
+        { from: '2026-01-01', to: '2026-06-30', grossRupees: 25_000 },
+        { from: '2026-07-01', grossRupees: 20_000 },
+      ],
+    })
+    const esi = await esiByMonth(cookie, ctx, emp.id)
+    expect(esi['2026-07'].employee).toBe(0)
+    expect(esi['2026-09'].employee).toBe(0)
+    expect(esi['2026-10']).toEqual({ employee: 150_00, employer: 650_00 })
+  })
+
+  it('mid-period joiner at ₹20,000 is covered from joining (unchanged)', async () => {
+    const ctx = await seedOrg()
+    const { cookie } = await mdUser(ctx.org.id)
+    const emp = await makeEmployee(ctx, { name: 'NewJoin', joining: '2026-08-01' })
+    const run = await makeRun(ctx, '2026-08', 31)
+    const calc = await api(`/api/payroll/runs/${run.id}/calculate`, { method: 'POST', cookie })
+    const item = (calc.body.data.items as { employee_id: string; deductions: { esi_employee_paise: number } }[])
+      .find((i) => i.employee_id === emp.id)!
+    expect(item.deductions.esi_employee_paise).toBe(150_00)
   })
 })

@@ -6,7 +6,9 @@ import { addDays, enumerateDates, istToday, monthLabel, monthlyPayrollPeriod } f
 import { calculatePayrollItem, pfAppliesTo, type CustomComponent } from '../../domain/payroll/calc.js'
 import { computeWorkingDays, isWorkingDay } from '../../domain/leaveDays.js'
 import { summarize } from '../../domain/payroll/attendanceSummary.js'
-import { snapshotAt, type StatutorySnapshot } from '../../domain/payroll/statutory.js'
+import {
+  esiContributionPeriodStart, esiCoveredForPeriod, snapshotAt, type StatutorySnapshot,
+} from '../../domain/payroll/statutory.js'
 import {
   employmentWindow, payrollEmployeeWhere, periodStructureWhere, pickStructure,
 } from '../../domain/payroll/employment.js'
@@ -398,6 +400,41 @@ async function approvedLopLeaveDays(
   return days
 }
 
+/** Full monthly gross a structure pays (no pro-rata, no LOP). */
+function structureMonthlyGross(s: {
+  basicPaise: number; hraPaise: number; conveyancePaise: number; specialAllowancePaise: number; customComponentsJson: string
+}): number {
+  const custom = (JSON.parse(s.customComponentsJson) as CustomComponent[])
+    .filter((c) => c.kind === 'earning')
+    .reduce((sum, c) => sum + c.amount_paise, 0)
+  return s.basicPaise + s.hraPaise + s.conveyancePaise + s.specialAllowancePaise + custom
+}
+
+/**
+ * The wage that decides ESI coverage for the contribution period containing
+ * this run: the structure in force at the period start, or on joining if the
+ * employee joined later. Falls back to this month's structure when none was
+ * on file then. A stipend is its own wage.
+ */
+async function esiWageAtContributionStart(
+  employee: { id: string; joiningDate: string },
+  runPeriodStart: string,
+  monthStructure: Parameters<typeof structureMonthlyGross>[0],
+  stipend: number | null,
+): Promise<number> {
+  if (stipend !== null) return stipend
+  const cpStart = esiContributionPeriodStart(runPeriodStart)
+  const ref = employee.joiningDate > cpStart ? employee.joiningDate : cpStart
+  const atRef = await prisma.salaryStructure.findMany({
+    where: {
+      employeeId: employee.id, deletedAt: null, effectiveFrom: { lte: ref },
+      OR: [{ effectiveTo: null }, { effectiveTo: { gte: ref } }],
+    },
+  })
+  const s = pickStructure(atRef, { start: ref, end: ref })
+  return structureMonthlyGross(s ?? monthStructure)
+}
+
 // POST /api/payroll/runs/:id/calculate — Draft only, rebuilds items from scratch.
 payrollRouter.post('/runs/:id/calculate', handler(async (req, res) => {
   const session = requireSession(req)
@@ -480,6 +517,8 @@ payrollRouter.post('/runs/:id/calculate', handler(async (req, res) => {
       period_days: periodDays,
       tds_paise: monthlyTds,
       pf_applicable: pfAppliesTo(emp),
+      esi_covered: esiCoveredForPeriod(
+        await esiWageAtContributionStart(emp, run.periodStart, structure, stipend), snap),
     })
     prepared.push({ employeeId: emp.id, salaryStructureId: structure.id, summary, calc })
   }

@@ -84,6 +84,11 @@ export interface CalcInputs {
   advance_recovery_paise?: number
   /** False skips PF entirely (both shares). Defaults to covered. */
   pf_applicable?: boolean
+  /**
+   * ESI coverage for the contribution period (see esiCoveredForPeriod).
+   * Omitted: decided on this month's gross alone.
+   */
+  esi_covered?: boolean
 }
 
 /** Whether PF is deducted for this employee. The one place the rule lives. */
@@ -133,7 +138,7 @@ export function calculatePayrollItem(input: CalcInputs): CalcOutput {
   const pf = input.pf_applicable === false
     ? { employee_paise: 0, employer_paise: 0 }
     : computePF(Math.max(0, basic_paise - basicLop), snap)
-  const esi = computeESI(gross_paise, snap)
+  const esi = computeESI(gross_paise, snap, input.esi_covered)
 
   // Deductions in absorb order: the first entry is reduced first when the
   // total would exceed gross. Statutory items come last.
