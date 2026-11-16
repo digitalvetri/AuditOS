@@ -373,16 +373,20 @@ export const InvoiceService = {
     else if (f.status === 'refund_due') and.push({ id: { in: await refundDueIds() } })
     else if (f.status) and.push({ status: f.status })
 
-    const rows = await prisma.invoice.findMany({
-      where: { AND: and },
-      include: { items: ITEM_SELECT, client: true, bankAccount: true, refunds: REFUND_SELECT },
-      orderBy: [{ invoiceDate: 'desc' }, { createdAt: 'desc' }],
-      take: f.limit ?? 50,
-      skip: f.offset ?? 0,
-    })
+    const [rows, total] = await Promise.all([
+      prisma.invoice.findMany({
+        where: { AND: and },
+        include: { items: ITEM_SELECT, client: true, bankAccount: true, refunds: REFUND_SELECT },
+        orderBy: [{ invoiceDate: 'desc' }, { createdAt: 'desc' }],
+        take: f.limit ?? 50,
+        skip: f.offset ?? 0,
+      }),
+      // Every match, not the page — pagination needs the real count.
+      prisma.invoice.count({ where: { AND: and } }),
+    ])
     const emp = await employeeMap(rows.map((r) => r.preparedById).filter(Boolean) as string[])
     const items = rows.map((r) => serialize(r, emp))
-    return { items, total: items.length }
+    return { items, total }
   },
 
   async get(session: Session, scope: Scope, id: string): Promise<SerializedInvoice> {

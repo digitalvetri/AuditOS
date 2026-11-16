@@ -77,3 +77,18 @@ describe('cancel vs the GSTR-1 period', () => {
     expect((await api(`/api/invoices/${await invoice('2024-05-10', false)}/cancel`, { method: 'POST', body: {} })).status).toBe(200)
   })
 })
+
+describe('invoice list pagination', () => {
+  it('total is every match, not the page: 3 invoices for a client with ?limit=2 → 2 items, total 3', async () => {
+    const own = (await prisma.client.create({ data: { organisationId: (await prisma.client.findUniqueOrThrow({ where: { id: clientId } })).organisationId, clientCode: uid('CLI'), companyName: 'Paged Co', accountManagerId: (await prisma.client.findUniqueOrThrow({ where: { id: clientId } })).accountManagerId, contactPerson: 'P', contactNumber: '9876543210', onboardingDate: '2024-01-01' } })).id
+    const saved = clientId
+    clientId = own
+    try {
+      for (let i = 0; i < 3; i++) await invoice(istToday(), false)
+    } finally { clientId = saved }
+    const r = await api(`/api/invoices?client_id=${own}&limit=2`)
+    expect(r.status).toBe(200)
+    expect(r.body.items).toHaveLength(2)
+    expect(r.body.total).toBe(3)
+  })
+})
