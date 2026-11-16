@@ -94,6 +94,21 @@ describe('signing partner must be a partner', () => {
   })
 })
 
+describe('the UDIN register names only partners', () => {
+  it('an Associate cannot record a UDIN against a non-partner; against a partner it is fine', async () => {
+    const before = await prisma.auditUdin.count({ where: { clientId } })
+    const body = (partnerId: string, udin: string) => ({
+      client_id: clientId, udin, document_type: 'audit_report', document_date: '2026-09-01',
+      partner_id: partnerId, membership_no: '234567', generated_on: '2026-09-02',
+    })
+    const bad = await api('/api/audits/udins', p.employee.cookie, { method: 'POST', body: body(p.intern.emp.id, '26234567ABCDEFGHIJ') })
+    expect(bad.status).toBe(400)
+    expect(await prisma.auditUdin.count({ where: { clientId } })).toBe(before)
+    const good = await api('/api/audits/udins', p.employee.cookie, { method: 'POST', body: body(p.md.emp.id, '26234567KLMNOPQRST') })
+    expect(good.status, JSON.stringify(good.body)).toBe(201)
+  })
+})
+
 describe('acceptance approval and sign-off are a partner\'s; review is Senior Associate+', () => {
   /** A file set up before this rule: a Senior Associate as signing partner and team partner. */
   async function legacyFile() {

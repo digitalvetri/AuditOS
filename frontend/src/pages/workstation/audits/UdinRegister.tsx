@@ -170,7 +170,7 @@ function AddUdinModal({ preset, onClose }: { preset: Partial<MissingUdin> | null
         <Field label="Partner">
           <select className={inputClass} value={partnerId} onChange={(e) => setPartnerId(e.target.value)}>
             <option value="">—</option>
-            {(staff.data?.items ?? []).map((p) => <option key={p.id} value={p.id}>{p.full_name}</option>)}
+            {(staff.data?.items ?? []).filter((p) => p.is_partner).map((p) => <option key={p.id} value={p.id}>{p.full_name}</option>)}
           </select>
         </Field>
         <Field label="Membership no." error={mErr}>

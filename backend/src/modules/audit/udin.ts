@@ -4,7 +4,7 @@ import type { Prisma } from '@prisma/client'
 import { prisma, alive } from '../../lib/prisma.js'
 import { ApiError, handler, ok } from '../../lib/http.js'
 import { assertCanSeeClient, clientScopeWhere } from '../../platform/workstation/scope.js'
-import { clientsById, employeeNames, assertEmployee } from './service.js'
+import { clientsById, employeeNames, assertPartnerEmployee } from './service.js'
 import * as S from './serialize.js'
 import { ISO_DATE, access, audit, isUniqueViolation, parse } from './common.js'
 
@@ -86,7 +86,8 @@ export function registerUdins(r: Router) {
       const e = await prisma.auditEngagement.findFirst({ where: { id: b.engagement_id, ...alive }, select: { clientId: true } })
       if (!e || e.clientId !== b.client_id) throw ApiError.badRequest('That audit file is not for this client.', { engagement_id: 'Not for this client.' })
     }
-    await assertEmployee(b.partner_id, 'partner_id')
+    // Only the signing member generates a UDIN: the partner named must be one.
+    await assertPartnerEmployee(b.partner_id, 'partner_id')
     validateUdin(b.udin, b.membership_no)
     const row = await prisma.auditUdin.create({
       data: {
