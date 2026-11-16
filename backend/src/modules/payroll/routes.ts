@@ -10,7 +10,7 @@ import {
   esiContributionPeriodStart, esiCoveredForPeriod, snapshotAt, type StatutorySnapshot,
 } from '../../domain/payroll/statutory.js'
 import {
-  employmentWindow, payrollEmployeeWhere, periodStructureWhere, pickStructure,
+  employmentWindow, monthlyTdsFromPlan, payrollEmployeeWhere, periodStructureWhere, pickStructure,
 } from '../../domain/payroll/employment.js'
 import { can, requireSession, type Session } from '../../platform/auth.js'
 import { writeAudit } from '../../platform/audit.js'
@@ -495,11 +495,12 @@ payrollRouter.post('/runs/:id/calculate', handler(async (req, res) => {
     // Approved Loss-of-Pay leave writes On Leave rows (not Absent), so the
     // summary above never sees it: deduct its working days in this window.
     summary.lop_days += await approvedLopLeaveDays(emp.id, leaves, window.start, window.end)
-    // Monthly TDS = annual plan ÷ 12, rounded to nearest paise. Not a
-    // slab calculator — the spec deliberately keeps the number the firm's
+    // Monthly TDS = annual plan ÷ months on payroll this FY (12, or fewer
+    // for a mid-year joiner), rounded to nearest paise. Not a slab
+    // calculator — the spec deliberately keeps the number the firm's
     // decision. Zero plan means zero deducted this month; the process
     // gate above catches "zero plan but should have been non-zero".
-    const monthlyTds = Math.round((emp.annualTdsPlanPaise ?? 0) / 12)
+    const monthlyTds = monthlyTdsFromPlan(emp.annualTdsPlanPaise ?? 0, run.periodStart, emp.joiningDate)
     const calc = calculatePayrollItem({
       structure: stipend !== null
         // Stipend is the whole monthly amount for an articled assistant.
@@ -891,7 +892,7 @@ salaryRouter.get('/', handler(async (req, res) => {
     }),
     prisma.employee.findUnique({
       where: { id: req.params.id },
-      select: { annualTdsPlanPaise: true, tdsExemptReason: true },
+      select: { annualTdsPlanPaise: true, tdsExemptReason: true, joiningDate: true },
     }),
   ])
   ok(res, {
@@ -899,7 +900,7 @@ salaryRouter.get('/', handler(async (req, res) => {
     history: rows.map(salaryStructureToApi),
     tds_plan: employee ? {
       annual_tds_plan_paise: employee.annualTdsPlanPaise,
-      monthly_tds_paise: Math.round(employee.annualTdsPlanPaise / 12),
+      monthly_tds_paise: monthlyTdsFromPlan(employee.annualTdsPlanPaise, istToday(), employee.joiningDate),
       exempt_reason: employee.tdsExemptReason,
       threshold_paise: TDS_PLAN_GROSS_THRESHOLD_PAISE,
     } : null,
@@ -1019,7 +1020,7 @@ salaryRouter.patch('/tds-plan', handler(async (req, res) => {
   ok(res, {
     employee_id: employeeId,
     annual_tds_plan_paise: updated.annualTdsPlanPaise,
-    monthly_tds_paise: Math.round(updated.annualTdsPlanPaise / 12),
+    monthly_tds_paise: monthlyTdsFromPlan(updated.annualTdsPlanPaise, istToday(), updated.joiningDate),
     exempt_reason: updated.tdsExemptReason,
   })
 }))

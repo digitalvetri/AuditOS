@@ -11,6 +11,7 @@ import { applyPayrollInvariants } from '../db/invariants.js'
  *   1. Process refuses a run that silently omits a payable employee.
  *   2. Attendance-gap warnings (informational; pay unchanged).
  *   3. ESI coverage decided per contribution period, not per month.
+ *   4. Mid-year joiner: annual TDS plan spread over the months employed in the FY.
  */
 
 let server: Server
@@ -311,5 +312,36 @@ describe('3. ESI coverage is fixed for the contribution period (Apr–Sep, Oct�
     const item = (calc.body.data.items as { employee_id: string; deductions: { esi_employee_paise: number } }[])
       .find((i) => i.employee_id === emp.id)!
     expect(item.deductions.esi_employee_paise).toBe(150_00)
+  })
+})
+
+describe('4. Mid-year joiner: annual TDS plan spread over months employed in the FY', () => {
+  it('October joiner with a ₹60,000 plan: ₹10,000/month (was ₹5,000); April-or-earlier joiner stays ₹5,000', async () => {
+    const ctx = await seedOrg()
+    const { cookie } = await mdUser(ctx.org.id)
+    const joiner = await makeEmployee(ctx, {
+      name: 'OctJoiner', joining: '2026-10-01', annualTds: 60_000_00,
+      structures: [{ from: '2026-10-01', grossRupees: 80_000 }],
+    })
+    const veteran = await makeEmployee(ctx, {
+      name: 'Veteran', joining: '2024-06-01', annualTds: 60_000_00,
+      structures: [{ from: '2024-06-01', grossRupees: 80_000 }],
+    })
+    const run = await makeRun(ctx, '2026-10', 31)
+    const calc = await api(`/api/payroll/runs/${run.id}/calculate`, { method: 'POST', cookie })
+    expect(calc.status).toBe(200)
+    const tds = (id: string) => (calc.body.data.items as { employee_id: string; deductions: { tds_paise: number } }[])
+      .find((i) => i.employee_id === id)!.deductions.tds_paise
+    expect(tds(joiner.id)).toBe(10_000_00)
+    expect(tds(veteran.id)).toBe(5_000_00)
+  })
+
+  it('monthlyTdsFromPlan: ÷12 from April, ÷6 from October, ÷1 in March, January run of an October joiner ÷6', async () => {
+    const { monthlyTdsFromPlan } = await import('../../../domain/payroll/employment.js')
+    expect(monthlyTdsFromPlan(120_000_00, '2026-04-01', '2026-04-15')).toBe(10_000_00)
+    expect(monthlyTdsFromPlan(120_000_00, '2026-10-01', '2026-10-20')).toBe(20_000_00)
+    expect(monthlyTdsFromPlan(120_000_00, '2027-01-01', '2026-10-20')).toBe(20_000_00)
+    expect(monthlyTdsFromPlan(120_000_00, '2027-03-01', '2027-03-10')).toBe(120_000_00)
+    expect(monthlyTdsFromPlan(120_000_00, '2027-04-01', '2026-10-20')).toBe(10_000_00)
   })
 })

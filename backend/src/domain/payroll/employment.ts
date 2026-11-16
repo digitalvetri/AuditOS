@@ -46,6 +46,22 @@ export function payrollEmployeeWhere(periodStart: string, periodEnd: string) {
   }
 }
 
+/**
+ * Monthly TDS from the firm's annual plan. The plan is the year's tax, so it
+ * is spread over the months the employee is on payroll in that financial
+ * year (Apr–Mar): ÷12 for anyone employed from April, ÷6 for someone who
+ * joins in October. The joining month counts as a whole month.
+ */
+export function monthlyTdsFromPlan(annualPlanPaise: number, periodStart: string, joiningDate: string): number {
+  const [py, pm] = periodStart.split('-').map(Number)
+  const fyStartYear = pm >= 4 ? py : py - 1
+  const fyStart = fyStartYear * 12 + 3 // April, as a month index
+  const [jy, jm] = joiningDate.split('-').map(Number)
+  const firstMonth = Math.max(fyStart, jy * 12 + (jm - 1))
+  const months = Math.max(1, fyStart + 12 - firstMonth)
+  return Math.round(annualPlanPaise / months)
+}
+
 /** Structures that might overlap the period — narrow with pickStructure. */
 export function periodStructureWhere(periodStart: string, periodEnd: string) {
   return {
