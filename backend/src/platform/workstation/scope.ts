@@ -113,6 +113,26 @@ export async function assertCanSeeClient(session: Session, scope: Scope, clientI
   if (!ids.includes(clientId)) throw ApiError.forbidden()
 }
 
+/**
+ * READ-ONLY widening of assertCanSeeClient for opening a client's page
+ * (GET /api/clients/:id and nothing else): staff assigned a live task on the
+ * client may read it even when no manager, service or GST assignment ties
+ * them to it. Deliberately NOT part of assignedClientIds, which also gates
+ * writes, nested routes and lists.
+ */
+export async function assertCanReadClient(session: Session, scope: Scope, clientId: string): Promise<void> {
+  const ids = await assignedClientIds(session, scope)
+  if (ids === 'ALL' || ids.includes(clientId)) return
+  const me = session.employeeId
+  const viaTask = me
+    ? await prisma.task.findFirst({
+        where: { clientId, assignedEmployeeId: me, deletedAt: null, status: { not: 'cancelled' } },
+        select: { id: true },
+      })
+    : null
+  if (!viaTask) throw ApiError.forbidden()
+}
+
 /** Lead ids assigned to the caller — leads have no client yet. */
 export async function leadScopeWhere(session: Session, scope: Scope) {
   if (scope === 'organisation' || scope === 'department') return {}

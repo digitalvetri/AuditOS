@@ -9,7 +9,7 @@ import { writeAudit } from '../../platform/audit.js'
 import { notifyEmployee } from '../../platform/notify.js'
 import { writeActivity } from '../../platform/workstation/activity.js'
 import {
-  assertCanSeeClient, assignedClientIds, clientIdWhere, requireWorkstation, seesAllClients,
+  assertCanReadClient, assertCanSeeClient, assignedClientIds, clientIdWhere, requireWorkstation, seesAllClients,
 } from '../../platform/workstation/scope.js'
 import { assertCanJoinOrganization, deriveShortName } from '../../platform/workstation/organization.js'
 import {
@@ -162,7 +162,8 @@ clientsRouter.post('/', handler(async (req, res) => {
 clientsRouter.get('/:id', handler(async (req, res) => {
   const session = requireSession(req)
   const scope = requireWorkstation(session, 'workstation.client.read', 'workstation.client.manage')
-  await assertCanSeeClient(session, scope, req.params.id)
+  // Read only: a task assignee may open the client too (not edit it).
+  await assertCanReadClient(session, scope, req.params.id)
 
   const client = await prisma.client.findFirst({
     where: { id: req.params.id, ...alive },
