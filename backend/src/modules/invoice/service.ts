@@ -12,6 +12,7 @@ import { addPayment, removePayment, type PaymentInput } from './payments.js'
 import { addRefund, refundToApi, removeRefund, type RefundInput } from './refunds.js'
 import { defaultPlaceOfSupply, firmGstin, firmOrgId, firmStateCode, placeOfSupplyCode, resolveInterState } from './supply.js'
 import { istToday } from '../../lib/dates.js'
+import { closeStaleInvoiceLinks } from '../integrations/payment-links.js'
 
 /**
  * INVOICE SERVICE — Workstation → Invoice.
@@ -532,6 +533,7 @@ export const InvoiceService = {
   async recordPayment(session: Session, scope: Scope, id: string, input: PaymentInput): Promise<SerializedInvoice> {
     await this.get(session, scope, id) // visibility check
     await addPayment(id, input, session.userId)
+    await closeStaleInvoiceLinks(id, session.userId)
     return this.get(session, scope, id)
   },
 
@@ -592,6 +594,7 @@ export const InvoiceService = {
       })
       if (claimed.count === 0) throw ApiError.conflict('invalid_transition', 'This invoice changed while it was being cancelled. Reload and try again.')
     })
+    await closeStaleInvoiceLinks(id, session.userId)
     return this.get(session, scope, id)
   },
 

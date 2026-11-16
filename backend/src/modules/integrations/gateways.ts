@@ -170,7 +170,12 @@ export interface CreateLinkArgs {
   customer: { name: string; email: string | null; phone: string | null }
   /** Cashfree per-link webhook URL (https only). */
   notifyUrl?: string | null
+  /** Clock for the expiry (tests). */
+  now?: number
 }
+
+/** How long a Razorpay payment link stays payable. */
+export const LINK_VALIDITY_DAYS = 30
 
 /** Our id for the link at the gateway: Razorpay reference_id (≤40) / Cashfree link_id (≤50, [A-Za-z0-9_-]). */
 function merchantLinkId(gateway: Gateway, invoiceNumber: string): string {
@@ -198,6 +203,9 @@ export async function createPaymentLink(c: GatewayCreds, a: CreateLinkArgs): Pro
       // The firm shares the link itself (copy / open), so Razorpay sends nothing.
       notify: { sms: false, email: false },
       notes: { invoice: a.invoiceNumber },
+      // Expire after LINK_VALIDITY_DAYS, so a forgotten full-balance link is
+      // not payable for Razorpay's default six months.
+      expire_by: Math.floor((a.now ?? Date.now()) / 1000) + LINK_VALIDITY_DAYS * 86_400,
     }
     const r = await call('razorpay', `${RAZORPAY_BASE}/payment_links`, { method: 'POST', headers: razorpayHeaders(c), body: JSON.stringify(body) })
     if (!r?.id || !r?.short_url) throw new GatewayError('razorpay', 502, 'No link id in the response.')
@@ -221,6 +229,20 @@ export async function createPaymentLink(c: GatewayCreds, a: CreateLinkArgs): Pro
   const r = await call('cashfree', `${cashfreeBase(c.mode)}/links`, { method: 'POST', headers: cashfreeHeaders(c), body: JSON.stringify(body) })
   if (!r?.link_url) throw new GatewayError('cashfree', 502, 'No link URL in the response.')
   return { gatewayLinkId: String(r.link_id ?? ref), url: String(r.link_url), status: cashfreeStatus(r.link_status) ?? 'created' }
+}
+
+/**
+ * Cancel an open link at the gateway, so it can no longer be paid. A link the
+ * gateway already reports as closed (paid / expired / cancelled — a 4xx) is
+ * not an error for the caller: it is no longer payable either way.
+ */
+export async function cancelPaymentLink(c: GatewayCreds, gatewayLinkId: string): Promise<void> {
+  const id = encodeURIComponent(gatewayLinkId)
+  if (c.gateway === 'razorpay') {
+    await call('razorpay', `${RAZORPAY_BASE}/payment_links/${id}/cancel`, { method: 'POST', headers: razorpayHeaders(c) })
+    return
+  }
+  await call('cashfree', `${cashfreeBase(c.mode)}/links/${id}/cancel`, { method: 'POST', headers: cashfreeHeaders(c) })
 }
 
 function razorpayStatus(s: unknown): LinkStatus | null {

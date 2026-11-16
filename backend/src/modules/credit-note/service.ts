@@ -33,6 +33,7 @@ import { InvoiceService } from '../invoice/service.js'
 import { assertRefundsCovered, liveBalanceDue, recomputeInvoice } from '../invoice/payments.js'
 import { computeTotals } from '../invoice/totals.js'
 import { istToday } from '../../lib/dates.js'
+import { closeStaleInvoiceLinks } from '../integrations/payment-links.js'
 
 export const CREDIT_NOTE_REASONS = ['rate_change', 'deficiency', 'discount', 'return', 'fee_reduction', 'other'] as const
 export type CreditNoteReason = (typeof CREDIT_NOTE_REASONS)[number]
@@ -396,6 +397,7 @@ export const CreditNoteService = {
       if (r.count === 0) throw ApiError.conflict('invalid_transition', 'This credit note has already been issued.')
       await recomputeInvoice(tx, n.invoice_id, session.userId)
     })
+    await closeStaleInvoiceLinks(n.invoice_id, session.userId)
     return this.get(session, scope, id)
   },
 

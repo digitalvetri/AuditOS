@@ -571,3 +571,57 @@ describe('Cashfree webhook', () => {
     expect((await prisma.invoice.findUniqueOrThrow({ where: { id: inv.id } })).status).toBe('paid')
   })
 })
+
+describe('stale links are closed at the gateway', () => {
+  beforeAll(async () => {
+    calls = []; reply = defaultReply; __setGatewayFetchForTests(mockFetch)
+    await saveRazorpay(); await saveCashfree()
+    await api('/api/integrations/payment-gateways/razorpay/default', { method: 'POST' })
+  })
+
+  it('a Razorpay link expires 30 days after creation (expire_by)', async () => {
+    const inv = await sentInvoice()
+    const before = Math.floor(Date.now() / 1000)
+    expect((await createLink(inv.id)).status).toBe(200)
+    const exp = calls[0].body.expire_by
+    expect(exp).toBeGreaterThanOrEqual(before + 30 * 86_400)
+    expect(exp).toBeLessThanOrEqual(Math.floor(Date.now() / 1000) + 30 * 86_400)
+  })
+
+  it('paying the ₹11,800 by hand cancels the open Razorpay link at the gateway', async () => {
+    const inv = await sentInvoice()
+    const link = (await createLink(inv.id)).body.link
+    calls = []
+    reply = (url, method) => (url.endsWith('/cancel') && method === 'POST' ? json(200, { id: link.gateway_link_id, status: 'cancelled' }) : defaultReply(url, method))
+    const pay = await api(`/api/invoices/${inv.id}/payments`, { method: 'POST', body: { amount_paise: 11_800_00, paid_on: istToday(), mode: 'bank_transfer' } })
+    expect(pay.status, JSON.stringify(pay.body)).toBe(200)
+    expect(calls.map((c) => `${c.method} ${c.url}`)).toEqual([`POST https://api.razorpay.com/v1/payment_links/${link.gateway_link_id}/cancel`])
+    expect((await prisma.invoicePaymentLink.findUniqueOrThrow({ where: { id: link.id } })).status).toBe('cancelled')
+  })
+
+  it('a part payment leaves the link open; cancelling the invoice cancels a Cashfree link', async () => {
+    const inv = await sentInvoice()
+    const link = (await createLink(inv.id, 'cashfree')).body.link
+    calls = []
+    reply = (url, method) => (url.endsWith('/cancel') ? json(200, { link_status: 'CANCELLED' }) : defaultReply(url, method))
+    const part = await api(`/api/invoices/${inv.id}/payments`, { method: 'POST', body: { amount_paise: 1_000_00, paid_on: istToday(), mode: 'cash' } })
+    expect(part.status).toBe(200)
+    expect(calls).toHaveLength(0)
+    const removed = await api(`/api/invoices/${inv.id}/payments/${(await livePayments(inv.id))[0].id}`, { method: 'DELETE' })
+    expect(removed.status).toBe(200)
+    expect((await api(`/api/invoices/${inv.id}/cancel`, { method: 'POST', body: { reason: 'raised twice' } })).status).toBe(200)
+    expect(calls.map((c) => `${c.method} ${c.url}`)).toEqual([`POST https://sandbox.cashfree.com/pg/links/${link.gateway_link_id}/cancel`])
+    expect((await prisma.invoicePaymentLink.findUniqueOrThrow({ where: { id: link.id } })).status).toBe('cancelled')
+  })
+
+  it('a gateway outage never blocks the payment: the link stays open and the failure is audited', async () => {
+    const inv = await sentInvoice()
+    const link = (await createLink(inv.id)).body.link
+    reply = (url, method) => (url.endsWith('/cancel') ? json(503, { error: { description: 'down' } }) : defaultReply(url, method))
+    const pay = await api(`/api/invoices/${inv.id}/payments`, { method: 'POST', body: { amount_paise: 11_800_00, paid_on: istToday(), mode: 'cash' } })
+    expect(pay.status).toBe(200)
+    expect(pay.body.status).toBe('paid')
+    expect((await prisma.invoicePaymentLink.findUniqueOrThrow({ where: { id: link.id } })).status).toBe('created')
+    expect(await prisma.auditLog.count({ where: { entityId: inv.id, action: 'invoice_payment_link.cancel_failed' } })).toBe(1)
+  })
+})

@@ -27,7 +27,7 @@ import { writeAudit } from '../../platform/audit.js'
 import { decryptPortalSecret } from '../../platform/portalCrypto.js'
 import { addPaymentLocked, liveBalanceDue, notifyPaymentRecorded } from '../invoice/payments.js'
 import {
-  GATEWAY_INFO, GatewayError, createPaymentLink, fetchPaymentLink,
+  GATEWAY_INFO, GatewayError, cancelPaymentLink, createPaymentLink, fetchPaymentLink,
   type Gateway, type GatewayCreds, type GatewayMode, type GatewayPayment, type LinkStatus,
 } from './gateways.js'
 
@@ -206,6 +206,8 @@ export async function applyGatewayPayment(linkId: string, p: GatewayPayment, sou
     })
     await notifyPaymentRecorded(link0.invoiceId, outcome.recorded, { employeeId: null, userId: actorUserId })
   }
+  // The link that paid is closed by the gateway itself; any other open one is cancelled.
+  if (outcome.recorded > 0) await closeStaleInvoiceLinks(link0.invoiceId, actorUserId, linkId)
   if (outcome.excess > 0) {
     console.warn(`[payment-links] ${label} payment ${p.paymentKey}: ${outcome.excess} paise not recorded on invoice ${link0.invoiceId} (above the balance due or invoice closed)`)
     await writeAudit({
@@ -257,4 +259,46 @@ export async function checkInvoiceLink(invoiceId: string, linkId: string, userId
   }
   await setLinkStatus(link.id, snap.status, true)
   return { link: linkToApi(await prisma.invoicePaymentLink.findUniqueOrThrow({ where: { id: link.id } })), recorded }
+}
+
+/**
+ * Once an invoice is paid, cancelled or fully credited, its still-open links
+ * are cancelled at the gateway so the client cannot pay a stale link (the
+ * excess would only be "flagged"). Best-effort and after the invoice change
+ * has committed: a gateway outage never blocks the payment, cancel or credit
+ * — the link stays "created" here and the failure is logged and audited.
+ */
+export async function closeStaleInvoiceLinks(invoiceId: string, actorUserId: string | null, exceptLinkId?: string): Promise<{ cancelled: number; failed: number }> {
+  const result = { cancelled: 0, failed: 0 }
+  try {
+    const inv = await prisma.invoice.findUnique({ where: { id: invoiceId }, select: { status: true, deletedAt: true } })
+    if (!inv) return result
+    const closed = Boolean(inv.deletedAt) || inv.status === 'cancelled' || (await liveBalanceDue(prisma, invoiceId)) <= 0
+    if (!closed) return result
+    const open = await prisma.invoicePaymentLink.findMany({ where: { invoiceId, status: { in: ['created', 'partially_paid'] }, ...(exceptLinkId ? { id: { not: exceptLinkId } } : {}) } })
+    for (const link of open) {
+      const gateway = link.gateway as Gateway
+      const config = await prisma.paymentGatewayConfig.findFirst({ where: { organisationId: link.organisationId, gateway } })
+      try {
+        if (!config) throw new GatewayError(gateway, 0, 'gateway keys removed')
+        await cancelPaymentLink(credsOf(config), link.gatewayLinkId)
+        await prisma.invoicePaymentLink.update({ where: { id: link.id }, data: { status: 'cancelled' } })
+        await writeAudit({
+          actorUserId, action: 'invoice_payment_link.cancelled', entityType: 'Invoice', entityId: invoiceId,
+          after: { gateway, gateway_link_id: link.gatewayLinkId, why: inv.status === 'cancelled' ? 'invoice_cancelled' : 'nothing_due' },
+        })
+        result.cancelled++
+      } catch (e) {
+        result.failed++
+        console.warn(`[payment-links] could not cancel ${gateway} link ${link.gatewayLinkId} on invoice ${invoiceId}:`, e instanceof Error ? e.message : e)
+        await writeAudit({
+          actorUserId, action: 'invoice_payment_link.cancel_failed', entityType: 'Invoice', entityId: invoiceId,
+          after: { gateway, gateway_link_id: link.gatewayLinkId, error: e instanceof Error ? e.message.slice(0, 200) : String(e) },
+        }).catch(() => undefined)
+      }
+    }
+  } catch (e) {
+    console.warn('[payment-links] closing stale links failed for invoice', invoiceId, e instanceof Error ? e.message : e)
+  }
+  return result
 }
