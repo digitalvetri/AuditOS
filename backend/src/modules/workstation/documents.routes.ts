@@ -79,6 +79,52 @@ documentsRouter.get('/', handler(async (req, res) => {
   ok(res, { items: rows.map((r) => clientDocumentToApi(r, m)), count: rows.length, scope })
 }))
 
+// GET /api/client-documents/deleted[?client_id=] — Recently Deleted, newest first.
+documentsRouter.get('/deleted', handler(async (req, res) => {
+  const session = requireSession(req)
+  const scope = requireWorkstation(session, 'workstation.document.read', 'workstation.document.manage')
+  const clientId = typeof req.query.client_id === 'string' && req.query.client_id ? req.query.client_id : null
+  if (clientId) await assertCanSeeClient(session, scope, clientId)
+  const rows = await prisma.clientDocument.findMany({
+    where: {
+      deletedAt: { not: null },
+      ...(await clientScopeWhere(session, scope)),
+      ...(clientId ? { clientId } : {}),
+      client: { deletedAt: null },
+    },
+    include,
+    orderBy: { deletedAt: 'desc' },
+    take: 200,
+  })
+  const m = await employeeMap(rows.flatMap((r) => [r.requestedByEmployeeId, r.verifiedByEmployeeId, ...r.versions.map((v) => v.uploadedBy)]))
+  ok(res, {
+    items: rows.map((r) => ({ ...clientDocumentToApi(r, m), deleted_at: r.deletedAt!.toISOString() })),
+    count: rows.length,
+  })
+}))
+
+// POST /api/client-documents/:id/restore — back out of Recently Deleted.
+documentsRouter.post('/:id/restore', handler(async (req, res) => {
+  const session = requireSession(req)
+  const scope = requireWorkstation(session, 'workstation.document.manage')
+  const before = await prisma.clientDocument.findFirst({ where: { id: req.params.id }, include })
+  if (!before || before.client?.deletedAt) throw ApiError.notFound('Document not found.')
+  await assertCanSeeClient(session, scope, before.clientId)
+  if (!before.deletedAt) throw ApiError.conflict('not_deleted', 'This document is not deleted.')
+  const doc = await prisma.clientDocument.update({ where: { id: before.id }, data: { deletedAt: null, updatedBy: session.userId }, include })
+  await writeActivity({
+    session, subjectType: 'client', subjectId: doc.clientId,
+    action: 'document.restored', description: `${doc.name} restored from Recently Deleted.`,
+    entityType: 'ClientDocument', entityId: doc.id,
+  })
+  await writeAudit({
+    actorUserId: session.userId, action: 'client_document.restore',
+    entityType: 'ClientDocument', entityId: doc.id, before, after: doc, req,
+  })
+  const m = await employeeMap([doc.requestedByEmployeeId, doc.verifiedByEmployeeId, ...doc.versions.map((x) => x.uploadedBy)])
+  ok(res, clientDocumentToApi(doc, m))
+}))
+
 // GET /api/documents/:id
 documentsRouter.get('/:id', handler(async (req, res) => {
   const session = requireSession(req)
@@ -212,6 +258,9 @@ documentsRouter.post('/:id/move', handler(async (req, res) => {
     const c = await prisma.client.findFirst({ where: { id: toClient, deletedAt: null }, select: { id: true, clientCode: true, companyName: true } })
     if (!c) throw ApiError.badRequest('Unknown client.', { client_id: 'No such client.' })
     data.clientId = toClient
+    // The service tag and the sharing decision were the old client's.
+    data.clientServiceId = null
+    data.visibleToClient = false
     targetClient = c
     crossClient = true
   }
@@ -302,6 +351,9 @@ documentsRouter.post('/:id/copy', handler(async (req, res) => {
       clientId: targetClientId,
       categoryId: targetCategoryId,
       clientServiceId: crossClient ? null : source.clientServiceId,
+      // Shared with the client only if the original was, and never on
+      // another client until someone there shares it.
+      visibleToClient: crossClient ? false : isVisibleToClient(source),
       name: newName,
       financialYear: source.financialYear,
       status: 'uploaded', // the copy inherits bytes, not a request lifecycle

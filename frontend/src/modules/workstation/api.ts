@@ -167,6 +167,16 @@ export const workstationApi = {
     api.post<ClientDocument>(`/api/clients/${clientId}/documents`, input),
   updateDocument: (id: string, patch: Record<string, unknown>) =>
     api.patch<ClientDocument>(`/api/client-documents/${id}`, patch),
+  /** Soft delete: the document goes to Recently Deleted and can be restored. */
+  deleteDocument: (id: string) => api.delete<{ id: string; deleted_at: string }>(`/api/client-documents/${id}`),
+  /** To another folder (category_id) and/or another client (client_id). */
+  moveDocument: (id: string, to: { category_id?: string; client_id?: string }) =>
+    api.post<ClientDocument>(`/api/client-documents/${id}/move`, to),
+  copyDocument: (id: string, to: { category_id?: string; client_id?: string; name?: string }) =>
+    api.post<ClientDocument>(`/api/client-documents/${id}/copy`, to),
+  deletedDocuments: (clientId: string) =>
+    api.get<ListResponse<ClientDocument & { deleted_at: string }>>(`/api/client-documents/deleted${qs({ client_id: clientId })}`),
+  restoreDocument: (id: string) => api.post<ClientDocument>(`/api/client-documents/${id}/restore`, {}),
   verifyDocument: (id: string, approve: boolean, rejection_reason?: string) =>
     api.post<ClientDocument>(`/api/client-documents/${id}/verify`, { approve, rejection_reason }),
   /** A new version always carries the file. `document_date` is the date printed on it. */

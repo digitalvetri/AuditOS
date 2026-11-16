@@ -12,6 +12,7 @@ import { Button } from '@/components/Button';
 import { StatusSelect } from './StatusSelect';
 import { RequestButtons, SendRequestDialog, needsRequest, type RequestChannel, type RequestTarget } from './SendRequestDialog';
 import { useToast } from '@/components/Toast';
+import { DocumentRowActions, RecentlyDeletedButton } from './DocumentActions';
 import { fmtDate, fmtTime, inr } from '@/lib/format';
 
 /**
@@ -157,6 +158,7 @@ export function ClientDocumentFolders({
           onRoot={() => setOpenKey(null)}
         />
         <div className="ml-auto flex items-center gap-3">
+          <RecentlyDeletedButton clientId={clientId} canManage={actions.canManage} />
           {(() => {
             const f = openKey ? query.data?.folders.find((x) => x.key === openKey) : null;
             return f?.can_upload ? (
@@ -244,13 +246,13 @@ export function ClientDocumentFolders({
               f.items.filter((i) => matches(i, needle)).map((i) => ({ folder: f, item: i })));
             return hits.length === 0
               ? <Empty>No documents match “{q.trim()}”.</Empty>
-              : <ItemTable rows={hits} showFolder onOpen={open} actions={actions} onRequest={askClient} selection={{ isSelected, toggle, setMany }} />;
+              : <ItemTable clientId={clientId} rows={hits} showFolder onOpen={open} actions={actions} onRequest={askClient} selection={{ isSelected, toggle, setMany }} />;
           }
           const folder = openKey ? data.folders.find((f) => f.key === openKey) : null;
           if (folder) {
             return folder.items.length === 0
               ? <Empty>No documents in {folder.label} yet.</Empty>
-              : <ItemTable rows={folder.items.map((i) => ({ folder, item: i }))} onOpen={open} actions={actions} onRequest={askClient} selection={{ isSelected, toggle, setMany }} />;
+              : <ItemTable clientId={clientId} rows={folder.items.map((i) => ({ folder, item: i }))} onOpen={open} actions={actions} onRequest={askClient} selection={{ isSelected, toggle, setMany }} />;
           }
           return (
             <FolderGrid
@@ -387,8 +389,9 @@ interface Selection {
 const mergeable = (i: ClientFolderItem) => i.openable === 'pdf' || i.openable === 'file';
 
 function ItemTable({
-  rows, showFolder = false, onOpen, actions, onRequest, selection,
+  clientId, rows, showFolder = false, onOpen, actions, onRequest, selection,
 }: {
+  clientId: string;
   rows: { folder: ClientFolder; item: ClientFolderItem }[];
   showFolder?: boolean;
   onOpen: (item: ClientFolderItem) => void;
@@ -485,6 +488,9 @@ function ItemTable({
               ) : null}
               {item.document_id && item.visible_to_client !== undefined ? (
                 <ShareToggle documentId={item.document_id} shared={item.visible_to_client} canManage={actions.canManage} />
+              ) : null}
+              {item.document_id && actions.canManage && !item.stored_for ? (
+                <DocumentRowActions clientId={clientId} documentId={item.document_id} title={item.title} />
               ) : null}
             </div>
           </Cell>
