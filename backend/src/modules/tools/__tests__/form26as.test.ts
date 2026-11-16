@@ -45,6 +45,17 @@ describe('Form 26AS to Excel', () => {
     expect(r.totalTds).toBe(8000)
   })
 
+  it('a 206C row is TCS even when the file has no PART headings', async () => {
+    const txt = [
+      '1^SRI VARI TRADERS^CHES54321K^^^^80000.00^8000.00^8000.00^',
+      '1^194C^10-Jan-2026^F^-^-^80000.00^8000.00^8000.00^',
+      '2^MARUTI SUZUKI DEALER PVT LTD^DELM12345C^^^^1200000.00^12000.00^12000.00^',
+      '1^206CL^10-Aug-2025^F^15-Oct-2025^-^1200000.00^12000.00^12000.00^',
+    ].join('\n')
+    const r = await ComplianceService.form26asToExcel(Buffer.from(txt), true)
+    expect([r.rows, r.totalTds, r.tcsRows, r.totalTcs]).toEqual([1, 8000, 1, 12000])
+  })
+
   it('PDF: the three amount columns are read as paid, deducted, deposited', async () => {
     const r = await ComplianceService.form26asToExcel(await fixture('form26as.pdf'), false)
     expect(r.rows).toBe(2)

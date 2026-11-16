@@ -944,9 +944,18 @@ export const ComplianceService = {
     let tan = ''
     let part = 'I'
     const SECTION = /^(19[0-9A-Z]{1,4}|206C[A-Z]{0,2}|206[A-Z]{1,3})$/
-    const partOf = (t: string) => t.match(/^\s*PART[\s-]*([IVX]+)\b/i)?.[1].toUpperCase()
+    // Current statements number parts I–VIII; older ones lettered them
+    // (A = TDS, A1 = 15G/15H, B = TCS, A2/C/D… = other layouts).
+    const LETTERED: Record<string, string> = { A: 'I', A1: 'II', B: 'VI' }
+    const partOf = (t: string) => {
+      const m = t.match(/^\s*PART[\s-]*([IVX]+|[A-H]\d?)\b/i)?.[1].toUpperCase()
+      return m === undefined ? undefined : /^[IVX]+$/.test(m) ? m : (LETTERED[m] ?? m)
+    }
     const place = (r: Row, where: string | number) => {
-      if (part === 'I' || part === 'II') tds.push(r)
+      // A 206C* section is tax COLLECTED wherever it appears — files without
+      // PART headings, or with older "PART A / PART B" headings, included.
+      if (/^206C/i.test(r.section)) tcs.push(r)
+      else if (part === 'I' || part === 'II') tds.push(r)
       else if (part === 'VI') tcs.push(r)
       else {
         skippedParts.set(part, (skippedParts.get(part) ?? 0) + 1)
