@@ -1,6 +1,7 @@
 import { Prisma } from '@prisma/client'  // value import: Prisma.DbNull clears a Json column
 import { prisma } from '../../lib/prisma.js'
 import { ApiError } from '../../lib/http.js'
+import { lockSequence } from '../../lib/sequence.js'
 import type { Session } from '../../platform/auth.js'
 import type { Scope } from '../../platform/rbac/matrix.js'
 import { assignedClientIds, assertCanSeeClient } from '../../platform/workstation/scope.js'
@@ -557,29 +558,38 @@ export const InvoiceService = {
     const inv = await this.get(session, scope, id)
     assertTransition(inv.stored_status as InvoiceStatus, 'cancelled', inv.invoice_number)
     // Cancelling would leave money received against an invoice nobody owes.
-    // The amount check also covers legacy rows paid before payment rows existed.
-    const payments = await prisma.invoicePayment.count({ where: { invoiceId: id, deletedAt: null } })
-    if (payments > 0 || inv.amount_paid_paise > 0) {
-      throw ApiError.conflict(
-        'invoice_has_payments',
-        'This invoice has payments recorded. Remove the payments first, or issue a credit note.',
-      )
-    }
-    const credits = await prisma.creditNote.count({ where: { invoiceId: id, deletedAt: null, status: 'issued' } })
-    if (credits > 0) {
-      throw ApiError.conflict(
-        'invoice_has_credit_notes',
-        'Credit notes have been issued against this invoice. Cancel them first.',
-      )
-    }
-    await prisma.invoice.update({
-      where: { id },
-      data: {
-        status: 'cancelled',
-        cancelledAt: new Date(),
-        notes: reason ? `${inv.notes ? `${inv.notes}\n\n` : ''}Cancelled: ${reason}` : inv.notes,
-        updatedBy: session.userId,
-      },
+    // The checks run under the same per-invoice lock addPayment and credit-note
+    // issue take, and the status flip is a conditional claim on the status
+    // read, so a payment racing this cancel can never also succeed.
+    await prisma.$transaction(async (tx) => {
+      await lockSequence(tx, `invoice:${id}`)
+      const fresh = await tx.invoice.findUniqueOrThrow({ where: { id }, select: { status: true, amountPaidPaise: true, notes: true } })
+      assertTransition(fresh.status as InvoiceStatus, 'cancelled', inv.invoice_number)
+      // The amount check also covers legacy rows paid before payment rows existed.
+      const payments = await tx.invoicePayment.count({ where: { invoiceId: id, deletedAt: null } })
+      if (payments > 0 || fresh.amountPaidPaise > 0) {
+        throw ApiError.conflict(
+          'invoice_has_payments',
+          'This invoice has payments recorded. Remove the payments first, or issue a credit note.',
+        )
+      }
+      const credits = await tx.creditNote.count({ where: { invoiceId: id, deletedAt: null, status: 'issued' } })
+      if (credits > 0) {
+        throw ApiError.conflict(
+          'invoice_has_credit_notes',
+          'Credit notes have been issued against this invoice. Cancel them first.',
+        )
+      }
+      const claimed = await tx.invoice.updateMany({
+        where: { id, status: fresh.status, deletedAt: null },
+        data: {
+          status: 'cancelled',
+          cancelledAt: new Date(),
+          notes: reason ? `${fresh.notes ? `${fresh.notes}\n\n` : ''}Cancelled: ${reason}` : fresh.notes,
+          updatedBy: session.userId,
+        },
+      })
+      if (claimed.count === 0) throw ApiError.conflict('invalid_transition', 'This invoice changed while it was being cancelled. Reload and try again.')
     })
     return this.get(session, scope, id)
   },

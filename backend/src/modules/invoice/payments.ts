@@ -270,6 +270,11 @@ export async function addPayment(invoiceId: string, input: PaymentInput, userId:
     // Re-read the balance under a per-invoice lock: two payments recorded at
     // once must not both pass the balance check.
     await lockSequence(tx, `invoice:${invoiceId}`)
+    // Re-read the status under the lock too: a cancel holding it may have
+    // committed since the read above (cancel takes the same lock).
+    const fresh = await tx.invoice.findUniqueOrThrow({ where: { id: invoiceId }, select: { status: true, deletedAt: true } })
+    if (fresh.deletedAt) throw ApiError.notFound('Invoice not found.')
+    if (fresh.status === 'cancelled') throw ApiError.conflict('invoice_cancelled', 'This invoice has been cancelled.')
     const balance = await liveBalanceDue(tx, invoiceId)
     if (input.amountPaise + tds > balance) {
       throw ApiError.badRequest(

@@ -124,6 +124,25 @@ describe('cancelling', () => {
     const ok = await api(`/api/invoices/${a.id}/cancel`, { method: 'POST', body: {} })
     expect(ok.status).toBe(200)
     expect(ok.body.status).toBe('cancelled')
+
+    const late = await api(`/api/invoices/${a.id}/payments`, { method: 'POST', body: { amount_paise: 1000_00, paid_on: '2026-10-03' } })
+    expect(late.status).toBe(409)
+  })
+
+  it('a cancel and a payment racing on the same invoice never both succeed', async () => {
+    for (let round = 0; round < 8; round++) {
+      const a = await draft()
+      await api(`/api/invoices/${a.id}/send`, { method: 'POST' })
+      const [cancel, pay] = await Promise.all([
+        api(`/api/invoices/${a.id}/cancel`, { method: 'POST', body: {} }),
+        api(`/api/invoices/${a.id}/payments`, { method: 'POST', body: { amount_paise: 1000_00, paid_on: '2026-10-02' } }),
+      ])
+      expect([cancel.status, pay.status].filter((s) => s === 200)).toHaveLength(1)
+      const row = await prisma.invoice.findUniqueOrThrow({ where: { id: a.id } })
+      const payments = await prisma.invoicePayment.count({ where: { invoiceId: a.id, deletedAt: null } })
+      if (row.status === 'cancelled') expect(payments).toBe(0)
+      else expect([row.status, payments]).toEqual(['partially_paid', 1])
+    }
   })
 })
 

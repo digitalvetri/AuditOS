@@ -88,7 +88,11 @@ export async function postCollectionToInvoice(zpayPaymentId: string, opts: { inv
           return { posted: false, invoiceId: inv.id, invoiceNumber: inv.invoiceNumber, reason: 'A payment of the same amount on the same day is already recorded by hand. Link it explicitly if it is a separate payment.' }
         }
       }
-      const fresh = await tx.invoice.findUniqueOrThrow({ where: { id: inv.id }, select: { balanceDuePaise: true } })
+      const fresh = await tx.invoice.findUniqueOrThrow({ where: { id: inv.id }, select: { balanceDuePaise: true, status: true } })
+      // Re-checked under the lock: a cancel (same lock) may have committed since.
+      if (fresh.status === 'cancelled') {
+        return { posted: false, invoiceId: inv.id, invoiceNumber: inv.invoiceNumber, reason: `Invoice ${inv.invoiceNumber ?? 'draft'} is cancelled.` }
+      }
       if (p.amountPaise > fresh.balanceDuePaise) {
         return { posted: false, invoiceId: inv.id, invoiceNumber: inv.invoiceNumber, reason: `The payment is more than the invoice's balance due (${(fresh.balanceDuePaise / 100).toFixed(2)}). Record it by hand.` }
       }
