@@ -12,14 +12,19 @@
  *   GET    /api/tally-export/history[?companyId=X&bankLedgerId=Y]
  *
  * RBAC reuses the accounting-engine grants — the operator running
- * exports is the same role that manages vouchers.
+ * exports is the same role that manages vouchers. Every company id is
+ * resolved through BookkeepingCompanyService.requireOwned (same firm, and a
+ * client the caller is assigned to unless they see every client) BEFORE
+ * anything is read or written. A global rule (no company) applies to every
+ * client, so writing one needs "sees every client".
  */
 import { createHash } from 'node:crypto'
 import { Router } from 'express'
 import { prisma } from '../../lib/prisma.js'
 import { ApiError, handler, ok } from '../../lib/http.js'
-import { requireSession } from '../../platform/auth.js'
-import { requireWorkstation } from '../../platform/workstation/scope.js'
+import { requireSession, type Session } from '../../platform/auth.js'
+import { assertClientVisible, requireWorkstation } from '../../platform/workstation/scope.js'
+import { BookkeepingCompanyService } from '../bookkeeping/services/BookkeepingCompanyService.js'
 import {
   buildPreview, bulkCreateRules, computePreflight, createRule, deleteRule, listAllRules,
   listExportHistory, listRulesForClient, updateRule,
@@ -38,19 +43,44 @@ const READ = [
 const str = (v: unknown): string | null => (typeof v === 'string' && v.trim() ? v.trim() : null)
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/
 
+/** The company must be the caller's firm's and on a client they may see. */
+async function requireCompany(session: Session, companyId: string) {
+  await BookkeepingCompanyService.requireOwned(session, companyId)
+}
+
+/** A rule's target: a company the caller may see, or (null) the whole firm. */
+async function requireRuleTarget(session: Session, companyId: string | null) {
+  if (companyId) await requireCompany(session, companyId)
+  else await assertClientVisible(session, null)
+}
+
+/** An existing rule the caller may change — 404 if gone, 403 if not theirs. */
+async function requireRule(session: Session, id: string) {
+  const rule = await prisma.tallyLedgerRule.findFirst({ where: { id, deletedAt: null }, select: { companyId: true } })
+  if (!rule) throw ApiError.notFound('Rule not found.')
+  await requireRuleTarget(session, rule.companyId)
+}
+
 // ── Rules ────────────────────────────────────────────────────────────────
 
 tallyExportRouter.get('/rules', handler(async (req, res) => {
   const session = requireSession(req)
   requireWorkstation(session, ...READ)
   const companyId = str(req.query.companyId) ?? str(req.query.company_id)
-  ok(res, { items: companyId ? await listRulesForClient(companyId) : await listAllRules() })
+  if (companyId) {
+    await requireCompany(session, companyId)
+    ok(res, { items: await listRulesForClient(companyId) })
+    return
+  }
+  const visible = (await BookkeepingCompanyService.listForOrg(session)).map((c) => c.id)
+  ok(res, { items: await listAllRules(visible) })
 }))
 
 tallyExportRouter.post('/rules', handler(async (req, res) => {
   const session = requireSession(req)
   requireWorkstation(session, ...MANAGE)
   const b = (req.body ?? {}) as Record<string, unknown>
+  await requireRuleTarget(session, str(b.company_id) ?? str(b.companyId))
   const rule = await createRule({
     companyId: str(b.company_id) ?? str(b.companyId),
     matchType: (str(b.match_type) ?? 'contains') as (typeof MATCH_TYPES)[number],
@@ -73,6 +103,9 @@ tallyExportRouter.patch('/rules/:id', handler(async (req, res) => {
   if ('ledger_name' in b) patch.ledgerName = str(b.ledger_name) ?? ''
   if ('voucher_type' in b) patch.voucherType = (str(b.voucher_type) ?? null) as (typeof VOUCHER_TYPES)[number] | null
   if ('priority' in b && typeof b.priority === 'number') patch.priority = b.priority
+  // Both the rule's current company and (if moved) its new one.
+  await requireRule(session, req.params.id)
+  if (patch.companyId !== undefined) await requireRuleTarget(session, patch.companyId)
   const row = await updateRule(req.params.id, patch)
   ok(res, row)
 }))
@@ -80,6 +113,7 @@ tallyExportRouter.patch('/rules/:id', handler(async (req, res) => {
 tallyExportRouter.delete('/rules/:id', handler(async (req, res) => {
   const session = requireSession(req)
   requireWorkstation(session, ...MANAGE)
+  await requireRule(session, req.params.id)
   await deleteRule(req.params.id)
   ok(res, { ok: true })
 }))
@@ -117,6 +151,8 @@ tallyExportRouter.post('/rules/bulk', handler(async (req, res) => {
       priority: typeof r.priority === 'number' ? r.priority : 0,
     }
   })
+  // Every row's target is checked before any row is written.
+  for (const companyId of new Set(parsed.map((r) => r.companyId))) await requireRuleTarget(session, companyId)
   const result = await bulkCreateRules(parsed, session.userId ?? null)
   ok(res, result, 201)
 }))
@@ -140,6 +176,7 @@ tallyExportRouter.post('/preview', handler(async (req, res) => {
   const session = requireSession(req)
   requireWorkstation(session, ...READ)
   const opts = parseBuildOptions((req.body ?? {}) as Record<string, unknown>)
+  await requireCompany(session, opts.companyId)
   const preview = await buildPreview(opts)
   ok(res, preview)
 }))
@@ -148,6 +185,7 @@ tallyExportRouter.post('/preflight', handler(async (req, res) => {
   const session = requireSession(req)
   requireWorkstation(session, ...READ)
   const opts = parseBuildOptions((req.body ?? {}) as Record<string, unknown>)
+  await requireCompany(session, opts.companyId)
   const report = await computePreflight(opts)
   ok(res, report)
 }))
@@ -171,6 +209,7 @@ tallyExportRouter.post('/generate', handler(async (req, res) => {
   requireWorkstation(session, ...MANAGE)
   const b = (req.body ?? {}) as Record<string, unknown>
   const opts = parseBuildOptions(b)
+  await requireCompany(session, opts.companyId)
   const format = typeof b.format === 'string' ? b.format : 'xml'
   if (format !== 'xml' && format !== 'xlsx') {
     throw ApiError.badRequest('format must be "xml" or "xlsx".')
@@ -235,6 +274,7 @@ tallyExportRouter.get('/history', handler(async (req, res) => {
   requireWorkstation(session, ...READ)
   const companyId = str(req.query.companyId) ?? str(req.query.company_id)
   if (!companyId) throw ApiError.badRequest('companyId is required.')
+  await requireCompany(session, companyId)
   const bankLedgerId = str(req.query.bankLedgerId) ?? str(req.query.bank_ledger_id) ?? undefined
   const items = await listExportHistory(companyId, bankLedgerId)
   ok(res, { items })

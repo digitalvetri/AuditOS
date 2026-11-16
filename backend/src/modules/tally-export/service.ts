@@ -51,10 +51,14 @@ export async function listRulesForClient(companyId: string): Promise<RuleApi[]> 
   return rows.map(toRuleApi)
 }
 
-/** All rules the caller can see, when no client is in scope (e.g. Settings). */
-export async function listAllRules(): Promise<RuleApi[]> {
+/**
+ * All rules the caller can see, when no client is in scope (e.g. Settings):
+ * the global rules plus those of the companies in `companyIds` (the caller's
+ * visible companies).
+ */
+export async function listAllRules(companyIds: string[]): Promise<RuleApi[]> {
   const rows = await prisma.tallyLedgerRule.findMany({
-    where: { deletedAt: null },
+    where: { deletedAt: null, OR: [{ companyId: null }, { companyId: { in: companyIds } }] },
     orderBy: [{ companyId: 'asc' }, { priority: 'desc' }, { createdAt: 'asc' }],
   })
   return rows.map(toRuleApi)
