@@ -1205,6 +1205,114 @@ gstRouter.post('/stages/:stage/entries', handler(async (req, res) => {
 }))
 
 /**
+ * POST /api/gst/clients — create a GST profile for a client that doesn't
+ * yet have one. The missing half of /api/gst/clients: for a long time the
+ * only paths to a GstProfile row were a direct DB insert or a seed. This
+ * closes that gap and matches the PATCH body shape 1:1 so a UI can swap
+ * between "new" and "edit" on the same form.
+ *
+ * Mandatory: client_id, gstin (check-character validated), assigned_
+ * employee_id. Defaults mirror the PATCH handler — registration_type
+ * 'regular', registration_status 'active', filing_frequency 'monthly'.
+ *
+ * Rejects when a GstProfile already exists for the client (`GstProfile
+ * .clientId` is @unique in the schema) — the caller should use PATCH on
+ * the existing row's id instead.
+ */
+gstRouter.post('/clients', handler(async (req, res) => {
+  const session = requireSession(req)
+  const scope = requireWorkstation(session, 'workstation.gst.manage')
+  await assertCanSeeClient(session, scope, String((req.body ?? {}).client_id ?? ''))
+
+  const b = req.body ?? {}
+  const s = (k: string) => (typeof b[k] === 'string' && b[k] ? (b[k] as string).trim() : null)
+
+  const clientId = s('client_id')
+  if (!clientId) throw ApiError.badRequest('A client_id is required.')
+  if (!(await prisma.client.findFirst({ where: { id: clientId, ...alive } }))) {
+    throw ApiError.badRequest('That client does not exist.')
+  }
+  if (await prisma.gstProfile.findFirst({ where: { clientId, ...alive } })) {
+    throw ApiError.conflict('gst_profile_exists', 'This client already has a GST profile — use PATCH on its id.')
+  }
+
+  const gstin = s('gstin')?.toUpperCase() ?? null
+  if (!gstin) throw ApiError.badRequest('A GSTIN is required.')
+  assertGstin(gstin, { checkChar: true })
+  const pan = s('pan')?.toUpperCase() ?? null
+  if (pan) { assertPan(pan); assertGstinMatchesPan(gstin, pan) }
+
+  const registrationType = s('registration_type') ?? 'regular'
+  const registrationStatus = s('registration_status') ?? 'active'
+  const filingFrequency = s('filing_frequency') ?? 'monthly'
+  assertOneOf(registrationType, REGISTRATION_TYPES, 'registration type')
+  assertOneOf(registrationStatus, REGISTRATION_STATUSES, 'registration status')
+  assertOneOf(filingFrequency, FILING_FREQUENCIES, 'filing frequency')
+
+  const registrationDate = s('registration_date')
+  assertDate(registrationDate, 'Registration date')
+
+  const assigned = s('assigned_employee_id')
+  if (!assigned) throw ApiError.badRequest('Every GST client needs an assigned employee.')
+  const reviewer = s('reviewer_employee_id')
+  for (const id of [assigned, reviewer].filter((v): v is string => !!v)) {
+    if (!(await prisma.employee.count({ where: { id } }))) throw ApiError.badRequest('Unknown employee.')
+  }
+
+  const created = await prisma.gstProfile.create({
+    data: {
+      clientId,
+      gstin, pan,
+      legalName: s('legal_name'),
+      state: s('state'),
+      registrationType, registrationStatus, filingFrequency, registrationDate,
+      assignedEmployeeId: assigned,
+      reviewerEmployeeId: reviewer,
+      contactPerson: s('contact_person'),
+      contactEmail: s('contact_email'),
+      contactPhone: s('contact_phone'),
+      address: s('address'),
+      active: b.active !== false,
+      createdBy: session.userId,
+      updatedBy: session.userId,
+    },
+  })
+
+  await writeGstAudit({
+    gstProfileId: created.id, action: 'GST_CLIENT_CREATED', stage: 'client',
+    userId: session.userId, meta: { gstin, registrationType, filingFrequency, registrationDate, assignedEmployeeId: assigned },
+  })
+
+  // Rule 10A auto-wire — mirror the PATCH path's behaviour. When the new
+  // profile already carries a registrationDate (the common case), fire the
+  // clock-create hook so the firm doesn't have to make a second call.
+  if (registrationDate) {
+    const client = await prisma.client.findUnique({ where: { id: clientId }, select: { organisationId: true } })
+    if (client) {
+      await onGstRegistrationGranted(prisma, {
+        clientId,
+        organisationId: client.organisationId,
+        registrationDate,
+        registrationType,
+        assignedEmployeeId: assigned,
+        isNewGrant: true,
+      })
+    }
+  }
+
+  res.status(201)
+  // profileToApi wants the client relation + period count — re-fetch with
+  // the same include the GET /clients listing uses so the response shape
+  // matches exactly.
+  const full = await prisma.gstProfile.findUniqueOrThrow({
+    where: { id: created.id },
+    include: { client: { select: { id: true, companyName: true } }, _count: { select: { periods: true } } },
+  })
+  const m = await employeeMap([full.assignedEmployeeId, full.reviewerEmployeeId].filter((v): v is string => !!v))
+  ok(res, profileToApi(full, m))
+}))
+
+/**
  * PATCH /api/gst/clients/:id — the client's GST registration details (§28).
  *
  * Only the GST-specific fields live here. Name, phone and address of the
