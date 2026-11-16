@@ -3766,6 +3766,94 @@ model AaTdsReconRow {
 }
 
 // ============================================================
+// AUDIT AUTOMATION · INVOICE EXTRACTION (POST-DELIVERY-CHANGES §F1 part 2)
+// ============================================================
+// Persists the extracted-invoice shape from POST /api/audit-automation
+// /invoices/extract so a human can confirm every figure (the doc's
+// hardest rule — "a misread 1,80,562 as 1,08,562 is a wrong ITC claim"),
+// then exports the confirmed row to Excel (and later, Tally XML).
+//
+// Status lifecycle:
+//   extracted  -> freshly saved from the pure extractor; hints carry
+//                 per-field confidence (high/medium/low). UI lights up
+//                 the uncertain ones.
+//   confirmed  -> every field reviewed; the row is now citable in a
+//                 purchase register or GSTR-2B recon.
+//   exported   -> Excel pulled at least once (informational, not a
+//                 lock — re-export is allowed).
+//
+// Line items live as JSON since the extractor doesn't yet parse them
+// (parser only captures totals + GSTIN + HSN candidates). The reviewer
+// types the line items; the schema is ready for a future line-item
+// extractor without migration.
+
+model AaInvoiceExtraction {
+  id             String @id @default(uuid())
+  organisationId String
+  /// Bound to a client at save time — scoped reads filter on this.
+  clientId       String
+
+  /// Original PDF filename, sanitised at upload.
+  filename       String
+  /// SHA-256 of the PDF bytes — same-file-twice detection.
+  pdfSha256      String
+  pageCount      Int    @default(1)
+
+  // ── Extracted fields, each with its own confidence hint ──────────
+  // Fields are nullable so a partial extraction still saves and the
+  // reviewer fills gaps rather than retyping everything.
+
+  supplierGstin           String?
+  supplierGstinConfidence String  @default("low")
+  recipientGstin          String?
+  recipientGstinConfidence String @default("low")
+  supplierName            String?
+  supplierNameConfidence  String  @default("low")
+  invoiceNumber           String?
+  invoiceNumberConfidence String  @default("low")
+  /// YYYY-MM-DD when a date resolved; null if the extractor couldn't pick one.
+  invoiceDate             String?
+  invoiceDateConfidence   String  @default("low")
+
+  /// Money in paise — Int (invoices cap well below BigInt necessity).
+  totalPaise           Int?
+  totalConfidence      String @default("low")
+  taxablePaise         Int?
+  taxableConfidence    String @default("low")
+  cgstPaise            Int?
+  cgstConfidence       String @default("low")
+  sgstPaise            Int?
+  sgstConfidence       String @default("low")
+  igstPaise            Int?
+  igstConfidence       String @default("low")
+
+  /// JSON array of strings — HSN codes the extractor surfaced; the
+  /// reviewer picks which apply per line item.
+  hsnCandidatesJson    String?
+  /// JSON array of line items the reviewer types: [{ description,
+  /// hsn, quantity_centi, unit_rate_paise, taxable_paise, cgst_paise,
+  /// sgst_paise, igst_paise }].
+  lineItemsJson        String?
+
+  /// extracted | confirmed | exported
+  status               String @default("extracted")
+
+  reviewedByEmployeeId String?
+  reviewedAt           DateTime?
+  notes                String?
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  createdBy String?
+  updatedBy String?
+  deletedAt DateTime?
+
+  @@index([organisationId, clientId, status])
+  @@index([pdfSha256])
+  @@index([createdAt])
+}
+
+// ============================================================
 // TALLY — native double-entry accounting module (AUDITOSTALLYMODULEPROMPT.md)
 // Foundation slice: companies, financial years, groups, ledgers.
 // Every table carries tallyCompanyId; every service enforces strict
