@@ -73,18 +73,24 @@ export interface TaskActor {
   session: Session
   /** True when the caller holds workstation.task.manage at any scope. */
   canManage: boolean
+  /**
+   * The caller's task scope (taskScopeWhere). A task outside it answers 404
+   * before anything is written — "manage" is manage-within-scope.
+   */
+  scopeWhere?: Prisma.TaskWhereInput
 }
 
 /**
  * Load a task for a state change and check the caller may make it.
  *
  * The assignee may run their own task's clock. A manager may act on any task
- * in scope. Anyone else gets 403 — and a task they may not see answers
- * identically to a task that does not exist, so the caller learns nothing
- * from the difference.
+ * in their scope. Anyone else gets 403 — and a task outside the caller's scope
+ * answers identically to a task that does not exist (404, read inside the
+ * transaction before any write), so the caller learns nothing from the
+ * difference and nothing is changed.
  */
 async function loadForAction(tx: Tx, taskId: string, actor: TaskActor) {
-  const task = await tx.task.findFirst({ where: { id: taskId, ...alive } })
+  const task = await tx.task.findFirst({ where: { id: taskId, ...alive, ...(actor.scopeWhere ?? {}) } })
   if (!task) throw ApiError.notFound('No such task.')
   const isAssignee = Boolean(actor.session.employeeId) && task.assignedEmployeeId === actor.session.employeeId
   if (!isAssignee && !actor.canManage) throw ApiError.forbidden()

@@ -5,7 +5,7 @@ import type { Session } from '../../platform/auth.js'
 import type { Scope } from '../../platform/rbac/matrix.js'
 import { nextClientCode } from '../../platform/workstation/codes.js'
 import { deriveShortName } from '../../platform/workstation/organization.js'
-import { clientIdWhere } from '../../platform/workstation/scope.js'
+import { assignedClientIds, clientIdWhere } from '../../platform/workstation/scope.js'
 import { ORGANIZATION_REF } from '../../api/workstation.serialize.js'
 import { TAN_RE } from '../gst/validate.js'
 import { FieldErrors } from './validate.js'
@@ -171,23 +171,37 @@ export function bumpClientCode(code: string): string {
  * not be forced to resolve it before saving.
  */
 export async function findDuplicatePhoneClients(
+  session: Session,
   phone: string | null | undefined,
   excludeId?: string,
-): Promise<Array<{ id: string; client_code: string; company_name: string }>> {
-  if (!phone) return []
-  const matches = await prisma.client.findMany({
-    where: {
-      contactNumber: phone,
-      deletedAt: null,
-      ...(excludeId ? { id: { not: excludeId } } : {}),
-    },
-    select: { id: true, clientCode: true, companyName: true },
-    // Cap defensively — a number shared across dozens of rows is almost
-    // always a data-entry mistake and the warning only needs a nudge, not
-    // a full list.
-    take: 5,
-  })
-  return matches.map((c) => ({ id: c.id, client_code: c.clientCode, company_name: c.companyName }))
+): Promise<{ visible: Array<{ id: string; client_code: string; company_name: string }>; hidden: number }> {
+  if (!phone) return { visible: [], hidden: 0 }
+  const where: Prisma.ClientWhereInput = {
+    contactNumber: phone,
+    deletedAt: null,
+    ...(excludeId ? { id: { not: excludeId } } : {}),
+  }
+  // Only clients the caller may see are named. Staff who see only their
+  // assigned clients are told how many OTHER clients share the number, never
+  // which — the warning must not become a way to discover unseen clients.
+  const ids = await assignedClientIds(session, 'organisation')
+  const visibleWhere: Prisma.ClientWhereInput = ids === 'ALL' ? where : { AND: [where, { id: { in: ids } }] }
+  const [matches, total] = await Promise.all([
+    prisma.client.findMany({
+      where: visibleWhere,
+      select: { id: true, clientCode: true, companyName: true },
+      // Cap defensively — a number shared across dozens of rows is almost
+      // always a data-entry mistake and the warning only needs a nudge, not
+      // a full list.
+      take: 5,
+    }),
+    prisma.client.count({ where }),
+  ])
+  const visibleCount = ids === 'ALL' ? total : await prisma.client.count({ where: visibleWhere })
+  return {
+    visible: matches.map((c) => ({ id: c.id, client_code: c.clientCode, company_name: c.companyName })),
+    hidden: total - visibleCount,
+  }
 }
 
 // ── List filters ────────────────────────────────────────────────────────────

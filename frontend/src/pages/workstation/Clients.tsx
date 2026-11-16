@@ -599,10 +599,14 @@ export function AddClientModal({ open, onClose, organization, defaultName, onCre
       // POST-DELIVERY-CHANGES §B2 — a shared phone number is legitimate
       // (proprietor + firm), but worth noticing so the firm doesn't create
       // a duplicate by mistake. Non-blocking warning toast.
-      const dupes = (client as unknown as { phone_duplicates?: Array<{ client_code: string; company_name: string }> }).phone_duplicates;
-      if (dupes && dupes.length) {
-        const names = dupes.map((d) => `${d.client_code} ${d.company_name}`).join(', ');
-        toast.push('info', `This phone number is also on: ${names}`);
+      const dup = client as unknown as { phone_duplicates?: Array<{ client_code: string; company_name: string }>; phone_duplicates_hidden?: number };
+      const dupes = dup.phone_duplicates ?? [];
+      // Clients the user is not assigned to are only counted, never named.
+      const hidden = dup.phone_duplicates_hidden ?? 0;
+      if (dupes.length || hidden) {
+        const named = dupes.map((d) => `${d.client_code} ${d.company_name}`);
+        if (hidden) named.push(`${hidden} other client${hidden === 1 ? '' : 's'} you are not assigned to`);
+        toast.push('info', `This phone number is also on: ${named.join(', ')}`);
       }
       onClose();
       if (onCreated) onCreated(client.id);

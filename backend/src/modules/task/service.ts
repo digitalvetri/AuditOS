@@ -6,6 +6,7 @@ import type { Session } from '../../platform/auth.js'
 import type { Scope } from '../../platform/rbac/matrix.js'
 import { writeAudit } from '../../platform/audit.js'
 import { writeActivity } from '../../platform/workstation/activity.js'
+import { assertClientVisible } from '../../platform/workstation/scope.js'
 import {
   normaliseStatus, isOverdue, liveTotals, writeTaskAudit,
   TASK_PRIORITIES, type TaskPriority,
@@ -199,6 +200,16 @@ function statusWhere(status?: string): Record<string, unknown> {
 }
 
 export const TaskService = {
+  /**
+   * 403 unless the caller may see the client a task would hang off — its own
+   * client, or its project's client. (An audit-file link must match that
+   * client, so it is covered too.) Call before writing.
+   */
+  async assertTaskClientVisible(session: Session, clientId: string | null | undefined, clientServiceId: string | null | undefined) {
+    const target = await taskClientOf(clientId, clientServiceId)
+    if (target) await assertClientVisible(session, target)
+  },
+
   async list(session: Session, scope: Scope, filters: TaskFilters = {}) {
     const today = istToday()
     const scopeWhere = await taskScopeWhere(session, scope)
@@ -414,8 +425,16 @@ export const TaskService = {
     estimatedMinutes?: number | null
     notes?: string | null
   }) {
-    const existing = await prisma.task.findFirst({ where: { id: taskId, ...alive } })
+    // Out of scope answers 404 before anything is written.
+    const existing = await prisma.task.findFirst({ where: { id: taskId, ...alive, ...(await taskScopeWhere(session, scope)) } })
     if (!existing) throw ApiError.notFound('No such task.')
+    if (patch.clientId !== undefined || patch.clientServiceId !== undefined) {
+      await TaskService.assertTaskClientVisible(
+        session,
+        patch.clientId !== undefined ? patch.clientId : existing.clientId,
+        patch.clientServiceId !== undefined ? patch.clientServiceId : existing.clientServiceId,
+      )
+    }
     if (normaliseStatus(existing.status) === 'completed') {
       throw ApiError.unprocessable('completed_immutable', 'A completed task cannot be edited. Reopen it first.')
     }
@@ -462,7 +481,8 @@ export const TaskService = {
 
   /** Reassign — the work already tracked stays with the task, not the person. */
   async reassign(session: Session, scope: Scope, taskId: string, employeeId: string, reason?: string | null) {
-    const existing = await prisma.task.findFirst({ where: { id: taskId, ...alive } })
+    // Out of scope answers 404 before anything is written.
+    const existing = await prisma.task.findFirst({ where: { id: taskId, ...alive, ...(await taskScopeWhere(session, scope)) } })
     if (!existing) throw ApiError.notFound('No such task.')
     if (existing.assignedEmployeeId === employeeId) return TaskService.get(session, scope, taskId)
     const employee = await prisma.employee.findFirst({ where: { id: employeeId, deletedAt: null }, select: { id: true, fullName: true, status: true } })
@@ -499,7 +519,10 @@ export const TaskService = {
       before: { assigned_employee_id: existing.assignedEmployeeId }, after: { assigned_employee_id: employeeId },
     })
     await notify(employeeId, { title: 'Task reassigned to you', body: existing.title, entityId: taskId })
-    return TaskService.get(session, scope, taskId)
+    // The caller was entitled to this task when they handed it over; answer
+    // with it even when the new assignee puts it outside their scope, rather
+    // than a 404 after a committed write.
+    return TaskService.get(session, 'organisation', taskId)
   },
 
   /** Employees a manager may assign work to, for the picker. */

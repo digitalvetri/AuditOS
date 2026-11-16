@@ -3,7 +3,8 @@ import { z } from 'zod'
 import { ApiError, handler, ok } from '../../lib/http.js'
 import { can, requireSession, type Session } from '../../platform/auth.js'
 import { requireWorkstation } from '../../platform/workstation/scope.js'
-import { TaskService } from './service.js'
+import type { Scope } from '../../platform/rbac/matrix.js'
+import { TaskService, taskScopeWhere } from './service.js'
 import { TaskReports } from './reports.js'
 import {
   startTask, pauseTask, resumeTask, completeTask, cancelTask, reopenTask,
@@ -25,9 +26,12 @@ export const tasksRouter = Router()
 
 const ISO_DATE = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Use YYYY-MM-DD.')
 
-/** The caller's actor record: who they are, and whether they can manage. */
-function actorOf(session: Session): TaskActor {
-  return { session, canManage: can(session, 'workstation.task.manage', 'self') }
+/**
+ * The caller's actor record: who they are, whether they can manage, and the
+ * task scope every action is held to (a task outside it is 404, unwritten).
+ */
+async function actorOf(session: Session, scope: Scope): Promise<TaskActor> {
+  return { session, canManage: can(session, 'workstation.task.manage', 'self'), scopeWhere: await taskScopeWhere(session, scope) }
 }
 
 function requireManage(session: Session) {
@@ -163,6 +167,9 @@ tasksRouter.post('/', handler(async (req, res) => {
     notes: z.string().nullable().optional(),
     attachment_url: z.string().nullable().optional(),
   }), req.body, 'A task needs a title, an assignee, a priority and a due date.')
+  // A task on a client the caller cannot see would open that client to them
+  // (assertCanReadClient follows task assignment) — checked before writing.
+  await TaskService.assertTaskClientVisible(session, b.client_id, b.project_id)
 
   ok(res, await TaskService.create(session, {
     title: b.title,
@@ -220,21 +227,21 @@ tasksRouter.post('/:id/reassign', handler(async (req, res) => {
 tasksRouter.post('/:id/start', handler(async (req, res) => {
   const session = requireSession(req)
   const scope = requireWorkstation(session, 'workstation.task.read')
-  await startTask(req.params.id, actorOf(session))
+  await startTask(req.params.id, await actorOf(session, scope))
   ok(res, await TaskService.get(session, scope, req.params.id))
 }))
 
 tasksRouter.post('/:id/pause', handler(async (req, res) => {
   const session = requireSession(req)
   const scope = requireWorkstation(session, 'workstation.task.read')
-  await pauseTask(req.params.id, actorOf(session))
+  await pauseTask(req.params.id, await actorOf(session, scope))
   ok(res, await TaskService.get(session, scope, req.params.id))
 }))
 
 tasksRouter.post('/:id/resume', handler(async (req, res) => {
   const session = requireSession(req)
   const scope = requireWorkstation(session, 'workstation.task.read')
-  await resumeTask(req.params.id, actorOf(session))
+  await resumeTask(req.params.id, await actorOf(session, scope))
   ok(res, await TaskService.get(session, scope, req.params.id))
 }))
 
@@ -242,7 +249,7 @@ tasksRouter.post('/:id/complete', handler(async (req, res) => {
   const session = requireSession(req)
   const scope = requireWorkstation(session, 'workstation.task.read')
   const b = parse(z.object({ note: z.string().nullable().optional() }), req.body ?? {}, 'Invalid completion note.')
-  await completeTask(req.params.id, actorOf(session), b.note)
+  await completeTask(req.params.id, await actorOf(session, scope), b.note)
   ok(res, await TaskService.get(session, scope, req.params.id))
 }))
 
@@ -250,7 +257,7 @@ tasksRouter.post('/:id/cancel', handler(async (req, res) => {
   const session = requireSession(req)
   const scope = requireWorkstation(session, 'workstation.task.read')
   const b = parse(z.object({ reason: z.string().nullable().optional() }), req.body ?? {}, 'Invalid cancel reason.')
-  await cancelTask(req.params.id, actorOf(session), b.reason)
+  await cancelTask(req.params.id, await actorOf(session, scope), b.reason)
   ok(res, await TaskService.get(session, scope, req.params.id))
 }))
 
@@ -259,6 +266,6 @@ tasksRouter.post('/:id/reopen', handler(async (req, res) => {
   const scope = requireWorkstation(session, 'workstation.task.read')
   requireManage(session)
   const b = parse(z.object({ reason: z.string().nullable().optional() }), req.body ?? {}, 'Invalid reopen reason.')
-  await reopenTask(req.params.id, actorOf(session), b.reason)
+  await reopenTask(req.params.id, await actorOf(session, scope), b.reason)
   ok(res, await TaskService.get(session, scope, req.params.id))
 }))

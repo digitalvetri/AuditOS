@@ -74,10 +74,14 @@ function EditClientModal({ client, onClose }: { client: ClientDetail; onClose: (
       // it, surface the overlap as an info toast. The server only sets this
       // when contact_number was actually in the patch body, so an unrelated
       // edit doesn't nag.
-      const dupes = (updated as unknown as { phone_duplicates?: Array<{ client_code: string; company_name: string }> }).phone_duplicates;
-      if (dupes && dupes.length) {
-        const names = dupes.map((d) => `${d.client_code} ${d.company_name}`).join(', ');
-        toast.push('info', `This phone number is also on: ${names}`);
+      const dup = updated as unknown as { phone_duplicates?: Array<{ client_code: string; company_name: string }>; phone_duplicates_hidden?: number };
+      const dupes = dup.phone_duplicates ?? [];
+      // Clients the user is not assigned to are only counted, never named.
+      const hidden = dup.phone_duplicates_hidden ?? 0;
+      if (dupes.length || hidden) {
+        const named = dupes.map((d) => `${d.client_code} ${d.company_name}`);
+        if (hidden) named.push(`${hidden} other client${hidden === 1 ? '' : 's'} you are not assigned to`);
+        toast.push('info', `This phone number is also on: ${named.join(', ')}`);
       }
       onClose();
     },
