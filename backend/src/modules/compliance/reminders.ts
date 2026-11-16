@@ -47,7 +47,11 @@ interface OpenItem {
   escalateTo: string | null
 }
 
-/** Open items of active obligations whose effective due date is within [today+lo, today+hi]. */
+/**
+ * Open items whose effective due date (or a clock's internal target) is within
+ * [today+lo, today+hi]: items of active obligations, plus clock items, which
+ * need no obligation. Clocks without a trigger date are left out.
+ */
 async function openItems(prisma: PrismaClient, today: string, lo: number, hi: number): Promise<OpenItem[]> {
   const extensions = await prisma.dueDateExtension.findMany({ where: { deletedAt: null } })
   const rows = await prisma.complianceItem.findMany({
@@ -66,7 +70,7 @@ async function openItems(prisma: PrismaClient, today: string, lo: number, hi: nu
       where: { id: { in: [...new Set(rows.map((r) => r.clientId))] }, deletedAt: null },
       select: { id: true, companyName: true, email: true, contactNumber: true, accountManagerId: true, businessType: true },
     }),
-    prisma.complianceForm.findMany({ select: { code: true, name: true, leadUpDays: true, escalateTo: true } }),
+    prisma.complianceForm.findMany({ select: { code: true, name: true, anchor: true, leadUpDays: true, escalateTo: true } }),
   ])
   const ob = new Map(obligations.map((o) => [`${o.clientId}|${o.formCode}`, o]))
   const cl = new Map(clients.map((c) => [c.id, c]))
@@ -75,7 +79,13 @@ async function openItems(prisma: PrismaClient, today: string, lo: number, hi: nu
   for (const r of rows) {
     const o = ob.get(`${r.clientId}|${r.formCode}`)
     const c = cl.get(r.clientId)
-    if (!o || !c) continue
+    const form = fn.get(r.formCode)
+    // Clock items (Rule 10A, INC-20A, …) are created by events, not by an
+    // obligation: they remind on their own. A clock whose trigger date is not
+    // entered yet has no real due date ("needs date") and stays silent.
+    const isClock = form?.anchor === 'event'
+    if (!c || (!o && !isClock)) continue
+    if (isClock && !r.anchorDate) continue
     const ext = pickExtension(extensions.filter((e) => e.organisationId === r.organisationId), r.formCode, r.periodKey, entityTypeOf(c.businessType))
     const due = ext?.newDueDate ?? r.dueDate
     const daysLeft = daysBetween(today, due)
@@ -88,7 +98,6 @@ async function openItems(prisma: PrismaClient, today: string, lo: number, hi: nu
     const inWindow = (daysLeft >= lo && daysLeft <= hi)
       || (daysToInternal !== null && daysToInternal >= lo && daysToInternal <= hi)
     if (!inWindow) continue
-    const form = fn.get(r.formCode)
     let leadUps: number[] | null = null
     if (form?.leadUpDays) {
       try {
@@ -102,8 +111,9 @@ async function openItems(prisma: PrismaClient, today: string, lo: number, hi: nu
       id: r.id, organisationId: r.organisationId, clientId: r.clientId,
       formCode: r.formCode, formName: form?.name ?? r.formCode, periodLabel: r.periodLabel,
       due, daysLeft, status: r.status,
-      assignee: r.assignedEmployeeId ?? o.assignedEmployeeId ?? c.accountManagerId ?? null,
-      remindClient: o.remindClient, lastClientReminderAt: r.lastClientReminderAt, client: c,
+      assignee: r.assignedEmployeeId ?? o?.assignedEmployeeId ?? c.accountManagerId ?? null,
+      // Client emails only for obligations the firm switched them on for.
+      remindClient: o?.remindClient ?? false, lastClientReminderAt: r.lastClientReminderAt, client: c,
       leadUpDays: leadUps,
       internalDue,
       daysToInternal,

@@ -184,9 +184,12 @@ describe('Private Limited — post-registration compliance (INC-20A, ADTC)', () 
     // Same day again: nothing new.
     await sendPostRegistrationReminders(prisma, '2026-09-11')
     expect(await mine()).toHaveLength(1)
-    // Day 21: INC-20A period 1 and ADTC period 3 — one each, not a backlog.
+    // Day 21: ADTC period 3 only. INC-20A is reminded by the compliance
+    // calendar's clock (30/15/7/2/1 days and the MD escalation), which holds
+    // its mirror item — this tracker no longer sends a second stream for it.
+    expect(await prisma.complianceItem.count({ where: { clientId: cl.id, formCode: 'INC_20A', deletedAt: null } })).toBe(1)
     await sendPostRegistrationReminders(prisma, '2026-09-22')
-    expect((await mine()).map((n) => n.title).slice(1).sort()).toEqual(['ADTC reminder — Remind Pvt Ltd', 'INC-20A reminder — Remind Pvt Ltd'])
+    expect((await mine()).map((n) => n.title).slice(1)).toEqual(['ADTC reminder — Remind Pvt Ltd'])
     // ADTC due date (+30) and then overdue.
     await sendPostRegistrationReminders(prisma, '2026-10-01')
     expect((await mine()).at(-1)?.title).toBe('ADTC due today — Remind Pvt Ltd')
@@ -202,6 +205,11 @@ describe('Private Limited — post-registration compliance (INC-20A, ADTC)', () 
     const adtc = (await api(`/api/post-registration-compliance?case_id=${id}`)).body.items.find((x: any) => x.code === 'ADTC')
     await api(`/api/post-registration-compliance/${adtc.id}/complete`, { method: 'POST', body: { completed_on: '2026-10-03' } })
     const before = (await mine()).length
+    await sendPostRegistrationReminders(prisma, '2026-10-13')
+    expect((await mine()).slice(before).map((n) => n.title)).toEqual([])
+    // Without the calendar item (the INC-20A form switched off), this tracker
+    // still reminds, so INC-20A is never left with no reminder at all.
+    await prisma.complianceItem.updateMany({ where: { clientId: cl.id, formCode: 'INC_20A' }, data: { deletedAt: new Date() } })
     await sendPostRegistrationReminders(prisma, '2026-10-13')
     expect((await mine()).slice(before).map((n) => n.title)).toEqual(['INC-20A reminder — Remind Pvt Ltd'])
   })

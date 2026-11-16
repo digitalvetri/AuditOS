@@ -4,7 +4,9 @@
  * Every open compliance row with a trigger date reminds its assignee, the
  * people on the case (assigned, reviewer, approver) and the client's account
  * manager, on the schedule its rule sets (compliance.ts → ReminderRule):
- *   - INC-20A / ADTC: every 20 / 7 days after the trigger date;
+ *   - INC-20A / ADTC: every 20 / 7 days after the trigger date (INC-20A only
+ *     when the compliance calendar holds no clock item for it — the clock
+ *     reminds it otherwise, see sendPostRegistrationReminders);
  *   - LLP Form 3: at 20, 10 and 3 days left;
  *   - all: on the due date, and repeatedly while overdue, until completed.
  *
@@ -27,8 +29,18 @@ export async function sendPostRegistrationReminders(prisma: PrismaClient, today 
     where: { completedOn: null, triggerDate: { not: null }, dueDate: { not: null }, case: { deletedAt: null, kind: { in: [...COMPLIANCE_KINDS] }, status: 'COMPLETED' } },
     include: { case: { select: { id: true, kind: true, assignedEmployeeId: true, reviewerEmployeeId: true, approverEmployeeId: true, client: { select: { companyName: true, accountManagerId: true } } } } },
   })
+  // INC-20A is reminded by the compliance calendar's clock (30/15/7/2/1-day
+  // ladder from the internal target, then the MD escalation) whenever its
+  // mirror item exists. Sending this tracker's 20-day reminders as well
+  // would give staff two streams for one filing, so it steps back — but
+  // only where the mirror exists, so INC-20A is never left unreminded.
+  const mirrored = new Set((await prisma.complianceItem.findMany({
+    where: { formCode: 'INC_20A', deletedAt: null, clientId: { in: [...new Set(rows.filter((r) => r.code === 'INC_20A').map((r) => r.clientId))] } },
+    select: { clientId: true },
+  })).map((i) => i.clientId))
   const notes: { key: string; title: string; body: string; url: string; to: (string | null)[] }[] = []
   for (const r of rows) {
+    if (r.code === 'INC_20A' && mirrored.has(r.clientId)) continue
     const rule = RULE.get(r.code)
     const period = reminderKey(r, today)
     if (!rule || !period || !r.dueDate) continue

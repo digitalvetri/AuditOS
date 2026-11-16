@@ -89,6 +89,43 @@ describe('staff reminders', () => {
   })
 })
 
+describe('compliance clocks remind without an obligation', () => {
+  it('a Rule 10A clock rings its assignee and escalates to the MD; no client email', async () => {
+    const { o, user, emp, c } = await setup()
+    const mdEmp = await employee(o, 'Partner')
+    const mdUser = await login(o, 'md', mdEmp.id)
+    // Granted 20 days ago: internal target (day 15) passed 5 days ago, statutory (day 30) in 10.
+    const clock = await prisma.complianceItem.create({
+      data: {
+        organisationId: o.id, clientId: c.id, formCode: 'GST_RULE_10A', periodKey: '2031-GST_RULE_10A', periodLabel: 'Rule 10A',
+        anchorDate: '2031-05-21', internalDueDate: '2031-06-05', dueDate: '2031-06-20', assignedEmployeeId: emp.id,
+      },
+    })
+    expect(await prisma.clientObligation.count({ where: { clientId: c.id, formCode: 'GST_RULE_10A' } })).toBe(0)
+    mail.configured = true
+    await sendComplianceStaffReminders(prisma, TODAY)
+    await sendComplianceClientReminders(prisma, '2031-06-15')
+    const mine = (await notes(user.id)).filter((n) => n.entityId!.includes(clock.id))
+    expect(mine.map((n) => n.entityId!.split(':').at(-1))).toEqual(['past_internal-5'])
+    const esc = await prisma.notification.findMany({ where: { userId: mdUser.id, entityType: 'compliance_escalation' } })
+    expect(esc.some((n) => n.entityId!.includes(clock.id))).toBe(true)
+    expect(mail.sent.some((m) => m.text.includes('Rule 10A'))).toBe(false)
+  })
+
+  it('a clock whose trigger date is not entered yet sends nothing (it is not due today)', async () => {
+    const { o, user, emp, c } = await setup()
+    await prisma.complianceItem.create({
+      data: {
+        organisationId: o.id, clientId: c.id, formCode: 'INC_20A', periodKey: '2031-INC_20A', periodLabel: 'INC-20A',
+        anchorDate: null, dueDate: TODAY, assignedEmployeeId: emp.id,
+      },
+    })
+    await sendComplianceStaffReminders(prisma, TODAY)
+    await sendComplianceStaffReminders(prisma, '2031-06-20')
+    expect((await notes(user.id)).filter((n) => n.title.includes('Delta'))).toHaveLength(0)
+  })
+})
+
 describe('client reminders', () => {
   it('off unless SMTP is configured', async () => {
     const { mk } = await setup()
