@@ -14,12 +14,12 @@
  */
 import { prisma } from '../../lib/prisma.js'
 import { ApiError } from '../../lib/http.js'
-import { decryptToken, encryptToken } from '../zpay/crypto.js'
+import { decryptToken, encryptToken, ZpayCryptoError } from '../zpay/crypto.js'
 import { exchangeRefreshTokenForAccess, ZohoOAuthError, type FetchLike } from '../zpay/oauth.js'
 import { BooksNotConfigured, booksConfig, isTrustedZohoHost } from './config.js'
 
 export type ZohoErrorKind =
-  | 'reconnect' | 'permission' | 'validation' | 'not_found' | 'rate_limit'
+  | 'reconnect' | 'key_mismatch' | 'permission' | 'validation' | 'not_found' | 'rate_limit'
   | 'network' | 'timeout' | 'upstream' | 'bad_response'
 
 export class ZohoBooksError extends Error {
@@ -35,16 +35,17 @@ export class ZohoBooksError extends Error {
 }
 
 const STATUS: Record<ZohoErrorKind, number> = {
-  reconnect: 409, permission: 403, validation: 422, not_found: 404, rate_limit: 429,
+  reconnect: 409, key_mismatch: 409, permission: 403, validation: 422, not_found: 404, rate_limit: 429,
   network: 502, timeout: 504, upstream: 502, bad_response: 502,
 }
 const CODE: Record<ZohoErrorKind, string> = {
-  reconnect: 'books_reconnect_required', permission: 'books_forbidden', validation: 'books_validation',
+  reconnect: 'books_reconnect_required', key_mismatch: 'books_key_mismatch', permission: 'books_forbidden', validation: 'books_validation',
   not_found: 'books_not_found', rate_limit: 'books_rate_limited', network: 'books_unreachable',
   timeout: 'books_timeout', upstream: 'books_upstream_error', bad_response: 'books_bad_response',
 }
 const FRIENDLY: Partial<Record<ZohoErrorKind, string>> = {
   reconnect: 'The Zoho Books connection has expired or was revoked. Reconnect it in Books → Settings.',
+  key_mismatch: 'Audit OS can no longer read the stored Zoho sign-in for this account — the server\'s encryption key has changed. A Super Admin or Admin must reconnect this Zoho account in Books → Settings.',
   rate_limit: 'Zoho Books is rate-limiting requests. Wait a minute and try again.',
   network: 'Could not reach Zoho Books. Check the network and try again.',
   timeout: 'Zoho Books took too long to respond. Try again.',
@@ -108,7 +109,25 @@ async function markConnection(id: string, status: string, code: string): Promise
   }).catch(() => undefined)
 }
 
+/**
+ * The access token for a connection. Tokens that no longer decrypt (the
+ * encryption key was changed, lost or differs in a restored database) mark
+ * the connection "needs reconnect" with code key_mismatch instead of failing
+ * every Books call with a generic 500.
+ */
 export async function accessTokenFor(conn: ConnectionRow, force = false): Promise<string> {
+  try {
+    return await tokenFor(conn, force)
+  } catch (e) {
+    if (!(e instanceof ZpayCryptoError)) throw e
+    console.warn('[books] stored Zoho tokens do not decrypt with the current key; connection needs reconnect', conn.id)
+    await markConnection(conn.id, 'error', 'key_mismatch')
+    conn.status = 'error'
+    throw new ZohoBooksError('key_mismatch', 'stored tokens cannot be decrypted')
+  }
+}
+
+async function tokenFor(conn: ConnectionRow, force: boolean): Promise<string> {
   if (conn.status !== 'connected' || !conn.refreshTokenEncrypted) {
     throw new ZohoBooksError('reconnect', 'connection is not connected')
   }

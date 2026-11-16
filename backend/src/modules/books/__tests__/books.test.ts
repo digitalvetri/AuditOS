@@ -666,3 +666,24 @@ describe('Books — review fixes', () => {
     expect(r.body.data.snapshot.totals.revenue).toBe(8300)
   })
 })
+
+describe('Books — audit round 2', () => {
+  it('a changed encryption key marks the connection for reconnect with a clear 409, not a 500', async () => {
+    const ref = await connectAndActivate()
+    const { encryptToken } = await import('../../zpay/crypto.js')
+    const other = Buffer.alloc(32, 1) // tokens written under a different key
+    await prisma.booksZohoConnection.updateMany({ where: { organisationId: firmId }, data: { accessTokenEncrypted: encryptToken('access-x', other), refreshTokenEncrypted: encryptToken('refresh-x', other) } })
+    const r = await api(`/api/books/o/${ref}/e/customers`, { cookie: admin.cookie })
+    expect(r.status).toBe(409)
+    expect(r.body.error.code).toBe('books_key_mismatch')
+    expect(r.body.error.message).toMatch(/encryption key/i)
+    const conn = await prisma.booksZohoConnection.findFirstOrThrow({ where: { organisationId: firmId, connectedAt: { not: null } } })
+    expect(conn).toMatchObject({ status: 'error', lastErrorCode: 'key_mismatch' })
+    const st = await api('/api/books/status', { cookie: admin.cookie })
+    expect(st.body.data.connections.find((c: any) => c.id === conn.id)).toMatchObject({ status: 'error', last_error_code: 'key_mismatch' })
+    // Later calls short-circuit with the same message, and so does sync.
+    const again = await api(`/api/books/o/${ref}/e/customers`, { cookie: admin.cookie })
+    expect(again.body.error.code).toBe('books_key_mismatch')
+    expect((await api(`/api/books/o/${ref}/sync`, { method: 'POST', cookie: admin.cookie })).body.error.code).toBe('books_key_mismatch')
+  })
+})

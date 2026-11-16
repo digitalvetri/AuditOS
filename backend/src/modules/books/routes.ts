@@ -50,6 +50,12 @@ function need(req: Request, perm: PermissionCode) {
   if (!can(requireSession(req), perm, 'organisation')) throw ApiError.forbidden('Your role does not allow this Books action.')
 }
 
+/** Why a connection that is not "connected" cannot be used — the key-mismatch case says so specifically. */
+function notConnected(conn: { lastErrorCode: string | null }): ApiError {
+  if (conn.lastErrorCode === 'key_mismatch') return toApiError(new ZohoBooksError('key_mismatch', ''))
+  return ApiError.conflict('books_reconnect_required', 'The Zoho Books connection has expired or was revoked. Reconnect it in Books → Settings.')
+}
+
 async function firmOf(req: Request): Promise<{ userId: string; organisationId: string }> {
   const s = requireSession(req)
   const u = await prisma.user.findUniqueOrThrow({ where: { id: s.userId }, select: { organisationId: true } })
@@ -347,7 +353,7 @@ booksRouter.use('/o/:ref', h(async (req, res) => {
   if (visible.clientId && !(org.clientId && visible.clientId.in.includes(org.clientId))) {
     throw ApiError.forbidden('You are not assigned to this client.')
   }
-  if (org.connection.status !== 'connected') throw ApiError.conflict('books_reconnect_required', 'The Zoho Books connection has expired or was revoked. Reconnect it in Books → Settings.')
+  if (org.connection.status !== 'connected') throw notConnected(org.connection)
   res.locals.books = { org, userId, ctx: { conn: org.connection, zohoOrgId: org.zohoOrgId } } satisfies Loc
 }, true), orgRouter)
 
@@ -367,7 +373,7 @@ async function runSync(res: Response, trigger: 'manual' | 'auto', req: Request) 
  */
 export async function syncOrganization(orgId: string, trigger: 'manual' | 'auto' | 'scheduled', userId: string | null, req?: Request) {
   const org = await prisma.booksZohoOrganization.findUniqueOrThrow({ where: { id: orgId }, include: { connection: true } })
-  if (org.connection.status !== 'connected') throw ApiError.conflict('books_reconnect_required', 'The Zoho Books connection has expired or was revoked.')
+  if (org.connection.status !== 'connected') throw notConnected(org.connection)
   const ctx: ZohoContext = { conn: org.connection, zohoOrgId: org.zohoOrgId }
   const claim = await prisma.booksZohoOrganization.updateMany({
     where: { id: org.id, OR: [{ syncStatus: { not: 'syncing' } }, { lastSyncAttemptAt: { lt: new Date(Date.now() - SYNC_CLAIM_MS) } }] },
