@@ -73,6 +73,17 @@ export function parseMonths(months: string | null | undefined): number[] | null 
   return out.length ? out : null
 }
 
+/**
+ * 'triennial' forms fall due in the FY that closes each three-year cycle.
+ * DIR-3 KYC (Companies (Appointment and Qualification of Directors)
+ * Amendment Rules 2025, G.S.R. 943(E) of 31 Dec 2025, in force 31 Mar 2026):
+ * once every three consecutive FYs, by 30 June after the third. ICAI's
+ * CLCGC note (2 Jan 2026) puts the next filing for directors who have done
+ * their KYC at 30 June 2028 — the cycle FYs 2025-26 to 2027-28. A director
+ * whose DIN is newer runs on their own cycle; record that on the item.
+ */
+export const TRIENNIAL_CYCLE_FY_START = 2027
+
 /** The periods a form has in one FY, in calendar order. Event forms have none. */
 export function periodsOf(form: Pick<FormRule, 'frequency' | 'months' | 'anchor'>, fy: string): Period[] {
   const y = fyStartYear(fy)
@@ -81,6 +92,12 @@ export function periodsOf(form: Pick<FormRule, 'frequency' | 'months' | 'anchor'
   if (form.anchor === 'event' || form.frequency === 'event') return []
   if (form.frequency === 'annual') {
     return [{ key: fy, label: `FY ${fy}`, end: `${y + 1}-03-31`, endMonth: 3 }]
+  }
+  if (form.frequency === 'triennial') {
+    // Once every three FYs, on the cycle that ends with FY 2027-28 (DIR-3
+    // KYC: next due 30 June 2028, then 2031, 2034…). See TRIENNIAL_CYCLE_FY_START.
+    if (((y - TRIENNIAL_CYCLE_FY_START) % 3 + 3) % 3 !== 0) return []
+    return [{ key: fy, label: `FY ${fy} (3-year cycle)`, end: `${y + 1}-03-31`, endMonth: 3 }]
   }
   if (form.frequency === 'monthly') {
     const out: Period[] = []

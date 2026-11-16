@@ -28,7 +28,8 @@ describe('due-date engine — every seeded rule', () => {
     ['GSTR4', '2024-25', '2025-06-30'],
     ['GSTR4', '2023-24', '2024-04-30'],
     ['AGM', '2025-26', '2026-09-30'],
-    ['DIR3_KYC', '2026-27', '2026-09-30'],
+    ['DIR3_KYC', '2027-28', '2028-06-30'],
+    ['DIR3_KYC', '2030-31', '2031-06-30'],
     ['DPT3', '2025-26', '2026-06-30'],
     ['LLP11', '2025-26', '2026-05-30'],
     ['LLP8', '2025-26', '2026-10-30'],
@@ -43,6 +44,14 @@ describe('due-date engine — every seeded rule', () => {
     expect(dueFor(legacy, '2023-24')?.statutory_due_date).toBe('2024-04-30')
     // A rule the firm changed to something else is left alone.
     expect(dueFor({ ...form('GSTR4'), offsetMonths: 2, dueDay: 15 }, '2025-26')?.statutory_due_date).toBe('2026-05-15')
+  })
+
+  it('DIR3_KYC: once every three FYs by 30 June (G.S.R. 943(E), in force 31 Mar 2026) — next 30 June 2028', () => {
+    expect(periodsOf(form('DIR3_KYC'), '2026-27')).toEqual([])
+    expect(periodsOf(form('DIR3_KYC'), '2028-29')).toEqual([])
+    expect(periodsOf(form('DIR3_KYC'), '2029-30')).toEqual([])
+    expect(periodsOf(form('DIR3_KYC'), '2027-28').map((p) => p.key)).toEqual(['2027-28'])
+    expect(periodsOf(form('DIR3_KYC'), '2030-31').map((p) => p.key)).toEqual(['2030-31'])
   })
 
   it('ADVANCE_TAX: four instalments on the 15th of Jun, Sep, Dec, Mar', () => {
@@ -103,7 +112,8 @@ describe('due-date engine — every seeded rule', () => {
       // own creation path (POST /api/compliance/clocks); the invariant here
       // is for the recurring catalogue only.
       if (f.frequency === 'event' || f.anchor === 'event') continue
-      const ps = periodsOf(f, '2026-27')
+      // Triennial forms (DIR-3 KYC) owe nothing in 2026-27; their cycle FY is 2027-28.
+      const ps = periodsOf(f, f.frequency === 'triennial' ? '2027-28' : '2026-27')
       expect(ps.length, f.code).toBeGreaterThan(0)
       for (const p of ps) expect(dueFor(f, p)!.statutory_due_date, `${f.code} ${p.key}`).toMatch(/^\d{4}-\d{2}-\d{2}$/)
     }
@@ -185,7 +195,7 @@ describe('late fee estimates', () => {
   it('ROC ₹100/day; ITR ₹5,000; DIR-3 KYC ₹5,000; notes elsewhere', () => {
     expect(lateFeeEstimate({ code: 'AOC4', lateFeeNote: null }, '2026-12-31', t)).toMatchObject({ amount_paise: 100_00 * 10 })
     expect(lateFeeEstimate(form('ITR_AUDIT'), '2026-10-31', t)).toMatchObject({ amount_paise: 5000_00 })
-    expect(lateFeeEstimate(form('DIR3_KYC'), '2026-09-30', t)).toMatchObject({ amount_paise: 5000_00 })
+    expect(lateFeeEstimate(form('DIR3_KYC'), '2026-06-30', t)).toMatchObject({ amount_paise: 5000_00 })
     const cmp = lateFeeEstimate(form('CMP08'), '2026-10-18', t)!
     expect(cmp.amount_paise).toBeUndefined()
     expect(cmp.note).toMatch(/^Estimate: .*18%/)

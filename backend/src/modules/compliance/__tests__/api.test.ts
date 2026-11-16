@@ -533,5 +533,32 @@ describe('compliance calendar API', () => {
     expect(await grant('2027-01-05')).toMatchObject({ created: false, skipped: 'already_exists' })
     expect(await prisma.complianceItem.findUniqueOrThrow({ where: { id: items[0].id } })).toMatchObject({ anchorDate: '2027-01-02', status: 'filed' })
   })
+
+  it('seed moves an existing DIR-3 KYC rule to the 3-year, 30 June cycle and tidies its open items, once', async () => {
+    const { seedCompliance } = await import('../../../../prisma/seed-compliance.js')
+    // An existing DB still holding the old annual 30 September rule.
+    await prisma.complianceForm.update({ where: { code: 'DIR3_KYC' }, data: { frequency: 'annual', anchor: 'fy_start', offsetMonths: 5, dueDay: 30, description: '30 September every year.' } })
+    const o = await org()
+    const c = await client(o, 'Kyc Pvt Ltd', { businessType: 'Pvt Ltd' })
+    const mk = (periodKey: string, dueDate: string, status = 'not_started') => prisma.complianceItem.create({
+      data: { organisationId: o.id, clientId: c.id, formCode: 'DIR3_KYC', periodKey, periodLabel: `FY ${periodKey}`, dueDate, status, ...(status === 'filed' ? { filedOn: '2025-09-20' } : {}) },
+    })
+    const old = await mk('2025-26', '2025-09-30', 'filed')     // the old regime: history
+    const offYear = await mk('2026-27', '2026-09-30')          // no longer due
+    const working = await mk('2028-29', '2028-09-30', 'in_progress') // someone is on it: kept, flagged by its date
+    const cycle = await mk('2027-28', '2027-09-30')            // the cycle year: re-dated to 30 June 2028
+    await seedCompliance(prisma)
+    expect(await prisma.complianceForm.findUniqueOrThrow({ where: { code: 'DIR3_KYC' } })).toMatchObject({ frequency: 'triennial', anchor: 'fy_end', offsetMonths: 3, dueDay: 30 })
+    const read = (id: string) => prisma.complianceItem.findUniqueOrThrow({ where: { id } })
+    expect(await read(old.id)).toMatchObject({ dueDate: '2025-09-30', deletedAt: null })
+    expect((await read(offYear.id)).deletedAt).not.toBeNull()
+    expect(await read(working.id)).toMatchObject({ deletedAt: null, status: 'in_progress' })
+    expect(await read(cycle.id)).toMatchObject({ dueDate: '2028-06-30', deletedAt: null })
+    // A firm's own later edit to the rule survives the next seed.
+    await prisma.complianceForm.update({ where: { code: 'DIR3_KYC' }, data: { offsetMonths: 4 } })
+    await seedCompliance(prisma)
+    expect((await prisma.complianceForm.findUniqueOrThrow({ where: { code: 'DIR3_KYC' } })).offsetMonths).toBe(4)
+    await prisma.complianceForm.update({ where: { code: 'DIR3_KYC' }, data: { offsetMonths: 3 } })
+  })
 })
 
