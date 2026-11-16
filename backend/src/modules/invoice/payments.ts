@@ -257,53 +257,72 @@ export async function assertRefundsCovered(tx: Tx, invoiceId: string) {
  * invoices take no payments; overpayment is refused — money owed back to the
  * client comes from a credit note and leaves through a refund.
  */
-export async function addPayment(invoiceId: string, input: PaymentInput, userId: string) {
+export async function addPayment(invoiceId: string, input: PaymentInput, userId: string | null) {
   const inv = await prisma.invoice.findUnique({ where: { id: invoiceId } })
   if (!inv || inv.deletedAt) throw ApiError.notFound('Invoice not found.')
   if (inv.status === 'draft') {
     throw ApiError.conflict('invoice_not_sent', 'Send the invoice before recording a payment against it.')
   }
   if (inv.status === 'cancelled') throw ApiError.conflict('invoice_cancelled', 'This invoice has been cancelled.')
-  const tds = input.tdsPaise ?? 0
-  if (input.amountPaise < 0 || tds < 0 || input.amountPaise + tds <= 0) throw ApiError.badRequest('A payment must be more than zero.')
+  assertPositive(input)
   return prisma.$transaction(async (tx) => {
     // Re-read the balance under a per-invoice lock: two payments recorded at
     // once must not both pass the balance check.
     await lockSequence(tx, `invoice:${invoiceId}`)
-    // Re-read the status under the lock too: a cancel holding it may have
-    // committed since the read above (cancel takes the same lock).
-    const fresh = await tx.invoice.findUniqueOrThrow({ where: { id: invoiceId }, select: { status: true, deletedAt: true } })
-    if (fresh.deletedAt) throw ApiError.notFound('Invoice not found.')
-    if (fresh.status === 'cancelled') throw ApiError.conflict('invoice_cancelled', 'This invoice has been cancelled.')
-    const balance = await liveBalanceDue(tx, invoiceId)
-    if (input.amountPaise + tds > balance) {
-      throw ApiError.badRequest(
-        `That is more than the balance due. At most ${(balance / 100).toFixed(2)} (amount + TDS) can be recorded.`,
-      )
-    }
-    const row = await tx.invoicePayment.create({
-      data: {
-        organisationId: inv.organisationId,
-        invoiceId,
-        clientId: inv.clientId,
-        amountPaise: input.amountPaise,
-        paidOn: input.paidOn,
-        mode: input.mode,
-        reference: input.reference?.trim() || null,
-        note: input.note?.trim() || null,
-        tdsPaise: tds,
-        tdsSection: tds > 0 ? (input.tdsSection ?? '194J') : null,
-        tdsCertificateReceived: tds > 0 ? Boolean(input.tdsCertificateReceived) : false,
-        externalPaymentId: input.externalPaymentId ?? null,
-        // Taken last, under its own lock, after the invoice lock above.
-        receiptNumber: await nextReceiptNumber(tx),
-        createdBy: userId,
-        updatedBy: userId,
-      },
-    })
-    await recomputeInvoice(tx, invoiceId, userId)
-    return row
+    return addPaymentLocked(tx, invoiceId, input, userId)
   })
+}
+
+function assertPositive(input: PaymentInput) {
+  const tds = input.tdsPaise ?? 0
+  if (input.amountPaise < 0 || tds < 0 || input.amountPaise + tds <= 0) throw ApiError.badRequest('A payment must be more than zero.')
+}
+
+/**
+ * The body of addPayment, for callers that already hold the
+ * `invoice:${invoiceId}` lock inside their own transaction (the payment-link
+ * webhook / Check status, which must check "already recorded?" and the
+ * balance under the same lock). Re-checks status and balance itself.
+ */
+export async function addPaymentLocked(tx: Tx, invoiceId: string, input: PaymentInput, userId: string | null) {
+  assertPositive(input)
+  const tds = input.tdsPaise ?? 0
+  // Re-read the status under the lock: a cancel holding it may have
+  // committed since any earlier read (cancel takes the same lock).
+  const fresh = await tx.invoice.findUniqueOrThrow({ where: { id: invoiceId }, select: { status: true, deletedAt: true, organisationId: true, clientId: true } })
+  if (fresh.deletedAt) throw ApiError.notFound('Invoice not found.')
+  if (fresh.status === 'draft') {
+    throw ApiError.conflict('invoice_not_sent', 'Send the invoice before recording a payment against it.')
+  }
+  if (fresh.status === 'cancelled') throw ApiError.conflict('invoice_cancelled', 'This invoice has been cancelled.')
+  const balance = await liveBalanceDue(tx, invoiceId)
+  if (input.amountPaise + tds > balance) {
+    throw ApiError.badRequest(
+      `That is more than the balance due. At most ${(balance / 100).toFixed(2)} (amount + TDS) can be recorded.`,
+    )
+  }
+  const row = await tx.invoicePayment.create({
+    data: {
+      organisationId: fresh.organisationId,
+      invoiceId,
+      clientId: fresh.clientId,
+      amountPaise: input.amountPaise,
+      paidOn: input.paidOn,
+      mode: input.mode,
+      reference: input.reference?.trim() || null,
+      note: input.note?.trim() || null,
+      tdsPaise: tds,
+      tdsSection: tds > 0 ? (input.tdsSection ?? '194J') : null,
+      tdsCertificateReceived: tds > 0 ? Boolean(input.tdsCertificateReceived) : false,
+      externalPaymentId: input.externalPaymentId ?? null,
+      // Taken last, under its own lock, after the invoice lock above.
+      receiptNumber: await nextReceiptNumber(tx),
+      createdBy: userId,
+      updatedBy: userId,
+    },
+  })
+  await recomputeInvoice(tx, invoiceId, userId)
+  return row
 }
 
 /**
@@ -311,7 +330,7 @@ export async function addPayment(invoiceId: string, input: PaymentInput, userId:
  * came in (never the person who recorded it). Call after addPayment has
  * committed. Best effort — never throws.
  */
-export async function notifyPaymentRecorded(invoiceId: string, amountPaise: number, actor: { employeeId: string | null; userId: string }) {
+export async function notifyPaymentRecorded(invoiceId: string, amountPaise: number, actor: { employeeId: string | null; userId: string | null }) {
   try {
     const inv = await prisma.invoice.findUnique({
       where: { id: invoiceId },
