@@ -9,7 +9,7 @@ import { requireSession } from '../../platform/auth.js'
 import { requireWorkstation } from '../../platform/workstation/scope.js'
 import { writeAudit } from '../../platform/audit.js'
 import { GST_RATES } from '../invoice/totals.js'
-import { formBool } from '../invoice/supply.js'
+import { formBool, placeOfSupplySchema } from '../invoice/supply.js'
 import { FREQUENCIES } from './dates.js'
 import { RecurringService, runDueProfiles, type ProfileInput } from './service.js'
 
@@ -40,7 +40,7 @@ const bodySchema = z.object({
   start_date: ISO_DATE,
   end_date: ISO_DATE.nullish().or(z.literal('')),
   terms: z.enum(['due_on_receipt', 'net_7', 'net_15', 'net_30', 'net_45']).default('net_15'),
-  place_of_supply: z.string().trim().max(100).nullish(),
+  place_of_supply: placeOfSupplySchema,
   client_service_id: z.string().max(64).nullish().or(z.literal('')),
   lines: z.array(lineSchema).min(1, 'A retainer needs at least one line.').max(50),
   auto_send: formBool.default(false),

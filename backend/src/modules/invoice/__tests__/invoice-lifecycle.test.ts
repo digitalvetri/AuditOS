@@ -2,7 +2,7 @@ import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest
 import type { Server } from 'node:http'
 import { createApp } from '../../../app.js'
 import { signToken } from '../../../platform/auth.js'
-import { prisma, uid } from '../../../__tests__/helpers.js'
+import { prisma, setFirmGstin, uid } from '../../../__tests__/helpers.js'
 import { setupRoles } from '../../../../prisma/setup-roles.js'
 
 /**
@@ -45,7 +45,7 @@ async function adminCookie() {
 const body = (extra: Record<string, unknown> = {}) => ({
   client_id: clientId,
   invoice_date: '2026-10-01',
-  terms: 'net_15',
+  terms: 'net_15', place_of_supply: 'Tamil Nadu',
   items: [{ item_name: 'Audit fee', quantity_centi: 100, rate_paise: 10_000_00, gst_rate_percent: 18 }],
   ...extra,
 })
@@ -64,6 +64,7 @@ beforeAll(async () => {
   orgId = (await prisma.organisation.findFirst({ where: { deletedAt: null } }))?.id ?? (await prisma.organisation.create({ data: { id: uid('org'), name: 'Firm' } })).id
   wsId = (await prisma.workSchedule.findFirst())?.id ?? (await prisma.workSchedule.create({ data: { organisationId: orgId, name: 'Std', standardStart: '09:30', standardEnd: '18:30' } })).id
   await setupRoles(prisma, { force: true })
+  await setFirmGstin()
   cookie = await adminCookie()
   const manager = await prisma.user.findFirstOrThrow({ where: { employeeId: { not: null } }, orderBy: { createdAt: 'desc' } })
   clientId = (await prisma.client.create({ data: { organisationId: orgId, clientCode: uid('CLI'), companyName: 'Billed Co', accountManagerId: manager.employeeId!, contactPerson: 'P', contactNumber: '9876543210', onboardingDate: '2026-01-01' } })).id
@@ -156,7 +157,8 @@ describe('tax split', () => {
   })
 
   it('the place of supply against the firm GSTIN decides, whatever the request says', async () => {
-    const company = { name: 'Firm', gstin: '33AWHPN2628Q1Z2' }
+    // The letterhead is not the tax source: a Karnataka GSTIN on it changes nothing.
+    const company = { name: 'Firm', gstin: '29AWHPN2628Q1Z2' }
     const inter = await draft({ place_of_supply: 'Karnataka', is_inter_state: false, layout_config: { company } })
     expect(inter.is_inter_state).toBe(true)
     expect(inter.igst_paise).toBeGreaterThan(0)
@@ -172,7 +174,7 @@ describe('tax split', () => {
       method: 'POST',
       body: {
         client_id: clientId, subject: 'Audit', quote_date: '2026-10-01', valid_until: '2026-10-31',
-        place_of_supply: 'Kerala', is_inter_state: 'false', layout_config: { company: { state: 'Tamil Nadu' } },
+        place_of_supply: 'Kerala', is_inter_state: 'false',
         items: [{ description: 'Audit', quantity_centi: 100, unit_rate_paise: 10_000_00, gst_rate_percent: 18 }],
       },
     })

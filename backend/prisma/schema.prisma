@@ -55,6 +55,10 @@ model Organisation {
   dataRetentionYears    Int       @default(8)
   /// The first-run setup checklist was dismissed.
   onboardingDismissedAt DateTime?
+  /// The firm's own GSTIN — the supplier on every tax invoice. Its first two
+  /// digits are the firm's state, which decides IGST vs CGST+SGST. Null =
+  /// not set yet, and invoices cannot be sent until it is.
+  gstin                 String?
 
   departments         Department[]
   designations        Designation[]

@@ -1,4 +1,6 @@
 import { z } from 'zod'
+import type { Prisma } from '@prisma/client'
+import { prisma } from '../../lib/prisma.js'
 import { gstinStateCode, stateNameToCode } from '../repotic/states.js'
 
 /**
@@ -9,9 +11,12 @@ import { gstinStateCode, stateNameToCode } from '../repotic/states.js'
  * a checkbox. So when the server can see both states it decides, and the
  * request's `is_inter_state` is only used when it cannot.
  *
- * The firm keeps no settings record of its own GSTIN; its letterhead lives on
- * the document's `layout_config.company` (the builder snapshots it onto every
- * invoice and quotation), so that block is the supplier's state.
+ * The supplier's state comes from the firm's own GSTIN in settings
+ * (Organisation.gstin) — never from the letterhead block on the document,
+ * whose default carries a hard-coded state. The place of supply must be a
+ * state from the list: free text such as "Bangalore" is refused, and a blank
+ * one is filled from the customer's GSTIN. An invoice whose firm GSTIN or
+ * place of supply is unknown can be saved as a draft but not sent.
  */
 
 /** "true"/"false" from a form, or a real boolean — z.coerce.boolean() reads "false" as true. */
@@ -25,28 +30,59 @@ export function placeOfSupplyCode(pos: string | null | undefined): string | null
   return stateNameToCode(pos)
 }
 
-/** The firm's own state code, from the letterhead the document carries. */
-export function firmStateCode(layoutConfig: unknown): string | null {
-  const company = (layoutConfig && typeof layoutConfig === 'object'
-    ? (layoutConfig as { company?: unknown }).company
-    : null) as { gstin?: unknown; state?: unknown } | null | undefined
-  if (!company || typeof company !== 'object') return null
-  const gstin = typeof company.gstin === 'string' ? company.gstin.trim() : ''
-  if (gstin) {
-    const code = gstinStateCode(gstin)
-    if (code) return code
-  }
-  return typeof company.state === 'string' ? stateNameToCode(company.state) : null
+/** A place of supply on a request: blank, or a state the list knows. */
+export const placeOfSupplySchema = z.string().trim().max(100)
+  .refine((v) => v === '' || placeOfSupplyCode(v) !== null, 'Choose the place of supply from the list of states.')
+  .nullish()
+
+/** The builder's state list (frontend invoices/document.ts STATES), by GST code. */
+const STATE_NAMES: Record<string, string> = {
+  '35': 'Andaman and Nicobar Islands', '37': 'Andhra Pradesh', '12': 'Arunachal Pradesh', '18': 'Assam',
+  '10': 'Bihar', '04': 'Chandigarh', '22': 'Chhattisgarh', '26': 'Dadra and Nagar Haveli and Daman and Diu',
+  '07': 'Delhi', '30': 'Goa', '24': 'Gujarat', '06': 'Haryana', '02': 'Himachal Pradesh',
+  '01': 'Jammu and Kashmir', '20': 'Jharkhand', '29': 'Karnataka', '32': 'Kerala', '38': 'Ladakh',
+  '31': 'Lakshadweep', '23': 'Madhya Pradesh', '27': 'Maharashtra', '14': 'Manipur', '17': 'Meghalaya',
+  '15': 'Mizoram', '13': 'Nagaland', '21': 'Odisha', '34': 'Puducherry', '03': 'Punjab', '08': 'Rajasthan',
+  '11': 'Sikkim', '33': 'Tamil Nadu', '36': 'Telangana', '16': 'Tripura', '09': 'Uttar Pradesh',
+  '05': 'Uttarakhand', '19': 'West Bengal', '97': 'Other Territory',
+}
+export const GST_STATE_NAMES: Readonly<Record<string, string>> = STATE_NAMES
+
+/** '29' → 'Karnataka', the name the builder's state list uses. */
+export function stateNameForCode(code: string | null | undefined): string | null {
+  return code ? STATE_NAMES[code] ?? null : null
+}
+
+/** The firm's GSTIN from settings (null when not set). */
+export async function firmGstin(db: Prisma.TransactionClient | typeof prisma = prisma, organisationId?: string): Promise<string | null> {
+  const org = organisationId
+    ? await db.organisation.findUnique({ where: { id: organisationId }, select: { gstin: true } })
+    : await db.organisation.findFirst({ select: { gstin: true } })
+  return org?.gstin ?? null
+}
+
+/** The firm's state code, from its GSTIN in settings. */
+export function firmStateCode(gstin: string | null | undefined): string | null {
+  return gstinStateCode(gstin?.trim() || null)
+}
+
+/**
+ * The place of supply to use: the one asked for, else the customer GSTIN's
+ * state. Never a default state — blank stays blank and blocks sending.
+ */
+export function defaultPlaceOfSupply(requested: string | null | undefined, customerGstin: string | null | undefined): string | null {
+  if (requested && requested.trim()) return requested.trim()
+  return stateNameForCode(gstinStateCode(customerGstin?.trim() || null))
 }
 
 /** Server-derived when both states are known; otherwise what was asked for. */
 export function resolveInterState(
   placeOfSupply: string | null | undefined,
-  layoutConfig: unknown,
+  firmGstinValue: string | null | undefined,
   requested: boolean | undefined,
 ): boolean {
   const pos = placeOfSupplyCode(placeOfSupply)
-  const firm = firmStateCode(layoutConfig)
+  const firm = firmStateCode(firmGstinValue)
   if (pos && firm) return pos !== firm
   return requested ?? false
 }

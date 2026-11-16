@@ -3,7 +3,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { useAuditFileOptions } from '@/modules/audit/pickers';
 import { workstationApi } from '@/modules/workstation/api';
-import { invoicesApi, TERM_LABEL, GST_RATES, gstRateLabel, QR_MODE_LABEL, type BankSnapshot, type Invoice, type QrMode, type Term } from '@/modules/workstation/invoices/api';
+import { invoicesApi, TERM_LABEL, GST_RATES, gstRateLabel, QR_MODE_LABEL, type BankSnapshot, type FirmGst, type Invoice, type QrMode, type Term } from '@/modules/workstation/invoices/api';
 import { downloadFile } from '@/modules/workstation/invoices/download';
 import {
   BLOCK_LABEL, DEFAULT_COMPANY, DEFAULT_FOOTER_NOTE, DEFAULT_LAYOUT, DEFAULT_NOTES,
@@ -65,6 +65,8 @@ export function InvoiceBuilderPage() {
   });
   const clientsQ = useQuery({ queryKey: ['invoices.clients'], queryFn: () => workstationApi.listClients() });
   const banksQ = useQuery({ queryKey: ['invoices.banks'], queryFn: () => invoicesApi.bankAccounts() });
+  const firmQ = useQuery({ queryKey: ['invoices.firmGst'], queryFn: () => invoicesApi.firmGst() });
+  const isAdmin = session?.role.code === 'md' || session?.role.code === 'hr_admin';
 
   // ── One state object. Everything the document shows lives here. ────────
   const [clientId, setClientId] = useState('');
@@ -74,8 +76,11 @@ export function InvoiceBuilderPage() {
   const [invoiceDate, setInvoiceDate] = useState(today());
   const [terms, setTerms] = useState<Term>('due_on_receipt');
   const [dueDate, setDueDate] = useState(today());
-  const [placeOfSupply, setPlaceOfSupply] = useState('Tamil Nadu');
-  const [isInterState, setIsInterState] = useState(false);
+  // No default state: it comes from the client's GSTIN, or the user picks it.
+  const [placeOfSupply, setPlaceOfSupply] = useState('');
+  // What a saved draft carried — used only while the firm GSTIN or the
+  // place of supply is unknown; otherwise the split is derived below.
+  const [savedInterState, setSavedInterState] = useState(false);
   const [billingName, setBillingName] = useState('');
   const [billingAddress, setBillingAddress] = useState('');
   const [shipSame, setShipSame] = useState(true);
@@ -118,8 +123,8 @@ export function InvoiceBuilderPage() {
     setInvoiceDate(saved.invoice_date);
     setTerms(saved.terms);
     setDueDate(saved.due_date);
-    setPlaceOfSupply(stateName(saved.place_of_supply ?? 'Tamil Nadu'));
-    setIsInterState(saved.is_inter_state);
+    setPlaceOfSupply(stateName(saved.place_of_supply ?? ''));
+    setSavedInterState(saved.is_inter_state);
     setBillingName(saved.billing_name ?? '');
     setBillingAddress(saved.billing_address ?? '');
     setShipSame(saved.ship_same_as_bill);
@@ -208,7 +213,17 @@ export function InvoiceBuilderPage() {
     setBillingName(c.company_name);
     setBillingAddress(c.address ?? '');
     setCustomerGstin(c.gstin ?? '');
+    // Place of supply follows the client's GSTIN state (s.12(2) IGST Act:
+    // a registered recipient's location). No GSTIN → the user picks it.
+    const fromGstin = STATES.find((s) => s.code === (c.gstin ?? '').slice(0, 2));
+    setPlaceOfSupply(fromGstin?.name ?? '');
   }
+
+  // The split is a fact — the firm's state against the place of supply —
+  // exactly as the server derives it (invoice/supply.ts).
+  const posCode = STATES.find((s) => s.name === placeOfSupply)?.code ?? null;
+  const firmCode = firmQ.data?.state_code ?? null;
+  const isInterState = firmCode && posCode ? posCode !== firmCode : savedInterState;
 
   const discountPaise = Math.max(0, Math.round((Number(discountText) || 0) * 100));
   const totals = useMemo(
@@ -443,7 +458,7 @@ export function InvoiceBuilderPage() {
                 terms={terms} setTerms={setTerms}
                 dueDate={dueDate} setDueDate={setDueDate}
                 placeOfSupply={placeOfSupply} setPlaceOfSupply={setPlaceOfSupply}
-                isInterState={isInterState} setIsInterState={setIsInterState}
+                isInterState={isInterState} firm={firmQ.data ?? null} isAdmin={isAdmin}
                 billingName={billingName} setBillingName={setBillingName}
                 billingAddress={billingAddress} setBillingAddress={setBillingAddress}
                 shipSame={shipSame} setShipSame={setShipSame}
@@ -656,7 +671,7 @@ function DetailsTab(p: {
   terms: Term; setTerms: (v: Term) => void;
   dueDate: string; setDueDate: (v: string) => void;
   placeOfSupply: string; setPlaceOfSupply: (v: string) => void;
-  isInterState: boolean; setIsInterState: (v: boolean) => void;
+  isInterState: boolean; firm: FirmGst | null; isAdmin: boolean;
   billingName: string; setBillingName: (v: string) => void;
   billingAddress: string; setBillingAddress: (v: string) => void;
   shipSame: boolean; setShipSame: (v: boolean) => void;
@@ -703,18 +718,25 @@ function DetailsTab(p: {
       </Field>
 
       <Two>
-        <Field label="Place of supply">
+        <Field label="Place of supply" hint="Filled from the client's GSTIN.">
           <select className={inputClass} value={p.placeOfSupply} onChange={(e) => p.setPlaceOfSupply(e.target.value)}>
+            <option value="">Choose the state…</option>
             {STATES.map((s) => <option key={s.code} value={s.name}>{s.name} ({s.code})</option>)}
           </select>
         </Field>
-        <Field label="Tax split" hint={p.isInterState ? 'IGST' : 'CGST + SGST'}>
-          <label className="flex items-center gap-2 text-13 h-9">
-            <input type="checkbox" checked={p.isInterState} onChange={(e) => p.setIsInterState(e.target.checked)} />
-            Inter-state supply
-          </label>
+        <Field label="Tax split">
+          <div className="text-13 min-h-9 flex items-center text-neutral-800">
+            {!p.firm?.state_code
+              ? <span className="text-amber">Firm GSTIN not set</span>
+              : !p.placeOfSupply
+                ? <span className="text-amber">Choose the place of supply</span>
+                : p.isInterState
+                  ? `IGST — ${p.firm.state} to ${p.placeOfSupply}`
+                  : `CGST + SGST — within ${p.firm.state}`}
+          </div>
         </Field>
       </Two>
+      <FirmGstinRow firm={p.firm} isAdmin={p.isAdmin} />
 
       <div className="text-13 font-semibold text-neutral-800 mt-4 mb-2">Bill to</div>
       <Field label="Name">
@@ -1284,6 +1306,55 @@ function BlocksTab({ blocks, setBlocks }: { blocks: BlockSpec[]; setBlocks: (f: 
       >
         Reset to the default order
       </Button>
+    </div>
+  );
+}
+
+/**
+ * The firm's own GSTIN (settings, not the letterhead). Every invoice's tax
+ * split is worked out against its state, and no invoice can be sent until it
+ * is set. Only an Admin may change it; everyone else sees it read-only.
+ */
+function FirmGstinRow({ firm, isAdmin }: { firm: FirmGst | null; isAdmin: boolean }) {
+  const qc = useQueryClient();
+  const toast = useToast();
+  const [editing, setEditing] = useState(false);
+  const [value, setValue] = useState('');
+  const save = useMutation({
+    mutationFn: () => invoicesApi.setFirmGst(value.trim().toUpperCase()),
+    onSuccess: (f) => {
+      qc.setQueryData(['invoices.firmGst'], f);
+      setEditing(false);
+      toast.push('success', 'Firm GSTIN saved. Re-save any open drafts so their tax follows it.');
+    },
+    onError: (e: Error) => toast.push('error', e.message),
+  });
+  if (!firm) return null;
+  if (editing) {
+    return (
+      <div className="flex items-end gap-2 mb-3">
+        <div className="flex-1">
+          <Field label="Firm GSTIN" hint="15 characters; the first two are the firm's state.">
+            <input className={inputClass} value={value} maxLength={15} onChange={(e) => setValue(e.target.value)} />
+          </Field>
+        </div>
+        <div className="flex gap-2 mb-3">
+          <Button size="sm" variant="primary" type="button" disabled={save.isPending || value.trim().length !== 15} onClick={() => save.mutate()}>Save</Button>
+          <Button size="sm" variant="secondary" type="button" onClick={() => setEditing(false)}>Cancel</Button>
+        </div>
+      </div>
+    );
+  }
+  return (
+    <div className="text-12 text-neutral-500 -mt-1 mb-3 flex items-center gap-2 flex-wrap">
+      {firm.gstin
+        ? <span>Firm GSTIN {firm.gstin} ({firm.state})</span>
+        : <span className="text-amber">The firm's GSTIN is not set — drafts save, but invoices cannot be sent until an Admin adds it.</span>}
+      {isAdmin ? (
+        <button type="button" className="text-primary underline" onClick={() => { setValue(firm.gstin ?? ''); setEditing(true); }}>
+          {firm.gstin ? 'Change' : 'Add firm GSTIN'}
+        </button>
+      ) : null}
     </div>
   );
 }

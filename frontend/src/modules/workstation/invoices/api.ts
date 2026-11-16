@@ -335,7 +335,16 @@ export interface InvoicePaymentLinks {
   default_gateway: 'razorpay' | 'cashfree' | null;
 }
 
+/** The firm's own GSTIN (settings) — its state decides IGST vs CGST + SGST. */
+export interface FirmGst {
+  gstin: string | null;
+  state_code: string | null;
+  state: string | null;
+}
+
 export const invoicesApi = {
+  firmGst: () => api.get<FirmGst>('/api/invoices/firm-gst'),
+  setFirmGst: (gstin: string) => api.put<FirmGst>('/api/invoices/firm-gst', { gstin }),
   list: (f: InvoiceFilters = {}) =>
     api.get<{ items: Invoice[]; total: number }>(`/api/invoices${qs({ ...f })}`),
   summary: () => api.get<InvoiceSummary>('/api/invoices/summary'),

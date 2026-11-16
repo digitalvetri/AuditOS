@@ -3,7 +3,7 @@ import type { Server } from 'node:http'
 import { createHmac, randomBytes } from 'node:crypto'
 import { createApp } from '../../../app.js'
 import { signToken } from '../../../platform/auth.js'
-import { prisma, uid } from '../../../__tests__/helpers.js'
+import { prisma, setFirmGstin, uid } from '../../../__tests__/helpers.js'
 import { setupRoles } from '../../../../prisma/setup-roles.js'
 import { decryptPortalSecret } from '../../../platform/portalCrypto.js'
 import { __setGatewayFetchForTests, rupeesToPaise, verifyCashfreeSignature, verifyRazorpaySignature } from '../gateways.js'
@@ -70,7 +70,7 @@ async function user(code: string) {
 async function sentInvoice() {
   const d = await api('/api/invoices', {
     method: 'POST',
-    body: { client_id: clientId, invoice_date: '2026-10-01', terms: 'net_15', items: [{ item_name: 'Audit fee', quantity_centi: 100, rate_paise: 10_000_00, gst_rate_percent: 18 }] },
+    body: { client_id: clientId, invoice_date: '2026-10-01', terms: 'net_15', place_of_supply: 'Tamil Nadu', items: [{ item_name: 'Audit fee', quantity_centi: 100, rate_paise: 10_000_00, gst_rate_percent: 18 }] },
   })
   expect(d.status).toBe(201)
   const s = await api(`/api/invoices/${d.body.id}/send`, { method: 'POST' })
@@ -153,6 +153,7 @@ beforeAll(async () => {
   await prisma.paymentGatewayConfig.deleteMany({ where: { organisationId: orgId } })
   wsId = (await prisma.workSchedule.findFirst())?.id ?? (await prisma.workSchedule.create({ data: { organisationId: orgId, name: 'Std', standardStart: '09:30', standardEnd: '18:30' } })).id
   await setupRoles(prisma, { force: true })
+  await setFirmGstin()
   adminCookie = await user('md')
   staffCookie = await user('employee')
   const manager = await prisma.user.findFirstOrThrow({ where: { organisationId: orgId, employeeId: { not: null } } })
@@ -317,7 +318,7 @@ describe('creating a payment link', () => {
 
     // No phone on the client → a clear 400, no gateway call.
     const noPhone = await prisma.client.create({ data: { organisationId: orgId, clientCode: uid('CLI'), companyName: 'No Phone', accountManagerId: (await prisma.user.findFirstOrThrow({ where: { organisationId: orgId, employeeId: { not: null } } })).employeeId!, contactPerson: 'P', contactNumber: '', onboardingDate: '2026-01-01' } })
-    const d = await api('/api/invoices', { method: 'POST', body: { client_id: noPhone.id, invoice_date: '2026-10-01', terms: 'net_15', items: [{ item_name: 'Fee', quantity_centi: 100, rate_paise: 1000_00, gst_rate_percent: 18 }] } })
+    const d = await api('/api/invoices', { method: 'POST', body: { client_id: noPhone.id, invoice_date: '2026-10-01', terms: 'net_15', place_of_supply: 'Tamil Nadu', items: [{ item_name: 'Fee', quantity_centi: 100, rate_paise: 1000_00, gst_rate_percent: 18 }] } })
     await api(`/api/invoices/${d.body.id}/send`, { method: 'POST' })
     calls = []
     const refused = await createLink(d.body.id, 'cashfree')
@@ -327,7 +328,7 @@ describe('creating a payment link', () => {
   })
 
   it('refuses drafts, cancelled and fully paid invoices, and unconfigured gateways', async () => {
-    const d = await api('/api/invoices', { method: 'POST', body: { client_id: clientId, invoice_date: '2026-10-01', terms: 'net_15', items: [{ item_name: 'Fee', quantity_centi: 100, rate_paise: 1000_00, gst_rate_percent: 18 }] } })
+    const d = await api('/api/invoices', { method: 'POST', body: { client_id: clientId, invoice_date: '2026-10-01', terms: 'net_15', place_of_supply: 'Tamil Nadu', items: [{ item_name: 'Fee', quantity_centi: 100, rate_paise: 1000_00, gst_rate_percent: 18 }] } })
     expect((await createLink(d.body.id)).status).toBe(409)
 
     const c = await sentInvoice()

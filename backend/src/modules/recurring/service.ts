@@ -20,7 +20,7 @@ import { lockSequence } from '../../lib/sequence.js'
 import type { Session } from '../../platform/auth.js'
 import type { Scope } from '../../platform/rbac/matrix.js'
 import { assignedClientIds, assertCanSeeClient } from '../../platform/workstation/scope.js'
-import { createInvoiceRecord, invoiceHouseStyle, sendInvoiceTx, type InvoiceInput, type Term } from '../invoice/service.js'
+import { createInvoiceRecord, invoiceHouseStyle, invoiceSendBlockers, sendInvoiceTx, type InvoiceInput, type Term } from '../invoice/service.js'
 import { firstIssueDate, nextIssueDate, periodLabel, prorateFactor, type Frequency } from './dates.js'
 
 export interface RecurringLine {
@@ -206,7 +206,11 @@ export async function generateForProfile(profileId: string, opts: { today?: stri
         notes: label,
         items,
       }, { userId: opts.userId ?? p.createdBy ?? null, employeeId: opts.employeeId ?? null, recurringProfileId: p.id, clientServiceId: p.clientServiceId })
-      if (p.autoSend) invoiceNumber = await sendInvoiceTx(tx, invoiceId, opts.userId ?? null)
+      // Auto-send only what may be sent (firm GSTIN, place of supply…);
+      // otherwise the period's invoice waits as a draft for someone to fix.
+      if (p.autoSend && (await invoiceSendBlockers(tx, invoiceId)).length === 0) {
+        invoiceNumber = await sendInvoiceTx(tx, invoiceId, opts.userId ?? null)
+      }
       created = true
     }
     // Compare-and-set: only the run that still sees `date` may move it on.

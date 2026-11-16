@@ -9,7 +9,7 @@ import { prisma } from '../../lib/prisma.js'
 import { QuotationService, type ItemInput } from './service.js'
 import { GST_RATES } from './totals.js'
 import { writeAudit } from '../../platform/audit.js'
-import { formBool } from '../invoice/supply.js'
+import { formBool, placeOfSupplySchema } from '../invoice/supply.js'
 
 /**
  * Quotation HTTP surface — mounted at /api/quotations.
@@ -68,7 +68,7 @@ const bodySchema = z.object({
   subject: z.string().trim().min(1, 'Give the quotation a subject.').max(200),
   quote_date: ISO_DATE,
   valid_until: ISO_DATE,
-  place_of_supply: z.string().trim().max(100).nullish(),
+  place_of_supply: placeOfSupplySchema,
   /* A hint only: the service derives the split from the place of supply and
      the firm's state whenever it can see both (invoice/supply.ts). */
   is_inter_state: formBool.default(false),

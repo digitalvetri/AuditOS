@@ -10,7 +10,7 @@ import { employeeMap } from '../../api/workstation.serialize.js'
 import { computeTotals, invoiceAmountInWords, paymentState, type LineInput } from './totals.js'
 import { addPayment, removePayment, type PaymentInput } from './payments.js'
 import { addRefund, refundToApi, removeRefund, type RefundInput } from './refunds.js'
-import { resolveInterState } from './supply.js'
+import { defaultPlaceOfSupply, firmGstin, firmStateCode, placeOfSupplyCode, resolveInterState } from './supply.js'
 import { istToday } from '../../lib/dates.js'
 
 /**
@@ -443,7 +443,6 @@ export const InvoiceService = {
    *  sends the whole document, and reconciling row-by-row would be a second
    *  source of truth for order. */
   async update(session: Session, scope: Scope, id: string, input: InvoiceInput): Promise<SerializedInvoice> {
-    input = withDerivedSplit(input)
     const existing = await this.get(session, scope, id)
     assertEditable({ status: existing.stored_status, invoiceNumber: existing.invoice_number })
     await assertCanSeeClient(session, scope, input.clientId)
@@ -451,6 +450,7 @@ export const InvoiceService = {
       where: { id: input.clientId, deletedAt: null },
     })
     if (!client) throw ApiError.notFound('No such client.')
+    input = await withDerivedSplit(prisma, input, client.gstin)
     // The links kept (or newly set) must belong to the invoice's client —
     // including when only the client changed.
     await assertInvoiceLinks(
@@ -683,9 +683,9 @@ export async function createInvoiceRecord(
     auditEngagementId?: string | null
   },
 ): Promise<string> {
-  const input = withDerivedSplit(rawInput)
-  const client = await tx.client.findFirst({ where: { id: input.clientId, deletedAt: null } })
+  const client = await tx.client.findFirst({ where: { id: rawInput.clientId, deletedAt: null } })
   if (!client) throw ApiError.notFound('No such client.')
+  const input = await withDerivedSplit(tx, rawInput, client.gstin)
   const org = await orgId()
 
   /* Three cases, and they are not the same:
@@ -755,6 +755,8 @@ export async function createInvoiceRecord(
 export async function sendInvoiceTx(tx: Prisma.TransactionClient, id: string, userId: string | null): Promise<string> {
   const inv = await tx.invoice.findFirst({ where: { id, deletedAt: null }, select: { invoiceNumber: true, status: true } })
   if (!inv) throw ApiError.notFound('No such invoice.')
+  const [blocker] = await invoiceSendBlockers(tx, id)
+  if (blocker) throw ApiError.unprocessable(blocker.code, blocker.message)
   const invoiceNumber = inv.invoiceNumber ?? await nextInvoiceNumber(tx)
   // Conditional on still being a draft: a concurrent send that got here
   // first has already numbered it, and this one must not renumber it.
@@ -796,9 +798,42 @@ function overdueWhere(today: string): Prisma.InvoiceWhereInput {
   }
 }
 
-/** The tax split follows the place of supply when the server can tell (supply.ts). */
-function withDerivedSplit(input: InvoiceInput): InvoiceInput {
-  return { ...input, isInterState: resolveInterState(input.placeOfSupply, input.layoutConfig, input.isInterState) }
+/**
+ * The place of supply defaults from the customer's GSTIN, and the tax split
+ * follows it against the firm's GSTIN in settings whenever both are known
+ * (supply.ts). Otherwise the draft keeps the requested split, and send()
+ * refuses it until both are known.
+ */
+async function withDerivedSplit(db: Prisma.TransactionClient | typeof prisma, input: InvoiceInput, clientGstin: string | null): Promise<InvoiceInput> {
+  const placeOfSupply = defaultPlaceOfSupply(input.placeOfSupply, input.customerGstin ?? clientGstin)
+  const gstin = await firmGstin(db, await orgId())
+  return { ...input, placeOfSupply, isInterState: resolveInterState(placeOfSupply, gstin, input.isInterState) }
+}
+
+/**
+ * Why a draft cannot be sent yet — each a fact the tax invoice needs: the
+ * firm's GSTIN (settings), a recognised place of supply, and a tax split
+ * that still matches the two. Empty = sendable.
+ */
+export async function invoiceSendBlockers(tx: Prisma.TransactionClient | typeof prisma, id: string): Promise<{ code: string; message: string }[]> {
+  const inv = await tx.invoice.findFirst({
+    where: { id, deletedAt: null },
+    select: { organisationId: true, placeOfSupply: true, isInterState: true },
+  })
+  if (!inv) return []
+  const out: { code: string; message: string }[] = []
+  const firm = firmStateCode(await firmGstin(tx, inv.organisationId))
+  const pos = placeOfSupplyCode(inv.placeOfSupply)
+  if (!firm) {
+    out.push({ code: 'firm_gstin_missing', message: "Add the firm's GSTIN in Settings before sending — it decides IGST or CGST + SGST." })
+  }
+  if (!pos) {
+    out.push({ code: 'place_of_supply_missing', message: 'Choose the place of supply from the list of states before sending.' })
+  }
+  if (firm && pos && inv.isInterState !== (pos !== firm)) {
+    out.push({ code: 'tax_split_stale', message: `The tax on this draft was worked out before the firm's GSTIN was known — it should be ${pos !== firm ? 'IGST' : 'CGST + SGST'}. Open the draft and save it again, then send.` })
+  }
+  return out
 }
 
 function bankSnapshotOf(b: {

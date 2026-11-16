@@ -2,7 +2,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import type { Server } from 'node:http'
 import { createApp } from '../../../app.js'
 import { signToken } from '../../../platform/auth.js'
-import { prisma, uid } from '../../../__tests__/helpers.js'
+import { prisma, setFirmGstin, uid } from '../../../__tests__/helpers.js'
 import { setupRoles } from '../../../../prisma/setup-roles.js'
 import { firstIssueDate, nextIssueDate, occurrence } from '../../recurring/dates.js'
 import { generateForProfile, linesToItems } from '../../recurring/service.js'
@@ -47,7 +47,7 @@ async function sentInvoice(extra: Record<string, unknown> = {}) {
   const r = await api('/api/invoices', {
     method: 'POST',
     body: {
-      client_id: clientId, invoice_date: '2026-09-01', terms: 'net_15', is_inter_state: false,
+      client_id: clientId, invoice_date: '2026-09-01', terms: 'net_15', place_of_supply: 'Tamil Nadu', is_inter_state: false,
       items: [{ item_name: 'Audit fee', quantity_centi: 100, rate_paise: 10_000_00, gst_rate_percent: 18 }],
       ...extra,
     },
@@ -67,6 +67,7 @@ beforeAll(async () => {
   orgId = (await prisma.organisation.findFirst({ where: { deletedAt: null } }))?.id ?? (await prisma.organisation.create({ data: { id: uid('org'), name: 'Firm' } })).id
   wsId = (await prisma.workSchedule.findFirst())?.id ?? (await prisma.workSchedule.create({ data: { organisationId: orgId, name: 'Std', standardStart: '09:30', standardEnd: '18:30' } })).id
   await setupRoles(prisma, { force: true })
+  await setFirmGstin()
   const role = await prisma.role.findUniqueOrThrow({ where: { code: 'hr_admin' } })
   const emp = await prisma.employee.create({ data: { organisationId: orgId, employeeCode: uid('BL'), firstName: 'B', lastName: 'Admin', fullName: 'B Admin', email: `${uid('b')}@x.local`, joiningDate: '2026-01-01', workScheduleId: wsId } })
   const u = await prisma.user.create({ data: { organisationId: orgId, email: emp.email, passwordHash: 'x', roleId: role.id, employeeId: emp.id } })
@@ -121,7 +122,7 @@ describe('TDS on fee receipts', () => {
 
 describe('credit notes', () => {
   it('numbers on issue, reduces the balance, respects the limit, and cancel restores it', async () => {
-    const draftInv = (await api('/api/invoices', { method: 'POST', body: { client_id: clientId, invoice_date: '2026-09-01', terms: 'net_15', items: [{ item_name: 'Fee', quantity_centi: 100, rate_paise: 100_00, gst_rate_percent: 18 }] } })).body
+    const draftInv = (await api('/api/invoices', { method: 'POST', body: { client_id: clientId, invoice_date: '2026-09-01', terms: 'net_15', place_of_supply: 'Tamil Nadu', items: [{ item_name: 'Fee', quantity_centi: 100, rate_paise: 100_00, gst_rate_percent: 18 }] } })).body
     const refused = await api('/api/credit-notes', { method: 'POST', body: { invoice_id: draftInv.id, note_date: '2026-09-05', reason: 'discount', lines: [{ description: 'x', taxable_paise: 100, gst_rate: 18 }] } })
     expect(refused.status).toBe(409)
 
@@ -245,7 +246,7 @@ describe('credit notes', () => {
   })
 
   it('accepts the GST 2.0 40% slab', async () => {
-    const r = await api('/api/invoices', { method: 'POST', body: { client_id: clientId, invoice_date: '2026-09-25', terms: 'net_15', is_inter_state: false, items: [{ item_name: 'Fee', quantity_centi: 100, rate_paise: 1_000_00, gst_rate_percent: 40 }] } })
+    const r = await api('/api/invoices', { method: 'POST', body: { client_id: clientId, invoice_date: '2026-09-25', terms: 'net_15', place_of_supply: 'Tamil Nadu', is_inter_state: false, items: [{ item_name: 'Fee', quantity_centi: 100, rate_paise: 1_000_00, gst_rate_percent: 40 }] } })
     expect(r.status).toBe(201)
     expect(r.body.total_paise).toBe(1_400_00)
   })
@@ -259,7 +260,7 @@ describe('refunds', () => {
     const r = await api('/api/invoices', {
       method: 'POST',
       body: {
-        client_id: clientOverride ?? clientId, invoice_date: invoiceDate ?? '2026-09-01', terms: 'net_15', is_inter_state: false,
+        client_id: clientOverride ?? clientId, invoice_date: invoiceDate ?? '2026-09-01', terms: 'net_15', place_of_supply: 'Tamil Nadu', is_inter_state: false,
         items: [{ item_name: 'Audit fee', quantity_centi: 100, rate_paise: 10_000_00, gst_rate_percent: 18 }],
       },
     })
@@ -440,7 +441,7 @@ describe('recurring retainers', () => {
       method: 'POST',
       body: {
         client_id: clientId, name: 'Monthly bookkeeping', frequency: 'monthly', day_of_month: 31,
-        start_date: '2026-01-01', terms: 'net_7', auto_send: true,
+        start_date: '2026-01-01', terms: 'net_7', auto_send: true, place_of_supply: 'Tamil Nadu',
         lines: [{ description: 'Bookkeeping retainer', sac_code: '998222', quantity_centi: 100, unit_rate_paise: 5_000_00, gst_rate: 18 }],
       },
     })

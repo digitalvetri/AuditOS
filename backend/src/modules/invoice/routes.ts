@@ -13,7 +13,7 @@ import { prisma } from '../../lib/prisma.js'
 import { isAccountAdmin } from '../../platform/roleRank.js'
 import { writeAudit } from '../../platform/audit.js'
 import { GSTIN_RE } from '../gst/validate.js'
-import { formBool } from './supply.js'
+import { firmGstin, firmStateCode, formBool, placeOfSupplySchema, stateNameForCode } from './supply.js'
 import { checkInvoiceLink, createInvoiceLink, listInvoiceLinks } from '../integrations/payment-links.js'
 import { isGateway } from '../integrations/gateways.js'
 
@@ -66,7 +66,7 @@ const bodySchema = z.object({
   invoice_date: ISO_DATE,
   terms: z.enum(TERMS).default('due_on_receipt'),
   due_date: ISO_DATE.nullish(),
-  place_of_supply: z.string().trim().max(100).nullish(),
+  place_of_supply: placeOfSupplySchema,
   /* A hint only: the service derives the split from the place of supply and
      the firm's state whenever it can see both (supply.ts). */
   is_inter_state: formBool.default(false),
@@ -258,6 +258,42 @@ invoicesRouter.delete('/bank-accounts/:id', handler(async (req, res) => {
     entityId: req.params.id, req,
   })
   noContent(res)
+}))
+
+/**
+ * The firm's own GSTIN (settings). It is the supplier on every tax invoice
+ * and its state decides IGST vs CGST + SGST, so changing it is an Admin's
+ * call and audited. Invoices cannot be sent while it is blank.
+ */
+invoicesRouter.get('/firm-gst', handler(async (req, res) => {
+  const session = requireSession(req)
+  requireWorkstation(session, 'workstation.invoice.read')
+  const gstin = await firmGstin()
+  const code = firmStateCode(gstin)
+  ok(res, { gstin, state_code: code, state: stateNameForCode(code) })
+}))
+
+invoicesRouter.put('/firm-gst', handler(async (req, res) => {
+  const session = requireSession(req)
+  if (!isAccountAdmin(session)) throw ApiError.forbidden("Only an Admin can change the firm's GSTIN.")
+  const b = parse(
+    z.object({
+      gstin: z.string().trim().toUpperCase()
+        .refine((v) => v === '' || (GSTIN_RE.test(v) && stateNameForCode(v.slice(0, 2)) !== null), 'That is not a valid GSTIN. It is 15 characters: state code, PAN, entity digit, Z, checksum.')
+        .transform((v) => v || null),
+    }),
+    req.body,
+    "Check the firm's GSTIN.",
+  )
+  const org = await prisma.organisation.findFirst({ select: { id: true, gstin: true } })
+  if (!org) throw ApiError.notFound('No firm record.')
+  await prisma.organisation.update({ where: { id: org.id }, data: { gstin: b.gstin } })
+  await writeAudit({
+    actorUserId: session.userId, action: 'invoice.firm_gstin_changed', entityType: 'Organisation', entityId: org.id,
+    before: { gstin: org.gstin }, after: { gstin: b.gstin }, req,
+  })
+  const code = firmStateCode(b.gstin)
+  ok(res, { gstin: b.gstin, state_code: code, state: stateNameForCode(code) })
 }))
 
 invoicesRouter.get('/:id', handler(async (req, res) => {

@@ -8,7 +8,7 @@ import { assignedClientIds, assertCanSeeClient, assertCanSeeLead } from '../../p
 import { nextQuotationCode } from '../../platform/workstation/codes.js'
 import { employeeMap, type EmployeeLookup } from '../../api/workstation.serialize.js'
 import { computeTotals, type LineInput } from './totals.js'
-import { resolveInterState } from '../invoice/supply.js'
+import { firmGstin, resolveInterState } from '../invoice/supply.js'
 import { createInvoiceRecord, invoiceHouseStyle } from '../invoice/service.js'
 import { lockSequence } from '../../lib/sequence.js'
 import { istToday } from '../../lib/dates.js'
@@ -251,9 +251,9 @@ export interface QuotationInput {
   workSections?: WorkSectionInput[]
 }
 
-/** The tax split follows the place of supply when the server can tell (invoice/supply.ts). */
-function withDerivedSplit(input: QuotationInput): QuotationInput {
-  return { ...input, isInterState: resolveInterState(input.placeOfSupply, input.layoutConfig, input.isInterState) }
+/** The tax split follows the place of supply against the firm's GSTIN in settings when both are known (invoice/supply.ts). */
+async function withDerivedSplit(input: QuotationInput): Promise<QuotationInput> {
+  return { ...input, isInterState: resolveInterState(input.placeOfSupply, await firmGstin(), input.isInterState) }
 }
 
 /**
@@ -455,7 +455,7 @@ export const QuotationService = {
   },
 
   async create(session: Session, scope: Scope, input: QuotationInput) {
-    input = withDerivedSplit(input)
+    input = await withDerivedSplit(input)
     await assertParty(session, scope, input)
     assertDates(input.quoteDate, input.validUntil)
     if (input.items.length === 0) throw ApiError.badRequest('A quotation needs at least one line.')
@@ -528,7 +528,7 @@ export const QuotationService = {
    * worse than rewriting it.
    */
   async update(session: Session, scope: Scope, id: string, input: QuotationInput) {
-    input = withDerivedSplit(input)
+    input = await withDerivedSplit(input)
     const existing = await loadOrThrow(id, await quotationScopeWhere(session, scope))
     if (existing.status !== 'draft') {
       throw ApiError.badRequest(`A ${existing.status} quotation cannot be edited. Revise it instead.`)

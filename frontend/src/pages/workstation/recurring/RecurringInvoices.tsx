@@ -184,7 +184,7 @@ function ProfileModal({ profile, onClose, onSaved }: { profile: RecurringProfile
   const [start, setStart] = useState(profile?.start_date?.slice(0, 10) ?? istToday());
   const [end, setEnd] = useState(profile?.end_date?.slice(0, 10) ?? '');
   const [terms, setTerms] = useState<RecurringTerm>(profile?.terms ?? 'net_15');
-  const [pos, setPos] = useState(stateName(profile?.place_of_supply ?? 'Tamil Nadu'));
+  const [pos, setPos] = useState(stateName(profile?.place_of_supply ?? ''));
   const [autoSend, setAutoSend] = useState(profile?.auto_send ?? false);
   const [isActive, setIsActive] = useState(profile?.is_active ?? true);
   const [prorate, setProrate] = useState(profile?.prorate_first_period ?? false);
@@ -275,6 +275,7 @@ function ProfileModal({ profile, onClose, onSaved }: { profile: RecurringProfile
         </Field>
         <Field label="Place of supply" error={errs.place_of_supply}>
           <select className={inputClass} value={pos} onChange={(e) => setPos(e.target.value)}>
+            <option value="">From the client's GSTIN</option>
             {STATES.map((s) => <option key={s.code} value={s.name}>{s.name} ({s.code})</option>)}
           </select>
         </Field>

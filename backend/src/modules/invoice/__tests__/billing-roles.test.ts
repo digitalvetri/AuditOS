@@ -2,7 +2,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import type { Server } from 'node:http'
 import { createApp } from '../../../app.js'
 import { signToken } from '../../../platform/auth.js'
-import { prisma, uid } from '../../../__tests__/helpers.js'
+import { prisma, setFirmGstin, uid } from '../../../__tests__/helpers.js'
 import { setupRoles } from '../../../../prisma/setup-roles.js'
 
 /**
@@ -52,7 +52,7 @@ async function sentInvoice(cookie: string) {
   const r = await api('/api/invoices', cookie, {
     method: 'POST',
     body: {
-      client_id: clientId, invoice_date: '2026-09-01', terms: 'net_15', is_inter_state: false,
+      client_id: clientId, invoice_date: '2026-09-01', terms: 'net_15', place_of_supply: 'Tamil Nadu', is_inter_state: false,
       items: [{ item_name: 'Audit fee', quantity_centi: 100, rate_paise: 10_000_00, gst_rate_percent: 18 }],
     },
   })
@@ -79,6 +79,7 @@ beforeAll(async () => {
   orgId = (await prisma.organisation.create({ data: { id: uid('org'), name: 'Firm' } })).id
   wsId = (await prisma.workSchedule.create({ data: { id: uid('ws'), organisationId: orgId, name: 'Std', standardStart: '09:30', standardEnd: '18:30' } })).id
   await setupRoles(prisma, { force: true })
+  await setFirmGstin()
   const people = {
     md: await staff('md'), dept_manager: await staff('dept_manager'), employee: await staff('employee'), intern: await staff('intern'),
   }
