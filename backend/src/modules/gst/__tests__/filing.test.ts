@@ -126,6 +126,13 @@ describe('syncGstEnrolment', () => {
     await syncGstEnrolment(prisma, { clientId: c.id })
     expect((await prisma.gstProfile.findUniqueOrThrow({ where: { clientId: c.id } })).assignedEmployeeId).toBe(newer)
   })
+  it('leaves a hand-added GST profile alone when the client has no GST Filing service', async () => {
+    const c = await gstClient({ withService: false })
+    await prisma.gstProfile.create({ data: { clientId: c.id, gstin: '27AAPFU0939F1ZV', assignedEmployeeId: empId, active: true } })
+    await syncGstEnrolment(prisma, { clientId: c.id })
+    await syncGstEnrolment(prisma)
+    expect((await prisma.gstProfile.findUniqueOrThrow({ where: { clientId: c.id } })).active).toBe(true)
+  })
   it('does not mass-deactivate when the GST_FILING service is soft-deleted', async () => {
     const c = await gstClient()
     await syncGstEnrolment(prisma, { clientId: c.id })

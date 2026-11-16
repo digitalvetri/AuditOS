@@ -4,8 +4,9 @@
  * Feeds the GST engine (GstProfile → GstCompliancePeriod → GstFiling) from
  * the "GST Filing" client service, which nothing else does:
  *   - syncGstEnrolment: a client with a live GST Filing service and a GSTIN
- *     has an active GstProfile; anyone else's profile is deactivated (past
- *     periods are kept).
+ *     has an active GstProfile; when that service ends the profile is
+ *     deactivated (past periods are kept). Profiles added by hand for
+ *     clients without the service are not touched.
  *   - ensurePeriodJobs: one GSTR-1 and one GSTR-3B per owed period, with
  *     due dates from the CBIC rule engine, plus a portal data request.
  *   - generateGstFilingJobs: the daily run — sync, then last month for all.
@@ -88,7 +89,17 @@ export async function syncGstEnrolment(
     where: { active: true, deletedAt: null, ...(opts.clientId ? { clientId: opts.clientId } : {}) },
     select: { id: true, clientId: true },
   })
+  // Only profiles this sync owns — clients that have (or had) a GST Filing
+  // service row. A profile added by hand (POST /api/gst/clients) for a
+  // client without the service is left alone.
+  const owned = new Set(
+    (await db.clientService.findMany({
+      where: { serviceId, clientId: { in: stale.map((p) => p.clientId) } },
+      select: { clientId: true },
+    })).map((r) => r.clientId),
+  )
   for (const p of stale) {
+    if (!owned.has(p.clientId)) continue
     const s = live.get(p.clientId)
     if (s && s.gstin?.trim()) continue
     await db.gstProfile.update({ where: { id: p.id }, data: { active: false, updatedBy: opts.userId ?? null } })
