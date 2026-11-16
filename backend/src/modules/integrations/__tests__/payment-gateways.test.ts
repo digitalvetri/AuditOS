@@ -246,6 +246,8 @@ describe('gateway settings', () => {
     const ok = await api('/api/integrations/payment-gateways/test', { method: 'POST', body: { gateway: 'razorpay' } })
     expect(ok.status).toBe(200)
     expect(calls[0].method).toBe('GET')
+    // Fetch-all documents only payment_id / reference_id filters — no unlisted params.
+    expect(calls[0].url).toBe('https://api.razorpay.com/v1/payment_links')
     expect(calls[0].headers.get('authorization')).toBe(`Basic ${Buffer.from('rzp_test_abc123:rzp_secret_value_xyz').toString('base64')}`)
 
     reply = () => json(401, { error: { code: 'BAD_REQUEST_ERROR', description: 'The api key provided is invalid' } })

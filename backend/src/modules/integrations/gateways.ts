@@ -276,7 +276,7 @@ export async function fetchPaymentLink(c: GatewayCreds, gatewayLinkId: string): 
  */
 export async function testCredentials(c: GatewayCreds): Promise<void> {
   if (c.gateway === 'razorpay') {
-    await call('razorpay', `${RAZORPAY_BASE}/payment_links?count=1`, { method: 'GET', headers: razorpayHeaders(c) })
+    await call('razorpay', `${RAZORPAY_BASE}/payment_links`, { method: 'GET', headers: razorpayHeaders(c) })
     return
   }
   try {
