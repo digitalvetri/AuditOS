@@ -406,13 +406,15 @@ async function execute(session: Session, organisationId: string, jobId: string, 
     // PDF, a queue) is worth a ping.
     if (Date.now() - queuedAt > LONG_JOB_MS) await notifyToolJob(session, jobId, tool, false, out.filename)
   } catch (err) {
-    const { code, message } = userMessage(err)
+    const { code, message, details } = userMessage(err)
+    // Row-level problems (e-invoice validation) are kept on the job in full.
+    const problems = Array.isArray(details?.problems) ? (details.problems as string[]).slice(0, 500) : undefined
     if (code === 'failed') console.error('[tools] job failed', tool.id, err instanceof Error ? err.stack ?? err.message : err)
     const failedDoc = await DocumentService.saveFailedDocument({
       session, organisationId, toolId: tool.id, filename: expectedName, mimeType: OUTPUT_MIME[tool.outputType],
       parentDocumentId: primary?.id ?? null, errorMessage: message, meta: { code },
     }).catch(() => null)
-    await ToolJobService.failJob(jobId, message, failedDoc?.id ?? null, { code }).catch(() => undefined)
+    await ToolJobService.failJob(jobId, message, failedDoc?.id ?? null, { code, ...(problems ? { problems } : {}) }).catch(() => undefined)
     await AuditLogService.log({ session, action: 'conversion_failed', toolId: tool.id, documentId: failedDoc?.id ?? primary?.id ?? null, jobId, status: 'failed', meta: { code, message, from: inputDocs.map((d) => d.originalFilename).join(', ') } })
     await notifyToolJob(session, jobId, tool, true, message)
   } finally {

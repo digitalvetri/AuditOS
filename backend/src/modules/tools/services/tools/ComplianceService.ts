@@ -1634,7 +1634,7 @@ export const ComplianceService = {
 
     if (problems.length) {
       throw new ToolError('invalid_options',
-        `No e-invoice JSON was written: ${problems.length} ${problems.length === 1 ? 'row has' : 'rows have'} a problem the IRP would reject — ${problems.slice(0, 3).join(' · ')}${problems.length > 3 ? ` · and ${problems.length - 3} more` : ''}. Fix the sheet and run it again.`,
+        `No e-invoice JSON was written: ${problems.length} ${problems.length === 1 ? 'row has' : 'rows have'} a problem the IRP would reject — ${problems.slice(0, 15).join(' · ')}${problems.length > 15 ? ` · and ${problems.length - 15} more` : ''}. Fix the sheet and run it again.`,
         { problems })
     }
 

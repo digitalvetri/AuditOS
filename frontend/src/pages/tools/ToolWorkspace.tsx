@@ -90,7 +90,7 @@ function ActiveWorkspace({ toolId }: { toolId: string }) {
           {ws.phase === 'processing' ? (
             <ProcessingState label={ui.processingLabel} progress={ws.progress} />
           ) : ws.phase === 'failed' && ws.run.error ? (
-            <ToolErrorState code={ws.run.error.code} message={ws.run.error.message} onRetry={ws.retry} onReset={ws.reset} />
+            <ToolErrorState code={ws.run.error.code} message={ws.run.error.message} problems={ws.run.error.problems} onRetry={ws.retry} onReset={ws.reset} />
           ) : null}
 
           {(ws.phase === 'ready' || ws.phase === 'failed') && validation ? <Notice tone="warn">{validation}</Notice> : null}
