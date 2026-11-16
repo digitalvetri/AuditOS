@@ -47,8 +47,10 @@ export function normaliseFilingStatus(status: string, returnType: string): strin
 /**
  * Allowed moves. Deliberately permissive forwards and backwards within the
  * workflow — an auditing firm reworks returns constantly — but a status that
- * is not in the vocabulary at all is rejected, and nothing may jump straight
- * to a filed state without passing through the review gate.
+ * is not in the vocabulary at all is rejected. GST Filing is Start → Finish:
+ * review is optional, so a return that has been started (in preparation) may be
+ * recorded as filed directly. The ARN and filed date are still required
+ * (assertFilingRecord), and a return nobody started can never be filed.
  */
 const GSTR1_AFTER_FILED = ['rework_required']
 const GSTR3B_AFTER_FILED = ['payment_pending', 'completed', 'rework_required']
@@ -61,8 +63,8 @@ export function assertGstr1Transition(from: string, to: string) {
       'This GSTR-1 is already filed. Raise a rework first if it has to change.',
     )
   }
-  if (to === 'filed' && !['under_review', 'ready_to_file', 'filed'].includes(current)) {
-    throw ApiError.badRequest('A return must be reviewed and ready before it can be recorded as filed.')
+  if (to === 'filed' && !['in_preparation', 'under_review', 'ready_to_file', 'filed'].includes(current)) {
+    throw ApiError.badRequest('Start the return before recording it as filed.')
   }
 }
 
@@ -75,8 +77,8 @@ export function assertGstr3bTransition(from: string, to: string) {
       'This GSTR-3B is already filed. Record the payment, or raise a rework.',
     )
   }
-  if (to === 'filed' && !['under_review', 'ready_to_file', 'filed'].includes(current)) {
-    throw ApiError.badRequest('A return must be reviewed and ready before it can be recorded as filed.')
+  if (to === 'filed' && !['preparation', 'under_review', 'ready_to_file', 'filed'].includes(current)) {
+    throw ApiError.badRequest('Start the return before recording it as filed.')
   }
   if (to === 'completed' && !['payment_pending', 'filed', 'completed'].includes(current)) {
     throw ApiError.badRequest('A GSTR-3B is only complete once it has been filed and paid.')

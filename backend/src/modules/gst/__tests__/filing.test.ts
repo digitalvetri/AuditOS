@@ -6,6 +6,7 @@ import { setupRoles } from '../../../../prisma/setup-roles.js'
 import { istToday } from '../../../lib/dates.js'
 import { prisma, uid } from '../../../__tests__/helpers.js'
 import { ensurePeriodJobs, generateGstFilingJobs, previousPeriod, refreshClientGst, syncGstEnrolment } from '../filing.js'
+import { assertGstr1Transition, assertGstr3bTransition } from '../validate.js'
 
 let orgId = ''
 let serviceId = ''
@@ -200,5 +201,16 @@ describe('adding the GST Filing service through the API', () => {
     expect(r.status).toBe(201)
     const p = await prisma.gstProfile.findUniqueOrThrow({ where: { clientId: c.id } })
     expect(await prisma.gstFiling.count({ where: { gstProfileId: p.id } })).toBe(2)
+  })
+})
+
+describe('Start → Finish', () => {
+  it('records a return as filed straight from preparation', () => {
+    expect(() => assertGstr1Transition('in_preparation', 'filed')).not.toThrow()
+    expect(() => assertGstr3bTransition('preparation', 'filed')).not.toThrow()
+  })
+  it('still refuses filing a return nobody started', () => {
+    expect(() => assertGstr1Transition('pending', 'filed')).toThrow()
+    expect(() => assertGstr3bTransition('pending', 'filed')).toThrow()
   })
 })
