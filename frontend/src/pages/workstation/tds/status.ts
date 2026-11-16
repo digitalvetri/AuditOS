@@ -5,8 +5,10 @@
  *
  * Calendar (config.ts, marked [VERIFY] there):
  *   challan      7th of next month; March deductions → 30 April
- *   return       Q1 31 Jul · Q2 31 Oct · Q3 31 Jan · Q4 31 May (27EQ: the 15th)
+ *   return       Q1 31 Jul · Q2 31 Oct · Q3 31 Jan · Q4 31 May (27EQ up to FY 2025-26: the 15th)
  *   Form 16A/27D 15 days after that quarter's return due date
+ *   Tax year 2026-27 on (Income-tax Act 2025): Form 138/140/144/143 on the 31st dates,
+ *   TCS included; certificates Form 130/131/133. Mirrors backend modules/tds/calendar.ts.
  *   Form 16      15 June after the FY (needs Q4 24Q filed)
  *   notices      checked at least every NOTICE_CHECK_INTERVAL_DAYS
  */
@@ -73,15 +75,27 @@ export function quarterEnd(q: Quarter, fy: string): string {
   const [off, m0] = Q_END[q];
   return iso(fyStart(fy) + off, m0 + 1, 0);
 }
+/** Tax year 2026-27 onwards falls under the Income-tax Act 2025 and its Rules. */
+export const isNewActFy = (fy: string) => fyStart(fy) >= 2026;
+const NEW_FORM: Record<string, string> = { '24Q': '138', '26Q': '140', '27Q': '144', '27EQ': '143', '16': '130', '16A': '131', '27D': '133' };
+const OLD_FORM: Record<string, string> = Object.fromEntries(Object.entries(NEW_FORM).map(([o, n]) => [n, o]));
+/** The form's name in that FY: 26Q is Form 140 from tax year 2026-27 (and back). */
+export function formForFy(form: string, fy: string): string {
+  return isNewActFy(fy) ? NEW_FORM[form] ?? form : OLD_FORM[form] ?? form;
+}
+const aliases = (form: string) => [form, NEW_FORM[form], OLD_FORM[form]].filter(Boolean);
+const isTcs = (form?: string | null) => form === '27EQ' || form === '143';
+
 export function returnDue(q: Quarter, fy: string, form?: string | null): string {
   const y = fyStart(fy);
-  // TCS (27EQ) is due on the 15th — must match backend modules/tds/calendar.ts.
-  if (form === '27EQ') return { Q1: iso(y, 6, 15), Q2: iso(y, 9, 15), Q3: iso(y + 1, 0, 15), Q4: iso(y + 1, 4, 15) }[q];
+  // TCS up to FY 2025-26 (27EQ) is due on the 15th; Form 143 from tax year
+  // 2026-27 shares the TDS dates — must match backend modules/tds/calendar.ts.
+  if (isTcs(form) && !isNewActFy(fy)) return { Q1: iso(y, 6, 15), Q2: iso(y, 9, 15), Q3: iso(y + 1, 0, 15), Q4: iso(y + 1, 4, 15) }[q];
   return { Q1: iso(y, 6, 31), Q2: iso(y, 9, 31), Q3: iso(y + 1, 0, 31), Q4: iso(y + 1, 4, 31) }[q];
 }
 export function certificateDue(period: string, fy: string, form?: string | null): string {
   if (period === 'FY') return iso(fyStart(fy) + 1, 5, 15);
-  const r = returnDue(period as Quarter, fy, form === '27D' ? '27EQ' : null);
+  const r = returnDue(period as Quarter, fy, form === '27D' || form === '133' ? '143' : null);
   const d = new Date(`${r}T00:00:00`);
   return iso(d.getFullYear(), d.getMonth(), d.getDate() + 15);
 }
@@ -93,7 +107,8 @@ function stateOf(record: TdsRecord | null, due: string, today: string): Expected
 }
 
 const find = (rs: TdsRecord[], kind: string, fy: string, period: string, form: string | null) =>
-  rs.find((r) => r.kind === kind && r.fy === fy && r.period === period && (r.form_type ?? null) === form) ?? null;
+  rs.find((r) => r.kind === kind && r.fy === fy && r.period === period
+    && (form === null ? (r.form_type ?? null) === null : aliases(form).includes(r.form_type ?? ''))) ?? null;
 
 /** Challans for every deduction month that has ended (or already has a record). */
 export function expectedChallans(data: TdsData, fy: string, today = todayIso()): ExpectedItem[] {
@@ -110,7 +125,7 @@ export function expectedChallans(data: TdsData, fy: string, today = todayIso()):
 /** Every (form × quarter) return whose quarter has ended (or already has a record). */
 export function expectedReturns(data: TdsData, fy: string, today = todayIso()): ExpectedItem[] {
   const out: ExpectedItem[] = [];
-  for (const form of data.profile.return_forms) {
+  for (const form of [...new Set(data.profile.return_forms.map((f) => formForFy(f, fy)))]) {
     for (const q of QUARTERS) {
       const record = find(data.records, 'return', fy, q, form);
       if (!record && quarterEnd(q, fy) >= today) continue;
@@ -126,12 +141,16 @@ export function expectedCertificates(data: TdsData, fy: string, today = todayIso
   const out: ExpectedItem[] = [];
   const filed = data.records.filter((r) => r.kind === 'return' && r.fy === fy && r.status === 'done');
   for (const r of filed) {
-    const form = r.form_type === '24Q' ? (r.period === 'Q4' ? '16' : null) : r.form_type === '27EQ' ? '27D' : '16A';
-    if (!form) continue;
-    const period = form === '16' ? 'FY' : r.period!;
+    const base = OLD_FORM[r.form_type ?? ''] ?? r.form_type;
+    const old = base === '24Q' ? (r.period === 'Q4' ? '16' : null) : base === '27EQ' ? '27D' : '16A';
+    if (!old) continue;
+    const form = formForFy(old, fy);
+    const annual = old === '16';
+    const period = annual ? 'FY' : r.period!;
+    if (out.some((i) => i.period === period && i.formType === form)) continue;
     const record = find(data.records, 'certificate', fy, period, form);
     const due = certificateDue(period, fy, form);
-    const label = form === '16' ? `Form 16 · FY ${fy}` : `Form ${form} · ${period} (${r.form_type})`;
+    const label = annual ? `Form ${form} · FY ${fy}` : `Form ${form} · ${period} (${r.form_type})`;
     out.push({ kind: 'certificate', period, formType: form, label, due, record, state: stateOf(record, due, today), fy });
   }
   return out;

@@ -21,7 +21,7 @@ import {
 import { FORM_49B_LIMITS } from './config';
 import type { TdsSubServiceSlug } from './services';
 import {
-  challanInterest, expectedCertificates, expectedChallans, expectedReturns, fmtDate, lastNoticeCheck,
+  challanInterest, expectedCertificates, expectedChallans, expectedReturns, fmtDate, formForFy, lastNoticeCheck,
   lateFee234E, monthLabel, QUARTERS, todayIso, type ExpectedItem,
 } from './status';
 
@@ -83,7 +83,8 @@ function fieldsFor(kind: TdsKind, data: TdsData, fy: string): FieldSpec[] {
       ];
     case 'return':
       return [
-        { key: 'form_type', label: 'Form', type: 'select', locked: true, options: data.profile.return_forms.map((f) => ({ value: f, label: f })) },
+        // Named for the FY: 26Q is Form 140 from tax year 2026-27 (Income-tax Act 2025).
+        { key: 'form_type', label: 'Form', type: 'select', locked: true, options: [...new Set(data.profile.return_forms.map((f) => formForFy(f, fy)))].map((f) => ({ value: f, label: f })) },
         { key: 'period', label: 'Quarter', type: 'select', locked: true, options: QUARTERS.map((q) => ({ value: q, label: q })) },
         { key: 'status', label: 'Status', type: 'select', options: STATUS_OPTIONS.work },
         { key: 'reference', label: 'Token number', type: 'text', required: true, hint: '15 digits, from the provisional receipt' },
@@ -316,7 +317,7 @@ export function TdsRecordsPanel({ slug, data, fy }: { slug: TdsSubServiceSlug; d
 function emptyText(kind: TdsKind): string {
   if (kind === 'challan') return 'No deduction month of this FY has closed yet.';
   if (kind === 'return') return 'No quarter of this FY has closed yet.';
-  return 'No certificates are owed yet — they follow filed returns (26Q/27Q → 16A, 27EQ → 27D, 24Q Q4 → Form 16).';
+  return 'No certificates are owed yet — they follow filed returns (26Q/27Q → 16A, 27EQ → 27D, 24Q Q4 → Form 16; from tax year 2026-27 Form 140/144 → 131, 143 → 133, 138 Q4 → Form 130).';
 }
 
 function summarize(r: TdsRecord): string {
@@ -626,7 +627,7 @@ function ProfileEditor({ data, canManage }: { data: TdsData; canManage: boolean 
               <label key={f} className="inline-flex items-center gap-1 text-13">
                 <input type="checkbox" checked={st.forms.includes(f)}
                   onChange={(e) => setSt({ ...st, forms: e.target.checked ? [...st.forms, f] : st.forms.filter((x) => x !== f) })} />
-                {f}
+                {f} <span className="text-11 text-neutral-500">(Form {formForFy(f, '2026-27')} from 2026-27)</span>
               </label>
             ))}
           </div>

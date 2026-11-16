@@ -254,6 +254,10 @@ describe('TDS — deductee register', () => {
     // Quarter export for 26Q: all Q1 rows, remark codes, challan matched by month
     const csv = await api(`/api/tds/${c.id}/deductions/export?fy=2026-27&quarter=Q1&form=26Q`, { cookie })
     expect(csv.status).toBe(200)
+    // Form 140 is the same statement under its tax-year 2026-27 number.
+    const csv140 = await api(`/api/tds/${c.id}/deductions/export?fy=2026-27&quarter=Q1&form=140`, { cookie })
+    expect(csv140.status).toBe(200)
+    expect(csv140.raw).toBe(csv.raw)
     const lines = csv.raw.replace(/^﻿/, '').trim().split('\r\n')
     expect(lines).toHaveLength(1 + 5)
     expect(csv.raw).toContain('"PANNOTAVBL"')

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   certificateDue, challanDue, challanStatementCertificateDue, challanStatementDue, expectedItems, fyMonths, fyOf,
-  quarterEnd, returnDue, type FilingLike,
+  formForFy, quarterEnd, returnDue, type FilingLike,
 } from '../calendar.js'
 import { computeTds, returnFormFor } from '../sections.js'
 
@@ -100,9 +100,40 @@ describe('TDS fixes (threshold boundaries, s. 206AA, TCS dates)', () => {
     expect(computeTds({ ...base, section: '194B', amount: 50_000, hasPan: false })).toMatchObject({ rate: 30, tds: 15_000 })
     expect(computeTds({ ...base, section: '194C', amount: 50_000, hasPan: false })).toMatchObject({ rate: 20 })
   })
-  it('puts 27EQ on the 15th and Form 27D 15 days after it', () => {
-    expect(['Q1', 'Q2', 'Q3', 'Q4'].map((q) => returnDue(q as 'Q1', '2026-27', '27EQ'))).toEqual(['2026-07-15', '2026-10-15', '2027-01-15', '2027-05-15'])
-    expect(certificateDue('Q1', '2026-27', '27D')).toBe('2026-07-30')
-    expect(returnDue('Q1', '2026-27', '26Q')).toBe('2026-07-31')
+  it('up to FY 2025-26: 27EQ on the 15th and Form 27D 15 days after it', () => {
+    expect(['Q1', 'Q2', 'Q3', 'Q4'].map((q) => returnDue(q as 'Q1', '2025-26', '27EQ'))).toEqual(['2025-07-15', '2025-10-15', '2026-01-15', '2026-05-15'])
+    expect(certificateDue('Q1', '2025-26', '27D')).toBe('2025-07-30')
+    expect(returnDue('Q1', '2025-26', '26Q')).toBe('2025-07-31')
+  })
+  it('tax year 2026-27 on (Income-tax Rules 2026, rule 219): Form 143 (TCS) on the same 31st dates as TDS; Form 133 15 days later', () => {
+    for (const f of ['143', '27EQ']) {
+      expect(['Q1', 'Q2', 'Q3', 'Q4'].map((q) => returnDue(q as 'Q1', '2026-27', f))).toEqual(['2026-07-31', '2026-10-31', '2027-01-31', '2027-05-31'])
+    }
+    expect(certificateDue('Q1', '2026-27', '133')).toBe('2026-08-15')
+    expect(certificateDue('Q1', '2026-27', '27D')).toBe('2026-08-15')
+    expect(certificateDue('Q2', '2026-27', '131')).toBe('2026-11-15')
+  })
+  it('forms are named for the FY: 24Q/26Q/27Q/27EQ up to 2025-26, 138/140/144/143 from 2026-27', () => {
+    expect(['24Q', '26Q', '27Q', '27EQ'].map((f) => formForFy(f, '2026-27'))).toEqual(['138', '140', '144', '143'])
+    expect(['138', '140', '144', '143'].map((f) => formForFy(f, '2025-26'))).toEqual(['24Q', '26Q', '27Q', '27EQ'])
+    expect(formForFy('26Q', '2025-26')).toBe('26Q')
+  })
+  it('FY 2026-27 expects Form 140 / 143 returns and Form 131 / 133 / 130 certificates — a TCS return filed on the 20th is not overdue', () => {
+    const today = '2026-07-20'
+    const items = expectedItems([], '2026-27', ['26Q', '27EQ'], today)
+    expect(items.filter((i) => i.kind === 'return').map((i) => [i.formType, i.period, i.due, i.state])).toEqual([
+      ['140', 'Q1', '2026-07-31', 'due'], ['143', 'Q1', '2026-07-31', 'due'],
+    ])
+    // A return recorded under the old name for the new year still counts.
+    const recs: FilingLike[] = [
+      { kind: 'return', fy: '2026-27', period: 'Q1', formType: '26Q', status: 'done', eventDate: '2026-07-20' },
+      { kind: 'return', fy: '2026-27', period: 'Q4', formType: '138', status: 'done', eventDate: '2027-05-20' },
+      { kind: 'return', fy: '2026-27', period: 'Q1', formType: '143', status: 'done', eventDate: '2026-07-20' },
+    ]
+    const later = expectedItems(recs, '2026-27', ['26Q', '24Q', '27EQ'], '2026-07-25')
+    expect(later.filter((i) => i.kind === 'return' && i.period === 'Q1').every((i) => i.state === 'done' || i.formType === '138')).toBe(true)
+    expect(later.filter((i) => i.kind === 'certificate').map((i) => [i.formType, i.period, i.due])).toEqual(expect.arrayContaining([
+      ['131', 'Q1', '2026-08-15'], ['130', 'FY', '2027-06-15'], ['133', 'Q1', '2026-08-15'],
+    ]))
   })
 })

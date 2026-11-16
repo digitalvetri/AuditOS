@@ -6,11 +6,24 @@
  * so the two copies cannot drift apart unnoticed.
  *
  *   challan      7th of next month; March deductions → 30 April
- *   return       Q1 31 Jul · Q2 31 Oct · Q3 31 Jan · Q4 31 May (27EQ: the 15th)
+ *   return       Q1 31 Jul · Q2 31 Oct · Q3 31 Jan · Q4 31 May
+ *                (TCS 27EQ up to FY 2025-26: the 15th, Rule 31AA of 1962)
  *   Form 16A/27D 15 days after that quarter's return due date
  *   Form 16      15 June after the FY (needs Q4 24Q filed)
  *   26QB/QC/QD   30 days from the end of the month of deduction;
  *                Form 16B/16C/16D 15 days after that
+ *
+ * Tax year 2026-27 onwards (Income-tax Act 2025, Income-tax Rules 2026):
+ *   statements   Form 138 (was 24Q), 140 (26Q), 144 (27Q), 143 (TCS, 27EQ) —
+ *                all on the 31st dates above, TCS included (rule 219; the
+ *                department's Form 138/140/143/144 user manuals, checked
+ *                16 Nov 2026)
+ *   certificates Form 130 (was 16), 131 (16A), 133 (27D, TCS) — 131/133 within
+ *                15 days of the statement's due date (Form 131/143 FAQs).
+ *                Form 130's annual date is kept at 15 June: not yet confirmed
+ *                from an official source.
+ *   Form 141     challan-cum-statement (was 26QB/QC/QD/QE), 30 days from the
+ *                end of the month; certificate Form 132 15 days after that.
  */
 
 export type Quarter = 'Q1' | 'Q2' | 'Q3' | 'Q4'
@@ -77,16 +90,38 @@ export function quarterOfMonth(ym: string): Quarter {
   const m = Number(ym.slice(5, 7))
   return m >= 4 && m <= 6 ? 'Q1' : m >= 7 && m <= 9 ? 'Q2' : m >= 10 ? 'Q3' : 'Q4'
 }
+/** Tax year 2026-27 onwards falls under the Income-tax Act 2025 and its Rules. */
+export const isNewActFy = (fy: string) => fyStart(fy) >= 2026
+
+/** 1961-Act form → its Income-tax Rules 2026 successor, and back. */
+const NEW_FORM: Record<string, string> = {
+  '24Q': '138', '26Q': '140', '27Q': '144', '27EQ': '143',
+  '16': '130', '16A': '131', '27D': '133',
+  '26QB': '141', '26QC': '141', '26QD': '141', '16B': '132', '16C': '132', '16D': '132',
+}
+const OLD_FORM: Record<string, string> = { '138': '24Q', '140': '26Q', '144': '27Q', '143': '27EQ', '130': '16', '131': '16A', '133': '27D' }
+
+/** The form's name in that FY: 26Q is Form 140 from tax year 2026-27, and Form 140 is 26Q before it. */
+export function formForFy(form: string, fy: string): string {
+  return isNewActFy(fy) ? NEW_FORM[form] ?? form : OLD_FORM[form] ?? form
+}
+/** Every name a form goes by (old and new), for matching recorded rows. */
+export const formAliases = (form: string): string[] => [...new Set([form, NEW_FORM[form], OLD_FORM[form]].filter((x): x is string => !!x))]
+
+const isTcs = (form?: string | null) => form === '27EQ' || form === '143'
+
 export function returnDue(q: Quarter, fy: string, form?: string | null): string {
   const y = fyStart(fy)
-  // TCS (27EQ) is due on the 15th, a fortnight before the TDS returns (Rule 31AA).
-  if (form === '27EQ') return { Q1: iso(y, 6, 15), Q2: iso(y, 9, 15), Q3: iso(y + 1, 0, 15), Q4: iso(y + 1, 4, 15) }[q]
+  // TCS up to FY 2025-26 (27EQ): the 15th, a fortnight before the TDS
+  // returns (Rule 31AA of 1962). From tax year 2026-27 Form 143 shares the
+  // TDS dates (rule 219 of the Income-tax Rules 2026).
+  if (isTcs(form) && !isNewActFy(fy)) return { Q1: iso(y, 6, 15), Q2: iso(y, 9, 15), Q3: iso(y + 1, 0, 15), Q4: iso(y + 1, 4, 15) }[q]
   return { Q1: iso(y, 6, 31), Q2: iso(y, 9, 31), Q3: iso(y + 1, 0, 31), Q4: iso(y + 1, 4, 31) }[q]
 }
 export function certificateDue(period: string, fy: string, form?: string | null): string {
   if (period === 'FY') return iso(fyStart(fy) + 1, 5, 15)
-  // Form 27D follows the 27EQ due date; 16A follows the TDS return.
-  return addDays(returnDue(period as Quarter, fy, form === '27D' ? '27EQ' : null), 15)
+  // Form 27D / 133 follows the TCS statement's due date; 16A / 131 the TDS one.
+  return addDays(returnDue(period as Quarter, fy, form === '27D' || form === '133' ? '143' : null), 15)
 }
 /** 26QB / 26QC / 26QD: statement due 30 days after the end of the deduction month. */
 export function challanStatementDue(ym: string): string {
@@ -132,8 +167,10 @@ export const monthLabel = (ym: string) => `${MONTHS[Number(ym.slice(5, 7)) - 1]}
  */
 export function expectedItems(records: FilingLike[], fy: string, returnForms: string[], today: string): ExpectedItem[] {
   const out: ExpectedItem[] = []
+  // A row recorded under either name of a form (26Q / 140) counts.
   const find = (kind: string, period: string, form: string | null) =>
-    records.find((r) => r.kind === kind && r.fy === fy && r.period === period && (r.formType ?? null) === form)
+    records.find((r) => r.kind === kind && r.fy === fy && r.period === period
+      && (form === null ? (r.formType ?? null) === null : formAliases(form).includes(r.formType ?? '')))
 
   for (const ym of fyMonths(fy)) {
     const r = find('challan', ym, null)
@@ -141,7 +178,7 @@ export function expectedItems(records: FilingLike[], fy: string, returnForms: st
     const due = challanDue(ym)
     out.push({ kind: 'challan', period: ym, formType: null, label: `Challan ${monthLabel(ym)}`, due, state: stateOf(r, due, today) })
   }
-  for (const form of returnForms) {
+  for (const form of [...new Set(returnForms.map((f) => formForFy(f, fy)))]) {
     for (const q of QUARTERS) {
       const r = find('return', q, form)
       if (!r && quarterEnd(q, fy) >= today) continue
@@ -150,16 +187,21 @@ export function expectedItems(records: FilingLike[], fy: string, returnForms: st
     }
   }
   for (const ret of records.filter((r) => r.kind === 'return' && r.fy === fy && r.status === 'done')) {
-    const form = ret.formType === '24Q' ? (ret.period === 'Q4' ? '16' : null) : ret.formType === '27EQ' ? '27D' : '16A'
-    if (!form) continue
-    const period = form === '16' ? 'FY' : ret.period!
+    const base = OLD_FORM[ret.formType ?? ''] ?? ret.formType
+    const old = base === '24Q' ? (ret.period === 'Q4' ? '16' : null) : base === '27EQ' ? '27D' : '16A'
+    if (!old) continue
+    const form = formForFy(old, fy)
+    const annual = old === '16'
+    const period = annual ? 'FY' : ret.period!
+    // One certificate per (period, form), even if a return was recorded twice under both names.
+    if (out.some((i) => i.kind === 'certificate' && i.period === period && i.formType === form)) continue
     const r = find('certificate', period, form)
     const due = certificateDue(period, fy, form)
-    out.push({ kind: 'certificate', period, formType: form, label: form === '16' ? `Form 16 FY ${fy}` : `Form ${form} ${period}`, due, state: stateOf(r, due, today) })
+    out.push({ kind: 'certificate', period, formType: form, label: annual ? `Form ${form} FY ${fy}` : `Form ${form} ${period}`, due, state: stateOf(r, due, today) })
   }
   // 26QB / 26QC / 26QD statements owe a Form 16B / 16C / 16D.
   for (const s of records.filter((r) => r.kind === 'challan_statement' && r.status === 'done' && r.period && fyOf(`${r.period}-01`) === fy)) {
-    const cert = s.formType === '26QB' ? '16B' : s.formType === '26QC' ? '16C' : '16D'
+    const cert = s.formType === '141' ? '132' : s.formType === '26QB' ? '16B' : s.formType === '26QC' ? '16C' : '16D'
     const due = challanStatementCertificateDue(s.period!)
     const issued = (s as FilingLike & { certIssuedOn?: string | null }).certIssuedOn
     out.push({

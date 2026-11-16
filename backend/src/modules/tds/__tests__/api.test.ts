@@ -110,12 +110,22 @@ describe('TDS service API', () => {
     expect((await post(a.id, { kind: 'correction', fy: '2026-27', period: 'Q1', form_type: '26Q', original_id: 'nope', reference: '223456789012345', event_date: '2026-08-01' })).status).toBe(400)
     const corr = await post(a.id, { kind: 'correction', original_id: ret.body.data.record.id, reference: '223456789012345', event_date: '2026-08-01', status: 'in_progress' })
     expect(corr.status).toBe(201)
-    expect(corr.body.data.record).toMatchObject({ fy: '2026-27', period: 'Q1', form_type: '26Q' })
+    // Tax year 2026-27 is under the Income-tax Act 2025: 26Q is recorded as its successor, Form 140.
+    expect(ret.body.data.record).toMatchObject({ form_type: '140' })
+    expect(corr.body.data.record).toMatchObject({ fy: '2026-27', period: 'Q1', form_type: '140' })
     // A return with corrections can't be deleted
     expect((await api(`/api/tds/${a.id}/records/${ret.body.data.record.id}`, { method: 'DELETE', cookie })).status).toBe(409)
 
     // Certificate + notices
-    expect((await post(a.id, { kind: 'certificate', fy: '2026-27', period: 'Q1', form_type: '16A', event_date: '2026-08-10' })).status).toBe(201)
+    const cert = await post(a.id, { kind: 'certificate', fy: '2026-27', period: 'Q1', form_type: '16A', event_date: '2026-08-10' })
+    expect(cert.status).toBe(201)
+    expect(cert.body.data.record.form_type).toBe('131')
+    // The new numbers are accepted as they are; an older year keeps the 1961 names.
+    const tcs = await post(a.id, { kind: 'return', fy: '2026-27', period: 'Q1', form_type: '143', reference: '323456789012345', event_date: '2026-07-25' })
+    expect(tcs.status).toBe(201)
+    expect(tcs.body.data.record.form_type).toBe('143')
+    const older = await post(a.id, { kind: 'return', fy: '2025-26', period: 'Q1', form_type: '140', reference: '423456789012345', event_date: '2025-07-25' })
+    expect(older.body.data.record.form_type).toBe('26Q')
     expect((await post(a.id, { kind: 'notice_check', event_date: '2026-09-20' })).status).toBe(201)
     const notice = await post(a.id, { kind: 'notice', status: 'pending', reference: 'Short payment Q1', amount_tax: 1200 })
     expect(notice.status).toBe(201)
@@ -125,10 +135,10 @@ describe('TDS service API', () => {
     const full = await api(`/api/tds/${a.id}?fy=2026-27`, { cookie })
     expect(full.body.data.any_filed_return).toBe(true)
     expect(full.body.data.records.map((r: { kind: string }) => r.kind).sort())
-      .toEqual(['certificate', 'challan', 'correction', 'notice', 'notice_check', 'registration', 'return'])
+      .toEqual(['certificate', 'challan', 'correction', 'notice', 'notice_check', 'registration', 'return', 'return'])
     // Another FY hides FY-bound rows but keeps registration + notices
     const other = await api(`/api/tds/${a.id}?fy=2025-26`, { cookie })
-    expect(other.body.data.records.map((r: { kind: string }) => r.kind).sort()).toEqual(['notice', 'notice_check', 'registration'])
+    expect(other.body.data.records.map((r: { kind: string }) => r.kind).sort()).toEqual(['notice', 'notice_check', 'registration', 'return'])
 
     // Client B sees none of it, and can't touch A's records through its own URL
     const bData = await api(`/api/tds/${b.id}?fy=2026-27`, { cookie })
