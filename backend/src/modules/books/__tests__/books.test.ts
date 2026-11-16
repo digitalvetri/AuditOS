@@ -744,4 +744,36 @@ describe('Books — audit round 2', () => {
     const ref = await connectAndActivate()
     expect((await prisma.booksZohoOrganization.findUniqueOrThrow({ where: { id: ref } })).autoRefreshMinutes).toBe(240)
   })
+
+  it('ageing reports, contact balances and the bank tile are in base currency; credit cards are not cash', async () => {
+    const ref = await connectAndActivate()
+    const page = { page: 1, per_page: 200, has_more_page: false }
+    overrides.push((url) => {
+      const p = url.pathname.replace('/books/v3/', '')
+      if (p === 'invoices') return { json: { code: 0, page_context: page, invoices: [
+        { invoice_id: '1', customer_name: 'Acme', date: today, due_date: '2999-01-01', total: 50000, balance: 50000, status: 'sent', currency_code: 'INR', exchange_rate: 1 },
+        { invoice_id: '2', customer_name: 'Globex', date: today, due_date: '2999-01-01', total: 1000, balance: 1000, status: 'sent', currency_code: 'USD', exchange_rate: 83 },
+      ] } }
+      if (p === 'bankaccounts') return { json: { code: 0, page_context: page, bankaccounts: [
+        { account_id: '1', account_name: 'HDFC', account_type: 'bank', balance: 250000, bcy_balance: 250000, currency_code: 'INR', is_active: true },
+        { account_id: '2', account_name: 'Citi USD', account_type: 'bank', balance: 1000, bcy_balance: 83000, currency_code: 'USD', is_active: true },
+        { account_id: '3', account_name: 'Card', account_type: 'credit_card', balance: 40000, bcy_balance: 40000, currency_code: 'INR', is_active: true },
+      ] } }
+      if (p === 'contacts') return { json: { code: 0, page_context: page, contacts: [
+        { contact_id: '9', contact_name: 'Globex', outstanding_receivable_amount: 1000, outstanding_receivable_amount_bcy: 83000, outstanding_payable_amount: 10, outstanding_payable_amount_bcy: 830 },
+      ] } }
+      return undefined
+    })
+    const ageing = await api(`/api/books/o/${ref}/reports/receivables_ageing`, { cookie: admin.cookie })
+    expect(ageing.body.data.totals.total).toBe(133000)
+    expect(ageing.body.data.rows.find((r: any) => r.name === 'Globex').total).toBe(83000)
+    const cust = await api(`/api/books/o/${ref}/reports/customer_balances`, { cookie: admin.cookie })
+    expect(cust.body.data.rows[0].balance).toBe(83000)
+    const vend = await api(`/api/books/o/${ref}/reports/vendor_balances`, { cookie: admin.cookie })
+    expect(vend.body.data.rows[0].balance).toBe(830)
+    const s = (await api(`/api/books/o/${ref}/sync`, { method: 'POST', cookie: admin.cookie })).body.data.snapshot
+    expect(s.totals.bank_balance).toBe(333000)
+    expect(s.totals.credit_card_balance).toBe(40000)
+    expect(s.bank_accounts.find((b: any) => b.account_id === '2').bcy_balance).toBe(83000)
+  })
 })

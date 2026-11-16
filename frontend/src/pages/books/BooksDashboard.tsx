@@ -1,7 +1,7 @@
 import { Link } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { Bar, BarChart, CartesianGrid, Legend, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
-import { AlertTriangle, ArrowDownLeft, ArrowUpRight, Landmark, Receipt, ShoppingCart, TrendingUp, Wallet } from 'lucide-react';
+import { AlertTriangle, ArrowDownLeft, ArrowUpRight, CreditCard, Landmark, Receipt, ShoppingCart, TrendingUp, Wallet } from 'lucide-react';
 import { booksApi, errorText, type ZRecord } from '@/modules/books/api';
 import { useOrg } from '@/modules/books/context';
 import { Badge, Cell, Empty, ErrorState, Notice, Row, Section, Skeleton, Table, Tile, date, dateTime, money } from '@/modules/books/ui';
@@ -26,12 +26,14 @@ export function BooksDashboardPage() {
   const cur = s.currency_code ?? org.currency_code;
   const m = (v: unknown) => money(v, cur);
   const t = s.totals;
+  const cards = s.bank_accounts.filter((b) => b.account_type === 'credit_card');
+  const banks = s.bank_accounts.filter((b) => b.account_type !== 'credit_card');
 
   return (
     <div className="space-y-4">
       {d.sync_status === 'failed' && d.last_sync_error ? <Notice tone="error">The last sync failed — showing figures from {dateTime(d.last_sync_at)}. {d.last_sync_error}</Notice> : null}
       {s.truncated ? <Notice tone="warn">This organisation has more records than one sync reads; totals cover the most recent 1,000 documents per list.</Notice> : null}
-      {s.mixed_currency ? <Notice tone="warn">Some documents are in a foreign currency; totals convert them at each document’s exchange rate. Bank balances are shown as recorded.</Notice> : null}
+      {s.mixed_currency ? <Notice tone="warn">Some documents are in a foreign currency; totals convert them at each document’s exchange rate. The bank balance tile uses Zoho’s base-currency balance; the table below shows each account in its own currency.</Notice> : null}
 
       <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-3">
         <Tile icon={ArrowDownLeft} tint="green" label="Total receivables" value={m(t.receivables)} hint={`${s.counts.outstanding_invoices} outstanding invoices`} />
@@ -42,7 +44,8 @@ export function BooksDashboardPage() {
         <Tile icon={ShoppingCart} tint="teal" label="Expenses (incl. tax)" value={m(t.expenses)} hint="Bills + expenses, same period" />
         <Tile icon={Receipt} tint="green" label="Payments received" value={m(t.payments_received)} hint="Same period" />
         <Tile icon={Wallet} tint="indigo" label="Payments made" value={m(t.payments_made)} hint="Same period" />
-        {s.bank_accounts.length ? <Tile icon={Landmark} tint="blue" label="Bank balance" value={m(t.bank_balance)} hint={`${s.bank_accounts.length} accounts in Zoho`} /> : null}
+        {banks.length ? <Tile icon={Landmark} tint="blue" label="Bank balance" value={m(t.bank_balance)} hint={`${banks.length} bank account${banks.length === 1 ? '' : 's'}, in ${cur ?? 'base currency'}`} /> : null}
+        {cards.length ? <Tile icon={CreditCard} tint="amber" label="Credit cards owed" value={m(t.credit_card_balance)} hint={`${cards.length} card${cards.length === 1 ? '' : 's'} — a liability, not in the bank balance`} /> : null}
       </div>
 
       <div className="grid grid-cols-1 xl:grid-cols-3 gap-4">

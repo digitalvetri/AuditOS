@@ -119,6 +119,10 @@ export async function computeDashboard(ctx: ZohoContext, currency: string | null
   const billsM = byMonth(purchasesLive, 'total', months)
   const expM = byMonth(expRows, 'amount_total', months)
   const bankRows = banks.rows.filter((b) => b.is_active !== false)
+  // bcy_balance is Zoho's "Balance in Base Currency"; balance is in the account's own currency.
+  const bcyBalance = (b: Row) => num(b.bcy_balance ?? b.balance)
+  // A credit card's balance is money owed, not cash: shown on its own, never added to the bank balance.
+  const isCard = (b: Row) => str(b.account_type) === 'credit_card'
 
   const currencies = new Set([...inv.rows, ...bil.rows, ...salesLive].map((r) => str(r.currency_code)).filter(Boolean))
   return {
@@ -134,7 +138,8 @@ export async function computeDashboard(ctx: ZohoContext, currency: string | null
       expenses: sum(expRows, 'amount_total') + sum(purchasesLive, 'total'),
       payments_received: sum(inBase(received.rows, 'amount'), 'amount'),
       payments_made: sum(inBase(paid.rows, 'amount'), 'amount'),
-      bank_balance: sum(bankRows, 'balance'),
+      bank_balance: bankRows.filter((b) => !isCard(b)).reduce((t, b) => t + bcyBalance(b), 0),
+      credit_card_balance: bankRows.filter(isCard).reduce((t, b) => t + bcyBalance(b), 0),
     },
     counts: {
       outstanding_invoices: inv.rows.length,
@@ -145,7 +150,7 @@ export async function computeDashboard(ctx: ZohoContext, currency: string | null
     monthly: months.map((month, i) => ({ month, revenue: revenueM[i], expenses: billsM[i] + expM[i] })),
     receivables_ageing: ageing(inv.rows, asOf),
     payables_ageing: ageing(bil.rows, asOf),
-    bank_accounts: bankRows.map((b) => pick(b, ['account_id', 'account_name', 'account_type', 'balance', 'currency_code', 'bank_name'])),
+    bank_accounts: bankRows.map((b) => ({ ...pick(b, ['account_id', 'account_name', 'account_type', 'balance', 'currency_code', 'bank_name']), bcy_balance: bcyBalance(b) })),
     recent: {
       invoices: sales.rows.slice(0, 5).map((r) => pick(r, ['invoice_id', 'invoice_number', 'customer_name', 'date', 'total', 'balance', 'status', 'currency_code'])),
       bills: purchases.rows.slice(0, 5).map((r) => pick(r, ['bill_id', 'bill_number', 'vendor_name', 'date', 'total', 'balance', 'status', 'currency_code'])),
@@ -206,7 +211,9 @@ export async function runReport(ctx: ZohoContext, id: string, from: string, to: 
 
   if (id === 'receivables_ageing' || id === 'payables_ageing') {
     const recv = id === 'receivables_ageing'
-    const docs = recv ? await openInvoices(ctx) : await openBills(ctx)
+    const open = recv ? await openInvoices(ctx) : await openBills(ctx)
+    // Foreign-currency documents at their own exchange rate, as on the dashboard.
+    const docs = { ...open, rows: inBase(open.rows, 'balance') }
     const nameF = recv ? 'customer_name' : 'vendor_name'
     const m = new Map<string, Row>()
     for (const r of docs.rows) {
@@ -223,9 +230,13 @@ export async function runReport(ctx: ZohoContext, id: string, from: string, to: 
 
   if (id === 'customer_balances' || id === 'vendor_balances') {
     const cust = id === 'customer_balances'
+    // The _bcy fields are in the organisation's base currency (Zoho contacts doc:
+    // outstanding_receivable_amount_bcy). The payable _bcy field is not in Zoho's
+    // docs; the plain field is the fallback when a response lacks it.
     const field = cust ? 'outstanding_receivable_amount' : 'outstanding_payable_amount'
+    const amount = (c: Row) => num(c[`${field}_bcy`] ?? c[field])
     const r = await zohoListAll<Row>(ctx, 'contacts', 'contacts', { contact_type: cust ? 'customer' : 'vendor' }, { maxPages: 10 })
-    const rows = r.rows.filter((c) => num(c[field]) !== 0).map((c) => ({ name: c.contact_name, company: c.company_name, balance: num(c[field]) })).sort((a, b) => b.balance - a.balance)
+    const rows = r.rows.filter((c) => amount(c) !== 0).map((c) => ({ name: c.contact_name, company: c.company_name, balance: amount(c) })).sort((a, b) => b.balance - a.balance)
     return { ...base, source: 'computed', note: COMPUTED, columns: [{ key: 'name', label: cust ? 'Customer' : 'Vendor' }, { key: 'company', label: 'Company' }, { key: 'balance', label: 'Outstanding', money: true }], rows, totals: { name: 'Total', balance: rows.reduce((t, x) => t + x.balance, 0) }, truncated: r.truncated }
   }
 
