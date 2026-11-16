@@ -58,6 +58,10 @@ export interface Notice {
   llm_provider: string | null;
   llm_model: string | null;
   generated_at: string | null;
+  /** Closed before the reply went out: why. */
+  closed_without_reply_reason?: string | null;
+  /** Upload only: set when the AI step failed and nothing was read from the notice. */
+  ai_error?: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -83,4 +87,6 @@ export const noticesApi = {
     api.post<Notice>(`/api/notices/${id}/generate`, replyInputs ? { reply_inputs: replyInputs } : undefined),
   regenerateClientLetter: (id: string) => api.post<Notice>(`/api/notices/${id}/client-letter`),
   remove: (id: string) => api.delete<void>(`/api/notices/${id}`),
+  /** The original notice file as uploaded. */
+  fileUrl: (id: string) => `/api/notices/${id}/file`,
 };

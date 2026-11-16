@@ -1897,6 +1897,8 @@ model GstNotice {
   status String @default("draft")
 
   /// The date the reply must reach the officer by, and who owns it.
+  /// Closed before the reply was sent: the reason (dropped, merged…).
+  closedWithoutReplyReason String?
   responseDueDate    String?
   assignedEmployeeId String?
 
@@ -8786,6 +8788,10 @@ model ClientNotice {
   assignedEmployeeId String?
   replyFiledOn       String?
   replyAckNo         String?
+  /// Why the notice was closed with no reply on record (dropped by the
+  /// department, merged into another proceeding…). Closing needs a reply
+  /// (date or acknowledgement) or this.
+  closedWithoutReplyReason String?
   summary            String?
   outcome            String?
   fileKey            String?

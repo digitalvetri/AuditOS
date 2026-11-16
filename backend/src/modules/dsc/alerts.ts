@@ -8,7 +8,8 @@
  * resets `lastAlertDays` — see PATCH /api/dsc/:id.
  *
  * Client DSC: the client's account manager gets a bell notification and a
- * follow-up on the Workstation dashboard. Firm DSC (no client): everyone
+ * follow-up on the Workstation dashboard (none for an inactive or deleted
+ * client). Firm DSC (no client): everyone
  * holding workstation.dsc.manage at organisation scope is notified.
  */
 import type { PrismaClient } from '@prisma/client'
@@ -32,6 +33,13 @@ export async function sendDscAlerts(prisma: PrismaClient, today: string): Promis
     if (left < -30) continue // long expired: nothing new to say
     const t = dscThreshold(left, d.lastAlertDays)
     if (t === null) continue
+    // A client DSC is the client's account manager's job — but not for a
+    // client the firm no longer acts for. Checked before the threshold is
+    // claimed, so a reactivated client still gets its alert.
+    const c = d.clientId
+      ? await prisma.client.findFirst({ where: { id: d.clientId, deletedAt: null, status: { not: 'inactive' } }, select: { id: true, companyName: true, accountManagerId: true } })
+      : null
+    if (d.clientId && !c) continue
     // Claim the threshold first: two runs cannot both alert.
     const claimed = await prisma.digitalSignature.updateMany({
       where: { id: d.id, lastAlertDays: d.lastAlertDays },
@@ -45,9 +53,7 @@ export async function sendDscAlerts(prisma: PrismaClient, today: string): Promis
       entityType: 'dsc_expiry', entityId: `dsc:${d.id}:${d.expiryDate}:${t}`,
       actionUrl: `/workstation/dsc${d.clientId ? `?client=${d.clientId}` : ''}`,
     }
-    if (d.clientId) {
-      const c = await prisma.client.findFirst({ where: { id: d.clientId }, select: { id: true, companyName: true, accountManagerId: true } })
-      if (!c) continue
+    if (c) {
       await notifyEmployee(c.accountManagerId, { ...input, title: `${title} (${c.companyName})` })
       await prisma.followUp.create({
         data: {

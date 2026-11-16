@@ -68,10 +68,12 @@ function noticeToApi(n: ClientNotice, names: Names, today: string) {
     status: n.status, assigned_employee_id: n.assignedEmployeeId,
     assigned_employee_name: n.assignedEmployeeId ? names.employees.get(n.assignedEmployeeId) ?? null : null,
     reply_filed_on: n.replyFiledOn, reply_ack_no: n.replyAckNo, summary: n.summary, outcome: n.outcome,
+    closed_without_reply_reason: n.closedWithoutReplyReason,
     file_name: n.fileName, file_mime: n.fileMime, has_file: Boolean(n.fileKey),
     days_left: due && awaiting ? daysBetween(today, due) : null,
     overdue: Boolean(due && awaiting && due < today),
     link: null as string | null,
+    file_url: n.fileKey ? `/api/notices-register/${n.id}/file` : null as string | null,
     created_at: n.createdAt, updated_at: n.updatedAt,
   }
 }
@@ -88,10 +90,12 @@ function gstNoticeToApi(n: GstNotice, names: Names, today: string): ReturnType<t
     status: n.status, assigned_employee_id: n.assignedEmployeeId,
     assigned_employee_name: n.assignedEmployeeId ? names.employees.get(n.assignedEmployeeId) ?? null : null,
     reply_filed_on: null, reply_ack_no: null, summary: null, outcome: null,
+    closed_without_reply_reason: n.closedWithoutReplyReason,
     file_name: n.uploadedFileName, file_mime: n.uploadedMime, has_file: Boolean(n.uploadedFileKey),
     days_left: due && awaiting ? daysBetween(today, due) : null,
     overdue: Boolean(due && awaiting && due < today),
     link: `/workstation/services/registration/gst/clients/${n.clientId}`,
+    file_url: n.uploadedFileKey ? `/api/notices/${n.id}/file` : null,
     created_at: n.createdAt, updated_at: n.updatedAt,
   }
 }
@@ -140,7 +144,7 @@ function noticeFields(b: Record<string, unknown>, partial: boolean): { data: Rec
     else if (!isIsoDate(b[k])) errors[k] = 'YYYY-MM-DD.'
     else data[col] = b[k]
   }
-  for (const [k, col, max] of [['reference_no', 'referenceNo', 100], ['din', 'din', 60], ['assessment_year', 'assessmentYear', 20], ['reply_ack_no', 'replyAckNo', 100], ['summary', 'summary', 4000], ['outcome', 'outcome', 4000]] as const) {
+  for (const [k, col, max] of [['reference_no', 'referenceNo', 100], ['din', 'din', 60], ['assessment_year', 'assessmentYear', 20], ['reply_ack_no', 'replyAckNo', 100], ['summary', 'summary', 4000], ['outcome', 'outcome', 4000], ['closed_without_reply_reason', 'closedWithoutReplyReason', 1000]] as const) {
     if (b[k] === undefined) continue
     data[col] = b[k] === null ? null : String(b[k]).trim().slice(0, max) || null
   }
@@ -151,6 +155,23 @@ function noticeFields(b: Record<string, unknown>, partial: boolean): { data: Rec
     else errors.demand_paise = 'Whole paise, 0 or more.'
   }
   return { data, errors }
+}
+
+/**
+ * Rules on the notice as it will be after this write: the reply cannot be due
+ * before the notice was issued, and a closed notice needs a reply on record
+ * (date or acknowledgement) or a stated reason for closing without one.
+ */
+function checkNoticeAfter(
+  after: { noticeDate: string | null; responseDueDate: string | null; status: string; replyFiledOn: string | null; replyAckNo: string | null; closedWithoutReplyReason: string | null },
+  errors: Record<string, string>,
+) {
+  if (after.noticeDate && after.responseDueDate && after.responseDueDate < after.noticeDate) {
+    errors.response_due_date = 'Cannot be before the notice date.'
+  }
+  if (after.status === 'closed' && !after.replyFiledOn && !after.replyAckNo && !after.closedWithoutReplyReason) {
+    errors.closed_without_reply_reason = 'Record the reply (date or acknowledgement), or say why the notice is closed without one.'
+  }
 }
 
 function sniffNoticeFile(bytes: Buffer, filename: string): { ext: string; mime: string } {
@@ -206,6 +227,13 @@ noticesRegisterRouter.post('/', upload.single('file'), scanUploads, handler(asyn
   if (typeof b.demand_paise === 'string' && b.demand_paise === '') delete b.demand_paise
   const { data, errors } = noticeFields(b, false)
   if (b.status !== undefined && !NOTICE_STATUSES.includes(b.status as never)) errors.status = `One of ${NOTICE_STATUSES.join(', ')}.`
+  if (!Object.keys(errors).length) {
+    const d = data as Record<string, string | null | undefined>
+    checkNoticeAfter({
+      noticeDate: d.noticeDate ?? null, responseDueDate: d.responseDueDate ?? null, status: (b.status as string) ?? 'received',
+      replyFiledOn: d.replyFiledOn ?? null, replyAckNo: d.replyAckNo ?? null, closedWithoutReplyReason: d.closedWithoutReplyReason ?? null,
+    }, errors)
+  }
   if (Object.keys(errors).length) throw ApiError.badRequest('Check the highlighted fields.', errors)
   const assigned = await assertEmployee(organisationId, b.assigned_employee_id)
   let file: { fileKey: string; fileName: string; fileMime: string } | null = null
@@ -243,7 +271,9 @@ noticesRegisterRouter.patch('/gst/:id', handler(async (req, res) => {
   if (b.response_due_date !== undefined) {
     if (b.response_due_date === null || b.response_due_date === '') data.responseDueDate = null
     else if (!isIsoDate(b.response_due_date)) throw ApiError.badRequest('Check the highlighted fields.', { response_due_date: 'YYYY-MM-DD.' })
-    else data.responseDueDate = b.response_due_date
+    else if (isIsoDate(row.noticeDate) && b.response_due_date < row.noticeDate) {
+      throw ApiError.badRequest('Check the highlighted fields.', { response_due_date: 'Cannot be before the notice date.' })
+    } else data.responseDueDate = b.response_due_date
   }
   if (b.assigned_employee_id !== undefined) data.assignedEmployeeId = await assertEmployee(organisationId, b.assigned_employee_id)
   const after = await prisma.gstNotice.update({ where: { id: row.id }, data })
@@ -267,6 +297,15 @@ noticesRegisterRouter.patch('/:id', handler(async (req, res) => {
     else if (!statusMoveAllowed(row.status, b.status as string, await isManager(session, row.clientId))) {
       throw ApiError.unprocessable('status_backwards', 'A notice moves forward only. Only the client\'s manager can reopen it.')
     } else data.status = b.status
+  }
+  if (!Object.keys(errors).length) {
+    const d = data as Record<string, string | null | undefined>
+    const pick = <K extends 'noticeDate' | 'responseDueDate' | 'status' | 'replyFiledOn' | 'replyAckNo' | 'closedWithoutReplyReason'>(k: K) =>
+      (d[k] !== undefined ? d[k] : row[k]) as (typeof row)[K]
+    checkNoticeAfter({
+      noticeDate: pick('noticeDate'), responseDueDate: pick('responseDueDate'), status: pick('status'),
+      replyFiledOn: pick('replyFiledOn'), replyAckNo: pick('replyAckNo'), closedWithoutReplyReason: pick('closedWithoutReplyReason'),
+    }, errors)
   }
   if (Object.keys(errors).length) throw ApiError.badRequest('Check the highlighted fields.', errors)
   if (b.assigned_employee_id !== undefined) data.assignedEmployeeId = await assertEmployee(organisationId, b.assigned_employee_id)

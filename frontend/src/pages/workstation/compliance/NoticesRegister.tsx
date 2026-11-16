@@ -155,7 +155,13 @@ export function NoticesRegisterPage() {
                         <Chip tone={STATUS_TONE[n.status] ?? 'grey'}>{NOTICE_STATUS_LABEL[n.status] ?? n.status}</Chip>
                       ) : (
                         <select aria-label="Status" value={n.status}
-                          onChange={(e) => { if (e.target.value !== n.status) patch.mutate({ n, body: { status: e.target.value } }); }}
+                          onChange={(e) => {
+                            const to = e.target.value;
+                            if (to === n.status) return;
+                            // Closing with no reply on record needs a reason: ask for it in the editor.
+                            if (to === 'closed' && !n.reply_filed_on && !n.reply_ack_no) { setEditing({ ...n, status: 'closed' }); return; }
+                            patch.mutate({ n, body: { status: to } });
+                          }}
                           className="h-8 px-2 text-13 bg-white border border-neutral-200 rounded-lg whitespace-nowrap">
                           {nextStatuses.map((s) => <option key={s} value={s}>{s === n.status ? NOTICE_STATUS_LABEL[s] : `→ ${NOTICE_STATUS_LABEL[s]}`}</option>)}
                         </select>
@@ -169,8 +175,9 @@ export function NoticesRegisterPage() {
                           <Link to={gstNoticePage(n.client_id)} className={smallBtn} title="Open the GST notice and its drafted reply">
                             Draft reply <ExternalLink size={13} />
                           </Link>
-                        ) : n.has_file || n.file_name ? (
-                          <a href={noticesRegisterApi.fileUrl(n.id)} target="_blank" rel="noopener noreferrer" className={smallBtn} title={n.file_name ?? 'Notice file'}>
+                        ) : null}
+                        {n.has_file || n.file_name ? (
+                          <a href={n.file_url ?? noticesRegisterApi.fileUrl(n.id)} target="_blank" rel="noopener noreferrer" className={smallBtn} title={n.file_name ?? 'Notice file'}>
                             <FileText size={13} /> File
                           </a>
                         ) : null}
@@ -199,7 +206,8 @@ export function NoticesRegisterPage() {
       {editing ? (
         isGst(editing)
           ? <GstNoticeEdit notice={editing} assignees={assignees.options} onClose={() => setEditing(null)} />
-          : <EditNotice notice={editing} assignees={assignees.options} canManage={canManage} onClose={() => setEditing(null)} />
+          : <EditNotice notice={editing} assignees={assignees.options} canManage={canManage} onClose={() => setEditing(null)}
+              original={rows.find((r) => r.id === editing.id && !isGst(r))?.status ?? editing.status} />
       ) : null}
     </div>
   );
@@ -335,7 +343,7 @@ function AddNotice({ clients, assignees, onClose }: { clients: Opt[]; assignees:
   );
 }
 
-function EditNotice({ notice, assignees, canManage, onClose }: { notice: RegisterNotice; assignees: Opt[]; canManage: boolean; onClose: () => void }) {
+function EditNotice({ notice, assignees, canManage, onClose, original }: { notice: RegisterNotice; assignees: Opt[]; canManage: boolean; onClose: () => void; original: string }) {
   const qc = useQueryClient();
   const toast = useToast();
   const [f, setF] = useState({
@@ -348,11 +356,13 @@ function EditNotice({ notice, assignees, canManage, onClose }: { notice: Registe
     assigned_employee_id: notice.assigned_employee_id ?? '',
     summary: notice.summary ?? '',
     outcome: notice.outcome ?? '',
+    closed_without_reply_reason: notice.closed_without_reply_reason ?? '',
   });
+  const noReply = !f.reply_filed_on && !f.reply_ack_no.trim();
   const up = (k: keyof typeof f) => (e: { target: { value: string } }) => setF((s) => ({ ...s, [k]: e.target.value }));
   const save = useMutation({
     mutationFn: () => noticesRegisterApi.update(notice.id, {
-      ...(f.status !== notice.status ? { status: f.status } : {}),
+      ...(f.status !== original ? { status: f.status } : {}),
       response_due_date: f.response_due_date || null,
       hearing_date: f.hearing_date || null,
       reply_filed_on: f.reply_filed_on || null,
@@ -361,6 +371,7 @@ function EditNotice({ notice, assignees, canManage, onClose }: { notice: Registe
       assigned_employee_id: f.assigned_employee_id || null,
       summary: f.summary.trim() || null,
       outcome: f.outcome.trim() || null,
+      closed_without_reply_reason: f.closed_without_reply_reason.trim() || null,
     }),
     onSuccess: () => { void qc.invalidateQueries({ queryKey: noticesRegisterKeys.all }); toast.push('success', 'Notice updated'); onClose(); },
     onError: (e) => toast.push('error', errorText(e)),
@@ -375,7 +386,7 @@ function EditNotice({ notice, assignees, canManage, onClose }: { notice: Registe
       <div className="grid gap-3 sm:grid-cols-2">
         <Labelled label="Status" hint={errs.status ?? 'Status moves forward only.'}>
           <select className={fieldClass} value={f.status} onChange={up('status')}>
-            {forwardStatuses(notice.status, canManage).map((s) => <option key={s} value={s}>{NOTICE_STATUS_LABEL[s] ?? s}</option>)}
+            {forwardStatuses(original, canManage).map((s) => <option key={s} value={s}>{NOTICE_STATUS_LABEL[s] ?? s}</option>)}
           </select>
         </Labelled>
         <Labelled label="Assignee">
@@ -404,6 +415,14 @@ function EditNotice({ notice, assignees, canManage, onClose }: { notice: Registe
           <textarea rows={2} className="block w-full px-3 py-2 text-13 bg-white border border-neutral-200 rounded-lg focus:outline-none focus:border-primary/60"
             value={f.summary} onChange={up('summary')} />
         </Labelled>
+        {f.status === 'closed' && (noReply || f.closed_without_reply_reason) ? (
+          <Labelled label="Closed without a reply — why?" className="sm:col-span-2"
+            hint={errs.closed_without_reply_reason ?? 'Needed when no reply date or acknowledgement is recorded.'}>
+            <textarea rows={2} className="block w-full px-3 py-2 text-13 bg-white border border-neutral-200 rounded-lg focus:outline-none focus:border-primary/60"
+              value={f.closed_without_reply_reason} onChange={up('closed_without_reply_reason')}
+              placeholder="Proceedings dropped by the department, merged into another notice…" />
+          </Labelled>
+        ) : null}
         <Labelled label="Outcome" className="sm:col-span-2">
           <textarea rows={2} className="block w-full px-3 py-2 text-13 bg-white border border-neutral-200 rounded-lg focus:outline-none focus:border-primary/60"
             value={f.outcome} onChange={up('outcome')} placeholder="Order passed, demand confirmed / dropped, appeal filed…" />
@@ -434,8 +453,8 @@ function GstNoticeEdit({ notice, assignees, onClose }: { notice: RegisterNotice;
         <Link to={gstNoticePage(notice.client_id)} className="text-primary underline">client's GST page</Link>.
       </p>
       <div className="grid gap-3 sm:grid-cols-2">
-        <Labelled label="Reply due by">
-          <input type="date" className={fieldClass} value={due} onChange={(e) => setDue(e.target.value)} />
+        <Labelled label="Reply due by" hint={fieldErrors(save.error).response_due_date}>
+          <input type="date" className={fieldClass} value={due} min={notice.notice_date ?? undefined} onChange={(e) => setDue(e.target.value)} />
         </Labelled>
         <Labelled label="Assignee">
           <select className={fieldClass} value={who} onChange={(e) => setWho(e.target.value)}>

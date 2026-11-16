@@ -160,6 +160,7 @@ function UploadModal({ open, clientId, onClose, onUploaded }: {
     onSuccess: (n) => {
       setFile(null);
       if (fileRef.current) fileRef.current.value = '';
+      if (n.ai_error) toast.push('error', n.ai_error);
       onUploaded(n);
     },
     onError: (e) => toast.push('error', e instanceof Error ? e.message : 'Upload failed.'),
@@ -317,7 +318,11 @@ function NoticeDetail({ notice, taxpayerName, taxpayerGstin, onDeleted }: {
       <div className="flex items-center justify-between">
         <div className="text-12 text-neutral-500">
           Uploaded {new Date(notice.created_at).toLocaleString('en-IN')} ·{' '}
-          {notice.uploaded_file_name ?? 'file'} ·{' '}
+          {notice.uploaded_file_name ? (
+            <a href={noticesApi.fileUrl(notice.id)} target="_blank" rel="noopener noreferrer" className="text-primary underline">
+              {notice.uploaded_file_name}
+            </a>
+          ) : 'file'} ·{' '}
           {notice.extraction_source === 'tesseract'
             ? 'OCR used'
             : notice.extraction_source === 'pdf-parse'

@@ -96,4 +96,18 @@ describe('DSC register', () => {
     expect(fus[0]).toMatchObject({ assignedEmployeeId: mgr.id, status: 'pending' })
     expect(fus[0].title).toMatch(/Renew DSC of J\. Director/)
   })
+
+  it('no alert or follow-up for an inactive or deleted client', async () => {
+    const o = await org()
+    const mgr = await employee(o, 'Mgr')
+    const u = await login(o, 'employee', mgr.id)
+    const gone = await client(o, 'Kilo Pvt Ltd', { accountManagerId: mgr.id, status: 'inactive' })
+    const deleted = await client(o, 'Lima Pvt Ltd', { accountManagerId: mgr.id, deletedAt: new Date() })
+    for (const c of [gone, deleted]) {
+      await prisma.digitalSignature.create({ data: { organisationId: o.id, clientId: c.id, holderName: 'K. Director', expiryDate: '2034-03-31' } })
+    }
+    await sendDscAlerts(prisma, '2034-03-25')
+    expect(await prisma.notification.count({ where: { userId: u.id, entityType: 'dsc_expiry' } })).toBe(0)
+    expect(await prisma.followUp.count({ where: { clientId: { in: [gone.id, deleted.id] } } })).toBe(0)
+  })
 })
