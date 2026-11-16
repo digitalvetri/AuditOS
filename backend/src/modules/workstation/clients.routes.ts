@@ -19,7 +19,10 @@ import {
 import {
   body, CLIENT_STATUSES, DOCUMENT_STATUSES, FieldErrors, SERVICE_STATUSES,
 } from './validate.js'
-import { clientListWhere, clientOrderBy, createClientRow, exitFieldsFor, findDuplicatePhoneClients, readClientFields } from './clients.shared.js'
+import {
+  activateIfOnboarding, clientListWhere, clientOrderBy, createClientRow, exitFieldsFor, findDuplicateGstinClients,
+  findDuplicatePhoneClients, gstinPanMismatch, readClientFields, syncPrimaryContact,
+} from './clients.shared.js'
 
 /**
  * CLIENTS (AUDIT_OS_WORKSTATION.md §7.3) — the central workspace.
@@ -155,7 +158,12 @@ clientsRouter.post('/', handler(async (req, res) => {
   // an existing client. A proprietor and their firm legitimately share a
   // number; the UI surfaces the overlap as a chip.
   const dupes = await findDuplicatePhoneClients(session, client.contactNumber, client.id)
-  ok(res, { ...clientToApi(client, m), phone_duplicates: dupes.visible, phone_duplicates_hidden: dupes.hidden }, 201)
+  const gstinDupes = await findDuplicateGstinClients(session, client.gstin, client.id)
+  ok(res, {
+    ...clientToApi(client, m),
+    phone_duplicates: dupes.visible, phone_duplicates_hidden: dupes.hidden,
+    gstin_duplicates: gstinDupes.visible, gstin_duplicates_hidden: gstinDupes.hidden,
+  }, 201)
 }))
 
 // GET /api/clients/:id
@@ -263,6 +271,16 @@ clientsRouter.patch('/:id', handler(async (req, res) => {
   }
   if ('short_name' in b) data.shortName = v.str('short_name', b.short_name, { required: false, max: 20 }) ?? null
   v.throwIfAny()
+  // GSTIN characters 3–12 are the PAN. Checked on the values the client will
+  // have, and only when this edit touches either — a legacy mismatch does not
+  // block unrelated edits.
+  if ('gstin' in b || 'pan' in b) {
+    const msg = gstinPanMismatch(
+      'gstin' in data ? (data.gstin as string | null) : before.gstin,
+      'pan' in data ? (data.pan as string | null) : before.pan,
+    )
+    if (msg) throw ApiError.badRequest(msg, { gstin: msg })
+  }
 
   // Organization membership: organization_id links an existing client under
   // an organization (null removes it). is_organization turns a client into
@@ -308,8 +326,13 @@ clientsRouter.patch('/:id', handler(async (req, res) => {
   }
   data.updatedBy = session.userId
 
-  const client = await prisma.client.update({
-    where: { id: before.id }, data, include: { parentClient: { select: ORGANIZATION_REF } },
+  const client = await prisma.$transaction(async (tx) => {
+    const updated = await tx.client.update({
+      where: { id: before.id }, data, include: { parentClient: { select: ORGANIZATION_REF } },
+    })
+    // The primary contact is the master's contact fields.
+    if ('contact_person' in b || 'contact_number' in b || 'email' in b) await syncPrimaryContact(tx, updated, session.userId)
+    return updated
   })
 
   // Assignment changes: say who now has the client, and tell them.
@@ -399,7 +422,14 @@ clientsRouter.patch('/:id', handler(async (req, res) => {
   const dupes = touchedPhone
     ? await findDuplicatePhoneClients(session, client.contactNumber, client.id)
     : { visible: [], hidden: 0 }
-  ok(res, { ...clientToApi(client, m), phone_duplicates: dupes.visible, phone_duplicates_hidden: dupes.hidden })
+  const gstinDupes = 'gstin' in b && client.gstin !== before.gstin
+    ? await findDuplicateGstinClients(session, client.gstin, client.id)
+    : { visible: [], hidden: 0 }
+  ok(res, {
+    ...clientToApi(client, m),
+    phone_duplicates: dupes.visible, phone_duplicates_hidden: dupes.hidden,
+    gstin_duplicates: gstinDupes.visible, gstin_duplicates_hidden: gstinDupes.hidden,
+  })
 }))
 
 // GET /api/clients/:id/activity
@@ -468,20 +498,30 @@ clientsRouter.post('/:id/services', handler(async (req, res) => {
   if (!employee) v.add('assigned_employee_id', 'Select a valid employee.')
   v.throwIfAny()
 
-  const row = await prisma.clientService.create({
-    data: {
-      clientId: req.params.id,
-      serviceId: serviceId!,
-      assignedEmployeeId: assignedEmployeeId!,
-      managerId: managerId ?? null,
-      dueDate: dueDate ?? null,
-      status: 'not_started',
-      notes: notes ?? null,
-      createdBy: session.userId,
-      updatedBy: session.userId,
-    },
-    include: { service: true, client: true },
+  const { row, activated } = await prisma.$transaction(async (tx) => {
+    const created = await tx.clientService.create({
+      data: {
+        clientId: req.params.id,
+        serviceId: serviceId!,
+        assignedEmployeeId: assignedEmployeeId!,
+        managerId: managerId ?? null,
+        dueDate: dueDate ?? null,
+        status: 'not_started',
+        notes: notes ?? null,
+        createdBy: session.userId,
+        updatedBy: session.userId,
+      },
+      include: { service: true, client: true },
+    })
+    // The first engagement ends onboarding.
+    return { row: created, activated: await activateIfOnboarding(tx, req.params.id, session.userId) }
   })
+  if (activated) {
+    await writeActivity({
+      session, subjectType: 'client', subjectId: req.params.id, action: 'client.status_updated',
+      description: 'Client status changed to active (first service assigned).',
+    })
+  }
   if (service!.code === 'GST_FILING') await refreshClientGst(prisma, req.params.id, session.userId)
 
   await writeActivity({
@@ -720,4 +760,103 @@ clientsRouter.post('/:id/documents', handler(async (req, res) => {
       ? 'The request is recorded and shows on the client\'s document link (if one is on). No message has been sent to the client.'
       : null,
   }, 201)
+}))
+
+// ── Contacts ────────────────────────────────────────────────────────────────
+//
+// The primary contact IS the client master's contact person / number /
+// email: editing one edits the other (clients.shared.ts syncPrimaryContact),
+// and it cannot be removed. Other contacts (accountant, director,
+// authorised signatory…) are added, edited and removed here.
+
+async function contactClient(clientId: string, session: ReturnType<typeof requireSession>, scope: Parameters<typeof assertCanSeeClient>[1]) {
+  await assertCanSeeClient(session, scope, clientId)
+  // A see-all caller passes the scope check for any id; the client must exist.
+  const client = await prisma.client.findFirst({ where: { id: clientId, ...alive } })
+  if (!client) throw ApiError.notFound('Client not found.')
+  return client
+}
+
+function readContact(b: Record<string, unknown>, partial: boolean) {
+  const v = new FieldErrors()
+  const data: { name?: string; designation?: string | null; phone?: string; email?: string | null } = {}
+  if (!partial || 'name' in b) data.name = v.str('name', b.name, { max: 120 })
+  if (!partial || 'designation' in b) data.designation = v.str('designation', b.designation, { required: false, max: 80 }) ?? null
+  if (!partial || 'phone' in b) data.phone = v.phone('phone', b.phone)
+  if (!partial || 'email' in b) data.email = v.email('email', b.email, false) ?? null
+  v.throwIfAny()
+  return data
+}
+
+// GET /api/clients/:id/contacts
+clientsRouter.get('/:id/contacts', handler(async (req, res) => {
+  const session = requireSession(req)
+  const scope = requireWorkstation(session, 'workstation.client.read', 'workstation.client.manage')
+  await contactClient(req.params.id, session, scope)
+  const rows = await prisma.clientContact.findMany({
+    where: { clientId: req.params.id, ...alive }, orderBy: [{ isPrimary: 'desc' }, { createdAt: 'asc' }],
+  })
+  ok(res, { items: rows.map(clientContactToApi), count: rows.length })
+}))
+
+// POST /api/clients/:id/contacts — another contact (never a second primary)
+clientsRouter.post('/:id/contacts', handler(async (req, res) => {
+  const session = requireSession(req)
+  const scope = requireWorkstation(session, 'workstation.client.manage')
+  const client = await contactClient(req.params.id, session, scope)
+  const data = readContact(body(req), false)
+  const row = await prisma.clientContact.create({
+    data: { clientId: client.id, name: data.name!, designation: data.designation ?? null, phone: data.phone!, email: data.email ?? null, isPrimary: false, createdBy: session.userId },
+  })
+  await writeActivity({
+    session, subjectType: 'client', subjectId: client.id, action: 'client.contact_added',
+    description: `Contact added: ${row.name}${row.designation ? ` (${row.designation})` : ''}.`, entityType: 'ClientContact', entityId: row.id,
+  })
+  await writeAudit({ actorUserId: session.userId, action: 'client_contact.create', entityType: 'ClientContact', entityId: row.id, after: row, req })
+  ok(res, clientContactToApi(row), 201)
+}))
+
+// PATCH /api/clients/:id/contacts/:contactId — editing the primary edits the client too
+clientsRouter.patch('/:id/contacts/:contactId', handler(async (req, res) => {
+  const session = requireSession(req)
+  const scope = requireWorkstation(session, 'workstation.client.manage')
+  const client = await contactClient(req.params.id, session, scope)
+  const before = await prisma.clientContact.findFirst({ where: { id: req.params.contactId, clientId: client.id, ...alive } })
+  if (!before) throw ApiError.notFound('Contact not found.')
+  const data = readContact(body(req), true)
+  const row = await prisma.$transaction(async (tx) => {
+    const updated = await tx.clientContact.update({ where: { id: before.id }, data: { ...data, updatedBy: session.userId } })
+    if (before.isPrimary) {
+      await tx.client.update({
+        where: { id: client.id },
+        data: { contactPerson: updated.name, contactNumber: updated.phone, email: updated.email, updatedBy: session.userId },
+      })
+    }
+    return updated
+  })
+  await writeActivity({
+    session, subjectType: 'client', subjectId: client.id, action: 'client.contact_updated',
+    description: `Contact updated: ${row.name}${before.isPrimary ? ' (primary contact)' : ''}.`, entityType: 'ClientContact', entityId: row.id,
+  })
+  await writeAudit({ actorUserId: session.userId, action: 'client_contact.update', entityType: 'ClientContact', entityId: row.id, before, after: row, req })
+  ok(res, clientContactToApi(row))
+}))
+
+// DELETE /api/clients/:id/contacts/:contactId — soft delete; not the primary
+clientsRouter.delete('/:id/contacts/:contactId', handler(async (req, res) => {
+  const session = requireSession(req)
+  const scope = requireWorkstation(session, 'workstation.client.manage')
+  const client = await contactClient(req.params.id, session, scope)
+  const before = await prisma.clientContact.findFirst({ where: { id: req.params.contactId, clientId: client.id, ...alive } })
+  if (!before) throw ApiError.notFound('Contact not found.')
+  if (before.isPrimary) {
+    throw ApiError.conflict('primary_contact', 'The primary contact is the client\'s own contact details — edit it instead of removing it.')
+  }
+  const row = await prisma.clientContact.update({ where: { id: before.id }, data: { deletedAt: new Date(), updatedBy: session.userId } })
+  await writeActivity({
+    session, subjectType: 'client', subjectId: client.id, action: 'client.contact_removed',
+    description: `Contact removed: ${before.name}.`, entityType: 'ClientContact', entityId: before.id,
+  })
+  await writeAudit({ actorUserId: session.userId, action: 'client_contact.delete', entityType: 'ClientContact', entityId: before.id, before, after: row, req })
+  ok(res, { id: before.id, deleted: true })
 }))

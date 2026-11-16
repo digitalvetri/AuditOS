@@ -29,6 +29,7 @@ import { seedGst } from './seed-gst.js'
 import { migrateInc20aFromPartnership, seedCompliance } from './seed-compliance.js'
 import { seedAudit } from './seed-audit.js'
 import { backfillReceiptNumbers } from '../src/modules/invoice/payments.js'
+import { backfillOnboardingWithServices } from '../src/modules/workstation/clients.shared.js'
 
 const prisma = new PrismaClient()
 
@@ -277,6 +278,8 @@ async function main() {
   // Payments recorded before receipt numbers were stored get the number
   // their receipt already showed. Idempotent.
   console.log('Receipt numbers backfilled:', await backfillReceiptNumbers(prisma))
+  // Clients with a service that still say "onboarding" are active. Once only.
+  console.log('Onboarding clients with services moved to active:', await backfillOnboardingWithServices(prisma))
 
   console.log('Seed complete (reference data only):', {
     roles: await prisma.role.count(),

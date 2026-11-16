@@ -323,7 +323,9 @@ leadsRouter.post('/:id/convert', handler(async (req, res) => {
         pan: pan ?? null,
         accountManagerId: accountManagerId!,
         secondaryManagerId: secondaryManagerId ?? null,
-        status: 'onboarding',
+        // Arrives with its first engagement (the lead's service, below), so
+        // it is active from the start — see clients.shared.ts activateIfOnboarding.
+        status: 'active',
         onboardingDate: today,
         sourceLeadId: lead.id,
         isOrganization,

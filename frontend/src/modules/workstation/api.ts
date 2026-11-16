@@ -1,5 +1,6 @@
 import { api } from '@/services/api';
 import type {
+  ClientContact,
   Activity, AssignableEmployee, ClientDetail, ClientDocument, ClientListItem,
   ClientService, DashboardResponse, DocumentCategory, EwayResponse, FollowUp,
   GstProfile, Lead, ListResponse, SearchResponse, ServiceCatalogItem, Task,
@@ -124,6 +125,14 @@ export const workstationApi = {
   updateClient: (id: string, patch: Record<string, unknown>) =>
     api.patch<ClientDetail>(`/api/clients/${id}`, patch),
   clientActivity: (id: string) => api.get<ListResponse<Activity>>(`/api/clients/${id}/activity`),
+  // Contacts. The primary contact is the client's own contact details.
+  clientContacts: (clientId: string) => api.get<ListResponse<ClientContact>>(`/api/clients/${clientId}/contacts`),
+  addClientContact: (clientId: string, input: Record<string, unknown>) =>
+    api.post<ClientContact>(`/api/clients/${clientId}/contacts`, input),
+  updateClientContact: (clientId: string, id: string, patch: Record<string, unknown>) =>
+    api.patch<ClientContact>(`/api/clients/${clientId}/contacts/${id}`, patch),
+  removeClientContact: (clientId: string, id: string) =>
+    api.delete<{ id: string; deleted: boolean }>(`/api/clients/${clientId}/contacts/${id}`),
   clientTasks: (id: string) => api.get<ListResponse<Task>>(`/api/clients/${id}/tasks`),
 
   // ── Services ────────────────────────────────────────────────────────────
