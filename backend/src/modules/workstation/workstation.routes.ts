@@ -267,12 +267,22 @@ workstationRouter.get('/assignable-employees', handler(async (req, res) => {
     select: { id: true, fullName: true, employeeCode: true, designation: { select: { name: true } } },
     orderBy: { employeeCode: 'asc' },
   })
+  // Who may be named an audit file's signing partner (their role signs audit
+  // reports) — so the picker offers only them; the API checks it again.
+  const partners = new Set((await prisma.user.findMany({
+    where: {
+      employeeId: { in: rows.map((r) => r.id) }, isActive: true, deletedAt: null,
+      role: { deletedAt: null, permissions: { some: { permission: { code: 'workstation.audit.sign' } } } },
+    },
+    select: { employeeId: true },
+  })).map((u) => u.employeeId))
   ok(res, {
     items: rows.map((e) => ({
       id: e.id,
       full_name: e.fullName,
       employee_code: e.employeeCode,
       designation: e.designation?.name ?? '',
+      is_partner: partners.has(e.id),
     })),
     count: rows.length,
   })

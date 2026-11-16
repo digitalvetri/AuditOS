@@ -94,6 +94,29 @@ export async function assertEmployee(id: string | null | undefined, field: strin
   if (!e) throw ApiError.badRequest('Employee not found.', { [field]: 'Employee not found.' })
 }
 
+/**
+ * A signing partner (or a team member in the "partner" role) must be a
+ * partner: an employee with an active login whose role holds
+ * workstation.audit.sign (Admin and Super Admin by default). SQC 1 / SA 220
+ * need the engagement partner to be a practising member; a register with
+ * the ICAI membership number and COP is a later improvement.
+ */
+export async function assertPartnerEmployee(id: string | null | undefined, field: string) {
+  if (!id) return
+  await assertEmployee(id, field)
+  const partner = await prisma.user.findFirst({
+    where: {
+      employeeId: id, isActive: true, deletedAt: null,
+      role: { deletedAt: null, permissions: { some: { permission: { code: 'workstation.audit.sign' } } } },
+    },
+    select: { id: true },
+  })
+  if (!partner) {
+    const msg = 'Only a partner can be named here — choose someone whose role signs audit reports.'
+    throw ApiError.badRequest(msg, { [field]: msg })
+  }
+}
+
 // ── Checklists ──────────────────────────────────────────────────────────────
 
 export const appliesTo = (t: { appliesTo: string }, type: string) =>

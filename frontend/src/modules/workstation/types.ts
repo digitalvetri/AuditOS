@@ -412,6 +412,8 @@ export interface AssignableEmployee {
   full_name: string;
   employee_code: string;
   designation: string;
+  /** Their role signs audit reports — the only people who can be a signing partner. */
+  is_partner?: boolean;
 }
 
 export interface ListResponse<T> {

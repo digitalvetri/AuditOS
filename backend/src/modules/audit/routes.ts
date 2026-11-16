@@ -9,7 +9,7 @@ import { nextAuditCode } from '../../platform/workstation/codes.js'
 import { lockSequence } from '../../lib/sequence.js'
 import { AUDIT_TYPES, AUDIT_TYPE_LABEL, defaultPapers, type AuditType } from './data.js'
 import {
-  PRE_SIGN, assertEmployee, blockersOf, clientsById, computeMateriality, employeeNames, guardWrite,
+  PRE_SIGN, assertEmployee, assertPartnerEmployee, blockersOf, clientsById, computeMateriality, employeeNames, guardWrite,
   isManager, isSigningPartner, me, pctString, progressFor,
 } from './service.js'
 import * as S from './serialize.js'
@@ -200,7 +200,7 @@ auditFilesRouter.post('/', handler(async (req, res) => {
   await assertCanSeeClient(session, scope, b.client_id)
   const client = await prisma.client.findFirst({ where: { id: b.client_id, ...alive }, select: { id: true, organisationId: true } })
   if (!client) throw ApiError.notFound('Client not found.')
-  await assertEmployee(b.signing_partner_id, 'signing_partner_id')
+  await assertPartnerEmployee(b.signing_partner_id, 'signing_partner_id')
   await assertEmployee(b.manager_id, 'manager_id')
   if (b.engagement_letter_id) {
     const l = await prisma.engagementLetter.findFirst({ where: { id: b.engagement_letter_id, deletedAt: null }, select: { clientId: true } })
@@ -270,7 +270,7 @@ auditFilesRouter.patch('/:id', handler(async (req, res) => {
     }
   }
   if (b.client_id && b.client_id !== e.clientId) await assertCanSeeClient(session, scope, b.client_id)
-  if (b.signing_partner_id) await assertEmployee(b.signing_partner_id, 'signing_partner_id')
+  if (b.signing_partner_id && b.signing_partner_id !== e.signingPartnerId) await assertPartnerEmployee(b.signing_partner_id, 'signing_partner_id')
   if (b.manager_id) await assertEmployee(b.manager_id, 'manager_id')
   const data: Prisma.AuditEngagementUpdateInput = { updatedBy: session.userId }
   if (b.client_id !== undefined) data.clientId = b.client_id
@@ -298,8 +298,10 @@ auditFilesRouter.patch('/:id', handler(async (req, res) => {
   ok(res, await detail(updated))
 }))
 
+// Approving client acceptance is a partner's (workstation.audit.sign), and
+// only a partner on this file.
 auditFilesRouter.post('/:id/acceptance/approve', handler(async (req, res) => {
-  const { session, e } = await fileAccess(req, 'review')
+  const { session, e } = await fileAccess(req, 'sign')
   guardWrite(e, session, req.body)
   const myId = me(session)
   const partnerOnTeam = await prisma.auditTeamMember.findFirst({ where: { engagementId: e.id, employeeId: myId, role: 'partner', ...alive } })
@@ -402,8 +404,10 @@ auditFilesRouter.post('/:id/sign', handler(async (req, res) => {
   ok(res, await detail(updated))
 }))
 
+// Locking a signed file (assembly): the signing partner or the file's
+// manager — a Senior Associate manager keeps this, so review+ is enough.
 auditFilesRouter.post('/:id/lock', handler(async (req, res) => {
-  const { session, e } = await fileAccess(req, 'sign')
+  const { session, e } = await fileAccess(req, 'review')
   if (e.lockedAt) throw ApiError.conflict('already_locked', 'This file is already locked.')
   if (!isSigningPartner(e, session) && !isManager(e, session)) throw ApiError.forbidden('Only the signing partner or the manager can lock the file.')
   if (e.status !== 'signed') throw ApiError.unprocessable('not_signed', 'Sign the report before locking the file.')
@@ -431,7 +435,8 @@ auditFilesRouter.post('/:id/team', handler(async (req, res) => {
   const { session, e } = await fileAccess(req, 'manage')
   guardWrite(e, session, req.body)
   const b = parse(z.object({ employee_id: z.string().min(1), role: z.enum(TEAM_ROLES) }), req.body, 'Invalid team member.')
-  await assertEmployee(b.employee_id, 'employee_id')
+  if (b.role === 'partner') await assertPartnerEmployee(b.employee_id, 'employee_id')
+  else await assertEmployee(b.employee_id, 'employee_id')
   const existing = await prisma.auditTeamMember.findUnique({ where: { engagementId_employeeId: { engagementId: e.id, employeeId: b.employee_id } } })
   if (existing && !existing.deletedAt) throw ApiError.conflict('already_on_team', 'This person is already on the team.')
   const row = existing

@@ -264,7 +264,7 @@ function AcceptanceCard({ f }: { f: AuditFile }) {
       )}
       <div className="flex items-center gap-3 mt-3 flex-wrap">
         <Link to="?tab=checklists&cl=acceptance" className={linkBtn}>Open acceptance checklist</Link>
-        {!f.acceptance_approved_at && a.isPartner && me.canReview ? (
+        {!f.acceptance_approved_at && a.isPartner && me.canSign ? (
           <button type="button" className={primaryBtn} disabled={approve.isPending || !a.writable} onClick={() => approve.mutate()}>Approve acceptance</button>
         ) : null}
       </div>
@@ -469,7 +469,7 @@ function SigningCard({ f }: { f: AuditFile }) {
           </p>
           {a.locked ? (
             <p className="text-13 text-neutral-700 inline-flex items-center gap-1"><Lock size={14} /> Locked {f.locked_at ? fmtDay(f.locked_at) : ''}</p>
-          ) : a.isLead && me.canSign ? (
+          ) : a.isLead && me.canReview ? (
             <button type="button" className={primaryBtn} disabled={lock.isPending}
               onClick={async () => { if (await confirmAction('Lock this audit file? After this, every change is an addendum.')) lock.mutate(); }}>
               <Lock size={14} /> Lock file
@@ -588,7 +588,7 @@ function EditDetailsModal({ f, onClose }: { f: AuditFile; onClose: () => void })
         <Field label="Signing partner">
           <select className={inputClass} value={partner} onChange={(e) => setPartner(e.target.value)}>
             <option value="">Not yet chosen</option>
-            {people.map((p) => <option key={p.id} value={p.id}>{p.full_name}</option>)}
+            {people.filter((p) => p.is_partner || p.id === f.signing_partner_id).map((p) => <option key={p.id} value={p.id}>{p.full_name}</option>)}
           </select>
         </Field>
         <Field label="Membership no." error={mErr}>

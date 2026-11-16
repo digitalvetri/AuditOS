@@ -110,7 +110,7 @@ export function NewAuditModal({ open, onClose, clientId: presetClient }: { open:
         <Field label="Signing partner" error={errs.signing_partner_id}>
           <select className={inputClass} value={partnerId} onChange={(e) => setPartnerId(e.target.value)}>
             <option value="">Not yet chosen</option>
-            {people.map((p) => <option key={p.id} value={p.id}>{p.full_name}{p.designation ? ` · ${p.designation}` : ''}</option>)}
+            {people.filter((p) => p.is_partner).map((p) => <option key={p.id} value={p.id}>{p.full_name}{p.designation ? ` · ${p.designation}` : ''}</option>)}
           </select>
         </Field>
         <Field label="Partner's membership no." error={errs.partner_membership_no} hint="As printed on the report.">
