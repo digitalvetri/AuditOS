@@ -29,6 +29,7 @@ import { seedGst } from './seed-gst.js'
 import { migrateInc20aFromPartnership, seedCompliance } from './seed-compliance.js'
 import { seedAudit } from './seed-audit.js'
 import { backfillReceiptNumbers } from '../src/modules/invoice/payments.js'
+import { backfillFirmGstin } from '../src/modules/invoice/supply.js'
 
 const prisma = new PrismaClient()
 
@@ -277,6 +278,10 @@ async function main() {
   // Payments recorded before receipt numbers were stored get the number
   // their receipt already showed. Idempotent.
   console.log('Receipt numbers backfilled:', await backfillReceiptNumbers(prisma))
+  // The firm's GSTIN (settings) from the letterhead of its last sent invoice,
+  // so sending is not blocked after the deploy that introduced the setting.
+  // Idempotent: only while it is still unset.
+  console.log('Firm GSTIN backfilled:', await backfillFirmGstin(prisma) ?? 'nothing to do')
 
   console.log('Seed complete (reference data only):', {
     roles: await prisma.role.count(),

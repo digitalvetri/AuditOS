@@ -2,6 +2,8 @@ import { z } from 'zod'
 import type { Prisma } from '@prisma/client'
 import { prisma } from '../../lib/prisma.js'
 import { gstinStateCode, stateNameToCode } from '../repotic/states.js'
+import { isValidGstin } from '../gst/validate.js'
+import { writeAudit } from '../../platform/audit.js'
 
 /**
  * PLACE OF SUPPLY → TAX SPLIT. Shared by invoices and quotations.
@@ -93,4 +95,43 @@ export function resolveInterState(
   const firm = firmStateCode(firmGstinValue)
   if (pos && firm) return pos !== firm
   return requested ?? false
+}
+
+export const FIRM_GSTIN_BACKFILL_ACTION = 'invoice.firm_gstin_backfilled'
+
+/**
+ * Deploy backfill (seed path, idempotent): when the firm's GSTIN is not set
+ * yet, take it from the letterhead of the most recent sent invoice that
+ * carries one — before settings existed, the builder snapshotted the firm's
+ * letterhead (`layout_config.company.gstin`) onto every invoice. Only a GSTIN
+ * that passes the checksum and has a known state is used, and the write is
+ * audited. Nothing found → left null (an Admin sets it in the builder).
+ * Returns the GSTIN written, or null.
+ */
+export async function backfillFirmGstin(db: typeof prisma = prisma, organisationId?: string): Promise<string | null> {
+  const orgId = organisationId ?? await firmOrgId(db)
+  if (!orgId) return null
+  const org = await db.organisation.findUnique({ where: { id: orgId }, select: { gstin: true } })
+  if (!org || org.gstin) return null
+  const rows = await db.invoice.findMany({
+    where: { organisationId: orgId, deletedAt: null, status: { not: 'draft' }, invoiceNumber: { not: null } },
+    orderBy: [{ invoiceDate: 'desc' }, { createdAt: 'desc' }],
+    select: { id: true, invoiceNumber: true, layoutConfig: true },
+    take: 500,
+  })
+  for (const r of rows) {
+    const company = (r.layoutConfig && typeof r.layoutConfig === 'object' && !Array.isArray(r.layoutConfig)
+      ? (r.layoutConfig as { company?: unknown }).company : null) as { gstin?: unknown } | null | undefined
+    const raw = company && typeof company === 'object' && typeof company.gstin === 'string' ? company.gstin.trim().toUpperCase() : ''
+    if (!raw || !isValidGstin(raw) || !stateNameForCode(raw.slice(0, 2))) continue
+    // Conditional: a GSTIN an Admin saved meanwhile is never overwritten.
+    const done = await db.organisation.updateMany({ where: { id: orgId, gstin: null }, data: { gstin: raw } })
+    if (done.count === 0) return null
+    await writeAudit({
+      actorUserId: null, action: FIRM_GSTIN_BACKFILL_ACTION, entityType: 'Organisation', entityId: orgId,
+      before: { gstin: null }, after: { gstin: raw, source: 'invoice_letterhead', invoice_id: r.id, invoice_number: r.invoiceNumber },
+    })
+    return raw
+  }
+  return null
 }
