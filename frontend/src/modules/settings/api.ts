@@ -78,7 +78,7 @@ export const settingsApi = {
   },
 };
 
-export type ModuleCode = 'hrms' | 'workstation' | 'tools' | 'books' | 'books_edit' | 'integrations';
+export type ModuleCode = 'hrms' | 'workstation' | 'tools' | 'books' | 'books_edit' | 'approvals' | 'partner' | 'integrations';
 export type ModuleAccess = 'full' | 'none' | 'partial';
 
 export interface RoleModulesResponse {
