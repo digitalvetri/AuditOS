@@ -184,7 +184,9 @@ export const DocumentService = {
     if (kind !== 'all') where.kind = kind
     if (f.tool) where.sourceTool = f.tool
     if (f.status) where.status = f.status
-    if (f.user_id) where.userId = f.user_id
+    // The "Created by" filter narrows an organisation-wide view; it must
+    // never replace the caller's own-documents scope.
+    if (f.user_id && documentScope(session) === 'organisation') where.userId = f.user_id
     if (f.file_type) {
       const mimes = FILE_TYPE_MIMES[f.file_type]
       if (mimes) where.mimeType = { in: mimes }

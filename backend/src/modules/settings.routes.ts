@@ -7,7 +7,7 @@ import { can, requireSession, type Session } from '../platform/auth.js'
 import { canEditRole } from '../platform/roleRank.js'
 import { writeAudit } from '../platform/audit.js'
 import type { Scope } from '../platform/rbac/matrix.js'
-import { MODULES, moduleCodes, VISIBLE_ROLE_CODES } from '../platform/rbac/modules.js'
+import { MODULES, moduleCodes, scopeFor, VISIBLE_ROLE_CODES } from '../platform/rbac/modules.js'
 import {
   departmentToApi, designationToApi, expenseCategoryToApi, holidayToApi,
   leaveTypeToApi, permissionToApi, roleToApi, statutoryRateToApi,
@@ -699,9 +699,10 @@ settingsRouter.put('/roles/:roleId/permissions/:permissionCode', handler(async (
 }))
 
 // ── Role modules (Settings → Roles & permissions) ────────────────────────
-// The screen edits access per module (HRMS / Workstation / Tools /
-// Integrations), not per code. "Full" = every code in the module at
-// organisation scope; "none" = no code in it. A role whose rows were edited
+// The screen edits access per module (HRMS / Workstation / Tools / Books /
+// Integrations), not per code. "Full" = every code in the module at the
+// scope `scopeFor` gives the role (organisation, except an Associate's or
+// Intern's own tool documents); "none" = no code in it. A role whose rows were edited
 // one by one reads back as "partial".
 
 type ModuleAccess = 'full' | 'none' | 'partial'
@@ -720,7 +721,7 @@ settingsRouter.get('/role-modules', handler(async (req, res) => {
     const held = new Map(r.permissions.map((rp) => [rp.permission.code, rp.scope]))
     const modules = Object.fromEntries(MODULES.map((m) => {
       const codes = moduleCodes(m.code)
-      const full = codes.every((c) => held.get(c) === 'organisation')
+      const full = codes.every((c) => held.get(c) === scopeFor(code, c))
       const none = codes.every((c) => !held.has(c))
       return [m.code, (full ? 'full' : none ? 'none' : 'partial') as ModuleAccess]
     }))
@@ -765,7 +766,7 @@ settingsRouter.put('/roles/:roleId/modules/:module', handler(async (req, res) =>
     prisma.rolePermission.deleteMany({ where: { roleId: role.id, permissionId: { in: ids } } }),
     ...(body.data.access === 'full'
       ? [prisma.rolePermission.createMany({
-          data: ids.map((permissionId) => ({ roleId: role.id, permissionId, scope: 'organisation' })),
+          data: permissions.map((p) => ({ roleId: role.id, permissionId: p.id, scope: scopeFor(role.code, p.code) })),
         })]
       : []),
   ])
