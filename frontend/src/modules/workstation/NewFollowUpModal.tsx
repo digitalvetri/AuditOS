@@ -31,7 +31,7 @@ export function NewFollowUpModal({ open, onClose, defaultDateTime }: {
   const [form, setForm] = useState({
     subject_id: '', title: '', type: 'call',
     scheduled_at: defaultDateTime ?? '',
-    assigned_employee_id: '', notes: '',
+    assigned_employee_id: '', notes: '', reminder: '30',
   });
   const set = (k: keyof typeof form, v: string) => setForm((f) => ({ ...f, [k]: v }));
 
@@ -49,6 +49,7 @@ export function NewFollowUpModal({ open, onClose, defaultDateTime }: {
       scheduled_at: form.scheduled_at ? new Date(form.scheduled_at).toISOString() : '',
       assigned_employee_id: form.assigned_employee_id,
       notes: form.notes || undefined,
+      reminder_minutes_before: form.reminder === '' ? null : Number(form.reminder),
     }),
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: ['workstation'] });
@@ -114,6 +115,13 @@ export function NewFollowUpModal({ open, onClose, defaultDateTime }: {
       </Field>
       <Field label="Date & Time" error={e.scheduled_at}>
         <input className={inputClass} type="datetime-local" value={form.scheduled_at} onChange={(ev) => set('scheduled_at', ev.target.value)} />
+      </Field>
+      <Field label="Reminder" error={e.reminder_minutes_before} hint="A bell notification to the person it is assigned to.">
+        <select className={inputClass} value={form.reminder} onChange={(ev) => set('reminder', ev.target.value)}>
+          {[['', 'No reminder'], ['0', 'At the time'], ['15', '15 minutes before'], ['30', '30 minutes before'], ['60', '1 hour before'], ['1440', '1 day before']].map(([v, l]) => (
+            <option key={v} value={v}>{l}</option>
+          ))}
+        </select>
       </Field>
       <Field label="Assigned To" error={e.assigned_employee_id}>
         <select className={inputClass} value={form.assigned_employee_id} onChange={(ev) => set('assigned_employee_id', ev.target.value)}>

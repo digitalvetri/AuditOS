@@ -15,6 +15,7 @@ import { startRecurringInvoiceScheduler } from './modules/recurring/scheduler.js
 import { startDunningScheduler } from './modules/invoice/reminders.js'
 import { startComplianceScheduler } from './modules/compliance/scheduler.js'
 import { startAuditReminderScheduler } from './modules/audit/reminders.js'
+import { startFollowUpReminderScheduler } from './modules/workstation/followupReminders.js'
 import { startAuditChainScheduler } from './modules/data-protection/chain-check.js'
 import { AaExtractService } from './modules/audit-automation/services/AaExtractService.js'
 import { reportError } from './lib/errorReport.js'
@@ -59,6 +60,8 @@ startRecurringInvoiceScheduler()
 startDunningScheduler()
 startComplianceScheduler(prisma)
 startAuditReminderScheduler(prisma)
+// Follow-up reminders (minutes ahead) and pending follow-ups whose day is over → missed.
+startFollowUpReminderScheduler(prisma)
 // Daily audit-log hash-chain verification; Admins are alerted if it breaks.
 startAuditChainScheduler(prisma)
 

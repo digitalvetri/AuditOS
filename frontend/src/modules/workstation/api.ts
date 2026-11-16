@@ -1,5 +1,6 @@
 import { api } from '@/services/api';
 import type {
+  CalendarEvent,
   ClientContact,
   Activity, AssignableEmployee, ClientDetail, ClientDocument, ClientListItem,
   ClientService, DashboardResponse, DocumentCategory, EwayResponse, FollowUp,
@@ -146,6 +147,9 @@ export const workstationApi = {
     api.patch<ClientService>(`/api/services/${id}`, patch),
 
   // ── Follow-ups ──────────────────────────────────────────────────────────
+  /** Follow-ups, task due dates and compliance due dates the caller can see, by IST day. */
+  calendar: (from: string, to: string) =>
+    api.get<{ from: string; to: string; items: CalendarEvent[]; count: number }>(`/api/workstation/calendar${qs({ from, to })}`),
   listFollowUps: (f: FollowUpFilters = {}) =>
     api.get<ListResponse<FollowUp>>(`/api/follow-ups${qs({ ...f })}`),
   createFollowUp: (input: Record<string, unknown>) => api.post<FollowUp>('/api/follow-ups', input),

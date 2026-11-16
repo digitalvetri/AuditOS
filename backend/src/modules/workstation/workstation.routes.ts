@@ -1,9 +1,11 @@
 import { Router } from 'express'
 import { prisma, alive } from '../../lib/prisma.js'
-import { handler, ok } from '../../lib/http.js'
+import { ApiError, handler, ok } from '../../lib/http.js'
+import { taskScopeWhere } from '../task/service.js'
+import { CLOSED_STATUSES, orgOfUser } from '../compliance/service.js'
 import { requireSession, type Session } from '../../platform/auth.js'
 import {
-  clientIdWhere, clientScopeWhere, followUpScopeWhere, leadScopeWhere, requireWorkstation, workstationScope,
+  assignedClientIds, clientIdWhere, clientScopeWhere, followUpScopeWhere, leadScopeWhere, requireWorkstation, workstationScope,
 } from '../../platform/workstation/scope.js'
 import {
   clientDocumentToApi, clientServiceToApi, clientToApi, employeeMap, followUpToApi, leadToApi,
@@ -94,7 +96,8 @@ workstationRouter.get('/dashboard', handler(async (req, res) => {
   const stage = (s: string) => pipelineRows.find((r) => r.status === s)?._count._all ?? 0
 
   const overdueFollowUps = await prisma.followUp.count({
-    where: { ...followWhere, status: 'pending', scheduledAt: { lt: now } },
+    // Missed (the day is over) is still overdue work.
+    where: { ...followWhere, status: { in: ['pending', 'missed'] }, scheduledAt: { lt: now } },
   })
 
   const m = await employeeMap(todayRows.map((r) => r.assignedEmployeeId))
@@ -297,4 +300,88 @@ workstationRouter.get('/assignable-employees', handler(async (req, res) => {
     })),
     count: rows.length,
   })
+}))
+
+/**
+ * GET /api/workstation/calendar?from=YYYY-MM-DD&to=YYYY-MM-DD (at most 92 days)
+ *
+ * One list of dated things for the calendar, each only if the caller may see
+ * it: follow-ups (their own scope), open tasks by due date (task scope) and
+ * open compliance items by due date (the clients the caller can see).
+ * Dates are IST calendar days.
+ */
+workstationRouter.get('/calendar', handler(async (req, res) => {
+  const session = requireSession(req)
+  requireWorkstation(session, 'workstation.access')
+  const day = (v: unknown) => (typeof v === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(v) && !Number.isNaN(Date.parse(`${v}T00:00:00Z`)) ? v : null)
+  const from = day(req.query.from)
+  const to = day(req.query.to)
+  if (!from || !to || from > to) throw ApiError.badRequest('Give a from and to date (YYYY-MM-DD).')
+  if ((Date.parse(`${to}T00:00:00Z`) - Date.parse(`${from}T00:00:00Z`)) / 86_400_000 > 92) {
+    throw ApiError.badRequest('Ask for at most three months at a time.')
+  }
+  // IST day boundaries as UTC instants.
+  const start = new Date(Date.parse(`${from}T00:00:00Z`) - 5.5 * 3_600_000)
+  const end = new Date(Date.parse(`${to}T00:00:00Z`) + 86_400_000 - 5.5 * 3_600_000)
+  const istDay = (d: Date) => new Date(d.getTime() + 5.5 * 3_600_000).toISOString().slice(0, 10)
+
+  const followScope = workstationScope(session, 'workstation.followup.read', 'workstation.followup.manage')
+  const taskScope = workstationScope(session, 'workstation.task.read')
+  const complianceScope = workstationScope(session, 'workstation.compliance.read', 'workstation.compliance.manage')
+
+  const [followUps, tasks, compliance] = await Promise.all([
+    followScope
+      ? prisma.followUp.findMany({
+          where: { ...alive, ...(await followUpScopeWhere(session, followScope)), scheduledAt: { gte: start, lt: end } },
+          include: { client: { select: { id: true, companyName: true } }, lead: { select: { id: true, name: true } } },
+          orderBy: { scheduledAt: 'asc' },
+        })
+      : [],
+    taskScope
+      ? prisma.task.findMany({
+          where: {
+            ...alive, ...(await taskScopeWhere(session, taskScope)),
+            dueDate: { gte: from, lte: to }, status: { notIn: ['completed', 'done', 'cancelled'] },
+          },
+          include: { client: { select: { id: true, companyName: true } } },
+          orderBy: { dueDate: 'asc' },
+        })
+      : [],
+    complianceScope
+      ? (async () => {
+          const ids = await assignedClientIds(session, complianceScope)
+          return prisma.complianceItem.findMany({
+            where: {
+              organisationId: await orgOfUser(prisma, session.userId),
+              ...(ids === 'ALL' ? {} : { clientId: { in: ids } }),
+              dueDate: { gte: from, lte: to }, status: { notIn: [...CLOSED_STATUSES] },
+            },
+            orderBy: { dueDate: 'asc' },
+          })
+        })()
+      : [],
+  ])
+
+  // Compliance items carry only the client id; a removed client's items are not shown.
+  const complianceClients = new Map((await prisma.client.findMany({
+    where: { id: { in: [...new Set(compliance.map((c) => c.clientId))] }, ...alive }, select: { id: true, companyName: true },
+  })).map((c) => [c.id, c.companyName]))
+
+  const items = [
+    ...followUps.map((f) => ({
+      kind: 'followup' as const, id: f.id, date: istDay(f.scheduledAt), at: f.scheduledAt.toISOString(),
+      title: f.title, type: f.type, status: f.status,
+      client_id: f.clientId, client_name: f.client?.companyName ?? null, lead_id: f.leadId, lead_name: f.lead?.name ?? null,
+    })),
+    ...tasks.map((t) => ({
+      kind: 'task' as const, id: t.id, date: t.dueDate!, at: null, title: t.title, type: null, status: t.status,
+      client_id: t.clientId, client_name: t.client?.companyName ?? null, lead_id: null, lead_name: null,
+    })),
+    ...compliance.filter((c) => complianceClients.has(c.clientId)).map((c) => ({
+      kind: 'compliance' as const, id: c.id, date: c.dueDate, at: null, title: `${c.formCode} · ${c.periodLabel}`, type: c.formCode, status: c.status,
+      client_id: c.clientId, client_name: complianceClients.get(c.clientId) ?? null, lead_id: null, lead_name: null,
+    })),
+  ].sort((a, b) => a.date.localeCompare(b.date) || (a.at ?? '').localeCompare(b.at ?? ''))
+
+  ok(res, { from, to, items, count: items.length })
 }))

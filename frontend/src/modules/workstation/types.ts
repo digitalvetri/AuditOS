@@ -244,6 +244,21 @@ export interface ClientService extends Auditable {
   notes: string | null;
 }
 
+/** One dated thing on the Workstation calendar. `date` is the IST day; `at` only for follow-ups. */
+export interface CalendarEvent {
+  kind: 'followup' | 'task' | 'compliance';
+  id: string;
+  date: string;
+  at: string | null;
+  title: string;
+  type: string | null;
+  status: string;
+  client_id: string | null;
+  client_name: string | null;
+  lead_id: string | null;
+  lead_name: string | null;
+}
+
 export interface FollowUp extends Auditable {
   id: string;
   organisation_id: string;
