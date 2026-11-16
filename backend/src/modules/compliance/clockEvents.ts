@@ -174,3 +174,96 @@ export async function onPrivateLimitedIncorporated(prisma: PrismaClient, p: {
   })
   return { created: true, itemId: created.id }
 }
+
+/**
+ * INC-20A WRITE-THROUGH (POST-DELIVERY-CHANGES §A — PostRegistrationCompliance
+ * follow-up). Partnership keeps writing to its per-case tracker today; this
+ * helper mirrors the latest state to the unified ComplianceItem so the two
+ * tables don't drift on edits. Create path uses onPrivateLimitedIncorporated
+ * (above); this UPDATE path syncs fields the partnership UI can move:
+ *
+ *   triggerDate / dueDate   → anchorDate / dueDate (plus internalDueDate
+ *                             recomputed from the form's internalTargetDays)
+ *   completedOn / completedBy → status (filed / not_started) + filedOn + filedBy
+ *   assignedEmployeeId       → assignedEmployeeId
+ *   notes                    → notes
+ *
+ * Deliberately NOT mirrored: evidenceRef / evidenceDocId. Those live on the
+ * unified engine; the partnership UI doesn't read or write them, and the
+ * firm's "mark completed" on the old UI predates the evidence gate — the
+ * seed-level migration captured whatever historical data existed.
+ *
+ * Idempotent: a re-run with the same PostRegistrationCompliance state leaves
+ * ComplianceItem identical (Prisma update is a no-op when every value matches).
+ * If the ComplianceItem doesn't yet exist (edit on a row that predates
+ * onPrivateLimitedIncorporated firing), delegate to the create path.
+ *
+ * Only runs when the row's code is INC_20A. ADTC and LLP_FORM_3_INITIAL stay
+ * entirely on the partnership path (not in §A scope).
+ */
+export async function syncPrivateLimitedCompliance(prisma: PrismaClient, p: {
+  rowId: string
+}): Promise<ClockEventResult> {
+  const row = await prisma.postRegistrationCompliance.findUnique({
+    where: { id: p.rowId },
+    select: {
+      code: true, clientId: true, triggerDate: true, dueDate: true,
+      completedOn: true, completedBy: true, assignedEmployeeId: true, notes: true,
+    },
+  })
+  if (!row || row.code !== 'INC_20A') return { created: false, skipped: 'no_anchor' }
+  const client = await prisma.client.findUnique({
+    where: { id: row.clientId },
+    select: { organisationId: true, status: true, deletedAt: true },
+  })
+  if (!client || client.deletedAt) return { created: false, skipped: 'no_anchor' }
+  if (client.status === 'inactive') return { created: false, skipped: 'client_inactive' }
+
+  const form = await prisma.complianceForm.findUnique({
+    where: { code: 'INC_20A' },
+    select: { offsetDays: true, internalTargetDays: true, isActive: true },
+  })
+  if (!form || !form.isActive) return { created: false, skipped: 'form_missing' }
+
+  const yearSource = row.triggerDate ?? row.dueDate ?? row.completedOn
+  if (!yearSource) return { created: false, skipped: 'no_anchor' }
+  const periodKey = `${yearSource.slice(0, 4)}-INC_20A`
+  const anchor = row.triggerDate ?? null
+  const dueDate = anchor
+    ? applyRule(anchor, { offsetMonths: 0, dueDay: null, offsetDays: form.offsetDays })
+    : row.dueDate ?? applyRule(yearSource, { offsetMonths: 0, dueDay: null, offsetDays: form.offsetDays })
+  const internalDueDate = anchor && form.internalTargetDays != null
+    ? applyRule(anchor, { offsetMonths: 0, dueDay: null, offsetDays: form.internalTargetDays })
+    : null
+
+  const existing = await prisma.complianceItem.findUnique({
+    where: { clientId_formCode_periodKey: { clientId: row.clientId, formCode: 'INC_20A', periodKey } },
+    select: { id: true, status: true },
+  })
+  // The partnership row is the authority; the mirror follows. If the mirror
+  // is missing (an edit on a row from before onPrivateLimitedIncorporated
+  // existed) fall back to create via findFirst-by-caseId.
+  if (!existing) {
+    // Need the caseId to reuse the create path. The row carries it.
+    const withCase = await prisma.postRegistrationCompliance.findUnique({
+      where: { id: p.rowId }, select: { caseId: true },
+    })
+    if (!withCase) return { created: false, skipped: 'no_anchor' }
+    return onPrivateLimitedIncorporated(prisma, { caseId: withCase.caseId })
+  }
+
+  await prisma.complianceItem.update({
+    where: { id: existing.id },
+    data: {
+      anchorDate: anchor,
+      dueDate,
+      internalDueDate,
+      status: row.completedOn ? 'filed' : (existing.status === 'filed' ? 'not_started' : existing.status),
+      filedOn: row.completedOn,
+      filedBy: row.completedBy,
+      assignedEmployeeId: row.assignedEmployeeId,
+      notes: row.notes,
+    },
+  })
+  return { created: false, itemId: existing.id }
+}

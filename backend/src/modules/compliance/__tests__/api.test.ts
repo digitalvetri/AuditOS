@@ -2,7 +2,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { istToday } from '../../../lib/dates.js'
 import { generateItems } from '../service.js'
 import { migrateInc20aFromPartnership } from '../../../../prisma/seed-compliance.js'
-import { onGstRegistrationGranted, onPrivateLimitedIncorporated } from '../clockEvents.js'
+import { onGstRegistrationGranted, onPrivateLimitedIncorporated, syncPrivateLimitedCompliance } from '../clockEvents.js'
 import { api, client, employee, login, org, prisma, startServer, stopServer, uid } from './fixtures.js'
 
 beforeAll(startServer)
@@ -395,6 +395,79 @@ describe('compliance calendar API', () => {
     expect(result.created).toBe(0)
     const after = await prisma.complianceItem.count({ where: { clientId: c.id, formCode: 'ITR_AUDIT' } })
     expect(after).toBe(before)
+  })
+
+  it('syncPrivateLimitedCompliance — write-through on triggerDate, completedOn, assignee, notes', async () => {
+    const o = await org()
+    const emp = await employee(o, 'Mgr')
+    const emp2 = await employee(o, 'Other')
+    const c = await client(o, 'Sync Co', { businessType: 'Pvt Ltd', accountManagerId: emp.id })
+    const caseRow = await prisma.partnershipCase.create({
+      data: { caseCode: uid('PLCASE'), kind: 'PRIVATE_LIMITED', clientId: c.id, status: 'COMPLETED' },
+    })
+    const prc = await prisma.postRegistrationCompliance.create({
+      data: {
+        caseId: caseRow.id, clientId: c.id, code: 'INC_20A',
+        triggerLabel: 'Date of Incorporation', triggerDate: '2026-05-01',
+        offsetDays: 180, dueDate: '2026-10-28',
+        assignedEmployeeId: emp.id, notes: 'initial',
+      },
+    })
+
+    // Seed the mirrored ComplianceItem the same way #144's hook would.
+    await onPrivateLimitedIncorporated(prisma, { caseId: caseRow.id })
+    const before = await prisma.complianceItem.findFirst({ where: { clientId: c.id, formCode: 'INC_20A' } })
+    expect(before).toMatchObject({ anchorDate: '2026-05-01', status: 'not_started', assignedEmployeeId: emp.id, notes: 'initial' })
+
+    // 1) triggerDate move → ComplianceItem's anchor + due + internal all shift.
+    await prisma.postRegistrationCompliance.update({
+      where: { id: prc.id }, data: { triggerDate: '2026-06-01', dueDate: '2026-11-28', assignedEmployeeId: emp2.id, notes: 'updated' },
+    })
+    const r1 = await syncPrivateLimitedCompliance(prisma, { rowId: prc.id })
+    expect(r1.skipped).toBeUndefined()
+    const afterPatch = await prisma.complianceItem.findFirst({ where: { clientId: c.id, formCode: 'INC_20A' } })
+    expect(afterPatch).toMatchObject({
+      anchorDate: '2026-06-01',
+      dueDate: '2026-11-28',       // anchor + 180
+      internalDueDate: '2026-07-01', // anchor + 30
+      assignedEmployeeId: emp2.id,
+      notes: 'updated',
+    })
+
+    // 2) /complete flow → mirrored as status=filed with filedOn.
+    await prisma.postRegistrationCompliance.update({
+      where: { id: prc.id }, data: { completedOn: '2026-08-15', completedBy: 'u-x' },
+    })
+    await syncPrivateLimitedCompliance(prisma, { rowId: prc.id })
+    const afterComplete = await prisma.complianceItem.findFirst({ where: { clientId: c.id, formCode: 'INC_20A' } })
+    expect(afterComplete).toMatchObject({ status: 'filed', filedOn: '2026-08-15', filedBy: 'u-x' })
+
+    // 3) /reopen flow → mirrored back to not_started.
+    await prisma.postRegistrationCompliance.update({
+      where: { id: prc.id }, data: { completedOn: null, completedBy: null },
+    })
+    await syncPrivateLimitedCompliance(prisma, { rowId: prc.id })
+    const afterReopen = await prisma.complianceItem.findFirst({ where: { clientId: c.id, formCode: 'INC_20A' } })
+    expect(afterReopen).toMatchObject({ status: 'not_started', filedOn: null, filedBy: null })
+
+    // 4) Sync creates the mirror if it doesn't exist yet (edit on a row that
+    //    predates the create hook). Delete the ComplianceItem and re-sync.
+    await prisma.complianceItem.delete({ where: { id: afterReopen!.id } })
+    const r4 = await syncPrivateLimitedCompliance(prisma, { rowId: prc.id })
+    expect(r4.created).toBe(true)
+    expect(await prisma.complianceItem.count({ where: { clientId: c.id, formCode: 'INC_20A' } })).toBe(1)
+
+    // 5) Non-INC_20A code is a no-op.
+    const adtc = await prisma.postRegistrationCompliance.create({
+      data: {
+        caseId: caseRow.id, clientId: c.id, code: 'ADTC',
+        triggerLabel: 'Date of Incorporation', triggerDate: '2026-05-01',
+        offsetDays: 30, dueDate: '2026-05-31',
+      },
+    })
+    const r5 = await syncPrivateLimitedCompliance(prisma, { rowId: adtc.id })
+    expect(r5.skipped).toBe('no_anchor')
+    expect(await prisma.complianceItem.count({ where: { clientId: c.id, formCode: 'ADTC' } })).toBe(0)
   })
 
   it('onPrivateLimitedIncorporated — mirrors INC_20A row into ComplianceItem', async () => {

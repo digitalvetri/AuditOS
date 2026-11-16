@@ -26,7 +26,7 @@ import { assertCanSeeClient, clientScopeWhere, requireWorkstation } from '../../
 import type { Scope } from '../../platform/rbac/matrix.js'
 import { employeeMap } from '../../api/workstation.serialize.js'
 import { body, FieldErrors } from '../workstation/validate.js'
-import { onPrivateLimitedIncorporated } from '../compliance/clockEvents.js'
+import { onPrivateLimitedIncorporated, syncPrivateLimitedCompliance } from '../compliance/clockEvents.js'
 import { addDays, logActivity, today } from './service.js'
 
 const READ = ['workstation.service.read', 'workstation.service.manage'] as const
@@ -430,6 +430,10 @@ postRegistrationRouter.patch('/:id', handler(async (req, res) => {
     after: { triggerDate: updated.triggerDate, triggerLabel: updated.triggerLabel, offsetDays: updated.offsetDays, dueDate: updated.dueDate, notes: updated.notes, assignedEmployeeId: updated.assignedEmployeeId },
     req,
   })
+  // Mirror to the unified compliance clock (POST-DELIVERY-CHANGES §A follow-up).
+  // Only INC_20A is synced today; ADTC / LLP_FORM_3_INITIAL stay on the
+  // partnership path. The sync is no-op when code != 'INC_20A'.
+  await syncPrivateLimitedCompliance(prisma, { rowId: r.id })
   await respondItem(res, updated)
 }))
 
@@ -450,6 +454,7 @@ postRegistrationRouter.post('/:id/complete', handler(async (req, res) => {
   const name = RULE.get(r.code)?.label ?? r.code
   await logActivity(r.caseId, session, 'compliance.completed', `${name} completed on ${on}${r.dueDate ? ` (due ${r.dueDate})` : ''}`)
   await writeAudit({ actorUserId: session.userId, action: 'post_registration_compliance.complete', entityType: 'post_registration_compliance', entityId: r.id, before: { completedOn: r.completedOn }, after: { completedOn: on, completedByEmployeeId: updated.completedByEmployeeId }, req })
+  await syncPrivateLimitedCompliance(prisma, { rowId: r.id })
   await respondItem(res, updated)
 }))
 
@@ -462,5 +467,6 @@ postRegistrationRouter.post('/:id/reopen', handler(async (req, res) => {
   const name = RULE.get(r.code)?.label ?? r.code
   await logActivity(r.caseId, session, 'compliance.reopened', `${name} reopened (was completed on ${r.completedOn})`)
   await writeAudit({ actorUserId: session.userId, action: 'post_registration_compliance.reopen', entityType: 'post_registration_compliance', entityId: r.id, before: { completedOn: r.completedOn }, after: { completedOn: null }, req })
+  await syncPrivateLimitedCompliance(prisma, { rowId: r.id })
   await respondItem(res, updated)
 }))
