@@ -1,5 +1,6 @@
 import { formatRupeeAmount } from '@/lib/format';
 import { api } from '@/services/api';
+import { computeTotals as computeInvoiceTotals, lineTaxable } from '@/modules/workstation/invoices/document';
 
 /**
  * Quotation API client. Goes through the one adapter in services/api.ts like
@@ -234,34 +235,24 @@ export const qtyToCenti = (value: string): number => {
  * type, and it is kept deliberately small for that reason.
  */
 export function previewTotals(items: QuotationItemInput[], discountPaise: number, isInterState: boolean) {
-  const amounts = items.map((i) =>
-    Math.round(((i.quantity_centi * i.unit_rate_paise) / 100) * (1 - i.discount_percent / 100)));
-  const subtotal = amounts.reduce((a, b) => a + b, 0);
-
-  const wanted = Math.min(Math.max(0, Math.trunc(discountPaise)), subtotal);
-  const shares = subtotal > 0
-    ? amounts.map((a) => Math.floor((a * wanted) / subtotal))
-    : amounts.map(() => 0);
-  let remainder = wanted - shares.reduce((a, b) => a + b, 0);
-  const order = amounts.map((_, i) => i).sort((x, y) => amounts[y] - amounts[x]);
-  for (let k = 0; remainder > 0 && order.length; k = (k + 1) % order.length) {
-    shares[order[k]] += 1;
-    remainder -= 1;
-  }
-
-  const taxable = amounts.map((a, i) => a - shares[i]);
-  const tax = taxable.reduce((sum, t, i) => sum + Math.round((t * items[i].gst_rate_percent) / 100), 0);
-  const taxableTotal = taxable.reduce((a, b) => a + b, 0);
-  const cgst = isInterState ? 0 : Math.ceil(tax / 2);
+  // The server's quotation engine IS the invoice engine (no rupee round-off),
+  // so the preview mirrors the invoice builder's copy of it.
+  const lines = items.map((i) => ({
+    quantityCenti: i.quantity_centi,
+    ratePaise: i.unit_rate_paise,
+    discountPercent: i.discount_percent,
+    gstRatePercent: i.gst_rate_percent,
+  }));
+  const t = computeInvoiceTotals(lines, { invoiceDiscountPaise: discountPaise, isInterState, roundOff: false });
 
   return {
-    lineAmounts: amounts,
-    subtotal_paise: subtotal,
-    discount_paise: shares.reduce((a, b) => a + b, 0),
-    taxable_paise: taxableTotal,
-    cgst_paise: cgst,
-    sgst_paise: isInterState ? 0 : tax - cgst,
-    igst_paise: isInterState ? tax : 0,
-    total_paise: taxableTotal + tax,
+    lineAmounts: lines.map(lineTaxable),
+    subtotal_paise: t.subtotalPaise,
+    discount_paise: t.discountPaise,
+    taxable_paise: t.taxablePaise,
+    cgst_paise: t.cgstPaise,
+    sgst_paise: t.sgstPaise,
+    igst_paise: t.igstPaise,
+    total_paise: t.totalPaise,
   };
 }

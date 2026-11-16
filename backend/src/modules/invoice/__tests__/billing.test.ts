@@ -546,4 +546,41 @@ describe('quotation → invoice', () => {
     const sent = await prisma.quotation.create({ data: { organisationId: orgId, quotationCode: uid('QT'), clientId, subject: 'x', quoteDate: '2026-08-01', validUntil: '2026-12-31', status: 'sent' } })
     expect((await api(`/api/quotations/${sent.id}/convert-to-invoice`, { method: 'POST' })).status).toBe(409)
   })
+
+  it('the invoice reproduces the quotation paisa for paisa, even where rounding bites', async () => {
+    // Each line is chosen to round differently under naive arithmetic:
+    //  - 3 × ₹333.33 @18%: 9% halves of 99,999 round up separately,
+    //  - ₹10.10 @5%: full-slab tax 50.5→51 vs halves 25+25,
+    //  - ₹333.35 less 10%: discount applied before vs after rounding,
+    //  plus a ₹10.01 quotation discount that does not divide evenly.
+    const created = await api('/api/quotations', {
+      method: 'POST',
+      body: {
+        client_id: clientId, subject: 'Rounding', quote_date: '2026-08-01', valid_until: '2026-12-31',
+        is_inter_state: false, discount_paise: 10_01,
+        items: [
+          { description: 'Hours', quantity_centi: 300, unit_rate_paise: 333_33, gst_rate_percent: 18 },
+          { description: 'Small', quantity_centi: 100, unit_rate_paise: 10_10, gst_rate_percent: 5 },
+          { description: 'Discounted', quantity_centi: 100, unit_rate_paise: 333_35, discount_percent: 10, gst_rate_percent: 18 },
+        ],
+      },
+    })
+    expect(created.status).toBe(201)
+    await prisma.quotation.update({ where: { id: created.body.id }, data: { status: 'accepted' } })
+    const q = (await api(`/api/quotations/${created.body.id}`)).body
+    const r = await api(`/api/quotations/${q.id}/convert-to-invoice`, { method: 'POST' })
+    expect(r.status).toBe(201)
+    const inv = (await api(`/api/invoices/${r.body.invoice_id}`)).body
+
+    // Every tax column and the taxable base match exactly.
+    for (const k of ['subtotal_paise', 'discount_paise', 'taxable_paise', 'cgst_paise', 'sgst_paise', 'igst_paise']) {
+      expect([k, inv[k]]).toEqual([k, q[k]])
+    }
+    // Line by line: the quotation's tax is the invoice line's CGST + SGST + IGST.
+    expect(inv.items.map((i: any) => i.cgst_amount_paise + i.sgst_amount_paise + i.igst_amount_paise))
+      .toEqual(q.items.map((i: any) => i.tax_paise))
+    // The quotation is not rounded to the rupee; the invoice is, and shows the round-off.
+    expect(inv.total_paise).toBe(q.total_paise + inv.round_off_paise)
+    expect(q.total_paise).toBe(q.taxable_paise + q.cgst_paise + q.sgst_paise + q.igst_paise)
+  })
 })

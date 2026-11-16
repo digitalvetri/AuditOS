@@ -9,13 +9,13 @@
  * RULES
  *  - Every amount is PAISE (Int). Nothing here produces a float.
  *  - Quantity is CENTI-units (250 = 2.5), so "2.5 hours" is an exact integer.
- *  - Rounding happens ONCE per line, half-up, when the line amount is formed.
- *    Tax is then computed on the rounded line, so the printed lines always add
- *    up to the printed total — the failure everyone notices on an invoice.
- *  - A quotation-level discount is spread across lines PRO RATA by line
- *    amount, because tax is per-line: taking it off the grand total instead
- *    would tax a rupee the client is not being charged.
+ *  - The arithmetic IS the invoice engine (invoice/totals.ts): line rounding,
+ *    the pro-rata spread of a quotation-level discount and the per-line
+ *    CGST/SGST/IGST all come from there, so converting an accepted quotation
+ *    to an invoice reproduces its figures paisa for paisa.
  */
+
+import { computeTotals as computeInvoiceTotals, lineTaxable } from '../invoice/totals.js'
 
 /** Whole percents a line may carry. Anything else is rejected by the routes. */
 export const GST_RATES = [0, 5, 12, 18, 28, 40] as const
@@ -44,76 +44,58 @@ export interface QuotationTotals {
   totalPaise: number
 }
 
-/** Half-up on the absolute value, so -0.5 and 0.5 round the same distance. */
-function roundHalfUp(n: number): number {
-  return n < 0 ? -Math.round(-n) : Math.round(n)
-}
-
-/** Gross line amount before any quotation-level discount. */
-export function lineAmountPaise(line: LineInput): number {
-  const gross = (line.quantityCenti * line.unitRatePaise) / 100
-  const afterDiscount = gross * (1 - line.discountPercent / 100)
-  return roundHalfUp(afterDiscount)
-}
-
 /**
- * Spread `discountPaise` across the lines in proportion to their amounts.
- *
- * The remainder from integer division goes to the LARGEST line, so the parts
- * always sum to exactly the discount asked for — never a paisa adrift.
+ * Gross line amount before any quotation-level discount — the invoice
+ * engine's line base, so a quoted line and the invoiced line agree.
  */
-function allocate(discountPaise: number, amounts: number[]): number[] {
-  const total = amounts.reduce((a, b) => a + b, 0)
-  if (discountPaise <= 0 || total <= 0) return amounts.map(() => 0)
-  const capped = Math.min(discountPaise, total)
-  const parts = amounts.map((a) => Math.floor((a * capped) / total))
-  let remainder = capped - parts.reduce((a, b) => a + b, 0)
-  // Hand the remainder out a paisa at a time, biggest line first.
-  const order = amounts.map((a, i) => i).sort((x, y) => amounts[y] - amounts[x])
-  for (let k = 0; remainder > 0; k = (k + 1) % order.length) {
-    parts[order[k]] += 1
-    remainder -= 1
+export function lineAmountPaise(line: LineInput): number {
+  return lineTaxable(toInvoiceLine(line))
+}
+
+function toInvoiceLine(line: LineInput) {
+  return {
+    quantityCenti: line.quantityCenti,
+    ratePaise: line.unitRatePaise,
+    discountPercent: line.discountPercent,
+    gstRatePercent: line.gstRatePercent,
   }
-  return parts
 }
 
 /**
- * Compute every figure on a quotation.
+ * Compute every figure on a quotation — BY THE INVOICE ENGINE.
  *
- * `isInterState` decides the split and nothing else: the tax RATE is the
- * same either way, IGST is simply CGST + SGST in one column.
+ * A quotation is a promise of an invoice, and an accepted one is converted
+ * into exactly that invoice. Two engines rounded differently (per-line tax
+ * split, discount remainder, line-discount order), so the invoice raised
+ * from a quotation could differ from it by paise. One engine means every
+ * line and every tax column is identical by construction.
+ *
+ * The one deliberate difference: a quotation is NOT rounded to the rupee
+ * (it has no round-off row); the invoice raised from it rounds as every
+ * invoice does and prints its round-off.
+ *
+ * `isInterState` decides the split and nothing else.
  */
 export function computeTotals(
   lines: LineInput[],
   opts: { discountPaise?: number; isInterState?: boolean } = {},
 ): QuotationTotals {
-  const amounts = lines.map(lineAmountPaise)
-  const subtotalPaise = amounts.reduce((a, b) => a + b, 0)
-
-  const requested = Math.max(0, Math.trunc(opts.discountPaise ?? 0))
-  const shares = allocate(requested, amounts)
-  const discountPaise = shares.reduce((a, b) => a + b, 0)
-
-  const taxable = amounts.map((a, i) => a - shares[i])
-  const taxablePaise = taxable.reduce((a, b) => a + b, 0)
-
-  const taxes = taxable.map((t, i) => roundHalfUp((t * lines[i].gstRatePercent) / 100))
-  const taxPaise = taxes.reduce((a, b) => a + b, 0)
-
-  // The intra-state split halves the TOTAL tax, not each line, and CGST takes
-  // the odd paisa. Splitting per line would scatter rounding across the bill.
-  const cgstPaise = opts.isInterState ? 0 : Math.ceil(taxPaise / 2)
-  const sgstPaise = opts.isInterState ? 0 : taxPaise - cgstPaise
-  const igstPaise = opts.isInterState ? taxPaise : 0
-
+  const t = computeInvoiceTotals(lines.map(toInvoiceLine), {
+    invoiceDiscountPaise: opts.discountPaise,
+    isInterState: opts.isInterState,
+    roundOff: false,
+  })
   return {
-    lines: amounts.map((amountPaise, i) => ({ amountPaise, taxPaise: taxes[i] })),
-    subtotalPaise,
-    discountPaise,
-    taxablePaise,
-    cgstPaise,
-    sgstPaise,
-    igstPaise,
-    totalPaise: taxablePaise + taxPaise,
+    lines: lines.map((l, i) => ({
+      amountPaise: lineAmountPaise(l),
+      taxPaise: t.lines[i].cgstAmountPaise + t.lines[i].sgstAmountPaise + t.lines[i].igstAmountPaise,
+    })),
+    subtotalPaise: t.subtotalPaise,
+    discountPaise: t.discountPaise,
+    taxablePaise: t.taxablePaise,
+    cgstPaise: t.cgstPaise,
+    sgstPaise: t.sgstPaise,
+    igstPaise: t.igstPaise,
+    totalPaise: t.totalPaise,
   }
 }
