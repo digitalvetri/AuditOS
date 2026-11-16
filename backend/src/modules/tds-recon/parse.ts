@@ -11,6 +11,7 @@ import { ApiError } from '../../lib/http.js'
 import { parseCsv } from '../zpay/invoice-import.js'
 import { ComplianceService } from '../tools/services/tools/ComplianceService.js'
 import { ToolError } from '../tools/services/errors.js'
+import { PDFService } from '../tools/services/tools/PDFService.js'
 
 export interface ParsedEntry {
   deductorName: string | null
@@ -164,12 +165,45 @@ function fromTable(rows: string[][], fallbackDate: string): ParseResult & { foun
 const isZip = (b: Buffer) => b.length > 4 && b[0] === 0x50 && b[1] === 0x4b && b[2] === 0x03 && b[3] === 0x04
 const isPdf = (b: Buffer) => b.length > 4 && b.subarray(0, 4).toString('latin1') === '%PDF'
 
+/**
+ * Whose 26AS, for which year: the assessee PAN and the financial year from
+ * the statement's header. TRACES prints "Permanent Account Number (PAN)",
+ * "Financial Year" and "Assessment Year" (AY = FY + 1); statements for years
+ * under the Income-tax Act, 2025 may say "Tax Year", which is the FY itself.
+ * Null where the header does not say.
+ */
+export interface As26Header { pan: string | null; fy: string | null }
+
+const fyOf = (start: number) => `${start}-${String((start + 1) % 100).padStart(2, '0')}`
+function yearStart(a: string, b: string): number | null {
+  const s = Number(a)
+  const e = Number(b.length === 4 ? b.slice(2) : b)
+  return (s + 1) % 100 === e ? s : null
+}
+
+export function read26ASHeader(text: string): As26Header {
+  const t = text.slice(0, 20_000)
+  const sep = '[\\s^:|,]*'
+  const pan = new RegExp(`Permanent\\s+Account\\s+Number(?:\\s*\\(PAN\\))?${sep}([A-Z]{5}\\d{4}[A-Z])`, 'i').exec(t)?.[1]
+    ?? new RegExp(`\\bPAN\\b${sep}([A-Z]{5}\\d{4}[A-Z])`).exec(t)?.[1] ?? null
+  const year = (label: string) => {
+    const m = new RegExp(`${label}${sep}(\\d{4})\\s*-\\s*(\\d{2,4})`, 'i').exec(t)
+    return m ? yearStart(m[1], m[2]) : null
+  }
+  const fyStart = year('Financial\\s+Year') ?? year('Tax\\s+Year')
+  const ayStart = year('Assessment\\s+Year')
+  const fy = fyStart !== null ? fyOf(fyStart) : ayStart !== null ? fyOf(ayStart - 1) : null
+  return { pan: pan ? pan.toUpperCase() : null, fy }
+}
+
 /** Form 26AS: TRACES text, PDF or Excel. */
-export async function parse26AS(bytes: Buffer, filename: string): Promise<ParseResult & { sourceFormat: 'text' | 'excel' }> {
+export async function parse26AS(bytes: Buffer, filename: string): Promise<ParseResult & { sourceFormat: 'text' | 'excel'; header: As26Header }> {
   if (isZip(bytes)) {
-    for (const s of await sheets(bytes)) {
+    const all = await sheets(bytes)
+    const header = read26ASHeader(all.flatMap((s) => s.rows.slice(0, 25).map((r) => r.join('^'))).join('\n'))
+    for (const s of all) {
       const r = fromTable(s.rows, '')
-      if (r.found && r.entries.length) return { ...r, format: 'excel', sourceFormat: 'excel' }
+      if (r.found && r.entries.length) return { ...r, format: 'excel', sourceFormat: 'excel', header }
     }
     throw ApiError.unprocessable('no_tables', 'No 26AS rows (TAN, section, TDS) were found in this workbook.')
   }
@@ -188,7 +222,10 @@ export async function parse26AS(bytes: Buffer, filename: string): Promise<ParseR
   const sheet = (await sheets(out.bytes)).find((s) => s.name === 'Part I - TDS')
   const r = sheet ? fromTable(sheet.rows, '') : null
   if (!r?.entries.length) throw ApiError.unprocessable('no_tables', 'No Part I TDS rows could be read from this 26AS.')
-  return { ...r, format: text ? 'text' : 'pdf', sourceFormat: text ? 'text' : 'excel' }
+  const headerText = text
+    ? bytes.toString('utf8')
+    : (await PDFService.extractText(bytes)).slice(0, 2).flatMap((p) => p.lines.map((l) => l.cells.map((c) => c.text).join(' '))).join('\n')
+  return { ...r, format: text ? 'text' : 'pdf', sourceFormat: text ? 'text' : 'excel', header: read26ASHeader(headerText) }
 }
 
 /** Books TDS register: Excel or CSV of party, TAN, section, amount, TDS (date, reference optional). */

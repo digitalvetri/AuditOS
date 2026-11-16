@@ -71,8 +71,22 @@ type Client = Awaited<ReturnType<typeof clientFor>>
  * again for the client reuse the earlier upload (the hash is unique per
  * client), reviving it if it had been deleted.
  */
-async function storeUpload(kind: '26as' | 'books', file: Express.Multer.File, client: Client, fy: string, organisationId: string, userId: string): Promise<{ id: string; entries: number; skipped: number }> {
+async function storeUpload(kind: '26as' | 'books', file: Express.Multer.File, client: Client, fy: string, organisationId: string, userId: string): Promise<{ id: string; entries: number; skipped: number; headerVerified: boolean }> {
   const parsed = kind === '26as' ? await parse26AS(file.buffer, file.originalname) : await parseBooks(file.buffer, file.originalname)
+  // Whose 26AS, for which year: refuse one that says it is another PAN's or
+  // another year's, before anything is stored. A file without a readable
+  // header goes ahead and the job is flagged HEADER_UNVERIFIED.
+  let headerVerified = true
+  if ('header' in parsed) {
+    const h = parsed.header
+    if (h.pan && client.pan && h.pan !== client.pan.toUpperCase()) {
+      throw ApiError.unprocessable('wrong_pan', `This 26AS is for PAN ${h.pan}, but ${client.companyName}'s PAN is ${client.pan}. Upload this client's 26AS.`)
+    }
+    if (h.fy && h.fy !== fy) {
+      throw ApiError.unprocessable('wrong_year', `This 26AS is for FY ${h.fy}, not FY ${fy}. Choose FY ${h.fy} or upload the FY ${fy} statement.`)
+    }
+    headerVerified = Boolean(h.fy && h.pan && client.pan)
+  }
   const sha = crypto.createHash('sha256').update(file.buffer).digest('hex')
   const ay = ayOfFy(fy)
   const where = { clientId_fileSha256: { clientId: client.id, fileSha256: sha } }
@@ -83,7 +97,7 @@ async function storeUpload(kind: '26as' | 'books', file: Express.Multer.File, cl
       if (kind === '26as') await prisma.aaTds26AS.update({ where: { id: existing.id }, data: { ...data, financialYear: fy } })
       else await prisma.aaTdsBooks.update({ where: { id: existing.id }, data })
     }
-    return { id: existing.id, entries: parsed.entries.length, skipped: parsed.skipped.length }
+    return { id: existing.id, entries: parsed.entries.length, skipped: parsed.skipped.length, headerVerified }
   }
   const key = `${client.id}/${crypto.randomUUID()}${path.extname(file.originalname).slice(0, 8)}`
   await storage().put(key, file.buffer)
@@ -108,7 +122,7 @@ async function storeUpload(kind: '26as' | 'books', file: Express.Multer.File, cl
     })
     return r.id
   })
-  return { id, entries: parsed.entries.length, skipped: parsed.skipped.length }
+  return { id, entries: parsed.entries.length, skipped: parsed.skipped.length, headerVerified }
 }
 
 interface Totals { count: number; amount_paid_paise: number; tds_26as_paise: number; tds_books_paise: number }
@@ -211,6 +225,9 @@ tdsReconRouter.post('/jobs', upload.fields([{ name: 'file_26as', maxCount: 1 }, 
   if (rows.some((r) => r.flags.includes('tan_from_name'))) flags.add('TAN_FROM_NAME')
   if (rows.some((r) => r.flags.some((f) => f === 'status_u' || f === 'status_p'))) flags.add('UNBOOKED_CREDITS')
   if (rows.some((r) => r.flags.includes('short_deposit'))) flags.add('SHORT_DEPOSITS')
+  if (rows.some((r) => r.flags.includes('section_differs'))) flags.add('SECTION_DIFFERS')
+  // The 26AS header did not name both the PAN and the year (or the client has no PAN on file).
+  if (!s26.headerVerified) flags.add('HEADER_UNVERIFIED')
   const count = (st: MatchStatus) => rows.filter((r) => r.matchStatus === st).length
   const job = await prisma.$transaction(async (tx) => {
     const j = await tx.aaTdsReconJob.create({
