@@ -625,8 +625,7 @@ auditAutomationRouter.post('/invoices', handler(async (req, res) => {
     entityType: 'AaInvoiceExtraction', entityId: row.id,
     after: { client_id: clientId, status, pdf_sha256: pdfSha256 }, req,
   })
-  res.status(201)
-  ok(res, serializeExtraction(row))
+  ok(res, serializeExtraction(row), 201)
 }))
 
 /**
