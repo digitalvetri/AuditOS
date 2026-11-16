@@ -3,7 +3,8 @@
  *
  *  Staff  — the item's assignee (else the obligation's, else the client's
  *           account manager) gets one bell notification per stage: 7 days
- *           before, 1 day before, and once overdue. Stages are thresholds
+ *           before, 1 day before, once overdue, then once a week while it
+ *           stays unfiled (up to OVERDUE_LOOKBACK_DAYS). Stages are thresholds
  *           (days_left <= N), not exact days, so a day the server was down
  *           does not skip one. Deduped on Notification.entityId; the due date
  *           is in the key so an extension re-arms the reminders.
@@ -112,9 +113,27 @@ async function openItems(prisma: PrismaClient, today: string, lo: number, hi: nu
   return out
 }
 
-export function staffStage(daysLeft: number): 'd7' | 'd1' | 'overdue' | null {
-  if (daysLeft < -7) return null // first enabled long after: don't flood the bell
-  if (daysLeft < 0) return 'overdue'
+/**
+ * Overdue items keep reminding once a week until filed. Past a year the
+ * bell stops: an item that old is a clean-up job for the calendar, not a
+ * reminder, and the first run after enabling this must not flood the bell.
+ */
+export const OVERDUE_LOOKBACK_DAYS = 365
+
+/**
+ * Weekly overdue stage: days 1–7 late → 'overdue' (the key earlier versions
+ * used, so nothing already sent is repeated), 8–14 → 'overdue-w2', and so on.
+ */
+export function overdueStage(daysLeft: number): string | null {
+  if (daysLeft >= 0 || daysLeft < -OVERDUE_LOOKBACK_DAYS) return null
+  const week = Math.floor((-daysLeft - 1) / 7) + 1
+  return week === 1 ? 'overdue' : `overdue-w${week}`
+}
+
+const isOverdueStage = (stage: string) => stage === 'overdue' || stage.startsWith('overdue-w')
+
+export function staffStage(daysLeft: number): 'd7' | 'd1' | string | null {
+  if (daysLeft < 0) return overdueStage(daysLeft)
   if (daysLeft <= 1) return 'd1'
   if (daysLeft <= 7) return 'd7'
   return null
@@ -134,7 +153,10 @@ export function clockLeadUpStage(
   daysToStatutory: number,
   leadUps: number[],
 ): { stage: string; timing: 'lead' | 'daily' | 'past_internal' | 'overdue' } | null {
-  if (daysToStatutory < 0) return { stage: 'overdue', timing: 'overdue' }
+  if (daysToStatutory < 0) {
+    const stage = overdueStage(daysToStatutory)
+    return stage ? { stage, timing: 'overdue' } : null
+  }
   if (!leadUps.length) return null
   const minLead = Math.min(...leadUps)
   // Exact-lead day match: t30, t15, t7, …
@@ -157,7 +179,7 @@ export function clockLeadUpStage(
  * but hit 7.
  */
 export function shouldEscalateClockStage(stage: string): boolean {
-  if (stage === 'overdue') return true
+  if (isOverdueStage(stage)) return true
   if (stage.startsWith('daily-') || stage.startsWith('past_internal-')) return true
   if (stage.startsWith('t')) {
     const n = Number(stage.slice(1))
@@ -189,10 +211,10 @@ export async function escalationRecipients(
 
 export async function sendComplianceStaffReminders(prisma: PrismaClient, today: string): Promise<number> {
   // Widened window: INC-20A's T-30 lead-up needs 30 days of forward look;
-  // past-internal and overdue items keep the -7 tail for recurring forms.
+  // overdue items stay in view for OVERDUE_LOOKBACK_DAYS (weekly bells).
   // Clock items don't use the window gate the same way — openItems() checks
   // daysToInternal too.
-  const items = await openItems(prisma, today, -7, 30)
+  const items = await openItems(prisma, today, -OVERDUE_LOOKBACK_DAYS, 30)
   const notes = items.flatMap((i) => {
     if (!i.assignee) return []
     // Clock items with a leadUpDays schedule use the clock stager; everything
@@ -246,14 +268,14 @@ export async function sendComplianceStaffReminders(prisma: PrismaClient, today: 
     if (already.has(key)) continue
     const what = `${i.formName} (${i.periodLabel})`
     const isClock = !!i.leadUpDays
-    const isOverdue = stage === 'overdue'
+    const isOverdue = isOverdueStage(stage)
     const title = isOverdue
       ? `Overdue — ${i.client.companyName}`
       : isClock
         ? `${titleForClockStage(stage, i.daysToInternal ?? 0)} — ${i.client.companyName}`
         : `Due ${stage === 'd1' ? (i.daysLeft === 0 ? 'today' : 'tomorrow') : 'in a week'} — ${i.client.companyName}`
     const body = isOverdue
-      ? `${what} was due ${fmtDate(i.due)}.`
+      ? `${what} was due ${fmtDate(i.due)}${overdueBy(i.daysLeft)}.`
       : isClock
         ? bodyForClockStage(what, i, stage)
         : `${what} is due ${fmtDate(i.due)}${i.daysLeft === 0 ? ' (today)' : ` (in ${i.daysLeft} day${i.daysLeft === 1 ? '' : 's'})`}.`
@@ -270,12 +292,12 @@ export async function sendComplianceStaffReminders(prisma: PrismaClient, today: 
   for (const { i, stage, employeeId, key } of escalations) {
     if (already.has(key)) continue
     const what = `${i.formName} (${i.periodLabel})`
-    const isOverdue = stage === 'overdue'
+    const isOverdue = isOverdueStage(stage)
     const title = isOverdue
       ? `Escalation: overdue — ${i.client.companyName}`
       : `Escalation: ${titleForClockStage(stage, i.daysToInternal ?? 0).toLowerCase()} — ${i.client.companyName}`
     const body = isOverdue
-      ? `${what} was due ${fmtDate(i.due)}. Assignee has not filed; escalated.`
+      ? `${what} was due ${fmtDate(i.due)}${overdueBy(i.daysLeft)}. Assignee has not filed; escalated.`
       : `${what}. ${bodyForClockStage('', i, stage).replace(/^\. /, '').trim()} Assignee is still open.`
     const row = await notifyEmployee(employeeId, {
       type: 'compliance_escalation', module: 'workstation',
@@ -289,6 +311,8 @@ export async function sendComplianceStaffReminders(prisma: PrismaClient, today: 
 
   return sent
 }
+
+const overdueBy = (daysLeft: number) => (daysLeft < 0 ? ` (${-daysLeft} day${daysLeft === -1 ? '' : 's'} overdue)` : '')
 
 function titleForClockStage(stage: string, daysToInternal: number): string {
   if (stage.startsWith('t')) {

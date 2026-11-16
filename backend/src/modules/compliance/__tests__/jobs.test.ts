@@ -41,7 +41,22 @@ const notes = (userId: string) => prisma.notification.findMany({ where: { userId
 
 describe('staff reminders', () => {
   it('stage thresholds', () => {
-    expect([8, 7, 2, 1, 0, -1, -7, -8].map(staffStage)).toEqual([null, 'd7', 'd7', 'd1', 'd1', 'overdue', 'overdue', null])
+    expect([8, 7, 2, 1, 0, -1, -7, -8].map(staffStage)).toEqual([null, 'd7', 'd7', 'd1', 'd1', 'overdue', 'overdue', 'overdue-w2'])
+  })
+
+  it('an overdue item keeps reminding weekly until it is filed', async () => {
+    const { user, emp, mk } = await setup()
+    const item = await mk('PF_ECR', '2031-05-15', { assignedEmployeeId: emp.id })
+    for (const d of ['2031-05-16', '2031-05-20', '2031-05-23', '2031-05-29', '2031-06-01', '2031-06-10']) {
+      await sendComplianceStaffReminders(prisma, d)
+    }
+    const got = (await notes(user.id)).filter((n) => n.entityId!.includes(item.id))
+    // -1 → overdue, -8 → w2, -17 → w3, -26 → w4 (and -14 / -5 are repeats).
+    expect(got.map((n) => n.entityId!.split(':').at(-1))).toEqual(['overdue', 'overdue-w2', 'overdue-w3', 'overdue-w4'])
+    expect(got.at(-1)!.body).toMatch(/26 days overdue/)
+    await prisma.complianceItem.update({ where: { id: item.id }, data: { status: 'filed', filedOn: '2031-06-10' } })
+    await sendComplianceStaffReminders(prisma, '2031-06-20')
+    expect((await notes(user.id)).filter((n) => n.entityId!.includes(item.id))).toHaveLength(4)
   })
 
   it('7 days, 1 day, overdue — once each, to the assignee else the account manager', async () => {

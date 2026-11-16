@@ -3,8 +3,12 @@ import { clockLeadUpStage, shouldEscalateClockStage, staffStage } from '../remin
 
 describe('staffStage (recurring forms, unchanged)', () => {
   it.each([
-    [-8, null],
     [-7, 'overdue'],
+    [-8, 'overdue-w2'],
+    [-14, 'overdue-w2'],
+    [-15, 'overdue-w3'],
+    [-365, 'overdue-w53'],
+    [-366, null],
     [-1, 'overdue'],
     [0, 'd1'],
     [1, 'd1'],
@@ -43,7 +47,7 @@ describe('clockLeadUpStage', () => {
 
   it('statutory passed → overdue (wins over past_internal)', () => {
     expect(clockLeadUpStage(-30, -1, rule10a)).toEqual({ stage: 'overdue', timing: 'overdue' })
-    expect(clockLeadUpStage(-200, -20, inc20a)).toEqual({ stage: 'overdue', timing: 'overdue' })
+    expect(clockLeadUpStage(-200, -20, inc20a)).toEqual({ stage: 'overdue-w3', timing: 'overdue' })
   })
 
   it('INC-20A — T-30 fires (recurring staff cadence would have missed it entirely)', () => {
@@ -61,6 +65,7 @@ describe('clockLeadUpStage', () => {
 describe('shouldEscalateClockStage', () => {
   it('overdue, past_internal, daily — always escalate', () => {
     expect(shouldEscalateClockStage('overdue')).toBe(true)
+    expect(shouldEscalateClockStage('overdue-w4')).toBe(true)
     expect(shouldEscalateClockStage('daily-0')).toBe(true)
     expect(shouldEscalateClockStage('daily-5')).toBe(true)
     expect(shouldEscalateClockStage('past_internal-1')).toBe(true)
