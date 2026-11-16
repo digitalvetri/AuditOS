@@ -752,7 +752,13 @@ export const ComplianceService = {
           if (under) openingHint = signed(under)
           summaryOpeningX = null
         }
-        if (/\b(opening\s+bal(ance)?|balance\s+b\/?f|brought\s+forward|balance\s+as\s+on|balance\s+forward)\b/i.test(joined) && !bankDate(pieces)) {
+        // Opening / brought-forward and closing / carried-forward lines are
+        // balances, not transactions, dated or not. A dated one is recognised
+        // only when it carries at most one amount, so a narration that merely
+        // mentions "balance" is still read as a transaction.
+        const moneyCount = pieces.filter((p) => p.money !== null).length
+        const balanceLine = !bankDate(pieces) || moneyCount <= 1
+        if (balanceLine && /\b(opening\s+bal(ance)?|balance\s+b\/?f|brought\s+forward|b\/f|balance\s+as\s+on|balance\s+forward)\b/i.test(joined)) {
           // The figure may share a cell with its label: "Balance as on 1 Apr 2026 : 80,000.00".
           const m = bankPieces(pieces.flatMap((p) => p.text.split(/\s+/).map((w) => ({ text: w, x0: p.x0, x1: p.x1 }))))
             .filter((p) => p.money !== null)
@@ -765,6 +771,7 @@ export const ComplianceService = {
           }
           continue
         }
+        if (balanceLine && /\b(closing\s+bal(ance)?|balance\s+c\/?f|carried\s+forward|c\/f)\b/i.test(joined)) continue
         const dated = bankDate(pieces)
         if (!dated) continue
 

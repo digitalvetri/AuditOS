@@ -89,6 +89,19 @@ describe('Bank Statement to Excel', () => {
     expect(r.closing).toBe(14410)
   })
 
+  it('dated opening, brought-forward and closing lines are balances, not transactions', async () => {
+    const pdf = await positionedPdf([
+      [[30, 'Date'], [90, 'Narration'], [330, 'Withdrawal', 60], [400, 'Deposit', 60], [470, 'Balance', 70]],
+      [[30, '01/04/2026'], [90, 'OPENING BALANCE'], [470, '50,000.00', 70]],
+      [[30, '03/04/2026'], [90, 'NEFT CR PONNI AGENCIES'], [400, '12,000.00', 60], [470, '62,000.00', 70]],
+      [[30, '15/04/2026'], [90, 'BALANCE B/F'], [470, '62,000.00', 70]],
+      [[30, '18/04/2026'], [90, 'UPI DR ELECTRICITY'], [330, '2,340.00', 60], [470, '59,660.00', 70]],
+      [[30, '30/04/2026'], [90, 'CLOSING BALANCE'], [470, '59,660.00', 70]],
+    ])
+    const r = await run(pdf)
+    expect([r.transactions, r.opening, r.totalCredit, r.totalDebit, r.closing]).toEqual([2, 50000, 12000, 2340, 59660])
+  })
+
   it('refuses, naming the row, when the running balance does not tie', async () => {
     const pdf = await positionedPdf([
       [[30, 'Date'], [90, 'Narration'], [330, 'Withdrawal', 60], [400, 'Deposit', 60], [470, 'Balance', 70]],
