@@ -243,6 +243,14 @@ describe('Start → Finish', () => {
     expect(() => assertGstr1Transition('in_preparation', 'filed')).not.toThrow()
     expect(() => assertGstr3bTransition('preparation', 'filed')).not.toThrow()
   })
+  it('lets a legacy 3B in data preparation be filed', () => {
+    expect(() => assertGstr3bTransition('data_preparation', 'filed')).not.toThrow()
+    expect(() => assertGstr3bTransition('in_preparation', 'filed')).not.toThrow()
+  })
+  it('reads Indian-format amounts', () => {
+    expect(toPaise('1,50,000.50', 'x')).toBe(15000050n)
+    expect(toPaise(' 1 200 ', 'x')).toBe(120000n)
+  })
   it('still refuses filing a return nobody started', () => {
     expect(() => assertGstr1Transition('pending', 'filed')).toThrow()
     expect(() => assertGstr3bTransition('pending', 'filed')).toThrow()

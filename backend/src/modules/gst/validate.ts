@@ -77,7 +77,8 @@ export function assertGstr3bTransition(from: string, to: string) {
       'This GSTR-3B is already filed. Record the payment, or raise a rework.',
     )
   }
-  if (to === 'filed' && !['preparation', 'under_review', 'ready_to_file', 'filed'].includes(current)) {
+  // `in_preparation` too: a legacy 3B in `data_preparation` normalises to it.
+  if (to === 'filed' && !['preparation', 'in_preparation', 'under_review', 'ready_to_file', 'filed'].includes(current)) {
     throw ApiError.badRequest('Start the return before recording it as filed.')
   }
   if (to === 'completed' && !['payment_pending', 'filed', 'completed'].includes(current)) {
@@ -109,10 +110,10 @@ export function assertFilingRecord(arn: string | null | undefined, filedDate: st
   }
 }
 
-/** Rupee input → integer paise. Rejects anything that is not a number. */
+/** Rupee input → integer paise. Accepts Indian grouping ('1,50,000.50'). Rejects anything that is not a number. */
 export function toPaise(value: unknown, field: string): bigint | null {
   if (value === null || value === undefined || value === '') return null
-  const n = typeof value === 'number' ? value : Number(value)
+  const n = typeof value === 'number' ? value : Number(String(value).replace(/[,\s]/g, ''))
   if (!Number.isFinite(n) || n < 0) throw ApiError.badRequest(`${field} must be a positive amount.`)
   return BigInt(Math.round(n * 100))
 }
