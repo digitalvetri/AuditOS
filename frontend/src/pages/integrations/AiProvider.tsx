@@ -1,9 +1,11 @@
 /**
- * /integrations/ai-provider — per-firm LLM API key configuration.
+ * /integrations/ai-provider — per-firm LLM API keys.
  *
- * Today only Groq is supported (used by the GST Notices reply drafter).
- * Anthropic and OpenAI are placeholders for later — same shape, same storage,
- * different backend call.
+ * Providers: Claude (Anthropic), OpenAI, Google Gemini and Groq. One card
+ * each; one provider is current per firm and is what every AI feature uses
+ * (GST Notices reply drafter today). The firm's first saved key becomes
+ * current; "Use this provider" switches. Keys are encrypted at rest and
+ * never returned by the API after saving.
  *
  * Permission: integrations.access@organisation.
  */
@@ -18,26 +20,45 @@ import { useToast } from '@/components/Toast';
 import { api } from '@/services/api';
 import { confirmAction } from '@/components/ConfirmDialog';
 
-type Provider = 'groq';
+type Provider = 'anthropic' | 'openai' | 'gemini' | 'groq';
 
-interface AiConfigRow {
+interface ProviderRow {
   provider: Provider;
-  has_key: boolean;
-  key_fingerprint: string;
+  label: string;
+  key_url: string;
+  default_model: string;
+  configured: boolean;
+  key_fingerprint: string | null;
   model: string | null;
-  default_model: string | null;
-  active: boolean;
-  updated_at: string;
+  is_current: boolean;
+  updated_at: string | null;
+}
+
+interface AiOverview {
+  current_provider: Provider | null;
+  env_fallback: boolean;
+  providers: ProviderRow[];
 }
 
 const aiApi = {
-  list: () => api.get<AiConfigRow[]>('/api/integrations/ai'),
+  overview: () => api.get<AiOverview>('/api/integrations/ai'),
   save: (body: { provider: Provider; api_key: string; model?: string }) =>
-    api.put<AiConfigRow>('/api/integrations/ai', body),
-  test: (body: { provider: Provider; api_key: string; model?: string }) =>
-    api.post<{ ok: true; model: string }>('/api/integrations/ai/test', body),
+    api.put<AiOverview>('/api/integrations/ai', body),
+  test: (body: { provider: Provider; api_key?: string; model?: string }) =>
+    api.post<{ ok: true; provider: Provider; model: string }>('/api/integrations/ai/test', body),
+  activate: (provider: Provider) => api.post<AiOverview>(`/api/integrations/ai/${provider}/activate`),
   remove: (provider: Provider) => api.delete<void>(`/api/integrations/ai/${provider}`),
 };
+
+/** Shown under the key input: where the key comes from and what it looks like. */
+const KEY_HINT: Record<Provider, { placeholder: string; prefix: string | null }> = {
+  anthropic: { placeholder: 'sk-ant-...', prefix: 'sk-ant-' },
+  openai: { placeholder: 'sk-...', prefix: 'sk-' },
+  gemini: { placeholder: 'AIza...', prefix: 'AIza' },
+  groq: { placeholder: 'gsk_...', prefix: 'gsk_' },
+};
+
+const AI_QUERY_KEY = ['integrations', 'ai'] as const;
 
 export function AiProviderIntegrationPage() {
   const { session } = useAuth();
@@ -55,110 +76,185 @@ export function AiProviderIntegrationPage() {
       </div>
     );
   }
+  return <AiProviderPage />;
+}
+
+function AiProviderPage() {
+  const q = useQuery({ queryKey: AI_QUERY_KEY, queryFn: () => aiApi.overview() });
+  const data = q.data;
+  const current = data?.providers.find((p) => p.is_current) ?? null;
+
   return (
     <div className="m-page">
       <header>
         <div className="text-11 uppercase tracking-[0.06em] text-neutral-500">Integrations</div>
         <h1 className="text-[26px] leading-tight font-semibold tracking-[-0.01em] text-neutral-900 mt-1">AI provider</h1>
         <p className="text-13 text-neutral-500 mt-1 max-w-[640px]">
-          The LLM used by the GST Notices → Reply drafter. Add your firm's own Groq
-          key here; it is encrypted at rest and never returned by the API after
-          saving. Until a key is saved the server falls back to the stack-level
-          GROQ_API_KEY env var (if set).
+          The active provider is used by every AI feature — today the GST Notices reply drafter.
+          Add your firm's own key for any provider below; keys are encrypted at rest and never
+          shown again after saving. The first key you save becomes active; use
+          "Use this provider" to switch.
         </p>
       </header>
+
       <div className="mt-6 space-y-4">
-        <GroqSection />
+        {q.isLoading ? (
+          <div className="flex items-center gap-2 text-13 text-neutral-500">
+            <Loader2 size={14} className="animate-spin" /> Loading…
+          </div>
+        ) : q.isError || !data ? (
+          <div className="text-13 text-danger">Could not load the AI provider settings.</div>
+        ) : (
+          <>
+            {current ? (
+              <div className="flex items-center gap-3 p-3 border border-success/40 bg-success/5 rounded text-13">
+                <CheckCircle2 size={16} className="text-success" />
+                <div className="flex-1">
+                  <span className="font-medium text-neutral-900">Active: {current.label}</span>
+                  <span className="text-neutral-500">
+                    {' '}· model <span className="font-mono">{current.model || current.default_model}</span>
+                    {data.env_fallback ? ' · using the server-wide GROQ_API_KEY (no firm key saved yet)' : ''}
+                  </span>
+                </div>
+              </div>
+            ) : (
+              <div className="flex items-center gap-3 p-3 border border-amber/40 bg-amber/5 rounded text-13">
+                <XCircle size={16} className="text-amber" />
+                <div className="flex-1">
+                  <div className="font-medium text-neutral-900">No AI provider configured.</div>
+                  <div className="text-12 text-neutral-500">
+                    AI features will fail with "LLM not configured" until you save a key below.
+                  </div>
+                </div>
+              </div>
+            )}
+            {data.providers.map((p) => (
+              <ProviderCard key={p.provider} row={p} />
+            ))}
+          </>
+        )}
       </div>
     </div>
   );
 }
 
-function GroqSection() {
+function StatusPill({ row }: { row: ProviderRow }) {
+  if (row.is_current) {
+    return <span className="h-6 px-3 inline-flex items-center rounded-full text-12 font-medium bg-success/10 text-success">Active</span>;
+  }
+  if (row.configured) {
+    return <span className="h-6 px-3 inline-flex items-center rounded-full text-12 font-medium bg-neutral-100 text-neutral-700">Configured</span>;
+  }
+  return <span className="h-6 px-3 inline-flex items-center rounded-full text-12 font-medium bg-neutral-100 text-neutral-500">Not configured</span>;
+}
+
+function ProviderCard({ row }: { row: ProviderRow }) {
   const toast = useToast();
   const qc = useQueryClient();
-  const q = useQuery({ queryKey: ['integrations', 'ai'], queryFn: () => aiApi.list() });
-  const existing = q.data?.find((r) => r.provider === 'groq') ?? null;
-
   const [apiKey, setApiKey] = useState('');
   const [model, setModel] = useState('');
+  const hint = KEY_HINT[row.provider];
+  const keyHost = row.key_url.replace(/^https:\/\//, '').replace(/\/$/, '');
+  const refresh = () => qc.invalidateQueries({ queryKey: AI_QUERY_KEY });
+  const errMsg = (e: unknown, fallback: string) => (e instanceof Error ? e.message : fallback);
 
   const save = useMutation({
-    mutationFn: () => aiApi.save({ provider: 'groq', api_key: apiKey, model: model || undefined }),
-    onSuccess: () => {
-      toast.push('success', 'Groq key saved. The Notices drafter will now use your firm\'s key.');
+    mutationFn: () => aiApi.save({ provider: row.provider, api_key: apiKey, model: model.trim() || undefined }),
+    onSuccess: (r) => {
+      const active = r.current_provider === row.provider;
+      toast.push('success', active ? `${row.label} key saved and active.` : `${row.label} key saved.`);
       setApiKey('');
-      qc.invalidateQueries({ queryKey: ['integrations', 'ai'] });
+      setModel('');
+      refresh();
     },
-    onError: (e) => toast.push('error', e instanceof Error ? e.message : 'Save failed.'),
+    onError: (e) => toast.push('error', errMsg(e, 'Save failed.')),
   });
 
+  // With a typed key, test that; otherwise test the saved one.
   const test = useMutation({
-    mutationFn: () => aiApi.test({ provider: 'groq', api_key: apiKey, model: model || undefined }),
-    onSuccess: (r) => toast.push('success', `Key works — provider responded with model ${r.model}.`),
-    onError: (e) => toast.push('error', e instanceof Error ? e.message : 'Test failed.'),
+    mutationFn: () => aiApi.test({ provider: row.provider, api_key: apiKey.trim() || undefined, model: model.trim() || undefined }),
+    onSuccess: (r) => toast.push('success', `Key works — ${row.label} answered with model ${r.model}.`),
+    onError: (e) => toast.push('error', errMsg(e, 'Test failed.')),
+  });
+
+  const activate = useMutation({
+    mutationFn: () => aiApi.activate(row.provider),
+    onSuccess: () => {
+      toast.push('success', `AI features now use ${row.label}.`);
+      refresh();
+    },
+    onError: (e) => toast.push('error', errMsg(e, 'Could not switch provider.')),
   });
 
   const remove = useMutation({
-    mutationFn: () => aiApi.remove('groq'),
+    mutationFn: () => aiApi.remove(row.provider),
     onSuccess: () => {
-      toast.push('success', 'Groq key removed. The server will fall back to the env var (if set).');
-      qc.invalidateQueries({ queryKey: ['integrations', 'ai'] });
+      toast.push('success', `${row.label} key removed.`);
+      refresh();
     },
-    onError: (e) => toast.push('error', e instanceof Error ? e.message : 'Remove failed.'),
+    onError: (e) => toast.push('error', errMsg(e, 'Remove failed.')),
   });
 
+  const canTest = !!apiKey.trim() || row.configured;
+
   return (
-    <Card title="Groq">
+    <Card title={row.label} right={<StatusPill row={row} />}>
       <div className="p-5 space-y-4">
-        {existing ? (
-          <div className="flex items-center gap-3 p-3 border border-green/40 bg-green/5 rounded text-13">
-            <CheckCircle2 size={16} className="text-green" />
-            <div className="flex-1">
+        {row.configured ? (
+          <div className="flex flex-wrap items-center gap-3 p-3 border border-neutral-200 rounded text-13">
+            <KeyRound size={16} className="text-neutral-500" />
+            <div className="flex-1 min-w-0">
               <div className="font-medium text-neutral-900">
-                Key configured — fingerprint {existing.key_fingerprint}
+                Key saved — fingerprint <span className="font-mono">{row.key_fingerprint}</span>
               </div>
               <div className="text-12 text-neutral-500">
-                Model: <span className="font-mono">{existing.model || existing.default_model}</span>
-                <span className="mx-2">·</span>
-                Updated {new Date(existing.updated_at).toLocaleString('en-IN')}
+                Model: <span className="font-mono">{row.model || row.default_model}</span>
+                {row.updated_at ? (
+                  <>
+                    <span className="mx-2">·</span>
+                    Updated {new Date(row.updated_at).toLocaleString('en-IN')}
+                  </>
+                ) : null}
               </div>
             </div>
+            {!row.is_current ? (
+              <button
+                type="button"
+                onClick={() => activate.mutate()}
+                disabled={activate.isPending}
+                className="h-8 px-3 text-12 border border-neutral-300 rounded hover:border-neutral-400 disabled:opacity-60"
+              >
+                {activate.isPending ? 'Switching…' : 'Use this provider'}
+              </button>
+            ) : null}
             <button
               type="button"
-              onClick={async () => { if (await confirmAction('Remove the Groq key for this organisation?')) remove.mutate(); }}
+              onClick={async () => {
+                const extra = row.is_current ? ' AI features will switch to your next saved provider, if any.' : '';
+                if (await confirmAction(`Remove the ${row.label} key for this organisation?${extra}`)) remove.mutate();
+              }}
               disabled={remove.isPending}
-              className="inline-flex items-center gap-1 h-8 px-2 text-12 text-neutral-500 hover:text-red disabled:opacity-60"
+              className="inline-flex items-center gap-1 h-8 px-2 text-12 text-neutral-500 hover:text-danger disabled:opacity-60"
             >
               <Trash2 size={13} /> Remove
             </button>
           </div>
-        ) : (
-          <div className="flex items-center gap-3 p-3 border border-amber/40 bg-amber/5 rounded text-13">
-            <XCircle size={16} className="text-amber" />
-            <div className="flex-1">
-              <div className="font-medium text-neutral-900">No firm-level key configured.</div>
-              <div className="text-12 text-neutral-500">
-                The Notices drafter will use the stack-level GROQ_API_KEY env var if set — otherwise it will fail with "LLM not configured".
-              </div>
-            </div>
-          </div>
-        )}
+        ) : null}
 
         <Field
-          label="Groq API key"
+          label={`${row.label} API key`}
           hint={
-            <span className="inline-flex items-center gap-1">
+            <span className="inline-flex flex-wrap items-center gap-1">
               Create one at{' '}
               <a
-                href="https://console.groq.com/keys"
+                href={row.key_url}
                 target="_blank"
                 rel="noopener noreferrer"
                 className="underline inline-flex items-center gap-0.5"
               >
-                console.groq.com/keys <ExternalLink size={11} />
+                {keyHost} <ExternalLink size={11} />
               </a>
-              . Starts with <span className="font-mono">gsk_</span>…
+              {hint.prefix ? <>. Starts with <span className="font-mono">{hint.prefix}</span>…</> : '.'}
             </span>
           }
         >
@@ -167,25 +263,25 @@ function GroqSection() {
             autoComplete="new-password"
             spellCheck={false}
             className={inputClass}
-            placeholder={existing ? 'Enter a new key to replace the existing one' : 'gsk_...'}
+            placeholder={row.configured ? 'Enter a new key to replace the saved one' : hint.placeholder}
             value={apiKey}
             onChange={(e) => setApiKey(e.target.value)}
           />
         </Field>
 
         <Field
-          label="Model override (optional)"
-          hint={<>Leave blank to use the default — <span className="font-mono">{existing?.default_model ?? 'openai/gpt-oss-120b'}</span>.</>}
+          label="Model (optional)"
+          hint={<>Leave blank to use the default — <span className="font-mono">{row.default_model}</span>.</>}
         >
           <input
             className={inputClass}
-            placeholder="openai/gpt-oss-120b"
+            placeholder={row.model || row.default_model}
             value={model}
             onChange={(e) => setModel(e.target.value)}
           />
         </Field>
 
-        <div className="flex items-center gap-2 pt-2">
+        <div className="flex flex-wrap items-center gap-2 pt-2">
           <Button onClick={() => save.mutate()} disabled={!apiKey.trim() || save.isPending}>
             {save.isPending ? (
               <span className="inline-flex items-center gap-2"><Loader2 size={14} className="animate-spin" /> Saving…</span>
@@ -196,13 +292,13 @@ function GroqSection() {
           <button
             type="button"
             onClick={() => test.mutate()}
-            disabled={!apiKey.trim() || test.isPending}
+            disabled={!canTest || test.isPending}
             className="h-9 px-3 text-13 border border-neutral-300 rounded hover:border-neutral-400 disabled:opacity-60"
           >
             {test.isPending ? 'Testing…' : 'Test key'}
           </button>
           <div className="text-12 text-neutral-500">
-            Test calls Groq with the key you just typed (not the saved one).
+            {apiKey.trim() ? 'Tests the key you just typed.' : row.configured ? 'Tests the saved key.' : 'Type a key to test it.'}
           </div>
         </div>
       </div>

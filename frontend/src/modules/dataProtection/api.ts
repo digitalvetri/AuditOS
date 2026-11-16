@@ -32,7 +32,7 @@ export interface PurgeResult {
 }
 
 export const AI_DISCLOSURE =
-  'Notice text is sent to an outside AI service (Groq, US) to draft replies; PAN, GSTIN, Aadhaar, phone and email are masked first.';
+  'Notice text is sent to the outside AI service chosen under Integrations → AI provider (Claude, OpenAI, Gemini or Groq — all US-based) to draft replies; PAN, GSTIN, Aadhaar, phone and email are masked first.';
 
 export const dataProtectionApi = {
   settings: () => api.get<DataProtectionSettings>('/api/data-protection/settings'),
