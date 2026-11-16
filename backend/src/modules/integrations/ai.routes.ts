@@ -113,7 +113,8 @@ integrationsAiRouter.put('/', handler(async (req, res) => {
       },
       update: {
         apiKeyCiphertext: ciphertext,
-        model: model || null,
+        // A key rotation without a model field keeps the saved model.
+        ...(model ? { model } : {}),
         active: true,
         updatedBy: session.employeeId ?? null,
       },

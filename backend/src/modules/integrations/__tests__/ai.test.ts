@@ -261,6 +261,10 @@ describe('routes', () => {
     expect(g.body.data.current_provider).toBe('anthropic')
     expect(g.body.data.providers.find((p: any) => p.provider === 'openai')).toMatchObject({ configured: true, is_current: false, model: 'gpt-5-mini' })
 
+    // Rotating the key without a model keeps the saved model; an explicit one replaces it.
+    await api('/api/integrations/ai', { method: 'PUT', body: { provider: 'openai', api_key: 'sk-openai-rotated-looking-key-0' } })
+    expect((await prisma.aiProviderConfig.findFirstOrThrow({ where: { organisationId: orgId, provider: 'openai' } })).model).toBe('gpt-5-mini')
+
     expect((await api('/api/integrations/ai/gemini/activate', { method: 'POST' })).status).toBe(400)
     const act = await api('/api/integrations/ai/openai/activate', { method: 'POST' })
     expect(act.status).toBe(200)
@@ -290,6 +294,6 @@ describe('routes', () => {
     const bad = await api('/api/integrations/ai/test', { method: 'POST', body: { provider: 'anthropic', api_key: 'sk-ant-bad-key-000000000000' } })
     expect(bad.status).toBe(400)
     expect(bad.body.error.code).toBe('provider_rejected')
-    expect(bad.body.error.message).toMatch(/^The provider rejected the key: .*invalid x-api-key/)
+    expect(bad.body.error.message).toBe('The provider rejected the key: invalid API key (invalid x-api-key)')
   })
 })

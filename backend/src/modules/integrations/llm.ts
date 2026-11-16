@@ -180,8 +180,11 @@ export function parseJsonReply(raw: string): unknown {
 }
 
 function providerMessage(err: unknown): string {
-  if (err instanceof Anthropic.AuthenticationError) return `invalid API key (${err.message})`
-  if (err instanceof Anthropic.APIError) return err.message
+  // The SDK's message is "<status> <raw JSON>"; the nested error.message reads better.
+  const sdkMessage = (e: InstanceType<typeof Anthropic.APIError>) =>
+    (e.error as { error?: { message?: string } } | undefined)?.error?.message ?? e.message
+  if (err instanceof Anthropic.AuthenticationError) return `invalid API key (${sdkMessage(err)})`
+  if (err instanceof Anthropic.APIError) return sdkMessage(err)
   if (err instanceof Error) return err.message
   return 'unknown error'
 }
