@@ -155,7 +155,7 @@ export const TOOLS: ToolDefinition[] = [
     accepts: [MIME.xlsx], extensions: ['xlsx'], maxFileSizeMB: 25, multiple: false, outputType: 'txt',
     keywords: ['tds', 'fvu', '26q', '140', 'form 140', 'return', 'text'], permission: 'tools.tds_fvu_generator', status: 'active' },
   { id: 'invoice-to-einvoice-json', name: 'Invoice to e-Invoice JSON', description: 'IRP-ready schema from Excel',
-    badge: { text: 'IFF', tint: 'blue' }, groupId: 'compliance-converters', route: '/tools/invoice-to-einvoice-json',
+    badge: { text: 'IRN', tint: 'blue' }, groupId: 'compliance-converters', route: '/tools/invoice-to-einvoice-json',
     accepts: [MIME.xlsx], extensions: ['xlsx'], maxFileSizeMB: 25, multiple: false, outputType: 'json',
     keywords: ['invoice', 'e-invoice', 'einvoice', 'irp', 'json', 'excel'], permission: 'tools.invoice_to_einvoice_json', status: 'active' },
 ];

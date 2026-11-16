@@ -1458,9 +1458,14 @@ export const ComplianceService = {
   /**
    * The IRP accepts an array of invoices in schema 1.1. One sheet row is one
    * line item; rows sharing an invoice number become one invoice with an
-   * ItemList. ValDtls is summed from the items rather than read from the
-   * sheet, so the totals always tie to the lines the IRP will see — a
-   * mismatch there is the single most common rejection.
+   * ItemList. ValDtls is summed from the items so the totals always tie.
+   *
+   * Every row is validated against the schema's mandatory fields before
+   * anything is written, and ANY problem refuses the whole file with a
+   * row-by-row list: a bulk upload with one bad invoice is rejected by the
+   * IRP anyway, and a "completed" job with invalid JSON is worse than none.
+   * B2C is not an IRP supply type — an unregistered buyer is refused unless
+   * the row is an export (EXPWP/EXPWOP), where the buyer GSTIN is "URP".
    */
   async invoiceToEInvoiceJson(bytes: Buffer): Promise<{
     bytes: Buffer; invoices: number; items: number; skipped: number; totalValue: number; warning?: string
@@ -1474,91 +1479,157 @@ export const ComplianceService = {
       taxable: ['Taxable Value', 'Taxable Amount', 'Assessable Value'],
     })
     const g = (...names: string[]) => col(sheet, ...names)
-    const cSellerName = g('Seller Name', 'Supplier Name'); const cSellerAddr = g('Seller Address', 'Supplier Address')
-    const cSellerLoc = g('Seller City', 'Seller Location', 'Supplier City'); const cSellerPin = g('Seller Pincode', 'Supplier Pincode')
+    const cSellerName = g('Seller Name', 'Supplier Name', 'Seller Legal Name'); const cSellerAddr = g('Seller Address', 'Supplier Address')
+    const cSellerLoc = g('Seller City', 'Seller Location', 'Supplier City'); const cSellerPin = g('Seller Pincode', 'Supplier Pincode', 'Seller PIN')
     const cSellerState = g('Seller State Code', 'Supplier State Code', 'Seller State')
-    const cBuyerName = g('Buyer Name', 'Recipient Name'); const cBuyerAddr = g('Buyer Address', 'Recipient Address')
-    const cBuyerLoc = g('Buyer City', 'Buyer Location'); const cBuyerPin = g('Buyer Pincode')
+    const cBuyerName = g('Buyer Name', 'Recipient Name', 'Buyer Legal Name'); const cBuyerAddr = g('Buyer Address', 'Recipient Address')
+    const cBuyerLoc = g('Buyer City', 'Buyer Location'); const cBuyerPin = g('Buyer Pincode', 'Buyer PIN')
     const cBuyerState = g('Buyer State Code', 'Buyer State'); const cPos = g('Place of Supply', 'POS')
     const cItemDesc = g('Item Description', 'Description', 'Product'); const cHsn = g('HSN', 'HSN Code', 'HSN/SAC')
     const cQty = g('Quantity', 'Qty'); const cUnit = g('Unit', 'UQC', 'UOM'); const cRate = g('Unit Price', 'Rate', 'Price')
     const cGstRate = g('GST Rate', 'Tax Rate', 'Rate %')
     const cIgst = g('IGST', 'IGST Amount'); const cCgst = g('CGST', 'CGST Amount'); const cSgst = g('SGST', 'SGST Amount')
     const cCess = g('Cess', 'Cess Amount'); const cDocType = g('Document Type', 'Doc Type')
+    const cSupTyp = g('Supply Type', 'SupTyp'); const cRev = g('Reverse Charge', 'RegRev')
 
-    interface Item { SlNo: string; PrdDesc?: string; IsServc: string; HsnCd: string; Qty?: number; Unit?: string; UnitPrice?: number; TotAmt: number; AssAmt: number; GstRt: number; IgstAmt: number; CgstAmt: number; SgstAmt: number; CesAmt: number; TotItemVal: number }
-    const byInvoice = new Map<string, { row: string[]; items: Item[] }>()
-    const skipped: SkipNote[] = []
+    const GSTIN = /^\d{2}[A-Z]{5}\d{4}[A-Z][A-Z0-9]Z[A-Z0-9]$/
+    const SUP_TYPES = ['B2B', 'SEZWP', 'SEZWOP', 'EXPWP', 'EXPWOP', 'DEXP']
+    const GST_RATES = [0, 0.1, 0.25, 1, 1.5, 3, 5, 6, 7.5, 12, 18, 28, 40]
+    const fmt = (n: number) => n.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+    const pin = (v: string) => { const d = v.replace(/\.0+$/, '').replace(/\s/g, ''); return /^[1-9]\d{5}$/.test(d) ? Number(d) : null }
+    const stcd = (v: string) => (/^\d{1,2}$/.test(v) && Number(v) > 0 ? v.padStart(2, '0') : null)
+
+    interface Item { SlNo: string; PrdDesc?: string; IsServc: string; HsnCd: string; Qty?: number; Unit?: string; UnitPrice: number; TotAmt: number; AssAmt: number; GstRt: number; IgstAmt: number; CgstAmt: number; SgstAmt: number; CesAmt: number; TotItemVal: number }
+    interface Head { rowNo: number; date: string; supTyp: string; regRev: string; docTyp: string; seller: Record<string, unknown>; buyer: Record<string, unknown> }
+    const byInvoice = new Map<string, { head: Head; items: Item[] }>()
+    const problems: string[] = []
 
     sheet.rows.forEach((r, i) => {
-      const rowNo = i + 2
-      const invNo = at(r, c.invNo)
-      if (!invNo) { skipped.push({ row: rowNo, reason: 'no invoice number' }); return }
-      const date = parseDate(at(r, c.invDate))
-      if (!date) { skipped.push({ row: rowNo, reason: `unreadable invoice date "${at(r, c.invDate)}"` }); return }
-      const taxable = parseAmount(at(r, c.taxable))
-      if (taxable === null) { skipped.push({ row: rowNo, reason: `unreadable taxable value "${at(r, c.taxable)}"` }); return }
-      const seller = at(r, c.sellerGstin).toUpperCase()
-      if (!/^\d{2}[A-Z]{5}\d{4}[A-Z][A-Z0-9]Z[A-Z0-9]$/.test(seller)) {
-        skipped.push({ row: rowNo, reason: `"${seller || 'blank'}" is not a valid seller GSTIN` }); return
-      }
+      const rowNo = sheet.rowNos[i]
+      const errs: string[] = []
+      const need = (ok: boolean, msg: string) => { if (!ok) errs.push(msg) }
 
-      if (!byInvoice.has(invNo)) byInvoice.set(invNo, { row: r, items: [] })
-      const entry = byInvoice.get(invNo)!
+      const invNo = at(r, c.invNo)
+      need(/^[A-Za-z1-9][A-Za-z0-9/-]{0,15}$/.test(invNo), invNo ? `Invoice No "${invNo}" must be up to 16 letters, digits, / or - and not start with 0, / or -` : 'Invoice No is blank')
+      const date = parseDate(at(r, c.invDate))
+      need(!!date, `Invoice Date "${at(r, c.invDate)}" is not a date`)
+      const docTyp = (at(r, cDocType) || 'INV').toUpperCase()
+      need(['INV', 'CRN', 'DBN'].includes(docTyp), `Document Type "${docTyp}" must be INV, CRN or DBN`)
+
+      const sellerGstin = at(r, c.sellerGstin).toUpperCase()
+      need(GSTIN.test(sellerGstin), `Seller GSTIN "${sellerGstin || 'blank'}" is not a valid GSTIN`)
+      const seller = {
+        Gstin: sellerGstin, LglNm: at(r, cSellerName), Addr1: at(r, cSellerAddr), Loc: at(r, cSellerLoc),
+        Pin: pin(at(r, cSellerPin)), Stcd: stcd(at(r, cSellerState)) ?? (GSTIN.test(sellerGstin) ? sellerGstin.slice(0, 2) : null),
+      }
+      need(seller.LglNm.length >= 3, 'Seller Name is required')
+      need(seller.Addr1.length >= 1, 'Seller Address is required')
+      need(seller.Loc.length >= 3, 'Seller City is required')
+      need(seller.Pin !== null, 'Seller Pincode must be 6 digits')
+      need(seller.Stcd !== null, 'Seller State Code is required')
+
+      const buyerGstin = at(r, c.buyerGstin).toUpperCase()
+      const given = at(r, cSupTyp).toUpperCase()
+      const supTyp = given || 'B2B'
+      const isExport = supTyp === 'EXPWP' || supTyp === 'EXPWOP'
+      if (given === 'B2C' || (!buyerGstin && !isExport) || buyerGstin === 'URP' && !isExport) {
+        errs.push('unregistered buyer (B2C) — B2C invoices are not reported to the IRP; leave them out of this sheet')
+      } else {
+        need(SUP_TYPES.includes(supTyp), `Supply Type "${supTyp}" must be one of ${SUP_TYPES.join(', ')}`)
+        need(isExport && (!buyerGstin || buyerGstin === 'URP') || GSTIN.test(buyerGstin), `Buyer GSTIN "${buyerGstin}" is not a valid GSTIN`)
+      }
+      const buyerReg = GSTIN.test(buyerGstin)
+      const buyer = {
+        Gstin: buyerReg ? buyerGstin : 'URP', LglNm: at(r, cBuyerName), Addr1: at(r, cBuyerAddr), Loc: at(r, cBuyerLoc),
+        Pin: pin(at(r, cBuyerPin)),
+        Pos: stcd(at(r, cPos)) ?? (buyerReg ? buyerGstin.slice(0, 2) : null),
+        Stcd: stcd(at(r, cBuyerState)) ?? (buyerReg ? buyerGstin.slice(0, 2) : null),
+      }
+      need(buyer.LglNm.length >= 3, 'Buyer Name is required')
+      need(buyer.Addr1.length >= 1, 'Buyer Address is required')
+      need(buyer.Loc.length >= 3, 'Buyer City is required')
+      need(buyer.Pin !== null, 'Buyer Pincode must be 6 digits (999999 for an export)')
+      need(buyer.Pos !== null, 'Place of Supply is required (96 for an export)')
+      need(buyer.Stcd !== null, 'Buyer State Code is required (96 for an export)')
+
+      // ── Item
+      const hsn = at(r, cHsn).replace(/\s/g, '')
+      need(/^\d{4}$|^\d{6}$|^\d{8}$/.test(hsn), hsn ? `HSN "${hsn}" must be 4, 6 or 8 digits` : 'HSN is required')
+      const isServc = hsn.startsWith('99')
+      const taxable = parseAmount(at(r, c.taxable))
+      need(taxable !== null, `Taxable Value "${at(r, c.taxable)}" is not a number`)
+      const qty = parseAmount(at(r, cQty))
+      const unit = at(r, cUnit).toUpperCase()
+      if (!isServc && hsn) need(qty !== null && !!unit, 'Quantity and Unit are mandatory for goods')
+      let unitPrice = parseAmount(at(r, cRate))
+      if (unitPrice === null && qty && taxable !== null) unitPrice = round2(taxable / qty)
+      need(unitPrice !== null, 'Unit Price is required (or a Quantity to work it out from the taxable value)')
       const igst = parseAmount(at(r, cIgst)) ?? 0
       const cgst = parseAmount(at(r, cCgst)) ?? 0
       const sgst = parseAmount(at(r, cSgst)) ?? 0
       const cess = parseAmount(at(r, cCess)) ?? 0
-      const qty = parseAmount(at(r, cQty))
-      const rate = parseAmount(at(r, cRate))
+      need(!(igst && (cgst || sgst)), 'a line has both IGST and CGST/SGST')
+      need(Math.abs(cgst - sgst) < 0.01, `CGST ${fmt(cgst)} and SGST ${fmt(sgst)} must be equal`)
+      const tax = round2(igst + cgst + sgst)
+      let rate = parseAmount(at(r, cGstRate))
+      if (taxable !== null && taxable > 0) {
+        if (rate === null) {
+          const derived = Math.round((tax / taxable) * 10000) / 100
+          const slab = GST_RATES.find((s) => Math.abs(round2(taxable * s / 100) - tax) <= 1)
+          if (slab === undefined) errs.push(`GST Rate is blank and the tax (${fmt(tax)}, ${derived}% of taxable) is not a GST rate`)
+          else rate = slab
+        } else if (!GST_RATES.includes(rate)) {
+          errs.push(`GST Rate ${rate}% is not a GST rate`)
+        } else {
+          const expected = round2(taxable * rate / 100)
+          if (Math.abs(expected - tax) > 1) errs.push(`GST Rate ${rate}% on ${fmt(taxable)} is ${fmt(expected)}, but the row has ${fmt(tax)} tax`)
+        }
+      }
+
+      if (errs.length === 0 && invNo && byInvoice.has(invNo)) {
+        const h = byInvoice.get(invNo)!.head
+        if (h.date !== date || (h.seller.Gstin !== seller.Gstin) || (h.buyer.Gstin !== buyer.Gstin)) {
+          errs.push(`Invoice ${invNo} has a different date, seller or buyer from its first row (row ${h.rowNo})`)
+        }
+      }
+      if (errs.length) { problems.push(`row ${rowNo}: ${errs.join('; ')}`); return }
+
+      if (!byInvoice.has(invNo)) {
+        byInvoice.set(invNo, { head: { rowNo, date: date!, supTyp, regRev: /^y/i.test(at(r, cRev)) ? 'Y' : 'N', docTyp, seller, buyer }, items: [] })
+      }
+      const entry = byInvoice.get(invNo)!
       entry.items.push({
         SlNo: String(entry.items.length + 1),
         PrdDesc: at(r, cItemDesc) || undefined,
-        IsServc: at(r, cHsn).startsWith('99') ? 'Y' : 'N',
-        HsnCd: at(r, cHsn),
+        IsServc: isServc ? 'Y' : 'N',
+        HsnCd: hsn,
         Qty: qty ?? undefined,
-        Unit: at(r, cUnit) || undefined,
-        UnitPrice: rate ?? undefined,
-        TotAmt: round2(taxable),
-        AssAmt: round2(taxable),
-        GstRt: parseAmount(at(r, cGstRate)) ?? 0,
+        Unit: unit || undefined,
+        UnitPrice: unitPrice!,
+        TotAmt: round2(taxable!),
+        AssAmt: round2(taxable!),
+        GstRt: rate ?? 0,
         IgstAmt: round2(igst), CgstAmt: round2(cgst), SgstAmt: round2(sgst), CesAmt: round2(cess),
-        TotItemVal: round2(taxable + igst + cgst + sgst + cess),
+        TotItemVal: round2(taxable! + igst + cgst + sgst + cess),
       })
     })
 
-    if (byInvoice.size === 0) {
-      throw new ToolError('empty', `No invoice could be built. ${skipped.length} ${skipped.length === 1 ? 'row was' : 'rows were'} skipped — check the Invoice No, Invoice Date, Seller GSTIN and Taxable Value columns.`)
+    if (problems.length) {
+      throw new ToolError('invalid_options',
+        `No e-invoice JSON was written: ${problems.length} ${problems.length === 1 ? 'row has' : 'rows have'} a problem the IRP would reject — ${problems.slice(0, 3).join(' · ')}${problems.length > 3 ? ` · and ${problems.length - 3} more` : ''}. Fix the sheet and run it again.`,
+        { problems })
     }
 
-    const stateOf = (gstin: string) => gstin.slice(0, 2)
-    const out = [...byInvoice.entries()].map(([invNo, { row: r, items }]) => {
-      const seller = at(r, c.sellerGstin).toUpperCase()
-      const buyer = at(r, c.buyerGstin).toUpperCase()
+    const out = [...byInvoice.entries()].map(([invNo, { head: h, items }]) => {
       const sum = (k: keyof Item) => round2(items.reduce((s, it) => s + (Number(it[k]) || 0), 0))
       const assVal = sum('AssAmt')
       const igstVal = sum('IgstAmt'); const cgstVal = sum('CgstAmt'); const sgstVal = sum('SgstAmt'); const cessVal = sum('CesAmt')
       return {
         Version: '1.1',
-        TranDtls: { TaxSch: 'GST', SupTyp: buyer ? 'B2B' : 'B2C', RegRev: 'N', IgstOnIntra: 'N' },
-        DocDtls: { Typ: (at(r, cDocType) || 'INV').toUpperCase(), No: invNo, Dt: parseDate(at(r, c.invDate))! },
-        SellerDtls: {
-          Gstin: seller,
-          LglNm: at(r, cSellerName) || undefined,
-          Addr1: at(r, cSellerAddr) || undefined,
-          Loc: at(r, cSellerLoc) || undefined,
-          Pin: parseAmount(at(r, cSellerPin)) ?? undefined,
-          Stcd: at(r, cSellerState) || stateOf(seller),
-        },
-        BuyerDtls: {
-          Gstin: buyer || 'URP',
-          LglNm: at(r, cBuyerName) || undefined,
-          Addr1: at(r, cBuyerAddr) || undefined,
-          Loc: at(r, cBuyerLoc) || undefined,
-          Pin: parseAmount(at(r, cBuyerPin)) ?? undefined,
-          Pos: at(r, cPos) || (buyer ? stateOf(buyer) : undefined),
-          Stcd: at(r, cBuyerState) || (buyer ? stateOf(buyer) : undefined),
-        },
+        TranDtls: { TaxSch: 'GST', SupTyp: h.supTyp, RegRev: h.regRev, IgstOnIntra: 'N' },
+        DocDtls: { Typ: h.docTyp, No: invNo, Dt: h.date },
+        SellerDtls: h.seller,
+        BuyerDtls: h.buyer,
         ItemList: items,
         ValDtls: {
           AssVal: assVal, IgstVal: igstVal, CgstVal: cgstVal, SgstVal: sgstVal, CesVal: cessVal,
@@ -1571,10 +1642,7 @@ export const ComplianceService = {
     const items = out.reduce((n, o) => n + o.ItemList.length, 0)
     return {
       bytes: Buffer.from(JSON.stringify(out, null, 2), 'utf8'),
-      invoices: out.length, items, skipped: skipped.length, totalValue,
-      warning: skipped.length
-        ? `${out.length} ${out.length === 1 ? 'invoice' : 'invoices'} built from ${items} line ${items === 1 ? 'item' : 'items'}. ${skipped.length} ${skipped.length === 1 ? 'row was' : 'rows were'} skipped: ${skipped.slice(0, 3).map((s) => `row ${s.row} (${s.reason})`).join(', ')}${skipped.length > 3 ? ', …' : ''}.`
-        : undefined,
+      invoices: out.length, items, skipped: 0, totalValue,
     }
   },
 }

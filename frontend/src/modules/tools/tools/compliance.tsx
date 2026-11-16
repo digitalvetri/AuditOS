@@ -393,16 +393,22 @@ export const invoiceToEInvoiceJsonUI: ToolUI = {
   Options: () => (
     <div>
       <Columns
-        required={['Invoice No', 'Invoice Date', 'Seller GSTIN', 'Buyer GSTIN', 'Taxable Value']}
-        optional={['Seller Name', 'Seller Address', 'Buyer Name', 'Buyer Address', 'Place of Supply', 'Item Description', 'HSN', 'Quantity', 'Unit', 'Unit Price', 'GST Rate', 'IGST', 'CGST', 'SGST', 'Cess']}
+        required={['Invoice No', 'Invoice Date', 'Seller GSTIN', 'Seller Name', 'Seller Address', 'Seller City', 'Seller Pincode',
+          'Buyer GSTIN', 'Buyer Name', 'Buyer Address', 'Buyer City', 'Buyer Pincode', 'HSN', 'Taxable Value',
+          'Unit Price (or Quantity)', 'Quantity and Unit for goods', 'IGST or CGST + SGST']}
+        optional={['Seller / Buyer State Code (taken from the GSTIN when blank)', 'Place of Supply (buyer\'s state when blank)', 'Supply Type (B2B, SEZWP, SEZWOP, EXPWP, EXPWOP, DEXP)', 'Document Type (INV, CRN, DBN)', 'Reverse Charge', 'Item Description', 'GST Rate (read from the tax when blank)', 'Cess']}
       />
       <div className="mt-3">
-        <Notice tone="info">
+        <Notice tone="warn">
           <div className="text-13">
-            One row is one line item; rows sharing an invoice number become a single invoice with an ItemList.
+            Every row is checked against e-invoice schema 1.1 before anything is written. If any row would
+            be rejected by the IRP — a missing name, address or PIN, a bad HSN, a rate that does not match
+            the tax — no JSON is produced and each problem row is listed.
             <div className="text-12 text-neutral-500 mt-1">
-              Schema 1.1. Invoice totals are summed from the line items rather than read from the sheet,
-              so they always tie to the lines the IRP sees — a mismatch there is the most common rejection.
+              B2C invoices are not e-invoiced: a row without a buyer GSTIN is refused unless its Supply Type
+              is EXPWP or EXPWOP (the buyer is then written as URP; use 96 for state and place of supply and
+              999999 for PIN). One row is one line item; rows sharing an invoice number become one invoice,
+              and totals are summed from the lines.
             </div>
           </div>
         </Notice>
@@ -414,7 +420,7 @@ export const invoiceToEInvoiceJsonUI: ToolUI = {
     return (
       <div className="text-13 text-neutral-500">
         {n(output.meta.invoices)} invoices from {n(output.meta.items)} line items ·
-        ₹{money(output.meta.total_value)}.
+        ₹{money(output.meta.total_value)}. Every row passed the schema 1.1 checks.
         {skipped ? ` ${skipped} ${skipped === 1 ? 'row was' : 'rows were'} skipped.` : ''}
       </div>
     );
