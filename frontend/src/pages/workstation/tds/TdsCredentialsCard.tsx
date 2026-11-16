@@ -33,6 +33,8 @@ export function TdsCredentialsCard({ client }: { client: { id: string; company_n
   const { session } = useAuth();
   // Decrypting needs its own grant; without it the password stays masked.
   const canReveal = can(session?.role.code, 'workstation.tds.portal.reveal', 'self');
+  // Adding, changing or deleting the login: Senior Associate and above.
+  const canManage = can(session?.role.code, 'workstation.tds.portal.manage', 'self');
 
   const [mode, setMode] = useState<'view' | 'form' | 'confirm-delete'>('view');
   const [shown, setShown] = useState<string | null>(null);
@@ -112,9 +114,11 @@ export function TdsCredentialsCard({ client }: { client: { id: string; company_n
     return (
       <Card status={false}>
         <div className="text-13 text-neutral-600">TDS portal credentials have not been configured for this client.</div>
-        <button type="button" className={primaryBtn + ' mt-3'} onClick={() => setMode('form')}>
-          <Plus size={14} strokeWidth={2} /> Add TDS Credentials
-        </button>
+        {canManage ? (
+          <button type="button" className={primaryBtn + ' mt-3'} onClick={() => setMode('form')}>
+            <Plus size={14} strokeWidth={2} /> Add TDS Credentials
+          </button>
+        ) : <div className="text-12 text-neutral-500 mt-2">A Senior Associate or a partner adds them.</div>}
       </Card>
     );
   }
@@ -162,12 +166,16 @@ export function TdsCredentialsCard({ client }: { client: { id: string; company_n
         </div>
       ) : (
         <div className="flex flex-wrap items-center gap-2 mt-4">
-          <button type="button" className={btn} onClick={() => setMode('form')}>
-            <Pencil size={12} strokeWidth={2} /> Edit Credentials
-          </button>
-          <button type="button" className={btn} onClick={() => setMode('confirm-delete')}>
-            <Trash2 size={12} strokeWidth={2} /> Delete
-          </button>
+          {canManage ? (
+            <>
+              <button type="button" className={btn} onClick={() => setMode('form')}>
+                <Pencil size={12} strokeWidth={2} /> Edit Credentials
+              </button>
+              <button type="button" className={btn} onClick={() => setMode('confirm-delete')}>
+                <Trash2 size={12} strokeWidth={2} /> Delete
+              </button>
+            </>
+          ) : null}
           <span className="text-11 text-neutral-500 ml-auto">
             Show and Copy are audit-logged. Password hides after {AUTO_HIDE_SECONDS}s.
           </span>

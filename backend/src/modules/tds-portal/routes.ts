@@ -23,6 +23,8 @@ import { encryptPortalSecret, decryptPortalSecret } from '../../platform/portalC
 
 const VIEW = ['workstation.tds.portal.view'] as const
 const REVEAL = ['workstation.tds.portal.reveal'] as const
+// Adding, changing or deleting a saved login: Senior Associate and above.
+const MANAGE = ['workstation.tds.portal.manage'] as const
 const CRYPTO_FIELD = 'tds_portal_password'
 
 export const tdsPortalRouter = Router()
@@ -71,7 +73,7 @@ tdsPortalRouter.get('/:clientId', handler(async (req, res) => {
 // on create and ignored on edit.
 tdsPortalRouter.put('/:clientId', handler(async (req, res) => {
   const session = requireSession(req)
-  const scope = requireWorkstation(session, ...VIEW)
+  const scope = requireWorkstation(session, ...MANAGE)
   const client = await assertCanSeeClient(session, scope, req.params.clientId)
 
   const b = body(req)
@@ -111,7 +113,7 @@ tdsPortalRouter.put('/:clientId', handler(async (req, res) => {
 
 tdsPortalRouter.delete('/:clientId', handler(async (req, res) => {
   const session = requireSession(req)
-  const scope = requireWorkstation(session, ...VIEW)
+  const scope = requireWorkstation(session, ...MANAGE)
   const client = await assertCanSeeClient(session, scope, req.params.clientId)
   const row = await findLive(client.id)
   if (!row) throw ApiError.notFound('No TDS credentials for this client.')

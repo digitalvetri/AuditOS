@@ -44,6 +44,8 @@ export function RegistrationCredentialsCard({
   const record = query.data?.record ?? null;
   const { session } = useAuth();
   const canReveal = can(session?.role.code, 'workstation.registration.portal.reveal', 'self');
+  // Adding, changing or deleting the saved login: Senior Associate and above.
+  const canManage = can(session?.role.code, 'workstation.registration.portal.manage', 'self');
 
   const [mode, setMode] = useState<'view' | 'form' | 'confirm-delete'>('view');
   const [shown, setShown] = useState<string | null>(null);
@@ -172,9 +174,11 @@ export function RegistrationCredentialsCard({
         <div className="text-13 text-neutral-600">
           No {spec.title} details saved for {client.company_name} yet. Save them once — next time they show here.
         </div>
-        <button type="button" className={primaryBtn + ' mt-3'} onClick={() => setMode('form')}>
-          <Plus size={14} strokeWidth={2} /> Add Details
-        </button>
+        {canManage ? (
+          <button type="button" className={primaryBtn + ' mt-3'} onClick={() => setMode('form')}>
+            <Plus size={14} strokeWidth={2} /> Add Details
+          </button>
+        ) : <div className="text-12 text-neutral-500 mt-2">A Senior Associate or a partner adds them.</div>}
       </Card>
     );
   }
@@ -303,12 +307,16 @@ export function RegistrationCredentialsCard({
         </div>
       ) : (
         <div className="flex flex-wrap items-center gap-2 mt-4">
-          <button type="button" className={btn} onClick={() => setMode('form')}>
-            <Pencil size={12} strokeWidth={2} /> Edit Details
-          </button>
-          <button type="button" className={btn} onClick={() => setMode('confirm-delete')}>
-            <Trash2 size={12} strokeWidth={2} /> Delete
-          </button>
+          {canManage ? (
+            <>
+              <button type="button" className={btn} onClick={() => setMode('form')}>
+                <Pencil size={12} strokeWidth={2} /> Edit Details
+              </button>
+              <button type="button" className={btn} onClick={() => setMode('confirm-delete')}>
+                <Trash2 size={12} strokeWidth={2} /> Delete
+              </button>
+            </>
+          ) : null}
           {showPassword ? (
             <span className="text-11 text-neutral-500 ml-auto">
               Show and Copy are audit-logged. Password hides after {AUTO_HIDE_SECONDS}s.

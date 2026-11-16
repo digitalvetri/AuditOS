@@ -18,6 +18,8 @@ import { Field, inputClass } from '@/modules/workstation/components';
 import { useToast } from '@/components/Toast';
 import { gstPortalApi, type PortalRecord, type PasswordField } from '@/modules/gstPortal/api';
 import type { ApiError } from '@/services/api';
+import { useAuth } from '@/platform/auth/AuthContext';
+import { can } from '@/platform/rbac/can';
 
 interface Draft {
   portal_username: string;
@@ -63,6 +65,11 @@ function draftFrom(record: PortalRecord | null): Draft {
 export function PortalAccessSection({ gstProfileId }: { gstProfileId: string }) {
   const qc = useQueryClient();
   const toast = useToast();
+  const { session } = useAuth();
+  // Revealing a password, and changing the saved login, take a Senior
+  // Associate or a partner; everyone else sees the masked record.
+  const canReveal = can(session?.role.code, 'workstation.gst.portal.reveal', 'self');
+  const canManage = can(session?.role.code, 'workstation.gst.portal.manage', 'self');
   const q = useQuery({
     queryKey: ['gst-portal', gstProfileId],
     queryFn: () => gstPortalApi.get(gstProfileId),
@@ -123,7 +130,7 @@ export function PortalAccessSection({ gstProfileId }: { gstProfileId: string }) 
   const irpPasswordStored = !!record?.irp_password_present;
 
   return (
-    <fieldset className="mt-4 pt-3 border-t border-neutral-200">
+    <fieldset className="mt-4 pt-3 border-t border-neutral-200" disabled={!canManage}>
       <legend className="text-11 uppercase tracking-[0.06em] text-neutral-500">Portal Access</legend>
       <p className="text-12 text-neutral-500 mb-3">
         Credentials for the GST portal, E-Way Bill portal and IRP. Encrypted at rest.
@@ -159,7 +166,7 @@ export function PortalAccessSection({ gstProfileId }: { gstProfileId: string }) 
               onChange={(e) => set('portal_password', e.target.value)}
               placeholder={portalPasswordStored ? '••••••• (unchanged)' : ''}
             />
-            {portalPasswordStored ? (
+            {portalPasswordStored && canReveal ? (
               revealed.portal_password ? (
                 <span className="text-12 font-mono px-2 py-1 bg-neutral-100 rounded">{revealed.portal_password}</span>
               ) : (
@@ -203,7 +210,7 @@ export function PortalAccessSection({ gstProfileId }: { gstProfileId: string }) 
           <div className="flex items-center gap-2">
             <input className={inputClass + ' font-mono flex-1'} type="password" autoComplete="new-password" value={d.ewb_password} onChange={(e) => set('ewb_password', e.target.value)} placeholder={ewbPasswordStored ? '••••••• (unchanged)' : ''} />
             {ewbPasswordStored ? (
-              revealed.ewb_password ? <span className="text-12 font-mono px-2 py-1 bg-neutral-100 rounded">{revealed.ewb_password}</span>
+              !canReveal ? null : revealed.ewb_password ? <span className="text-12 font-mono px-2 py-1 bg-neutral-100 rounded">{revealed.ewb_password}</span>
                 : <button type="button" className="text-12 underline text-neutral-500 inline-flex items-center gap-1" disabled={reveal.isPending} onClick={() => reveal.mutate('ewb_password')}><Eye size={12} /> Reveal</button>
             ) : null}
           </div>
@@ -221,7 +228,7 @@ export function PortalAccessSection({ gstProfileId }: { gstProfileId: string }) 
           <div className="flex items-center gap-2">
             <input className={inputClass + ' font-mono flex-1'} type="password" autoComplete="new-password" value={d.irp_password} onChange={(e) => set('irp_password', e.target.value)} placeholder={irpPasswordStored ? '••••••• (unchanged)' : ''} />
             {irpPasswordStored ? (
-              revealed.irp_password ? <span className="text-12 font-mono px-2 py-1 bg-neutral-100 rounded">{revealed.irp_password}</span>
+              !canReveal ? null : revealed.irp_password ? <span className="text-12 font-mono px-2 py-1 bg-neutral-100 rounded">{revealed.irp_password}</span>
                 : <button type="button" className="text-12 underline text-neutral-500 inline-flex items-center gap-1" disabled={reveal.isPending} onClick={() => reveal.mutate('irp_password')}><Eye size={12} /> Reveal</button>
             ) : null}
           </div>
@@ -229,15 +236,18 @@ export function PortalAccessSection({ gstProfileId }: { gstProfileId: string }) 
       </div>
 
       <div className="mt-3 flex items-center justify-end gap-2">
+        {!canManage ? <span className="text-12 text-neutral-500">A Senior Associate or a partner changes the saved login.</span> : null}
         {dirty ? <span className="text-12 text-amber">Unsaved changes</span> : null}
-        <button
-          type="button"
-          className="h-8 px-3 text-13 bg-primary text-white rounded-lg hover:bg-primaryHover disabled:opacity-50"
-          disabled={!dirty || save.isPending}
-          onClick={() => save.mutate()}
-        >
-          {save.isPending ? 'Saving…' : 'Save portal access'}
-        </button>
+        {canManage ? (
+          <button
+            type="button"
+            className="h-8 px-3 text-13 bg-primary text-white rounded-lg hover:bg-primaryHover disabled:opacity-50"
+            disabled={!dirty || save.isPending}
+            onClick={() => save.mutate()}
+          >
+            {save.isPending ? 'Saving…' : 'Save portal access'}
+          </button>
+        ) : null}
       </div>
     </fieldset>
   );

@@ -25,6 +25,8 @@ import { encryptPortalSecret, decryptPortalSecret } from '../../platform/portalC
 
 const VIEW = ['workstation.registration.portal.view'] as const
 const REVEAL = ['workstation.registration.portal.reveal'] as const
+// Adding, changing or deleting a saved login: Senior Associate and above.
+const MANAGE = ['workstation.registration.portal.manage'] as const
 
 type Mode = 'new' | 'existing'
 
@@ -468,7 +470,7 @@ registrationCredentialsRouter.get('/:type/:clientId', handler(async (req, res) =
 // omitted keeps the stored one, so Edit can change the other fields alone.
 registrationCredentialsRouter.put('/:type/:clientId', handler(async (req, res) => {
   const session = requireSession(req)
-  const scope = requireWorkstation(session, ...VIEW)
+  const scope = requireWorkstation(session, ...MANAGE)
   const spec = specFor(req.params.type)
   const client = await assertCanSeeClient(session, scope, req.params.clientId)
 
@@ -560,7 +562,7 @@ registrationCredentialsRouter.put('/:type/:clientId', handler(async (req, res) =
 
 registrationCredentialsRouter.delete('/:type/:clientId', handler(async (req, res) => {
   const session = requireSession(req)
-  const scope = requireWorkstation(session, ...VIEW)
+  const scope = requireWorkstation(session, ...MANAGE)
   const spec = specFor(req.params.type)
   const client = await assertCanSeeClient(session, scope, req.params.clientId)
   const row = await findLive(client.id, spec.code)

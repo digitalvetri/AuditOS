@@ -28,11 +28,16 @@ import { Eye, EyeOff, Copy } from 'lucide-react';
 import { gstPortalApi, type PasswordField } from '@/modules/gstPortal/api';
 import { useToast } from '@/components/Toast';
 import type { ApiError } from '@/services/api';
+import { useAuth } from '@/platform/auth/AuthContext';
+import { can } from '@/platform/rbac/can';
 
 const REVEAL_MS = 30_000;
 
 export function PortalStrip({ gstProfileId }: { gstProfileId: string }) {
   const toast = useToast();
+  const { session } = useAuth();
+  // Revealing or copying a password: Senior Associate and above.
+  const canReveal = can(session?.role.code, 'workstation.gst.portal.reveal', 'self');
   const [revealed, setRevealed] = useState<string | null>(null);
   const hideTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -98,6 +103,8 @@ export function PortalStrip({ gstProfileId }: { gstProfileId: string }) {
     <span className="text-neutral-500">Client holds the password</span>
   ) : !r.portal_password_present ? (
     <span className="text-neutral-400">no password stored</span>
+  ) : !canReveal ? (
+    <span className="text-neutral-500 tracking-widest">••••••••</span>
   ) : revealed ? (
     <>
       <span className="font-mono text-13">{revealed}</span>

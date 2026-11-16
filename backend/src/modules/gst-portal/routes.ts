@@ -8,8 +8,9 @@
  *
  * Permissions are their own — viewing credentials is NOT implied by
  * workstation.service.read. `workstation.gst.portal.view` sees the masked
- * record and edits it; `workstation.gst.portal.reveal` is the extra ticket
- * that lets an operator see the plaintext. Every reveal is audited with
+ * record; `workstation.gst.portal.manage` edits it and
+ * `workstation.gst.portal.reveal` lets an operator see the plaintext (both
+ * Senior Associate and above). Every reveal is audited with
  * actor + timestamp + gstProfile + field so "who saw which password when"
  * is answerable after the fact.
  *
@@ -28,6 +29,8 @@ import { encryptPortalSecret, decryptPortalSecret, maskPhone } from '../../platf
 
 const VIEW = ['workstation.gst.portal.view'] as const
 const REVEAL = ['workstation.gst.portal.reveal'] as const
+// Adding, changing or deleting a saved login: Senior Associate and above.
+const MANAGE = ['workstation.gst.portal.manage'] as const
 
 const PASSWORD_FIELDS = ['portal_password', 'ewb_password', 'irp_password'] as const
 type PasswordField = (typeof PASSWORD_FIELDS)[number]
@@ -97,7 +100,7 @@ gstPortalRouter.get('/:gstProfileId', handler(async (req, res) => {
 // string clears the field. Omitted keys leave the current value alone.
 gstPortalRouter.put('/:gstProfileId', handler(async (req, res) => {
   const session = requireSession(req)
-  const scope = requireWorkstation(session, ...VIEW)
+  const scope = requireWorkstation(session, ...MANAGE)
   await assertCanSeeGstProfile(session, scope, req.params.gstProfileId)
 
   const b = body(req)

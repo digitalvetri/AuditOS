@@ -161,11 +161,15 @@ describe('TDS portal credentials API', () => {
     ])).id)
     expect((await api(`/api/tds-portal/${c.id}`, { cookie: viewer.cookie })).status).toBe(200)
     expect((await api(`/api/tds-portal/${c.id}/reveal`, { method: 'POST', cookie: viewer.cookie })).status).toBe(403)
+    // …nor change or delete the login: that is workstation.tds.portal.manage.
+    expect((await api(`/api/tds-portal/${c.id}`, { method: 'PUT', cookie: viewer.cookie, body: { user_id: 'X', password: 'y' } })).status).toBe(403)
+    expect((await api(`/api/tds-portal/${c.id}`, { method: 'DELETE', cookie: viewer.cookie })).status).toBe(403)
 
     // Self scope, not assigned to this client → 404 on every verb; status is empty
     const self = await user(org.id, (await seedRole('tds_self_test', [
       { permission: 'workstation.tds.portal.view', scope: 'self' },
       { permission: 'workstation.tds.portal.reveal', scope: 'self' },
+      { permission: 'workstation.tds.portal.manage', scope: 'self' },
     ])).id)
     expect((await api(`/api/tds-portal/${c.id}`, { cookie: self.cookie })).status).toBe(404)
     expect((await api(`/api/tds-portal/${c.id}/reveal`, { method: 'POST', cookie: self.cookie })).status).toBe(404)
