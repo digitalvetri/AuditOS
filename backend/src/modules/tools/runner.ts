@@ -271,7 +271,10 @@ const IMPLEMENTATIONS: Record<string, Implementation> = {
     const r = await ComplianceService.form26asToExcel(bytes, isText, progress)
     return {
       filename: withExtension(doc.originalFilename, 'xlsx'), mime: OUTPUT_MIME.xlsx, bytes: r.bytes,
-      meta: { rows: r.rows, deductors: r.deductors, total_credited: r.totalCredited, total_tds: r.totalTds, skipped: r.skipped, source: isText ? 'text' : 'pdf' },
+      meta: {
+        rows: r.rows, deductors: r.deductors, total_credited: r.totalCredited, total_tds: r.totalTds, total_tds_deposited: r.totalDeposited,
+        tcs_rows: r.tcsRows, total_tcs: r.totalTcs, skipped: r.skipped, source: isText ? 'text' : 'pdf',
+      },
       warning: r.skipped ? `${r.skipped} dated ${r.skipped === 1 ? 'line' : 'lines'} could not be read and ${r.skipped === 1 ? 'is' : 'are'} listed on the Skipped sheet.` : undefined,
     }
   },

@@ -107,14 +107,17 @@ export const bankStatementToExcelUI: ToolUI = {
 
 export const form26asToExcelUI: ToolUI = {
   actionLabel: 'Convert to Excel',
-  processingLabel: 'Reading Part A…',
+  processingLabel: 'Reading Part I…',
   Options: () => (
     <Notice tone="info">
       <div className="text-13">
-        Takes the PDF or the caret-delimited text export from TRACES and lifts Part A — TDS by deductor —
-        into a transaction sheet plus per-deductor totals.
+        Takes the PDF or the caret-delimited text export from TRACES and lifts Part I (and Part II) TDS —
+        amount paid / credited, tax deducted and TDS deposited — into a transaction sheet plus
+        per-deductor totals. Part VI TCS goes to its own sheet.
         <div className="text-12 text-neutral-500 mt-1">
-          The text export parses more reliably than the PDF; prefer it when TRACES offers both.
+          The text export parses more reliably than the PDF; prefer it when TRACES offers both. TRACES
+          delivers the text file inside a password-protected ZIP — unzip it first. A password-protected
+          26AS PDF needs Unlock PDF first.
         </div>
       </div>
     </Notice>
@@ -123,8 +126,9 @@ export const form26asToExcelUI: ToolUI = {
     const skipped = skippedLine(output.meta.skipped);
     return (
       <div className="text-13 text-neutral-500">
-        {n(output.meta.rows)} entries from {n(output.meta.deductors)} deductors ·
-        credited ₹{money(output.meta.total_credited)} · TDS ₹{money(output.meta.total_tds)}.
+        {n(output.meta.rows)} TDS entries from {n(output.meta.deductors)} deductors ·
+        paid / credited ₹{money(output.meta.total_credited)} · TDS ₹{money(output.meta.total_tds)}
+        {n(output.meta.tcs_rows) ? ` · ${n(output.meta.tcs_rows)} TCS entries ₹${money(output.meta.total_tcs)} (separate sheet)` : ''}.
         {skipped ? ` ${skipped}` : ''}
       </div>
     );

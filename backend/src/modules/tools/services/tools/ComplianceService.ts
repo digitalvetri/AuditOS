@@ -17,7 +17,7 @@
  */
 import ExcelJS from 'exceljs'
 import { ToolError } from '../errors.js'
-import { PDFService, type PageText } from './PDFService.js'
+import { PDFService, type PageText, type TextSpan } from './PDFService.js'
 import * as F140 from './tds-form140.js'
 
 // ── Shared helpers ───────────────────────────────────────────────────────
@@ -852,28 +852,55 @@ export const ComplianceService = {
   // ── 3. Form 26AS → Excel ───────────────────────────────────────────────
 
   /**
-   * TRACES exports 26AS as a PDF or a caret-delimited text file. Part A
-   * (TDS from deductors) is the part firms reconcile, so its transaction
-   * rows are lifted with the deductor they sit under; the text export is
-   * parsed by its `^` fields, the PDF by the same date-led line shape the
-   * bank reader uses.
+   * TRACES exports 26AS as a PDF or a caret-delimited text file. Part I
+   * (TDS) and Part II (TDS on 15G/15H) rows carry three amounts — Amount
+   * Paid / Credited, Tax Deducted, TDS Deposited — mapped from the section's
+   * own header row, never by position from the end. Part VI is tax
+   * COLLECTED at source (206C*) and goes to its own sheet: counting it as
+   * TDS overstates the credit. Rows in the other parts (194IA buyer side,
+   * refunds, …) have different columns and are listed as skipped.
    */
   async form26asToExcel(bytes: Buffer, isText: boolean, onProgress?: (pct: number) => void): Promise<{
-    bytes: Buffer; rows: number; deductors: number; totalCredited: number; totalTds: number; skipped: number
+    bytes: Buffer; rows: number; deductors: number; totalCredited: number; totalTds: number; totalDeposited: number
+    tcsRows: number; totalTcs: number; skipped: number
   }> {
-    interface Row { deductor: string; tan: string; section: string; date: string; status: string; credited: number | null; tds: number | null }
-    const rows: Row[] = []
+    interface Row { deductor: string; tan: string; part: string; section: string; date: string; status: string; booked: string; paid: number | null; deducted: number | null; deposited: number | null }
+    const tds: Row[] = []
+    const tcs: Row[] = []
     const skipped: SkipNote[] = []
+    const skippedParts = new Map<string, number>()
     let deductor = ''
     let tan = ''
+    let part = 'I'
+    const SECTION = /^(19[0-9A-Z]{1,4}|206C[A-Z]{0,2}|206[A-Z]{1,3})$/
+    const partOf = (t: string) => t.match(/^\s*PART[\s-]*([IVX]+)\b/i)?.[1].toUpperCase()
+    const place = (r: Row, where: string | number) => {
+      if (part === 'I' || part === 'II') tds.push(r)
+      else if (part === 'VI') tcs.push(r)
+      else {
+        skippedParts.set(part, (skippedParts.get(part) ?? 0) + 1)
+        skipped.push({ row: typeof where === 'number' ? where : 0, reason: `${typeof where === 'string' ? `${where}: ` : ''}a Part ${part} row — only Parts I, II (TDS) and VI (TCS) are converted` })
+      }
+    }
 
     if (isText) {
       const text = bytes.toString('utf8')
       if (!text.trim()) throw new ToolError('empty', 'This file is empty.')
-      const lines = text.split(/\r?\n/)
-      lines.forEach((line, n) => {
+      // Column positions of the transaction header ("^Sr. No.^Section^…").
+      let cols: { paid: number; deducted: number; deposited: number; date: number; booked: number } | null = null
+      text.split(/\r?\n/).forEach((line, n) => {
+        const p = partOf(line)
+        if (p) { part = p; cols = null; return }
         if (!line.includes('^')) return
         const f = line.split('^').map((s) => s.trim())
+        if (f.some((v) => /^section$/i.test(v)) && f.some((v) => /amount\s*paid/i.test(v))) {
+          const find = (re: RegExp) => f.findIndex((v) => re.test(v))
+          cols = {
+            paid: find(/amount\s*paid/i), deducted: find(/tax\s*(deducted|collected)/i), deposited: find(/(tds|tcs)\s*deposited/i),
+            date: find(/transaction\s*date/i), booked: find(/date\s*of\s*booking/i),
+          }
+          return
+        }
         // A deductor header carries a TAN in its second or third field.
         const tanAt = f.findIndex((v) => /^[A-Z]{4}\d{5}[A-Z]$/.test(v))
         if (tanAt > 0 && !parseDate(f[tanAt + 1] ?? '')) {
@@ -883,17 +910,26 @@ export const ComplianceService = {
         }
         const dateAt = f.findIndex((v) => parseDate(v) !== null)
         if (dateAt < 0) return
-        const nums = f.map(parseAmount)
-        const money = nums.filter((v): v is number => v !== null)
-        if (money.length < 2) { skipped.push({ row: n + 1, reason: 'a dated line with fewer than two amounts' }); return }
-        rows.push({
-          deductor, tan,
-          section: f.find((v) => /^19[0-9A-Z]{1,3}$|^194[A-Z]{0,2}$/.test(v)) ?? '',
-          date: parseDate(f[dateAt])!,
-          status: f.find((v) => /^[FUOP]$/.test(v)) ?? '',
-          credited: money[money.length - 2] ?? null,
-          tds: money[money.length - 1] ?? null,
-        })
+        const c = cols as { paid: number; deducted: number; deposited: number; date: number; booked: number } | null
+        let paid: number | null, deducted: number | null, deposited: number | null
+        if (c && c.paid >= 0 && c.deducted >= 0 && c.deposited >= 0) {
+          paid = parseAmount(f[c.paid] ?? ''); deducted = parseAmount(f[c.deducted] ?? ''); deposited = parseAmount(f[c.deposited] ?? '')
+        } else {
+          // No header seen: the three amounts are the last three decimal fields.
+          const money = f.filter((v) => /\.\d{2}$/.test(v)).map(parseAmount).filter((v): v is number => v !== null)
+          if (money.length < 3) { skipped.push({ row: n + 1, reason: 'a dated line without its column header, and fewer than three amounts' }); return }
+          ;[paid, deducted, deposited] = money.slice(-3)
+        }
+        if (paid === null) { skipped.push({ row: n + 1, reason: 'no Amount Paid / Credited on a dated line' }); return }
+        const dates = f.map((v) => parseDate(v)).filter((v): v is string => v !== null)
+        place({
+          deductor, tan, part,
+          section: f.find((v) => SECTION.test(v)) ?? '',
+          date: (c && c.date >= 0 ? parseDate(f[c.date] ?? '') : null) ?? dates[0],
+          status: f.find((v) => /^[FUOPM]$/.test(v)) ?? '',
+          booked: (c && c.booked >= 0 ? parseDate(f[c.booked] ?? '') : null) ?? dates[1] ?? '',
+          paid, deducted, deposited,
+        }, n + 1)
       })
       onProgress?.(70)
     } else {
@@ -901,65 +937,95 @@ export const ComplianceService = {
       if (!PDFService.hasTextLayer(pages)) {
         throw new ToolError('no_text_layer', 'This 26AS is a scan with no text layer. Download the text version from TRACES, or run OCR Scan first.')
       }
+      let xs: { paid: number; deducted: number; deposited: number } | null = null
+      const mid = (c: TextSpan) => (c.x0 + c.x1) / 2
       for (const page of pages) {
         for (const line of page.lines) {
-          const cells = line.cells.map((c) => c.text.trim()).filter((t) => t !== '')
+          const cells = line.cells.filter((c) => c.text.trim() !== '')
           if (cells.length === 0) continue
-          const joined = cells.join(' ')
+          const texts = cells.map((c) => c.text.trim())
+          const joined = texts.join(' ')
+          const p = partOf(joined)
+          if (p) { part = p; xs = null; continue }
+          if (texts.some((t) => /^section$/i.test(t))) {
+            const at = (re: RegExp) => cells.find((c) => re.test(c.text))
+            const a = at(/amount\s*paid/i); const d = at(/tax\s*(deducted|collected)/i); const dep = at(/(tds|tcs)\s*deposited/i)
+            xs = a && d && dep ? { paid: mid(a), deducted: mid(d), deposited: mid(dep) } : null
+            continue
+          }
           const tanMatch = joined.match(/\b([A-Z]{4}\d{5}[A-Z])\b/)
-          if (tanMatch && !parseDate(cells[0])) {
+          if (tanMatch && !parseDate(texts[0])) {
             tan = tanMatch[1]
             deductor = joined.split(tanMatch[1])[0].replace(/^\d+\s*/, '').trim() || deductor
             continue
           }
-          if (!parseDate(cells[0]) && !/^\d+$/.test(cells[0])) continue
-          const dateCell = cells.find((c) => parseDate(c) !== null)
-          if (!dateCell) continue
-          const money = cells.map(parseAmount).filter((v): v is number => v !== null)
-          if (money.length < 2) { skipped.push({ row: page.page, reason: `page ${page.page}: a dated line with fewer than two amounts` }); continue }
-          rows.push({
-            deductor, tan,
-            section: cells.find((c) => /^19[0-9A-Z]{1,3}$|^194[A-Z]{0,2}$/.test(c)) ?? '',
-            date: parseDate(dateCell)!,
-            status: cells.find((c) => /^[FUOP]$/.test(c)) ?? '',
-            credited: money[money.length - 2] ?? null,
-            tds: money[money.length - 1] ?? null,
-          })
+          if (!parseDate(texts[0]) && !/^\d+$/.test(texts[0])) continue
+          const dates = texts.map((t) => parseDate(t)).filter((v): v is string => v !== null)
+          if (dates.length === 0) continue
+          const money = cells.filter((c) => BANK_MONEY.test(c.text.trim())).map((c) => ({ v: parseAmount(c.text)!, x: mid(c) }))
+          let paid: number | null = null, deducted: number | null = null, deposited: number | null = null
+          if (xs) {
+            const cols = xs
+            for (const m of money) {
+              const k = (['paid', 'deducted', 'deposited'] as const).reduce((best, key) => (Math.abs(cols[key] - m.x) < Math.abs(cols[best] - m.x) ? key : best), 'paid' as 'paid' | 'deducted' | 'deposited')
+              if (k === 'paid') paid = m.v; else if (k === 'deducted') deducted = m.v; else deposited = m.v
+            }
+          } else if (money.length >= 3) {
+            ;[paid, deducted, deposited] = money.slice(-3).map((m) => m.v)
+          }
+          if (paid === null) { skipped.push({ row: page.page, reason: `page ${page.page}: a dated line whose Amount Paid / Credited could not be placed` }); continue }
+          place({
+            deductor, tan, part,
+            section: texts.find((t) => SECTION.test(t)) ?? '',
+            date: dates[0], booked: dates[1] ?? '',
+            status: texts.find((t) => /^[FUOPM]$/.test(t)) ?? '',
+            paid, deducted, deposited,
+          }, `page ${page.page}`)
         }
         onProgress?.(60 + (page.page / pages.length) * 25)
       }
     }
 
-    if (rows.length === 0) {
-      throw new ToolError('no_tables', 'No Part A transaction rows were found. Check this is a Form 26AS export and not another TRACES statement.')
+    if (tds.length === 0 && tcs.length === 0) {
+      throw new ToolError('no_tables', 'No Part I (TDS) or Part VI (TCS) transaction rows were found. Check this is a Form 26AS export and not another TRACES statement.')
     }
 
-    const totalCredited = round2(rows.reduce((s, r) => s + (r.credited ?? 0), 0))
-    const totalTds = round2(rows.reduce((s, r) => s + (r.tds ?? 0), 0))
-    const deductors = new Set(rows.map((r) => r.tan || r.deductor)).size
+    const sum = (rs: Row[], k: 'paid' | 'deducted' | 'deposited') => round2(rs.reduce((s, r) => s + (r[k] ?? 0), 0))
+    const totalCredited = sum(tds, 'paid')
+    const totalTds = sum(tds, 'deducted')
+    const totalDeposited = sum(tds, 'deposited')
+    const totalTcs = sum(tcs, 'deducted')
+    const deductors = new Set(tds.map((r) => r.tan || r.deductor)).size
 
     const wb = newBook()
-    const ws = wb.addWorksheet('Part A - TDS')
-    ws.columns = [
-      { header: 'Deductor', key: 'deductor', width: 40 },
-      { header: 'TAN', key: 'tan', width: 14 },
-      { header: 'Section', key: 'section', width: 10 },
-      { header: 'Date', key: 'date', width: 12 },
-      { header: 'Status', key: 'status', width: 8 },
-      { header: 'Amount Credited', key: 'credited', width: 18 },
-      { header: 'TDS Deducted', key: 'tds', width: 16 },
-    ]
-    rows.forEach((r) => ws.addRow(r))
-    ;['F', 'G'].forEach((c) => { ws.getColumn(c).numFmt = '#,##0.00' })
-    autoWidth(ws)
+    const detail = (name: string, who: string, kind: 'TDS' | 'TCS', rs: Row[]) => {
+      const ws = wb.addWorksheet(name)
+      ws.columns = [
+        { header: who, key: 'deductor', width: 40 },
+        { header: 'TAN', key: 'tan', width: 14 },
+        { header: 'Part', key: 'part', width: 6 },
+        { header: 'Section', key: 'section', width: 10 },
+        { header: 'Transaction Date', key: 'date', width: 14 },
+        { header: 'Status', key: 'status', width: 8 },
+        { header: 'Date of Booking', key: 'booked', width: 14 },
+        { header: kind === 'TDS' ? 'Amount Paid / Credited' : 'Amount Paid / Debited', key: 'paid', width: 20 },
+        { header: kind === 'TDS' ? 'Tax Deducted' : 'Tax Collected', key: 'deducted', width: 16 },
+        { header: `${kind} Deposited`, key: 'deposited', width: 16 },
+      ]
+      rs.forEach((r) => ws.addRow(r))
+      ;['H', 'I', 'J'].forEach((c) => { ws.getColumn(c).numFmt = '#,##0.00' })
+      autoWidth(ws)
+    }
+    detail('Part I - TDS', 'Deductor', 'TDS', tds)
 
     // Per-deductor totals — the sheet the reconciliation actually uses.
-    const byTan = new Map<string, { deductor: string; tan: string; credited: number; tds: number; count: number }>()
-    for (const r of rows) {
+    const byTan = new Map<string, { deductor: string; tan: string; count: number; paid: number; deducted: number; deposited: number }>()
+    for (const r of tds) {
       const k = r.tan || r.deductor
-      const e = byTan.get(k) ?? { deductor: r.deductor, tan: r.tan, credited: 0, tds: 0, count: 0 }
-      e.credited = round2(e.credited + (r.credited ?? 0))
-      e.tds = round2(e.tds + (r.tds ?? 0))
+      const e = byTan.get(k) ?? { deductor: r.deductor, tan: r.tan, count: 0, paid: 0, deducted: 0, deposited: 0 }
+      e.paid = round2(e.paid + (r.paid ?? 0))
+      e.deducted = round2(e.deducted + (r.deducted ?? 0))
+      e.deposited = round2(e.deposited + (r.deposited ?? 0))
       e.count++
       byTan.set(k, e)
     }
@@ -968,16 +1034,22 @@ export const ComplianceService = {
       { header: 'Deductor', key: 'deductor', width: 40 },
       { header: 'TAN', key: 'tan', width: 14 },
       { header: 'Entries', key: 'count', width: 10 },
-      { header: 'Amount Credited', key: 'credited', width: 18 },
-      { header: 'TDS Deducted', key: 'tds', width: 16 },
+      { header: 'Amount Paid / Credited', key: 'paid', width: 20 },
+      { header: 'Tax Deducted', key: 'deducted', width: 16 },
+      { header: 'TDS Deposited', key: 'deposited', width: 16 },
     ]
     ;[...byTan.values()].forEach((e) => bd.addRow(e))
-    bd.addRow({ deductor: 'Total', tan: '', count: rows.length, credited: totalCredited, tds: totalTds }).font = { bold: true }
-    ;['D', 'E'].forEach((c) => { bd.getColumn(c).numFmt = '#,##0.00' })
+    bd.addRow({ deductor: 'Total', tan: '', count: tds.length, paid: totalCredited, deducted: totalTds, deposited: totalDeposited }).font = { bold: true }
+    ;['D', 'E', 'F'].forEach((c) => { bd.getColumn(c).numFmt = '#,##0.00' })
     autoWidth(bd)
+
+    if (tcs.length) detail('Part VI - TCS', 'Collector', 'TCS', tcs)
     addSkippedSheet(wb, skipped)
 
-    return { bytes: Buffer.from(await wb.xlsx.writeBuffer()), rows: rows.length, deductors, totalCredited, totalTds, skipped: skipped.length }
+    return {
+      bytes: Buffer.from(await wb.xlsx.writeBuffer()), rows: tds.length, deductors, totalCredited, totalTds, totalDeposited,
+      tcsRows: tcs.length, totalTcs, skipped: skipped.length,
+    }
   },
 
   // ── 4. Excel → Tally XML ───────────────────────────────────────────────
