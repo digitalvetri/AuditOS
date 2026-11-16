@@ -269,6 +269,9 @@ describe('Books — permissions and organisations', () => {
     expect(r.status).toBe(200)
     expect(r.body.data.permissions).toEqual({ manage: false, accountant: false, settings: false, reports: true })
     expect(r.body.data.organizations).toEqual([])
+    // …and is told it is an assignment question, not "Zoho has no organisation".
+    expect(r.body.data.organizations_not_assigned).toBe(true)
+    expect((await api('/api/books/status', { cookie: admin.cookie })).body.data.organizations_not_assigned).toBe(false)
   })
 
   // Roles exactly as production has them (setupRoles). Associates and Interns

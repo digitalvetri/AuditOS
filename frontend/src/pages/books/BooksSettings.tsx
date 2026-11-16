@@ -400,7 +400,7 @@ function ConnectWithCodeModal({ onClose, onDone, browserSignIn }: { onClose: () 
     <Modal title="Connect Zoho Books" onClose={onClose} footer={<><Btn onClick={onClose}>Cancel</Btn><Btn variant="primary" disabled={!code.trim()} loading={submit.isPending} onClick={() => { setError(null); submit.mutate(); }}>Connect</Btn></>}>
       <div className="space-y-3 text-13 text-ink">
         <ol className="list-decimal pl-5 space-y-1 text-inkMuted">
-          <li>Open <a className="text-primary underline" href={console_} target="_blank" rel="noopener noreferrer">{console_.replace('https://', '')}</a> and choose the client whose Client ID is set on this server (a <strong>Self Client</strong> works).</li>
+          <li>Open <a className="text-primary underline" href={console_} target="_blank" rel="noopener noreferrer">{console_.replace('https://', '')}</a> and choose the Zoho API client this server is set up with (a <strong>Self Client</strong> works). For an account with its own client, use <strong>Add organisation</strong> instead.</li>
           <li>Go to <strong>Generate Code</strong>. Scope: <code className="font-mono text-ink">ZohoBooks.fullaccess.all</code> · Time duration: <strong>10 minutes</strong> · any description → <strong>Create</strong>.</li>
           <li>Copy the code (starts with <code className="font-mono">1000.</code>) and paste it below within 10 minutes. Each code works once.</li>
         </ol>
@@ -426,6 +426,19 @@ function ConnectWithCodeModal({ onClose, onDone, browserSignIn }: { onClose: () 
  * and offers the two things that change it.
  */
 export function NoZohoOrganisations() {
+  const { status } = useBooks();
+  if (status.organizations_not_assigned) {
+    return (
+      <Empty title="No Zoho Books organisation is linked to your clients">
+        Zoho Books is set up for the firm, but none of its organisations is mapped to a client you are assigned to. Ask a Super Admin or Admin to assign you the client, or to map its Zoho Books organisation in Books → Settings.
+      </Empty>
+    );
+  }
+  return <NoOrganisationsForLogin />;
+}
+
+/** Connected, but Zoho itself lists no Books organisation for the connected login. */
+function NoOrganisationsForLogin() {
   const { status, can } = useBooks();
   const qc = useQueryClient();
   const toast = useToast();

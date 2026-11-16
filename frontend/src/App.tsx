@@ -128,7 +128,6 @@ const BooksSettingsPage = lazy(() => import('@/pages/books/BooksSettings').then(
 const BankingPage = lazy(() => import('@/pages/books/BooksPages').then((m) => ({ default: m.BankingPage })));
 const BulkUpdatePage = lazy(() => import('@/pages/books/BooksPages').then((m) => ({ default: m.BulkUpdatePage })));
 const ContactDetailPage = lazy(() => import('@/pages/books/BooksPages').then((m) => ({ default: m.ContactDetailPage })));
-const PaymentsPage = lazy(() => import('@/pages/books/BooksPages').then((m) => ({ default: m.PaymentsPage })));
 const ReconciliationPage = lazy(() => import('@/pages/books/BooksPages').then((m) => ({ default: m.ReconciliationPage })));
 const BooksReportsPage = lazy(() => import('@/pages/books/BooksPages').then((m) => ({ default: m.ReportsPage })));
 const ResourcePage = lazy(() => import('@/pages/books/BooksPages').then((m) => ({ default: m.ResourcePage })));
@@ -543,7 +542,8 @@ export default function App() {
                 <Route path="purchases/purchaseorders" element={<ResourcePage entity="purchaseorders" />} />
                 <Route path="purchases/bills" element={<ResourcePage entity="bills" />} />
                 <Route path="expenses" element={<ResourcePage entity="expenses" />} />
-                <Route path="payments" element={<PaymentsPage />} />
+                {/* Payments are under Sales → Payments Received and Purchases → Payments Made; old links land there. */}
+                <Route path="payments" element={<Navigate to="/books/sales/paymentsreceived" replace />} />
                 <Route path="credit-notes" element={<ResourcePage entity="creditnotes" />} />
                 <Route path="debit-notes" element={<ResourcePage entity="vendorcredits" />} />
                 <Route path="banking" element={<BankingPage />} />

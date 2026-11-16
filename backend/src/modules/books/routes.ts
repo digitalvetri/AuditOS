@@ -132,10 +132,15 @@ async function visibleOrgWhere(req: Request): Promise<{ clientId?: { in: string[
 booksRouter.get('/status', h(async (req, res) => {
   const { organisationId } = await firmOf(req)
   const session = requireSession(req)
+  const visibleWhere = await visibleOrgWhere(req)
   const [connections, orgs] = await Promise.all([
     prisma.booksZohoConnection.findMany({ where: { organisationId, deletedAt: null }, orderBy: { createdAt: 'asc' } }),
-    prisma.booksZohoOrganization.findMany({ where: { organisationId, ...(await visibleOrgWhere(req)) }, orderBy: { name: 'asc' } }),
+    prisma.booksZohoOrganization.findMany({ where: { organisationId, ...visibleWhere }, orderBy: { name: 'asc' } }),
   ])
+  // Staff scoped to their assigned clients: the firm has organisations in use
+  // that they cannot see — "not assigned", not "Zoho has no organisation".
+  const notAssigned = Boolean(visibleWhere.clientId) &&
+    (await prisma.booksZohoOrganization.count({ where: { organisationId, isActive: true } })) > orgs.filter((o) => o.isActive).length
   const clientIds = orgs.flatMap((o) => (o.clientId ? [o.clientId] : []))
   const clients = clientIds.length ? await prisma.client.findMany({ where: { id: { in: clientIds } }, select: { id: true, companyName: true } }) : []
   const clientName = new Map(clients.map((c) => [c.id, c.companyName]))
@@ -152,6 +157,7 @@ booksRouter.get('/status', h(async (req, res) => {
     // Only a Super Admin may add a Zoho account (Books → Settings → Add organisation).
     can_add_connection: canAddZohoAccount(req),
     selected_org_ref: selection?.orgRef ?? null,
+    organizations_not_assigned: notAssigned,
     // Name, method and status only — client ids, secrets and tokens never leave the server.
     connections: visible.map((c) => ({
       id: c.id, name: c.name, auth_method: c.authMethod, status: c.status, connected_at: c.connectedAt, last_error_code: c.lastErrorCode,

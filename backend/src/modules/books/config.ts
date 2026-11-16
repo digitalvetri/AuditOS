@@ -34,7 +34,8 @@ export interface BooksConfig {
 
 export class BooksNotConfigured extends Error {
   constructor() {
-    super('Zoho Books is not configured on the server (ZBOOKS_CLIENT_ID / ZBOOKS_CLIENT_SECRET).')
+    // Shown to users: the in-app path, not environment variables (those are in docs/books-zoho/README.md).
+    super('Zoho Books is not set up yet. A Super Admin or Admin can add a Zoho account in Books → Settings → Add organisation.')
     this.name = 'BooksNotConfigured'
   }
 }

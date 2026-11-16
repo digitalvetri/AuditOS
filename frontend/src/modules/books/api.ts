@@ -52,6 +52,8 @@ export interface BooksStatus {
   can_add_connection: boolean;
   /** This user's last chosen organisation (and so connection), kept on the server. */
   selected_org_ref: string | null;
+  /** The firm has Zoho organisations in use, but none is mapped to a client this user is assigned to. */
+  organizations_not_assigned?: boolean;
   connections: BooksConnection[];
   organizations: BooksOrg[];
   permissions: { manage: boolean; accountant: boolean; settings: boolean; reports: boolean };

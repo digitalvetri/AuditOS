@@ -373,7 +373,8 @@ export function ZohoOnlyPage({ title, zohoPath, why }: { title: string; zohoPath
   );
   return (
     <div className="space-y-4">
-      <PageHeader title={title} right={open} />
+      <PageHeader title={title} subtitle="Placeholder — Audit OS does not show these. Open them in Zoho Books." right={open} />
+      <Notice tone="warn">{title} are not available in Audit OS. This page only links to the same screen in Zoho Books.</Notice>
       <Section><Empty title={`${title} is managed in Zoho Books`}>{why}</Empty></Section>
     </div>
   );

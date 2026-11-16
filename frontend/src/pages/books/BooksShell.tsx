@@ -14,14 +14,15 @@ import { NoZohoOrganisations } from './BooksSettings';
  * user can connect in the first place.
  */
 /** Mirrors Zoho Books' own sidebar — same sections, order and names. */
-const NAV: { group?: string; items: { to: string; label: string; perm?: 'reports' }[] }[] = [
+/** `zoho`: a placeholder that only links to Zoho Books — tagged so nobody expects data here. */
+const NAV: { group?: string; items: { to: string; label: string; perm?: 'reports'; zoho?: boolean }[] }[] = [
   { items: [{ to: '/books', label: 'Home' }] },
   { group: 'Items', items: [
     { to: '/books/items', label: 'Items' },
     { to: '/books/pricelists', label: 'Price Lists' },
     { to: '/books/inventory-adjustments', label: 'Inventory Adjustments' },
   ] },
-  { items: [{ to: '/books/banking', label: 'Banking' }] },
+  { items: [{ to: '/books/banking', label: 'Banking' }, { to: '/books/reconciliation', label: 'Reconciliation' }] },
   { group: 'Sales', items: [
     { to: '/books/customers', label: 'Customers' },
     { to: '/books/sales/estimates', label: 'Quotes' },
@@ -33,7 +34,7 @@ const NAV: { group?: string; items: { to: string; label: string; perm?: 'reports
     { to: '/books/sales/paymentsreceived', label: 'Payments Received' },
     { to: '/books/sales/recurringinvoices', label: 'Recurring Invoices' },
     { to: '/books/credit-notes', label: 'Credit Notes' },
-    { to: '/books/sales/ewaybills', label: 'e-Way Bills' },
+    { to: '/books/sales/ewaybills', label: 'e-Way Bills', zoho: true },
   ] },
   { group: 'Purchases', items: [
     { to: '/books/vendors', label: 'Vendors' },
@@ -56,6 +57,7 @@ const NAV: { group?: string; items: { to: string; label: string; perm?: 'reports
     { to: '/books/accountant/chartofaccounts', label: 'Chart of Accounts' },
     { to: '/books/accountant/budgets', label: 'Budgets' },
     { to: '/books/accountant/transactionlocking', label: 'Transaction Locking' },
+    { to: '/books/taxes', label: 'Taxes' },
   ] },
   { items: [{ to: '/books/reports', label: 'Reports', perm: 'reports' }] },
   { items: [{ to: '/books/documents', label: 'Documents' }] },
@@ -100,6 +102,7 @@ function Frame() {
                   <NavLink key={i.to} to={i.to} end={i.to === '/books'}
                     className={({ isActive }) => `books-nav-item block rounded-lg px-3 py-2 text-13 ${g.group ? 'pl-5' : ''} ${isActive ? 'is-active font-semibold' : 'text-inkMuted font-medium'}`}>
                     {i.label}
+                    {i.zoho ? <span className="ml-2 text-11 font-medium text-inkFaint" title="Managed in Zoho Books — this page links there">in Zoho ↗</span> : null}
                   </NavLink>
                 ))}
               </div>
@@ -108,7 +111,7 @@ function Frame() {
         </div>
       </nav>
       <div className="lg:hidden">
-        <Select value={items.find((i) => i.to === pathname || (i.to !== '/books' && pathname.startsWith(i.to)))?.to ?? '/books'} onChange={(v) => navigate(v)} options={items.map((i) => ({ value: i.to, label: i.label }))} />
+        <Select value={items.find((i) => i.to === pathname || (i.to !== '/books' && pathname.startsWith(i.to)))?.to ?? '/books'} onChange={(v) => navigate(v)} options={items.map((i) => ({ value: i.to, label: i.zoho ? `${i.label} (in Zoho)` : i.label }))} />
       </div>
 
       <div className="flex-1 min-w-0">
@@ -193,9 +196,10 @@ function NotReady() {
   const expired = Boolean(dead);
   return (
     <div className="dash-card">
-      {!status.configured ? (
-        <Empty title="Zoho Books is not configured">
-          The server has no Zoho Books API credentials yet. An administrator must set ZBOOKS_CLIENT_ID and ZBOOKS_CLIENT_SECRET (see docs/books-zoho/README.md).
+      {!status.configured && !dead ? (
+        <Empty title="Zoho Books is not connected yet">
+          {status.can_add_connection ? 'Add a Zoho account with its Zoho API client to start using Books.' : 'A Super Admin or Admin connects a Zoho account in Books → Settings → Add organisation.'}
+          {status.can_add_connection ? <div className="mt-3"><Btn variant="primary" onClick={() => navigate('/books/settings')}>Add organisation</Btn></div> : null}
         </Empty>
       ) : connected && status.organizations.length === 0 ? (
         <NoZohoOrganisations />
