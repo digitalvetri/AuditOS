@@ -1,6 +1,6 @@
 import type { Prisma, PrismaClient } from '@prisma/client'
 import { ALL_PERMISSION_CODES, PERMISSION_DESCRIPTIONS } from '../src/platform/rbac/matrix.js'
-import { MODULES, moduleCodes, scopeFor, VISIBLE_ROLES } from '../src/platform/rbac/modules.js'
+import { MODULES, moduleCodes, scopeFor, VISIBLE_ROLES, type ModuleCode } from '../src/platform/rbac/modules.js'
 import { AUDIT_CHAIN_LOCK, auditHash, type AuditHashInput } from '../src/platform/audit.js'
 import { lockSequence } from '../src/lib/sequence.js'
 import { stringifyJson } from '../src/lib/json.js'
@@ -20,7 +20,8 @@ import { stringifyJson } from '../src/lib/json.js'
  *
  * Either way, Associate and Intern get the Tools lock-down once (see
  * `lockDownTools`), so databases set up while Books sat inside Tools lose
- * those grants on the next deploy.
+ * those grants on the next deploy; and Associate, Intern and Senior
+ * Associate get the role-tier correction once (see `applyRoleTiers`).
  */
 export async function setupRoles(prisma: PrismaClient, opts: { force?: boolean } = {}): Promise<void> {
   for (const code of ALL_PERMISSION_CODES) {
@@ -60,6 +61,11 @@ export async function setupRoles(prisma: PrismaClient, opts: { force?: boolean }
     // Before the top-up: it must not read the old Books rows as "holds Books".
     if (LOCKDOWN_ROLES.includes(r.code) && await lockDownTools(prisma, role.id)) {
       console.log(`Role ${r.name}: Books editing removed; tool documents limited to their own`)
+    }
+    // Also before the top-up: a leftover audit.review must not read as
+    // "holds Review & approvals" and pull in the whole tier.
+    if (TIER_ROLES.includes(r.code) && await applyRoleTiers(prisma, role.id, r.code, r.modules)) {
+      console.log(`Role ${r.name}: approvals / partner powers limited to the role's tier`)
     }
     if (!applyDefaults) {
       // Top up: new codes in a module the role already holds.
@@ -112,6 +118,58 @@ async function lockDownTools(prisma: PrismaClient, roleId: string): Promise<bool
     const prevHash = last?.hash ?? null
     await tx.auditLog.create({ data: { ...content, prevHash, hash: auditHash(prevHash, content) } })
     return books.count + docs.count > 0
+  }, { maxWait: 15_000, timeout: 15_000 })
+}
+
+/**
+ * One-time correction for Senior Associate, Associate and Intern. Before the
+ * role tiers, Workstation was one module granted in full, so every database
+ * gave these roles partner powers (sign an audit file, refunds, firm-wide
+ * due-date extensions, closing a financial year) and the Associate / Intern
+ * the review powers too (credit notes, cancel, quotation approval, document
+ * verify, revealing and changing portal passwords). Removes the tier codes a
+ * role's defaults do not include and narrows lead codes to `scopeFor` (an
+ * Intern's leads are their own; an Associate converts only their own).
+ *
+ * Runs once per role, marked by its audit-log row like `lockDownTools`, so a
+ * later deliberate grant in Settings → Roles & permissions survives. Returns
+ * true when it changed anything.
+ */
+export const ROLE_TIERS_ACTION = 'role_defaults.ws_tiers'
+const TIER_ROLES: string[] = ['dept_manager', 'employee', 'intern']
+const TIER_MODULES: ModuleCode[] = ['approvals', 'partner']
+const LEAD_CODES = ['workstation.lead.read', 'workstation.lead.manage', 'workstation.lead.convert']
+
+async function applyRoleTiers(prisma: PrismaClient, roleId: string, roleCode: string, defaults: ModuleCode[]): Promise<boolean> {
+  return prisma.$transaction(async (tx: Prisma.TransactionClient) => {
+    await lockSequence(tx, AUDIT_CHAIN_LOCK)
+    const done = await tx.auditLog.findFirst({ where: { action: ROLE_TIERS_ACTION, entityType: 'Role', entityId: roleId }, select: { id: true } })
+    if (done) return false
+    const revoke = TIER_MODULES.filter((m) => !defaults.includes(m)).flatMap(moduleCodes)
+    const removed = revoke.length
+      ? await tx.rolePermission.deleteMany({ where: { roleId, permission: { code: { in: revoke } } } })
+      : { count: 0 }
+    const selfLeads = LEAD_CODES.filter((c) => scopeFor(roleCode, c) === 'self')
+    const narrowed = selfLeads.length
+      ? await tx.rolePermission.updateMany({
+        where: { roleId, permission: { code: { in: selfLeads } }, scope: { not: 'self' } },
+        data: { scope: 'self' },
+      })
+      : { count: 0 }
+    const content: AuditHashInput = {
+      actorUserId: null,
+      action: ROLE_TIERS_ACTION,
+      entityType: 'Role',
+      entityId: roleId,
+      beforeJson: null,
+      afterJson: stringifyJson({ tier_grants_removed: removed.count, revoked_codes: revoke, lead_grants_limited_to_self: narrowed.count }),
+      ip: null,
+      createdAt: new Date(),
+    }
+    const last = await tx.auditLog.findFirst({ where: { hash: { not: null } }, orderBy: { seq: 'desc' }, select: { hash: true } })
+    const prevHash = last?.hash ?? null
+    await tx.auditLog.create({ data: { ...content, prevHash, hash: auditHash(prevHash, content) } })
+    return removed.count + narrowed.count > 0
   }, { maxWait: 15_000, timeout: 15_000 })
 }
 

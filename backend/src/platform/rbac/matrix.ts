@@ -55,6 +55,11 @@ export type PermissionCode =
   | 'workstation.quotation.manage'
   | 'workstation.invoice.read'
   | 'workstation.invoice.manage'
+  // Issue / cancel a credit note and cancel a sent invoice (Senior Associate+);
+  // record a refund (partner). Drafting and sending stay with invoice.manage.
+  | 'workstation.invoice.credit'
+  | 'workstation.invoice.cancel'
+  | 'workstation.invoice.refund'
   | 'workstation.quotation.approve'
   | 'workstation.engagement.read'
   | 'workstation.engagement.manage'
@@ -72,6 +77,9 @@ export type PermissionCode =
   // Compliance calendar, notices register, DSC register (docs/compliance/README.md).
   | 'workstation.compliance.read'
   | 'workstation.compliance.manage'
+  // Firm-wide calendar changes: due-date extensions, (re)generating items for
+  // every client and editing the statutory catalogue. Partners only.
+  | 'workstation.compliance.firm'
   | 'workstation.notice.read'
   | 'workstation.notice.manage'
   | 'workstation.dsc.read'
@@ -87,6 +95,10 @@ export type PermissionCode =
   | 'workstation.tds.portal.reveal'
   | 'workstation.registration.portal.view'
   | 'workstation.registration.portal.reveal'
+  // Add, change or delete a saved portal login (Senior Associate+).
+  | 'workstation.gst.portal.manage'
+  | 'workstation.tds.portal.manage'
+  | 'workstation.registration.portal.manage'
   | 'workstation.eway.read'
   | 'workstation.eway.generate'
   | 'workstation.eway.cancel'
@@ -136,6 +148,9 @@ export type PermissionCode =
   | 'tools.audit_automation.bookkeeping.audit.read'
   | 'tools.audit_automation.bookkeeping.settings.manage'
   | 'tools.audit_automation.bookkeeping.data.manage'
+  // Financial years: add one (Senior Associate+); close or reopen (partner).
+  | 'tools.audit_automation.bookkeeping.year.manage'
+  | 'tools.audit_automation.bookkeeping.year.close'
 
   // ── Books (docs/books-zoho/README.md) — Tools → Books, backed by Zoho Books.
   // Organisation scope only: a Zoho organisation has no per-user membership,
@@ -185,8 +200,6 @@ export const MATRIX: Record<RoleCode, Grant[]> = {
     { permission: 'workstation.engagement.manage', scope: 'self' },
     { permission: 'workstation.audit.read', scope: 'self' },
     { permission: 'workstation.audit.manage', scope: 'self' },
-    { permission: 'workstation.audit.review', scope: 'self' },
-    { permission: 'workstation.audit.sign', scope: 'self' },
     { permission: 'workstation.doc.read', scope: 'self' },
     { permission: 'workstation.doc.manage', scope: 'self' },
     { permission: 'workstation.lead.read', scope: 'self' },
@@ -281,7 +294,6 @@ export const MATRIX: Record<RoleCode, Grant[]> = {
     { permission: 'workstation.audit.read', scope: 'organisation' },
     { permission: 'workstation.audit.manage', scope: 'organisation' },
     { permission: 'workstation.audit.review', scope: 'organisation' },
-    { permission: 'workstation.audit.sign', scope: 'organisation' },
     { permission: 'workstation.doc.read', scope: 'organisation' },
     { permission: 'workstation.doc.manage', scope: 'organisation' },
     { permission: 'workstation.quotation.approve', scope: 'organisation' },
@@ -364,6 +376,13 @@ export const MATRIX: Record<RoleCode, Grant[]> = {
     { permission: 'books.settings', scope: 'organisation' },
     { permission: 'books.reports', scope: 'organisation' },
     { permission: 'books.accountant', scope: 'organisation' },
+    // Review & approvals tier — no partner sign-off.
+    { permission: 'workstation.invoice.credit', scope: 'organisation' },
+    { permission: 'workstation.invoice.cancel', scope: 'organisation' },
+    { permission: 'workstation.gst.portal.manage', scope: 'organisation' },
+    { permission: 'workstation.tds.portal.manage', scope: 'organisation' },
+    { permission: 'workstation.registration.portal.manage', scope: 'organisation' },
+    { permission: 'tools.audit_automation.bookkeeping.year.manage', scope: 'organisation' },
   ],
   hr_admin: [
     { permission: 'profile.read', scope: 'self' },
@@ -549,6 +568,16 @@ export const MATRIX: Record<RoleCode, Grant[]> = {
     { permission: 'books.settings', scope: 'organisation' },
     { permission: 'books.reports', scope: 'organisation' },
     { permission: 'books.accountant', scope: 'organisation' },
+    // Role tiers (rbac/modules.ts): review & approvals, partner sign-off.
+    { permission: 'workstation.invoice.credit', scope: 'organisation' },
+    { permission: 'workstation.invoice.cancel', scope: 'organisation' },
+    { permission: 'workstation.invoice.refund', scope: 'organisation' },
+    { permission: 'workstation.compliance.firm', scope: 'organisation' },
+    { permission: 'workstation.gst.portal.manage', scope: 'organisation' },
+    { permission: 'workstation.tds.portal.manage', scope: 'organisation' },
+    { permission: 'workstation.registration.portal.manage', scope: 'organisation' },
+    { permission: 'tools.audit_automation.bookkeeping.year.manage', scope: 'organisation' },
+    { permission: 'tools.audit_automation.bookkeeping.year.close', scope: 'organisation' },
   ],
 }
 
@@ -614,17 +643,20 @@ export const PERMISSION_DESCRIPTIONS: Record<string, string> = {
   'workstation.quotation.read': 'View quotations',
   'workstation.quotation.manage': 'Create and edit quotations',
   'workstation.invoice.read': 'View invoices',
-  'workstation.invoice.manage': 'Create and edit invoices',
+  'workstation.invoice.manage': 'Create, edit and send invoices; record payments; draft credit notes',
+  'workstation.invoice.credit': 'Issue or cancel a credit note',
+  'workstation.invoice.cancel': 'Cancel a sent invoice',
+  'workstation.invoice.refund': 'Record or remove a refund to a client (TDS portion only with an explicit override)',
   'workstation.audit.read': 'View audit files, working papers, checklists and the UDIN register',
   'workstation.audit.manage': 'Create and edit audit files; prepare working papers and checklists',
   'workstation.audit.review': 'Review working papers and checklist items; clear review notes',
-  'workstation.audit.sign': 'Sign and lock an audit file (only as its signing partner)',
+  'workstation.audit.sign': 'Approve client acceptance and sign an audit file; be named its signing partner',
   'workstation.quotation.approve': 'Mark a quotation accepted or rejected',
   'workstation.task.manage': 'Create, edit, assign, reassign and cancel tasks',
   'workstation.task.report': 'View task reports and employee work-time summaries',
   'workstation.lead.read': 'View leads',
   'workstation.lead.manage': 'Create and edit leads',
-  'workstation.lead.convert': 'Convert a won lead into a client',
+  'workstation.lead.convert': 'Convert a won lead into a client (at organisation scope: anyone’s lead, and reassign it)',
   'workstation.client.read': 'View clients',
   'workstation.client.manage': 'Create and edit clients',
   'workstation.service.read': 'View client services',
@@ -638,15 +670,19 @@ export const PERMISSION_DESCRIPTIONS: Record<string, string> = {
   'workstation.gst.read': 'View GST profiles and filings',
   'workstation.gst.manage': 'Update GST filing status',
   'workstation.compliance.read': 'View the compliance calendar',
-  'workstation.compliance.manage': 'Manage compliance obligations, items and due-date extensions',
+  'workstation.compliance.manage': 'Manage compliance obligations and items for assigned clients',
+  'workstation.compliance.firm': 'Firm-wide calendar changes: due-date extensions, generating items, the statutory catalogue',
   'workstation.notice.read': 'View the notices register',
   'workstation.notice.manage': 'Record and update client notices',
   'workstation.dsc.read': 'View the DSC register',
   'workstation.dsc.manage': 'Manage the DSC register',
   'workstation.gst.portal.view': 'See a client’s GST portal credentials record (passwords stay masked)',
-  'workstation.tds.portal.view': 'See a client’s TDS portal User ID (TAN) and whether a password is saved; add / edit / delete the record',
+  'workstation.tds.portal.view': 'See a client’s TDS portal User ID (TAN) and whether a password is saved',
+  'workstation.tds.portal.manage': 'Add, change or delete a client’s TDS portal login',
+  'workstation.gst.portal.manage': 'Add or change a client’s GST portal / e-way bill / IRP login',
+  'workstation.registration.portal.manage': 'Add, change or delete a client’s registration portal login',
   'workstation.tds.portal.reveal': 'Decrypt a client’s TDS portal password — writes an audit row per reveal',
-  'workstation.registration.portal.view': 'See a client’s registration logins (MSME, Shops, IEC, PF, ESI, E-Invoice, E-Way Bill) and add / edit / delete them',
+  'workstation.registration.portal.view': 'See a client’s registration logins (MSME, Shops, IEC, PF, ESI, E-Invoice, E-Way Bill), passwords masked',
   'workstation.registration.portal.reveal': 'Decrypt a client’s registration portal password — writes an audit row per reveal',
   'workstation.gst.portal.reveal': 'Decrypt a portal / e-way bill / IRP password field — writes an audit row per reveal',
   'workstation.eway.read': 'View e-way bills',
@@ -681,7 +717,9 @@ export const PERMISSION_DESCRIPTIONS: Record<string, string> = {
   'tools.audit_automation.tds.upload': 'Upload Form 26AS or TDS books and run reconciliation',
   'tools.audit_automation.tds.view': 'View TDS reconciliation jobs and results',
   'tools.audit_automation.bookkeeping.access': 'Open the Tally accounting module',
-  'tools.audit_automation.bookkeeping.company.manage': 'Create and edit Tally companies and financial years',
+  'tools.audit_automation.bookkeeping.company.manage': 'Create and edit Tally companies',
+  'tools.audit_automation.bookkeeping.year.manage': 'Add a financial year to a Tally company',
+  'tools.audit_automation.bookkeeping.year.close': 'Close or reopen a financial year',
   'tools.audit_automation.bookkeeping.master.read': 'View Tally groups and ledgers',
   'tools.audit_automation.bookkeeping.master.manage': 'Create, edit and delete Tally groups and ledgers',
   'books.access': 'View Books (Zoho Books) data',
