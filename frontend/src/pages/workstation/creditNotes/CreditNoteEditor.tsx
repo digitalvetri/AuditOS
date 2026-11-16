@@ -280,7 +280,10 @@ function Editor({ cn, invoiceId, cr, clientName }: { cn: CreditNote | null; invo
               {editable ? (
                 <>
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                    <Field label="Credit note date" error={errs.note_date}>
+                    <Field
+                      label="Credit note date" error={errs.note_date}
+                      hint={cr.note_deadline ? `From the invoice date to today, and no later than ${fmtDay(cr.note_deadline)} (s.34(2) CGST Act).` : undefined}
+                    >
                       <input className={inputClass} type="date" value={noteDate} onChange={(e) => touch(setNoteDate)(e.target.value)} />
                     </Field>
                     <Field label="Reason" error={errs.reason}>

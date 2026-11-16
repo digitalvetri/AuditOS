@@ -32,6 +32,7 @@ import type { Scope } from '../../platform/rbac/matrix.js'
 import { InvoiceService } from '../invoice/service.js'
 import { assertRefundsCovered, liveBalanceDue, recomputeInvoice } from '../invoice/payments.js'
 import { computeTotals } from '../invoice/totals.js'
+import { istToday } from '../../lib/dates.js'
 
 export const CREDIT_NOTE_REASONS = ['rate_change', 'deficiency', 'discount', 'return', 'fee_reduction', 'other'] as const
 export type CreditNoteReason = (typeof CREDIT_NOTE_REASONS)[number]
@@ -169,6 +170,78 @@ function assertLines(lines: CreditLineInput[], invoiceRates: number[]) {
   }
 }
 
+/**
+ * s.34(2) CGST Act (as amended by s.102 Finance Act 2022, from 1 Oct 2022):
+ * a credit note must be declared in the return for a month not later than
+ * 30 November following the end of the financial year of the supply, or the
+ * date of furnishing the annual return, whichever is earlier. The app does
+ * not record the annual return date, so the 30 November limit is enforced.
+ */
+export function creditNoteDeadline(invoiceDate: string): string {
+  const y = Number(invoiceDate.slice(0, 4))
+  const m = Number(invoiceDate.slice(5, 7))
+  const fyEndYear = m >= 4 ? y + 1 : y
+  return `${fyEndYear}-11-30`
+}
+
+/** The note date: on or after the invoice, not in the future, and within s.34(2). */
+function assertNoteDate(noteDate: string, invoiceDate: string, today = istToday()) {
+  if (noteDate < invoiceDate) {
+    throw ApiError.unprocessable('note_before_invoice', `The credit note date cannot be before the invoice date (${invoiceDate}).`)
+  }
+  if (noteDate > today) {
+    throw ApiError.unprocessable('note_in_future', 'The credit note date cannot be in the future.')
+  }
+  const deadline = creditNoteDeadline(invoiceDate)
+  if (noteDate > deadline || today > deadline) {
+    throw ApiError.unprocessable(
+      'credit_note_time_barred',
+      `GST on this invoice can no longer be reduced by a credit note: s.34(2) allows it only up to ${deadline} (30 November after the end of the invoice's financial year, or the annual return date if earlier). Settle the amount commercially without GST instead.`,
+      { deadline },
+    )
+  }
+}
+
+/**
+ * Per GST rate, the taxable value credited (this note plus earlier ISSUED
+ * notes, excluding `excludeId`) may not exceed what the invoice charged at
+ * that rate — otherwise a note reverses more GST than was ever levied.
+ */
+async function assertPerRateCap(
+  tx: Tx | typeof prisma,
+  invoiceId: string,
+  lines: { gstRate: number; taxablePaise: number }[],
+  excludeId?: string,
+) {
+  const [items, notes] = await Promise.all([
+    tx.invoiceItem.findMany({ where: { invoiceId }, select: { gstRatePercent: true, taxableAmountPaise: true } }),
+    tx.creditNote.findMany({
+      where: { invoiceId, deletedAt: null, status: 'issued', ...(excludeId ? { id: { not: excludeId } } : {}) },
+      select: { linesJson: true },
+    }),
+  ])
+  const charged = new Map<number, number>()
+  for (const i of items) charged.set(i.gstRatePercent, (charged.get(i.gstRatePercent) ?? 0) + Number(i.taxableAmountPaise))
+  const credited = new Map<number, number>()
+  for (const n of notes) {
+    for (const l of (Array.isArray(n.linesJson) ? n.linesJson : []) as { gst_rate?: number; taxable_paise?: number }[]) {
+      if (typeof l.gst_rate === 'number') credited.set(l.gst_rate, (credited.get(l.gst_rate) ?? 0) + Number(l.taxable_paise ?? 0))
+    }
+  }
+  const asked = new Map<number, number>()
+  for (const l of lines) asked.set(l.gstRate, (asked.get(l.gstRate) ?? 0) + l.taxablePaise)
+  for (const [rate, amount] of asked) {
+    const room = Math.max(0, (charged.get(rate) ?? 0) - (credited.get(rate) ?? 0))
+    if (amount > room) {
+      throw ApiError.unprocessable(
+        'credit_exceeds_rate',
+        `At ${rate}% the invoice charged GST on ₹${((charged.get(rate) ?? 0) / 100).toFixed(2)} of taxable value, and ₹${(room / 100).toFixed(2)} of it is left to credit. This note credits ₹${(amount / 100).toFixed(2)} at ${rate}%.`,
+        { gst_rate: rate, creditable_taxable_paise: room },
+      )
+    }
+  }
+}
+
 export const CreditNoteService = {
   /** Visibility follows the invoice: InvoiceService.get applies the client scope. */
   async list(session: Session, scope: Scope, f: { invoiceId?: string; clientId?: string; status?: string; q?: string } = {}) {
@@ -221,6 +294,9 @@ export const CreditNoteService = {
       credited_paise: credited,
       creditable_paise: Math.max(0, inv.total_paise - credited),
       balance_due_paise: balance,
+      /** s.34(2): the last date a note may reduce GST on this invoice. */
+      note_deadline: creditNoteDeadline(inv.invoice_date),
+      invoice_date: inv.invoice_date,
       is_inter_state: inv.is_inter_state,
       place_of_supply: inv.place_of_supply,
       suggested_lines: inv.items.map((i) => ({
@@ -238,9 +314,11 @@ export const CreditNoteService = {
       throw ApiError.conflict('invoice_not_creditable', 'A credit note can only be raised against a sent, partially paid or paid invoice.')
     }
     assertLines(input.lines, inv.items.map((i) => i.gst_rate_percent))
+    assertNoteDate(input.noteDate, inv.invoice_date)
     const t = creditTotals(input.lines, inv.is_inter_state)
     const remaining = await creditLimit(prisma, invoiceId)
     if (t.totalPaise > remaining) throw overLimit(remaining)
+    await assertPerRateCap(prisma, invoiceId, input.lines)
     const org = (await prisma.invoice.findUniqueOrThrow({ where: { id: invoiceId }, select: { organisationId: true } })).organisationId
     const row = await prisma.creditNote.create({
       data: {
@@ -271,9 +349,11 @@ export const CreditNoteService = {
     if (n.status !== 'draft') throw ApiError.conflict('credit_note_not_editable', `Credit note ${n.display_number} has been issued and cannot be edited.`)
     const inv = await InvoiceService.get(session, scope, n.invoice_id)
     assertLines(input.lines, inv.items.map((i) => i.gst_rate_percent))
+    assertNoteDate(input.noteDate, inv.invoice_date)
     const t = creditTotals(input.lines, n.is_inter_state)
     const remaining = await creditLimit(prisma, n.invoice_id, id)
     if (t.totalPaise > remaining) throw overLimit(remaining)
+    await assertPerRateCap(prisma, n.invoice_id, input.lines, id)
     await prisma.creditNote.update({
       where: { id },
       data: {
@@ -299,12 +379,15 @@ export const CreditNoteService = {
     await prisma.$transaction(async (tx) => {
       // Lock order matches addPayment: the invoice first, then the CN series.
       await lockSequence(tx, `invoice:${n.invoice_id}`)
-      const inv = await tx.invoice.findUniqueOrThrow({ where: { id: n.invoice_id }, select: { status: true, deletedAt: true } })
+      const inv = await tx.invoice.findUniqueOrThrow({ where: { id: n.invoice_id }, select: { status: true, deletedAt: true, invoiceDate: true } })
       if (inv.deletedAt || !CREDITABLE.includes(inv.status)) {
         throw ApiError.conflict('invoice_not_creditable', 'The invoice is no longer open to credit (it was cancelled or deleted).')
       }
+      assertNoteDate(n.note_date, inv.invoiceDate)
       const remaining = await creditLimit(tx, n.invoice_id, id)
       if (n.total_paise > remaining) throw overLimit(remaining)
+      const noteLines = (n.lines as { gst_rate: number; taxable_paise: number }[]).map((l) => ({ gstRate: l.gst_rate, taxablePaise: Number(l.taxable_paise) }))
+      await assertPerRateCap(tx, n.invoice_id, noteLines, id)
       const number = await nextCreditNoteNumber(tx)
       const r = await tx.creditNote.updateMany({
         where: { id, status: 'draft', deletedAt: null },

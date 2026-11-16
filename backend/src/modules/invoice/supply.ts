@@ -53,11 +53,19 @@ export function stateNameForCode(code: string | null | undefined): string | null
   return code ? STATE_NAMES[code] ?? null : null
 }
 
+/**
+ * The firm's organisation (single-tenant): the oldest one. Ordered, because
+ * an unordered findFirst can return a different row after an UPDATE moves it.
+ */
+export async function firmOrgId(db: Prisma.TransactionClient | typeof prisma = prisma): Promise<string | null> {
+  return (await db.organisation.findFirst({ orderBy: [{ createdAt: 'asc' }, { id: 'asc' }], select: { id: true } }))?.id ?? null
+}
+
 /** The firm's GSTIN from settings (null when not set). */
-export async function firmGstin(db: Prisma.TransactionClient | typeof prisma = prisma, organisationId?: string): Promise<string | null> {
-  const org = organisationId
-    ? await db.organisation.findUnique({ where: { id: organisationId }, select: { gstin: true } })
-    : await db.organisation.findFirst({ select: { gstin: true } })
+export async function firmGstin(db: Prisma.TransactionClient | typeof prisma = prisma, organisationId?: string | null): Promise<string | null> {
+  const id = organisationId ?? await firmOrgId(db)
+  if (!id) return null
+  const org = await db.organisation.findUnique({ where: { id }, select: { gstin: true } })
   return org?.gstin ?? null
 }
 

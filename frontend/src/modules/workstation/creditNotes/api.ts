@@ -63,6 +63,9 @@ export interface Creditable {
   credited_paise: number;
   /** The invoice total less issued credit notes — the most that may still be credited. */
   creditable_paise: number;
+  /** s.34(2) limit: the last date a credit note may reduce GST on this invoice. */
+  note_deadline?: string;
+  invoice_date?: string;
   /** What the client still owes; a credit beyond it becomes a refund due. */
   balance_due_paise: number;
   is_inter_state: boolean;

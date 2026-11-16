@@ -10,7 +10,7 @@ import { employeeMap } from '../../api/workstation.serialize.js'
 import { computeTotals, invoiceAmountInWords, paymentState, type LineInput } from './totals.js'
 import { addPayment, removePayment, type PaymentInput } from './payments.js'
 import { addRefund, refundToApi, removeRefund, type RefundInput } from './refunds.js'
-import { defaultPlaceOfSupply, firmGstin, firmStateCode, placeOfSupplyCode, resolveInterState } from './supply.js'
+import { defaultPlaceOfSupply, firmGstin, firmOrgId, firmStateCode, placeOfSupplyCode, resolveInterState } from './supply.js'
 import { istToday } from '../../lib/dates.js'
 
 /**
@@ -323,7 +323,7 @@ async function visibleWhere(session: Session, scope: Scope): Promise<Prisma.Invo
  * through every call — Session does not carry it.
  */
 async function orgId(): Promise<string> {
-  return (await prisma.organisation.findFirst({ select: { id: true } }))?.id ?? 'org-audit-os'
+  return (await firmOrgId()) ?? 'org-audit-os'
 }
 
 function toLineInputs(items: ItemInput[]): LineInput[] {

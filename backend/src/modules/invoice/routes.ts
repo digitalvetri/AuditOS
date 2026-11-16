@@ -13,7 +13,7 @@ import { prisma } from '../../lib/prisma.js'
 import { isAccountAdmin } from '../../platform/roleRank.js'
 import { writeAudit } from '../../platform/audit.js'
 import { GSTIN_RE } from '../gst/validate.js'
-import { firmGstin, firmStateCode, formBool, placeOfSupplySchema, stateNameForCode } from './supply.js'
+import { firmGstin, firmOrgId, firmStateCode, formBool, placeOfSupplySchema, stateNameForCode } from './supply.js'
 import { checkInvoiceLink, createInvoiceLink, listInvoiceLinks } from '../integrations/payment-links.js'
 import { isGateway } from '../integrations/gateways.js'
 
@@ -285,7 +285,8 @@ invoicesRouter.put('/firm-gst', handler(async (req, res) => {
     req.body,
     "Check the firm's GSTIN.",
   )
-  const org = await prisma.organisation.findFirst({ select: { id: true, gstin: true } })
+  const orgId = await firmOrgId()
+  const org = orgId ? await prisma.organisation.findUnique({ where: { id: orgId }, select: { id: true, gstin: true } }) : null
   if (!org) throw ApiError.notFound('No firm record.')
   await prisma.organisation.update({ where: { id: org.id }, data: { gstin: b.gstin } })
   await writeAudit({
