@@ -144,7 +144,7 @@ booksRouter.get('/status', h(async (req, res) => {
     // Adding / reconnecting connections is a developer task unless explicitly enabled.
     self_service_connect: selfServiceConnect(),
     // Only a Super Admin may add a Zoho account (Books → Settings → Add organisation).
-    can_add_connection: isSuperAdmin(req),
+    can_add_connection: canAddZohoAccount(req),
     selected_org_ref: selection?.orgRef ?? null,
     // Name, method and status only — client ids, secrets and tokens never leave the server.
     connections: visible.map((c) => ({
@@ -174,9 +174,10 @@ function requireSelfService() {
   if (!selfServiceConnect()) throw new ApiError(403, 'books_connections_managed', 'Zoho Books connections are set up by your developer. Pick one of the configured connections instead.')
 }
 
-/** Super Admin = the `md` role. Admin and Senior Associate share its modules, so the role is checked itself. */
-function isSuperAdmin(req: Request): boolean {
-  return requireSession(req).roleCode === 'md'
+/** Super Admin (`md`) and Admin (`hr_admin`) may add Zoho accounts. Senior Associate shares the modules, so the role is checked itself. */
+const ZOHO_ACCOUNT_ROLES = new Set(['md', 'hr_admin'])
+function canAddZohoAccount(req: Request): boolean {
+  return ZOHO_ACCOUNT_ROLES.has(requireSession(req).roleCode)
 }
 
 const DATA_CENTRES: Record<string, string> = {
@@ -191,7 +192,7 @@ const DATA_CENTRES: Record<string, string> = {
  * records the name and client id only.
  */
 booksRouter.post('/connections', h(async (req, res) => {
-  if (!isSuperAdmin(req)) throw ApiError.forbidden('Only a Super Admin can add a Zoho Books account.')
+  if (!canAddZohoAccount(req)) throw ApiError.forbidden('Only a Super Admin or Admin can add a Zoho Books account.')
   const { userId, organisationId } = await firmOf(req)
   const b = (req.body ?? {}) as Record<string, unknown>
   const str = (k: string) => (typeof b[k] === 'string' ? (b[k] as string).trim() : '')

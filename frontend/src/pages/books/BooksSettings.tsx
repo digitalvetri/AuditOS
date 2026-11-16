@@ -67,11 +67,11 @@ export function BooksSettingsPage() {
 
       {!status.configured ? <Notice tone="warn">{status.can_add_connection
         ? 'No Zoho Books account is connected yet. Use Add organisation to connect one with its Zoho API client.'
-        : 'No Zoho Books account is connected yet. A Super Admin can connect one from this page.'}</Notice> : null}
+        : 'No Zoho Books account is connected yet. A Super Admin or Admin can connect one from this page.'}</Notice> : null}
       {!can.settings ? <Notice>You can view Books settings. Changing them needs the Books settings permission.</Notice> : null}
 
       <Section title="Zoho connections">
-        {conns.length === 0 ? <Empty title="Zoho Books is not connected">Once a Super Admin adds a Zoho account it appears here.</Empty> : (
+        {conns.length === 0 ? <Empty title="Zoho Books is not connected">Once a Super Admin or Admin adds a Zoho account it appears here.</Empty> : (
           <Table cols={[{ label: 'Connection' }, { label: 'Method' }, { label: 'Status' }, { label: 'Data centre' }, { label: 'Connected' }, { label: 'Last error' }, { label: '' }]} minWidth={780}>
             {conns.map((c) => (
               <Row key={c.id}>
@@ -122,7 +122,7 @@ const DC_OPTIONS = [
 ];
 
 /**
- * Add organisation (Super Admin only): a Zoho account's own Client ID and
+ * Add organisation (Super Admin or Admin): a Zoho account's own Client ID and
  * Secret plus a code generated in its API console. The server exchanges the
  * code for a refresh token and stores the secret and tokens encrypted; the
  * form forgets everything as soon as it closes.
@@ -173,7 +173,7 @@ function AddOrganisationModal({ onClose, onDone }: { onClose: () => void; onDone
           <Field label="Generated code"><TextInput type="password" value={f.code} onChange={set('code')} placeholder="1000.…" autoComplete="new-password" spellCheck={false} /></Field>
         </div>
         {error ? <Notice tone="warn">{error}</Notice> : null}
-        <p className="text-12 text-inkMuted">The Client Secret and tokens are encrypted on the server and never shown again. Only Super Admins can add accounts.</p>
+        <p className="text-12 text-inkMuted">The Client Secret and tokens are encrypted on the server and never shown again. Only Super Admins and Admins can add accounts.</p>
       </div>
     </Modal>
   );

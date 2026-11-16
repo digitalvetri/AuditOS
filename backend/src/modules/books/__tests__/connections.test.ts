@@ -82,6 +82,7 @@ let base = ''
 let firmId = ''
 let staff = ''
 let superAdmin = ''
+let admin = ''
 const refs: Record<Acct, string> = { main: '', testing: '', client: '' }
 
 async function api(path: string, opts: { method?: string; body?: unknown; as?: string } = {}) {
@@ -114,6 +115,11 @@ beforeAll(async () => {
   for (const code of ['books.access', 'books.settings', 'clients.view_all']) await prisma.rolePermission.create({ data: { roleId: mdRole.id, permissionId: `perm-${code}`, scope: 'organisation' } })
   const md = await prisma.user.create({ data: { id: uid('u'), organisationId: firmId, email: `${uid('e')}@x.local`, passwordHash: 'x', roleId: mdRole.id } })
   superAdmin = `ao_access=${signToken(md.id)}`
+  const adminRole = await prisma.role.upsert({ where: { code: 'hr_admin' }, update: {}, create: { id: 'role-hr_admin', code: 'hr_admin', name: 'Admin' } })
+  await prisma.rolePermission.deleteMany({ where: { roleId: adminRole.id } })
+  for (const code of ['books.access', 'books.settings', 'clients.view_all']) await prisma.rolePermission.create({ data: { roleId: adminRole.id, permissionId: `perm-${code}`, scope: 'organisation' } })
+  const ad = await prisma.user.create({ data: { id: uid('u'), organisationId: firmId, email: `${uid('e')}@x.local`, passwordHash: 'x', roleId: adminRole.id } })
+  admin = `ao_access=${signToken(ad.id)}`
 
   // Main Account: an existing connection from before (server-wide client, no name yet).
   const key = booksConfig().encryptionKey
@@ -222,9 +228,10 @@ describe('Pre-configured Zoho Books connections', () => {
 describe('Add organisation (Books → Settings)', () => {
   const form = { name: 'Kaarthi-DV', auth_method: 'SELF_CLIENT', data_center: 'in', client_id: FRESH.clientId, client_secret: FRESH.secret, code: FRESH.code }
 
-  it('is offered to, and accepted from, a Super Admin only', async () => {
+  it('is offered to, and accepted from, a Super Admin or Admin only', async () => {
     expect((await api('/api/books/status')).body.data.can_add_connection).toBe(false)
     expect((await api('/api/books/status', { as: superAdmin })).body.data.can_add_connection).toBe(true)
+    expect((await api('/api/books/status', { as: admin })).body.data.can_add_connection).toBe(true)
     const denied = await api('/api/books/connections', { method: 'POST', body: form })
     expect(denied.status).toBe(403)
   })
