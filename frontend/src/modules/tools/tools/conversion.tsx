@@ -62,6 +62,41 @@ export const wordToPdfUI: ToolUI = {
   ResultNote: excelToPdfUI.ResultNote,
 };
 
+/* ── Word to Excel ─────────────────────────────────────────────────────── */
+export const wordToExcelUI: ToolUI = {
+  actionLabel: 'Convert to Excel',
+  processingLabel: 'Extracting tables…',
+  Options: () => <Notice>Tables in the document become sheets. Prose outside tables is noted on the Summary sheet, not forced into rows.</Notice>,
+  ResultNote: ({ output }) => {
+    const tables = output.meta.tables as number | undefined;
+    const without = (output.meta.pages_without_tables as number[] | undefined) ?? [];
+    return (
+      <div className="text-13 text-neutral-500">
+        {tables ?? 0} table{tables === 1 ? '' : 's'} extracted, one sheet each
+        {without.length ? ` · ${without.length} page${without.length === 1 ? '' : 's'} had no table` : ''}.
+      </div>
+    );
+  },
+};
+
+/* ── Excel to Word ─────────────────────────────────────────────────────── */
+export const excelToWordUI: ToolUI = {
+  actionLabel: 'Convert to Word',
+  processingLabel: 'Rendering sheets…',
+  Options: () => <Notice>One heading + one table per non-empty sheet. Formula cells become their last cached value.</Notice>,
+  ResultNote: ({ output }) => {
+    const sheets = output.meta.sheets as number | undefined;
+    const rows = output.meta.rows as number | undefined;
+    const skipped = (output.meta.skipped_sheets as string[] | undefined) ?? [];
+    return (
+      <div className="text-13 text-neutral-500">
+        {sheets ?? 0} sheet{sheets === 1 ? '' : 's'} · {rows ?? 0} row{rows === 1 ? '' : 's'}
+        {skipped.length ? ` · skipped empty sheet${skipped.length === 1 ? '' : 's'}: ${skipped.join(', ')}` : ''}.
+      </div>
+    );
+  },
+};
+
 /* ── Image to PDF ──────────────────────────────────────────────────────── */
 function ImageToPdfOptions({ value, onChange, disabled }: OptionsProps) {
   return (

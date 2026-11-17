@@ -138,6 +138,8 @@ export type PermissionCode =
   | 'tools.excel_to_pdf'
   | 'tools.pdf_to_word'
   | 'tools.word_to_pdf'
+  | 'tools.word_to_excel'
+  | 'tools.excel_to_word'
   | 'tools.image_to_pdf'
   | 'tools.csv_to_excel'
   | 'tools.merge_pdf'
@@ -259,6 +261,8 @@ export const MATRIX: Record<RoleCode, Grant[]> = {
     { permission: 'tools.excel_to_pdf', scope: 'self' },
     { permission: 'tools.pdf_to_word', scope: 'self' },
     { permission: 'tools.word_to_pdf', scope: 'self' },
+    { permission: 'tools.word_to_excel', scope: 'self' },
+    { permission: 'tools.excel_to_word', scope: 'self' },
     { permission: 'tools.image_to_pdf', scope: 'self' },
     { permission: 'tools.csv_to_excel', scope: 'self' },
     { permission: 'tools.merge_pdf', scope: 'self' },
@@ -362,6 +366,8 @@ export const MATRIX: Record<RoleCode, Grant[]> = {
     { permission: 'tools.excel_to_pdf', scope: 'organisation' },
     { permission: 'tools.pdf_to_word', scope: 'organisation' },
     { permission: 'tools.word_to_pdf', scope: 'organisation' },
+    { permission: 'tools.word_to_excel', scope: 'organisation' },
+    { permission: 'tools.excel_to_word', scope: 'organisation' },
     { permission: 'tools.image_to_pdf', scope: 'organisation' },
     { permission: 'tools.csv_to_excel', scope: 'organisation' },
     { permission: 'tools.merge_pdf', scope: 'organisation' },
@@ -543,6 +549,8 @@ export const MATRIX: Record<RoleCode, Grant[]> = {
     { permission: 'tools.excel_to_pdf', scope: 'organisation' },
     { permission: 'tools.pdf_to_word', scope: 'organisation' },
     { permission: 'tools.word_to_pdf', scope: 'organisation' },
+    { permission: 'tools.word_to_excel', scope: 'organisation' },
+    { permission: 'tools.excel_to_word', scope: 'organisation' },
     { permission: 'tools.image_to_pdf', scope: 'organisation' },
     { permission: 'tools.csv_to_excel', scope: 'organisation' },
     { permission: 'tools.merge_pdf', scope: 'organisation' },

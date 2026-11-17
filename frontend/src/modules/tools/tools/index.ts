@@ -1,5 +1,5 @@
 import type { ToolUI } from './types';
-import { pdfToExcelUI, excelToPdfUI, pdfToWordUI, wordToPdfUI, imageToPdfUI, csvToExcelUI } from './conversion';
+import { pdfToExcelUI, excelToPdfUI, pdfToWordUI, wordToPdfUI, wordToExcelUI, excelToWordUI, imageToPdfUI, csvToExcelUI } from './conversion';
 import { mergePdfUI, splitPdfUI, compressPdfUI, unlockPdfUI, esignPdfUI, ocrScanUI } from './pdf';
 import {
   gstJsonExcelUI, bankStatementToExcelUI, form26asToExcelUI,
@@ -12,6 +12,8 @@ export const TOOL_UI: Record<string, ToolUI> = {
   'excel-to-pdf': excelToPdfUI,
   'pdf-to-word': pdfToWordUI,
   'word-to-pdf': wordToPdfUI,
+  'word-to-excel': wordToExcelUI,
+  'excel-to-word': excelToWordUI,
   'image-to-pdf': imageToPdfUI,
   'csv-to-excel': csvToExcelUI,
   'merge-pdf': mergePdfUI,
