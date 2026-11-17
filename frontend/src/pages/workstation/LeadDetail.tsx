@@ -324,7 +324,6 @@ function ConvertModal({ lead, open, onClose }: { lead: Lead; open: boolean; onCl
   const qc = useQueryClient();
   const toast = useToast();
   const navigate = useNavigate();
-  const employees = useQuery({ queryKey: ['workstation', 'employees'], queryFn: workstationApi.assignableEmployees });
 
   const isOrg = lead.lead_type === 'organization';
   // An organization lead already carries the organization's name.
@@ -333,7 +332,7 @@ function ConvertModal({ lead, open, onClose }: { lead: Lead; open: boolean; onCl
     contact_person: isOrg ? (lead.contact_person ?? '') : lead.name,
     contact_number: lead.contact_number,
     email: lead.email ?? '', gstin: '', pan: '',
-    account_manager_id: lead.assigned_employee_id, secondary_manager_id: '', due_date: '',
+    due_date: '',
     short_name: isOrg ? deriveShortName(lead.name) : '',
   });
   const set = (k: keyof typeof form, v: string) => setForm((f) => ({ ...f, [k]: v }));
@@ -346,8 +345,9 @@ function ConvertModal({ lead, open, onClose }: { lead: Lead; open: boolean; onCl
       email: form.email || undefined,
       gstin: form.gstin || undefined,
       pan: form.pan || undefined,
-      account_manager_id: form.account_manager_id,
-      secondary_manager_id: form.secondary_manager_id || undefined,
+      // The lead's assigned employee becomes the client's account manager
+      // (they already own the relationship); not asked on this form.
+      account_manager_id: lead.assigned_employee_id,
       due_date: form.due_date || undefined,
       short_name: isOrg ? form.short_name || undefined : undefined,
     }),
@@ -413,22 +413,6 @@ function ConvertModal({ lead, open, onClose }: { lead: Lead; open: boolean; onCl
       </Field>
       <Field label="PAN" error={e.pan} hint="Optional — 10 characters">
         <input className={inputClass} value={form.pan} onChange={(ev) => set('pan', ev.target.value.toUpperCase())} />
-      </Field>
-      <Field label="Account Manager" error={e.account_manager_id}>
-        <select className={inputClass} value={form.account_manager_id} onChange={(ev) => set('account_manager_id', ev.target.value)}>
-          <option value="">Select an employee…</option>
-          {(employees.data?.items ?? []).map((emp) => (
-            <option key={emp.id} value={emp.id}>{emp.full_name} · {emp.designation}</option>
-          ))}
-        </select>
-      </Field>
-      <Field label="Second Staff" error={e.secondary_manager_id} hint="Optional. Also sees and works this client.">
-        <select className={inputClass} value={form.secondary_manager_id} onChange={(ev) => set('secondary_manager_id', ev.target.value)}>
-          <option value="">No second staff</option>
-          {(employees.data?.items ?? []).filter((emp) => emp.id !== form.account_manager_id).map((emp) => (
-            <option key={emp.id} value={emp.id}>{emp.full_name} · {emp.designation}</option>
-          ))}
-        </select>
       </Field>
       <Field label="First Service Due Date" error={e.due_date}>
         <input className={inputClass} type="date" value={form.due_date} onChange={(ev) => set('due_date', ev.target.value)} />
