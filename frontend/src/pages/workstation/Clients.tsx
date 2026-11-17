@@ -4,7 +4,7 @@ import { useNavigate, useSearchParams } from 'react-router-dom';
 import { workstationApi } from '@/modules/workstation/api';
 import { ArrowDown, ArrowUp, ArrowUpDown, ChevronLeft, ChevronRight, Download, FileSpreadsheet, Plus, Power, PowerOff } from 'lucide-react';
 import {
-  Field, Modal, QueryState, fieldErrors, inputClass, textareaClass,
+  ExtraPhonesField, Field, Modal, QueryState, fieldErrors, inputClass, textareaClass,
 } from '@/modules/workstation/components';
 import {
   FilterSelect, ListAction, ListCard, ListEmpty, ListHeader, ListToolbar, SearchBox,
@@ -574,6 +574,13 @@ export function AddClientModal({ open, onClose, organization, defaultName, onCre
   const isOrg = !organization && form.kind === 'organization';
   const set = (k: keyof typeof form, v: string) => setForm((f) => ({ ...f, [k]: v }));
   const [clientErrors, setClientErrors] = useState<Record<string, string>>({});
+  // Owner / Accountant / Authorised signatory are the typical three a firm
+  // keeps alongside the primary contact. Each row is self-contained.
+  const [extras, setExtras] = useState<{ name: string; phone: string; designation: string }[]>([]);
+  const setExtra = (i: number, k: 'name' | 'phone' | 'designation', v: string) =>
+    setExtras((rows) => rows.map((r, j) => (j === i ? { ...r, [k]: v } : r)));
+  const removeExtra = (i: number) => setExtras((rows) => rows.filter((_, j) => j !== i));
+  const addExtra = () => setExtras((rows) => [...rows, { name: '', phone: '', designation: '' }]);
 
   // Account manager is not asked on this form — the creator is used, with the
   // first assignable employee as a fallback when the signed-in user has no
@@ -593,6 +600,11 @@ export function AddClientModal({ open, onClose, organization, defaultName, onCre
       gstin: form.gstin ? form.gstin.toUpperCase() : undefined,
       pan: form.pan ? form.pan.toUpperCase() : undefined,
       address: form.address || undefined,
+      // Empty rows (both name and phone blank) are silently dropped so a user
+      // who hit "Add another" and then changed their mind isn't blocked.
+      additional_contacts: extras
+        .filter((r) => r.name.trim() && r.phone.trim())
+        .map((r) => ({ name: r.name.trim(), phone: r.phone.trim(), designation: r.designation.trim() || undefined })),
       ...(organization ? { organization_id: organization.id } : {}),
       ...(isOrg ? { is_organization: true, short_name: form.short_name || undefined } : {}),
     }),
@@ -706,6 +718,7 @@ export function AddClientModal({ open, onClose, organization, defaultName, onCre
       <Field label="Contact Number" error={err('contact_number')}>
         <input className={inputClass} value={form.contact_number} onChange={(e) => set('contact_number', e.target.value)} placeholder="9876543210" />
       </Field>
+      <ExtraPhonesField rows={extras} onChange={setExtra} onRemove={removeExtra} onAdd={addExtra} err={err} />
       <Field label="Email" error={err('email')}>
         <input className={inputClass} value={form.email} onChange={(e) => set('email', e.target.value)} />
       </Field>
