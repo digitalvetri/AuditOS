@@ -41,6 +41,7 @@ import { ChevronRight } from 'lucide-react';
 import { OrganizationBadge } from '@/modules/workstation/organization/badges';
 import { AssignedStaffDetails } from '@/modules/workstation/AssignedStaff';
 import { EditClientDetailsButton } from '@/modules/workstation/EditClientDetails';
+import { ClientContactsCard } from '@/modules/workstation/ClientContacts';
 import { ClientExitDetail } from '@/modules/workstation/ClientExit';
 import { LevelBanner, OrganizationOverview } from '@/modules/workstation/organization/OrganizationOverview';
 import { OrganizationClients } from '@/modules/workstation/organization/OrganizationClients';
@@ -354,8 +355,8 @@ function DetailsTab({ client }: { client: ClientDetail }) {
           <Detail label="Company Name" value={client.company_name} />
           <Detail label="Legal Name" value={client.legal_name ?? '—'} />
           <Detail label="Business Type" value={client.business_type ?? '—'} />
-          <Detail label="Contact Person" value={client.contact_person} />
-          <Detail label="Contact Number" value={client.contact_number} />
+          {/* Primary contact and phone live in the Contacts card below —
+              POST-DELIVERY-CHANGES §B2 allows multiple phones per client. */}
           <Detail label="Email" value={client.email ?? '—'} />
           <Detail label="Address" value={client.address ?? '—'} />
         </div>
@@ -381,6 +382,11 @@ function DetailsTab({ client }: { client: ClientDetail }) {
           />
         </div>
       </Card>
+      {/* The three cards above sit on a single row; the Contacts card below
+          spans the width so the add/edit/delete surface has room. */}
+      <div className="lg:col-span-3">
+        <ClientContactsCard clientId={client.id} />
+      </div>
     </div>
   );
 }
