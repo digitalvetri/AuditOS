@@ -48,7 +48,7 @@ export function EditClientDetailsButton({ client }: { client: ClientDetail }) {
   );
 }
 
-function EditClientModal({ client, onClose }: { client: ClientDetail; onClose: () => void }) {
+export function EditClientModal({ client, onClose }: { client: ClientDetail; onClose: () => void }) {
   const qc = useQueryClient();
   const toast = useToast();
   const [f, setF] = useState<Form>(() => fromClient(client));
