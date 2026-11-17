@@ -1,7 +1,7 @@
-import { useState } from 'react';
+import { useState, type ReactNode } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import { Plus } from 'lucide-react';
+import { Copy as CopyIcon, FolderInput, Plus, Trash2 } from 'lucide-react';
 import { workstationApi } from '@/modules/workstation/api';
 import {
   Field, Modal, QueryState, fieldErrors, inputClass,
@@ -12,9 +12,10 @@ import {
 } from '@/modules/workstation/listUi';
 import { Button } from '@/components/Button';
 import { useToast } from '@/components/Toast';
+import { confirmAction } from '@/components/ConfirmDialog';
 import { can } from '@/platform/rbac/can';
 import { useAuth } from '@/platform/auth/AuthContext';
-import type { ClientDocument, ListResponse } from '@/modules/workstation/types';
+import type { ClientDocument, ClientListItem, DocumentCategory, ListResponse } from '@/modules/workstation/types';
 import { StatusSelect, useSetDocumentStatus } from '@/modules/workstation/documents/StatusSelect';
 import {
   RequestButtons, SendRequestDialog, needsRequest, type RequestChannel, type RequestTarget,
@@ -59,6 +60,22 @@ export function DocumentsPage() {
   const setStatus = useSetDocumentStatus();
   const [request, setRequest] = useState<{ target: RequestTarget; channel: RequestChannel } | null>(null);
   const [addOpen, setAddOpen] = useState(false);
+  const [moveCopy, setMoveCopy] = useState<{ mode: 'move' | 'copy'; doc: ClientDocument } | null>(null);
+  const qc = useQueryClient();
+  const toast = useToast();
+  const del = useMutation({
+    mutationFn: (id: string) => workstationApi.deleteClientDocument(id),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ['workstation'] });
+      toast.push('success', 'Document moved to Recently Deleted.');
+    },
+    onError: (e: Error) => toast.push('error', e.message || 'Could not delete the document.'),
+  });
+  const onDelete = async (d: ClientDocument) => {
+    if (await confirmAction(`Delete "${d.name}"? It moves to Recently Deleted and is permanently removed after 30 days.`, { action: 'Delete', danger: true })) {
+      del.mutate(d.id);
+    }
+  };
 
   return (
     <div className="max-w-[1400px]">
@@ -82,6 +99,15 @@ export function DocumentsPage() {
         channel={request?.channel ?? 'whatsapp'}
         onClose={() => setRequest(null)}
       />
+      {moveCopy ? (
+        <MoveCopyDocumentModal
+          mode={moveCopy.mode}
+          doc={moveCopy.doc}
+          categories={categories.data?.items ?? []}
+          clients={clients.data?.items ?? []}
+          onClose={() => setMoveCopy(null)}
+        />
+      ) : null}
 
       <ListToolbar>
         <FilterSelect
@@ -116,7 +142,7 @@ export function DocumentsPage() {
             <div className="space-y-4">
               {Array.from(byClient.entries()).map(([clientLabel, items]) => (
                 <ListCard key={clientLabel} title={<>{clientLabel} <span className="font-normal text-neutral-500">· {items.length}</span></>}>
-                  <ListTable plainHead cols={['Document', 'Category', 'FY', 'Version', 'Uploaded by', 'Upload date', 'Status', ...(canAdd ? ['Request'] : [])]}>
+                  <ListTable plainHead cols={['Document', 'Category', 'FY', 'Version', 'Uploaded by', 'Upload date', 'Status', ...(canAdd ? ['Request', 'Actions'] : [])]}>
                     {items.map((d) => {
                       const latest = d.versions[d.versions.length - 1];
                       return (
@@ -141,7 +167,7 @@ export function DocumentsPage() {
                             ) : <StatusChip value={d.status} />}
                           </TD>
                           {canAdd ? (
-                            <TD last>
+                            <TD>
                               {needsRequest(d.status, d.version === 0) ? (
                                 <span onClick={(e) => e.stopPropagation()}>
                                   <RequestButtons
@@ -152,6 +178,21 @@ export function DocumentsPage() {
                                   />
                                 </span>
                               ) : <span className="text-12 text-neutral-400">—</span>}
+                            </TD>
+                          ) : null}
+                          {canAdd ? (
+                            <TD last>
+                              <span className="inline-flex items-center gap-1" onClick={(e) => e.stopPropagation()}>
+                                <IconButton title="Move to another folder or client" onClick={() => setMoveCopy({ mode: 'move', doc: d })}>
+                                  <FolderInput size={14} aria-hidden />
+                                </IconButton>
+                                <IconButton title="Duplicate (same or another client)" onClick={() => setMoveCopy({ mode: 'copy', doc: d })}>
+                                  <CopyIcon size={14} aria-hidden />
+                                </IconButton>
+                                <IconButton danger title="Delete" onClick={() => onDelete(d)} disabled={del.isPending}>
+                                  <Trash2 size={14} aria-hidden />
+                                </IconButton>
+                              </span>
                             </TD>
                           ) : null}
                                                   </ListRow>
@@ -297,6 +338,108 @@ function AddDocumentModal({ open, onClose, defaultClientId, clients, categories 
       ) : null}
       {add.error && !Object.keys(e).length ? (
         <div className="border-l-2 border-red pl-3 text-13 text-red">{(add.error as Error).message}</div>
+      ) : null}
+    </Modal>
+  );
+}
+
+/** Small square icon button for the row-actions column. Stops row click too. */
+function IconButton({
+  children, onClick, title, disabled, danger,
+}: { children: ReactNode; onClick: () => void; title: string; disabled?: boolean; danger?: boolean }) {
+  return (
+    <button
+      type="button" title={title} aria-label={title} onClick={onClick} disabled={disabled}
+      className={
+        'h-7 w-7 inline-flex items-center justify-center rounded hover:bg-neutral-100 '
+        + (danger ? 'text-neutral-400 hover:text-red' : 'text-neutral-500 hover:text-neutral-900')
+        + (disabled ? ' opacity-50 cursor-wait' : '')
+      }
+    >
+      {children}
+    </button>
+  );
+}
+
+/**
+ * Move or duplicate a document. Same shape for both — target folder and/or
+ * target client — because the backend accepts them on either endpoint. Copy
+ * adds a name override (defaults to "… (copy)" on the server). Cross-client
+ * operations need permission to see both clients; the server enforces that.
+ */
+function MoveCopyDocumentModal({ mode, doc, categories, clients, onClose }: {
+  mode: 'move' | 'copy';
+  doc: ClientDocument;
+  categories: DocumentCategory[];
+  clients: ClientListItem[];
+  onClose: () => void;
+}) {
+  const qc = useQueryClient();
+  const toast = useToast();
+  const [categoryId, setCategoryId] = useState<string>(doc.category_id ?? '');
+  const [clientId, setClientId] = useState<string>(doc.client_id);
+  const [name, setName] = useState<string>('');
+
+  const run = useMutation({
+    mutationFn: () => {
+      const crossClient = clientId && clientId !== doc.client_id;
+      const payload: { category_id?: string; client_id?: string; name?: string } = {};
+      if (categoryId && categoryId !== doc.category_id) payload.category_id = categoryId;
+      if (crossClient) payload.client_id = clientId;
+      if (mode === 'copy' && name.trim()) payload.name = name.trim();
+      if (mode === 'move') return workstationApi.moveClientDocument(doc.id, payload);
+      return workstationApi.copyClientDocument(doc.id, payload);
+    },
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ['workstation'] });
+      toast.push('success', mode === 'move' ? 'Document moved.' : 'Document copied.');
+      onClose();
+    },
+    onError: (e: Error) => toast.push('error', e.message || `Could not ${mode} the document.`),
+  });
+  const e = fieldErrors(run.error);
+
+  const crossClient = clientId && clientId !== doc.client_id;
+  const noChange = mode === 'move'
+    && (!categoryId || categoryId === doc.category_id)
+    && !crossClient;
+
+  return (
+    <Modal
+      open title={mode === 'move' ? `Move "${doc.name}"` : `Copy "${doc.name}"`} onClose={onClose}
+      footer={<>
+        <Button onClick={onClose}>Cancel</Button>
+        <Button
+          variant="primary" disabled={run.isPending || noChange}
+          onClick={() => run.mutate()}
+        >
+          {run.isPending ? 'Working…' : mode === 'move' ? (crossClient ? 'Move to this client' : 'Move') : (crossClient ? 'Copy to this client' : 'Copy')}
+        </Button>
+      </>}
+    >
+      <Field label="Target folder" error={e.category_id}>
+        <select className={inputClass} value={categoryId} onChange={(ev) => setCategoryId(ev.target.value)}>
+          <option value="">(Keep current folder)</option>
+          {categories.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+        </select>
+      </Field>
+      <Field label="Target client" error={e.client_id} hint="Leave as-is to keep on the same client.">
+        <select className={inputClass} value={clientId} onChange={(ev) => setClientId(ev.target.value)}>
+          {clients.map((c) => <option key={c.id} value={c.id}>{c.client_id} · {c.company_name}</option>)}
+        </select>
+      </Field>
+      {mode === 'copy' ? (
+        <Field label="New name" error={e.name} hint='Optional. Defaults to "<original name> (copy)".'>
+          <input className={inputClass} value={name} onChange={(ev) => setName(ev.target.value)} placeholder={doc.name + ' (copy)'} />
+        </Field>
+      ) : null}
+      {crossClient ? (
+        <p className="text-12 text-amber-700 border-l-2 border-amber-400 pl-3 mt-2">
+          {mode === 'move' ? 'Moving to a different client removes it from here.' : 'Copying to another client creates a new record over there; this one stays.'}
+        </p>
+      ) : null}
+      {mode === 'move' && noChange ? (
+        <p className="text-12 text-neutral-500 mt-2">Pick a different folder or client.</p>
       ) : null}
     </Modal>
   );
