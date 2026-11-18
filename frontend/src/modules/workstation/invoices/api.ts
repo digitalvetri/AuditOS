@@ -107,6 +107,8 @@ export interface Invoice {
   client_name: string | null;
   party_email: string | null;
   party_contact_number: string | null;
+  /** Set when the client sits under an organization: the party billed. */
+  billed_organization?: { id: string; name: string; client_id: string } | null;
   invoice_date: string;
   terms: Term;
   due_date: string;
@@ -218,6 +220,8 @@ export interface InvoiceInput {
 export interface InvoiceFilters {
   status?: string;
   client_id?: string;
+  /** With client_id = an organization: also its clients' invoices. */
+  include_organization_clients?: boolean;
   date_from?: string;
   date_to?: string;
   q?: string;

@@ -200,22 +200,54 @@ export function InvoiceBuilderPage() {
   }, [terms, invoiceDate]);
 
   /**
+   * A client under an organization is billed in the ORGANIZATION's name. Its
+   * address and GSTIN come from the organization's own record: the client
+   * list when the organization is on it, else the organization itself.
+   * Null while unknown (no access) — the server fills blanks from the
+   * organization on save, and never from the client.
+   */
+  const pickedClient = (clientsQ.data?.items ?? []).find((x) => x.id === clientId);
+  const billedOrg = pickedClient?.organization ?? null;
+  const orgListed = billedOrg ? (clientsQ.data?.items ?? []).find((x) => x.id === billedOrg.id) : undefined;
+  const orgQ = useQuery({
+    queryKey: ['workstation', 'client', billedOrg?.id ?? ''],
+    queryFn: () => workstationApi.getClient(billedOrg!.id),
+    enabled: !!billedOrg && !orgListed,
+    retry: false,
+  });
+  const orgRecord = orgListed ?? orgQ.data ?? null;
+  const pickSeq = useRef(0);
+
+  /**
    * Selecting a client fills the invoice's OWN copies of name, address and
    * GSTIN. It never writes back to the client master (§9), and it overwrites
    * whatever was there because picking a different client is an explicit
    * instruction to re-address the invoice.
    */
-  function chooseClient(cid: string) {
+  async function chooseClient(cid: string) {
     if (cid !== clientId) { setClientServiceId(''); setAuditEngagementId(''); }
     setClientId(cid);
+    const seq = ++pickSeq.current;
     const c = (clientsQ.data?.items ?? []).find((x) => x.id === cid);
     if (!c) return;
-    setBillingName(c.company_name);
-    setBillingAddress(c.address ?? '');
-    setCustomerGstin(c.gstin ?? '');
-    // Place of supply follows the client's GSTIN state (s.12(2) IGST Act:
-    // a registered recipient's location). No GSTIN → the user picks it.
-    const fromGstin = STATES.find((s) => s.code === (c.gstin ?? '').slice(0, 2));
+    const org = c.organization ?? null;
+    setNotes((n) => withServicesFor(n, org ? `${SERVICES_FOR}${c.company_name} (${c.client_id})` : null));
+    let party: { address: string | null; gstin: string | null } = { address: c.address ?? null, gstin: c.gstin ?? null };
+    if (org) {
+      // Never mix parties: the organization's name with the client's GSTIN
+      // would be a wrong tax invoice. Blank until the organization is known.
+      setBillingName(org.name); setBillingAddress(''); setCustomerGstin(''); setPlaceOfSupply('');
+      const known = (clientsQ.data?.items ?? []).find((x) => x.id === org.id)
+        ?? await qc.fetchQuery({ queryKey: ['workstation', 'client', org.id], queryFn: () => workstationApi.getClient(org.id) }).catch(() => null);
+      if (seq !== pickSeq.current) return; // another client was picked meanwhile
+      party = { address: known?.address ?? null, gstin: known?.gstin ?? null };
+    }
+    setBillingName(org ? org.name : c.company_name);
+    setBillingAddress(party.address ?? '');
+    setCustomerGstin(party.gstin ?? '');
+    // Place of supply follows the billed party's GSTIN state (s.12(2) IGST
+    // Act: a registered recipient's location). No GSTIN → the user picks it.
+    const fromGstin = STATES.find((s) => s.code === (party.gstin ?? '').slice(0, 2));
     setPlaceOfSupply(fromGstin?.name ?? '');
   }
 
@@ -298,7 +330,9 @@ export function InvoiceBuilderPage() {
       discount_paise: discountPaise,
       notes,
       billing_name: billingName,
-      billing_address: billingAddress,
+      // Blank while the organization's record could not be read: null lets the
+      // server fill the organization's address instead of storing nothing.
+      billing_address: billingAddress || (billedOrg && !orgRecord ? null : billingAddress),
       ship_same_as_bill: shipSame,
       shipping_name: shipSame ? null : shippingName,
       shipping_address: shipSame ? null : shippingAddress,
@@ -453,7 +487,8 @@ export function InvoiceBuilderPage() {
             {tab === 'details' ? (
               <DetailsTab
                 clients={clientsQ.data?.items ?? []}
-                clientId={clientId} chooseClient={chooseClient}
+                clientId={clientId} chooseClient={(cid) => { void chooseClient(cid); }}
+                billedOrg={billedOrg ? { name: billedOrg.name, gstinKnown: !!orgRecord, gstin: orgRecord?.gstin ?? null } : null}
                 invoiceDate={invoiceDate} setInvoiceDate={setInvoiceDate}
                 terms={terms} setTerms={setTerms}
                 dueDate={dueDate} setDueDate={setDueDate}
@@ -660,6 +695,19 @@ function InvoiceLinks(p: {
   );
 }
 
+const SERVICES_FOR = 'Services for: ';
+
+/**
+ * The notes with this invoice's "Services for: <client>" line: replaced when
+ * the client changes, removed for a client billed in its own name, and put
+ * first so the rest of the notes read as before.
+ */
+function withServicesFor(notes: string, line: string | null): string {
+  const rest = notes.split('\n').filter((l) => !l.startsWith(SERVICES_FOR)).join('\n').trim();
+  if (!line) return rest;
+  return rest ? `${line}\n${rest}` : line;
+}
+
 function Two({ children }: { children: React.ReactNode }) {
   return <div className="grid grid-cols-2 gap-2">{children}</div>;
 }
@@ -667,6 +715,8 @@ function Two({ children }: { children: React.ReactNode }) {
 function DetailsTab(p: {
   clients: { id: string; company_name: string }[];
   clientId: string; chooseClient: (id: string) => void;
+  /** The organization the picked client is billed through, if any. */
+  billedOrg: { name: string; gstinKnown: boolean; gstin: string | null } | null;
   invoiceDate: string; setInvoiceDate: (v: string) => void;
   terms: Term; setTerms: (v: Term) => void;
   dueDate: string; setDueDate: (v: string) => void;
@@ -718,7 +768,7 @@ function DetailsTab(p: {
       </Field>
 
       <Two>
-        <Field label="Place of supply" hint="Filled from the client's GSTIN.">
+        <Field label="Place of supply" hint={p.billedOrg ? "Filled from the organization's GSTIN." : "Filled from the client's GSTIN."}>
           <select className={inputClass} value={p.placeOfSupply} onChange={(e) => p.setPlaceOfSupply(e.target.value)}>
             <option value="">Choose the state…</option>
             {STATES.map((s) => <option key={s.code} value={s.name}>{s.name} ({s.code})</option>)}
@@ -739,6 +789,16 @@ function DetailsTab(p: {
       <FirmGstinRow firm={p.firm} isAdmin={p.isAdmin} />
 
       <div className="text-13 font-semibold text-neutral-800 mt-4 mb-2">Bill to</div>
+      {p.billedOrg ? (
+        <div className="mb-3 rounded-lg bg-primary/5 px-3 py-2 text-12 text-neutral-700">
+          Billed to <b>{p.billedOrg.name}</b> (organization). Change below if needed.
+        </div>
+      ) : null}
+      {p.billedOrg && p.billedOrg.gstinKnown && !p.billedOrg.gstin ? (
+        <div className="mb-3 rounded-lg bg-amber/10 px-3 py-2 text-12 text-neutral-800" role="status">
+          {p.billedOrg.name} has no GSTIN on file. Add it on the organization before sending.
+        </div>
+      ) : null}
       <Field label="Name">
         <input className={inputClass} value={p.billingName} onChange={(e) => p.setBillingName(e.target.value)} />
       </Field>
