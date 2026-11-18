@@ -19,6 +19,8 @@ import {
   Modal, Field, inputClass,
 } from '@/modules/workstation/components';
 import { workstationApi } from '@/modules/workstation/api';
+import { useAuth } from '@/platform/auth/AuthContext';
+import { can } from '@/platform/rbac/can';
 import {
   gstApi, errorMessage, FILING_FREQUENCIES, REGISTRATION_STATUSES, REGISTRATION_TYPES,
   type GstClient,
@@ -32,6 +34,9 @@ export function GstClients() {
   const [editing, setEditing] = useState<GstClient | null>(null);
   const [form, setForm] = useState<Record<string, string>>({});
   const [errMsg, setErrMsg] = useState<string | null>(null);
+  // Who does the work and who reviews it is a manager's call (Partner / Admin tier).
+  const { session } = useAuth();
+  const canAssign = can(session?.role.code, 'clients.view_all', 'organisation');
 
   const clients = useQuery({ queryKey: ['gst', 'clients'], queryFn: () => gstApi.clients() });
   const employees = useQuery({
@@ -129,8 +134,10 @@ export function GstClients() {
                 registration_type: form.registration_type,
                 registration_status: form.registration_status,
                 filing_frequency: form.filing_frequency,
-                assigned_employee_id: form.assigned_employee_id || null,
-                reviewer_employee_id: form.reviewer_employee_id || null,
+                ...(canAssign ? {
+                  assigned_employee_id: form.assigned_employee_id || null,
+                  reviewer_employee_id: form.reviewer_employee_id || null,
+                } : {}),
                 active: form.active === 'yes',
               })}
               className="h-9 px-3 text-13 bg-primary text-white rounded-lg hover:bg-primaryHover disabled:opacity-50"
@@ -193,14 +200,14 @@ export function GstClients() {
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-3 gap-x-3">
-          <Field label="Assigned employee">
-            <select className={inputClass} value={form.assigned_employee_id ?? ''} onChange={(e) => set('assigned_employee_id', e.target.value)}>
+          <Field label="Assigned employee" hint={canAssign ? undefined : 'Only a Partner or Admin can change this.'}>
+            <select className={inputClass} disabled={!canAssign} value={form.assigned_employee_id ?? ''} onChange={(e) => set('assigned_employee_id', e.target.value)}>
               <option value="">Choose…</option>
               {(employees.data?.items ?? []).map((e) => <option key={e.id} value={e.id}>{e.full_name ?? e.id}</option>)}
             </select>
           </Field>
           <Field label="Reviewer">
-            <select className={inputClass} value={form.reviewer_employee_id ?? ''} onChange={(e) => set('reviewer_employee_id', e.target.value)}>
+            <select className={inputClass} disabled={!canAssign} value={form.reviewer_employee_id ?? ''} onChange={(e) => set('reviewer_employee_id', e.target.value)}>
               <option value="">None</option>
               {(employees.data?.items ?? []).map((e) => <option key={e.id} value={e.id}>{e.full_name ?? e.id}</option>)}
             </select>

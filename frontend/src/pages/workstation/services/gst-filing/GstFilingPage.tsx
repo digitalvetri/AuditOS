@@ -59,7 +59,10 @@ export function GstFilingPage() {
   // Assign: who holds this client's GST work. Services are added unassigned,
   // so this is how a person gets the client (and sees it in Clients).
   const { session } = useAuth();
-  const canAssign = can(session?.role.code, 'workstation.gst.manage', 'self');
+  // Changing who does the work is a manager action (Partner / Admin tier,
+  // who see every client); everyone else sees the name read-only.
+  const canAssign = can(session?.role.code, 'workstation.gst.manage', 'self')
+    && can(session?.role.code, 'clients.view_all', 'organisation');
   const employees = useQuery({ queryKey: ['workstation', 'employees'], queryFn: workstationApi.assignableEmployees, enabled: canAssign });
   const assign = useMutation({
     mutationFn: (v: { row: FilingBoardRow; employeeId: string }) => gstApi.updateClient(v.row.gst_profile_id, { assigned_employee_id: v.employeeId || null }),
