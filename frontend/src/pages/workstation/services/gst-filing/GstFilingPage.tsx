@@ -12,6 +12,9 @@ import { useToast } from '@/components/Toast';
 import { confirmAction } from '@/components/ConfirmDialog';
 import { fmtDate, formatPaise } from '@/lib/format';
 import { gstApi, gstFilingApi, periodLabel, recentPeriods, type FilingBoardRow, type FilingCell } from '@/modules/workstation/gst/api';
+import { workstationApi } from '@/modules/workstation/api';
+import { can } from '@/platform/rbac/can';
+import { useAuth } from '@/platform/auth/AuthContext';
 import { FinishModal, type FinishValues } from './FinishModal';
 import { PaymentModal, type PaymentValues } from './PaymentModal';
 
@@ -52,6 +55,17 @@ export function GstFilingPage() {
 
   const board = useQuery({ queryKey: ['gst-filing', period], queryFn: () => gstFilingApi.board(period) });
   const refresh = () => qc.invalidateQueries({ queryKey: ['gst-filing'] });
+
+  // Assign: who holds this client's GST work. Services are added unassigned,
+  // so this is how a person gets the client (and sees it in Clients).
+  const { session } = useAuth();
+  const canAssign = can(session?.role.code, 'workstation.gst.manage', 'self');
+  const employees = useQuery({ queryKey: ['workstation', 'employees'], queryFn: workstationApi.assignableEmployees, enabled: canAssign });
+  const assign = useMutation({
+    mutationFn: (v: { row: FilingBoardRow; employeeId: string }) => gstApi.updateClient(v.row.gst_profile_id, { assigned_employee_id: v.employeeId || null }),
+    onSuccess: (_r, v) => { refresh(); toast.push('success', v.employeeId ? `${v.row.client_name} assigned.` : `${v.row.client_name} is now unassigned.`); },
+    onError: (e) => toast.push('error', errText(e)),
+  });
 
   const data = useMutation({
     mutationFn: (v: { id: string; received: boolean }) => gstFilingApi.setData(v.id, v.received),
@@ -122,6 +136,26 @@ export function GstFilingPage() {
     if (q.trim()) return 'No client matches your search.';
     if (period >= thisMonth()) return `Data for ${periodLabel(period)} is collected next month.`;
     return `Everyone has sent their ${periodLabel(period)} data.`;
+  };
+
+  const assignCell = (r: FilingBoardRow) => {
+    const current = r.profile_assigned;
+    // The period's preparer, when someone else holds this month's returns.
+    const preparer = r.assigned && r.assigned.id !== current?.id ? <div className="text-11 text-neutral-500">This month: {r.assigned.name}</div> : null;
+    if (!canAssign) return <>{current?.name ?? 'Unassigned'}{preparer}</>;
+    const list = employees.data?.items ?? [];
+    return (
+      <>
+        <select className="h-8 px-2 rounded-md border border-neutral-200 bg-white text-13 text-neutral-900 max-w-full"
+          aria-label={`Assign ${r.client_name}`} value={current?.id ?? ''} disabled={assign.isPending}
+          onChange={(e) => assign.mutate({ row: r, employeeId: e.target.value })}>
+          <option value="">Unassigned</option>
+          {current && !list.some((e) => e.id === current.id) ? <option value={current.id}>{current.name}</option> : null}
+          {list.map((e) => <option key={e.id} value={e.id}>{e.full_name}</option>)}
+        </select>
+        {preparer}
+      </>
+    );
   };
 
   const jobCell = (row: FilingBoardRow, kind: 'gstr1' | 'gstr3b', c: FilingCell | null) => {
@@ -207,7 +241,7 @@ export function GstFilingPage() {
                       <Cell><input type="checkbox" aria-label={`Select ${r.client_name}`} checked={picked.has(r.period_id)} onChange={(e) => setPicked((s) => { const n = new Set(s); if (e.target.checked) n.add(r.period_id); else n.delete(r.period_id); return n; })} /></Cell>
                       <Cell><Link className="font-medium text-neutral-900 hover:underline" to={`/workstation/clients/${r.client_id}`}>{r.client_name}</Link></Cell>
                       <Cell className="font-mono" muted>{r.gstin}</Cell>
-                      <Cell muted>{r.assigned?.name ?? '—'}</Cell>
+                      <Cell muted>{assignCell(r)}</Cell>
                       <Cell muted>{day(r.gstr1?.due_date ?? null)}</Cell>
                       <Cell>
                         <div className="flex gap-2 justify-end">
@@ -229,7 +263,7 @@ export function GstFilingPage() {
                           ? <button type="button" className="text-12 text-success" title="Mark as not received" onClick={() => data.mutate({ id: r.period_id, received: false })}>Received ✓</button>
                           : <button type="button" className="text-12 text-amber underline" onClick={() => data.mutate({ id: r.period_id, received: true })}>Pending — mark received</button>}</Cell>
                         <Cell muted>{day(c?.due_date ?? null)}{c && c.days_left !== null && !FILED.includes(c.status) ? ` · ${c.days_left < 0 ? `${-c.days_left}d late` : `${c.days_left}d left`}` : ''}</Cell>
-                        <Cell muted>{r.assigned?.name ?? '—'}</Cell>
+                        <Cell muted>{assignCell(r)}</Cell>
                         <Cell>{jobCell(r, tab === 'gstr1' ? 'gstr1' : 'gstr3b', c)}</Cell>
                       </Row>
                     );

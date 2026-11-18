@@ -233,7 +233,7 @@ export interface ClientService extends Auditable {
   client_name: string | null;
   service_id: string;
   service_name: string | null;
-  assigned_employee_id: string;
+  assigned_employee_id: string | null;
   assigned_employee: EmployeeRef | null;
   manager_id: string | null;
   manager: EmployeeRef | null;
@@ -351,7 +351,7 @@ export interface GstFiling extends Auditable {
   status: GstFilingStatus;
   filed_at: string | null;
   due_date: string | null;
-  assigned_employee_id: string;
+  assigned_employee_id: string | null;
   assigned_employee: EmployeeRef | null;
   arn: string | null;
   remarks: string | null;
@@ -364,7 +364,7 @@ export interface GstProfile extends Auditable {
   registration_status: string;
   filing_frequency: string;
   registration_date: string | null;
-  assigned_employee_id: string;
+  assigned_employee_id: string | null;
   assigned_employee: EmployeeRef | null;
   service_status: string;
   last_filed_at: string | null;

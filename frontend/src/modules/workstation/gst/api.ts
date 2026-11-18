@@ -359,7 +359,11 @@ export interface FilingCell {
 }
 export interface FilingBoardRow {
   period_id: string; client_id: string; client_name: string; gstin: string; frequency: 'monthly' | 'quarterly';
+  /** This period's preparer. */
   assigned: { id: string; name: string } | null;
+  /** The client's GST profile and its assignee (the Assign select). Null = unassigned. */
+  gst_profile_id: string;
+  profile_assigned: { id: string; name: string } | null;
   data_status: 'pending' | 'received'; data_received_at: string | null; data_received_by: string | null;
   gstr1: FilingCell | null; gstr3b: FilingCell | null;
 }
