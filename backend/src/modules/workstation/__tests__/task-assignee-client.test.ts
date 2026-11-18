@@ -6,9 +6,10 @@ import { prisma, uid } from '../../../__tests__/helpers.js'
 import { setupRoles } from '../../../../prisma/setup-roles.js'
 
 /**
- * Staff assigned a task for a client may OPEN that client (read only), even
- * when nothing else ties them to it. Writes and every other client stay
- * closed.
+ * Staff assigned a LIVE task for a client (not completed, not cancelled) see
+ * that client like any other assignment: in the client list, its page, and
+ * its Documents and Services. The hold ends when the task is completed or
+ * cancelled. (Before services became unassigned this was read-only.)
  */
 
 let server: Server
@@ -71,7 +72,7 @@ beforeAll(async () => {
 })
 afterAll(() => server?.close())
 
-describe('a task assignee can open the task\'s client, read only', () => {
+describe('a live task gives its assignee the client', () => {
   it('GET the client works for the assignee; an unrelated client stays 403', async () => {
     const me = await associate()
     const mine = await client()
@@ -83,15 +84,43 @@ describe('a task assignee can open the task\'s client, read only', () => {
     expect((await api(`/api/clients/${other.id}`, me.cookie)).status).toBe(403)
   })
 
-  it('cannot PATCH the client, nor reach its nested routes or the client list', async () => {
+  it('lists the client and its documents and (unassigned) services', async () => {
     const me = await associate()
     const mine = await client()
+    const other = await client()
+    const svc = await prisma.service.create({ data: { organisationId: orgId, code: uid('SVC'), name: 'Audit' } })
+    await prisma.clientService.create({ data: { clientId: mine.id, serviceId: svc.id, status: 'not_started' } })
     await task(mine.id, me.emp.id)
-    const p = await api(`/api/clients/${mine.id}`, me.cookie, { method: 'PATCH', body: { contact_person: 'Changed' } })
-    expect(p.status).toBe(403)
-    expect((await prisma.client.findUniqueOrThrow({ where: { id: mine.id } })).contactPerson).toBe('C')
+
     const list = await api('/api/clients?page_size=100', me.cookie)
-    expect(JSON.stringify(list.body)).not.toContain(mine.id)
+    expect(list.status).toBe(200)
+    expect(JSON.stringify(list.body)).toContain(mine.id)
+    expect(JSON.stringify(list.body)).not.toContain(other.id)
+
+    const docs = await api(`/api/clients/${mine.id}/documents`, me.cookie)
+    expect(docs.status).toBe(200)
+    const services = await api(`/api/clients/${mine.id}/services`, me.cookie)
+    expect(services.status).toBe(200)
+    expect(services.body.data.items).toHaveLength(1)
+    // An unassigned service: null, never "undefined", never a crash.
+    expect(services.body.data.items[0]).toMatchObject({ assigned_employee_id: null, assigned_employee: null })
+    expect(JSON.stringify(services.body)).not.toContain('undefined')
+    expect((await api(`/api/clients/${other.id}/documents`, me.cookie)).status).toBe(403)
+  })
+
+  it('the client is gone again once the task is completed or cancelled', async () => {
+    for (const status of ['completed', 'cancelled', 'done']) {
+      const me = await associate()
+      const mine = await client()
+      const t = await task(mine.id, me.emp.id)
+      expect((await api(`/api/clients/${mine.id}/services`, me.cookie)).status).toBe(200)
+      await prisma.task.update({ where: { id: t.id }, data: { status } })
+      expect((await api(`/api/clients/${mine.id}`, me.cookie)).status).toBe(403)
+      expect((await api(`/api/clients/${mine.id}/documents`, me.cookie)).status).toBe(403)
+      expect((await api(`/api/clients/${mine.id}/services`, me.cookie)).status).toBe(403)
+      const list = await api('/api/clients?page_size=100', me.cookie)
+      expect(JSON.stringify(list.body)).not.toContain(mine.id)
+    }
   })
 
   it('a deleted or cancelled task, or someone else\'s task, grants nothing', async () => {

@@ -63,9 +63,18 @@ export function requireWorkstation(session: Session, ...permissions: PermissionC
  * ∪ ClientService.assignedEmployeeId = me
  * ∪ ClientService.managerId = me
  * ∪ GstProfile.assignedEmployeeId = me
+ * ∪ Task.assignedEmployeeId = me on a LIVE task (not completed / cancelled)
+ *
+ * A null assignee (an unassigned service or GST profile) matches nobody.
+ * Tasks are how a junior gets a client once services are added unassigned,
+ * so a live task grants the full client view (list, Documents, Services,
+ * Tasks) — and it ends when the task is completed or cancelled.
  *
  * 'ALL' short-circuits the IN list for organisation scope.
  */
+/** Task statuses that end a task's hold on its client ('done' is the legacy spelling of completed). */
+const TASK_ENDED = ['completed', 'cancelled', 'done'] as const
+
 export async function assignedClientIds(session: Session, scope: Scope): Promise<string[] | 'ALL'> {
   // The client rule is enforced HERE, whatever permission the caller's scope
   // came from (a dashboard or search scoped by workstation.access included):
@@ -74,7 +83,7 @@ export async function assignedClientIds(session: Session, scope: Scope): Promise
   const me = session.employeeId
   if (!me) return []
 
-  const [owned, viaService, viaGst] = await Promise.all([
+  const [owned, viaService, viaGst, viaTask] = await Promise.all([
     // Primary or second staff on the client.
     prisma.client.findMany({
       where: { OR: [{ accountManagerId: me }, { secondaryManagerId: me }], deletedAt: null },
@@ -85,12 +94,17 @@ export async function assignedClientIds(session: Session, scope: Scope): Promise
       select: { clientId: true },
     }),
     prisma.gstProfile.findMany({ where: { assignedEmployeeId: me, deletedAt: null }, select: { clientId: true } }),
+    prisma.task.findMany({
+      where: { assignedEmployeeId: me, clientId: { not: null }, deletedAt: null, status: { notIn: [...TASK_ENDED] } },
+      select: { clientId: true }, distinct: ['clientId'],
+    }),
   ])
 
   return Array.from(new Set([
     ...owned.map((r) => r.id),
     ...viaService.map((r) => r.clientId),
     ...viaGst.map((r) => r.clientId),
+    ...viaTask.map((r) => r.clientId).filter((id): id is string => !!id),
   ]))
 }
 
@@ -114,23 +128,12 @@ export async function assertCanSeeClient(session: Session, scope: Scope, clientI
 }
 
 /**
- * READ-ONLY widening of assertCanSeeClient for opening a client's page
- * (GET /api/clients/:id and nothing else): staff assigned a live task on the
- * client may read it even when no manager, service or GST assignment ties
- * them to it. Deliberately NOT part of assignedClientIds, which also gates
- * writes, nested routes and lists.
+ * Opening a client's page (GET /api/clients/:id). A live task on the client
+ * is now part of assignedClientIds, so this is the same rule as
+ * assertCanSeeClient; kept as its own name for the call sites.
  */
 export async function assertCanReadClient(session: Session, scope: Scope, clientId: string): Promise<void> {
-  const ids = await assignedClientIds(session, scope)
-  if (ids === 'ALL' || ids.includes(clientId)) return
-  const me = session.employeeId
-  const viaTask = me
-    ? await prisma.task.findFirst({
-        where: { clientId, assignedEmployeeId: me, deletedAt: null, status: { not: 'cancelled' } },
-        select: { id: true },
-      })
-    : null
-  if (!viaTask) throw ApiError.forbidden()
+  return assertCanSeeClient(session, scope, clientId)
 }
 
 /** Lead ids assigned to the caller — leads have no client yet. */
