@@ -29,6 +29,7 @@ import { formatINR } from '@/modules/dashboardV2/format';
 import { clientHealth, gstHistory, lastPeriods, tdsRowsFor, type PeriodState } from '@/modules/workstation/clientInsights';
 import { ClientPanel } from './ClientPanel';
 import { deriveShortName, OrganizationBadge, OrganizationOf } from '@/modules/workstation/organization/badges';
+import { OrganizationSelect } from '@/modules/workstation/organization/OrganizationSelect';
 import { gstinError, isPan, normId } from '@/lib/ids';
 import { confirmAction } from '@/components/ConfirmDialog';
 
@@ -151,7 +152,8 @@ export function ClientsPage() {
     { key: 'status:pending_documents', label: 'Pending documents', count: facets?.by_status.pending_documents ?? (facets ? 0 : null), apply: { status: 'pending_documents' }, show: true },
     { key: 'status:service_due', label: 'Service due', count: facets?.by_status.service_due ?? (facets ? 0 : null), apply: { status: 'service_due' }, show: true },
     { key: 'view:overdue', label: 'Payment overdue', count: money.data ? overdueIds.length : null, apply: { view: 'overdue' }, show: seesBilling },
-    { key: 'view:organizations', label: 'Organizations', count: facets ? facets.organizations : null, apply: { view: 'organizations' }, show: !!facets?.organizations },
+    // Always shown, even at 0: it is also where organizations are added.
+    { key: 'view:organizations', label: 'Organizations', count: facets ? facets.organizations : null, apply: { view: 'organizations' }, show: true },
     { key: 'view:mine', label: 'My clients', count: facets ? facets.mine : null, apply: { view: 'mine' }, show: !!myId },
     { key: 'status:inactive', label: 'Inactive', count: facets?.by_status.inactive ?? (facets ? 0 : null), apply: { status: 'inactive' }, show: true },
   ];
@@ -221,10 +223,24 @@ export function ClientsPage() {
     </>
   );
 
+  const orgView = view === 'organizations';
+  const openAdd = () => setAddOpen(true);
+
   // A firm with no clients at all gets a way in; a filter that matches
   // nothing says so instead.
   const filtered = !!(q || status || view || managerId || serviceId || pendingDocs);
-  const emptyState = !filtered ? (
+  const orgFiltered = !!(q || status || managerId || serviceId || pendingDocs);
+  const emptyState = orgView && !orgFiltered ? (
+    <ListEmpty>
+      <div className="text-14 font-semibold text-neutral-900">No organizations yet</div>
+      <div className="mt-1">Add the firms you have a tie-up with; their clients are billed in their name.</div>
+      {canManage ? (
+        <div className="mt-4 flex flex-wrap justify-center gap-2">
+          <ListAction onClick={openAdd} icon={<Plus size={15} />}>Add Organization</ListAction>
+        </div>
+      ) : null}
+    </ListEmpty>
+  ) : !filtered ? (
     <ListEmpty>
       <div className="text-14 font-semibold text-neutral-900">No clients yet</div>
       <div className="mt-1">Every service, document and invoice hangs off a client — start with one, or bring your whole list in from Excel.</div>
@@ -251,7 +267,7 @@ export function ClientsPage() {
           ? <>{facets ? `${facets.total} client${facets.total === 1 ? '' : 's'} · ` : ''}{clients.data.scope === 'organisation' ? 'every firm client' : 'clients assigned to you'} — services, filing record and money owed in one place.</>
           : 'One record per company. Everything else references it.'}
         action={canManage ? (
-          <ListAction onClick={() => setAddOpen(true)} icon={<Plus size={15} />}>Add Client</ListAction>
+          <ListAction onClick={openAdd} icon={<Plus size={15} />}>{orgView ? 'Add Organization' : 'Add Client'}</ListAction>
         ) : undefined}
       />
 
@@ -319,6 +335,15 @@ export function ClientsPage() {
               const items = data.items;
               if (items.length === 0) return emptyState;
               const from = (page - 1) * PAGE_SIZE + 1;
+              if (orgView) {
+                return (
+                  <OrganizationsTable
+                    items={items} from={from} count={data.count} page={page} pages={pages}
+                    onPage={(n) => setParam('page', String(n))}
+                    onOpen={(id) => navigate(`/workstation/clients/${id}/organization`)}
+                  />
+                );
+              }
               return (
                 <div className="overflow-x-auto">
                   <table className="cl-table w-full text-13">
@@ -466,7 +491,9 @@ export function ClientsPage() {
         ) : null}
       </div>
 
-      <AddClientModal open={addOpen && canManage} onClose={() => setAddOpen(false)} />
+      {/* Keyed by the view so the form starts fresh as a client or as an organization. */}
+      <AddClientModal key={orgView ? 'organization' : 'client'} open={addOpen && canManage} onClose={() => setAddOpen(false)}
+        presetKind={orgView ? 'organization' : undefined} />
       <ImportClientsDialog open={importOpen && canManage} onClose={() => {
         setImportOpen(false);
         if (params.get('import')) setParam('import', '');
@@ -476,6 +503,73 @@ export function ClientsPage() {
 }
 
 const PAGE_SIZE = 50;
+
+/**
+ * The Organizations view: each organization with its short name, how many
+ * clients sit under it, its GSTIN, and a link to its workspace.
+ */
+function OrganizationsTable({ items, from, count, page, pages, onPage, onOpen }: {
+  items: ClientListItem[]; from: number; count: number; page: number; pages: number;
+  onPage: (n: number) => void; onOpen: (id: string) => void;
+}) {
+  return (
+    <div className="overflow-x-auto">
+      <table className="cl-table w-full text-13">
+        <thead>
+          <tr>
+            <th>Organization</th>
+            <th className="text-right">Clients</th>
+            <th className="cl-hide-xs">GSTIN</th>
+            <th><span className="sr-only">Open</span></th>
+          </tr>
+        </thead>
+        <tbody>
+          {items.map((o) => (
+            <tr key={o.id} tabIndex={0} onDoubleClick={() => onOpen(o.id)}
+              onKeyDown={(e) => { if (e.key === 'Enter' && e.target === e.currentTarget) onOpen(o.id); }}>
+              <td>
+                <div className="flex items-center gap-3 min-w-0">
+                  <Avatar name={o.company_name} size={32} square />
+                  <div className="min-w-0">
+                    <div className="font-semibold text-ink truncate max-w-[320px]">{o.company_name}</div>
+                    <div className="font-mono text-[11.5px] text-inkFaint truncate">
+                      {o.client_id}{o.short_name ? ` · ${o.short_name}` : ''}
+                    </div>
+                  </div>
+                </div>
+              </td>
+              <td className="text-right tabular-nums text-ink">{o.child_client_count}</td>
+              <td className="cl-hide-xs font-mono text-12 text-inkMuted">{o.gstin ?? <span className="text-inkFaint">—</span>}</td>
+              <td className="text-right">
+                <a href={`/workstation/clients/${o.id}/organization`}
+                  onClick={(e) => { if (!e.metaKey && !e.ctrlKey) { e.preventDefault(); onOpen(o.id); } }}
+                  className="text-13 font-semibold text-primary hover:underline whitespace-nowrap">
+                  Open workspace
+                </a>
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      <nav className="flex flex-wrap items-center gap-3 px-5 py-3 border-t border-border text-12 text-inkMuted" aria-label="Pages">
+        <span>{from}–{from + items.length - 1} of {count} organization{count === 1 ? '' : 's'}</span>
+        <span className="flex-1" />
+        {pages > 1 ? (
+          <span className="inline-flex items-center gap-2">
+            <Button size="sm" disabled={page <= 1} onClick={() => onPage(page - 1)} aria-label="Previous page">
+              <ChevronLeft size={14} aria-hidden /> Prev
+            </Button>
+            <span aria-live="polite">Page {page} of {pages}</span>
+            <Button size="sm" disabled={page >= pages} onClick={() => onPage(page + 1)} aria-label="Next page">
+              Next <ChevronRight size={14} aria-hidden />
+            </Button>
+          </span>
+        ) : null}
+      </nav>
+    </div>
+  );
+}
+
 const CLIENT_STATUSES = ['active', 'onboarding', 'pending_documents', 'service_due', 'inactive'] as const;
 
 /**
@@ -552,11 +646,13 @@ function Strip({ states, periods }: { states: PeriodState[]; periods: string[] }
  * rather than someone's choice. A lead that converts takes the same path via
  * Leads → Convert, so there is exactly one way a Client row comes to exist.
  */
-export function AddClientModal({ open, onClose, organization, defaultName, onCreated }: {
+export function AddClientModal({ open, onClose, organization, defaultName, onCreated, presetKind }: {
   open: boolean;
   onClose: () => void;
   /** Create the client under this organization (it stays a normal client). */
   organization?: { id: string; name: string };
+  /** Open as Add Organization, with the Client / Organization choice hidden. */
+  presetKind?: 'organization';
   defaultName?: string;
   /** Instead of opening the new client's workspace. */
   onCreated?: (id: string) => void;
@@ -570,7 +666,9 @@ export function AddClientModal({ open, onClose, organization, defaultName, onCre
   const [form, setForm] = useState({
     company_name: defaultName ?? '', business_type: '', contact_person: '', contact_number: '',
     email: '', gstin: '', pan: '', address: '',
-    kind: 'client' as 'client' | 'organization', short_name: '',
+    kind: (presetKind ?? 'client') as 'client' | 'organization', short_name: '',
+    // The organization a new client sits under (optional; '' = none).
+    organization_id: '',
   });
   const isOrg = !organization && form.kind === 'organization';
   const set = (k: keyof typeof form, v: string) => setForm((f) => ({ ...f, [k]: v }));
@@ -606,14 +704,17 @@ export function AddClientModal({ open, onClose, organization, defaultName, onCre
       additional_contacts: extras
         .filter((r) => r.name.trim() && r.phone.trim())
         .map((r) => ({ name: r.name.trim(), phone: r.phone.trim(), designation: r.designation.trim() || undefined })),
-      ...(organization ? { organization_id: organization.id } : {}),
+      ...(organization ? { organization_id: organization.id }
+        : !isOrg && form.organization_id ? { organization_id: form.organization_id } : {}),
       ...(isOrg ? { is_organization: true, short_name: form.short_name || undefined } : {}),
     }),
     onSuccess: (client) => {
       void qc.invalidateQueries({ queryKey: ['workstation'] });
       toast.push('success', organization
         ? `${client.company_name} (${client.client_id}) added to ${organization.name}.`
-        : `${isOrg ? 'Organization client' : 'Client'} ${client.client_id} created.`);
+        : client.organization
+          ? `Client ${client.client_id} created under ${client.organization.name}.`
+          : `${isOrg ? 'Organization' : 'Client'} ${client.client_id} created.`);
       // POST-DELIVERY-CHANGES §B2 — a shared phone number is legitimate
       // (proprietor + firm), but worth noticing so the firm doesn't create
       // a duplicate by mistake. Non-blocking warning toast.
@@ -661,7 +762,7 @@ export function AddClientModal({ open, onClose, organization, defaultName, onCre
   return (
     <Modal
       open={open}
-      title={organization ? `Add Client to ${organization.name}` : 'Add Client'}
+      title={organization ? `Add Client to ${organization.name}` : presetKind === 'organization' ? 'Add Organization' : 'Add Client'}
       onClose={onClose}
       footer={
         <>
@@ -671,7 +772,7 @@ export function AddClientModal({ open, onClose, organization, defaultName, onCre
             disabled={create.isPending}
             onClick={() => { if (validate()) create.mutate(); }}
           >
-            {create.isPending ? 'Saving…' : 'Create Client'}
+            {create.isPending ? 'Saving…' : isOrg ? 'Create Organization' : 'Create Client'}
           </Button>
         </>
       }
@@ -679,6 +780,10 @@ export function AddClientModal({ open, onClose, organization, defaultName, onCre
       {organization ? (
         <div className="mb-4 rounded-lg bg-primary/5 px-3 py-2 text-12 text-neutral-700">
           This becomes a full client with its own workspace, linked to <b>{organization.name}</b>.
+        </div>
+      ) : presetKind === 'organization' ? (
+        <div className="mb-4 rounded-lg bg-primary/5 px-3 py-2 text-12 text-neutral-700">
+          An organization is a firm you have a tie-up with. Clients you add under it are billed in its name.
         </div>
       ) : (
         <Field label="Client Type" hint={isOrg ? 'An organization is a client that other clients can be added under.' : undefined}>
@@ -707,6 +812,9 @@ export function AddClientModal({ open, onClose, organization, defaultName, onCre
             onChange={(e) => set('short_name', e.target.value.toUpperCase())}
           />
         </Field>
+      ) : null}
+      {!organization && !isOrg ? (
+        <OrganizationSelect value={form.organization_id} onChange={(v) => set('organization_id', v)} error={err('organization_id')} />
       ) : null}
       <Field label="Business Type" error={err('business_type')} hint="Private Limited, LLP, Proprietorship…">
         <input className={inputClass} value={form.business_type} onChange={(e) => set('business_type', e.target.value)} />

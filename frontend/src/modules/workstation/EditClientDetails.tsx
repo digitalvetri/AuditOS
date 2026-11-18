@@ -16,6 +16,7 @@ import { useToast } from '@/components/Toast';
 import { can } from '@/platform/rbac/can';
 import { useAuth } from '@/platform/auth/AuthContext';
 import { gstinError, isCin, isLlpin, isPan, isTan, normId } from '@/lib/ids';
+import { OrganizationSelect } from './organization/OrganizationSelect';
 
 const BUSINESS_TYPES = [
   'Private Limited', 'Public Limited', 'One Person Company', 'LLP', 'Partnership',
@@ -54,6 +55,9 @@ export function EditClientModal({ client, onClose }: { client: ClientDetail; onC
   const toast = useToast();
   const [f, setF] = useState<Form>(() => fromClient(client));
   const [local, setLocal] = useState<Record<string, string>>({});
+  // The organization this client sits under ('' = none). Changing it re-links
+  // the client; None unlinks it. An organization itself has no such field.
+  const [orgId, setOrgId] = useState(client.organization?.id ?? '');
   const set = (k: keyof Form) => (e: { target: { value: string } }) => setF((cur) => ({ ...cur, [k]: e.target.value }));
   // Non-primary contacts arrive as full rows; edit as (name, phone, designation)
   // tuples and the backend replaces the whole non-primary set on save.
@@ -91,6 +95,7 @@ export function EditClientModal({ client, onClose }: { client: ClientDetail; onC
           name: r.name, phone: r.phone, designation: r.designation || undefined,
         }));
       }
+      if (!client.is_organization && orgId !== (client.organization?.id ?? '')) patch.organization_id = orgId || null;
       return workstationApi.updateClient(client.id, patch);
     },
     onSuccess: (updated) => {
@@ -148,6 +153,12 @@ export function EditClientModal({ client, onClose }: { client: ClientDetail; onC
         <Field label="Email" error={err('email')}><input className={inputClass} type="email" value={f.email} onChange={set('email')} /></Field>
       </div>
       <Field label="Address" error={err('address')}><textarea className={inputClass + ' min-h-[64px]'} value={f.address} onChange={set('address')} /></Field>
+      {!client.is_organization ? (
+        <OrganizationSelect
+          value={orgId} onChange={setOrgId} error={err('organization_id')}
+          current={client.organization ? { id: client.organization.id, name: client.organization.name } : null}
+        />
+      ) : null}
       <ExtraPhonesField
         rows={extras} onChange={setExtra} onRemove={removeExtra} onAdd={addExtra}
         err={(k) => err(k)}
