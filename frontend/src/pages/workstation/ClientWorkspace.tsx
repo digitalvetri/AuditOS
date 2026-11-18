@@ -82,8 +82,35 @@ const ORG_TABS = [
   { key: 'organization-clients', label: 'Organization Clients', perm: 'workstation.client.read' },
   { key: 'organization-documents', label: 'All Client Documents', perm: 'workstation.document.read' },
 ] as const;
-/** Tabs an organization's client does not have: these live on the organization. */
-const ORG_LEVEL_ONLY = new Set(['quotations', 'engagement']);
+/**
+ * Tabs an organization's client does not have: these live on the organization.
+ * Quotations stay per client (they are billed in the organization's name).
+ */
+const ORG_LEVEL_ONLY = new Set(['engagement']);
+
+/**
+ * Service tabs: shown only when the client has taken a matching service, or
+ * already has data for the tab, so nothing recorded becomes unreachable.
+ */
+const SERVICE_TABS: Record<string, { codes: string[]; has: (c: ClientDetail) => boolean; message: string }> = {
+  gst: {
+    codes: ['GST_FILING', 'GST_REGISTRATION', 'E_INVOICE'],
+    has: (c) => !!c.gst_data_exists,
+    message: 'This client has no GST service. Add it from Services.',
+  },
+  eway: {
+    codes: ['EWAY_BILL', 'E_INVOICE'],
+    has: (c) => (c.eway_bill_count ?? 0) > 0,
+    message: 'This client has no E-way Bill service. Add it from Services.',
+  },
+};
+function serviceTabShown(client: ClientDetail, key: string): boolean {
+  const rule = SERVICE_TABS[key];
+  if (!rule) return true;
+  // An older API without the fields: show the tab rather than hide data.
+  if (client.service_codes === undefined) return true;
+  return rule.codes.some((code) => client.service_codes!.includes(code)) || rule.has(client);
+}
 
 const ORG_LABELS: Record<string, string> = {
   '': 'Profile', documents: 'Organization Documents', activity: 'Organization Activity', details: 'Organization Details',
@@ -108,9 +135,10 @@ export function ClientWorkspacePage() {
           const tabs = [
             ...(client.is_organization ? ORG_TABS : []),
             ...TABS.map((t) => client.is_organization && ORG_LABELS[t.key] ? { ...t, label: ORG_LABELS[t.key] } : t)
-              // Quotations and engagement letters are agreed with the organization,
-              // so its clients do not get them (invoices stay per client).
-              .filter((t) => !(client.organization && ORG_LEVEL_ONLY.has(t.key))),
+              // Engagement letters are agreed with the organization, so its
+              // clients do not get them (quotations and invoices stay per client).
+              .filter((t) => !(client.organization && ORG_LEVEL_ONLY.has(t.key)))
+              .filter((t) => serviceTabShown(client, t.key)),
           ].filter((t) => allowed(t.perm));
           return (
           <>
@@ -134,13 +162,13 @@ export function ClientWorkspacePage() {
             {tab === '' ? <OverviewTab client={client} /> : null}
             {tab === 'details' ? <DetailsTab client={client} /> : null}
             {tab === 'services' ? <ServicesTab client={client} /> : null}
-            {tab === 'gst' ? <GstTab client={client} /> : null}
+            {tab === 'gst' ? (serviceTabShown(client, 'gst') ? <GstTab client={client} /> : <ServiceTabHidden client={client} tab="gst" />) : null}
             {tab === 'compliance' ? <ClientObligationsTab clientId={client.id} entityType={client.business_type} /> : null}
-            {tab === 'quotations' && !client.organization ? <QuotationsTab client={client} /> : null}
+            {tab === 'quotations' ? <QuotationsTab client={client} /> : null}
             {tab === 'invoices' ? <InvoicesTab client={client} /> : null}
             {tab === 'engagement' && !client.organization ? <EngagementTab client={client} /> : null}
             {client.organization && ORG_LEVEL_ONLY.has(tab) ? <OrgLevelOnly client={client} tab={tab} /> : null}
-            {tab === 'eway' ? <EwayTab client={client} /> : null}
+            {tab === 'eway' ? (serviceTabShown(client, 'eway') ? <EwayTab client={client} /> : <ServiceTabHidden client={client} tab="eway" />) : null}
             {tab === 'documents' ? <DocumentsTab client={client} /> : null}
             {tab === 'follow-ups' ? <FollowUpsTab client={client} /> : null}
             {tab === 'tasks' ? <TasksTab client={client} /> : null}
@@ -153,10 +181,22 @@ export function ClientWorkspacePage() {
   );
 }
 
-/** A deep link to Quotations / Engagement on an organization's client. */
+/** A deep link to a service tab the client has no service or data for. */
+function ServiceTabHidden({ client, tab }: { client: ClientDetail; tab: string }) {
+  return (
+    <Card>
+      <div className="p-5 text-13 text-neutral-700">
+        {SERVICE_TABS[tab]?.message}{' '}
+        <Link to={`/workstation/clients/${client.id}/services`} className="text-primary underline">Open Services</Link>
+      </div>
+    </Card>
+  );
+}
+
+/** A deep link to Engagement on an organization's client. */
 function OrgLevelOnly({ client, tab }: { client: ClientDetail; tab: string }) {
   const org = client.organization!;
-  const what = tab === 'quotations' ? 'Quotations' : 'Engagement letters';
+  const what = 'Engagement letters';
   return (
     <Card>
       <div className="p-5 text-13 text-neutral-700">
@@ -298,19 +338,21 @@ function OverviewTab({ client }: { client: ClientDetail }) {
 
   return (
     <div className="grid grid-cols-1 lg:grid-cols-[1fr_320px] gap-6">
-      <Card title="Active services">
-        <QueryState query={services} empty="No services assigned yet.">
+      <Card
+        title="Services"
+        right={<Link to={`/workstation/clients/${client.id}/services`} className="text-13 text-primary hover:underline">All services</Link>}
+      >
+        <QueryState query={services} empty="No services added yet.">
           {(data: ListResponse<ClientService>) => (
-            <Table head={['Service', 'Status', 'Assigned To', 'Next Due']}>
+            <ul className="p-4 flex flex-wrap gap-2">
               {data.items.map((s) => (
-                <Row key={s.id} status={s.status}>
-                  <Cell className="font-medium">{s.service_name}</Cell>
-                  <Cell><Status value={s.status} /></Cell>
-                  <Cell muted>{s.assigned_employee?.full_name ?? '—'}</Cell>
-                  <Cell muted>{s.due_date ? fmtDate(s.due_date) : '—'}</Cell>
-                </Row>
+                <li key={s.id} className="inline-flex items-center gap-2 rounded-full border border-neutral-200 bg-white px-3 py-1">
+                  <span className="text-13 font-medium text-neutral-900">{s.service_name}</span>
+                  <Status value={s.status} />
+                  {s.due_date ? <span className="text-12 text-neutral-500">due {fmtDate(s.due_date)}</span> : null}
+                </li>
               ))}
-            </Table>
+            </ul>
           )}
         </QueryState>
       </Card>
@@ -410,9 +452,9 @@ function ServicesTab({ client }: { client: ClientDetail }) {
     queryKey: ['workstation', 'client', client.id, 'services'],
     queryFn: () => workstationApi.clientServices(client.id),
   });
-  const setStatus = useMutation({
-    mutationFn: ({ id, status }: { id: string; status: string }) =>
-      workstationApi.updateService(id, { status }),
+  const update = useMutation({
+    mutationFn: ({ id, patch }: { id: string; patch: Record<string, unknown> }) =>
+      workstationApi.updateService(id, patch),
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: ['workstation'] });
       toast.push('success', 'Service updated.');
@@ -426,22 +468,34 @@ function ServicesTab({ client }: { client: ClientDetail }) {
     <>
       <Card
         title="Services"
-        right={canManage ? <Button variant="primary" onClick={() => setAddOpen(true)}>Assign Service</Button> : undefined}
+        right={canManage ? <Button variant="primary" onClick={() => setAddOpen(true)}>Assign Services</Button> : undefined}
       >
-        <QueryState query={services} empty="No services assigned yet.">
+        <QueryState query={services} empty="No services added yet.">
           {(data: ListResponse<ClientService>) => (
-            <Table head={['Service', 'Assigned To', 'Manager', 'Due Date', 'Status', 'Last Updated']}>
+            <Table head={['Service', 'Due Date', 'Status', 'Last Updated']}>
               {data.items.map((s) => (
                 <Row key={s.id} status={s.status}>
                   <Cell className="font-medium">{s.service_name}</Cell>
-                  <Cell muted>{s.assigned_employee?.full_name ?? '—'}</Cell>
-                  <Cell muted>{s.manager?.full_name ?? '—'}</Cell>
-                  <Cell muted>{s.due_date ? fmtDate(s.due_date) : '—'}</Cell>
+                  <Cell muted>
+                    {canManage ? (
+                      <input
+                        type="date"
+                        aria-label={`Due date for ${s.service_name ?? 'service'}`}
+                        defaultValue={s.due_date ?? ''}
+                        key={s.due_date ?? ''}
+                        onBlur={(e) => {
+                          const next = e.target.value || null;
+                          if (next !== (s.due_date ?? null)) update.mutate({ id: s.id, patch: { due_date: next } });
+                        }}
+                        className="h-8 px-2 text-13 bg-white border border-neutral-300 rounded focus:outline-none focus:border-gold"
+                      />
+                    ) : (s.due_date ? fmtDate(s.due_date) : '—')}
+                  </Cell>
                   <Cell>
                     {canManage ? (
                       <select
                         value={s.status}
-                        onChange={(e) => setStatus.mutate({ id: s.id, status: e.target.value })}
+                        onChange={(e) => update.mutate({ id: s.id, patch: { status: e.target.value } })}
                         className="h-8 px-2 text-13 bg-white border border-neutral-300 rounded focus:outline-none focus:border-gold"
                       >
                         {SERVICE_STATUSES.map((v) => (
@@ -461,54 +515,103 @@ function ServicesTab({ client }: { client: ClientDetail }) {
           )}
         </QueryState>
       </Card>
-      <AssignServiceModal client={client} open={addOpen} onClose={() => setAddOpen(false)} />
+      <AssignServicesModal
+        client={client}
+        open={addOpen}
+        onClose={() => setAddOpen(false)}
+        live={new Set((services.data?.items ?? []).filter((s) => s.status !== 'completed' && s.status !== 'failed').map((s) => s.service_id))}
+      />
     </>
   );
 }
 
-function AssignServiceModal({ client, open, onClose }: { client: ClientDetail; open: boolean; onClose: () => void }) {
+/**
+ * Tick several services at once. Services are added unassigned: work reaches
+ * people through Tasks and the GST Filing page, not from here.
+ */
+function AssignServicesModal({ client, open, onClose, live }: {
+  client: ClientDetail; open: boolean; onClose: () => void; live: Set<string>;
+}) {
   const qc = useQueryClient();
   const toast = useToast();
-  const catalog = useQuery({ queryKey: ['workstation', 'catalog'], queryFn: workstationApi.serviceCatalog });
-  const employees = useQuery({ queryKey: ['workstation', 'employees'], queryFn: workstationApi.assignableEmployees });
-  const [form, setForm] = useState({ service_id: '', assigned_employee_id: '', manager_id: '', due_date: '', notes: '', filing_frequency: 'monthly' });
+  const catalog = useQuery({ queryKey: ['workstation', 'catalog'], queryFn: workstationApi.serviceCatalog, enabled: open });
+  const [picked, setPicked] = useState<Set<string>>(new Set());
+  const [form, setForm] = useState({ due_date: '', notes: '', filing_frequency: 'monthly' });
   const set = (k: keyof typeof form, v: string) => setForm((f) => ({ ...f, [k]: v }));
-  const isGstFiling = (catalog.data?.items ?? []).find((s) => s.id === form.service_id)?.code === 'GST_FILING';
+  const items = catalog.data?.items ?? [];
+  const gstFilingPicked = items.some((s) => s.code === 'GST_FILING' && picked.has(s.id));
+  const toggle = (id: string) => setPicked((prev) => {
+    const next = new Set(prev);
+    if (next.has(id)) next.delete(id); else next.add(id);
+    return next;
+  });
+  const close = () => {
+    setPicked(new Set());
+    setForm({ due_date: '', notes: '', filing_frequency: 'monthly' });
+    create.reset();
+    onClose();
+  };
 
   const create = useMutation({
-    mutationFn: () => workstationApi.addClientService(client.id, {
-      service_id: form.service_id,
-      assigned_employee_id: form.assigned_employee_id,
-      manager_id: form.manager_id || undefined,
+    mutationFn: () => workstationApi.addClientServices(client.id, {
+      service_ids: [...picked],
       due_date: form.due_date || undefined,
       notes: form.notes || undefined,
-      filing_frequency: isGstFiling ? form.filing_frequency : undefined,
+      filing_frequency: gstFilingPicked ? form.filing_frequency : undefined,
     }),
-    onSuccess: () => {
+    onSuccess: (r) => {
       void qc.invalidateQueries({ queryKey: ['workstation'] });
-      toast.push('success', 'Service assigned.');
-      onClose();
+      const n = r.items.length;
+      const skipped = r.skipped.length ? ` ${r.skipped.map((x) => x.service_name).join(', ')} already added.` : '';
+      toast.push('success', `${n} ${n === 1 ? 'service' : 'services'} added.${skipped}`);
+      close();
     },
   });
   const e = fieldErrors(create.error);
+  const n = picked.size;
 
   return (
     <Modal
-      open={open} title="Assign Service" onClose={onClose}
+      open={open} title="Assign Services" onClose={close}
       footer={
         <>
-          <Button onClick={onClose}>Cancel</Button>
-          <Button variant="primary" disabled={create.isPending} onClick={() => create.mutate()}>Assign</Button>
+          <Button onClick={close}>Cancel</Button>
+          <Button variant="primary" disabled={n === 0 || create.isPending} onClick={() => create.mutate()}>
+            {create.isPending ? 'Adding…' : `Add ${n} ${n === 1 ? 'service' : 'services'}`}
+          </Button>
         </>
       }
     >
-      <Field label="Service" error={e.service_id}>
-        <select className={inputClass} value={form.service_id} onChange={(ev) => set('service_id', ev.target.value)}>
-          <option value="">Select a service…</option>
-          {(catalog.data?.items ?? []).map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
-        </select>
-      </Field>
-      {isGstFiling && (
+      <fieldset className="mb-3">
+        <legend className="block text-12 font-medium text-neutral-500 mb-1">Services</legend>
+        <QueryState query={catalog} empty="No services in the catalog yet.">
+          {() => (
+            <ul className="max-h-[320px] overflow-y-auto rounded border border-neutral-200">
+              {items.map((s) => {
+                const have = live.has(s.id);
+                return (
+                  <li key={s.id} className="border-b border-neutral-200 last:border-0">
+                    <label className={`flex items-center gap-3 px-3 py-2 text-13 ${have ? 'text-neutral-500' : 'text-neutral-900 cursor-pointer hover:bg-neutral-50'}`}>
+                      <input
+                        type="checkbox"
+                        checked={have || picked.has(s.id)}
+                        disabled={have}
+                        onChange={() => toggle(s.id)}
+                      />
+                      <span className="flex-1">{s.name}</span>
+                      {have ? <span className="text-12 text-neutral-500">already added</span> : null}
+                    </label>
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+        </QueryState>
+        {e.service_ids
+          ? <span className="block text-12 text-red mt-1">{e.service_ids}</span>
+          : <span className="block text-12 text-neutral-500 mt-1">Services are added unassigned. Give the work to people through Tasks or the GST Filing page.</span>}
+      </fieldset>
+      {gstFilingPicked && (
         <Field label="Files GST returns" error={e.filing_frequency} hint="Quarterly for QRMP clients. Applies when the client is first enrolled; change it later on the client's GST profile.">
           <select className={inputClass} value={form.filing_frequency} onChange={(ev) => set('filing_frequency', ev.target.value)}>
             <option value="monthly">Monthly</option>
@@ -516,26 +619,10 @@ function AssignServiceModal({ client, open, onClose }: { client: ClientDetail; o
           </select>
         </Field>
       )}
-      <Field label="Assigned To" error={e.assigned_employee_id}>
-        <select className={inputClass} value={form.assigned_employee_id} onChange={(ev) => set('assigned_employee_id', ev.target.value)}>
-          <option value="">Select an employee…</option>
-          {(employees.data?.items ?? []).map((emp) => (
-            <option key={emp.id} value={emp.id}>{emp.full_name} · {emp.designation}</option>
-          ))}
-        </select>
-      </Field>
-      <Field label="Manager" error={e.manager_id}>
-        <select className={inputClass} value={form.manager_id} onChange={(ev) => set('manager_id', ev.target.value)}>
-          <option value="">None</option>
-          {(employees.data?.items ?? []).map((emp) => (
-            <option key={emp.id} value={emp.id}>{emp.full_name}</option>
-          ))}
-        </select>
-      </Field>
-      <Field label="Due Date" error={e.due_date}>
+      <Field label="Due Date" error={e.due_date} hint="Optional. Applies to every ticked service.">
         <input className={inputClass} type="date" value={form.due_date} onChange={(ev) => set('due_date', ev.target.value)} />
       </Field>
-      <Field label="Notes" error={e.notes}>
+      <Field label="Notes" error={e.notes} hint="Optional. Applies to every ticked service.">
         <textarea className={textareaClass} rows={3} value={form.notes} onChange={(ev) => set('notes', ev.target.value)} />
       </Field>
     </Modal>

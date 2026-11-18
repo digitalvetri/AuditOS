@@ -143,6 +143,9 @@ export const workstationApi = {
     api.get<ListResponse<ClientService>>(`/api/clients/${clientId}/services`),
   addClientService: (clientId: string, input: Record<string, unknown>) =>
     api.post<ClientService>(`/api/clients/${clientId}/services`, input),
+  /** Tick several services at once; services the client already has live are skipped. */
+  addClientServices: (clientId: string, input: { service_ids: string[]; due_date?: string; notes?: string; filing_frequency?: string }) =>
+    api.post<{ items: ClientService[]; skipped: { service_id: string; service_name: string }[] }>(`/api/clients/${clientId}/services`, input),
   updateService: (id: string, patch: Record<string, unknown>) =>
     api.patch<ClientService>(`/api/services/${id}`, patch),
 
