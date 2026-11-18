@@ -204,3 +204,41 @@ describe('due alerts on an unassigned GST client go to the Partner tier', () => 
     expect(await prisma.notification.count({ where: { userId: md.user.id, entityId: key } })).toBe(1)
   })
 })
+
+describe('changing who does a client\'s GST work is a manager action', () => {
+  it('an Associate who can see the client may edit GST facts but not the assignee or reviewer', async () => {
+    const assoc = await login('employee')
+    const senior = await employee('Senior')
+    const { c } = await unassignedClient(ownerId)
+    await syncGstEnrolment(prisma, { clientId: c.id })
+    const p = await prisma.gstProfile.findUniqueOrThrow({ where: { clientId: c.id } })
+    // A live task gives the Associate the client (so this is a 403, not a 404).
+    await prisma.task.create({ data: { clientId: c.id, assignedEmployeeId: assoc.emp.id, title: 'Prepare GSTR-1', status: 'pending' } })
+    expect((await api(`/api/clients/${c.id}`, assoc.cookie)).status).toBe(200)
+
+    const assign = await api(`/api/gst/clients/${p.id}`, assoc.cookie, { method: 'PATCH', body: { assigned_employee_id: assoc.emp.id } })
+    expect(assign.status).toBe(403)
+    const review = await api(`/api/gst/clients/${p.id}`, assoc.cookie, { method: 'PATCH', body: { reviewer_employee_id: senior.id } })
+    expect(review.status).toBe(403)
+    expect(await prisma.gstProfile.findUniqueOrThrow({ where: { id: p.id } })).toMatchObject({ assignedEmployeeId: null, reviewerEmployeeId: null })
+
+    // Other GST facts are still theirs to edit, and resending the current
+    // (null) assignee with a whole-form save is not a change.
+    const facts = await api(`/api/gst/clients/${p.id}`, assoc.cookie, {
+      method: 'PATCH', body: { contact_person: 'Ravi', assigned_employee_id: null, reviewer_employee_id: '' },
+    })
+    expect(facts.status, facts.raw).toBe(200)
+    expect((await prisma.gstProfile.findUniqueOrThrow({ where: { id: p.id } })).contactPerson).toBe('Ravi')
+
+    // The Partner tier may change it.
+    const r = await api(`/api/gst/clients/${p.id}`, mdCookie, { method: 'PATCH', body: { assigned_employee_id: senior.id, reviewer_employee_id: senior.id } })
+    expect(r.status).toBe(200)
+    // ...after which the Associate resending that same assignee is fine, changing it is not.
+    expect((await api(`/api/gst/clients/${p.id}`, assoc.cookie, { method: 'PATCH', body: { assigned_employee_id: senior.id } })).status).toBe(200)
+    expect((await api(`/api/gst/clients/${p.id}`, assoc.cookie, { method: 'PATCH', body: { assigned_employee_id: null } })).status).toBe(403)
+    expect((await prisma.gstProfile.findUniqueOrThrow({ where: { id: p.id } })).assignedEmployeeId).toBe(senior.id)
+
+    const deptManager = await login('dept_manager')
+    expect((await api(`/api/gst/clients/${p.id}`, deptManager.cookie, { method: 'PATCH', body: { assigned_employee_id: null } })).status).toBe(200)
+  })
+})

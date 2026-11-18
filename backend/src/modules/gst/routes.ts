@@ -17,7 +17,7 @@ import { prisma, alive } from '../../lib/prisma.js'
 import { ApiError, handler, ok } from '../../lib/http.js'
 import { requireSession, type Session } from '../../platform/auth.js'
 import { notifyEmployees } from '../../platform/notify.js'
-import { requireWorkstation, assignedClientIds, assertCanSeeClient } from '../../platform/workstation/scope.js'
+import { requireWorkstation, assignedClientIds, assertCanSeeClient, seesAllClients } from '../../platform/workstation/scope.js'
 import { writeAudit } from '../../platform/audit.js'
 import { addDays, istDateOf } from '../../lib/dates.js'
 import { employeeMap } from '../../api/workstation.serialize.js'
@@ -1501,6 +1501,12 @@ gstRouter.patch('/clients/:id', handler(async (req, res) => {
 
   const assigned = has('assigned_employee_id') ? s('assigned_employee_id') : current.assignedEmployeeId
   const reviewer = has('reviewer_employee_id') ? s('reviewer_employee_id') : current.reviewerEmployeeId
+  // WHO does a client's GST work is a manager's call (Partner / Admin tier,
+  // i.e. callers who see every client). Others may still edit the GST facts;
+  // resending the current assignee or reviewer unchanged is fine.
+  if ((assigned !== current.assignedEmployeeId || reviewer !== current.reviewerEmployeeId) && !seesAllClients(session)) {
+    throw ApiError.forbidden('Only a Partner or Admin can change who is assigned to this client\'s GST work.')
+  }
   for (const id of [assigned, reviewer].filter((v): v is string => !!v)) {
     if (!(await prisma.employee.count({ where: { id } }))) throw ApiError.badRequest('Unknown employee.')
   }
