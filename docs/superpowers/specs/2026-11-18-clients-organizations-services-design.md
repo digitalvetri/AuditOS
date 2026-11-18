@@ -36,6 +36,8 @@ Approved in conversation on 2026-11-18. The user chose every recommended option.
 **Invoice create, backend** (`invoice/service.ts`, the place that sets `billingName = input.billingName || client.companyName`). When the invoice's client has an `organizationId`:
 - **Defaults:** `billingName`, `billingAddress` and `customerGstin` default to the **organization's** `companyName`, `address` and `gstin`, not the client's. Place of supply is derived from the organization's GSTIN, through the existing `defaultPlaceOfSupply` path.
 - **Override:** an explicit value in the request still wins, as it does today.
+- **Never mix parties:** fall back field by field to the ORGANIZATION only. If the organization has no GSTIN or no address, that field stays null (never the client's), and the builder warns "<Org> has no GSTIN on file. Add it on the organization before sending." An invoice must never carry the organization's name with the client's GSTIN.
+- **Recipient:** the invoice send email, payment-link messages and weekly overdue reminders for such an invoice go to the **organization's** email/contact, falling back to the client's only when the organization has none. Check invoice send, `integrations/payment-links.ts` and the overdue reminder job.
 - **Notes:** if the invoice has no notes, prefill a notes line `Services for: <client company name> (<client_id>)`. Use the existing customer-notes field that the print already shows. Do not change any print or PDF layout file: `InvoiceDocument.tsx`, `invoice/pdf.ts` and the quotation print are off limits.
 - **Ship To:** stays "same as Bill To".
 - **Ownership:** `Invoice.clientId` stays the client, so receivables, the client's Invoices tab and reports keep working per client.
@@ -59,7 +61,8 @@ Approved in conversation on 2026-11-18. The user chose every recommended option.
 ### B1. Assignee becomes optional (schema change)
 - `ClientService.assignedEmployeeId` changes from `String` to `String?`. This is `DROP NOT NULL`, which safe-push allows.
 - Every `tsc` error that follows is fixed so that null means "unassigned". That covers serializers, scope, reminders, GST enrolment and dashboards. A null assignee must never crash anything or notify "undefined".
-- `scope.ts` `assignedClientIds` keeps working, because a null simply matches nobody.
+- `scope.ts` `assignedClientIds` keeps working (a null matches nobody) and **gains a fourth source: clients where the caller is assignee of a live task** (not cancelled, not completed; check the Task status values). Today a task grants only read-only `GET /api/clients/:id` (`assertCanReadClient`). With service assignees gone and Account Manager dropped from Add Client, tasks become the normal way a junior gets a client, so they must get the full client view (list, Documents, Services, Tasks tabs). This is a deliberate access widening the user approved. Simplify `assertCanReadClient` accordingly.
+- **Unassigned work still alerts someone:** every reminder, due alert or notification keyed on a ClientService assignee (compliance reminders, follow-up reminders, service due alerts) falls back to the Partner tier (active md + hr_admin users) when the assignee is null. Never nobody, never "undefined".
 - **GST Filing enrolment** (`gst/filing.ts`): when the service has no assignee, `GstProfile.assignedEmployeeId` stays null on create. On re-sync, never overwrite an existing profile assignee with null.
 - **GST Filing page:** each client row gets an **Assign** select ("Unassigned" + employees, for `workstation.gst.manage`). It sets `GstProfile.assignedEmployeeId`. Check whether an endpoint already exists before adding one. This is how a junior gets GST work and sees the client.
 
@@ -68,7 +71,7 @@ Approved in conversation on 2026-11-18. The user chose every recommended option.
   - It creates one row per service that the client does not already have live. A non-deleted row whose status is not completed or failed counts as live.
   - It skips duplicates and says which ones it skipped.
   - It runs the same side effects per service as today: first-service activation, GST Filing enrolment, activity log.
-  - `assigned_employee_id` and `manager_id` become optional.
+  - `assigned_employee_id` and `manager_id` become optional but are still accepted, so older callers such as lead conversion keep working.
 - **Assign Services modal:**
   - A checkbox list of the catalog, with services the client already has shown ticked and disabled ("already added").
   - A GST frequency select appears when GST Filing is ticked.
@@ -92,7 +95,7 @@ In `ClientWorkspace.tsx`, the service tabs are shown only when the client has a 
 | E-way Bills | EWAY_BILL, E_INVOICE |
 
 - Every other tab stays, because each is general and not tied to one service: Overview, Company Details, Services, Compliance (statutory, by entity type), Quotations, Invoices, Engagement, Documents, Follow-ups, Tasks, Activity.
-- The "data already exists" check is a count the client detail API returns, e.g. `gst_profile_exists` and `eway_bill_count`. Add those to the `GET /api/clients/:id` detail payload cheaply.
+- The "data already exists" check is a count the client detail API returns: `gst_data_exists` (GST profile OR any GST registration case OR GST filings) and `eway_bill_count`. Add them cheaply to the `GET /api/clients/:id` detail payload.
 - Opening a hidden tab by URL shows a short message: "This client has no GST service. Add it from Services." It must not show a blank screen.
 - **Overview:** the Overview tab shows the client's services as clear chips with status.
 
@@ -108,7 +111,10 @@ There are no permission changes:
 - A quotation for an organization's client snapshots the organization and adds `for_client`.
 - The organization's invoices list includes its clients' invoices.
 - Multi-assign creates N rows, skips an existing live one, runs GST enrolment once, and works with no assignee. The single-body form still works.
-- A null assignee: the serializers, the GST Filing page and reminders don't crash, and an unassigned service notifies no one.
+- A null assignee: the serializers, the GST Filing page and reminders don't crash. A due or overdue alert on an unassigned service goes to the Partner tier.
+- An Associate with a live task on a client (and no other link) sees it in `/api/clients` and can list its documents and services. Once the task is completed or cancelled, they no longer can.
+- An organization with no GSTIN: the invoice for its client has customerGstin null, not the client's.
+- Invoice send and overdue reminders for an organization's client go to the organization's email.
 - The GST profile assign endpoint sets the assignee, and an Associate then sees that client.
 - Client detail returns the new tab-visibility fields.
 
