@@ -27,7 +27,7 @@ import { fmtDate, fmtDateTime, fmtTime, inr } from '@/lib/format';
 import { can } from '@/platform/rbac/can';
 import { GstChecklist } from '@/modules/workstation/checklist/GstChecklist';
 import { quotationsApi } from '@/modules/workstation/quotations/api';
-import { invoicesApi } from '@/modules/workstation/invoices/api';
+import { ClientInvoicesTab } from './invoices/ClientInvoicesTab';
 import { engagementApi, type EngagementLetter } from '@/modules/workstation/engagement/api';
 import { useAuth } from '@/platform/auth/AuthContext';
 import { BillingSliceCard } from '@/modules/zpay/BillingSliceCard';
@@ -165,7 +165,7 @@ export function ClientWorkspacePage() {
             {tab === 'gst' ? (serviceTabShown(client, 'gst') ? <GstTab client={client} /> : <ServiceTabHidden client={client} tab="gst" />) : null}
             {tab === 'compliance' ? <ClientObligationsTab clientId={client.id} entityType={client.business_type} /> : null}
             {tab === 'quotations' ? <QuotationsTab client={client} /> : null}
-            {tab === 'invoices' ? <InvoicesTab client={client} /> : null}
+            {tab === 'invoices' ? <ClientInvoicesTab client={client} /> : null}
             {tab === 'engagement' && !client.organization ? <EngagementTab client={client} /> : null}
             {client.organization && ORG_LEVEL_ONLY.has(tab) ? <OrgLevelOnly client={client} tab={tab} /> : null}
             {tab === 'eway' ? (serviceTabShown(client, 'eway') ? <EwayTab client={client} /> : <ServiceTabHidden client={client} tab="eway" />) : null}
@@ -715,73 +715,6 @@ function QuotationsTab({ client }: { client: ClientDetail }) {
   );
 }
 
-/**
- * This client's invoices, and the way to raise another one.
- *
- * Same shape as the quotations tab above, and deliberately so: the row's
- * action follows the invoice's own state rather than being the same
- * everywhere. Only a DRAFT is still editable — `is_editable` is the server's
- * word on that, not a status the UI re-derives — so anything issued opens
- * read-only. Money and payment state come off the row as stored; nothing is
- * recomputed here.
- */
-function InvoicesTab({ client }: { client: ClientDetail }) {
-  const navigate = useNavigate();
-  const { session } = useAuth();
-  const mayWrite = can(session?.role.code, 'workstation.invoice.manage', 'self');
-
-  const invoices = useQuery({
-    queryKey: ['workstation', 'client', client.id, 'invoices'],
-    queryFn: () => invoicesApi.list({ client_id: client.id, limit: 50 }),
-  });
-
-  const build = () => navigate(`/workstation/invoices/new?client_id=${client.id}`);
-
-  return (
-    <Card
-      title="Invoices"
-      right={mayWrite ? <Button onClick={build}>New invoice</Button> : undefined}
-    >
-      <QueryState query={invoices} empty="No invoices for this client yet.">
-        {(data) => (
-          <Table head={['Invoice', 'Date', 'Due', 'Status', 'Total', 'Balance', '']}>
-            {data.items.map((v) => {
-              const editable = v.is_editable && mayWrite;
-              return (
-                <Row
-                  key={v.id}
-                  status={v.status}
-                  onClick={() => navigate(`/workstation/invoices/${v.id}`)}
-                >
-                  <Cell>{v.invoice_number ?? 'Draft'}</Cell>
-                  <Cell>{fmtDate(v.invoice_date)}</Cell>
-                  <Cell>{v.due_date ? fmtDate(v.due_date) : '—'}</Cell>
-                  <Cell><Status value={v.status} /></Cell>
-                  <Cell>{inr(v.total_paise)}</Cell>
-                  <Cell>{inr(v.balance_due_paise)}</Cell>
-                  <Cell>
-                    <button
-                      type="button"
-                      className="text-13 text-primary hover:underline"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        navigate(editable
-                          ? `/workstation/invoices/${v.id}/edit`
-                          : `/workstation/invoices/${v.id}`);
-                      }}
-                    >
-                      {editable ? 'Continue building' : 'View'}
-                    </button>
-                  </Cell>
-                </Row>
-              );
-            })}
-          </Table>
-        )}
-      </QueryState>
-    </Card>
-  );
-}
 
 function GstProfileSection({ client }: { client: ClientDetail }) {
   const gst = useQuery({

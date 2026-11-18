@@ -28,7 +28,13 @@ const INCLUDE = {
     orderBy: { sortOrder: 'asc' },
     include: { items: { orderBy: { sortOrder: 'asc' } } },
   },
-  client: { select: { companyName: true, gstin: true, address: true, email: true, contactNumber: true } },
+  client: {
+    select: {
+      companyName: true, gstin: true, address: true, email: true, contactNumber: true,
+      // A client under an organization is quoted in the organization's name.
+      parentClient: { select: { companyName: true, gstin: true, address: true, email: true, contactNumber: true } },
+    },
+  },
   lead: { select: { name: true, email: true, contactNumber: true } },
 } satisfies Prisma.QuotationInclude
 
@@ -94,8 +100,15 @@ export function streamQuotationPdf(res: Response, q: QuotationPdfRow) {
 
   const cfg = (q.layoutConfig ?? {}) as { company?: Record<string, string> }
   const company = cfg.company ?? {}
-  const party = q.client ?? q.lead
-  const partyName = q.client?.companyName ?? q.lead?.name ?? '—'
+  // Bill-to party: the organization when the client belongs to one. Its
+  // fields are never mixed with the client's (no client GSTIN under the
+  // organization's name); contact details fall back to the client's.
+  const org = q.client?.parentClient ?? null
+  const billTo = org ?? q.client
+  const party = org
+    ? { email: org.email || q.client?.email || null, contactNumber: org.contactNumber || q.client?.contactNumber || null }
+    : (q.client ?? q.lead)
+  const partyName = billTo?.companyName ?? q.lead?.name ?? '—'
 
   const left = doc.page.margins.left
   const width = doc.page.width - left - doc.page.margins.right
@@ -199,8 +212,8 @@ export function streamQuotationPdf(res: Response, q: QuotationPdfRow) {
       case 'client_information': {
         heading('Client')
         body(partyName, { font: 'Helvetica-Bold' })
-        if (q.client?.address) body(q.client.address, { size: 9, color: MUTED })
-        if (q.client?.gstin) body(`GSTIN ${q.client.gstin}`, { size: 9, color: MUTED })
+        if (billTo?.address) body(billTo.address, { size: 9, color: MUTED })
+        if (billTo?.gstin) body(`GSTIN ${billTo.gstin}`, { size: 9, color: MUTED })
         if (party?.email) body(party.email, { size: 9, color: MUTED })
         if (party?.contactNumber) body(party.contactNumber, { size: 9, color: MUTED })
         break
