@@ -22,6 +22,7 @@ import type {
   GstProfile, FollowUp, ListResponse, Task,
 } from '@/modules/workstation/types';
 import { Button } from '@/components/Button';
+import { confirmAction } from '@/components/ConfirmDialog';
 import { useToast } from '@/components/Toast';
 import { fmtDate, fmtDateTime, fmtTime, inr } from '@/lib/format';
 import { can } from '@/platform/rbac/can';
@@ -462,6 +463,22 @@ function ServicesTab({ client }: { client: ClientDetail }) {
     onError: (e: Error) => toast.push('error', e.message),
   });
 
+  const remove = useMutation({
+    mutationFn: (id: string) => workstationApi.removeService(id),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ['workstation'] });
+      toast.push('success', 'Service removed.');
+    },
+    onError: (e: Error) => toast.push('error', e.message),
+  });
+  const askRemove = async (s: ClientService) => {
+    const ok = await confirmAction(
+      `Remove ${s.service_name ?? 'this service'} from ${client.company_name}? Finished work stays on record.`,
+      { action: 'Remove', danger: true },
+    );
+    if (ok) remove.mutate(s.id);
+  };
+
   const canManage = can(session?.role.code, 'workstation.service.manage', 'self');
 
   return (
@@ -472,7 +489,7 @@ function ServicesTab({ client }: { client: ClientDetail }) {
       >
         <QueryState query={services} empty="No services added yet.">
           {(data: ListResponse<ClientService>) => (
-            <Table head={['Service', 'Due Date', 'Status', 'Last Updated']}>
+            <Table head={canManage ? ['Service', 'Due Date', 'Status', 'Last Updated', ''] : ['Service', 'Due Date', 'Status', 'Last Updated']}>
               {data.items.map((s) => (
                 <Row key={s.id} status={s.status}>
                   <Cell className="font-medium">{s.service_name}</Cell>
@@ -509,6 +526,18 @@ function ServicesTab({ client }: { client: ClientDetail }) {
                     )}
                   </Cell>
                   <Cell muted>{fmtDate(s.updated_at)}</Cell>
+                  {canManage ? (
+                    <Cell>
+                      <button
+                        type="button"
+                        disabled={remove.isPending}
+                        onClick={() => void askRemove(s)}
+                        className="text-13 text-neutral-500 hover:text-red disabled:opacity-50"
+                      >
+                        Remove
+                      </button>
+                    </Cell>
+                  ) : null}
                 </Row>
               ))}
             </Table>

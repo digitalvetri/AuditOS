@@ -148,6 +148,8 @@ export const workstationApi = {
     api.post<{ items: ClientService[]; skipped: { service_id: string; service_name: string }[] }>(`/api/clients/${clientId}/services`, input),
   updateService: (id: string, patch: Record<string, unknown>) =>
     api.patch<ClientService>(`/api/services/${id}`, patch),
+  /** Take a service off the client. Refused (409) while open tasks, cases or invoices hang off it. */
+  removeService: (id: string) => api.delete<{ id: string }>(`/api/services/${id}`),
 
   // ── Follow-ups ──────────────────────────────────────────────────────────
   /** Follow-ups, task due dates and compliance due dates the caller can see, by IST day. */

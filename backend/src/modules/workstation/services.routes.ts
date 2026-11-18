@@ -157,3 +157,49 @@ servicesRouter.patch('/:id', handler(async (req, res) => {
   const m = await employeeMap([row.assignedEmployeeId, row.managerId])
   ok(res, clientServiceToApi(row, m))
 }))
+
+// DELETE /api/services/:id — take a service off a client (soft delete).
+// Refused while work hangs off it: open tasks, a live incorporation or
+// partnership case, or an invoice billed against it. Those are finished or
+// cancelled first; finished work stays on record either way.
+servicesRouter.delete('/:id', handler(async (req, res) => {
+  const session = requireSession(req)
+  const scope = requireWorkstation(session, 'workstation.service.manage')
+  const row = await prisma.clientService.findFirst({
+    where: { id: req.params.id, ...alive },
+    include: { service: true },
+  })
+  if (!row) throw ApiError.notFound('Service not found.')
+  await assertCanSeeClient(session, scope, row.clientId)
+
+  const [openTasks, incCases, pfrCases, invoices] = await Promise.all([
+    prisma.task.count({ where: { clientServiceId: row.id, deletedAt: null, status: { notIn: ['completed', 'cancelled', 'done'] } } }),
+    prisma.incorporationCase.count({ where: { clientServiceId: row.id, deletedAt: null } }),
+    prisma.partnershipCase.count({ where: { clientServiceId: row.id, deletedAt: null } }),
+    prisma.invoice.count({ where: { clientServiceId: row.id, deletedAt: null } }),
+  ])
+  const blockers = [
+    openTasks ? `${openTasks} open task${openTasks === 1 ? '' : 's'}` : '',
+    incCases ? 'an incorporation case' : '',
+    pfrCases ? 'a partnership registration case' : '',
+    invoices ? `${invoices} invoice${invoices === 1 ? '' : 's'}` : '',
+  ].filter(Boolean)
+  if (blockers.length) {
+    throw ApiError.conflict('SERVICE_IN_USE', `${row.service.name} can't be removed: it has ${blockers.join(', ')}. Finish or cancel that work first, or mark the service Completed instead.`)
+  }
+
+  await prisma.clientService.update({
+    where: { id: row.id }, data: { deletedAt: new Date(), updatedBy: session.userId },
+  })
+  // GST Filing removed: the client's GST profile is deactivated (past periods kept).
+  if (row.service.code === 'GST_FILING') await refreshClientGst(prisma, row.clientId, session.userId)
+
+  await writeActivity({
+    session, subjectType: 'client', subjectId: row.clientId,
+    action: 'service.removed',
+    description: `${row.service.name} removed from the client.`,
+    entityType: 'ClientService', entityId: row.id,
+  })
+  await writeAudit({ req, actorUserId: session.userId, action: 'client_service.removed', entityType: 'ClientService', entityId: row.id, before: { serviceCode: row.service.code, status: row.status } })
+  ok(res, { id: row.id })
+}))
