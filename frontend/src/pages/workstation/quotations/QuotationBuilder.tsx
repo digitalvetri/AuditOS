@@ -312,7 +312,8 @@ export function QuotationBuilderPage() {
       if (c) {
         setClient((prev) => ({
           ...prev,
-          name: c.company_name,
+          // A client under an organization is quoted in the organization's name.
+          name: c.organization ? c.organization.name : c.company_name,
           client_type: prev.client_type || c.business_type || '',
           location: prev.location || c.address || '',
         }));
@@ -679,6 +680,8 @@ type DetailsProps = {
 };
 
 function DetailsTab(p: DetailsProps) {
+  // A client under an organization is quoted in the organization's name.
+  const forOrg = p.partyKind === 'client' ? p.clients.find((c) => c.id === p.partyId && c.organization) : undefined;
   return (
     <div className="space-y-3">
       <Group title="Template">
@@ -714,13 +717,17 @@ function DetailsTab(p: DetailsProps) {
               >
                 <option value="">Select…</option>
                 {p.partyKind === 'client'
-                  // An organization's clients are quoted through the organization.
-                  ? p.clients.filter((c) => !c.organization || c.id === p.partyId).map((c) => <option key={c.id} value={c.id}>{clientNameWithOrg(c)}</option>)
+                  ? p.clients.map((c) => <option key={c.id} value={c.id}>{clientNameWithOrg(c)}</option>)
                   : p.leads.map((l) => <option key={l.id} value={l.id}>{l.name}</option>)}
               </select>
             </div>
           </Field>
         </Row>
+        {p.partyKind === 'client' && forOrg ? (
+          <div className="mb-3 rounded-lg bg-primary/5 px-3 py-2 text-12 text-neutral-700">
+            Quoted to <b>{forOrg.organization!.name}</b> (organization) for {forOrg.company_name}. The notes will start with “For: {forOrg.company_name}”.
+          </div>
+        ) : null}
         <Row>
           <Field label="Quotation date" error={p.err('quote_date')}>
             <input type="date" value={p.quoteDate} onChange={(e) => p.setQuoteDate(e.target.value)} className={inputClass} />

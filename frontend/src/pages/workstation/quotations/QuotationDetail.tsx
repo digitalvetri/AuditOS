@@ -122,6 +122,12 @@ export function QuotationDetailPage() {
               <p className="text-13 text-neutral-500 mt-1">
                 {doc.subject} · {doc.party_name ?? 'No party'}
               </p>
+              {doc.for_client ? (
+                <p className="text-13 text-neutral-700 mt-1">
+                  For: <b>{doc.for_client.name}</b>{doc.for_client.client_id ? ` (${doc.for_client.client_id})` : ''}
+                  <span className="text-neutral-500"> · billed in the organization&apos;s name</span>
+                </p>
+              ) : null}
             </div>
             <div className="flex-1" />
             <div className="flex items-center gap-2 flex-wrap">

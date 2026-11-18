@@ -61,6 +61,9 @@ export interface Quotation {
   party_contact_number: string | null;
   party_gstin: string | null;
   party_address: string | null;
+  /** The client the work is for, when the quotation is in its organization's name. */
+  for_client?: { name: string; client_id: string | null } | null;
+  billed_organization?: { id: string; name: string; client_id: string } | null;
   subject: string;
   quote_date: string;
   valid_until: string;
