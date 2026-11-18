@@ -209,11 +209,10 @@ describe('changing who does a client\'s GST work is a manager action', () => {
   it('an Associate who can see the client may edit GST facts but not the assignee or reviewer', async () => {
     const assoc = await login('employee')
     const senior = await employee('Senior')
-    const { c } = await unassignedClient(ownerId)
+    // The Associate manages the client, so they see it (this is a 403, not a 404).
+    const { c } = await unassignedClient(assoc.emp.id)
     await syncGstEnrolment(prisma, { clientId: c.id })
     const p = await prisma.gstProfile.findUniqueOrThrow({ where: { clientId: c.id } })
-    // A live task gives the Associate the client (so this is a 403, not a 404).
-    await prisma.task.create({ data: { clientId: c.id, assignedEmployeeId: assoc.emp.id, title: 'Prepare GSTR-1', status: 'pending' } })
     expect((await api(`/api/clients/${c.id}`, assoc.cookie)).status).toBe(200)
 
     const assign = await api(`/api/gst/clients/${p.id}`, assoc.cookie, { method: 'PATCH', body: { assigned_employee_id: assoc.emp.id } })
