@@ -1,4 +1,3 @@
-import { assertNotOrganizationMember } from '../../platform/workstation/organization.js'
 import type { Prisma } from '@prisma/client'
 import { prisma } from '../../lib/prisma.js'
 import { ApiError } from '../../lib/http.js'
@@ -12,6 +11,7 @@ import { firmGstin, resolveInterState } from '../invoice/supply.js'
 import { createInvoiceRecord, invoiceHouseStyle } from '../invoice/service.js'
 import { lockSequence } from '../../lib/sequence.js'
 import { istToday } from '../../lib/dates.js'
+import { billingContactOf, billingPartyOf } from '../invoice/party.js'
 
 /**
  * QUOTATION SERVICE — Workstation → Quotation.
@@ -63,7 +63,13 @@ const INCLUDE = {
     orderBy: { sortOrder: 'asc' },
     include: { items: { orderBy: { sortOrder: 'asc' } } },
   },
-  client: { select: { id: true, clientCode: true, companyName: true, gstin: true, address: true, email: true, contactNumber: true } },
+  client: {
+    select: {
+      id: true, clientCode: true, companyName: true, gstin: true, address: true, email: true, contactNumber: true, contactPerson: true,
+      // A client under an organization is quoted in the organization's name.
+      parentClient: { select: { id: true, clientCode: true, companyName: true, gstin: true, address: true, email: true, contactNumber: true, contactPerson: true } },
+    },
+  },
   lead: { select: { id: true, leadCode: true, name: true, email: true, contactNumber: true } },
 } satisfies Prisma.QuotationInclude
 
@@ -123,6 +129,16 @@ function itemToApi(i: Row['items'][number]) {
 
 export function quotationToApi(q: Row, m: EmployeeLookup, now = new Date()) {
   const today = todayISO(now)
+  /* A client under an organization is billed in the organization's name:
+     name, GSTIN and address all come from the organization, never mixed with
+     the client's (invoice/party.ts). The contact falls back to the client's. */
+  const party = q.client ? billingPartyOf(q.client) : null
+  const contact = q.client ? billingContactOf(q.client) : null
+  const snap = (q.clientSnapshot && typeof q.clientSnapshot === 'object' && !Array.isArray(q.clientSnapshot)
+    ? q.clientSnapshot : {}) as { for_client?: { name?: unknown; client_id?: unknown } }
+  const snapFor = snap.for_client && typeof snap.for_client === 'object' && typeof snap.for_client.name === 'string'
+    ? { name: snap.for_client.name, client_id: typeof snap.for_client.client_id === 'string' ? snap.for_client.client_id : null }
+    : null
   return {
     id: q.id,
     organisation_id: q.organisationId,
@@ -131,12 +147,15 @@ export function quotationToApi(q: Row, m: EmployeeLookup, now = new Date()) {
     lead_id: q.leadId,
     client_id: q.clientId,
     /* One field the UI can print regardless of which side it came from. */
-    party_name: q.client?.companyName ?? q.lead?.name ?? null,
+    party_name: party?.name ?? q.lead?.name ?? null,
     party_kind: q.clientId ? 'client' : q.leadId ? 'lead' : null,
-    party_email: q.client?.email ?? q.lead?.email ?? null,
-    party_contact_number: q.client?.contactNumber ?? q.lead?.contactNumber ?? null,
-    party_gstin: q.client?.gstin ?? null,
-    party_address: q.client?.address ?? null,
+    party_email: contact ? contact.email : q.lead?.email ?? null,
+    party_contact_number: contact ? contact.contactNumber : q.lead?.contactNumber ?? null,
+    party_gstin: party?.gstin ?? null,
+    party_address: party?.address ?? null,
+    /** The client the work is for, when the quotation is in its organization's name. */
+    for_client: snapFor ?? (party?.forClient ? { name: party.forClient.name, client_id: party.forClient.client_id } : null),
+    billed_organization: party?.organization ?? null,
 
     subject: q.subject,
     quote_date: q.quoteDate,
@@ -300,10 +319,39 @@ async function assertParty(session: Session, scope: Scope, input: { leadId?: str
   if (hasLead === hasClient) {
     throw ApiError.badRequest('A quotation belongs to exactly one party — choose a client or a lead, not both.')
   }
-  if (hasClient) {
-    await assertCanSeeClient(session, scope, input.clientId!)
-    await assertNotOrganizationMember(input.clientId!, 'Quotations')
-  } else await assertCanSeeLead(session, scope, input.leadId!)
+  // A client under an organization may be quoted directly: the quotation is
+  // made out in the organization's name (withOrganizationParty below).
+  if (hasClient) await assertCanSeeClient(session, scope, input.clientId!)
+  else await assertCanSeeLead(session, scope, input.leadId!)
+}
+
+const FOR_LINE = /^For: .+ \([^()]+\)$/
+
+/**
+ * A quotation for a client under an organization is made out to the
+ * ORGANIZATION. The snapshot's name is the organization's (unless the builder
+ * typed another name on purpose) and it records `for_client`, the client the
+ * work is for. The notes — which the print shows — open with "For: <client>",
+ * kept to one such line however often the draft is saved.
+ */
+async function withOrganizationParty(input: QuotationInput): Promise<QuotationInput> {
+  if (!input.clientId) return input
+  const c = await prisma.client.findUnique({
+    where: { id: input.clientId },
+    select: { companyName: true, clientCode: true, parentClient: { select: { companyName: true } } },
+  })
+  if (!c?.parentClient) return input
+  const raw = input.clientSnapshot && typeof input.clientSnapshot === 'object' && !Array.isArray(input.clientSnapshot)
+    ? input.clientSnapshot as Record<string, unknown> : {}
+  const typed = typeof raw.name === 'string' ? raw.name.trim() : ''
+  const name = !typed || typed === c.companyName ? c.parentClient.companyName : typed
+  const forLine = `For: ${c.companyName} (${c.clientCode})`
+  const rest = (input.notes ?? '').split('\n').filter((l) => !FOR_LINE.test(l.trim())).join('\n').trim()
+  return {
+    ...input,
+    clientSnapshot: { ...raw, name, for_client: { name: c.companyName, client_id: c.clientCode } },
+    notes: rest ? `${forLine}\n${rest}` : forLine,
+  }
 }
 
 function toLineInputs(items: ItemInput[]): LineInput[] {
@@ -459,6 +507,7 @@ export const QuotationService = {
   async create(session: Session, scope: Scope, input: QuotationInput) {
     input = await withDerivedSplit(input)
     await assertParty(session, scope, input)
+    input = await withOrganizationParty(input)
     assertDates(input.quoteDate, input.validUntil)
     if (input.items.length === 0) throw ApiError.badRequest('A quotation needs at least one line.')
 
@@ -537,6 +586,7 @@ export const QuotationService = {
       throw ApiError.badRequest(`A ${existing.status} quotation cannot be edited. Revise it instead.`)
     }
     await assertParty(session, scope, input)
+    input = await withOrganizationParty(input)
     assertDates(input.quoteDate, input.validUntil)
     if (input.items.length === 0) throw ApiError.badRequest('A quotation needs at least one line.')
 
