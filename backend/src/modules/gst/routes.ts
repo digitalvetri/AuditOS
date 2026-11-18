@@ -85,7 +85,7 @@ gstRouter.get('/filing-board', handler(async (req, res) => {
     include: { gstProfile: { include: { client: { select: { id: true, companyName: true } } } }, filings: { where: alive } },
     orderBy: { gstProfile: { client: { companyName: 'asc' } } },
   })
-  const emp = await employeeMap(periods.map((p) => p.assignedEmployeeId))
+  const emp = await employeeMap(periods.flatMap((p) => [p.assignedEmployeeId, p.gstProfile.assignedEmployeeId]))
   const DONE = ['filed', 'payment_pending', 'completed']
   const cell = (f: (typeof periods)[number]['filings'][number] | undefined) => {
     if (!f) return null
@@ -100,8 +100,12 @@ gstRouter.get('/filing-board', handler(async (req, res) => {
   }
   const rows = periods.map((p) => {
     const a = p.assignedEmployeeId ? emp.get(p.assignedEmployeeId) : null
+    const pa = p.gstProfile.assignedEmployeeId ? emp.get(p.gstProfile.assignedEmployeeId) : null
     return {
       period_id: p.id, client_id: p.gstProfile.client.id, client_name: p.gstProfile.client.companyName,
+      // The client's GST assignee (the Assign select); `assigned` is this period's preparer.
+      gst_profile_id: p.gstProfile.id,
+      profile_assigned: pa ? { id: pa.id, name: pa.full_name } : null,
       gstin: p.gstProfile.gstin, frequency: p.periodType === 'quarterly' ? 'quarterly' as const : 'monthly' as const,
       assigned: a ? { id: a.id, name: a.full_name } : null,
       data_status: p.dataStatus === 'received' ? 'received' as const : 'pending' as const,
@@ -1500,7 +1504,8 @@ gstRouter.patch('/clients/:id', handler(async (req, res) => {
   for (const id of [assigned, reviewer].filter((v): v is string => !!v)) {
     if (!(await prisma.employee.count({ where: { id } }))) throw ApiError.badRequest('Unknown employee.')
   }
-  if (!assigned) throw ApiError.badRequest('Every GST client needs an assigned employee.')
+  // Null is allowed here: "Unassigned" on the GST Filing page's Assign select.
+  // A profile enrolled from an unassigned GST Filing service starts that way.
 
   const next = {
     gstin,
@@ -1527,6 +1532,22 @@ gstRouter.patch('/clients/:id', handler(async (req, res) => {
   // longer owed and re-date the rest, so the board and calendar agree.
   if (filingFrequency !== current.filingFrequency || registrationType !== current.registrationType) {
     await realignOpenJobs(prisma, current.id, session.userId)
+  }
+  // Newly assigned: the profile's periods and open returns that nobody holds
+  // yet follow it, so the GST Filing board shows the person. A period or
+  // return someone assigned by hand is never overwritten.
+  if (assigned && assigned !== current.assignedEmployeeId) {
+    await prisma.gstCompliancePeriod.updateMany({
+      where: {
+        gstProfileId: current.id, deletedAt: null, assignedEmployeeId: null,
+        filings: { some: { deletedAt: null, status: { notIn: ['filed', 'payment_pending', 'completed'] } } },
+      },
+      data: { assignedEmployeeId: assigned, updatedBy: session.userId },
+    })
+    await prisma.gstFiling.updateMany({
+      where: { gstProfileId: current.id, deletedAt: null, assignedEmployeeId: '', status: { notIn: ['filed', 'payment_pending', 'completed'] } },
+      data: { assignedEmployeeId: assigned, updatedBy: session.userId },
+    })
   }
 
   // Only the fields that actually moved go into the trail (§39).
