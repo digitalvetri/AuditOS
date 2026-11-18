@@ -56,6 +56,29 @@ export async function notifyEmployee(employeeId: string, input: Omit<NotifyInput
   return notifyUser({ ...input, userId: user.id })
 }
 
+/** Super Admin and Admin: the Partner tier. */
+export const PARTNER_TIER_ROLES = ['md', 'hr_admin'] as const
+
+/**
+ * The Partner tier's active logins: who hears about work nobody holds. A
+ * service is added unassigned, so every reminder keyed on an assignee falls
+ * back to these people when there is none: never nobody, never "undefined".
+ */
+export async function partnerTierRecipients(
+  db: Pick<typeof prisma, 'user'> = prisma,
+  organisationId?: string | null,
+): Promise<{ userId: string; employeeId: string | null }[]> {
+  const users = await db.user.findMany({
+    where: {
+      isActive: true, deletedAt: null, role: { code: { in: [...PARTNER_TIER_ROLES] } },
+      ...(organisationId ? { organisationId } : {}),
+    },
+    select: { id: true, employeeId: true },
+    orderBy: { createdAt: 'asc' },
+  })
+  return users.map((u) => ({ userId: u.id, employeeId: u.employeeId }))
+}
+
 /** Notify every active holder of a role code (e.g. escalate leave to HR). */
 export async function notifyRole(roleCode: string, input: Omit<NotifyInput, 'userId'>) {
   const users = await prisma.user.findMany({

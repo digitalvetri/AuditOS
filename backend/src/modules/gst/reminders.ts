@@ -18,7 +18,7 @@
  * respected without duplicating the lookup.
  */
 import type { PrismaClient } from '@prisma/client'
-import { notifyEmployee } from '../../platform/notify.js'
+import { notifyEmployee, notifyUser, partnerTierRecipients } from '../../platform/notify.js'
 import { mailConfigured, sendMail } from '../../lib/mailer.js'
 import { ApiError } from '../../lib/http.js'
 import { addDays, istToday } from '../../lib/dates.js'
@@ -202,9 +202,11 @@ export async function sendGstReminders(
   )
 
   let sent = 0
+  // A profile with nobody on it (enrolled from an unassigned GST Filing
+  // service) alerts the Partner tier instead. Looked up once per tick.
+  let partners: Awaited<ReturnType<typeof partnerTierRecipients>> | null = null
   for (const i of items) {
     if (existing.has(i.key)) continue
-    if (!i.assignedEmployeeId) continue
     const title = i.state === 'overdue'
       ? `${KIND_LABEL[i.kind]} overdue — ${i.clientName}`
       : `${KIND_LABEL[i.kind]} due soon — ${i.clientName}`
@@ -212,16 +214,25 @@ export async function sendGstReminders(
       ? `${KIND_LABEL[i.kind]} for ${i.period} was due ${fmt(i.dueDate)} (${Math.abs(i.daysToDue)} day${Math.abs(i.daysToDue) === 1 ? '' : 's'} overdue).`
       : `${KIND_LABEL[i.kind]} for ${i.period} is due ${fmt(i.dueDate)}${i.daysToDue === 0 ? ' — today' : ` (in ${i.daysToDue} day${i.daysToDue === 1 ? '' : 's'})`}.`
     const actionUrl = '/workstation/services/gst-filing'
-    const row = await notifyEmployee(i.assignedEmployeeId, {
+    const note = {
       type: 'gst_reminder',
-      module: 'workstation',
+      module: 'workstation' as const,
       title,
       body,
       entityType: 'gst_reminder',
       entityId: i.key,
       actionUrl,
-    })
-    if (row) sent++
+    }
+    if (i.assignedEmployeeId) {
+      const row = await notifyEmployee(i.assignedEmployeeId, note)
+      if (row) sent++
+      continue
+    }
+    partners ??= await partnerTierRecipients(prisma)
+    for (const p of partners) {
+      await notifyUser({ ...note, body: `${body} Nobody is assigned to this client's GST work.`, userId: p.userId })
+      sent++
+    }
   }
   return sent
 }

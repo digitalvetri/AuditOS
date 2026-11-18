@@ -78,6 +78,27 @@ describe('staff reminders', () => {
     expect((await notes(user.id))[2].title).toMatch(/^Overdue/)
   })
 
+  it('an item with nobody on it (no assignee, no account manager) rings the Partner tier', async () => {
+    const o = await org()
+    const staff = await employee(o, 'Staff')
+    const staffUser = await login(o, 'employee', staff.id)
+    const partner = await employee(o, 'Partner')
+    const partnerUser = await login(o, 'md', partner.id)
+    const c = await client(o, 'Nobody Pvt Ltd', { accountManagerId: '' })
+    await prisma.clientObligation.create({ data: { organisationId: o.id, clientId: c.id, formCode: 'PF_ECR' } })
+    const item = await prisma.complianceItem.create({
+      data: { organisationId: o.id, clientId: c.id, formCode: 'PF_ECR', periodKey: '2031-06', periodLabel: '2031-06', dueDate: '2031-06-15' },
+    })
+    await sendComplianceStaffReminders(prisma, TODAY)
+    const got = await notes(partnerUser.id)
+    expect(got.map((n) => n.entityId)).toEqual([`compliance:${item.id}:2031-06-15:d7`])
+    expect(got[0].body).not.toContain('undefined')
+    expect(got[0].body).toMatch(/Nobody is assigned/)
+    expect(await notes(staffUser.id)).toHaveLength(0)
+    await sendComplianceStaffReminders(prisma, TODAY)
+    expect(await notes(partnerUser.id)).toHaveLength(1) // deduped like the assignee's bell
+  })
+
   it('an extension re-arms the reminders for the new date', async () => {
     const { o, user, emp, mk } = await setup()
     const item = await mk('GSTR9', '2031-06-15', { assignedEmployeeId: emp.id, periodKey: '2029-30' })

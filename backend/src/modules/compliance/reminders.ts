@@ -2,7 +2,8 @@
  * Compliance calendar reminders (docs/compliance/README.md "Reminders").
  *
  *  Staff  — the item's assignee (else the obligation's, else the client's
- *           account manager) gets one bell notification per stage: 7 days
+ *           account manager; with none of those, the Partner tier: active
+ *           md + hr_admin) gets one bell notification per stage: 7 days
  *           before, 1 day before, once overdue, then once a week while it
  *           stays unfiled (up to OVERDUE_LOOKBACK_DAYS). Stages are thresholds
  *           (days_left <= N), not exact days, so a day the server was down
@@ -19,7 +20,7 @@ import { addDays, daysBetween, fmtDate } from '../../lib/dates.js'
 import { env } from '../../lib/env.js'
 import { mailConfigured, sendMail } from '../../lib/mailer.js'
 import { sendWhatsAppLink, whatsappConfigured } from '../../lib/whatsapp.js'
-import { notifyEmployee } from '../../platform/notify.js'
+import { notifyEmployee, notifyUser, partnerTierRecipients } from '../../platform/notify.js'
 import { entityTypeOf } from './engine.js'
 import { CLOSED_STATUSES, pickExtension } from './service.js'
 
@@ -111,7 +112,7 @@ async function openItems(prisma: PrismaClient, today: string, lo: number, hi: nu
       id: r.id, organisationId: r.organisationId, clientId: r.clientId,
       formCode: r.formCode, formName: form?.name ?? r.formCode, periodLabel: r.periodLabel,
       due, daysLeft, status: r.status,
-      assignee: r.assignedEmployeeId ?? o?.assignedEmployeeId ?? c.accountManagerId ?? null,
+      assignee: r.assignedEmployeeId || o?.assignedEmployeeId || c.accountManagerId || null,
       // Client emails only for obligations the firm switched them on for.
       remindClient: o?.remindClient ?? false, lastClientReminderAt: r.lastClientReminderAt, client: c,
       leadUpDays: leadUps,
@@ -226,7 +227,6 @@ export async function sendComplianceStaffReminders(prisma: PrismaClient, today: 
   // daysToInternal too.
   const items = await openItems(prisma, today, -OVERDUE_LOOKBACK_DAYS, 30)
   const notes = items.flatMap((i) => {
-    if (!i.assignee) return []
     // Clock items with a leadUpDays schedule use the clock stager; everything
     // else keeps the existing d7 / d1 / overdue cadence.
     if (i.leadUpDays && i.daysToInternal !== null) {
@@ -245,6 +245,13 @@ export async function sendComplianceStaffReminders(prisma: PrismaClient, today: 
   // ring, different entityType so the two paths never collide.
   const escalations: Array<{ i: OpenItem; stage: string; employeeId: string; key: string }> = []
   const recipientCache = new Map<string, string[]>() // key: `${organisationId}|${roleCode}`
+  // Nobody on the item: the Partner tier is rung instead (per organisation).
+  const partnerCache = new Map<string, Awaited<ReturnType<typeof partnerTierRecipients>>>()
+  const partnersOf = async (organisationId: string) => {
+    let p = partnerCache.get(organisationId)
+    if (!p) { p = await partnerTierRecipients(prisma, organisationId); partnerCache.set(organisationId, p) }
+    return p
+  }
   for (const { i, stage } of notes) {
     if (!i.escalateTo || !i.leadUpDays) continue
     if (!shouldEscalateClockStage(stage)) continue
@@ -257,8 +264,10 @@ export async function sendComplianceStaffReminders(prisma: PrismaClient, today: 
     for (const employeeId of recipients) {
       // Don't double-ring the assignee: if the assignee IS one of the
       // escalation recipients (e.g. an MD acting as their own account
-      // manager), the primary bell already covered them.
+      // manager), the primary bell already covered them. With no assignee
+      // the primary bell went to the Partner tier, so skip those too.
       if (employeeId === i.assignee) continue
+      if (!i.assignee && (await partnersOf(i.organisationId)).some((p) => p.employeeId === employeeId)) continue
       escalations.push({
         i, stage, employeeId,
         key: `compliance_escalation:${i.id}:${i.due}:${stage}:${employeeId}`,
@@ -289,14 +298,22 @@ export async function sendComplianceStaffReminders(prisma: PrismaClient, today: 
       : isClock
         ? bodyForClockStage(what, i, stage)
         : `${what} is due ${fmtDate(i.due)}${i.daysLeft === 0 ? ' (today)' : ` (in ${i.daysLeft} day${i.daysLeft === 1 ? '' : 's'})`}.`
-    const row = await notifyEmployee(i.assignee!, {
-      type: 'compliance_reminder', module: 'workstation',
+    const note = {
+      type: 'compliance_reminder', module: 'workstation' as const,
       title,
       body,
       entityType: 'compliance_reminder', entityId: key,
       actionUrl: `/workstation/compliance?client=${i.clientId}&item=${i.id}`,
-    })
-    if (row) sent++
+    }
+    if (i.assignee) {
+      const row = await notifyEmployee(i.assignee, note)
+      if (row) sent++
+      continue
+    }
+    for (const p of await partnersOf(i.organisationId)) {
+      await notifyUser({ ...note, body: `${body} Nobody is assigned to it.`, userId: p.userId })
+      sent++
+    }
   }
 
   for (const { i, stage, employeeId, key } of escalations) {
