@@ -13,6 +13,8 @@ import { addRefund, refundToApi, removeRefund, type RefundInput } from './refund
 import { defaultPlaceOfSupply, firmGstin, firmOrgId, firmStateCode, placeOfSupplyCode, resolveInterState } from './supply.js'
 import { istToday } from '../../lib/dates.js'
 import { closeStaleInvoiceLinks } from '../integrations/payment-links.js'
+import { clientAndMembers } from '../../platform/workstation/organization.js'
+import { billingContactOf, billingPartyOf, loadClientWithOrganization, servicesForLine, type BillingParty } from './party.js'
 
 /**
  * INVOICE SERVICE — Workstation → Invoice.
@@ -150,8 +152,11 @@ const ITEM_SELECT = { orderBy: { sortOrder: 'asc' } } as const
 const REFUND_SELECT = { where: { deletedAt: null }, orderBy: [{ refundedOn: 'asc' as const }, { createdAt: 'asc' as const }] }
 
 type Row = Prisma.InvoiceGetPayload<{
-  include: { items: true; client: true; bankAccount: true; refunds: true }
+  include: { items: true; client: { include: { parentClient: true } }; bankAccount: true; refunds: true }
 }>
+
+/** The client with its organization: the share/send contact is the organization's. */
+const CLIENT_INCLUDE = { include: { parentClient: true } } as const
 
 /**
  * `overdue` is computed here rather than stored: it is a function of the
@@ -179,6 +184,8 @@ function serialize(inv: Row, emp: Map<string, { id: string; full_name: string; e
   // The firm's calendar day, not UTC's: before 05:30 IST the UTC date is
   // still yesterday, and an invoice due today would not yet read as late.
   const status = effectiveStatus(inv, istToday())
+  const contact = inv.client ? billingContactOf(inv.client) : null
+  const party = inv.client ? billingPartyOf(inv.client) : null
   return {
     id: inv.id,
     /** Null while a draft — the number is taken when it is sent. */
@@ -187,9 +194,13 @@ function serialize(inv: Row, emp: Map<string, { id: string; full_name: string; e
     display_number: invoiceLabel(inv.invoiceNumber),
     client_id: inv.clientId,
     client_name: inv.client?.companyName ?? null,
-    // For sharing the invoice with the client (WhatsApp / email).
-    party_email: inv.client?.email ?? null,
-    party_contact_number: inv.client?.contactNumber ?? null,
+    // For sharing the invoice (WhatsApp / email). A client under an
+    // organization is billed in the organization's name, so the document goes
+    // to the organization's contact — the client's only when it has none.
+    party_email: contact?.email ?? null,
+    party_contact_number: contact?.contactNumber ?? null,
+    /** Set when the client sits under an organization: the party billed. */
+    billed_organization: party?.organization ?? null,
     invoice_date: inv.invoiceDate,
     terms: inv.terms,
     due_date: inv.dueDate,
@@ -345,6 +356,8 @@ export const InvoiceService = {
     f: {
       status?: string
       clientId?: string
+      /** With clientId = an organization: its own invoices and its clients'. */
+      withOrganizationClients?: boolean
       dateFrom?: string
       dateTo?: string
       q?: string
@@ -354,7 +367,10 @@ export const InvoiceService = {
   ) {
     const where = await visibleWhere(session, scope)
     const and: Prisma.InvoiceWhereInput[] = [where]
-    if (f.clientId) and.push({ clientId: f.clientId })
+    // An organization's billing in one place: its own invoices plus its
+    // clients'. Read-only widening of the FILTER, never of access — the
+    // visibility scope above is still ANDed in.
+    if (f.clientId) and.push({ clientId: f.withOrganizationClients ? { in: await clientAndMembers(f.clientId) } : f.clientId })
     if (f.dateFrom) and.push({ invoiceDate: { gte: f.dateFrom } })
     if (f.dateTo) and.push({ invoiceDate: { lte: f.dateTo } })
     if (f.q) {
@@ -376,7 +392,7 @@ export const InvoiceService = {
     const [rows, total] = await Promise.all([
       prisma.invoice.findMany({
         where: { AND: and },
-        include: { items: ITEM_SELECT, client: true, bankAccount: true, refunds: REFUND_SELECT },
+        include: { items: ITEM_SELECT, client: CLIENT_INCLUDE, bankAccount: true, refunds: REFUND_SELECT },
         orderBy: [{ invoiceDate: 'desc' }, { createdAt: 'desc' }],
         take: f.limit ?? 50,
         skip: f.offset ?? 0,
@@ -393,7 +409,7 @@ export const InvoiceService = {
     const where = await visibleWhere(session, scope)
     const inv = await prisma.invoice.findFirst({
       where: { AND: [where, { id }] },
-      include: { items: ITEM_SELECT, client: true, bankAccount: true, refunds: REFUND_SELECT },
+      include: { items: ITEM_SELECT, client: CLIENT_INCLUDE, bankAccount: true, refunds: REFUND_SELECT },
     })
     if (!inv) throw ApiError.notFound('No such invoice.')
     const emp = await employeeMap(inv.preparedById ? [inv.preparedById] : [])
@@ -451,11 +467,10 @@ export const InvoiceService = {
     const existing = await this.get(session, scope, id)
     assertEditable({ status: existing.stored_status, invoiceNumber: existing.invoice_number })
     await assertCanSeeClient(session, scope, input.clientId)
-    const client = await prisma.client.findFirst({
-      where: { id: input.clientId, deletedAt: null },
-    })
+    const client = await loadClientWithOrganization(prisma, input.clientId)
     if (!client) throw ApiError.notFound('No such client.')
-    input = await withDerivedSplit(prisma, input, client.gstin)
+    const party = billingPartyOf(client)
+    input = await withDerivedSplit(prisma, input, party.gstin)
     // The links kept (or newly set) must belong to the invoice's client —
     // including when only the client changed.
     await assertInvoiceLinks(
@@ -486,7 +501,7 @@ export const InvoiceService = {
           dueDate,
           placeOfSupply: input.placeOfSupply ?? null,
           isInterState: input.isInterState ?? false,
-          ...partySnapshot(input, client),
+          ...partySnapshot(input, party),
           ...totalsData(totals),
           notes: input.notes ?? null,
           templateId: input.templateId ?? 'tax-invoice',
@@ -692,9 +707,10 @@ export async function createInvoiceRecord(
     quotationId?: string | null
   },
 ): Promise<string> {
-  const client = await tx.client.findFirst({ where: { id: rawInput.clientId, deletedAt: null } })
+  const client = await loadClientWithOrganization(tx, rawInput.clientId)
   if (!client) throw ApiError.notFound('No such client.')
-  const input = await withDerivedSplit(tx, rawInput, client.gstin)
+  const party = billingPartyOf(client)
+  const input = await withDerivedSplit(tx, rawInput, party.gstin)
   const org = await orgId()
 
   /* Three cases, and they are not the same:
@@ -727,9 +743,9 @@ export async function createInvoiceRecord(
       placeOfSupply: input.placeOfSupply ?? null,
       isInterState: input.isInterState ?? false,
       status: 'draft',
-      ...partySnapshot(input, client),
+      ...partySnapshot(input, party),
       ...totalsData(totals),
-      notes: input.notes ?? null,
+      notes: notesFor(input.notes, party, Boolean(meta.recurringProfileId || meta.quotationId)),
       templateId: input.templateId ?? 'tax-invoice',
       layoutConfig: (input.layoutConfig ?? undefined) as Prisma.InputJsonValue,
       blockConfig: (input.blockConfig ?? undefined) as Prisma.InputJsonValue,
@@ -902,12 +918,16 @@ function bankSnapshotOf(b: {
 
 /**
  * §39 — what the document reads instead of the live client row. Falls back to
- * the client master only to FILL a blank, never to overwrite what the builder
+ * the billing party only to FILL a blank, never to overwrite what the builder
  * sent, so an invoice-specific billing address stays invoice-specific.
+ *
+ * The party is the client, or — for a client under an organization — the
+ * organization, field by field and never mixed (party.ts): an organization
+ * with no GSTIN leaves customerGstin null rather than taking the client's.
  */
-function partySnapshot(input: InvoiceInput, client: { companyName: string; address: string | null; gstin: string | null }) {
-  const billingName = input.billingName || client.companyName
-  const billingAddress = input.billingAddress ?? client.address ?? null
+function partySnapshot(input: InvoiceInput, party: Pick<BillingParty, 'name' | 'address' | 'gstin'>) {
+  const billingName = input.billingName || party.name
+  const billingAddress = input.billingAddress ?? party.address ?? null
   const same = input.shipSameAsBill ?? true
   return {
     billingName,
@@ -915,8 +935,22 @@ function partySnapshot(input: InvoiceInput, client: { companyName: string; addre
     shipSameAsBill: same,
     shippingName: same ? billingName : input.shippingName || billingName,
     shippingAddress: same ? billingAddress : input.shippingAddress ?? null,
-    customerGstin: input.customerGstin ?? client.gstin ?? null,
+    customerGstin: input.customerGstin ?? party.gstin ?? null,
   }
+}
+
+/**
+ * An organization's invoice says whose work it bills, on the notes line the
+ * print already shows. Blank notes get the line. Invoices raised without the
+ * builder (recurring, quotation conversion) carry their own system note, so
+ * the line is added under it there; the builder's own notes are left alone.
+ */
+function notesFor(notes: string | null | undefined, party: BillingParty, systemRaised: boolean): string | null {
+  if (!party.forClient) return notes ?? null
+  const line = servicesForLine(party.forClient)
+  if (!notes || !notes.trim()) return line
+  if (systemRaised && !notes.includes('Services for:')) return `${notes}\n${line}`
+  return notes
 }
 
 function totalsData(t: ReturnType<typeof computeTotals>) {

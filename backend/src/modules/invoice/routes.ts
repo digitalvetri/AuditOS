@@ -169,6 +169,8 @@ invoicesRouter.get('/', handler(async (req, res) => {
     z.object({
       status: z.string().optional(),
       client_id: z.string().optional(),
+      /* With client_id = an organization: also its clients' invoices. */
+      include_organization_clients: formBool.optional(),
       date_from: ISO_DATE.optional(),
       date_to: ISO_DATE.optional(),
       q: z.string().optional(),
@@ -179,7 +181,7 @@ invoicesRouter.get('/', handler(async (req, res) => {
     'Invalid filters.',
   )
   ok(res, await InvoiceService.list(session, scope, {
-    status: q.status, clientId: q.client_id, dateFrom: q.date_from, dateTo: q.date_to,
+    status: q.status, clientId: q.client_id, withOrganizationClients: q.include_organization_clients ?? false, dateFrom: q.date_from, dateTo: q.date_to,
     q: q.q, limit: q.limit, offset: q.offset,
   }))
 }))
