@@ -26,6 +26,7 @@ import { lockSequence } from '../../lib/sequence.js'
 import { writeAudit } from '../../platform/audit.js'
 import { decryptPortalSecret } from '../../platform/portalCrypto.js'
 import { addPaymentLocked, liveBalanceDue, notifyPaymentRecorded } from '../invoice/payments.js'
+import { billingContactOf, CLIENT_WITH_ORGANIZATION } from '../invoice/party.js'
 import {
   GATEWAY_INFO, GatewayError, cancelPaymentLink, createPaymentLink, fetchPaymentLink,
   type Gateway, type GatewayCreds, type GatewayMode, type GatewayPayment, type LinkStatus,
@@ -101,7 +102,7 @@ const REUSE_WITHIN_MS = 20 * 24 * 3600 * 1000
 export async function createInvoiceLink(invoiceId: string, opts: { gateway?: Gateway; userId: string }) {
   const inv = await prisma.invoice.findUnique({
     where: { id: invoiceId },
-    include: { client: { select: { companyName: true, email: true, contactNumber: true } } },
+    include: { client: CLIENT_WITH_ORGANIZATION },
   })
   if (!inv || inv.deletedAt) throw ApiError.notFound('No such invoice.')
   if (inv.status === 'draft' || !inv.invoiceNumber) throw ApiError.conflict('invoice_not_sent', 'Send the invoice before creating a payment link.')
@@ -120,7 +121,10 @@ export async function createInvoiceLink(invoiceId: string, opts: { gateway?: Gat
   })
   if (open) return { link: linkToApi(open), reused: true }
 
-  const phone = inv.client.contactNumber?.trim() || null
+  // A client under an organization is billed in the organization's name, so
+  // the link goes to the organization's contact (the client's only if it has none).
+  const contact = billingContactOf(inv.client)
+  const phone = contact.contactNumber?.trim() || null
   if (gateway === 'cashfree' && !phone) {
     throw ApiError.badRequest('Cashfree needs the client\'s phone number. Add one to the client and try again.')
   }
@@ -131,7 +135,7 @@ export async function createInvoiceLink(invoiceId: string, opts: { gateway?: Gat
       invoiceNumber: inv.invoiceNumber,
       amountPaise: balance,
       description: `Invoice ${inv.invoiceNumber}${org?.name ? ` — ${org.name}` : ''}`,
-      customer: { name: inv.billingName?.trim() || inv.client.companyName, email: inv.client.email?.trim() || null, phone },
+      customer: { name: inv.billingName?.trim() || contact.name, email: contact.email?.trim() || null, phone },
       notifyUrl,
     })
   } catch (e) {

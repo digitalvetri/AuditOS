@@ -1,8 +1,9 @@
 /**
  * Overdue reminders (dunning).
  *
- *   sendInvoiceReminder  one email to the client's address on record with the
- *                        invoice's public PDF link — the "Send reminder"
+ *   sendInvoiceReminder  one email to the billed party's address on record
+ *                        (a client under an organization: the organization's,
+ *                        else the client's) with the invoice's public PDF link — the "Send reminder"
  *                        button, and each step of the scheduler.
  *   runDunning           daily: an overdue invoice gets ONE reminder at 7, 15
  *                        and 30 days past due — only the highest stage it has
@@ -23,6 +24,7 @@ import { mailConfigured, MailError, sendMail } from '../../lib/mailer.js'
 import { permanentLink } from '../../platform/signedUrl.js'
 import { writeAudit } from '../../platform/audit.js'
 import { withRunLock } from '../recurring/run-lock.js'
+import { billingContactOf, CLIENT_WITH_ORGANIZATION } from './party.js'
 
 export type ReminderStage = 'manual' | 'd7' | 'd15' | 'd30'
 const STAGES: { stage: Exclude<ReminderStage, 'manual'>; days: number }[] = [
@@ -58,12 +60,13 @@ export async function sendInvoiceReminder(
   const today = opts.today ?? istToday()
   const inv = await prisma.invoice.findFirst({
     where: { id: invoiceId, deletedAt: null },
-    include: { client: { select: { companyName: true, email: true, contactPerson: true } } },
+    include: { client: CLIENT_WITH_ORGANIZATION },
   })
   if (!inv) throw ApiError.notFound('No such invoice.')
   if (!isOverdue(inv, today)) throw ApiError.conflict('not_overdue', 'Only an overdue invoice can be sent a reminder.')
-  const email = inv.client.email?.trim()
-  if (!email) throw ApiError.conflict('no_email', `${inv.client.companyName} has no email address on record.`)
+  const to = billingContactOf(inv.client)
+  const email = to.email?.trim()
+  if (!email) throw ApiError.conflict('no_email', `${to.name} has no email address on record.`)
   if (!mailConfigured()) throw new ApiError(503, 'mail_not_configured', 'Email is not configured on the server. Add SMTP_HOST, SMTP_USER and SMTP_PASS to backend/.env.')
   if (!env.publicAppUrl) throw new ApiError(503, 'config_missing', 'Set PUBLIC_APP_URL in backend/.env so the reminder can carry a link to the invoice.')
   const subject = await linkSubject(opts.actorUserId ?? inv.createdBy)
@@ -73,7 +76,7 @@ export async function sendInvoiceReminder(
   const days = daysBetween(inv.dueDate, today)
   const number = inv.invoiceNumber ?? 'Invoice'
   const text = [
-    `Dear ${inv.client.contactPerson || inv.client.companyName},`,
+    `Dear ${to.contactPerson || to.name},`,
     '',
     `This is a reminder that invoice ${number} dated ${inv.invoiceDate} was due on ${inv.dueDate} ` +
       `and is now ${days} day${days === 1 ? '' : 's'} overdue. The balance due is ${formatINR(inv.balanceDuePaise)}.`,
@@ -114,7 +117,8 @@ export async function runDunning(today = istToday()): Promise<{ sent: number; fa
     where: {
       deletedAt: null, status: { notIn: ['draft', 'paid', 'cancelled'] }, balanceDuePaise: { gt: 0 },
       dueDate: { lte: (() => { const d = new Date(`${today}T00:00:00Z`); d.setUTCDate(d.getUTCDate() - 7); return d.toISOString().slice(0, 10) })() },
-      client: { email: { not: null } },
+      // The organization's email counts: its clients' reminders go there.
+      OR: [{ client: { email: { not: null } } }, { client: { parentClient: { email: { not: null } } } }],
     },
     select: { id: true, dueDate: true },
   })
