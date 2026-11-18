@@ -206,6 +206,18 @@ clientsRouter.get('/:id', handler(async (req, res) => {
     })
   }
 
+  // What the workspace needs to decide which service tabs to show: the
+  // services taken (any status, not deleted) and whether GST or e-way data
+  // already exists, so nothing recorded ever becomes unreachable.
+  const cid = client.id
+  const [serviceRows, gstProfile, gstChecklist, gstCase, ewayBillCount] = await Promise.all([
+    prisma.clientService.findMany({ where: { clientId: cid, ...alive }, select: { service: { select: { code: true } } } }),
+    prisma.gstProfile.count({ where: { clientId: cid, ...alive } }),
+    prisma.clientChecklistItem.count({ where: { clientId: cid, kind: 'gst', ...alive } }),
+    prisma.partnershipCase.count({ where: { clientId: cid, kind: 'GST', ...alive } }),
+    prisma.ewayBill.count({ where: { clientId: cid, ...alive } }),
+  ])
+
   const m = await employeeMap([client.accountManagerId, client.secondaryManagerId])
   ok(res, {
     ...clientToApi(client, m),
@@ -213,6 +225,9 @@ clientsRouter.get('/:id', handler(async (req, res) => {
     document_count: client._count.documents,
     follow_up_count: client._count.followUps,
     child_client_count: childClientCount,
+    service_codes: [...new Set(serviceRows.map((r) => r.service.code))],
+    gst_data_exists: gstProfile + gstChecklist + gstCase > 0,
+    eway_bill_count: ewayBillCount,
   })
 }))
 
@@ -510,16 +525,42 @@ clientsRouter.get('/:id/services', handler(async (req, res) => {
 }))
 
 // POST /api/clients/:id/services
+//
+// Two bodies:
+//  - `{ service_ids: [...], filing_frequency?, due_date?, notes? }` — tick
+//    several services at once. One row per service the client does not
+//    already have live (not deleted, not completed or failed); the rest are
+//    skipped and named in `skipped`. Answers `{ items, skipped }`.
+//  - `{ service_id, ... }` — the original single form, kept for older
+//    callers. Answers the one row, as before.
+// Services are added UNASSIGNED by default. `assigned_employee_id` and
+// `manager_id` are still accepted (optional) on either form.
+const LIVE_SERVICE = { deletedAt: null, status: { notIn: ['completed', 'failed'] } }
+
 clientsRouter.post('/:id/services', handler(async (req, res) => {
   const session = requireSession(req)
   const scope = requireWorkstation(session, 'workstation.service.manage')
   await assertCanSeeClient(session, scope, req.params.id)
   const b = body(req)
+  const multi = 'service_ids' in b
 
   const v = new FieldErrors()
-  const serviceId = v.str('service_id', b.service_id)
-  const assignedEmployeeId = v.str('assigned_employee_id', b.assigned_employee_id)
-  const managerId = v.str('manager_id', b.manager_id, { required: false })
+  let serviceIds: string[] = []
+  if (multi) {
+    const raw = b.service_ids
+    if (!Array.isArray(raw) || raw.length === 0 || raw.some((x) => typeof x !== 'string' || !x.trim())) {
+      v.add('service_ids', 'Select at least one service.')
+    } else if (raw.length > 100) {
+      v.add('service_ids', 'Too many services at once.')
+    } else {
+      serviceIds = [...new Set((raw as string[]).map((x) => x.trim()))]
+    }
+  } else {
+    const one = v.str('service_id', b.service_id)
+    if (one) serviceIds = [one]
+  }
+  const assignedEmployeeId = v.str('assigned_employee_id', b.assigned_employee_id, { required: false }) ?? null
+  const managerId = v.str('manager_id', b.manager_id, { required: false }) ?? null
   const dueDate = v.date('due_date', b.due_date, false)
   const notes = v.str('notes', b.notes, { required: false, max: 2000 })
   // GST Filing only: how the client files (QRMP clients are quarterly).
@@ -528,31 +569,45 @@ clientsRouter.post('/:id/services', handler(async (req, res) => {
       : (v.add('filing_frequency', 'Monthly or quarterly.'), undefined)
   v.throwIfAny()
 
-  const [service, employee] = await Promise.all([
-    prisma.service.findFirst({ where: { id: serviceId!, ...alive } }),
-    prisma.employee.findFirst({ where: { id: assignedEmployeeId!, ...alive } }),
+  const [services, employee] = await Promise.all([
+    prisma.service.findMany({ where: { id: { in: serviceIds }, ...alive } }),
+    assignedEmployeeId ? prisma.employee.findFirst({ where: { id: assignedEmployeeId, ...alive } }) : Promise.resolve(null),
   ])
-  if (!service) v.add('service_id', 'Select a valid service.')
-  if (!employee) v.add('assigned_employee_id', 'Select a valid employee.')
+  if (services.length !== serviceIds.length) v.add(multi ? 'service_ids' : 'service_id', 'Select a valid service.')
+  if (assignedEmployeeId && !employee) v.add('assigned_employee_id', 'Select a valid employee.')
   v.throwIfAny()
+  const byId = new Map(services.map((s) => [s.id, s]))
+  const ordered = serviceIds.map((id) => byId.get(id)!)
 
-  const { row, activated } = await prisma.$transaction(async (tx) => {
-    const created = await tx.clientService.create({
-      data: {
-        clientId: req.params.id,
-        serviceId: serviceId!,
-        assignedEmployeeId: assignedEmployeeId!,
-        managerId: managerId ?? null,
-        dueDate: dueDate ?? null,
-        status: 'not_started',
-        notes: notes ?? null,
-        createdBy: session.userId,
-        updatedBy: session.userId,
-      },
-      include: { service: true, client: true },
-    })
+  const { rows, skipped, activated } = await prisma.$transaction(async (tx) => {
+    // The single form keeps its old behaviour (it always adds the row).
+    const live = multi
+      ? new Set((await tx.clientService.findMany({
+        where: { clientId: req.params.id, serviceId: { in: serviceIds }, ...LIVE_SERVICE }, select: { serviceId: true },
+      })).map((r) => r.serviceId))
+      : new Set<string>()
+    const created = []
+    const skip: { service_id: string; service_name: string }[] = []
+    for (const service of ordered) {
+      if (live.has(service.id)) { skip.push({ service_id: service.id, service_name: service.name }); continue }
+      created.push(await tx.clientService.create({
+        data: {
+          clientId: req.params.id,
+          serviceId: service.id,
+          assignedEmployeeId,
+          managerId,
+          dueDate: dueDate ?? null,
+          status: 'not_started',
+          notes: notes ?? null,
+          createdBy: session.userId,
+          updatedBy: session.userId,
+        },
+        include: { service: true, client: true },
+      }))
+    }
     // The first engagement ends onboarding.
-    return { row: created, activated: await activateIfOnboarding(tx, req.params.id, session.userId) }
+    const act = created.length > 0 && await activateIfOnboarding(tx, req.params.id, session.userId)
+    return { rows: created, skipped: skip, activated: act }
   })
   if (activated) {
     await writeActivity({
@@ -560,30 +615,39 @@ clientsRouter.post('/:id/services', handler(async (req, res) => {
       description: 'Client status changed to active (first service assigned).',
     })
   }
-  if (service!.code === 'GST_FILING') await refreshClientGst(prisma, req.params.id, session.userId, { frequency: filingFrequency })
-
-  await writeActivity({
-    session, subjectType: 'client', subjectId: req.params.id,
-    action: 'client.service_assigned',
-    description: `${service!.name} assigned to ${employee!.fullName}.`,
-    entityType: 'ClientService', entityId: row.id,
-  })
-  await writeAudit({
-    actorUserId: session.userId, action: 'client_service.create',
-    entityType: 'ClientService', entityId: row.id, after: row, req,
-  })
-  if (assignedEmployeeId !== session.employeeId) {
-    await notifyEmployee(assignedEmployeeId!, {
-      type: 'service.assigned', module: 'system',
-      title: 'Service assigned',
-      body: `${service!.name} · ${row.client.companyName}`,
-      entityType: 'ClientService', entityId: row.id,
-      actionUrl: `/workstation/clients/${req.params.id}/services`,
-    })
+  // GST Filing enrolment once, and only when a GST Filing row was created.
+  if (rows.some((r) => r.service.code === 'GST_FILING')) {
+    await refreshClientGst(prisma, req.params.id, session.userId, { frequency: filingFrequency })
   }
 
-  const m = await employeeMap([row.assignedEmployeeId, row.managerId])
-  ok(res, clientServiceToApi(row, m), 201)
+  for (const row of rows) {
+    await writeActivity({
+      session, subjectType: 'client', subjectId: req.params.id,
+      action: 'client.service_assigned',
+      description: employee ? `${row.service.name} assigned to ${employee.fullName}.` : `${row.service.name} added.`,
+      entityType: 'ClientService', entityId: row.id,
+    })
+    await writeAudit({
+      actorUserId: session.userId, action: 'client_service.create',
+      entityType: 'ClientService', entityId: row.id, after: row, req,
+    })
+    if (assignedEmployeeId && assignedEmployeeId !== session.employeeId) {
+      await notifyEmployee(assignedEmployeeId, {
+        type: 'service.assigned', module: 'system',
+        title: 'Service assigned',
+        body: `${row.service.name} · ${row.client.companyName}`,
+        entityType: 'ClientService', entityId: row.id,
+        actionUrl: `/workstation/clients/${req.params.id}/services`,
+      })
+    }
+  }
+
+  const m = await employeeMap([assignedEmployeeId, managerId])
+  if (!multi) {
+    ok(res, clientServiceToApi(rows[0], m), 201)
+    return
+  }
+  ok(res, { items: rows.map((r) => clientServiceToApi(r, m)), skipped }, rows.length ? 201 : 200)
 }))
 
 // ── GST (§7.3) ────────────────────────────────────────────────────────────
