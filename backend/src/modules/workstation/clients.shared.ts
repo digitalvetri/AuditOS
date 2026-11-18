@@ -160,6 +160,42 @@ export async function createClientRow(
   return created
 }
 
+/**
+ * Validate the optional `additional_contacts` array on POST / PATCH /api/clients.
+ *
+ * Returns `undefined` when the key is absent (PATCH: leave contacts alone),
+ * `[]` for an empty array (PATCH: clear extras), or the normalised rows.
+ * Each extra needs a name + a valid phone; email and designation are optional.
+ * Errors land on paths like `additional_contacts.0.phone`.
+ */
+export interface ExtraContact {
+  name: string
+  phone: string
+  email: string | null
+  designation: string | null
+}
+export function readExtraContacts(v: FieldErrors, b: Record<string, unknown>): ExtraContact[] | undefined {
+  if (!('additional_contacts' in b)) return undefined
+  const raw = b.additional_contacts
+  if (raw === null || raw === undefined) return []
+  if (!Array.isArray(raw)) {
+    v.add('additional_contacts', 'Must be a list of contacts.')
+    return []
+  }
+  const out: ExtraContact[] = []
+  raw.slice(0, 20).forEach((row, i) => {
+    const r = (row ?? {}) as Record<string, unknown>
+    const name = v.str(`additional_contacts.${i}.name`, r.name, { max: 120 })
+    const phone = v.phone(`additional_contacts.${i}.phone`, r.phone)
+    const email = v.email(`additional_contacts.${i}.email`, r.email, false)
+    const designation = v.str(`additional_contacts.${i}.designation`, r.designation, { required: false, max: 80 })
+    if (name && phone) {
+      out.push({ name, phone, email: email ?? null, designation: designation ?? null })
+    }
+  })
+  return out
+}
+
 /** 'CLI-1041' → 'CLI-1042'. */
 export function bumpClientCode(code: string): string {
   const m = /^(.*?)(\d+)$/.exec(code)

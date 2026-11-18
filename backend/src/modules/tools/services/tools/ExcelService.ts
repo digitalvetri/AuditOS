@@ -5,6 +5,7 @@ import { convertWithLibreOffice, withTempDir, requireBinary } from '../../lib/ex
 import { ToolError } from '../errors.js'
 import { PDFService, type PageText } from './PDFService.js'
 import { CSVService, parseNumber, type ColumnType, type Delimiter, type Encoding } from './CSVService.js'
+import { WordService } from './WordService.js'
 
 /** Rows CSV to Excel converts in one job — ExcelJS holds the workbook in memory. */
 export const MAX_CSV_ROWS = 500_000
@@ -16,6 +17,8 @@ export const MAX_CSV_ROWS = 500_000
  *                formats and puts each sheet on its own page(s).
  *   pdfToExcel   pdfjs text → PDFService.detectTables → one sheet per table,
  *                a Summary sheet naming every page with no table.
+ *   wordToExcel  docx → PDF (LibreOffice) → pdfToExcel. Routes through PDF so
+ *                table detection stays one code path.
  *   csvToExcel   CSVService rows → typed columns, text columns kept as text.
  *   preview      first rows of every sheet for the Documents preview pane.
  */
@@ -81,6 +84,18 @@ export const ExcelService = {
       }
       return fs.readFile(out)
     })
+  },
+
+  /**
+   * Word document to Excel: convert docx to PDF via LibreOffice first, then
+   * reuse the proven pdfToExcel table detector. Prose outside tables is
+   * reported on the Summary sheet (not pretend-tabled).
+   */
+  async wordToExcel(bytes: Buffer, onProgress?: (pct: number) => void): Promise<PdfToExcelResult> {
+    onProgress?.(5)
+    const pdf = await WordService.wordToPdf(bytes)
+    onProgress?.(40)
+    return ExcelService.pdfToExcel(pdf, (pct) => onProgress?.(40 + pct * 0.6))
   },
 
   async pdfToExcel(bytes: Buffer, onProgress?: (pct: number) => void): Promise<PdfToExcelResult> {

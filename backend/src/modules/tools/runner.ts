@@ -92,6 +92,32 @@ const IMPLEMENTATIONS: Record<string, Implementation> = {
     return { filename: withExtension(doc.originalFilename, 'pdf'), mime: OUTPUT_MIME.pdf, bytes: out, meta: { page_count: await PDFService.pageCount(out) } }
   },
 
+  'word-to-excel': async ({ inputs, progress }) => {
+    const { doc, bytes } = inputs[0]
+    const r = await ExcelService.wordToExcel(bytes, progress)
+    const warning = r.pagesWithoutTables.length
+      ? `No table was found on ${r.pagesWithoutTables.length === 1 ? 'page' : 'pages'} ${r.pagesWithoutTables.join(', ')} of the rendered document — those pages are listed on the Summary sheet.`
+      : undefined
+    return {
+      filename: withExtension(doc.originalFilename, 'xlsx'), mime: OUTPUT_MIME.xlsx, bytes: r.bytes,
+      meta: { tables: r.tables, page_count: r.pageCount, pages_with_tables: r.pagesWithTables, pages_without_tables: r.pagesWithoutTables },
+      warning,
+    }
+  },
+
+  'excel-to-word': async ({ inputs, progress }) => {
+    const { doc, bytes } = inputs[0]
+    const r = await WordService.excelToWord(bytes, progress)
+    const warning = r.skippedSheets.length
+      ? `${r.skippedSheets.length} empty sheet${r.skippedSheets.length === 1 ? '' : 's'} skipped: ${r.skippedSheets.join(', ')}.`
+      : undefined
+    return {
+      filename: withExtension(doc.originalFilename, 'docx'), mime: OUTPUT_MIME.docx, bytes: r.bytes,
+      meta: { sheets: r.sheets, rows: r.rows, skipped_sheets: r.skippedSheets },
+      warning,
+    }
+  },
+
   'image-to-pdf': async ({ inputs, options, progress }) => {
     const pageSize = (['A4', 'Letter', 'Fit'] as const).find((v) => v === options.page_size) ?? 'A4'
     const orientation = (['portrait', 'landscape', 'auto'] as const).find((v) => v === options.orientation) ?? 'auto'

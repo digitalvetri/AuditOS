@@ -10,7 +10,8 @@
 import { OrganizationBadge, OrganizationOf } from '@/modules/workstation/organization/badges';
 import { Link } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
-import { ArrowUpRight, Copy, Mail, Phone, Pin, PinOff, Plus, X } from 'lucide-react';
+import { useState } from 'react';
+import { ArrowUpRight, Copy, Mail, Pencil, Phone, Pin, PinOff, Plus, X } from 'lucide-react';
 import { useAuth } from '@/platform/auth/AuthContext';
 import { can } from '@/platform/rbac/can';
 import { workstationApi } from '@/modules/workstation/api';
@@ -24,6 +25,7 @@ import { usePinnedClients } from '@/modules/workstation/pins';
 import { formatINR } from '@/modules/dashboardV2/format';
 import type { GstHistory, Health } from '@/modules/workstation/clientInsights';
 import { useToast } from '@/components/Toast';
+import { EditClientModal } from '@/modules/workstation/EditClientDetails';
 
 const inr = (p: number) => formatINR(p / 100);
 const monthShort = (period: string) => new Date(`${period}-01T00:00:00`).toLocaleString('en-IN', { month: 'short' }).toUpperCase();
@@ -42,6 +44,8 @@ export function ClientPanel({ client, money, gst, tds, health, onClose }: {
   const { isPinned, toggle } = usePinnedClients();
   const pinned = isPinned(client.id);
   const base = `/workstation/clients/${client.id}`;
+  const [editOpen, setEditOpen] = useState(false);
+  const canEdit = can(role, 'workstation.client.manage', 'self');
 
   const detail = useQuery({ queryKey: ['workstation', 'client', client.id], queryFn: () => workstationApi.getClient(client.id) });
   const services = useQuery({
@@ -120,8 +124,15 @@ export function ClientPanel({ client, money, gst, tds, health, onClose }: {
             <Link to={`/workstation/invoices/${oldestOverdue.id}`} title={`Remind about ${oldestOverdue.invoice_number}`}
               className="inline-flex items-center gap-[6px] h-8 px-3 rounded-[9px] bg-danger text-white text-13 font-semibold">Send reminder</Link>
           ) : null}
+          {canEdit && detail.data ? (
+            <button type="button" onClick={() => setEditOpen(true)}
+              className="inline-flex items-center gap-[6px] h-8 px-3 rounded-[9px] bg-surface shadow-card text-13 font-semibold text-ink hover:shadow-raised">
+              <Pencil size={14} />Edit
+            </button>
+          ) : null}
           <Link to={client.is_organization ? `${base}/organization` : base} className="inline-flex items-center gap-[6px] h-8 px-3 rounded-[9px] bg-surface shadow-card text-13 font-semibold text-ink hover:shadow-raised">{client.is_organization ? 'Open organization' : 'Open workspace'} <ArrowUpRight size={14} /></Link>
         </div>
+        {editOpen && detail.data ? <EditClientModal client={detail.data} onClose={() => setEditOpen(false)} /> : null}
       </div>
 
       {/* Tabs → full workspace */}

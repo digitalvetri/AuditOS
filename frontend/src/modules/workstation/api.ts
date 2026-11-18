@@ -177,6 +177,15 @@ export const workstationApi = {
   deletedDocuments: (clientId: string) =>
     api.get<ListResponse<ClientDocument & { deleted_at: string }>>(`/api/client-documents/deleted${qs({ client_id: clientId })}`),
   restoreDocument: (id: string) => api.post<ClientDocument>(`/api/client-documents/${id}/restore`, {}),
+  /** Soft-delete: the row moves to Recently Deleted; a nightly job purges after 30 days. */
+  deleteClientDocument: (id: string) =>
+    api.delete<{ id: string; deleted_at: string }>(`/api/client-documents/${id}`),
+  /** Move to another folder and/or another client. At least one of the two is required. */
+  moveClientDocument: (id: string, to: { category_id?: string; client_id?: string }) =>
+    api.post<ClientDocument>(`/api/client-documents/${id}/move`, to),
+  /** Duplicate — same client or cross-client. `name` overrides the "(copy)" suffix. */
+  copyClientDocument: (id: string, to: { name?: string; category_id?: string; client_id?: string }) =>
+    api.post<ClientDocument>(`/api/client-documents/${id}/copy`, to),
   verifyDocument: (id: string, approve: boolean, rejection_reason?: string) =>
     api.post<ClientDocument>(`/api/client-documents/${id}/verify`, { approve, rejection_reason }),
   /** A new version always carries the file. `document_date` is the date printed on it. */

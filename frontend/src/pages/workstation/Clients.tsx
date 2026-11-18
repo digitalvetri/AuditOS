@@ -5,7 +5,7 @@ import { workstationApi } from '@/modules/workstation/api';
 import { duplicateWarnings } from '@/modules/workstation/duplicateWarnings';
 import { ArrowDown, ArrowUp, ArrowUpDown, ChevronLeft, ChevronRight, Download, FileSpreadsheet, Plus, Power, PowerOff } from 'lucide-react';
 import {
-  Field, Modal, QueryState, fieldErrors, inputClass, textareaClass,
+  ExtraPhonesField, Field, Modal, QueryState, fieldErrors, inputClass, textareaClass,
 } from '@/modules/workstation/components';
 import {
   FilterSelect, ListAction, ListCard, ListEmpty, ListHeader, ListToolbar, SearchBox,
@@ -564,24 +564,36 @@ export function AddClientModal({ open, onClose, organization, defaultName, onCre
   const qc = useQueryClient();
   const toast = useToast();
   const navigate = useNavigate();
+  const { session } = useAuth();
   const employees = useQuery({ queryKey: ['workstation', 'employees'], queryFn: workstationApi.assignableEmployees });
 
   const [form, setForm] = useState({
     company_name: defaultName ?? '', business_type: '', contact_person: '', contact_number: '',
-    email: '', gstin: '', pan: '', address: '', account_manager_id: '', secondary_manager_id: '',
+    email: '', gstin: '', pan: '', address: '',
     kind: 'client' as 'client' | 'organization', short_name: '',
   });
   const isOrg = !organization && form.kind === 'organization';
   const set = (k: keyof typeof form, v: string) => setForm((f) => ({ ...f, [k]: v }));
   const [clientErrors, setClientErrors] = useState<Record<string, string>>({});
+  // Owner / Accountant / Authorised signatory are the typical three a firm
+  // keeps alongside the primary contact. Each row is self-contained.
+  const [extras, setExtras] = useState<{ name: string; phone: string; designation: string }[]>([]);
+  const setExtra = (i: number, k: 'name' | 'phone' | 'designation', v: string) =>
+    setExtras((rows) => rows.map((r, j) => (j === i ? { ...r, [k]: v } : r)));
+  const removeExtra = (i: number) => setExtras((rows) => rows.filter((_, j) => j !== i));
+  const addExtra = () => setExtras((rows) => [...rows, { name: '', phone: '', designation: '' }]);
+
+  // Account manager is not asked on this form — the creator is used, with the
+  // first assignable employee as a fallback when the signed-in user has no
+  // employee record.
+  const defaultManagerId = session?.employee?.id ?? employees.data?.items[0]?.id ?? '';
 
   const create = useMutation({
     mutationFn: () => workstationApi.createClient({
       company_name: form.company_name,
       contact_person: form.contact_person,
       contact_number: form.contact_number,
-      account_manager_id: form.account_manager_id,
-      secondary_manager_id: form.secondary_manager_id || undefined,
+      account_manager_id: defaultManagerId,
       business_type: form.business_type || undefined,
       email: form.email || undefined,
       // GSTIN and PAN are stored upper-case; normalise here so the value the
@@ -589,6 +601,11 @@ export function AddClientModal({ open, onClose, organization, defaultName, onCre
       gstin: form.gstin ? form.gstin.toUpperCase() : undefined,
       pan: form.pan ? form.pan.toUpperCase() : undefined,
       address: form.address || undefined,
+      // Empty rows (both name and phone blank) are silently dropped so a user
+      // who hit "Add another" and then changed their mind isn't blocked.
+      additional_contacts: extras
+        .filter((r) => r.name.trim() && r.phone.trim())
+        .map((r) => ({ name: r.name.trim(), phone: r.phone.trim(), designation: r.designation.trim() || undefined })),
       ...(organization ? { organization_id: organization.id } : {}),
       ...(isOrg ? { is_organization: true, short_name: form.short_name || undefined } : {}),
     }),
@@ -634,7 +651,6 @@ export function AddClientModal({ open, onClose, organization, defaultName, onCre
     if (pan && !isPan(pan)) {
       e.pan = 'Enter a valid 10-character PAN.';
     }
-    if (!form.account_manager_id) e.account_manager_id = 'Select an employee.';
     setClientErrors(e);
     return Object.keys(e).length === 0;
   }
@@ -701,6 +717,7 @@ export function AddClientModal({ open, onClose, organization, defaultName, onCre
       <Field label="Contact Number" error={err('contact_number')}>
         <input className={inputClass} value={form.contact_number} onChange={(e) => set('contact_number', e.target.value)} placeholder="9876543210" />
       </Field>
+      <ExtraPhonesField rows={extras} onChange={setExtra} onRemove={removeExtra} onAdd={addExtra} err={err} />
       <Field label="Email" error={err('email')}>
         <input className={inputClass} value={form.email} onChange={(e) => set('email', e.target.value)} />
       </Field>
@@ -720,22 +737,6 @@ export function AddClientModal({ open, onClose, organization, defaultName, onCre
       </Field>
       <Field label="Address" error={err('address')}>
         <textarea className={textareaClass} rows={3} value={form.address} onChange={(e) => set('address', e.target.value)} />
-      </Field>
-      <Field label="Account Manager" error={err('account_manager_id')}>
-        <select className={inputClass} value={form.account_manager_id} onChange={(e) => set('account_manager_id', e.target.value)}>
-          <option value="">Select an employee…</option>
-          {(employees.data?.items ?? []).map((e) => (
-            <option key={e.id} value={e.id}>{e.full_name} · {e.designation}</option>
-          ))}
-        </select>
-      </Field>
-      <Field label="Second Staff" error={err('secondary_manager_id')} hint="Optional. Also sees and works this client, and covers when the account manager cannot.">
-        <select className={inputClass} value={form.secondary_manager_id} onChange={(e) => set('secondary_manager_id', e.target.value)}>
-          <option value="">No second staff</option>
-          {(employees.data?.items ?? []).filter((e) => e.id !== form.account_manager_id).map((e) => (
-            <option key={e.id} value={e.id}>{e.full_name} · {e.designation}</option>
-          ))}
-        </select>
       </Field>
       {/* Client ID and status are system-assigned (§5.2) — stated, never edited. */}
       <div className="text-12 text-neutral-500 border-t border-neutral-200 pt-3">

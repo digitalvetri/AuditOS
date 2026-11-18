@@ -507,6 +507,74 @@ export function fieldErrors(err: unknown): Record<string, string> {
   return {};
 }
 
+/**
+ * Dynamic list of extra phone numbers for the Add / Edit Client forms.
+ *
+ * Each row carries a label (Owner, Accountant, Authorised signatory…) and a
+ * phone number; the backend accepts the list as `additional_contacts[]`.
+ * Server-side errors land on paths like `additional_contacts.0.phone`; `err`
+ * is the same resolver used by surrounding Fields so the message appears
+ * next to the offending row.
+ */
+export function ExtraPhonesField({
+  rows, onChange, onRemove, onAdd, err,
+}: {
+  rows: { name: string; phone: string; designation: string }[];
+  onChange: (i: number, k: 'name' | 'phone' | 'designation', v: string) => void;
+  onRemove: (i: number) => void;
+  onAdd: () => void;
+  err: (field: string) => string | undefined;
+}) {
+  return (
+    <div className="mb-3">
+      <div className="flex items-baseline justify-between mb-1">
+        <span className="text-12 font-medium text-neutral-500">Additional Phone Numbers</span>
+        <button type="button" onClick={onAdd} className="text-12 font-semibold text-primary hover:underline">
+          + Add another
+        </button>
+      </div>
+      {rows.length === 0 ? (
+        <p className="text-12 text-neutral-500">
+          Optional. Owner, Accountant, Authorised signatory — anyone else the firm phones about this client.
+        </p>
+      ) : (
+        <div className="space-y-2">
+          {rows.map((r, i) => {
+            const nameErr = err(`additional_contacts.${i}.name`);
+            const phoneErr = err(`additional_contacts.${i}.phone`);
+            return (
+              <div key={i} className="grid grid-cols-[1fr_1fr_auto] gap-2 items-start">
+                <div>
+                  <input
+                    className={inputClass} aria-label={`Contact ${i + 1} name / role`}
+                    placeholder="Name or role (Owner, Accountant…)"
+                    value={r.name} onChange={(e) => onChange(i, 'name', e.target.value)}
+                  />
+                  {nameErr ? <span className="block text-12 text-red mt-1">{nameErr}</span> : null}
+                </div>
+                <div>
+                  <input
+                    className={inputClass} aria-label={`Contact ${i + 1} phone`}
+                    placeholder="9876543210" inputMode="tel"
+                    value={r.phone} onChange={(e) => onChange(i, 'phone', e.target.value)}
+                  />
+                  {phoneErr ? <span className="block text-12 text-red mt-1">{phoneErr}</span> : null}
+                </div>
+                <button
+                  type="button" onClick={() => onRemove(i)}
+                  className="h-9 px-2 text-12 text-neutral-500 hover:text-red" aria-label={`Remove contact ${i + 1}`}
+                >
+                  Remove
+                </button>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
 /** A definition row — used by the Client Workspace detail panels. */
 export function Detail({ label, value }: { label: string; value: ReactNode }) {
   return (

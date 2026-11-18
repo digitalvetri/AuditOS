@@ -357,6 +357,13 @@ function DetailsTab({ client }: { client: ClientDetail }) {
           <Detail label="Business Type" value={client.business_type ?? '—'} />
           <Detail label="Contact Person" value={client.contact_person} />
           <Detail label="Contact Number" value={client.contact_number} />
+          {client.contacts.filter((c) => !c.is_primary).map((c) => (
+            <Detail
+              key={c.id}
+              label={c.name + (c.designation ? ` · ${c.designation}` : '')}
+              value={c.phone}
+            />
+          ))}
           <Detail label="Email" value={client.email ?? '—'} />
           <Detail label="Address" value={client.address ?? '—'} />
         </div>

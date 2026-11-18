@@ -9,7 +9,7 @@ import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { Pencil } from 'lucide-react';
 import { workstationApi } from './api';
 import { duplicateWarnings } from '@/modules/workstation/duplicateWarnings';
-import { Field, Modal, fieldErrors, inputClass } from './components';
+import { ExtraPhonesField, Field, Modal, fieldErrors, inputClass } from './components';
 import type { ClientDetail } from './types';
 import { Button } from '@/components/Button';
 import { useToast } from '@/components/Toast';
@@ -49,12 +49,21 @@ export function EditClientDetailsButton({ client }: { client: ClientDetail }) {
   );
 }
 
-function EditClientModal({ client, onClose }: { client: ClientDetail; onClose: () => void }) {
+export function EditClientModal({ client, onClose }: { client: ClientDetail; onClose: () => void }) {
   const qc = useQueryClient();
   const toast = useToast();
   const [f, setF] = useState<Form>(() => fromClient(client));
   const [local, setLocal] = useState<Record<string, string>>({});
   const set = (k: keyof Form) => (e: { target: { value: string } }) => setF((cur) => ({ ...cur, [k]: e.target.value }));
+  // Non-primary contacts arrive as full rows; edit as (name, phone, designation)
+  // tuples and the backend replaces the whole non-primary set on save.
+  const [extras, setExtras] = useState(() => client.contacts
+    .filter((c) => !c.is_primary)
+    .map((c) => ({ name: c.name ?? '', phone: c.phone ?? '', designation: c.designation ?? '' })));
+  const setExtra = (i: number, k: 'name' | 'phone' | 'designation', v: string) =>
+    setExtras((rows) => rows.map((r, j) => (j === i ? { ...r, [k]: v } : r)));
+  const removeExtra = (i: number) => setExtras((rows) => rows.filter((_, j) => j !== i));
+  const addExtra = () => setExtras((rows) => [...rows, { name: '', phone: '', designation: '' }]);
 
   const save = useMutation({
     mutationFn: () => {
@@ -64,6 +73,23 @@ function EditClientModal({ client, onClose }: { client: ClientDetail; onClose: (
       for (const k of Object.keys(f) as (keyof Form)[]) {
         const v = ['gstin', 'pan', 'tan', 'cin'].includes(k) ? normId(f[k]) : f[k].trim();
         if (v !== before[k]) patch[k] = v === '' && k !== 'company_name' && k !== 'contact_person' && k !== 'contact_number' ? null : v;
+      }
+      // Send the extras set when it has shifted from what was loaded — add,
+      // remove, rename, or renumber. Drop empty rows (the user added a line
+      // and then changed their mind) before comparing.
+      const beforeExtras = client.contacts
+        .filter((c) => !c.is_primary)
+        .map((c) => ({ name: c.name ?? '', phone: c.phone ?? '', designation: c.designation ?? '' }));
+      const cleaned = extras
+        .map((r) => ({ name: r.name.trim(), phone: r.phone.trim(), designation: r.designation.trim() }))
+        .filter((r) => r.name && r.phone);
+      const sameSize = cleaned.length === beforeExtras.length;
+      const unchanged = sameSize && cleaned.every((r, i) =>
+        r.name === beforeExtras[i].name && r.phone === beforeExtras[i].phone && r.designation === beforeExtras[i].designation);
+      if (!unchanged) {
+        patch.additional_contacts = cleaned.map((r) => ({
+          name: r.name, phone: r.phone, designation: r.designation || undefined,
+        }));
       }
       return workstationApi.updateClient(client.id, patch);
     },
@@ -122,6 +148,10 @@ function EditClientModal({ client, onClose }: { client: ClientDetail; onClose: (
         <Field label="Email" error={err('email')}><input className={inputClass} type="email" value={f.email} onChange={set('email')} /></Field>
       </div>
       <Field label="Address" error={err('address')}><textarea className={inputClass + ' min-h-[64px]'} value={f.address} onChange={set('address')} /></Field>
+      <ExtraPhonesField
+        rows={extras} onChange={setExtra} onRemove={removeExtra} onAdd={addExtra}
+        err={(k) => err(k)}
+      />
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-4">
         <Field label="GSTIN" error={err('gstin')} hint="Leave empty if unregistered."><input className={inputClass + ' font-mono'} maxLength={15} value={f.gstin} onChange={upper('gstin')} /></Field>
         <Field label="PAN" error={err('pan')}><input className={inputClass + ' font-mono'} maxLength={10} value={f.pan} onChange={upper('pan')} /></Field>

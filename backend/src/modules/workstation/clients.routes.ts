@@ -21,7 +21,7 @@ import {
 } from './validate.js'
 import {
   activateIfOnboarding, clientListWhere, clientOrderBy, createClientRow, exitFieldsFor, findDuplicateGstinClients,
-  findDuplicatePhoneClients, gstinPanMismatch, readClientFields, syncPrimaryContact,
+  findDuplicatePhoneClients, gstinPanMismatch, readClientFields, readExtraContacts, syncPrimaryContact,
 } from './clients.shared.js'
 
 /**
@@ -105,6 +105,7 @@ clientsRouter.post('/', handler(async (req, res) => {
 
   const v = new FieldErrors()
   const f = readClientFields(v, b)
+  const extras = readExtraContacts(v, b) ?? []
   const { accountManagerId, secondaryManagerId, organizationId, isOrganization } = f
   v.throwIfAny()
 
@@ -120,7 +121,20 @@ clientsRouter.post('/', handler(async (req, res) => {
   v.throwIfAny()
   const org = organizationId ? await assertCanJoinOrganization(session, scope, organizationId) : null
 
-  const client = await prisma.$transaction((tx) => createClientRow(tx, { ...f, organizationId: org?.id ?? null }, session.userId))
+  const client = await prisma.$transaction(async (tx) => {
+    const c = await createClientRow(tx, { ...f, organizationId: org?.id ?? null }, session.userId)
+    // Extra phones ride the same transaction as the primary so a failed
+    // insert never leaves a half-finished client around.
+    for (const e of extras) {
+      await tx.clientContact.create({
+        data: {
+          clientId: c.id, name: e.name, designation: e.designation,
+          phone: e.phone, email: e.email, isPrimary: false, createdBy: session.userId,
+        },
+      })
+    }
+    return c
+  })
 
   await writeActivity({
     session, subjectType: 'client', subjectId: client.id,
@@ -270,6 +284,7 @@ clientsRouter.patch('/:id', handler(async (req, res) => {
     Object.assign(data, exit)
   }
   if ('short_name' in b) data.shortName = v.str('short_name', b.short_name, { required: false, max: 20 }) ?? null
+  const extras = readExtraContacts(v, b)
   v.throwIfAny()
   // GSTIN characters 3–12 are the PAN. Checked on the values the client will
   // have, and only when this edit touches either — a legacy mismatch does not
@@ -334,6 +349,25 @@ clientsRouter.patch('/:id', handler(async (req, res) => {
     if ('contact_person' in b || 'contact_number' in b || 'email' in b) await syncPrimaryContact(tx, updated, session.userId)
     return updated
   })
+
+  // Extra contacts: replace strategy. Absent key = leave alone; present key =
+  // soft-delete the current non-primary set and insert what was sent. This
+  // matches the "edit a short list" UX (no id-matching needed) and keeps the
+  // single primary contact (the one created with the client) untouched.
+  if (extras !== undefined) {
+    await prisma.clientContact.updateMany({
+      where: { clientId: client.id, isPrimary: false, deletedAt: null },
+      data: { deletedAt: new Date(), updatedBy: session.userId },
+    })
+    for (const e of extras) {
+      await prisma.clientContact.create({
+        data: {
+          clientId: client.id, name: e.name, designation: e.designation,
+          phone: e.phone, email: e.email, isPrimary: false, createdBy: session.userId,
+        },
+      })
+    }
+  }
 
   // Assignment changes: say who now has the client, and tell them.
   if (nextPrimary !== before.accountManagerId || nextSecondary !== before.secondaryManagerId) {

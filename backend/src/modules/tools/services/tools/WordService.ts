@@ -1,5 +1,6 @@
 import fs from 'node:fs/promises'
 import path from 'node:path'
+import ExcelJS from 'exceljs'
 import {
   AlignmentType, Document, HeadingLevel, Packer, Paragraph, Table, TableCell, TableRow, TextRun, WidthType,
 } from 'docx'
@@ -10,16 +11,31 @@ import { PDFService, findTableBlocks, type PageText, type TextLine } from './PDF
 /**
  * WordService — .docx in and out.
  *
- *   wordToPdf  LibreOffice (headings, lists, tables, page breaks preserved).
- *   pdfToWord  pdfjs layout → paragraphs, headings (by font size / weight)
- *              and tables (same detector as PDF to Excel) → docx.
- *              Text-layer PDFs only; a scan is refused with a pointer to OCR.
+ *   wordToPdf    LibreOffice (headings, lists, tables, page breaks preserved).
+ *   pdfToWord    pdfjs layout → paragraphs, headings (by font size / weight)
+ *                and tables (same detector as PDF to Excel) → docx.
+ *                Text-layer PDFs only; a scan is refused with a pointer to OCR.
+ *   wordToExcel  routes through PDF: docx → PDF via LibreOffice, then the
+ *                proven pdfToExcel table detector. Keeps a single code path
+ *                for "what counts as a table"; Word-only paragraph prose is
+ *                reported on the Summary sheet, not pretend-tabled.
+ *   excelToWord  reads xlsx via ExcelJS and renders each sheet as a heading
+ *                + docx table. Numeric and date cells become plain text in
+ *                the cell; nothing is lost but the formulas are flattened to
+ *                their last cached values.
  */
 export interface PdfToWordResult {
   bytes: Buffer
   pageCount: number
   paragraphs: number
   tables: number
+}
+
+export interface ExcelToWordResult {
+  bytes: Buffer
+  sheets: number
+  rows: number
+  skippedSheets: string[]
 }
 
 export const WordService = {
@@ -94,6 +110,53 @@ export const WordService = {
     })
     return { bytes: Buffer.from(await Packer.toBuffer(doc)), pageCount: pages.length, paragraphs, tables }
   },
+
+  async excelToWord(bytes: Buffer, onProgress?: (pct: number) => void): Promise<ExcelToWordResult> {
+    const wb = new ExcelJS.Workbook()
+    try {
+      await wb.xlsx.load(bytes as unknown as ArrayBuffer)
+    } catch {
+      throw new ToolError('unreadable', "We couldn't open this spreadsheet. It may be corrupted or not a real Excel file.")
+    }
+    onProgress?.(20)
+
+    const children: (Paragraph | Table)[] = []
+    let sheetCount = 0
+    let rowCount = 0
+    const skippedSheets: string[] = []
+    const sheets = wb.worksheets
+    sheets.forEach((ws, idx) => {
+      const rows: string[][] = []
+      let maxCols = 0
+      ws.eachRow({ includeEmpty: false }, (row) => {
+        const vals: string[] = []
+        const n = Math.max(ws.columnCount, row.cellCount)
+        for (let c = 1; c <= n; c++) vals.push(cellText(row.getCell(c).value))
+        // Trim all-empty trailing cells so a 1,048,576-column sheet does not blow up the doc.
+        while (vals.length && vals[vals.length - 1] === '') vals.pop()
+        if (vals.length) {
+          rows.push(vals)
+          if (vals.length > maxCols) maxCols = vals.length
+        }
+      })
+      if (!rows.length) { skippedSheets.push(ws.name); return }
+      sheetCount++
+      rowCount += rows.length
+      // One sheet = one heading + one table.
+      children.push(new Paragraph({ heading: HeadingLevel.HEADING_2, children: [new TextRun({ text: ws.name })], spacing: { before: 240, after: 120 } }))
+      children.push(renderTable(rows, maxCols))
+      if (idx < sheets.length - 1) children.push(new Paragraph({ text: '' }))
+      onProgress?.(20 + ((idx + 1) / sheets.length) * 70)
+    })
+    if (!sheetCount) throw new ToolError('no_tables', 'This spreadsheet has no data in any sheet.')
+
+    const doc = new Document({
+      creator: 'Audit OS',
+      styles: { default: { document: { run: { font: 'Calibri', size: 22 } } } },
+      sections: [{ children }],
+    })
+    return { bytes: Buffer.from(await Packer.toBuffer(doc)), sheets: sheetCount, rows: rowCount, skippedSheets }
+  },
 }
 
 type Block = { kind: 'para'; lines: TextLine[] } | { kind: 'table'; rows: string[][] }
@@ -161,4 +224,31 @@ function makeTable(rows: string[][]): Table {
       })),
     })),
   })
+}
+
+/** A sheet-to-table renderer: same shape as makeTable but takes an explicit column count. */
+function renderTable(rows: string[][], cols: number): Table {
+  return new Table({
+    width: { size: 100, type: WidthType.PERCENTAGE },
+    rows: rows.map((r, ri) => new TableRow({
+      tableHeader: ri === 0,
+      children: Array.from({ length: cols }, (_, c) => new TableCell({
+        children: (r[c] ?? '').split('\n').map((line) => new Paragraph({ children: [new TextRun({ text: line, bold: ri === 0 })] })),
+      })),
+    })),
+  })
+}
+
+/** Same resolver used by ExcelService.preview — kept inline to avoid a cross-service import. */
+function cellText(v: ExcelJS.CellValue): string {
+  if (v === null || v === undefined) return ''
+  if (typeof v === 'object') {
+    if (v instanceof Date) return v.toISOString().slice(0, 10)
+    if ('richText' in v) return v.richText.map((t) => t.text).join('')
+    if ('result' in v) return cellText(v.result as ExcelJS.CellValue)
+    if ('text' in v) return String(v.text)
+    if ('error' in v) return String(v.error)
+    return JSON.stringify(v)
+  }
+  return String(v)
 }
