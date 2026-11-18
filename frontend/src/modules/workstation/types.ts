@@ -158,6 +158,11 @@ export interface ClientDetail extends Client {
   follow_up_count: number;
   /** Organizations: how many of its clients the caller can open. */
   child_client_count: number;
+  /** Catalog codes of the services the client has (not deleted, any status). */
+  service_codes?: string[];
+  /** A GST profile, GST checklist item or GST registration case exists. */
+  gst_data_exists?: boolean;
+  eway_bill_count?: number;
 }
 
 export type LeadType = 'individual' | 'organization';
