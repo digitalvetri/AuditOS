@@ -361,7 +361,8 @@ export function gstFilingToApi(f: GstFiling, m: EmployeeLookup) {
     status: f.status,
     filed_at: iso(f.filedAt),
     due_date: f.dueDate,
-    assigned_employee_id: f.assignedEmployeeId,
+    // '' is GstFiling's "unassigned" value (the column is non-null, no FK).
+    assigned_employee_id: f.assignedEmployeeId || null,
     assigned_employee: ref(m, f.assignedEmployeeId),
     arn: f.arn,
     remarks: f.remarks,

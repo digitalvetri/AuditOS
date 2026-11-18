@@ -41,7 +41,7 @@ export const SERVICE_LIVE = (status: string) => !['on_hold', 'completed', 'faile
 /** Clients that should be enrolled, keyed by client id → the service row that enrols them. */
 async function liveGstServices(db: PrismaClient, clientId?: string) {
   const svc = await db.service.findFirst({ where: { code: GST_FILING_SERVICE_CODE, deletedAt: null } })
-  const live = new Map<string, { assignedEmployeeId: string; gstin: string | null }>()
+  const live = new Map<string, { assignedEmployeeId: string | null; gstin: string | null }>()
   if (!svc) return { live, serviceId: null as string | null }
   const rows = await db.clientService.findMany({
     where: { serviceId: svc.id, deletedAt: null, ...(clientId ? { clientId } : {}) },
@@ -83,9 +83,12 @@ export async function syncGstEnrolment(
     // Paused by a person on the GST client screen: stays paused.
     if (existing.pausedByUser && !existing.deletedAt) continue
     // The assignee follows the service only when the SERVICE's assignee moved
-    // since the last sync; a reassignment made on the profile is kept.
+    // since the last sync; a reassignment made on the profile is kept. An
+    // unassigned service never clears the profile's assignee: services are
+    // added without a person, and the GST Filing page's Assign select is
+    // where a profile gets one.
     const serviceMoved = existing.syncedAssigneeId !== s.assignedEmployeeId
-    const assignee = serviceMoved ? s.assignedEmployeeId : existing.assignedEmployeeId
+    const assignee = serviceMoved && s.assignedEmployeeId ? s.assignedEmployeeId : existing.assignedEmployeeId
     if (!existing.active || existing.deletedAt || existing.gstin !== gstin || existing.assignedEmployeeId !== assignee || serviceMoved) {
       await db.gstProfile.update({
         where: { id: existing.id },
@@ -163,7 +166,9 @@ export async function ensurePeriodJobs(
         data: {
           gstProfileId, period, returnType, status: 'pending', financialYear, compliancePeriodId: row.id,
           dueDate: dues[kind],
-          assignedEmployeeId: profile.assignedEmployeeId, reviewerEmployeeId: profile.reviewerEmployeeId,
+          // GstFiling's assignee is a plain non-null column with no FK: '' is
+          // its existing "unassigned" value (see POST /stages/:stage/entries).
+          assignedEmployeeId: profile.assignedEmployeeId ?? '', reviewerEmployeeId: profile.reviewerEmployeeId,
           createdBy: userId, updatedBy: userId,
         },
       })

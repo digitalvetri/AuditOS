@@ -138,7 +138,7 @@ export async function backfillPeriods(): Promise<{ created: number; linked: numb
           financialYear: fy,
           period: f.period,
           periodType,
-          assignedEmployeeId: profile?.assignedEmployeeId ?? f.assignedEmployeeId ?? null,
+          assignedEmployeeId: profile?.assignedEmployeeId || f.assignedEmployeeId || null,
           reviewerEmployeeId: profile?.reviewerEmployeeId ?? null,
         },
         select: { id: true },

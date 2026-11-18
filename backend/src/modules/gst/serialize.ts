@@ -144,7 +144,7 @@ export function periodToApi(p: PeriodRow, employees: EmployeeLookup, openExcepti
 export function profileToApi(p: {
   id: string; gstin: string; legalName: string | null; pan: string | null; state: string | null
   registrationType: string; registrationStatus: string; filingFrequency: string
-  registrationDate: string | null; assignedEmployeeId: string; reviewerEmployeeId: string | null
+  registrationDate: string | null; assignedEmployeeId: string | null; reviewerEmployeeId: string | null
   contactPerson: string | null; contactEmail: string | null; contactPhone: string | null
   address: string | null; active: boolean; nextDueDate: string | null
   client: { id: string; companyName: string } | null

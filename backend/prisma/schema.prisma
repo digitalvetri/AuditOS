@@ -1407,7 +1407,10 @@ model ClientService {
   clientId  String
   serviceId String
 
-  assignedEmployeeId String
+  /// Null = unassigned (services are added without a person; work reaches
+  /// people through Tasks and the GST Filing page). Reminders keyed on it
+  /// fall back to the Partner tier (active md + hr_admin).
+  assignedEmployeeId String?
   managerId          String?
   /// 'YYYY-MM-DD' — a calendar date, so it cannot drift across the IST/UTC edge.
   dueDate            String?
@@ -1758,7 +1761,9 @@ model GstProfile {
   /// monthly | quarterly
   filingFrequency    String    @default("monthly")
   registrationDate   String?
-  assignedEmployeeId String
+  /// Null = unassigned: a client enrolled from an unassigned GST Filing
+  /// service. Set from the GST Filing page's Assign select.
+  assignedEmployeeId String?
   /// Mirrors the GST service status values (§7.7).
   serviceStatus      String    @default("not_started")
   lastFiledAt        DateTime?
