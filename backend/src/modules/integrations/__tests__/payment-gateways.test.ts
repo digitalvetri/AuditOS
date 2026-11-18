@@ -303,6 +303,18 @@ describe('creating a payment link', () => {
     expect(list.body.default_gateway).toBe('razorpay')
   })
 
+  it("a client under an organization: the link goes to the organization's email and phone", async () => {
+    const manager = await prisma.user.findFirstOrThrow({ where: { organisationId: orgId, employeeId: { not: null } } })
+    const org = await prisma.client.create({ data: { organisationId: orgId, clientCode: uid('ORG'), companyName: 'Taxtable Partners', isOrganization: true, email: 'billing@taxtable.in', accountManagerId: manager.employeeId!, contactPerson: 'T', contactNumber: '9123456780', onboardingDate: '2026-01-01' } })
+    const child = await prisma.client.create({ data: { organisationId: orgId, clientCode: uid('CLI'), companyName: 'Child Co', email: 'child@child.co', parentClientId: org.id, accountManagerId: manager.employeeId!, contactPerson: 'C', contactNumber: '9876500000', onboardingDate: '2026-01-01' } })
+    const d = await api('/api/invoices', { method: 'POST', body: { client_id: child.id, invoice_date: istToday(), terms: 'net_15', place_of_supply: 'Tamil Nadu', items: [{ item_name: 'Fee', hsn_sac: '998221', quantity_centi: 100, rate_paise: 1000_00, gst_rate_percent: 18 }] } })
+    expect(d.status).toBe(201)
+    expect((await api(`/api/invoices/${d.body.id}/send`, { method: 'POST' })).status).toBe(200)
+    const r = await createLink(d.body.id, 'razorpay')
+    expect(r.status, JSON.stringify(r.body)).toBe(200)
+    expect(calls[0].body.customer).toMatchObject({ name: 'Taxtable Partners', email: 'billing@taxtable.in', contact: '9123456780' })
+  })
+
   it('Cashfree: amount in rupees, link_id within its charset, phone required', async () => {
     const inv = await sentInvoice()
     await prisma.invoicePayment.deleteMany({ where: { invoiceId: inv.id } })
