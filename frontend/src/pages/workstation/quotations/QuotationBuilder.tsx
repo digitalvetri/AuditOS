@@ -309,11 +309,20 @@ export function QuotationBuilderPage() {
     setPartyId(chosenId);
     if (kind === 'client') {
       const c = (clientsQ.data?.items ?? []).find((x) => x.id === chosenId);
-      if (c) {
+      if (c?.organization) {
+        // A client under an organization is quoted in the organization's
+        // name — every party field from the organization, never the client's.
+        const org = (clientsQ.data?.items ?? []).find((x) => x.id === c.organization!.id);
         setClient((prev) => ({
           ...prev,
-          // A client under an organization is quoted in the organization's name.
-          name: c.organization ? c.organization.name : c.company_name,
+          name: c.organization!.name,
+          client_type: org?.business_type ?? '',
+          location: org?.address ?? '',
+        }));
+      } else if (c) {
+        setClient((prev) => ({
+          ...prev,
+          name: c.company_name,
           client_type: prev.client_type || c.business_type || '',
           location: prev.location || c.address || '',
         }));

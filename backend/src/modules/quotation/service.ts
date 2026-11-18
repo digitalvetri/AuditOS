@@ -335,21 +335,32 @@ const FOR_LINE = /^For: .+ \([^()]+\)$/
  * kept to one such line however often the draft is saved.
  */
 async function withOrganizationParty(input: QuotationInput): Promise<QuotationInput> {
-  if (!input.clientId) return input
-  const c = await prisma.client.findUnique({
-    where: { id: input.clientId },
-    select: { companyName: true, clientCode: true, parentClient: { select: { companyName: true } } },
-  })
-  if (!c?.parentClient) return input
-  const raw = input.clientSnapshot && typeof input.clientSnapshot === 'object' && !Array.isArray(input.clientSnapshot)
-    ? input.clientSnapshot as Record<string, unknown> : {}
-  const typed = typeof raw.name === 'string' ? raw.name.trim() : ''
-  const name = !typed || typed === c.companyName ? c.parentClient.companyName : typed
-  const forLine = `For: ${c.companyName} (${c.clientCode})`
   const rest = (input.notes ?? '').split('\n').filter((l) => !FOR_LINE.test(l.trim())).join('\n').trim()
+  const raw = input.clientSnapshot && typeof input.clientSnapshot === 'object' && !Array.isArray(input.clientSnapshot)
+    ? input.clientSnapshot as Record<string, unknown> : null
+  const c = input.clientId
+    ? await prisma.client.findUnique({
+      where: { id: input.clientId },
+      select: { companyName: true, clientCode: true, address: true, parentClient: { select: { companyName: true, address: true } } },
+    })
+    : null
+  if (!c?.parentClient) {
+    // Not (or no longer) an organization's client: drop a stale For: line
+    // and for_client, so a draft moved to another party does not keep them.
+    if (!raw?.for_client && rest === (input.notes ?? '').trim()) return input
+    const { for_client: _drop, ...snap } = raw ?? {}
+    return { ...input, clientSnapshot: raw ? snap : input.clientSnapshot, notes: rest || null }
+  }
+  const snap = raw ?? {}
+  // Keep a value the user typed on purpose; replace the client's own.
+  const typed = typeof snap.name === 'string' ? snap.name.trim() : ''
+  const name = !typed || typed === c.companyName ? c.parentClient.companyName : typed
+  const loc = typeof snap.location === 'string' ? snap.location.trim() : ''
+  const location = !loc || (c.address && loc === c.address.trim()) ? (c.parentClient.address ?? '') : snap.location
+  const forLine = `For: ${c.companyName} (${c.clientCode})`
   return {
     ...input,
-    clientSnapshot: { ...raw, name, for_client: { name: c.companyName, client_id: c.clientCode } },
+    clientSnapshot: { ...snap, name, location, for_client: { name: c.companyName, client_id: c.clientCode } },
     notes: rest ? `${forLine}\n${rest}` : forLine,
   }
 }

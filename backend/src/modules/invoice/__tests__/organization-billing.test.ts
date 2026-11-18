@@ -188,6 +188,8 @@ describe('invoices raised without the builder', () => {
     expect(inv.billingName).toBe('Taxtable Partners LLP')
     expect(inv.billingAddress).toBe('12 MG Road, Bengaluru')
     expect(inv.customerGstin).toBe(ORG_GSTIN)
+    expect(inv.placeOfSupply).toBe('Karnataka')
+    expect(inv.isInterState).toBe(true)
     expect(inv.notes).toContain(`Services for: Kaveri Traders (${child.clientCode})`)
   })
 })
@@ -196,12 +198,12 @@ describe('quotation for a client under an organization', () => {
   it('snapshots the organization and records for_client; the screen shows the organization as the party', async () => {
     const q = await api('/api/quotations', { method: 'POST', body: {
       client_id: child.id, subject: 'Audit', quote_date: '2026-10-01', valid_until: '2026-10-31',
-      client_snapshot: { name: 'Kaveri Traders', industry: 'Trading' },
+      client_snapshot: { name: 'Kaveri Traders', industry: 'Trading', location: '5 Anna Salai, Chennai' },
       items: [{ description: 'Audit', quantity_centi: 100, unit_rate_paise: 10_000_00, gst_rate_percent: 18 }],
     } })
     expect(q.status, JSON.stringify(q.body)).toBe(201)
     expect(q.body.client_id).toBe(child.id)
-    expect(q.body.client_snapshot).toMatchObject({ name: 'Taxtable Partners LLP', industry: 'Trading', for_client: { name: 'Kaveri Traders', client_id: child.clientCode } })
+    expect(q.body.client_snapshot).toMatchObject({ name: 'Taxtable Partners LLP', industry: 'Trading', location: '12 MG Road, Bengaluru', for_client: { name: 'Kaveri Traders', client_id: child.clientCode } })
     expect(q.body.for_client).toEqual({ name: 'Kaveri Traders', client_id: child.clientCode })
     expect(q.body.party_name).toBe('Taxtable Partners LLP')
     expect(q.body.party_gstin).toBe(ORG_GSTIN)
@@ -217,6 +219,17 @@ describe('quotation for a client under an organization', () => {
     } })
     expect(put.status, JSON.stringify(put.body)).toBe(200)
     expect(put.body.notes).toBe(`For: Kaveri Traders (${child.clientCode})\nValid for one year.`)
+
+    // Moved to a standalone client: the For: line and for_client go.
+    const moved = await api(`/api/quotations/${q.body.id}`, { method: 'PUT', body: {
+      client_id: standalone.id, subject: 'Audit', quote_date: '2026-10-01', valid_until: '2026-10-31',
+      notes: put.body.notes, client_snapshot: put.body.client_snapshot,
+      items: [{ description: 'Audit', quantity_centi: 100, unit_rate_paise: 10_000_00, gst_rate_percent: 18 }],
+    } })
+    expect(moved.status).toBe(200)
+    expect(moved.body.notes).toBe('Valid for one year.')
+    expect(moved.body.for_client).toBeNull()
+    expect(moved.body.client_snapshot.for_client).toBeUndefined()
   })
 
   it("a quotation on the organization itself, or on a standalone client, is unchanged", async () => {
