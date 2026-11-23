@@ -23,8 +23,11 @@ export interface Task {
   overdue: boolean;
   /** Same as `overdue`: due before today (IST) and still open. */
   is_overdue: boolean;
-  assigned_employee_id: string;
-  assigned_employee_name: string;
+  /** Null = not assigned yet: raised automatically when a service was added, waiting for a manager. */
+  assigned_employee_id: string | null;
+  assigned_employee_name: string | null;
+  /** 'service_added' when raised automatically. */
+  source?: string | null;
   assigned_by_id: string | null;
   assigned_by_name: string | null;
   client_id: string | null;

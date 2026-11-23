@@ -1471,12 +1471,19 @@ model Task {
   partnershipCaseId   String?
   title               String
   description         String?
-  assignedEmployeeId  String
+  /// Null = not yet assigned. Tasks raised automatically when a service is
+  /// added to a client start unassigned; a partner assigns them from the
+  /// Task module (the only place work is handed to a person).
+  assignedEmployeeId  String?
   dueDate             String?
   /// pending | in_progress | paused | completed | cancelled
   /// Rows written before the Task module carry the legacy vocabulary
   /// (open | blocked | done); reads normalise it, writes never emit it.
   status              String  @default("open")
+
+  /// Set when the task was raised automatically: 'service_added' (a service
+  /// was added to a client). Null = raised by a person.
+  source              String?
 
   // ── Task module (work-time tracking) ────────────────────────────────
   /// low | medium | high | urgent
@@ -1501,7 +1508,7 @@ model Task {
   clientService     ClientService?     @relation(fields: [clientServiceId], references: [id])
   incorporationCase IncorporationCase? @relation(fields: [incorporationCaseId], references: [id], onDelete: SetNull)
   partnershipCase   PartnershipCase?   @relation(fields: [partnershipCaseId], references: [id], onDelete: SetNull)
-  assignedEmployee  Employee           @relation("TaskAssignee", fields: [assignedEmployeeId], references: [id])
+  assignedEmployee  Employee?          @relation("TaskAssignee", fields: [assignedEmployeeId], references: [id])
   assignedBy        Employee?          @relation("TaskAssigner", fields: [assignedById], references: [id])
   sessions          TaskTimeSession[]
   auditLogs         TaskAuditLog[]

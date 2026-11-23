@@ -79,7 +79,8 @@ export interface CreateLeadInput {
   contact_number: string;
   service_id: string;
   price_quoted: number;
-  assigned_employee_id: string;
+  /** Not asked on the form: the server makes the creator the owner. */
+  assigned_employee_id?: string;
   email?: string;
   notes?: string;
 }

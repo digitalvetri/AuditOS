@@ -127,12 +127,11 @@ function AddLeadModal({ open, onClose }: { open: boolean; onClose: () => void })
   const toast = useToast();
   const navigate = useNavigate();
   const catalog = useQuery({ queryKey: ['workstation', 'catalog'], queryFn: workstationApi.serviceCatalog });
-  const employees = useQuery({ queryKey: ['workstation', 'employees'], queryFn: workstationApi.assignableEmployees });
 
   const [form, setForm] = useState({
     lead_type: 'individual' as 'individual' | 'organization',
     name: '', contact_person: '', contact_number: '', service_id: '', price_quoted: '',
-    assigned_employee_id: '', email: '', notes: '',
+    email: '', notes: '',
   });
   const isOrg = form.lead_type === 'organization';
   const set = (k: keyof typeof form, v: string) => setForm((f) => ({ ...f, [k]: v }));
@@ -146,7 +145,8 @@ function AddLeadModal({ open, onClose }: { open: boolean; onClose: () => void })
       contact_number: form.contact_number,
       service_id: form.service_id,
       price_quoted: Number(form.price_quoted || 0),
-      assigned_employee_id: form.assigned_employee_id,
+      // No person is chosen here: the lead is the creator's, and work is
+      // handed out from Tasks once it becomes a client.
       email: form.email || undefined,
       notes: form.notes || undefined,
     }),
@@ -171,7 +171,6 @@ function AddLeadModal({ open, onClose }: { open: boolean; onClose: () => void })
       if (!ok) e.contact_number = 'Enter a 10-digit mobile (starts 6-9) or a landline with STD code (10-11 digits).';
     }
     if (!form.service_id) e.service_id = 'Select a service.';
-    if (!form.assigned_employee_id) e.assigned_employee_id = 'Select an employee.';
     if (form.price_quoted && Number(form.price_quoted) < 0) e.price_quoted = 'Enter a valid amount.';
     setClientErrors(e);
     return Object.keys(e).length === 0;
@@ -257,14 +256,6 @@ function AddLeadModal({ open, onClose }: { open: boolean; onClose: () => void })
         hint="A quote, not a payment. Invoicing and receipts are handled in Accounts."
       >
         <input className={inputClass} type="number" min="0" value={form.price_quoted} onChange={(e) => set('price_quoted', e.target.value)} />
-      </Field>
-      <Field label="Assigned To" error={err('assigned_employee_id')}>
-        <select className={inputClass} value={form.assigned_employee_id} onChange={(e) => set('assigned_employee_id', e.target.value)}>
-          <option value="">Select an employee…</option>
-          {(employees.data?.items ?? []).map((e) => (
-            <option key={e.id} value={e.id}>{e.full_name} · {e.designation}</option>
-          ))}
-        </select>
       </Field>
       <Field label="Notes" error={err('notes')}>
         <textarea className={textareaClass} rows={3} value={form.notes} onChange={(e) => set('notes', e.target.value)} />

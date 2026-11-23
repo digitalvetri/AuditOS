@@ -167,7 +167,6 @@ function AddClientModal({ open, onClose }: { open: boolean; onClose: () => void 
   const [clientId, setClientId] = useState('');
   // Label of the chosen client — kept so the list can collapse once picked.
   const [clientLabel, setClientLabel] = useState('');
-  const [assigned, setAssigned] = useState('');
   const [reviewer, setReviewer] = useState('');
   const [approver, setApprover] = useState('');
   const [due, setDue] = useState('');
@@ -181,7 +180,7 @@ function AddClientModal({ open, onClose }: { open: boolean; onClose: () => void 
   const create = useMutation({
     mutationFn: () => regApi.createCase({
       client_id: clientId,
-      assigned_employee_id: assigned || undefined,
+      // No person here: the case starts unassigned; work is handed out in Tasks.
       reviewer_employee_id: reviewer || undefined,
       approver_employee_id: approver || undefined,
       due_date: due || undefined,
@@ -250,7 +249,6 @@ function AddClientModal({ open, onClose }: { open: boolean; onClose: () => void 
             </select>
           </Field>
         ) : null}
-        <Field label="Assigned employee" error={errs.assigned_employee_id}><EmployeeSelect value={assigned} onChange={setAssigned} className="w-full" /></Field>
         <Field label="Reviewer" error={errs.reviewer_employee_id}><EmployeeSelect value={reviewer} onChange={setReviewer} placeholder="None" className="w-full" /></Field>
         <Field label="Manager / Approver (optional)" error={errs.approver_employee_id}><EmployeeSelect value={approver} onChange={setApprover} placeholder="None" className="w-full" /></Field>
         <Field label="Case due date" error={errs.due_date}><input type="date" className={inputClass} value={due} onChange={(e) => setDue(e.target.value)} /></Field>

@@ -71,13 +71,18 @@ export function TaskDetailPage() {
                     <TaskStatusPill status={t.status} overdue={t.overdue} />
                     <Priority value={t.priority} />
                     <span className="text-12 text-neutral-500">
-                      Assigned to {t.assigned_employee_name}{t.assigned_by_name ? ` by ${t.assigned_by_name}` : ''}
+                      {t.assigned_employee_name
+                        ? <>Assigned to {t.assigned_employee_name}{t.assigned_by_name ? ` by ${t.assigned_by_name}` : ''}</>
+                        : 'Not assigned yet'}
                     </span>
                   </div>
                 </div>
                 <div className="flex-1" />
                 <div className="flex items-center gap-2 flex-wrap">
-                  {t.status === 'pending' ? (
+                  {canManage && !t.assigned_employee_id && t.status !== 'completed' && t.status !== 'cancelled' ? (
+                    <Action primary label="Assign" icon={<UserCog size={14} />} onClick={() => setShowReassign(true)} />
+                  ) : null}
+                  {t.status === 'pending' && t.assigned_employee_id ? (
                     <Action primary label="Start task" icon={<Play size={14} />} onClick={() => act.mutate({ action: 'start' })} busy={act.isPending} />
                   ) : null}
                   {t.status === 'in_progress' ? (
@@ -110,7 +115,7 @@ export function TaskDetailPage() {
                       }}
                     />
                   ) : null}
-                  {canManage && t.status !== 'completed' ? (
+                  {canManage && t.assigned_employee_id && t.status !== 'completed' ? (
                     <Action label="Reassign" icon={<UserCog size={14} />} onClick={() => setShowReassign(true)} />
                   ) : null}
                 </div>
@@ -135,7 +140,7 @@ export function TaskDetailPage() {
                     <div className="p-4">
                       {t.description ? <p className="text-13 text-neutral-700 mb-4 whitespace-pre-wrap">{t.description}</p> : null}
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6">
-                        <Detail label="Assigned to" value={t.assigned_employee_name} />
+                        <Detail label="Assigned to" value={t.assigned_employee_name ?? 'Not assigned yet'} />
                         <Detail label="Assigned by" value={t.assigned_by_name ?? '—'} />
                         <Detail label="Client" value={t.client_name ?? '—'} />
                         <Detail label="Project" value={t.project_name ?? '—'} />
@@ -274,8 +279,9 @@ function Action({ label, icon, onClick, busy, primary }: {
 }
 
 function ReassignModal({ taskId, currentEmployeeId, onClose, onDone }: {
-  taskId: string; currentEmployeeId: string; onClose: () => void; onDone: () => Promise<void>;
+  taskId: string; currentEmployeeId: string | null; onClose: () => void; onDone: () => Promise<void>;
 }) {
+  const first = !currentEmployeeId;
   const [employeeId, setEmployeeId] = useState('');
   const [reason, setReason] = useState('');
   const [err, setErr] = useState<string | null>(null);
@@ -288,7 +294,7 @@ function ReassignModal({ taskId, currentEmployeeId, onClose, onDone }: {
 
   return (
     <Modal
-      open title="Reassign task" onClose={onClose}
+      open title={first ? 'Assign task' : 'Reassign task'} onClose={onClose}
       footer={
         <>
           <button type="button" onClick={onClose} className="h-8 px-3 text-13 rounded border border-neutral-300 bg-white hover:bg-neutral-50">Cancel</button>
@@ -296,12 +302,12 @@ function ReassignModal({ taskId, currentEmployeeId, onClose, onDone }: {
             type="button" disabled={!employeeId || reassign.isPending} onClick={() => reassign.mutate()}
             className="h-8 px-3 text-13 rounded bg-neutral-900 text-white hover:bg-neutral-800 disabled:opacity-50"
           >
-            {reassign.isPending ? 'Reassigning…' : 'Reassign'}
+            {reassign.isPending ? 'Saving…' : first ? 'Assign' : 'Reassign'}
           </button>
         </>
       }
     >
-      <Field label="Reassign to">
+      <Field label={first ? 'Assign to' : 'Reassign to'}>
         <select className={inputClass} value={employeeId} onChange={(e) => setEmployeeId(e.target.value)}>
           <option value="">Select employee…</option>
           {(employeesQ.data?.items ?? []).filter((e) => e.id !== currentEmployeeId).map((e) => (

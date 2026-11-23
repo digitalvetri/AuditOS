@@ -1,4 +1,5 @@
 import { Router } from 'express'
+import { AUTO_SOURCE_SERVICE } from '../task/auto.js'
 import { prisma, alive } from '../../lib/prisma.js'
 import { ApiError, handler, ok } from '../../lib/http.js'
 import { requireSession } from '../../platform/auth.js'
@@ -173,7 +174,9 @@ servicesRouter.delete('/:id', handler(async (req, res) => {
   await assertCanSeeClient(session, scope, row.clientId)
 
   const [openTasks, incCases, pfrCases, invoices] = await Promise.all([
-    prisma.task.count({ where: { clientServiceId: row.id, deletedAt: null, status: { notIn: ['completed', 'cancelled', 'done'] } } }),
+    // The task raised automatically when the service was added does not
+    // count while nobody has started it — it is cancelled with the service.
+    prisma.task.count({ where: { clientServiceId: row.id, deletedAt: null, status: { notIn: ['completed', 'cancelled', 'done'] }, OR: [{ source: null }, { source: { not: AUTO_SOURCE_SERVICE } }, { startedAt: { not: null } }] } }),
     prisma.incorporationCase.count({ where: { clientServiceId: row.id, deletedAt: null } }),
     prisma.partnershipCase.count({ where: { clientServiceId: row.id, deletedAt: null } }),
     prisma.invoice.count({ where: { clientServiceId: row.id, deletedAt: null } }),
@@ -188,9 +191,13 @@ servicesRouter.delete('/:id', handler(async (req, res) => {
     throw ApiError.conflict('SERVICE_IN_USE', `${row.service.name} can't be removed: it has ${blockers.join(', ')}. Finish or cancel that work first, or mark the service Completed instead.`)
   }
 
-  await prisma.clientService.update({
-    where: { id: row.id }, data: { deletedAt: new Date(), updatedBy: session.userId },
-  })
+  await prisma.$transaction([
+    prisma.clientService.update({ where: { id: row.id }, data: { deletedAt: new Date(), updatedBy: session.userId } }),
+    prisma.task.updateMany({
+      where: { clientServiceId: row.id, deletedAt: null, source: AUTO_SOURCE_SERVICE, startedAt: null, status: { notIn: ['completed', 'cancelled', 'done'] } },
+      data: { status: 'cancelled', cancelledAt: new Date(), cancelReason: 'Service removed from the client.', updatedBy: session.userId },
+    }),
+  ])
   // GST Filing removed: the client's GST profile is deactivated (past periods kept).
   if (row.service.code === 'GST_FILING') await refreshClientGst(prisma, row.clientId, session.userId)
 

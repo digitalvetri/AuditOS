@@ -1,5 +1,5 @@
 import { useState, type FormEvent } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Plus, Play, Pause, Square, CheckCircle2 } from 'lucide-react';
 import {
@@ -28,7 +28,9 @@ export function TaskListPage() {
   const canManage = can(session?.role.code, 'workstation.task.manage', 'self');
   const navigate = useNavigate();
 
-  const [filters, setFilters] = useState<TaskFilters>({ status: 'all', priority: 'all', sort: 'newest', limit: 50 });
+  const [params] = useSearchParams();
+  // ?employee_id=unassigned opens straight onto the tasks waiting to be handed out.
+  const [filters, setFilters] = useState<TaskFilters>({ status: 'all', priority: 'all', sort: 'newest', limit: 50, employee_id: params.get('employee_id') ?? undefined });
   const [showCreate, setShowCreate] = useState(false);
 
   const dashboardQ = useQuery({
@@ -118,7 +120,7 @@ export function TaskListPage() {
             label="Employee"
             value={filters.employee_id ?? ''}
             onChange={(v) => set('employee_id', v || undefined)}
-            options={[{ value: '', label: 'All employees' }, ...(employeesQ.data?.items ?? []).map((e) => ({ value: e.id, label: e.name }))]}
+            options={[{ value: '', label: 'All employees' }, { value: 'unassigned', label: 'Not assigned yet' }, ...(employeesQ.data?.items ?? []).map((e) => ({ value: e.id, label: e.name }))]}
           />
         ) : null}
         <Select
@@ -147,7 +149,8 @@ export function TaskListPage() {
           >
             <Table head={['Task', 'Employee', 'Client / Project', 'Priority', 'Status', 'Estimated', 'Actual', 'Due', 'Actions']}>
               {data.items.map((t) => (
-                <TaskRow key={t.id} task={t} onOpen={() => navigate(`/workstation/tasks/${t.id}`)} />
+                <TaskRow key={t.id} task={t} onOpen={() => navigate(`/workstation/tasks/${t.id}`)}
+                  canAssign={canManage} employees={employeesQ.data?.items ?? []} />
               ))}
             </Table>
             {data.total > data.items.length ? (
@@ -195,7 +198,9 @@ function Tile({ label, value, text, tone, onClick }: {
 }
 
 /** One row, with the clock controls the current status allows. */
-function TaskRow({ task, onOpen }: { task: Task; onOpen: () => void }) {
+function TaskRow({ task, onOpen, canAssign, employees }: {
+  task: Task; onOpen: () => void; canAssign: boolean; employees: { id: string; name: string }[];
+}) {
   const qc = useQueryClient();
   const live = useLiveMinutes(task);
   const invalidate = () => {
@@ -206,6 +211,12 @@ function TaskRow({ task, onOpen }: { task: Task; onOpen: () => void }) {
     mutationFn: (action: 'start' | 'pause' | 'resume' | 'complete') => tasksApi[action](task.id),
     onSuccess: invalidate,
   });
+  // An automatic task waits here, unassigned, until a manager picks someone.
+  const assign = useMutation({
+    mutationFn: (employeeId: string) => tasksApi.reassign(task.id, employeeId),
+    onSuccess: invalidate,
+  });
+  const unassigned = !task.assigned_employee_id;
 
   return (
     <Row onClick={onOpen} status={task.overdue ? 'missed' : task.status}>
@@ -213,7 +224,18 @@ function TaskRow({ task, onOpen }: { task: Task; onOpen: () => void }) {
         <span className="text-neutral-900">{task.title}</span>
         {task.session_count > 0 ? <span className="block text-11 text-neutral-500">{task.session_count} session{task.session_count === 1 ? '' : 's'}</span> : null}
       </Cell>
-      <Cell muted>{task.assigned_employee_name}</Cell>
+      <Cell muted>
+        {unassigned && canAssign ? (
+          <span onClick={(e) => e.stopPropagation()}>
+            <select aria-label="Assign to" value="" disabled={assign.isPending}
+              onChange={(e) => { if (e.target.value) assign.mutate(e.target.value); }}
+              className="h-8 px-2 text-13 rounded-lg border border-amber/60 bg-amber/10 text-neutral-800 max-w-[170px]">
+              <option value="">Assign to…</option>
+              {employees.map((e) => <option key={e.id} value={e.id}>{e.name}</option>)}
+            </select>
+          </span>
+        ) : (task.assigned_employee_name ?? <span className="text-amber">Not assigned yet</span>)}
+      </Cell>
       <Cell muted>
         {task.client_name ?? '—'}
         {task.project_name ? <span className="block text-11 text-neutral-400">{task.project_name}</span> : null}
@@ -227,7 +249,7 @@ function TaskRow({ task, onOpen }: { task: Task; onOpen: () => void }) {
       <Cell muted className="whitespace-nowrap">{fmtDay(task.due_date)}</Cell>
       <Cell>
         <span className="flex items-center gap-1" onClick={(e) => e.stopPropagation()}>
-          {task.status === 'pending' ? (
+          {task.status === 'pending' && !unassigned ? (
             <IconButton label="Start" onClick={() => act.mutate('start')} disabled={act.isPending}><Play size={13} /></IconButton>
           ) : null}
           {task.status === 'in_progress' ? (

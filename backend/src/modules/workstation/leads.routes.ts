@@ -1,4 +1,6 @@
 import { Router } from 'express'
+import { defaultOwnerEmployeeId } from '../../platform/workstation/owner.js'
+import { notifyTasksToAssign, raiseServiceTask } from '../task/auto.js'
 import { prisma, alive } from '../../lib/prisma.js'
 import { ApiError, handler, ok } from '../../lib/http.js'
 import { can, requireSession } from '../../platform/auth.js'
@@ -94,7 +96,8 @@ leadsRouter.post('/', handler(async (req, res) => {
   const contactNumber = v.phone('contact_number', b.contact_number)
   const serviceId = v.str('service_id', b.service_id)
   const priceQuotedPaise = v.rupeesToPaise('price_quoted', b.price_quoted)
-  const assignedEmployeeId = v.str('assigned_employee_id', b.assigned_employee_id)
+  // Not chosen on the form: the lead is the creator's (work is assigned in Tasks).
+  const assignedEmployeeId = v.str('assigned_employee_id', b.assigned_employee_id, { required: false }) ?? await defaultOwnerEmployeeId(session)
   const email = v.email('email', b.email, false)
   const notes = v.str('notes', b.notes, { required: false, max: 2000 })
   v.throwIfAny()
@@ -268,7 +271,7 @@ leadsRouter.post('/:id/convert', handler(async (req, res) => {
   const email = v.email('email', b.email, false)
   const gstin = 'gstin' in b && b.gstin ? v.gstin('gstin', b.gstin) : undefined
   const pan = 'pan' in b && b.pan ? v.pan('pan', b.pan) : undefined
-  const accountManagerId = v.str('account_manager_id', b.account_manager_id)
+  const accountManagerId = v.str('account_manager_id', b.account_manager_id, { required: false }) ?? await defaultOwnerEmployeeId(session)
   const dueDate = v.date('due_date', b.due_date, false)
   const shortName = v.str('short_name', b.short_name, { required: false, max: 20 })
   const secondaryManagerId = v.str('secondary_manager_id', b.secondary_manager_id, { required: false })
@@ -346,12 +349,13 @@ leadsRouter.post('/:id/convert', handler(async (req, res) => {
       },
     })
 
-    // The lead's own service becomes the client's first engagement.
+    // The lead's own service becomes the client's first engagement — added
+    // without a person, and raised at once as a task to assign in Tasks.
     const clientService = await tx.clientService.create({
       data: {
         clientId: client.id,
         serviceId: lead.serviceId,
-        assignedEmployeeId: lead.assignedEmployeeId,
+        assignedEmployeeId: null,
         managerId: accountManagerId!,
         dueDate: dueDate ?? null,
         status: 'not_started',
@@ -365,8 +369,11 @@ leadsRouter.post('/:id/convert', handler(async (req, res) => {
       data: { convertedClientId: client.id, convertedAt: new Date(), updatedBy: session.userId },
     })
 
-    return { client, lead: updatedLead, clientService }
+    const taskId = await raiseServiceTask(tx, clientService.id, session)
+
+    return { client, lead: updatedLead, clientService, taskId }
   })
+  await notifyTasksToAssign(result.taskId ? [result.taskId] : [], result.client.companyName, session.userId)
 
   await writeActivity({
     session, subjectType: 'lead', subjectId: result.lead.id,

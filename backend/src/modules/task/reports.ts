@@ -146,6 +146,8 @@ export const TaskReports = {
 
     for (const row of grouped) {
       const id = row.assignedEmployeeId
+      // Unassigned tasks belong to nobody's row (the Task module lists them).
+      if (!id) continue
       if (!acc.has(id)) {
         const e = nameOf.get(id)
         acc.set(id, {
@@ -229,8 +231,8 @@ export const TaskReports = {
     const items = rows.map((r) => ({
       task_id: r.id,
       title: r.title,
-      employee_id: r.assignedEmployee.id,
-      employee_name: r.assignedEmployee.fullName,
+      employee_id: r.assignedEmployee?.id ?? null,
+      employee_name: r.assignedEmployee?.fullName ?? 'Unassigned',
       priority: r.priority,
       estimated_minutes: r.estimatedMinutes!,
       actual_minutes: r.actualMinutes,

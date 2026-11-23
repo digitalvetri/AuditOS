@@ -1,4 +1,6 @@
 import { Router } from 'express'
+import { defaultOwnerEmployeeId } from '../../platform/workstation/owner.js'
+import { notifyTasksToAssign, raiseServiceTask } from '../task/auto.js'
 import { CIN_RE, LLPIN_RE } from '../gst/validate.js'
 import { refreshClientGst } from '../gst/filing.js'
 import { prisma, alive } from '../../lib/prisma.js'
@@ -102,6 +104,9 @@ clientsRouter.post('/', handler(async (req, res) => {
   const session = requireSession(req)
   const scope = requireWorkstation(session, 'workstation.client.manage')
   const b = body(req)
+  // The form names nobody (work is assigned in Tasks): the client is the
+  // creator's, for visibility.
+  if (!b.account_manager_id) b.account_manager_id = await defaultOwnerEmployeeId(session)
 
   const v = new FieldErrors()
   const f = readClientFields(v, b)
@@ -579,7 +584,7 @@ clientsRouter.post('/:id/services', handler(async (req, res) => {
   const byId = new Map(services.map((s) => [s.id, s]))
   const ordered = serviceIds.map((id) => byId.get(id)!)
 
-  const { rows, skipped, activated } = await prisma.$transaction(async (tx) => {
+  const { rows, skipped, activated, taskIds } = await prisma.$transaction(async (tx) => {
     // The single form keeps its old behaviour (it always adds the row).
     const live = multi
       ? new Set((await tx.clientService.findMany({
@@ -605,10 +610,18 @@ clientsRouter.post('/:id/services', handler(async (req, res) => {
         include: { service: true, client: true },
       }))
     }
+    // Each service added becomes a task, unassigned until a partner hands it
+    // out from the Task module.
+    const taskIds: string[] = []
+    for (const row of created) {
+      const t = await raiseServiceTask(tx, row.id, session)
+      if (t) taskIds.push(t)
+    }
     // The first engagement ends onboarding.
     const act = created.length > 0 && await activateIfOnboarding(tx, req.params.id, session.userId)
-    return { rows: created, skipped: skip, activated: act }
+    return { rows: created, skipped: skip, activated: act, taskIds }
   })
+  if (rows[0]) await notifyTasksToAssign(taskIds, rows[0].client.companyName, session.userId)
   if (activated) {
     await writeActivity({
       session, subjectType: 'client', subjectId: req.params.id, action: 'client.status_updated',

@@ -170,6 +170,8 @@ export async function startTask(taskId: string, actor: TaskActor, now: Date = ne
 
     const open = await tx.taskTimeSession.findFirst({ where: { taskId, endedAt: null } })
     if (open) throw ApiError.conflict('session_already_open', 'This task already has a running work session.')
+    // Work is only ever started by the person it is assigned to.
+    if (!task.assignedEmployeeId) throw ApiError.unprocessable('task_unassigned', 'Assign this task to someone before starting it.')
     await assertEmployeeFree(tx, task.assignedEmployeeId, taskId)
 
     await tx.taskTimeSession.create({
@@ -225,6 +227,8 @@ export async function resumeTask(taskId: string, actor: TaskActor, now: Date = n
 
     const open = await tx.taskTimeSession.findFirst({ where: { taskId, endedAt: null } })
     if (open) throw ApiError.conflict('session_already_open', 'This task already has a running work session.')
+    // Work is only ever started by the person it is assigned to.
+    if (!task.assignedEmployeeId) throw ApiError.unprocessable('task_unassigned', 'Assign this task to someone before starting it.')
     await assertEmployeeFree(tx, task.assignedEmployeeId, taskId)
 
     await tx.taskTimeSession.create({

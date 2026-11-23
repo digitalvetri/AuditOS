@@ -78,7 +78,9 @@ export async function taskScopeWhere(session: Session, scope: Scope): Promise<Pr
     if (!me) return { id: '__none__' }
     const employee = await prisma.employee.findUnique({ where: { id: me }, select: { departmentId: true } })
     if (!employee) return { id: '__none__' }
-    return { assignedEmployee: { departmentId: employee.departmentId } }
+    // Their department's work, and the work no one has been given yet —
+    // automatic tasks wait unassigned until a manager hands them out.
+    return { AND: [{ OR: [{ assignedEmployee: { departmentId: employee.departmentId } }, { assignedEmployeeId: null }] }] }
   }
   return { assignedEmployeeId: session.employeeId ?? '__none__' }
 }
@@ -103,8 +105,9 @@ export interface TaskApi {
   overdue: boolean
   /** Due before today (IST) and neither completed nor cancelled. */
   is_overdue: boolean
-  assigned_employee_id: string
-  assigned_employee_name: string
+  /** Null = not assigned yet (an automatic task waiting for the Task module). */
+  assigned_employee_id: string | null
+  assigned_employee_name: string | null
   assigned_by_id: string | null
   assigned_by_name: string | null
   client_id: string | null
@@ -155,7 +158,7 @@ export function taskToApi(row: TaskRow, now = new Date()): TaskApi {
     overdue,
     is_overdue: overdue,
     assigned_employee_id: row.assignedEmployeeId,
-    assigned_employee_name: row.assignedEmployee.fullName,
+    assigned_employee_name: row.assignedEmployee?.fullName ?? null,
     assigned_by_id: row.assignedById,
     assigned_by_name: row.assignedBy?.fullName ?? null,
     client_id: row.clientId,
@@ -235,7 +238,7 @@ export const TaskService = {
       ...statusWhere(filters.status),
       ...overdueWhere,
       ...(filters.priority && filters.priority !== 'all' ? { priority: filters.priority } : {}),
-      ...(filters.employeeId ? { assignedEmployeeId: filters.employeeId } : {}),
+      ...(filters.employeeId ? { assignedEmployeeId: filters.employeeId === 'unassigned' ? null : filters.employeeId } : {}),
       ...(filters.clientId ? { clientId: filters.clientId } : {}),
       ...(filters.clientServiceId ? { clientServiceId: filters.clientServiceId } : {}),
       ...(filters.partnershipCaseIdIn ? { partnershipCaseId: { in: filters.partnershipCaseIdIn } } : {}),
