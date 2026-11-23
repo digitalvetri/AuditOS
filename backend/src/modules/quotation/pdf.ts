@@ -20,6 +20,14 @@ import { resolveLogoBuffer } from '../pdf/logo.js'
  * Money is never recomputed. Every figure is read from the row the totals
  * engine already wrote, because a PDF that disagreed with the record would be
  * the one copy nobody could correct.
+ *
+ * Auto-compact — the document is rendered twice when the normal layout spills
+ * past one page: a second pass with every `moveDown` halved, and the shorter
+ * of the two is sent. Only when compact strictly saves pages — never for
+ * documents that already fit on one page, so a short invoice does not read
+ * differently from a long one of the same firm. Mirrors the frontend's
+ * `qdoc-compact` body modifier so the preview and the file sent to the
+ * client break at the same place.
  */
 
 const INCLUDE = {
@@ -47,7 +55,7 @@ export type QuotationPdfRow = Prisma.QuotationGetPayload<{ include: typeof INCLU
  * client receives. Embedding a rupee-bearing font is the alternative, and
  * would mean shipping a TTF for one glyph.
  */
-const money = (paise: number): string => formatINR(paise).replace(/\u20B9\s?/g, 'Rs. ')
+const money = (paise: number): string => formatINR(paise).replace(/₹\s?/g, 'Rs. ')
 
 const INK = '#111827'
 const MUTED = '#6b7280'
@@ -89,15 +97,45 @@ const fmtDay = (iso: string): string => {
   return d.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric', timeZone: 'UTC' })
 }
 
-export function streamQuotationPdf(res: Response, q: QuotationPdfRow) {
-  const doc = new PDFDocument({ size: 'A4', margin: 48, bufferPages: true })
+export async function streamQuotationPdf(res: Response, q: QuotationPdfRow): Promise<void> {
+  const normal = await renderQuotation(q, false)
+  let chosen = normal
+  if (normal.pages > 1) {
+    const compact = await renderQuotation(q, true)
+    // Only accept compact when it strictly reduces page count. Equal pages
+    // mean the gap-tightening did not pay for the visual difference.
+    if (compact.pages < normal.pages) chosen = compact
+  }
   res.setHeader('Content-Type', 'application/pdf')
   // `inline` so clicking the share link previews in the browser's PDF viewer
   // (with its own Download button) instead of forcing a save. The in-app
   // "Download PDF" button overrides this with an <a download> on the client.
   res.setHeader('Content-Disposition', `inline; filename="${q.quotationCode}.pdf"`)
-  doc.pipe(res)
+  res.end(chosen.buffer)
+}
 
+/**
+ * One pass of the renderer into an in-memory buffer. `compact=true` halves
+ * every `moveDown` — the gaps between paragraphs, headings and the closing
+ * block. Font sizes, margins, column widths, table padding and the
+ * `ensure(h)` keep-with-first-line reservations are the same in both passes,
+ * so a document that reads well at normal spacing still reads well compact.
+ */
+function renderQuotation(q: QuotationPdfRow, compact: boolean): Promise<{ buffer: Buffer; pages: number }> {
+  return new Promise((resolve) => {
+    const doc = new PDFDocument({ size: 'A4', margin: 48, bufferPages: true })
+    const chunks: Buffer[] = []
+    doc.on('data', (c) => chunks.push(c))
+    const s = (x: number): number => (compact ? x * 0.5 : x)
+    drawQuotation(doc, q, s)
+    const pages = doc.bufferedPageRange().count
+    doc.on('end', () => resolve({ pages, buffer: Buffer.concat(chunks) }))
+    doc.end()
+  })
+}
+
+/* eslint-disable @typescript-eslint/no-explicit-any */
+function drawQuotation(doc: any, q: QuotationPdfRow, s: (x: number) => number): void {
   const cfg = (q.layoutConfig ?? {}) as { company?: Record<string, string> }
   const company = cfg.company ?? {}
   // Bill-to party: the organization when the client belongs to one. Its
@@ -141,7 +179,7 @@ export function streamQuotationPdf(res: Response, q: QuotationPdfRow) {
   const rule = (gapAfter = 0.6) => {
     home()
     doc.moveTo(left, doc.y).lineTo(left + width, doc.y).strokeColor(RULE).lineWidth(0.7).stroke()
-    doc.moveDown(gapAfter)
+    doc.moveDown(s(gapAfter))
   }
 
   /**
@@ -150,11 +188,11 @@ export function streamQuotationPdf(res: Response, q: QuotationPdfRow) {
    */
   const heading = (text: string) => {
     ensure(46)
-    doc.moveDown(0.6)
+    doc.moveDown(s(0.6))
     home()
     doc.font('Helvetica-Bold').fontSize(10.5).fillColor(INK)
       .text(text.toUpperCase(), left, doc.y, { width })
-    doc.moveDown(0.2)
+    doc.moveDown(s(0.2))
     rule(0.4)
   }
 
@@ -180,18 +218,18 @@ export function streamQuotationPdf(res: Response, q: QuotationPdfRow) {
           .filter(Boolean).join('  ·  ')
         if (addr) body(addr, { size: 9, color: MUTED })
         if (contact) body(contact, { size: 9, color: MUTED })
-        doc.moveDown(0.4)
+        doc.moveDown(s(0.4))
         rule()
         break
       }
 
       case 'quotation_title':
         ensure(40)
-        doc.moveDown(0.2)
+        doc.moveDown(s(0.2))
         home()
         doc.font('Helvetica-Bold').fontSize(13).fillColor(INK)
           .text('QUOTATION', left, doc.y, { width, align: 'center' })
-        doc.moveDown(0.4)
+        doc.moveDown(s(0.4))
         home()
         break
 
@@ -202,7 +240,7 @@ export function streamQuotationPdf(res: Response, q: QuotationPdfRow) {
         doc.text(`Date: ${fmtDay(q.quoteDate)}`, left, doc.y, { width })
         home()
         doc.text(`Valid until: ${fmtDay(q.validUntil)}`, left, doc.y, { width })
-        doc.moveDown(0.3)
+        doc.moveDown(s(0.3))
         home()
         break
       }
@@ -220,13 +258,13 @@ export function streamQuotationPdf(res: Response, q: QuotationPdfRow) {
       case 'subject':
         if (q.subject) {
           ensure(34)
-          doc.moveDown(0.3)
+          doc.moveDown(s(0.3))
           body(`Subject: ${q.subject}`, { font: 'Helvetica-Bold' })
         }
         break
 
       case 'introduction':
-        if (q.introduction?.trim()) { doc.moveDown(0.4); body(q.introduction.trim()) }
+        if (q.introduction?.trim()) { doc.moveDown(s(0.4)); body(q.introduction.trim()) }
         break
 
       case 'fee_table': {
@@ -247,7 +285,7 @@ export function streamQuotationPdf(res: Response, q: QuotationPdfRow) {
           const cellH = Math.max(...cols.map(([k]) => doc.heightOfString(snap[k] || '—', { width: cw - 8 })))
           // Client table + Services heading + header row + one service row.
           ensure(18 + cellH + 12 + 46 + 40)
-          doc.moveDown(0.6)
+          doc.moveDown(s(0.6))
           const y0 = doc.y
           doc.font('Helvetica-Bold').fontSize(8.5).fillColor(INK)
           cols.forEach(([, label], i) => doc.text(label.toUpperCase(), left + i * cw + 4, y0 + 4, { width: cw - 8 }))
@@ -299,7 +337,7 @@ export function streamQuotationPdf(res: Response, q: QuotationPdfRow) {
           doc.text(freq, xFreq, y, { width: wFreq })
           doc.text(fee, xFee, y, { width: wFee, align: 'right' })
           doc.y = y + h
-          doc.moveDown(0.35)
+          doc.moveDown(s(0.35))
           home()
         }
 
@@ -321,7 +359,7 @@ export function streamQuotationPdf(res: Response, q: QuotationPdfRow) {
           doc.text(label, xDesc, y, { width: wDesc + wFreq, align: 'right' })
           doc.text(money(value), xFee, y, { width: wFee, align: 'right' })
           doc.y = y + doc.heightOfString(label, { width: wDesc })
-          doc.moveDown(0.25)
+          doc.moveDown(s(0.25))
           home()
         }
 
@@ -355,10 +393,10 @@ export function streamQuotationPdf(res: Response, q: QuotationPdfRow) {
             doc.fillColor(INK).text('•', left, y, { width: 10 })
             doc.text(it.content, left + 14, y, { width: width - 14 })
             doc.y = y + h
-            doc.moveDown(0.15)
+            doc.moveDown(s(0.15))
             home()
           }
-          doc.moveDown(0.45)
+          doc.moveDown(s(0.45))
           home()
         }
         break
@@ -377,9 +415,9 @@ export function streamQuotationPdf(res: Response, q: QuotationPdfRow) {
 
       case 'closing': {
         ensure(80)
-        doc.moveDown(0.8)
+        doc.moveDown(s(0.8))
         if (q.closingText?.trim()) body(q.closingText.trim())
-        doc.moveDown(1.2)
+        doc.moveDown(s(1.2))
         if (q.preparedByName) {
           body(q.preparedByName, { font: 'Helvetica-Bold' })
           if (q.preparedByDesignation) body(q.preparedByDesignation, { size: 9, color: MUTED })
@@ -409,8 +447,7 @@ export function streamQuotationPdf(res: Response, q: QuotationPdfRow) {
         break
     }
   }
-
-  doc.end()
 }
+/* eslint-enable @typescript-eslint/no-explicit-any */
 
 export const QUOTATION_PDF_INCLUDE = INCLUDE

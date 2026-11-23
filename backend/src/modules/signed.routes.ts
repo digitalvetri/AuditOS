@@ -103,7 +103,7 @@ signedRouter.get('/quotations/:id/pdf', handler(async (req, res) => {
     include: QUOTATION_PDF_INCLUDE,
   })
   if (!q) throw ApiError.notFound('Quotation not found.')
-  streamQuotationPdf(res, q)
+  await streamQuotationPdf(res, q)
 }))
 
 /**
