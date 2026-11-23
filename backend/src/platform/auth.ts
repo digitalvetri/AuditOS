@@ -6,6 +6,7 @@ import { ApiError } from '../lib/http.js'
 import { prisma } from '../lib/prisma.js'
 import type { PermissionCode, RoleCode, Scope } from './rbac/matrix.js'
 import { scopeSatisfies } from './rbac/matrix.js'
+import { cleanExtraPages, cleanHiddenPages, hiddenPageForPath, loginGrants } from './pages.js'
 
 /**
  * AUTHENTICATION — step 1 of the shared pipeline:
@@ -31,6 +32,8 @@ export interface Session {
   employeeFullName: string | null
   /** An Admin-issued password is still in use: only the change-password flow may run. */
   mustChangePassword: boolean
+  /** Pages an Admin switched off for this login (platform/pages.ts). */
+  hiddenPages?: string[]
 }
 
 declare global {
@@ -192,20 +195,24 @@ export async function loadSession(userId: string, tokenVersion?: number): Promis
   // A deactivated employee cannot act even if a cookie survives.
   if (user.employee && (user.employee.deletedAt || user.employee.status === 'inactive')) return null
 
+  const hiddenPages = cleanHiddenPages(user.hiddenPages)
   return {
     userId: user.id,
     email: user.email,
     roleId: user.roleId,
     roleCode: user.role.code as RoleCode,
     roleName: user.role.name,
-    grants: user.role.permissions.map((rp) => ({
+    // Page access: a switched-off page takes its permission families with
+    // it; a page switched on beyond the role adds its codes.
+    grants: loginGrants(user.role.code, user.role.permissions.map((rp) => ({
       permission: rp.permission.code,
       scope: rp.scope as Scope,
-    })),
+    })), hiddenPages, cleanExtraPages(user.extraPages, hiddenPages)),
     employeeId: user.employeeId,
     departmentId: user.employee?.departmentId ?? null,
     employeeFullName: user.employee?.fullName ?? null,
     mustChangePassword: user.mustChangePassword,
+    hiddenPages,
   }
 }
 
@@ -255,6 +262,19 @@ export async function authenticate(req: Request, _res: Response, next: NextFunct
   } catch (err) {
     next(err)
   }
+}
+
+/**
+ * After `authenticate`: an API path owned by a page switched off for this
+ * login is refused (platform/pages.ts `api`).
+ */
+export function pageGate(req: Request, _res: Response, next: NextFunction) {
+  const hidden = req.session?.hiddenPages ?? []
+  if (hidden.length && hiddenPageForPath(req.originalUrl.split('?')[0], hidden)) {
+    next(new ApiError(403, 'page_switched_off', 'This page is switched off for your login. Ask an Admin to turn it on.'))
+    return
+  }
+  next()
 }
 
 export function requireSession(req: Request): Session {

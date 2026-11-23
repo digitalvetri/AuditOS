@@ -158,6 +158,10 @@ model User {
   // before which this account refuses sign-in (growing delay).
   failedLoginCount   Int       @default(0)
   lockedUntil        DateTime?
+  // Page access (src/platform/pages.ts keys), set by an Admin per login:
+  // pages the role gives but switched OFF, and pages beyond the role switched ON.
+  hiddenPages        String[]  @default([])
+  extraPages         String[]  @default([])
 
   organisation Organisation @relation(fields: [organisationId], references: [id])
   role         Role         @relation(fields: [roleId], references: [id])

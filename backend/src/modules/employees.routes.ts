@@ -1,5 +1,5 @@
 import { randomInt } from 'node:crypto'
-import { Router } from 'express'
+import { Router, type Request } from 'express'
 import { z } from 'zod'
 import { ApiError, handler, ok } from '../lib/http.js'
 import { prisma } from '../lib/prisma.js'
@@ -13,6 +13,7 @@ import { writeAudit } from '../platform/audit.js'
 import { notifyPermissionHolders } from '../platform/notify.js'
 import { articleshipForms, recomputeArticleship } from './articleship/service.js'
 import { VISIBLE_ROLE_CODES } from '../platform/rbac/modules.js'
+import { cleanExtraPages, cleanHiddenPages, GRANTABLE_PAGE_KEYS, PAGE_KEYS } from '../platform/pages.js'
 import type { RoleCode } from '../platform/rbac/matrix.js'
 import {
   articledTrainingToApi, employeeDeptProjection, employeeFinanceProjection,
@@ -446,6 +447,72 @@ employeesRouter.put('/:id/role', handler(async (req, res) => {
     before: { role: login.role.code }, after: { role: role.code }, req,
   })
   ok(res, { role: { id: role.id, code: role.code, name: role.name } })
+}))
+
+// GET /api/employees/:id/page-access — the login's role grants (unnarrowed,
+// so the editor can tell "not in role" from "switched off") and the pages
+// switched off for it. PUT replaces the switched-off list.
+async function pageAccessTarget(req: Request) {
+  const session = requireSession(req)
+  if (!can(session, 'settings.manage', 'organisation')) throw ApiError.forbidden()
+  const login = await prisma.user.findFirst({
+    where: { employeeId: req.params.id, deletedAt: null },
+    include: { role: { include: { permissions: { include: { permission: true } } } } },
+  })
+  if (!login) throw ApiError.unprocessable('no_login', 'This employee has no login account.')
+  // Only logins the caller outranks (never the Super Admin's, for an Admin).
+  if (login.id !== session.userId) assertCanManageLogin(session, login.role.code)
+  return { session, login }
+}
+
+function pageAccessToApi(login: Awaited<ReturnType<typeof pageAccessTarget>>['login']) {
+  return {
+    role: { id: login.role.id, code: login.role.code, name: login.role.name },
+    role_grants: login.role.permissions
+      .filter((rp) => !rp.permission.deletedAt)
+      .map((rp) => ({ permission: rp.permission.code, scope: rp.scope })),
+    hidden_pages: cleanHiddenPages(login.hiddenPages),
+    extra_pages: cleanExtraPages(login.extraPages, cleanHiddenPages(login.hiddenPages)),
+    // Pages that can be switched on beyond the role (never Settings).
+    grantable_pages: GRANTABLE_PAGE_KEYS,
+  }
+}
+
+employeesRouter.get('/:id/page-access', handler(async (req, res) => {
+  const { login } = await pageAccessTarget(req)
+  ok(res, pageAccessToApi(login))
+}))
+
+employeesRouter.put('/:id/page-access', handler(async (req, res) => {
+  const { session, login } = await pageAccessTarget(req)
+  const body = z.object({
+    hidden_pages: z.array(z.string()).max(200),
+    extra_pages: z.array(z.string()).max(200).optional(),
+  }).safeParse(req.body ?? {})
+  if (!body.success) throw ApiError.badRequest('hidden_pages and extra_pages must be lists of page keys.')
+  const asked = [...body.data.hidden_pages, ...(body.data.extra_pages ?? [])]
+  const unknown = asked.filter((k) => !PAGE_KEYS.includes(k))
+  if (unknown.length) throw ApiError.badRequest(`Unknown page: ${unknown.join(', ')}.`, { hidden_pages: ['Unknown page.'] })
+  const notGrantable = (body.data.extra_pages ?? []).filter((k) => !GRANTABLE_PAGE_KEYS.includes(k))
+  if (notGrantable.length) {
+    throw ApiError.badRequest(`${notGrantable.join(', ')} cannot be given beyond the role.`, { extra_pages: ['Not grantable.'] })
+  }
+  if (login.id === session.userId) {
+    throw ApiError.conflict('self_page_access', 'You cannot change your own page access.')
+  }
+  const before = { hidden_pages: cleanHiddenPages(login.hiddenPages), extra_pages: cleanExtraPages(login.extraPages) }
+  const hidden = cleanHiddenPages(body.data.hidden_pages)
+  // Omitted extra_pages keeps what is there (older callers send hidden only).
+  const extra = cleanExtraPages(body.data.extra_pages ?? login.extraPages, hidden)
+  const updated = await prisma.user.update({
+    where: { id: login.id }, data: { hiddenPages: hidden, extraPages: extra, updatedBy: session.userId },
+    include: { role: { include: { permissions: { include: { permission: true } } } } },
+  })
+  await writeAudit({
+    actorUserId: session.userId, action: 'user.page_access_changed', entityType: 'User', entityId: login.id,
+    before, after: { hidden_pages: hidden, extra_pages: extra }, req,
+  })
+  ok(res, pageAccessToApi(updated))
 }))
 
 // PATCH /api/employees/:id

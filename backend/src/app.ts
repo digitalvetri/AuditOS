@@ -5,7 +5,7 @@ import { env } from './lib/env.js'
 import { ApiError, errorMiddleware, handler, ok } from './lib/http.js'
 import { prisma } from './lib/prisma.js'
 import { isAllowedOrigin } from './lib/origin.js'
-import { authenticate } from './platform/auth.js'
+import { authenticate, pageGate } from './platform/auth.js'
 import { authRouter } from './modules/auth.routes.js'
 import { employeesRouter } from './modules/employees.routes.js'
 import { articleshipRouter } from './modules/articleship/routes.js'
@@ -222,6 +222,7 @@ export function createApp() {
 
   // Everything else requires a session.
   app.use('/api', authenticate)
+  app.use('/api', pageGate)
 
   app.use('/api/employees', employeesRouter)
   app.use('/api/articleship', articleshipRouter)

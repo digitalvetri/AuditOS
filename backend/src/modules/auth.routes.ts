@@ -9,6 +9,8 @@ import {
 } from '../platform/auth.js'
 import { writeAudit } from '../platform/audit.js'
 import { passwordProblem } from '../platform/password.js'
+import { cleanExtraPages, cleanHiddenPages, loginGrants } from '../platform/pages.js'
+import type { Scope } from '../platform/rbac/matrix.js'
 
 /**
  * AUTH (§9)
@@ -33,15 +35,20 @@ async function sessionPayload(userId: string) {
     where: { id: userId },
     include: { role: { include: { permissions: { include: { permission: true } } } }, employee: true },
   })
+  const hidden = cleanHiddenPages(user.hiddenPages)
+  const extra = cleanExtraPages(user.extraPages, hidden)
   return {
     user: { id: user.id, email: user.email },
     // An Admin-issued password: the client must route to /set-password.
     must_change_password: user.mustChangePassword,
     role: { id: user.role.id, code: user.role.code, name: user.role.name },
-    // The live grants, so the client's menus follow Settings → Roles.
-    grants: user.role.permissions
+    // The live grants, so the client's menus follow Settings → Roles and
+    // this login's page access (platform/pages.ts).
+    grants: loginGrants(user.role.code, user.role.permissions
       .filter((rp) => !rp.permission.deletedAt)
-      .map((rp) => ({ permission: rp.permission.code, scope: rp.scope })),
+      .map((rp) => ({ permission: rp.permission.code, scope: rp.scope as Scope })), hidden, extra),
+    hidden_pages: hidden,
+    extra_pages: extra,
     employee: user.employee
       ? {
           id: user.employee.id,
