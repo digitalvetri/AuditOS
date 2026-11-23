@@ -6,10 +6,9 @@
  *
  * Order (top → bottom):
  *   Dashboard (no section label)
- *   HRMS        — 10 items
- *   WORKSTATION — Overview, Quotation, Invoice, Engagement, Audits, …
- *   TOOLS       — 3 items: Tools (converters), Repotic (bank/GST/TDS),
- *                 Books (Zoho Books). One section, sibling rows.
+ *   Blocks, as cards: Lead & Client, Office Files, Official Docs,
+ *   Workstation, HR & Admin, Tools. Every row carries a page-access key
+ *   (backend src/platform/pages.ts) an Admin can switch off per employee.
  */
 import { Link, NavLink, useLocation } from 'react-router-dom';
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
@@ -74,6 +73,9 @@ export interface NavChild {
 export interface NavItem {
   to: string;
   label: string;
+  /** Page-access key (backend src/platform/pages.ts). An Admin can switch
+      the page off per employee; its children go with it. */
+  page: string;
   icon: LucideIcon;
   end?: boolean;
   visible: boolean;
@@ -93,15 +95,18 @@ export interface NavGroup {
 }
 
 /**
- * The four modules shown as cards at the top of the rail. Each maps to one
- * nav group (by its label) and carries a live one-line stat.
+ * The blocks shown as cards at the top of the rail. Each maps to one nav group
+ * (by its label) and carries a live one-line stat. The first four are the
+ * firm's working blocks; HR & Admin and Tools hold everything else.
  */
-type ModuleKey = 'HRMS' | 'WORKSTATION' | 'TOOLS' | 'INTEGRATIONS';
-const MODULE_META: Record<ModuleKey, { title: string; icon: LucideIcon }> = {
-  HRMS: { title: 'HRMS', icon: Users },
+export type ModuleKey = 'LEAD_CLIENT' | 'OFFICE_FILES' | 'OFFICIAL_DOCS' | 'WORKSTATION' | 'HR_ADMIN' | 'TOOLS';
+export const MODULE_META: Record<ModuleKey, { title: string; icon: LucideIcon }> = {
+  LEAD_CLIENT: { title: 'Lead & Client', icon: Handshake },
+  OFFICE_FILES: { title: 'Office Files', icon: ReceiptText },
+  OFFICIAL_DOCS: { title: 'Official Docs', icon: BookOpen },
   WORKSTATION: { title: 'Workstation', icon: Briefcase },
+  HR_ADMIN: { title: 'HR & Admin', icon: Users },
   TOOLS: { title: 'Tools', icon: Wrench },
-  INTEGRATIONS: { title: 'Integrations', icon: Plug },
 };
 const MODULE_KEY = 'audit-os:sidebar-module';
 
@@ -139,127 +144,163 @@ function matchRow(rows: ReturnType<typeof flatten>, path: string) {
   return best;
 }
 
+/** A permission check: the signed-in role's by default, or a given role's (page-access editor). */
+export type Allow = (permission: Parameters<typeof can>[1], scope?: Parameters<typeof can>[2]) => boolean;
+
+export interface NavOptions {
+  pendingCount?: number;
+  clientCount?: number;
+  /** Check another login's grants instead of the signed-in role (page-access editor). */
+  allow?: Allow;
+  /** Keep rows switched off for the login (the editor lists them). Default: drop them. */
+  keepHidden?: boolean;
+  /** Keep rows the role cannot see too, with `visible` false (the editor greys them). */
+  keepInvisible?: boolean;
+}
+
 /**
- * The navigation: one source for the Sidebar AND the global search's page
- * list (GlobalSearch). `can()` here is menu-rendering only — the API is what
- * enforces access. `badges` carries the Sidebar's live count pills.
+ * The navigation: one source for the Sidebar, the global search's page list
+ * (GlobalSearch), the page-access guard and the page-access editor. The
+ * permission checks here are menu-rendering only — the API enforces access.
  */
 export function buildNav(
   role: Parameters<typeof can>[0],
-  session: { employee: { exclude_from_hr?: boolean } | null } | null | undefined,
-  { pendingCount = 0, clientCount }: { pendingCount?: number; clientCount?: number } = {},
+  session: { employee: { exclude_from_hr?: boolean } | null; hidden_pages?: string[] } | null | undefined,
+  { pendingCount = 0, clientCount, allow: allowOpt, keepHidden = false, keepInvisible = false }: NavOptions = {},
 ): NavGroup[] {
-  // Role-scoped nav (§6.1). Employee: no Employees / Accounts /
-  // Reports / Settings; no Tools if `tools.access` is not granted.
-  // Payroll and Expenses used to be top-level sidebar entries; they
-  // are now tabs INSIDE Accounts (§6.1). One "Accounts" row here,
-  // visible to any role with access to any sub-tab.
+  const allow: Allow = allowOpt ?? ((p, sc = 'self') => can(role, p, sc));
+  const hidden = new Set(keepHidden ? [] : session?.hidden_pages ?? []);
+  // Payroll and Expenses are tabs inside Accounts: one row, visible to any
+  // role with access to any of its tabs.
   const canAccountsRead =
-    can(role, 'accounts.read', 'organisation')
-    || can(role, 'accounts.manage', 'organisation')
-    || can(role, 'payroll.view.own', 'self')
-    || can(role, 'payroll.view', 'organisation')
-    || can(role, 'expense.submit', 'self')
-    || can(role, 'expense.approve', 'department')
+    allow('accounts.read', 'organisation')
+    || allow('accounts.manage', 'organisation')
+    || allow('payroll.view.own', 'self')
+    || allow('payroll.view', 'organisation')
+    || allow('expense.submit', 'self')
+    || allow('expense.approve', 'department');
   // Every staff member with an attendance record checks in and applies for
-  // leave as themselves — even without the HRMS module (Associates). Those
-  // reach only their own rows (/me/…); the API keeps everyone else's closed.
-  const ownHr = tracksHr(session)
-  const seesAttendance = can(role, 'attendance.read', 'self')
-  const seesLeave = can(role, 'leave.read', 'self')
-  const auditItems: NavItem[] = [
-    { section: 'People', to: '/hrms/employees',  label: 'Employees',  icon: Users,                visible: can(role, 'employee.read', 'department') },
-    { section: 'People', to: seesAttendance ? '/hrms/attendance' : '/me/attendance', label: 'Attendance', icon: Clock, visible: seesAttendance || ownHr },
-    { section: 'People', to: seesLeave ? '/hrms/leave' : '/me/leave', label: 'Leave', icon: CalendarDays, visible: seesLeave || ownHr },
-    { section: 'People', to: '/hrms/articleship', label: 'Articleship', icon: GraduationCap,      visible: can(role, 'employee.manage', 'organisation') || can(role, 'employee.read', 'organisation') },
-    { section: 'People', to: '/hrms/documents',  label: 'Employee records', icon: FileText,       visible: can(role, 'document.read', 'self') },
-    // Chats are between staff; the owner logins have no staff record.
-    { section: 'People', to: '/hrms/messages',   label: 'Messages',   icon: MessageSquare,        visible: can(role, 'chat.participate', 'organisation') && Boolean(session?.employee) },
-    { section: 'Finance', to: '/hrms/accounts',   label: 'Payroll & expenses', icon: BookOpen,     visible: canAccountsRead },
-    { section: 'Finance', to: '/hrms/reports',    label: 'Reports',    icon: BarChart3,            visible: can(role, 'reports.hr', 'department') || can(role, 'reports.finance', 'organisation') || can(role, 'reports.all', 'organisation') },
-    { section: 'Admin', to: '/hrms/audit-log',  label: 'Audit log',  icon: ScrollText,           visible: can(role, 'audit.read.all', 'organisation') || can(role, 'audit.read.hr', 'organisation') || can(role, 'audit.read.finance', 'organisation') },
-    { section: 'Admin', to: '/hrms/settings',   label: 'Settings',   icon: Settings,             visible: can(role, 'settings.manage', 'organisation') },
+  // leave as themselves — even without HR access (Associates). Those reach
+  // only their own rows (/me/…); the API keeps everyone else's closed.
+  const ownHr = tracksHr(session);
+  const seesAttendance = allow('attendance.read', 'self');
+  const seesLeave = allow('leave.read', 'self');
+  const services = allow('workstation.service.read', 'self');
+  const invoices = allow('workstation.invoice.read', 'self');
+
+  // ── Lead & Client ──
+  const leadClient: NavItem[] = [
+    { page: 'clients',    to: '/workstation/clients',    label: 'Clients',    icon: Handshake,    visible: allow('workstation.client.read'), badge: clientCount },
+    { page: 'leads',      to: '/workstation/leads',      label: 'Leads',      icon: PhoneCall,    visible: allow('workstation.lead.read') },
+    { page: 'follow_ups', to: '/workstation/follow-ups', label: 'Follow-ups', icon: Clock,        visible: allow('workstation.followup.read') },
+    { page: 'documents',  to: '/workstation/documents',  label: 'Documents',  icon: FolderKanban, visible: allow('workstation.document.read') },
+    { page: 'calendar',   to: '/workstation/calendar',   label: 'Calendar',   icon: CalendarDays, visible: allow('workstation.followup.read') },
   ];
-  // Workstation (teammate's module, per AUDIT_OS_WORKSTATION.md §4).
-  // Sub-items follow the same can(role, ...) pattern; roles without a
-  // workstation.access grant see nothing here.
-  const workstationItems: NavItem[] = [
-    { to: '/workstation',             label: 'Overview',   icon: LayoutGrid,    end: true, visible: can(role, 'workstation.access', 'self') },
-    // ── Clients and day-to-day work ──
-    { section: 'Clients & work', to: '/workstation/clients',    label: 'Clients',    icon: Handshake,     visible: can(role, 'workstation.client.read', 'self'), badge: clientCount },
-    { section: 'Clients & work', to: '/workstation/tasks',      label: 'Tasks',      icon: ListChecks,    visible: can(role, 'workstation.task.read', 'self') },
-    { section: 'Clients & work', to: '/workstation/calendar',   label: 'Calendar',   icon: CalendarDays,  visible: can(role, 'workstation.followup.read', 'self') },
-    { section: 'Clients & work', to: '/workstation/follow-ups', label: 'Follow-ups', icon: Clock,         visible: can(role, 'workstation.followup.read', 'self') },
-    { section: 'Clients & work', to: '/workstation/leads',      label: 'Leads',      icon: PhoneCall,     visible: can(role, 'workstation.lead.read', 'self') },
-    { section: 'Clients & work', to: '/workstation/documents',  label: 'Documents',  icon: FolderKanban,  visible: can(role, 'workstation.document.read', 'self') },
-    // ── Statutory compliance ──
-    { section: 'Compliance', to: '/workstation/compliance', label: 'Compliance calendar', icon: CalendarClock, visible: can(role, 'workstation.compliance.read', 'self') },
-    { section: 'Compliance', to: '/workstation/services',   label: 'Services',   icon: Briefcase,     end: true, visible: can(role, 'workstation.service.read', 'self'),
+  // ── Office Files: what the firm issues ──
+  const officeFiles: NavItem[] = [
+    { page: 'quotations',         to: '/workstation/quotations',         label: 'Quotations',         icon: FileSignature, end: true, visible: allow('workstation.quotation.read') },
+    { page: 'engagement_letters', to: '/workstation/engagement',         label: 'Engagement letters', icon: ScrollText,    visible: allow('workstation.engagement.read') },
+    { page: 'invoices',           to: '/workstation/invoices',           label: 'Invoices',           icon: ReceiptText,   end: true, visible: invoices },
+    { page: 'recurring_invoices', to: '/workstation/recurring-invoices', label: 'Recurring invoices', icon: Wallet,        visible: invoices },
+    { page: 'credit_notes',       to: '/workstation/credit-notes',       label: 'Credit notes',       icon: IndianRupee,   visible: invoices },
+    { page: 'receivables',        to: '/hrms/payment-summary',           label: 'Receivables',        icon: BarChart3,     visible: allow('payment_summary.read', 'organisation') },
+  ];
+  // ── Official Docs: the firm's own registers and records ──
+  const officialDocs: NavItem[] = [
+    { page: 'sales_register',   to: '/workstation/sales-register', label: 'Sales register',     icon: ReceiptText, visible: invoices },
+    { page: 'payroll_expenses', to: '/hrms/accounts',              label: 'Payroll & expenses', icon: BookOpen,    visible: canAccountsRead },
+    { page: 'finance_mis',      to: '/hrms/reports',               label: 'Finance MIS',        icon: BarChart3,   visible: allow('reports.hr', 'department') || allow('reports.finance', 'organisation') || allow('reports.all', 'organisation') },
+    { page: 'employee_records', to: '/hrms/documents',             label: 'Employee records',   icon: FileText,    visible: allow('document.read', 'self') },
+    { page: 'attendance',       to: seesAttendance ? '/hrms/attendance' : '/me/attendance', label: 'Attendance', icon: Clock, visible: seesAttendance || ownHr },
+    { page: 'audit_trail',      to: '/hrms/audit-log',             label: 'Audit trail',        icon: ScrollText,  visible: allow('audit.read.all', 'organisation') || allow('audit.read.hr', 'organisation') || allow('audit.read.finance', 'organisation') },
+  ];
+  // ── Workstation: the filing and audit work itself ──
+  const workstation: NavItem[] = [
+    { page: 'ws_overview', to: '/workstation', label: 'Overview', icon: LayoutGrid, end: true, visible: allow('workstation.access') },
+    { page: 'tasks',       to: '/workstation/tasks', label: 'Tasks', icon: ListChecks, visible: allow('workstation.task.read') },
+    { page: 'registration', to: '/workstation/services/registration', label: 'Registration', icon: Landmark, visible: services,
+      children: REGISTRATION_SERVICES.map((r) => ({ to: `/workstation/services/registration/${r.slug}`, label: r.name })) },
+    { section: 'Returns', page: 'gst_filing', to: '/workstation/services/gst-filing', label: 'GST filing', icon: FileText, visible: services && allow('workstation.gst.read') },
+    { section: 'Returns', page: 'tds_filing', to: '/workstation/services/tds',        label: 'TDS filing', icon: FileText, visible: services },
+    { section: 'IT filing', page: 'it_filing', to: '/workstation/it-filing', label: 'IT returns',          icon: FileText,         visible: services },
+    { section: 'IT filing', page: 'it_26as',   to: '/workstation/tds-recon', label: '26AS reconciliation', icon: GitCompareArrows, visible: services || allow('tools.audit_automation.access') },
+    { section: 'IT filing', page: 'it_ais',    to: '/workstation/ais-recon', label: 'AIS reconciliation',  icon: GitCompareArrows, visible: services },
+    { section: 'MCA filing', page: 'mca_llp',     to: '/workstation/services/registration/llp/compliance',             label: 'LLP forms',               icon: Landmark, visible: services },
+    { section: 'MCA filing', page: 'mca_company', to: '/workstation/services/registration/private-limited/compliance', label: 'Pvt Ltd / Section 8 forms', icon: Landmark, visible: services },
+    { section: 'Other work', page: 'eway_bill',    to: '/workstation/services/e-way-bill', label: 'E-way bill generation', icon: ReceiptText, visible: allow('workstation.eway.read') },
+    { section: 'Other work', page: 'notice_reply', to: '/workstation/notices',  label: 'Notice reply', icon: FileWarning, visible: allow('workstation.notice.read') || allow('workstation.notice.manage') },
+    { section: 'Other work', page: 'dsc_register', to: '/workstation/dsc',      label: 'DSC register', icon: KeyRound,    visible: allow('workstation.dsc.read') || allow('workstation.dsc.manage') },
+    { section: 'Other work', page: 'compliance_calendar', to: '/workstation/compliance', label: 'Compliance calendar', icon: CalendarClock, visible: allow('workstation.compliance.read') },
+    { section: 'Other work', page: 'document_formats',    to: '/workstation/doc',        label: 'Document formats',    icon: FileText,      visible: allow('workstation.doc.read') },
+    /* BOOKKEEPING-REBUILD §7: the native accounting engine is where data is entered. */
+    { section: 'Bookkeeping', page: 'data_entry',   to: '/workstation/services/bookkeeping',  label: 'Data entry',   icon: BookOpen, visible: services },
+    { section: 'Bookkeeping', page: 'tally_export', to: '/workstation/services/tally-export', label: 'Tally export', icon: FileText, visible: services },
+    { section: 'Bookkeeping', page: 'zoho_books',   to: '/books',                             label: 'Zoho Books',   icon: Wallet,   visible: allow('books.access', 'organisation') },
+    { section: 'Audit section', page: 'audit_section', to: '/workstation/audits', label: 'Audit files', icon: ClipboardCheck, end: true, visible: allow('workstation.audit.read'),
       children: [
-        { to: '/workstation/services/gst-filing', label: 'GST Filing' },
-        { to: '/workstation/services/tds',           label: 'TDS' },
-        /* BOOKKEEPING-REBUILD §7 renames "Bookkeeping" (the
-           accounting engine) to "Books". */
-        { to: '/workstation/services/bookkeeping',   label: 'Books' },
-        { to: '/workstation/services/tally-export',  label: 'Tally Export' },
-        { to: '/workstation/services/registration',  label: 'Registration',
-          children: REGISTRATION_SERVICES.map((r) => ({
-            to: `/workstation/services/registration/${r.slug}`,
-            label: r.name,
-          })) },
+        { to: '/workstation/audits/type/internal',  label: 'Internal audit' },
+        { to: '/workstation/audits/type/tax',       label: 'Tax audit' },
+        { to: '/workstation/audits/type/statutory', label: 'Statutory audit' },
+        { to: '/workstation/audits/udins',          label: 'UDIN register' },
       ] },
-    { section: 'Compliance', to: '/workstation/notices',    label: 'Notices',    icon: FileWarning,   visible: can(role, 'workstation.notice.read', 'self') || can(role, 'workstation.notice.manage', 'self') },
-    { section: 'Compliance', to: '/workstation/dsc',        label: 'DSC register', icon: KeyRound,    visible: can(role, 'workstation.dsc.read', 'self') || can(role, 'workstation.dsc.manage', 'self') },
-    { section: 'Compliance', to: '/workstation/tds-recon',  label: '26AS reconciliation', icon: GitCompareArrows, visible: can(role, 'workstation.service.read', 'self') || can(role, 'tools.audit_automation.access', 'self') },
-    // ── Audit (SA 230 files, UDINs, engagement letters) ──
-    { section: 'Audit', to: '/workstation/audits',      label: 'Audit files', icon: ClipboardCheck, visible: can(role, 'workstation.audit.read', 'self'),
-      children: [{ to: '/workstation/audits/udins', label: 'UDIN register' }] },
-    { section: 'Audit', to: '/workstation/engagement',  label: 'Engagement letters', icon: ScrollText, visible: can(role, 'workstation.engagement.read', 'self') },
-    // ── Billing ──
-    { section: 'Billing', to: '/workstation/quotations',  label: 'Quotations', icon: FileSignature, end: true, visible: can(role, 'workstation.quotation.read', 'self') },
-    { section: 'Billing', to: '/workstation/invoices',    label: 'Invoices',   icon: ReceiptText,   end: true, visible: can(role, 'workstation.invoice.read', 'self') },
-    { section: 'Billing', to: '/workstation/credit-notes', label: 'Credit notes', icon: IndianRupee, visible: can(role, 'workstation.invoice.read', 'self') },
-    { section: 'Billing', to: '/workstation/recurring-invoices', label: 'Recurring invoices', icon: Wallet, visible: can(role, 'workstation.invoice.read', 'self') },
-    { section: 'Billing', to: '/hrms/payment-summary', label: 'Receivables', icon: BarChart3, visible: can(role, 'payment_summary.read', 'organisation') },
-    { section: 'Templates', to: '/workstation/doc',     label: 'Document formats', icon: FileText,  visible: can(role, 'workstation.doc.read', 'self') },
   ];
-  // TOOLS is one labelled section — a sibling of Workstation — holding
-  // three tool modules as siblings inside it: Tools (converters), Repotic
-  // (bank / GST / TDS pipelines) and Books (Zoho Books integration). The
-  // native double-entry accounting engine (formerly "Tally") moved to
-  // Services → Bookkeeping and is not a Tools row any more.
-  const toolsItems: NavItem[] = [
-    { to: '/tools', label: 'Tools', icon: Wrench,
-      visible: can(role, 'tools.access', 'self') },
-    { to: '/audit-automation', label: 'Repotic', icon: Landmark,
-      visible: can(role, 'tools.audit_automation.access', 'self'),
+  // ── HR & Admin ──
+  const hrAdmin: NavItem[] = [
+    { page: 'employees',   to: '/hrms/employees',   label: 'Employees',   icon: Users,         visible: allow('employee.read', 'department') },
+    { page: 'leave',       to: seesLeave ? '/hrms/leave' : '/me/leave', label: 'Leave', icon: CalendarDays, visible: seesLeave || ownHr },
+    // Chats are between staff; the owner logins have no staff record.
+    { page: 'messages',    to: '/hrms/messages',    label: 'Messages',    icon: MessageSquare, visible: allow('chat.participate', 'organisation') && Boolean(session?.employee) },
+    { page: 'articleship', to: '/hrms/articleship', label: 'Articleship', icon: GraduationCap, visible: allow('employee.manage', 'organisation') || allow('employee.read', 'organisation') },
+    { page: 'settings',    to: '/hrms/settings',    label: 'Settings',    icon: Settings,      visible: allow('settings.manage', 'organisation') },
+  ];
+  // ── Tools: converters, Repotic pipelines, connected services ──
+  const tools: NavItem[] = [
+    { page: 'tools', to: '/tools', label: 'Tools', icon: Wrench, visible: allow('tools.access') },
+    { page: 'repotic', to: '/audit-automation', label: 'Repotic', icon: Landmark, visible: allow('tools.audit_automation.access'),
       children: [
         { to: '/audit-automation/bank', label: 'Bank → Tally' },
         { to: '/audit-automation/ecommerce', label: 'Ecommerce GSTR-1' },
-        ...(can(role, 'tools.audit_automation.gst.view', 'self') ? [{ to: '/audit-automation/gst', label: 'GSTR-2B reconciliation' }] : []),
+        ...(allow('tools.audit_automation.gst.view') ? [{ to: '/audit-automation/gst', label: 'GSTR-2B reconciliation' }] : []),
       ] },
-    { to: '/books', label: 'Books', icon: Wallet,
-      visible: can(role, 'books.access', 'organisation') },
+    { page: 'integrations', to: '/integrations/zoho-payments', label: 'Integrations', icon: Plug, visible: allow('integrations.access', 'organisation'),
+      children: [
+        { to: '/integrations/zoho-payments', label: 'Zoho Payments' },
+        { to: '/integrations/ai-provider', label: 'AI provider' },
+        { to: '/integrations/payment-gateways', label: 'Payment gateways' },
+      ] },
   ];
-  // INTEGRATIONS — third-party services the firm connects to (Zoho
-  // Payments today; Books/Tally/banking as they land). Sibling of
-  // Tools, not nested inside HRMS: this is firm-level infrastructure,
-  // not an HR concern.
-  const integrationsItems: NavItem[] = [
-    { to: '/integrations/zoho-payments', label: 'Zoho Payments', icon: Plug,
-      visible: can(role, 'integrations.access', 'organisation') },
-    { to: '/integrations/ai-provider', label: 'AI provider', icon: Plug,
-      visible: can(role, 'integrations.access', 'organisation') },
-    { to: '/integrations/payment-gateways', label: 'Payment gateways', icon: Plug,
-      visible: can(role, 'integrations.access', 'organisation') },
-  ];
+  const keep = (items: NavItem[]) => items.filter((i) => (keepInvisible || i.visible) && !hidden.has(i.page));
   return [
-    { label: null, items: [{ to: '/', label: 'Dashboard', icon: Home, end: true, visible: true, badge: pendingCount || undefined, hot: true }] },
-    { label: 'HRMS', items: auditItems.filter((i) => i.visible) },
-    { label: 'WORKSTATION', items: workstationItems.filter((i) => i.visible) },
-    { label: 'TOOLS', items: toolsItems.filter((i) => i.visible) },
-    { label: 'INTEGRATIONS', items: integrationsItems.filter((i) => i.visible) },
+    { label: null, items: [{ page: 'dashboard', to: '/', label: 'Dashboard', icon: Home, end: true, visible: true, badge: pendingCount || undefined, hot: true }] },
+    { label: 'LEAD_CLIENT', items: keep(leadClient) },
+    { label: 'OFFICE_FILES', items: keep(officeFiles) },
+    { label: 'OFFICIAL_DOCS', items: keep(officialDocs) },
+    { label: 'WORKSTATION', items: keep(workstation) },
+    { label: 'HR_ADMIN', items: keep(hrAdmin) },
+    { label: 'TOOLS', items: keep(tools) },
   ].filter((g) => g.items.length > 0);
+}
+
+/**
+ * The page a path belongs to, judged against the full menu (switched-off rows
+ * included) — so the shell can say "switched off" instead of rendering it.
+ */
+export function pageKeyForPath(
+  role: Parameters<typeof can>[0],
+  session: Parameters<typeof buildNav>[1],
+  path: string,
+): string | null {
+  const nav = buildNav(role, session, { keepHidden: true });
+  const rows = nav.flatMap((g) => g.items.flatMap((it) => [
+    { to: it.to, page: it.page },
+    ...(it.children ?? []).flatMap((c) => [{ to: c.to, page: it.page }, ...(c.children ?? []).map((l) => ({ to: l.to, page: it.page }))]),
+  ]));
+  let best: { to: string; page: string } | null = null;
+  for (const r of rows) {
+    const hit = r.to === '/' ? path === '/' : path === r.to || path.startsWith(r.to + '/');
+    if (hit && (!best || r.to.length > best.to.length)) best = r;
+  }
+  return best && best.page !== 'dashboard' ? best.page : null;
 }
 
 /** Split a module's rows into its sub-headed runs, keeping their order. */
@@ -301,7 +342,7 @@ export function Sidebar({ mobileOpen, onMobileClose }: Props) {
   });
   const pendingCount = pending.data?.count ?? 0;
   const clientCount = clients.data?.count;
-  // People stat for the HRMS card — shares the top bar's "who's in" cache.
+  // People stat for the HR & Admin card — shares the top bar's "who's in" cache.
   const seesPeople = can(role, 'employee.read', 'department');
   const people = useQuery({
     queryKey: ['employees', 'who-is-in'],
@@ -364,7 +405,7 @@ export function Sidebar({ mobileOpen, onMobileClose }: Props) {
   useEffect(() => { if (here?.module) setChosen(here.module); }, [here?.module]);
   useEffect(() => { try { if (chosen) localStorage.setItem(MODULE_KEY, chosen); } catch { /* ignore */ } }, [chosen]);
   const active = modules.find((m) => m.label === chosen) ?? modules[0];
-  // Sub-groups the user folded ("HRMS:Admin"), remembered per browser.
+  // Sub-groups the user folded ("WORKSTATION:Bookkeeping"), remembered per browser.
   const [foldedSecs, setFoldedSecs] = useState<string[]>(() => {
     try { return JSON.parse(localStorage.getItem(FOLDED_KEY) ?? '[]') as string[]; } catch { return []; }
   });
@@ -376,14 +417,13 @@ export function Sidebar({ mobileOpen, onMobileClose }: Props) {
 
   const stat = (key: ModuleKey, g: NavGroup): string => {
     const pages = `${g.items.length} page${g.items.length === 1 ? '' : 's'}`;
-    if (key === 'HRMS' && people.data) {
+    if (key === 'HR_ADMIN' && people.data) {
       const list = people.data.items as { today_attendance?: { check_in_at: string | null } | null }[];
       const inToday = list.filter((r) => r.today_attendance?.check_in_at).length;
       return `${list.length} people · ${inToday} in`;
     }
-    if (key === 'WORKSTATION' && clientCount !== undefined) return `${clientCount} client${clientCount === 1 ? '' : 's'}`;
+    if (key === 'LEAD_CLIENT' && clientCount !== undefined) return `${clientCount} client${clientCount === 1 ? '' : 's'}`;
     if (key === 'TOOLS' && can(role, 'tools.access', 'self')) return `${TOOLS.length} tools`;
-    if (key === 'INTEGRATIONS') return g.items.map((i) => i.label).join(' · ');
     return pages;
   };
 

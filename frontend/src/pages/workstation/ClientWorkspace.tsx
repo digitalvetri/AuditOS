@@ -64,12 +64,12 @@ const TABS = [
   { key: 'gst', label: 'GST', perm: 'workstation.gst.read' },
   { key: 'compliance', label: 'Compliance', perm: 'workstation.compliance.read' },
   { key: 'quotations', label: 'Quotations', perm: 'workstation.quotation.read' },
-  { key: 'invoices', label: 'Invoices', perm: 'workstation.invoice.read' },
+  { key: 'invoices', label: 'Invoices', perm: 'workstation.invoice.read', page: 'invoices' },
   { key: 'engagement', label: 'Engagement', perm: 'workstation.engagement.read' },
   { key: 'eway', label: 'E-way Bills', perm: 'workstation.eway.read' },
   { key: 'documents', label: 'Documents', perm: 'workstation.document.read' },
-  { key: 'follow-ups', label: 'Follow-ups', perm: 'workstation.followup.read' },
-  { key: 'tasks', label: 'Tasks', perm: 'workstation.service.read' },
+  { key: 'follow-ups', label: 'Follow-ups', perm: 'workstation.followup.read', page: 'follow_ups' },
+  { key: 'tasks', label: 'Tasks', perm: 'workstation.service.read', page: 'tasks' },
   { key: 'activity', label: 'Activity', perm: 'workstation.client.read' },
 ] as const;
 
@@ -140,7 +140,10 @@ export function ClientWorkspacePage() {
               // clients do not get them (quotations and invoices stay per client).
               .filter((t) => !(client.organization && ORG_LEVEL_ONLY.has(t.key)))
               .filter((t) => serviceTabShown(client, t.key)),
-          ].filter((t) => allowed(t.perm));
+          ]
+            .filter((t) => allowed(t.perm))
+            // A page switched off for this login takes its client tab with it.
+            .filter((t) => !('page' in t && t.page && session?.hidden_pages?.includes(t.page)));
           return (
           <>
             <OrganizationBreadcrumb client={client} />

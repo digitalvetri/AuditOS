@@ -131,6 +131,11 @@ export const employeeApi = {
   setRole: (id: string, roleId: string) =>
     api.put<{ role: { id: string; code: string; name: string } }>(`/api/employees/${id}/role`, { role_id: roleId }),
 
+  /** Pages switched off for this employee's login, and the role grants they narrow. */
+  getPageAccess: (id: string) => api.get<PageAccess>(`/api/employees/${id}/page-access`),
+  setPageAccess: (id: string, hiddenPages: string[], extraPages: string[]) =>
+    api.put<PageAccess>(`/api/employees/${id}/page-access`, { hidden_pages: hiddenPages, extra_pages: extraPages }),
+
   deactivate: (id: string) =>
     api.post<{ employee: Employee }>(`/api/employees/${id}/deactivate`),
 
@@ -152,4 +157,14 @@ export const employeeApi = {
 // Helper: guard the projection difference at usage sites.
 export function isFullEmployee(row: EmployeeRow): row is Employee & { today_attendance?: EmployeeRow['today_attendance'] } {
   return 'email' in row;
+}
+
+export interface PageAccess {
+  role: { id: string; code: string; name: string };
+  role_grants: { permission: string; scope: 'self' | 'department' | 'organisation' }[];
+  hidden_pages: string[];
+  /** Pages beyond the role switched on for this login. */
+  extra_pages: string[];
+  /** Pages that may be switched on beyond the role (never Settings). */
+  grantable_pages: string[];
 }

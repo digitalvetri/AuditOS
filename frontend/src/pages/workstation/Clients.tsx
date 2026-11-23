@@ -18,7 +18,7 @@ import {
 import { Button } from '@/components/Button';
 import { useToast } from '@/components/Toast';
 import { can } from '@/platform/rbac/can';
-import { useAuth } from '@/platform/auth/AuthContext';
+import { pageOn, useAuth } from '@/platform/auth/AuthContext';
 import { Avatar, Ring } from '@/components/viz';
 import { paymentSummaryApi } from '@/modules/paymentSummary/api';
 import { gstApi } from '@/modules/workstation/gst/api';
@@ -95,7 +95,7 @@ export function ClientsPage() {
   // Per-client signals, each gated on the role's permission.
   const seesBilling = can(role, 'payment_summary.read', 'organisation');
   const seesGst = can(role, 'workstation.gst.read', 'self');
-  const seesTds = can(role, 'workstation.service.read', 'self');
+  const seesTds = can(role, 'workstation.service.read', 'self') && pageOn(session, 'tds_filing');
   const money = useQuery({ queryKey: ['payment-summary'], queryFn: () => paymentSummaryApi.summary(), enabled: seesBilling });
   const moneyById = useMemo(() => new Map((money.data?.clients ?? []).map((c) => [c.client_id, c])), [money.data]);
   const overdueIds = useMemo(() => (money.data?.clients ?? []).filter((c) => c.overdue_paise > 0).map((c) => c.client_id), [money.data]);

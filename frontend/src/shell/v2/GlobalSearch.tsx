@@ -28,7 +28,7 @@ import { employeeApi, isFullEmployee } from '@/modules/employees/api';
 import { workstationApi } from '@/modules/workstation/api';
 import { searchTools, TOOLS } from '@/modules/tools/registry';
 import { formatPaise } from '@/lib/format';
-import { buildNav } from './Sidebar';
+import { buildNav, MODULE_META, type ModuleKey } from './Sidebar';
 
 export interface GlobalSearchHandle { focus: () => void }
 
@@ -261,7 +261,9 @@ export const GlobalSearch = forwardRef<GlobalSearchHandle>(function GlobalSearch
 
 // ── Destinations ──────────────────────────────────────────────────────────
 
-const MODULE_HINT: Record<string, string> = { HRMS: 'HRMS', WORKSTATION: 'Workstation', TOOLS: 'Tools', INTEGRATIONS: 'Integrations' };
+const MODULE_HINT: Record<string, string> = Object.fromEntries(
+  (Object.keys(MODULE_META) as ModuleKey[]).map((k) => [k, MODULE_META[k].title]),
+);
 /** Friendlier names (and extra words) for rail labels that are terse. Keyed by path. */
 const SEARCH_ALIAS: Record<string, { label?: string; also?: string }> = {
   '/workstation': { label: 'Workstation overview' },

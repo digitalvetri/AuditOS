@@ -27,7 +27,7 @@ import {
   AlertTriangle, ArrowUpRight, CalendarClock, CalendarDays, Check, CheckCircle2, ChevronRight, ClockAlert,
   FileText, FileWarning, Inbox, Landmark, Plane, Receipt, Users, Wallet,
 } from 'lucide-react';
-import { tracksHr, useAuth } from '@/platform/auth/AuthContext';
+import { pageOn, tracksHr, useAuth } from '@/platform/auth/AuthContext';
 import { can } from '@/platform/rbac/can';
 import { api } from '@/services/api';
 import { useToast } from '@/components/Toast';
@@ -81,10 +81,10 @@ export function DashboardV2Page() {
     || can(role, 'attendance.correct.approve', 'department');
   const seesLedger = can(role, 'accounts.read', 'organisation') || can(role, 'accounts.manage', 'organisation');
   const seesActivity = can(role, 'audit.read.all', 'organisation') || can(role, 'audit.read.hr', 'organisation');
-  const seesCalendar = can(role, 'workstation.followup.read', 'self');
+  const seesCalendar = can(role, 'workstation.followup.read', 'self') && pageOn(session, 'follow_ups');
   const seesBilling = can(role, 'payment_summary.read', 'organisation');
   const seesGst = can(role, 'workstation.gst.read', 'self');
-  const seesTds = can(role, 'workstation.service.read', 'self');
+  const seesTds = can(role, 'workstation.service.read', 'self') && pageOn(session, 'tds_filing');
 
   const attendance = useQuery({ queryKey: ['attendance', 'today'], queryFn: attendanceApi.today, enabled: seesTeam });
   const pending = useQuery({ queryKey: ['dashboard', 'pending'], queryFn: dashboardApi.pending, enabled: approves });

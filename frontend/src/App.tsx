@@ -447,6 +447,9 @@ export default function App() {
               <Route path="workstation/notices" element={<NoticesRegisterRoute />} />
               <Route path="workstation/dsc" element={<DscRegisterRoute />} />
               <Route path="workstation/tds-recon" element={<TdsReconRoute />} />
+              <Route path="workstation/ais-recon" element={<ComingSoonPage title="AIS reconciliation" body="Upload a client's AIS PDF, convert it to Excel and match it against the books. Coming in the next update." />} />
+              <Route path="workstation/it-filing" element={<ComingSoonPage title="IT returns" body="Every income-tax client's return for the year, listed automatically on 1 May. Coming in the next update; 26AS reconciliation is ready in the meantime." />} />
+              <Route path="workstation/sales-register" element={<ComingSoonPage title="Sales register" body="Every invoice issued, month by month, with the GST split, exportable to Excel. Coming in the next update." />} />
               <Route path="workstation/documents" element={<WorkstationDocumentsPage />} />
 
               {/* Workstation → Task: assignment plus server-tracked work time. */}
@@ -475,6 +478,7 @@ export default function App() {
               {/* Audit files — one per client × FY × audit type (SA 230). */}
               <Route path="workstation/audits" element={<Lazy><AuditListPage /></Lazy>} />
               <Route path="workstation/audits/udins" element={<Lazy><UdinRegisterPage /></Lazy>} />
+              <Route path="workstation/audits/type/:type" element={<Lazy><AuditListPage /></Lazy>} />
               <Route path="workstation/audits/:id" element={<Lazy><AuditFilePage /></Lazy>} />
               <Route path="workstation/tasks" element={<TaskListPage />} />
               <Route path="workstation/tasks/reports" element={<TaskReportsPage />} />

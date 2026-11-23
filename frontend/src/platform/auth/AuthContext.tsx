@@ -23,6 +23,8 @@ interface Session {
   role: { id: string; code: RoleCode; name: string };
   /** Live grants from the server; drives can() for menus. */
   grants?: Grant[];
+  /** Pages an Admin switched off for this login (backend platform/pages.ts). */
+  hidden_pages?: string[];
   employee: {
     id: string;
     full_name: string;
@@ -178,6 +180,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 /** True when the signed-in person is tracked for attendance, leave and payroll. */
 export function tracksHr(session: { employee: { exclude_from_hr?: boolean } | null } | null | undefined): boolean {
   return Boolean(session?.employee && !session.employee.exclude_from_hr);
+}
+
+/** Is this page left on for the login? (Employees → Page access; keys from backend platform/pages.ts.) */
+export function pageOn(session: { hidden_pages?: string[] } | null | undefined, key: string): boolean {
+  return !session?.hidden_pages?.includes(key);
 }
 
 export function useAuth(): AuthState {

@@ -18,6 +18,7 @@ import { RealtimeProvider } from '@/platform/realtime/RealtimeProvider';
 import { OfflineBar, UpdateBar } from '@/platform/pwa/PwaUi';
 import { QuerySkeleton } from '@/modules/workstation/components';
 import { KeyboardShortcuts } from './KeyboardShortcuts';
+import { PageGuard } from './PageGuard';
 
 export function AppShellV2() {
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
@@ -38,7 +39,7 @@ export function AppShellV2() {
           <RouteErrorBoundary>
             {/* Pages are code-split (App.tsx): the shell stays while one loads. */}
             <Suspense fallback={<QuerySkeleton />}>
-              <Outlet />
+              <PageGuard><Outlet /></PageGuard>
             </Suspense>
           </RouteErrorBoundary>
         </main>

@@ -1,5 +1,5 @@
-import { useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { useEffect, useState } from 'react';
+import { Link, useNavigate, useParams } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { BadgeCheck, Plus } from 'lucide-react';
 import { QueryState } from '@/modules/workstation/components';
@@ -35,7 +35,10 @@ export function AuditListPage() {
   const [q, setQ] = useState('');
   const [clientId, setClientId] = useState('');
   const [fy, setFy] = useState('');
-  const [type, setType] = useState('');
+  // Sidebar → Audit section deep-links /workstation/audits/type/:type.
+  const { type: typeParam } = useParams<{ type?: string }>();
+  const [type, setType] = useState(typeParam ?? '');
+  useEffect(() => { setType(typeParam ?? ''); }, [typeParam]);
   const [status, setStatus] = useState('');
   const [mine, setMine] = useState(false);
   const [creating, setCreating] = useState(false);

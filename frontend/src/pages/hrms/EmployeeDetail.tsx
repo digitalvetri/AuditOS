@@ -18,6 +18,7 @@ import { RoleField } from '@/modules/employees/RoleField';
 import { DeactivateButton } from '@/modules/employees/DeactivateButton';
 import { ArticledTrainingTab } from '@/modules/employees/ArticledTrainingTab';
 import { ActivityTab } from '@/modules/employees/ActivityTab';
+import { PageAccessTab } from '@/modules/employees/PageAccessTab';
 import { RecordsTable } from '@/modules/attendance/RecordsTable';
 import { BalancesCard } from '@/modules/leave/BalancesCard';
 import { DocumentsTable } from '@/modules/documents/DocumentsTable';
@@ -53,7 +54,7 @@ function EmployeeStatusChip({ status }: { status: string }) {
   return <HeaderTag tone={tone}>● {status.replace(/_/g, ' ').replace(/^\w/, (c) => c.toUpperCase())}</HeaderTag>;
 }
 
-type Tab = 'overview' | 'attendance' | 'leave' | 'payroll' | 'expenses' | 'documents' | 'training' | 'activity';
+type Tab = 'overview' | 'attendance' | 'leave' | 'payroll' | 'expenses' | 'documents' | 'training' | 'activity' | 'access';
 
 interface Props {
   /** When set, ignore :id from URL and use this instead. Used by /me/profile. */
@@ -116,6 +117,10 @@ export function EmployeeDetailPage({ fixedId }: Props) {
     { id: 'documents', label: 'Documents', show: full },
     { id: 'training', label: 'Training', show: full && isArticled },
     { id: 'activity', label: 'Activity', show: full },
+    // Admins choose, page by page, what this login can open (not their own).
+    { id: 'access', label: 'Page access', show: full && !isOwn && !!refs.role && can(session?.role.code, 'settings.manage', 'organisation')
+      // Only the Super Admin manages the Super Admin's login.
+      && (refs.role.code !== 'md' || session?.role.code === 'md') },
   ];
 
   return (
@@ -187,6 +192,7 @@ export function EmployeeDetailPage({ fixedId }: Props) {
         <ArticledTrainingTab employeeId={emp.id} canEdit={canManage} />
       ) : null}
       {tab === 'activity' && full ? <ActivityTab employeeId={emp.id} /> : null}
+      {tab === 'access' && full ? <PageAccessTab employeeId={emp.id} employeeName={emp.full_name} /> : null}
 
       {full ? (
         <>
