@@ -316,7 +316,7 @@ async function assertInvoiceLinks(clientId: string, clientServiceId?: string | n
   }
 }
 
-async function visibleWhere(session: Session, scope: Scope): Promise<Prisma.InvoiceWhereInput> {
+export async function visibleWhere(session: Session, scope: Scope): Promise<Prisma.InvoiceWhereInput> {
   const base: Prisma.InvoiceWhereInput = { deletedAt: null }
   if (scope === 'organisation' || scope === 'department') return base
   const me = session.employeeId ?? '__none__'

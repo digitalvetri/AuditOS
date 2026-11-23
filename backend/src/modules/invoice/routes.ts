@@ -16,6 +16,7 @@ import { GSTIN_RE } from '../gst/validate.js'
 import { firmGstin, firmOrgId, firmStateCode, formBool, placeOfSupplySchema, stateNameForCode } from './supply.js'
 import { checkInvoiceLink, createInvoiceLink, listInvoiceLinks } from '../integrations/payment-links.js'
 import { isGateway } from '../integrations/gateways.js'
+import { isFy, salesRegister, salesRegisterWorkbook } from './sales-register.js'
 
 /**
  * Invoice HTTP surface — mounted at /api/invoices.
@@ -190,6 +191,28 @@ invoicesRouter.get('/summary', handler(async (req, res) => {
   const session = requireSession(req)
   const scope = requireWorkstation(session, 'workstation.invoice.read')
   ok(res, await InvoiceService.summary(session, scope))
+}))
+
+/** Official docs → Sales register: the FY's issued invoices month by month. */
+const fyQuery = z.object({ fy: z.string().refine(isFy, 'Use a financial year like 2026-27.').optional() })
+
+invoicesRouter.get('/sales-register', handler(async (req, res) => {
+  const session = requireSession(req)
+  const scope = requireWorkstation(session, 'workstation.invoice.read')
+  const q = parse(fyQuery, req.query, 'Invalid year.')
+  ok(res, await salesRegister(session, scope, q.fy))
+}))
+
+invoicesRouter.get('/sales-register/export', handler(async (req, res) => {
+  const session = requireSession(req)
+  const scope = requireWorkstation(session, 'workstation.invoice.read')
+  const q = parse(fyQuery, req.query, 'Invalid year.')
+  const reg = await salesRegister(session, scope, q.fy)
+  const buf = await (await salesRegisterWorkbook(reg)).xlsx.writeBuffer()
+  res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+  res.setHeader('Content-Disposition', `attachment; filename="sales-register-${reg.fy}.xlsx"`)
+  res.setHeader('Cache-Control', 'no-store')
+  res.end(Buffer.from(buf as ArrayBuffer))
 }))
 
 /** The bank accounts that may be printed on an invoice (§26). */

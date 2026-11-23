@@ -159,6 +159,7 @@ const ReportsPage = lazy(() => import('@/pages/hrms/Reports').then((m) => ({ def
 const PaymentSummaryPage = lazy(() => import('@/pages/hrms/PaymentSummary').then((m) => ({ default: m.PaymentSummaryPage })));
 import { useAuth } from '@/platform/auth/AuthContext';
 import { NotFoundPage } from '@/pages/NotFound';
+const SalesRegisterPage = lazy(() => import('@/pages/workstation/invoices/SalesRegister'));
 const ComingSoonPage = lazy(() => import('@/pages/ComingSoon').then((m) => ({ default: m.ComingSoonPage })));
 import { ErrorBoundary } from '@/components/ErrorBoundary';
 const NotificationsPage = lazy(() => import('@/pages/Notifications').then((m) => ({ default: m.NotificationsPage })));
@@ -451,7 +452,7 @@ export default function App() {
               <Route path="workstation/it-filing" element={<ItReturnsRoute />} />
               <Route path="workstation/mca-filing/llp" element={<LlpFormsRoute />} />
               <Route path="workstation/mca-filing/company" element={<CompanyFormsRoute />} />
-              <Route path="workstation/sales-register" element={<ComingSoonPage title="Sales register" body="Every invoice issued, month by month, with the GST split, exportable to Excel. Coming in the next update." />} />
+              <Route path="workstation/sales-register" element={<SalesRegisterPage />} />
               <Route path="workstation/documents" element={<WorkstationDocumentsPage />} />
 
               {/* Workstation → Task: assignment plus server-tracked work time. */}
