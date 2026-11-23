@@ -224,13 +224,6 @@
   font-size: calc(var(--qd-font-size) * var(--qd-heading-scale));
   margin-top: 12px;
 }
-.qdoc-title .qdoc-code {
-  display: block;
-  letter-spacing: 0.06em;
-  font-weight: 500;
-  color: #6b7280;
-  font-size: calc(var(--qd-font-size) * 0.85);
-}
 
 .qdoc-meta { display: flex; flex-wrap: wrap; gap: 4px 24px; }
 .qdoc-subject { margin-top: 2px; font-weight: 600; }

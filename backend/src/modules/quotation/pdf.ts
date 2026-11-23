@@ -198,10 +198,8 @@ export function streamQuotationPdf(res: Response, q: QuotationPdfRow) {
       case 'quotation_meta': {
         ensure(40)
         home()
-        const y = doc.y
         doc.font('Helvetica').fontSize(9.5).fillColor(INK)
-        doc.text(`No: ${q.quotationCode}`, left, y, { width: width / 2 })
-        doc.text(`Date: ${fmtDay(q.quoteDate)}`, left + width / 2, y, { width: width / 2, align: 'right' })
+        doc.text(`Date: ${fmtDay(q.quoteDate)}`, left, doc.y, { width })
         home()
         doc.text(`Valid until: ${fmtDay(q.validUntil)}`, left, doc.y, { width })
         doc.moveDown(0.3)

@@ -532,12 +532,11 @@ function CompanyHeader({ doc, e, live }: BP) {
   );
 }
 
-function Title({ doc }: { doc: DocumentModel }) {
+function Title({ doc: _doc }: { doc: DocumentModel }) {
+  void _doc;
   return (
     <div className="qdoc-block qdoc-title">
       QUOTATION
-      {/* The code is allocated by the server and is unique — never typed. */}
-      <span className="qdoc-code">{doc.quotationCode}</span>
     </div>
   );
 }
