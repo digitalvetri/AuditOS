@@ -99,11 +99,19 @@ export function EcommerceGstr1SummaryPage() {
           </p>
         </div>
         <div className="flex items-center gap-2">
-          <a href={portalUrl} className="inline-flex items-center gap-1.5 h-9 px-3 rounded bg-neutral-900 text-white text-13 font-medium hover:bg-neutral-800">
+          <a
+            href={portalUrl}
+            title="Upload file for the GSTN portal — R1_<GSTIN>_<MM>_<YYYY>.json."
+            className="inline-flex items-center gap-1.5 h-9 px-3 rounded bg-neutral-900 text-white text-13 font-medium hover:bg-neutral-800"
+          >
             <Download size={14} strokeWidth={2} /> Portal JSON
           </a>
-          <a href={previewUrl} className="inline-flex items-center gap-1.5 h-9 px-3 rounded border border-neutral-300 text-13 hover:bg-neutral-50">
-            <Download size={14} strokeWidth={2} /> Preview JSON
+          <a
+            href={previewUrl}
+            title="Human-readable copy with disclaimer wrapper. The portal rejects this file — use Portal JSON to upload."
+            className="inline-flex items-center gap-1.5 h-9 px-3 rounded border border-neutral-300 text-13 text-neutral-600 hover:bg-neutral-50"
+          >
+            <Download size={14} strokeWidth={2} /> Review copy (do not upload)
           </a>
         </div>
       </header>
