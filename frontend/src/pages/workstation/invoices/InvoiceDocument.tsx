@@ -35,6 +35,8 @@ export interface InvoiceDoc {
   dueDate: string;
   placeOfSupply: string;
   isInterState: boolean;
+  /** False = without GST: titled INVOICE, no tax columns. Default true. */
+  gstApplicable?: boolean;
   billingName: string;
   billingAddress: string;
   shippingName: string;
@@ -206,7 +208,7 @@ function Header({ doc, showTitle, showCompany }: { doc: InvoiceDoc; showTitle: b
           </div>
         ) : <div />}
         {showTitle ? (
-          <div style={{ fontSize: h * 1.15, fontWeight: 700, color: INK, whiteSpace: 'nowrap' }}>TAX INVOICE</div>
+          <div style={{ fontSize: h * 1.15, fontWeight: 700, color: INK, whiteSpace: 'nowrap' }}>{doc.gstApplicable === false ? 'INVOICE' : 'TAX INVOICE'}</div>
         ) : null}
       </div>
     </div>
@@ -266,6 +268,8 @@ function Parties({ doc, bill, ship }: { doc: InvoiceDoc; bill: boolean; ship: bo
  */
 function ItemTable({ doc, rows, showHead }: { doc: InvoiceDoc; rows: number[]; showHead: boolean }) {
   const inter = doc.isInterState;
+  // Without GST: no tax columns; the description takes the room.
+  const noGst = doc.gstApplicable === false;
   const th: React.CSSProperties = {
     background: '#1f3864', color: '#fff', fontWeight: 600, padding: '5px 6px',
     border: '1px solid #1f3864', textAlign: 'center', whiteSpace: 'nowrap',
@@ -279,11 +283,11 @@ function ItemTable({ doc, rows, showHead }: { doc: InvoiceDoc; rows: number[]; s
         <thead>
           <tr>
             <th style={{ ...th, width: '5%' }}>#</th>
-            <th style={{ ...th, width: inter ? '34%' : '26%', textAlign: 'left' }}>Item &amp; Description</th>
+            <th style={{ ...th, width: noGst ? '48%' : inter ? '34%' : '26%', textAlign: 'left' }}>Item &amp; Description</th>
             <th style={{ ...th, width: '11%' }}>HSN/SAC</th>
             <th style={{ ...th, width: '8%' }}>Qty</th>
             <th style={{ ...th, width: '12%' }}>Rate</th>
-            {inter ? (
+            {noGst ? null : inter ? (
               <>
                 <th style={{ ...th, width: '9%' }}>IGST %</th>
                 <th style={{ ...th, width: '12%' }}>Amt</th>
@@ -296,7 +300,7 @@ function ItemTable({ doc, rows, showHead }: { doc: InvoiceDoc; rows: number[]; s
                 <th style={{ ...th, width: '10%' }}>Amt</th>
               </>
             )}
-            <th style={{ ...th, width: '13%' }}>Amount</th>
+            <th style={{ ...th, width: noGst ? '16%' : '13%' }}>Amount</th>
           </tr>
         </thead>
       ) : null}
@@ -317,7 +321,7 @@ function ItemTable({ doc, rows, showHead }: { doc: InvoiceDoc; rows: number[]; s
               <td style={{ ...td, textAlign: 'center' }}>{l.hsnSac || '—'}</td>
               <td style={{ ...num }}>{(l.quantityCenti / 100).toFixed(2)}</td>
               <td style={num}>{inrAmount(l.ratePaise)}</td>
-              {inter ? (
+              {noGst ? null : inter ? (
                 <>
                   <td style={{ ...td, textAlign: 'center' }}>{t.igstRatePercent}%</td>
                   <td style={num}>{inrAmount(t.igstAmountPaise)}</td>

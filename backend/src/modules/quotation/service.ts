@@ -171,6 +171,8 @@ export function quotationToApi(q: Row, m: EmployeeLookup, now = new Date()) {
 
     place_of_supply: q.placeOfSupply,
     is_inter_state: q.isInterState,
+    /** False = quoted without GST (no tax rows). */
+    gst_applicable: q.gstApplicable,
 
     subtotal_paise: q.subtotalPaise,
     discount_paise: q.discountPaise,
@@ -254,6 +256,8 @@ export interface QuotationInput {
   validUntil: string
   placeOfSupply?: string | null
   isInterState?: boolean
+  /** False = without GST: every line forced to 0%. Undefined on update = keep. */
+  gstApplicable?: boolean
   discountPaise?: number
   notes?: string | null
   terms?: string | null
@@ -275,6 +279,11 @@ export interface QuotationInput {
 /** The tax split follows the place of supply against the firm's GSTIN in settings when both are known (invoice/supply.ts). */
 async function withDerivedSplit(input: QuotationInput): Promise<QuotationInput> {
   return { ...input, isInterState: resolveInterState(input.placeOfSupply, await firmGstin(), input.isInterState) }
+}
+
+/** Without GST, every line is 0% — enforced here, never trusted from the builder. */
+function withGstMode(input: QuotationInput, gstApplicable: boolean): QuotationInput {
+  return gstApplicable ? input : { ...input, items: input.items.map((i) => ({ ...i, gstRatePercent: 0 })) }
 }
 
 /**
@@ -516,7 +525,8 @@ export const QuotationService = {
   },
 
   async create(session: Session, scope: Scope, input: QuotationInput) {
-    input = await withDerivedSplit(input)
+    const gstApplicable = input.gstApplicable ?? true
+    input = withGstMode(await withDerivedSplit(input), gstApplicable)
     await assertParty(session, scope, input)
     input = await withOrganizationParty(input)
     assertDates(input.quoteDate, input.validUntil)
@@ -545,6 +555,7 @@ export const QuotationService = {
           status: 'draft',
           placeOfSupply: input.placeOfSupply ?? null,
           isInterState: input.isInterState ?? false,
+          gstApplicable,
           subtotalPaise: totals.subtotalPaise,
           discountPaise: totals.discountPaise,
           taxablePaise: totals.taxablePaise,
@@ -600,6 +611,8 @@ export const QuotationService = {
     input = await withOrganizationParty(input)
     assertDates(input.quoteDate, input.validUntil)
     if (input.items.length === 0) throw ApiError.badRequest('A quotation needs at least one line.')
+    const gstApplicable = input.gstApplicable ?? existing.gstApplicable
+    input = withGstMode(input, gstApplicable)
 
     const totals = computeTotals(toLineInputs(input.items), {
       discountPaise: input.discountPaise,
@@ -622,6 +635,7 @@ export const QuotationService = {
           validUntil: input.validUntil,
           placeOfSupply: input.placeOfSupply ?? null,
           isInterState: input.isInterState ?? false,
+          gstApplicable,
           subtotalPaise: totals.subtotalPaise,
           discountPaise: totals.discountPaise,
           taxablePaise: totals.taxablePaise,
@@ -714,6 +728,7 @@ export const QuotationService = {
       validUntil: src.validUntil,
       placeOfSupply: src.placeOfSupply,
       isInterState: src.isInterState,
+      gstApplicable: src.gstApplicable,
       discountPaise: src.discountPaise,
       notes: src.notes,
       terms: src.terms,
@@ -819,6 +834,7 @@ export const QuotationService = {
         terms: 'due_on_receipt',
         placeOfSupply: q.placeOfSupply,
         isInterState: q.isInterState,
+        gstApplicable: q.gstApplicable,
         discountPaise: q.discountPaise,
         notes: [q.subject, marker].filter(Boolean).join('\n'),
         items: q.items.map((i) => ({

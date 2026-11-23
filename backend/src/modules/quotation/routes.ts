@@ -74,6 +74,7 @@ const bodySchema = z.object({
   /* A hint only: the service derives the split from the place of supply and
      the firm's state whenever it can see both (invoice/supply.ts). */
   is_inter_state: formBool.default(false),
+  gst_applicable: z.boolean().optional(),
   discount_paise: z.coerce.number().int().nonnegative().max(1_000_000_000).default(0),
   notes: z.string().trim().max(2000).nullish(),
   terms: z.string().trim().max(4000).nullish(),
@@ -103,6 +104,7 @@ function toInput(b: z.infer<typeof bodySchema>) {
     validUntil: b.valid_until,
     placeOfSupply: b.place_of_supply ?? null,
     isInterState: b.is_inter_state,
+    gstApplicable: b.gst_applicable,
     discountPaise: b.discount_paise,
     notes: b.notes ?? null,
     terms: b.terms ?? null,

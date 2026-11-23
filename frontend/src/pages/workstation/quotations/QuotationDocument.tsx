@@ -82,6 +82,8 @@ export interface DocumentModel {
     igstPaise: number;
     totalPaise: number;
     isInterState: boolean;
+    /** False = quoted without GST: no GST column or tax rows. Default true. */
+    gstApplicable?: boolean;
   };
 }
 
@@ -145,6 +147,7 @@ export function documentFromApi(q: Quotation): DocumentModel {
       igstPaise: q.igst_paise,
       totalPaise: q.total_paise,
       isInterState: q.is_inter_state,
+      gstApplicable: q.gst_applicable !== false,
     },
   };
 }
@@ -713,6 +716,7 @@ function FeeTable({ doc, e, live }: BP) {
   const L = live && editing;
   const compliance = doc.templateId === 'jns-compliance';
   const t = doc.totals;
+  const noGst = t.gstApplicable === false;
   const styleClass = `qdoc-table qdoc-table-${doc.layout.tableStyle}`;
   const addService = e ? () => requestFocus(`${SURFACE}:item:${e.addItem()}:description`, 0) : undefined;
 
@@ -768,10 +772,24 @@ function FeeTable({ doc, e, live }: BP) {
           </tbody>
         </table>
         {L && addService ? <AddRow label="+ Add service" onClick={addService} /> : null}
-        <div className="qdoc-total-line">
-          <span>Total professional fees</span>
-          <span>{inr(t.totalPaise)}</span>
-        </div>
+        {t.totalPaise > t.taxablePaise ? (
+          // With GST: the fees, the tax on them, then what the client pays.
+          <>
+            <div className="qdoc-total-line"><span>Total professional fees</span><span>{inr(t.taxablePaise)}</span></div>
+            {t.isInterState
+              ? <div className="qdoc-total-line"><span>IGST</span><span>{inr(t.igstPaise)}</span></div>
+              : <>
+                  <div className="qdoc-total-line"><span>CGST</span><span>{inr(t.cgstPaise)}</span></div>
+                  <div className="qdoc-total-line"><span>SGST</span><span>{inr(t.sgstPaise)}</span></div>
+                </>}
+            <div className="qdoc-total-line"><span>Total (including GST)</span><span>{inr(t.totalPaise)}</span></div>
+          </>
+        ) : (
+          <div className="qdoc-total-line">
+            <span>Total professional fees</span>
+            <span>{inr(t.totalPaise)}</span>
+          </div>
+        )}
       </div>
     );
   }
@@ -785,7 +803,7 @@ function FeeTable({ doc, e, live }: BP) {
             <th>Description</th>
             <th className="qdoc-right">Qty</th>
             <th className="qdoc-right">Rate</th>
-            <th className="qdoc-right">GST</th>
+            {noGst ? null : <th className="qdoc-right">GST</th>}
             <th className="qdoc-right">Amount</th>
           </tr>
         </thead>
@@ -805,7 +823,7 @@ function FeeTable({ doc, e, live }: BP) {
                 {L ? <>₹<F live={L} id={`item:${i.key}:rate`} value={i.raw?.feeText ?? ''} placeholder="0"
                   onChange={(v) => e?.item(i.key, { feeText: v })} /></> : inr(i.unitRatePaise ?? 0)}
               </td>
-              <td className="qdoc-right">{i.gstRatePercent ?? 0}%</td>
+              {noGst ? null : <td className="qdoc-right">{i.gstRatePercent ?? 0}%</td>}
               <td className="qdoc-right">{inr(i.amountPaise)}</td>
             </tr>
           ))}
@@ -816,10 +834,12 @@ function FeeTable({ doc, e, live }: BP) {
       <div className="qdoc-totals">
         <Line label="Subtotal" value={inr(t.subtotalPaise)} />
         {t.discountPaise > 0 ? <Line label="Discount" value={`− ${inr(t.discountPaise)}`} /> : null}
-        <Line label="Taxable value" value={inr(t.taxablePaise)} />
-        {t.isInterState
-          ? <Line label="IGST" value={inr(t.igstPaise)} />
-          : <><Line label="CGST" value={inr(t.cgstPaise)} /><Line label="SGST" value={inr(t.sgstPaise)} /></>}
+        {noGst ? null : <>
+          <Line label="Taxable value" value={inr(t.taxablePaise)} />
+          {t.isInterState
+            ? <Line label="IGST" value={inr(t.igstPaise)} />
+            : <><Line label="CGST" value={inr(t.cgstPaise)} /><Line label="SGST" value={inr(t.sgstPaise)} /></>}
+        </>}
         <Line label="Total" value={inr(t.totalPaise)} strong />
       </div>
     </div>

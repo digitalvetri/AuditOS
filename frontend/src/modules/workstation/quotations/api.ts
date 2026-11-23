@@ -73,6 +73,8 @@ export interface Quotation {
   is_editable: boolean;
   place_of_supply: string | null;
   is_inter_state: boolean;
+  /** False = quoted without GST. */
+  gst_applicable: boolean;
   subtotal_paise: number;
   discount_paise: number;
   taxable_paise: number;
@@ -154,6 +156,7 @@ export interface QuotationInput {
   valid_until: string;
   place_of_supply?: string | null;
   is_inter_state: boolean;
+  gst_applicable?: boolean;
   discount_paise: number;
   notes?: string | null;
   terms?: string | null;

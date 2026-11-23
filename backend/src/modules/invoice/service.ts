@@ -144,6 +144,8 @@ export interface InvoiceInput {
   clientServiceId?: string | null
   auditEngagementId?: string | null
   items: ItemInput[]
+  /** False = without GST: every line is forced to 0%. Undefined on update = keep. */
+  gstApplicable?: boolean
 }
 
 // ── Serialisation ─────────────────────────────────────────────────────────
@@ -192,6 +194,8 @@ function serialize(inv: Row, emp: Map<string, { id: string; full_name: string; e
     invoice_number: inv.invoiceNumber,
     /** What to print where the number goes: the number, or 'Draft'. */
     display_number: invoiceLabel(inv.invoiceNumber),
+    /** False = raised without GST (no tax, "INVOICE", not in GSTR-1). */
+    gst_applicable: inv.gstApplicable,
     client_id: inv.clientId,
     client_name: inv.client?.companyName ?? null,
     // For sharing the invoice (WhatsApp / email). A client under an
@@ -338,6 +342,11 @@ async function orgId(): Promise<string> {
   return (await firmOrgId()) ?? 'org-audit-os'
 }
 
+/** Without GST, every line is 0% — enforced here, never trusted from the builder. */
+export function withGstMode<T extends { items: ItemInput[] }>(input: T, gstApplicable: boolean): T {
+  return gstApplicable ? input : { ...input, items: input.items.map((i) => ({ ...i, gstRatePercent: 0 })) }
+}
+
 function toLineInputs(items: ItemInput[]): LineInput[] {
   return items.map((i) => ({
     quantityCenti: i.quantityCenti,
@@ -471,6 +480,8 @@ export const InvoiceService = {
     if (!client) throw ApiError.notFound('No such client.')
     const party = billingPartyOf(client)
     input = await withDerivedSplit(prisma, input, party.gstin)
+    const gstApplicable = input.gstApplicable ?? existing.gst_applicable
+    input = withGstMode(input, gstApplicable)
     // The links kept (or newly set) must belong to the invoice's client —
     // including when only the client changed.
     await assertInvoiceLinks(
@@ -501,6 +512,7 @@ export const InvoiceService = {
           dueDate,
           placeOfSupply: input.placeOfSupply ?? null,
           isInterState: input.isInterState ?? false,
+          gstApplicable,
           ...partySnapshot(input, party),
           ...totalsData(totals),
           notes: input.notes ?? null,
@@ -710,7 +722,8 @@ export async function createInvoiceRecord(
   const client = await loadClientWithOrganization(tx, rawInput.clientId)
   if (!client) throw ApiError.notFound('No such client.')
   const party = billingPartyOf(client)
-  const input = await withDerivedSplit(tx, rawInput, party.gstin)
+  const gstApplicable = rawInput.gstApplicable ?? true
+  const input = withGstMode(await withDerivedSplit(tx, rawInput, party.gstin), gstApplicable)
   const org = await orgId()
 
   /* Three cases, and they are not the same:
@@ -742,6 +755,7 @@ export async function createInvoiceRecord(
       dueDate,
       placeOfSupply: input.placeOfSupply ?? null,
       isInterState: input.isInterState ?? false,
+      gstApplicable,
       status: 'draft',
       ...partySnapshot(input, party),
       ...totalsData(totals),
@@ -876,9 +890,11 @@ async function withDerivedSplit(db: Prisma.TransactionClient | typeof prisma, in
 export async function invoiceSendBlockers(tx: Prisma.TransactionClient | typeof prisma, id: string): Promise<{ code: string; message: string }[]> {
   const inv = await tx.invoice.findFirst({
     where: { id, deletedAt: null },
-    select: { organisationId: true, placeOfSupply: true, isInterState: true, items: { select: { itemName: true, hsnSac: true }, orderBy: { sortOrder: 'asc' } } },
+    select: { organisationId: true, placeOfSupply: true, isInterState: true, gstApplicable: true, items: { select: { itemName: true, hsnSac: true }, orderBy: { sortOrder: 'asc' } } },
   })
   if (!inv) return []
+  // Without GST there is no tax to place or split, so none of these apply.
+  if (!inv.gstApplicable) return []
   const out: { code: string; message: string }[] = []
   // Rule 46(g): a tax invoice carries the SAC (HSN for goods) of each supply.
   const noSac = inv.items.filter((i) => !i.hsnSac?.trim())

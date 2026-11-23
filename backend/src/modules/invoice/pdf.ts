@@ -179,7 +179,7 @@ export async function streamInvoicePdf(res: Response, inv: InvoicePdfRow) {
     const companyBottom = doc.y
     if (on('invoice_title')) {
       doc.fillColor(NAVY).font('Helvetica-Bold').fontSize(18)
-        .text('TAX INVOICE', left, top, { width, align: 'right' })
+        .text(inv.gstApplicable ? 'TAX INVOICE' : 'INVOICE', left, top, { width, align: 'right' })
     }
     // Two columns were drawn from the same `top`; continue below the taller.
     doc.y = Math.max(companyBottom, doc.y) + 4
@@ -265,7 +265,18 @@ export async function streamInvoicePdf(res: Response, inv: InvoicePdfRow) {
 
   // ── Items ───────────────────────────────────────────────────────────────
   if (on('items_table')) {
-    const cols = inter
+    // Without GST: no tax columns at all, the description takes the room.
+    const noGst = !inv.gstApplicable
+    const cols = noGst
+      ? [
+          { k: '#', w: 0.06, a: 'center' as const },
+          { k: 'Item & Description', w: 0.48, a: 'left' as const },
+          { k: 'HSN/SAC', w: 0.12, a: 'center' as const },
+          { k: 'Qty', w: 0.08, a: 'right' as const },
+          { k: 'Rate', w: 0.13, a: 'right' as const },
+          { k: 'Amount', w: 0.13, a: 'right' as const },
+        ]
+      : inter
       ? [
           { k: '#', w: 0.05, a: 'center' as const },
           { k: 'Item & Description', w: 0.36, a: 'left' as const },
@@ -315,7 +326,12 @@ export async function streamInvoicePdf(res: Response, inv: InvoicePdfRow) {
 
     inv.items.forEach((it, idx) => {
       const half = it.gstRatePercent / 2
-      const cells = inter
+      const cells = noGst
+        ? [
+            String(idx + 1), it.itemName, it.hsnSac ?? '-', (it.quantityCenti / 100).toFixed(2),
+            money(it.ratePaise), money(it.taxableAmountPaise),
+          ]
+        : inter
         ? [
             String(idx + 1), it.itemName, it.hsnSac ?? '-', (it.quantityCenti / 100).toFixed(2),
             money(it.ratePaise), `${it.gstRatePercent}%`, money(it.igstAmountPaise), money(it.taxableAmountPaise),

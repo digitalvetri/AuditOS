@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useStickyPreview } from '@/lib/useStickyPreview';
+import { GstModePrompt, GstModeSwitch } from '@/modules/workstation/GstMode';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
@@ -105,6 +106,9 @@ export function QuotationBuilderPage() {
   const [validUntil, setValidUntil] = useState(inDays(30));
   const [placeOfSupply, setPlaceOfSupply] = useState('');
   const [isInterState, setIsInterState] = useState(false);
+  /** null = a new quotation whose GST choice has not been made yet (the prompt is open). */
+  const [gstChoice, setGstChoice] = useState<boolean | null>(isEdit ? true : null);
+  const gstApplicable = gstChoice !== false;
   const [discountText, setDiscountText] = useState('');
   const [company, setCompany] = useState<CompanyInfo>(DEFAULT_COMPANY);
   const [client, setClient] = useState<ClientSnapshot>({
@@ -149,6 +153,9 @@ export function QuotationBuilderPage() {
     setValidUntil(q.valid_until);
     setPlaceOfSupply(stateName(q.place_of_supply ?? ''));
     setIsInterState(q.is_inter_state);
+    // Older compliance quotations predate the choice and carry 0% lines: they
+    // were, in effect, without GST, and must keep their figures.
+    setGstChoice(q.gst_applicable !== false && (tpl !== 'jns-compliance' || q.items.some((i) => i.gst_rate_percent > 0)));
     setDiscountText(q.discount_paise ? String(q.discount_paise / 100) : '');
     setCompany({ ...DEFAULT_COMPANY, ...(cfg.company ?? {}) });
     setClient({
@@ -194,12 +201,14 @@ export function QuotationBuilderPage() {
     quantity_centi: compliance ? 100 : Math.max(1, Math.round(Number(l.qtyText || '1') * 100)),
     unit_rate_paise: rupeesToPaise(l.feeText),
     discount_percent: compliance ? 0 : l.discountPercent,
-    gst_rate_percent: compliance ? 0 : l.gstRatePercent,
+    // Without GST every line is 0% (the server enforces it too). The
+    // compliance template has no per-line slab: professional fees are 18%.
+    gst_rate_percent: !gstApplicable ? 0 : compliance ? 18 : l.gstRatePercent,
     frequency: l.frequency || null,
     category: l.category || null,
     detail: l.detail || null,
     sac_code: l.sacCode.trim() || null,
-  })), [lines, compliance]);
+  })), [lines, compliance, gstApplicable]);
 
   const discountPaise = rupeesToPaise(discountText);
   const totals = useMemo(
@@ -239,6 +248,7 @@ export function QuotationBuilderPage() {
       igstPaise: totals.igst_paise,
       totalPaise: totals.total_paise,
       isInterState,
+      gstApplicable,
     },
   };
 
@@ -275,6 +285,7 @@ export function QuotationBuilderPage() {
       valid_until: validUntil,
       place_of_supply: placeOfSupply || null,
       is_inter_state: isInterState,
+      gst_applicable: gstApplicable,
       discount_paise: compliance ? 0 : discountPaise,
       notes: notes || null,
       terms: terms || null,
@@ -520,6 +531,8 @@ export function QuotationBuilderPage() {
 
   return (
     <div className="qb-root" ref={rootRef}>
+      <GstModePrompt open={!isEdit && gstChoice === null} kind="quotation"
+        onChoose={setGstChoice} onCancel={() => navigate('/workstation/quotations')} />
       <header className="qb-head flex items-start gap-3 flex-wrap mb-4 qdoc-screen-only">
         <div className="min-w-0">
           <h1 className="text-[26px] leading-tight font-semibold tracking-[-0.01em] text-neutral-900">Quotation Builder</h1>
@@ -596,6 +609,7 @@ export function QuotationBuilderPage() {
             ))}
           </nav>
 
+          {tab === 'details' && (!isEdit || status === 'draft') ? <GstModeSwitch value={gstApplicable} onChange={setGstChoice} /> : null}
           {tab === 'details' ? (
             <DetailsTab
               {...{
@@ -609,7 +623,7 @@ export function QuotationBuilderPage() {
                 introduction, setIntroduction, closingText, setClosingText,
                 preparedByName, setPreparedByName, preparedByDesignation, setPreparedByDesignation,
                 notes, setNotes, terms, setTerms, paymentDetails, setPaymentDetails,
-                lines, setLines, sections, setSections, setBlocks, compliance, services: servicesQ.data?.items ?? [], err,
+                lines, setLines, sections, setSections, setBlocks, compliance, gstApplicable, services: servicesQ.data?.items ?? [], err,
               }}
             />
           ) : null}
@@ -685,6 +699,7 @@ type DetailsProps = {
   /** Space blocks are added from beside "Add service", so this tab needs them. */
   setBlocks: (f: (b: BlockSpec[]) => BlockSpec[]) => void;
   compliance: boolean;
+  gstApplicable: boolean;
   /** Service catalogue options (POST-DELIVERY-CHANGES §E1). */
   services: { id: string; name: string }[];
   err: (k: string) => string | undefined;
@@ -774,7 +789,7 @@ function DetailsTab(p: DetailsProps) {
       <ServiceEditor {...p} />
       <WorkSectionEditor sections={p.sections} setSections={p.setSections} />
 
-      {!p.compliance ? (
+      {!p.compliance || p.gstApplicable ? (
         <Group title="Tax">
           <Row>
             <Field label="Place of supply">
@@ -783,9 +798,9 @@ function DetailsTab(p: DetailsProps) {
                 {STATES.map((s) => <option key={s.code} value={s.name}>{s.name} ({s.code})</option>)}
               </select>
             </Field>
-            <Field label="Discount (₹)">
+            {!p.compliance ? <Field label="Discount (₹)">
               <input value={p.discountText} onChange={(e) => p.setDiscountText(e.target.value)} className={inputClass} inputMode="decimal" />
-            </Field>
+            </Field> : null}
           </Row>
           <label className="flex items-center gap-2 text-13">
             <input type="checkbox" checked={p.isInterState} onChange={(e) => p.setIsInterState(e.target.checked)} className="h-4 w-4" />
@@ -922,13 +937,13 @@ function ServiceEditor(p: DetailsProps) {
                   onChange={(e) => p.setLines((ls) => ls.map((x) => (x.key === l.key ? { ...x, qtyText: e.target.value } : x)))}
                   placeholder="Qty" inputMode="decimal" className={inputClass}
                 />
-                <select
+                {!p.gstApplicable ? <span className="h-9 inline-flex items-center px-3 text-13 text-neutral-500">No GST</span> : <select
                   value={l.gstRatePercent}
                   onChange={(e) => p.setLines((ls) => ls.map((x) => (x.key === l.key ? { ...x, gstRatePercent: Number(e.target.value) } : x)))}
                   className={inputClass}
                 >
                   {GST_RATES.map((r) => <option key={r} value={r}>{gstRateLabel(r, ' GST')}</option>)}
-                </select>
+                </select>}
                 <input
                   value={l.discountPercent || ''}
                   onChange={(e) => p.setLines((ls) => ls.map((x) => (x.key === l.key ? { ...x, discountPercent: Number(e.target.value) || 0 } : x)))}

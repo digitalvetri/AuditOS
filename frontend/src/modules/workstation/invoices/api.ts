@@ -114,6 +114,8 @@ export interface Invoice {
   due_date: string;
   place_of_supply: string | null;
   is_inter_state: boolean;
+  /** False = raised without GST. */
+  gst_applicable: boolean;
   status: InvoiceStatus;
   stored_status: InvoiceStatus;
   is_overdue: boolean;
@@ -194,6 +196,7 @@ export interface InvoiceInput {
   due_date?: string | null;
   place_of_supply?: string | null;
   is_inter_state?: boolean;
+  gst_applicable?: boolean;
   discount_paise?: number;
   notes?: string | null;
   billing_name?: string | null;

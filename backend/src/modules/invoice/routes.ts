@@ -92,6 +92,7 @@ const bodySchema = z.object({
   signatory_designation: z.string().trim().max(120).nullish(),
   footer_note: z.string().trim().max(300).nullish(),
   qr_mode: z.enum(QR_MODES).default('upi_amount'),
+  gst_applicable: z.boolean().optional(),
   /* Free text on purpose: a custom QR may hold a payment page, a portal
      link or a plain reference. Length-capped because the encoder refuses a
      payload too long to scan. */
@@ -145,6 +146,7 @@ function toInput(b: z.infer<typeof bodySchema>) {
     signatoryDesignation: b.signatory_designation ?? null,
     footerNote: b.footer_note ?? null,
     qrMode: b.qr_mode,
+    gstApplicable: b.gst_applicable,
     qrValue: b.qr_value ?? null,
     qrImage: b.qr_image ?? null,
     clientServiceId: b.client_service_id,

@@ -5,6 +5,7 @@ import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { useAuditFileOptions } from '@/modules/audit/pickers';
 import { workstationApi } from '@/modules/workstation/api';
 import { invoicesApi, TERM_LABEL, GST_RATES, gstRateLabel, QR_MODE_LABEL, type BankSnapshot, type FirmGst, type Invoice, type QrMode, type Term } from '@/modules/workstation/invoices/api';
+import { GstModePrompt, GstModeSwitch } from '@/modules/workstation/GstMode';
 import { downloadFile } from '@/modules/workstation/invoices/download';
 import {
   BLOCK_LABEL, DEFAULT_COMPANY, DEFAULT_FOOTER_NOTE, DEFAULT_LAYOUT, DEFAULT_NOTES,
@@ -101,6 +102,9 @@ export function InvoiceBuilderPage() {
   const [layout, setLayout] = useState<LayoutConfig>(DEFAULT_LAYOUT);
   const [blocks, setBlocks] = useState<BlockSpec[]>(defaultBlocks);
   const [lines, setLines] = useState<Line[]>([newLine()]);
+  /** null = a new invoice whose GST choice has not been made yet (the prompt is open). */
+  const [gstChoice, setGstChoice] = useState<boolean | null>(isEdit ? true : null);
+  const gstApplicable = gstChoice !== false;
 
   const [tab, setTab] = useState<Tab>('details');
   const [mobileView, setMobileView] = useState<'edit' | 'preview'>('edit');
@@ -126,6 +130,7 @@ export function InvoiceBuilderPage() {
     setDueDate(saved.due_date);
     setPlaceOfSupply(stateName(saved.place_of_supply ?? ''));
     setSavedInterState(saved.is_inter_state);
+    setGstChoice(saved.gst_applicable ?? true);
     setBillingName(saved.billing_name ?? '');
     setBillingAddress(saved.billing_address ?? '');
     setShipSame(saved.ship_same_as_bill);
@@ -259,9 +264,11 @@ export function InvoiceBuilderPage() {
   const isInterState = firmCode && posCode ? posCode !== firmCode : savedInterState;
 
   const discountPaise = Math.max(0, Math.round((Number(discountText) || 0) * 100));
+  // Without GST every line is 0% — the server enforces the same.
+  const effLines = useMemo(() => (gstApplicable ? lines : lines.map((l) => ({ ...l, gstRatePercent: 0 }))), [lines, gstApplicable]);
   const totals = useMemo(
-    () => computeTotals(lines, { invoiceDiscountPaise: discountPaise, isInterState, amountPaidPaise: saved?.amount_paid_paise ?? 0 }),
-    [lines, discountPaise, isInterState, saved?.amount_paid_paise],
+    () => computeTotals(effLines, { invoiceDiscountPaise: discountPaise, isInterState, amountPaidPaise: saved?.amount_paid_paise ?? 0 }),
+    [effLines, discountPaise, isInterState, saved?.amount_paid_paise],
   );
 
   /* An empty bankAccountId means "None", so the preview must show no bank
@@ -281,11 +288,12 @@ export function InvoiceBuilderPage() {
     dueDate,
     placeOfSupply,
     isInterState,
+    gstApplicable,
     billingName, billingAddress,
     shippingName: shipSame ? billingName : shippingName,
     shippingAddress: shipSame ? billingAddress : shippingAddress,
     customerGstin,
-    lines, totals, notes, bank,
+    lines: effLines, totals, notes, bank,
     signatoryName, signatoryDesignation, footerNote,
     qrMode, qrValue, qrImage,
     amountPaidPaise: saved?.amount_paid_paise ?? 0,
@@ -328,6 +336,7 @@ export function InvoiceBuilderPage() {
       due_date: dueDate,
       place_of_supply: placeOfSupply,
       is_inter_state: isInterState,
+      gst_applicable: gstApplicable,
       discount_paise: discountPaise,
       notes,
       billing_name: billingName,
@@ -350,7 +359,7 @@ export function InvoiceBuilderPage() {
       qr_image: qrImage,
       layout_config: { ...layout, company } as Record<string, unknown>,
       block_config: blocks as unknown as Record<string, unknown>[],
-      items: lines.filter((l) => l.itemName.trim()).map((l) => ({
+      items: effLines.filter((l) => l.itemName.trim()).map((l) => ({
         item_name: l.itemName,
         description: l.description || null,
         hsn_sac: l.hsnSac || null,
@@ -416,6 +425,8 @@ export function InvoiceBuilderPage() {
 
   return (
     <div className="qb-root" ref={rootRef}>
+      <GstModePrompt open={!isEdit && mayWrite && gstChoice === null} kind="invoice"
+        onChoose={setGstChoice} onCancel={() => navigate('/workstation/invoices')} />
       <header className="qb-head flex items-start gap-3 flex-wrap mb-4 qdoc-screen-only">
         <div className="flex-1 min-w-[200px]">
           <h1 className="text-[26px] leading-tight font-semibold tracking-[-0.01em] text-neutral-900">Invoice builder</h1>
@@ -487,6 +498,7 @@ export function InvoiceBuilderPage() {
           </div>
 
           <fieldset disabled={frozen} className={'dash-card p-5 min-w-0 ' + (frozen ? 'opacity-60' : '')}>
+            {tab === 'details' ? <GstModeSwitch value={gstApplicable} onChange={setGstChoice} /> : null}
             {tab === 'details' ? (
               <DetailsTab
                 clients={clientsQ.data?.items ?? []}
@@ -514,7 +526,7 @@ export function InvoiceBuilderPage() {
               <ItemsTab
                 lines={lines} setLines={setLines}
                 discountText={discountText} setDiscountText={setDiscountText}
-                totals={totals} isInterState={isInterState}
+                totals={totals} isInterState={isInterState} gstApplicable={gstApplicable}
               />
             ) : null}
 
@@ -844,7 +856,7 @@ const UNITS = ['Nos', 'Hours', 'Month', 'Year', 'Set', 'Pcs'];
 function ItemsTab(p: {
   lines: Line[]; setLines: (f: (ls: Line[]) => Line[]) => void;
   discountText: string; setDiscountText: (v: string) => void;
-  totals: ReturnType<typeof computeTotals>; isInterState: boolean;
+  totals: ReturnType<typeof computeTotals>; isInterState: boolean; gstApplicable: boolean;
 }) {
   const set = (i: number, patch: Partial<Line>) =>
     p.setLines((ls) => ls.map((l, j) => (j === i ? { ...l, ...patch } : l)));
@@ -906,14 +918,14 @@ function ItemsTab(p: {
               </Field>
             </Two>
             <Two>
-              <Field label="GST slab" hint={p.isInterState ? 'Charged as IGST.' : 'Split into CGST + SGST.'}>
+              {p.gstApplicable ? <Field label="GST slab" hint={p.isInterState ? 'Charged as IGST.' : 'Split into CGST + SGST.'}>
                 <select
                   className={inputClass} value={l.gstRatePercent}
                   onChange={(e) => set(i, { gstRatePercent: Number(e.target.value) })}
                 >
                   {GST_RATES.map((r) => <option key={r} value={r}>{gstRateLabel(r)}</option>)}
                 </select>
-              </Field>
+              </Field> : null}
               <Field label="Line discount (%)">
                 <input
                   className={inputClass} type="number" min="0" max="100"
@@ -929,7 +941,7 @@ function ItemsTab(p: {
             {t ? (
               <div className="text-12 text-neutral-600 mt-1">
                 Amount {inrAmount(t.taxableAmountPaise)}
-                {p.isInterState
+                {!p.gstApplicable ? null : p.isInterState
                   ? <> · IGST {t.igstRatePercent}% {inrAmount(t.igstAmountPaise)}</>
                   : <> · CGST {t.cgstRatePercent}% {inrAmount(t.cgstAmountPaise)} · SGST {t.sgstRatePercent}% {inrAmount(t.sgstAmountPaise)}</>}
                 {' '}· line total {inrAmount(t.totalAmountPaise)}
@@ -950,7 +962,7 @@ function ItemsTab(p: {
       <div className="border-t border-neutral-200 mt-3 pt-3 text-13">
         <Row k="Sub total" v={inrAmount(p.totals.subtotalPaise)} />
         {p.totals.discountPaise > 0 ? <Row k="Discount" v={`- ${inrAmount(p.totals.discountPaise)}`} /> : null}
-        {p.isInterState
+        {!p.gstApplicable ? null : p.isInterState
           ? <Row k="IGST" v={inrAmount(p.totals.igstPaise)} />
           : <>
               <Row k="CGST" v={inrAmount(p.totals.cgstPaise)} />

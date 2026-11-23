@@ -6758,6 +6758,9 @@ model Quotation {
   /// historical quotation keeps the split it was sent with.
   placeOfSupply String?
   isInterState  Boolean @default(false)
+  /// False = quoted WITHOUT GST (every line 0%, no tax rows). Carried to
+  /// the invoice it converts into.
+  gstApplicable Boolean @default(true)
 
   // ── Derived money (paise). Never written from a request body. ──────────
   subtotalPaise Int @default(0)
@@ -7449,6 +7452,11 @@ model Invoice {
   /// Intra-state -> CGST+SGST, inter-state -> IGST. Stored, not inferred at
   /// render time, so a historical invoice keeps the split it was issued with.
   isInterState  Boolean @default(false)
+
+  /// False = raised WITHOUT GST: every line is 0%, the document reads
+  /// "INVOICE" with no tax columns, and it stays out of GSTR-1. Chosen when
+  /// the invoice is started; a draft can switch.
+  gstApplicable Boolean @default(true)
 
   /// draft | sent | partially_paid | paid | overdue | cancelled
   status String @default("draft")
