@@ -26,6 +26,9 @@ import { EngagementActions } from './EngagementActions';
 import { FormatToolbar } from './FormatToolbar';
 import { focusSibling, forceSync, requestFocus } from './Editable';
 import { useAuth } from '@/platform/auth/AuthContext';
+import { ScopePicker, type PickedService } from '@/modules/workstation/serviceMaster/ScopePicker';
+import { feeFrequency, scopeBlock } from '@/modules/workstation/serviceMaster/toLetter';
+import type { ServiceScope } from '@/modules/workstation/serviceMaster/api';
 import { can } from '@/platform/rbac/can';
 import { printDocumentOnly } from '@/modules/workstation/print';
 import { clientNameWithOrg } from '@/modules/workstation/organization/badges';
@@ -70,6 +73,8 @@ export interface LetterState {
   clientSignatoryDesignation: string;
   /** Page, type, header and footer — the Layout tab. */
   layout: LayoutConfig;
+  /** Services added from the Service master, with the activities kept. */
+  scopes: ServiceScope[];
 }
 
 const today = () => istToday();
@@ -93,6 +98,7 @@ const initialState = (): LetterState => ({
   clientSignatoryName: '',
   clientSignatoryDesignation: '',
   layout: ENGAGEMENT_LAYOUT,
+  scopes: [],
 });
 
 /**
@@ -122,6 +128,8 @@ export function applyTemplate(x: LetterState, id: EngagementTemplateId): LetterS
     // Only the Word originals carry a sample recipient; classic templates start blank.
     sample: !keepParty && skinOf(id) !== null,
     layout: ENGAGEMENT_LAYOUT,
+    // The template's words replace the letter's, service sections included.
+    scopes: [],
   };
 }
 
@@ -151,6 +159,7 @@ function stateFromApi(l: EngagementLetter): LetterState {
     clientSignatoryName: l.client_signatory_name ?? '',
     clientSignatoryDesignation: l.client_signatory_designation ?? '',
     layout: layoutOf(l.layout_config),
+    scopes: (l.service_scopes ?? []) as unknown as ServiceScope[],
   };
 }
 
@@ -500,6 +509,7 @@ export function EngagementBuilderPage() {
       ? { ...b, lines: (b.lines ?? []).filter((l) => !lineIsEmpty(l)) }
       : b)) as unknown as Record<string, unknown>[],
     layout_config: { ...s.layout, company: s.company },
+    service_scopes: s.scopes as unknown as Record<string, unknown>[],
     signatory_name: s.signatoryName || null,
     signatory_designation: s.signatoryDesignation || null,
     client_signatory_name: s.clientSignatoryName || null,
@@ -667,6 +677,8 @@ export function EngagementBuilderPage() {
               </div>
               <input value={s.subject} onChange={(e) => set('subject', e.target.value)} placeholder="Subject" aria-label="Subject" className={inputClass} />
             </section>
+
+            <ServicesCard s={s} update={update} />
 
             {/* The words of the letter, in order — nothing else. */}
             <section className="dash-card p-4">
@@ -1092,6 +1104,73 @@ function BlocksTab({ s, edit, update }: {
         <button type="button" className={btn} onClick={() => append({ id: bid(), key: 'paragraph', enabled: true, lines: [newLine()] })}><Plus size={14} /> Add paragraph</button>
         <button type="button" className={btn} onClick={() => append({ id: bid(), key: 'spacer', enabled: true, heightPx: 24 })}><Plus size={14} /> Add space</button>
       </div>
+    </section>
+  );
+}
+
+/**
+ * The services this letter engages for, from the Service master. Adding one
+ * writes its scope into the letter as a section (ordinary, editable text) and
+ * adds its fee line; the selection is also saved with the letter so the
+ * client's services can show whether an accepted letter covers them.
+ */
+function ServicesCard({ s, update }: { s: LetterState; update: (fn: (s: LetterState) => LetterState, step?: boolean) => void }) {
+  const [open, setOpen] = useState(false);
+  const add = (picked: PickedService[]) => update((x) => {
+    // The reference fee schedule is a placeholder: the first services added replace it.
+    const placeholderFees = !x.scopes.length
+      && x.fees.map((f) => `${f.service}|${f.amountText}`).join() === DEFAULT_FEES().map((f) => `${f.service}|${f.amountText}`).join();
+    const blocks = picked.map((p) => scopeBlock(bid(), p.scope, p.extras));
+    const at = (() => {
+      const fees = x.blocks.findIndex((b) => b.key === 'fees');
+      if (fees >= 0) return fees;
+      const end = x.blocks.findIndex((b) => b.key === 'closing' || b.key === 'signature');
+      return end >= 0 ? end : x.blocks.length;
+    })();
+    return {
+      ...x,
+      blocks: [...x.blocks.slice(0, at), ...blocks, ...x.blocks.slice(at)],
+      fees: [...(placeholderFees ? [] : x.fees), ...picked.map((p) => newFee({
+        service: p.scope.name, frequency: feeFrequency(p.scope.billing_frequency), amountText: p.amountText,
+      }))],
+      scopes: [...x.scopes, ...picked.map((p) => p.scope)],
+    };
+  }, true);
+  const remove = (code: string) => update((x) => {
+    const sc = x.scopes.find((y) => y.code === code);
+    if (!sc) return x;
+    return {
+      ...x,
+      scopes: x.scopes.filter((y) => y.code !== code),
+      blocks: x.blocks.filter((b) => !(b.key === 'section' && b.title === sc.name)),
+      fees: x.fees.filter((f) => f.service !== sc.name),
+    };
+  }, true);
+  return (
+    <section className="dash-card p-4">
+      <div className="flex items-center gap-2 mb-2">
+        <span className="text-13 font-semibold text-neutral-800">Services and scope of work</span>
+        <div className="flex-1" />
+        <button type="button" className={btn} onClick={() => setOpen(true)}><Plus size={14} /> Add services</button>
+      </div>
+      {s.scopes.length ? (
+        <ul className="space-y-1">
+          {s.scopes.map((sc) => (
+            <li key={sc.code} className="flex items-center gap-2 border border-neutral-200 rounded px-2 py-1.5">
+              <span className="flex-1 min-w-0">
+                <span className="text-13 text-neutral-900">{sc.name}</span>
+                <span className="text-11 text-neutral-500"> · {sc.billing_frequency ?? '—'} · {sc.items.filter((i) => i.kind === 'scope').length} activities</span>
+              </span>
+              <button type="button" className={smallBtn} title="Remove this service, its section and its fee line" onClick={() => remove(sc.code)}><Trash2 size={13} /></button>
+            </li>
+          ))}
+        </ul>
+      ) : (
+        <p className="text-12 text-neutral-500">
+          Pick the client&apos;s services from the Service master. Each one&apos;s standard scope is added to the letter, with the activities you keep, and its fee line.
+        </p>
+      )}
+      <ScopePicker open={open} onClose={() => setOpen(false)} onAdd={add} already={s.scopes.map((x) => x.code)} />
     </section>
   );
 }

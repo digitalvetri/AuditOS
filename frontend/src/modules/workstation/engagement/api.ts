@@ -35,6 +35,8 @@ export interface EngagementLetter {
   recipient_snapshot: Record<string, unknown> | null;
   template_id: string;
   block_config: Record<string, unknown>[] | null;
+  /** Services picked from the Service master (see serviceMaster/api.ts). */
+  service_scopes?: Record<string, unknown>[];
   layout_config: Record<string, unknown> | null;
   signatory_name: string | null;
   signatory_designation: string | null;
@@ -58,6 +60,7 @@ export interface EngagementInput {
   recipient_snapshot: Record<string, unknown>;
   template_id: string;
   block_config: Record<string, unknown>[];
+  service_scopes?: Record<string, unknown>[];
   layout_config: Record<string, unknown>;
   signatory_name: string | null;
   signatory_designation: string | null;

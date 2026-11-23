@@ -26,7 +26,7 @@ export const INCLUDE = {
 export type Row = Prisma.EngagementLetterGetPayload<{ include: typeof INCLUDE }>
 
 /** Rows the caller may see — the rule quotationScopeWhere uses, unchanged. */
-async function scopeWhere(session: Session, scope: Scope): Promise<Prisma.EngagementLetterWhereInput> {
+export async function scopeWhere(session: Session, scope: Scope): Promise<Prisma.EngagementLetterWhereInput> {
   if (scope === 'organisation' || scope === 'department') return {}
   const me = session.employeeId ?? '__none__'
   const ids = await assignedClientIds(session, scope)
@@ -60,6 +60,8 @@ export interface LetterInput {
   templateId?: string
   blockConfig?: Record<string, unknown>[] | null
   layoutConfig?: Record<string, unknown> | null
+  /** Services picked from the Service master; undefined keeps what is stored. */
+  serviceScopes?: Record<string, unknown>[] | null
   signatoryName?: string | null
   signatoryDesignation?: string | null
   clientSignatoryName?: string | null
@@ -90,6 +92,7 @@ export function toApi(r: Row) {
     template_id: r.templateId,
     block_config: r.blockConfig,
     layout_config: r.layoutConfig,
+    service_scopes: r.serviceScopes ?? [],
     signatory_name: r.signatoryName,
     signatory_designation: r.signatoryDesignation,
     client_signatory_name: r.clientSignatoryName,
@@ -148,6 +151,7 @@ function columns(input: LetterInput) {
     templateId: input.templateId ?? 'jns-accounting',
     blockConfig: (input.blockConfig ?? undefined) as Prisma.InputJsonValue | undefined,
     layoutConfig: (input.layoutConfig ?? undefined) as Prisma.InputJsonValue | undefined,
+    serviceScopes: (input.serviceScopes ?? undefined) as Prisma.InputJsonValue | undefined,
     signatoryName: input.signatoryName ?? null,
     signatoryDesignation: input.signatoryDesignation ?? null,
     clientSignatoryName: input.clientSignatoryName ?? null,
@@ -306,6 +310,7 @@ export const EngagementService = {
       templateId: src.templateId,
       blockConfig: (src.blockConfig as Record<string, unknown>[] | null) ?? null,
       layoutConfig: (src.layoutConfig as Record<string, unknown> | null) ?? null,
+      serviceScopes: (src.serviceScopes as Record<string, unknown>[] | null) ?? null,
       signatoryName: src.signatoryName,
       signatoryDesignation: src.signatoryDesignation,
       clientSignatoryName: src.clientSignatoryName,

@@ -159,6 +159,7 @@ const ReportsPage = lazy(() => import('@/pages/hrms/Reports').then((m) => ({ def
 const PaymentSummaryPage = lazy(() => import('@/pages/hrms/PaymentSummary').then((m) => ({ default: m.PaymentSummaryPage })));
 import { useAuth } from '@/platform/auth/AuthContext';
 import { NotFoundPage } from '@/pages/NotFound';
+const ServiceMasterPage = lazy(() => import('@/pages/workstation/engagement/ServiceMaster'));
 const SalesRegisterPage = lazy(() => import('@/pages/workstation/invoices/SalesRegister'));
 const ComingSoonPage = lazy(() => import('@/pages/ComingSoon').then((m) => ({ default: m.ComingSoonPage })));
 import { ErrorBoundary } from '@/components/ErrorBoundary';
@@ -477,6 +478,7 @@ export default function App() {
               <Route path="workstation/doc/:id/edit" element={<DocBuilderPage />} />
               <Route path="workstation/engagement" element={<EngagementListPage />} />
               <Route path="workstation/engagement/new" element={<EngagementBuilderPage />} />
+              <Route path="workstation/engagement/service-master" element={<ServiceMasterPage />} />
               <Route path="workstation/engagement/:id/edit" element={<EngagementBuilderPage />} />
               {/* Audit files — one per client × FY × audit type (SA 230). */}
               <Route path="workstation/audits" element={<Lazy><AuditListPage /></Lazy>} />

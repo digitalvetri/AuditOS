@@ -62,6 +62,7 @@ import { creditNotesRouter } from './modules/credit-note/routes.js'
 import { recurringInvoicesRouter } from './modules/recurring/routes.js'
 import { billingSignedRouter } from './modules/invoice/billing-signed.js'
 import { engagementRouter } from './modules/engagement/routes.js'
+import { serviceMasterRouter } from './modules/service-master/routes.js'
 import { auditFilesRouter } from './modules/audit/routes.js'
 import { docsRouter } from './modules/docs/routes.js'
 import { docTemplatesRouter } from './modules/docs/templates.routes.js'
@@ -332,6 +333,8 @@ export function createApp() {
   // HRMS → Payment summary: per-client paid / pending over those invoices.
   app.use('/api/payment-summary', paymentSummaryRouter)
   app.use('/api/engagement-letters', engagementRouter)
+  // Engagement letters → Service master: standard services and their scope.
+  app.use('/api/service-master', serviceMasterRouter)
   app.use('/api/audits', auditFilesRouter)
   app.use('/api/share', shareRouter)
   app.use('/api/workstation-docs', docsRouter)

@@ -15,6 +15,7 @@ import { PrismaClient } from '@prisma/client'
 import { istToday } from '../src/lib/dates.js'
 import { ALL_PERMISSION_CODES, MATRIX, PERMISSION_DESCRIPTIONS, type RoleCode } from '../src/platform/rbac/matrix.js'
 import { seedWorkstation } from './seed-workstation.js'
+import { seedServiceMaster } from './seed-service-master.js'
 // GST compliance periods are DERIVED from the filings seeded above rather
 // than seeded as their own fixture — one source of truth, and the same code
 // path an existing database uses.
@@ -257,6 +258,7 @@ async function main() {
   // ── Workstation (AUDIT_OS_WORKSTATION.md §10) ───────────────────────────
   // Service catalog and document categories only.
   const workstation = await seedWorkstation(prisma, org.id)
+  console.log('Service master:', await seedServiceMaster(prisma, org.id))
   // Without this a fresh database (Docker included) comes up with GST
   // filings but no compliance periods, so every GST screen renders empty.
   const gstPeriods = await backfillPeriods()

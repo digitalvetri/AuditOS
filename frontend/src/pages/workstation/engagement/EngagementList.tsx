@@ -1,7 +1,7 @@
 import { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Plus } from 'lucide-react';
+import { BookOpenCheck, Plus } from 'lucide-react';
 import { QueryState } from '@/modules/workstation/components';
 import {
   ListAction, ListCard, ListEmpty, ListHeader, ListRow, ListTable, ListToolbar, SearchBox, Spacer, StatusChip,
@@ -56,7 +56,12 @@ export function EngagementListPage() {
     <div className="max-w-[1400px]">
       <ListHeader
         title="Engagement letters"
-        meta={total === undefined ? 'Loading…' : `${total} letter${total === 1 ? '' : 's'} · newest first`}
+        meta={<>
+          {total === undefined ? 'Loading…' : `${total} letter${total === 1 ? '' : 's'} · newest first`}{' · '}
+          <Link to="/workstation/engagement/service-master" className="inline-flex items-center gap-1 text-primary hover:underline">
+            <BookOpenCheck size={13} /> Service master
+          </Link>
+        </>}
         action={mayWrite ? (
           <ListAction onClick={() => navigate('/workstation/engagement/new')} icon={<Plus size={15} />}>New engagement letter</ListAction>
         ) : null}

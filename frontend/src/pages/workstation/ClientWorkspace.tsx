@@ -30,7 +30,8 @@ import { GstChecklist } from '@/modules/workstation/checklist/GstChecklist';
 import { quotationsApi } from '@/modules/workstation/quotations/api';
 import { ClientInvoicesTab } from './invoices/ClientInvoicesTab';
 import { engagementApi, type EngagementLetter } from '@/modules/workstation/engagement/api';
-import { useAuth } from '@/platform/auth/AuthContext';
+import { useAuth, pageOn } from '@/platform/auth/AuthContext';
+import { serviceMasterApi, serviceMasterKeys, type Coverage } from '@/modules/workstation/serviceMaster/api';
 import { BillingSliceCard } from '@/modules/zpay/BillingSliceCard';
 import { ClientDocumentFolders } from '@/modules/workstation/documents/ClientDocumentFolders';
 import { ClientShareLinkButton } from '@/modules/workstation/documents/ClientShareLink';
@@ -446,6 +447,24 @@ const SERVICE_STATUSES = [
   'ready', 'submitted', 'completed', 'failed', 'on_hold',
 ];
 
+/** Whether an engagement letter covers a service: accepted, sent, draft or none. */
+function EngagementChip({ c }: { c?: Coverage }) {
+  const base = 'ml-2 inline-flex items-center h-5 px-1.5 rounded text-11 font-normal align-middle whitespace-nowrap';
+  if (!c) {
+    return <span className={`${base} bg-neutral-100 text-neutral-600`} title="No engagement letter names this service. Get the client's written acceptance before starting.">No engagement letter</span>;
+  }
+  const look = c.status === 'accepted'
+    ? { cls: 'bg-[#ecfdf3] text-[#15803d]', label: 'Engagement accepted' }
+    : c.status === 'sent'
+      ? { cls: 'bg-amber-50 text-[#92400e]', label: 'Letter sent · awaiting acceptance' }
+      : { cls: 'bg-neutral-100 text-neutral-600', label: 'Letter in draft' };
+  return (
+    <Link to={`/workstation/engagement/${c.letter_id}/edit`} className={`${base} ${look.cls} hover:underline`} title={c.letter_code}>
+      {look.label}
+    </Link>
+  );
+}
+
 function ServicesTab({ client }: { client: ClientDetail }) {
   const qc = useQueryClient();
   const toast = useToast();
@@ -483,6 +502,14 @@ function ServicesTab({ client }: { client: ClientDetail }) {
   };
 
   const canManage = can(session?.role.code, 'workstation.service.manage', 'self');
+  // Work should start only once the client has accepted an engagement letter
+  // naming the service (Service master → engagement letter).
+  const seesLetters = can(session?.role.code, 'workstation.engagement.read', 'self') && pageOn(session, 'engagement_letters');
+  const coverage = useQuery({
+    queryKey: serviceMasterKeys.coverage(client.id),
+    queryFn: () => serviceMasterApi.coverage(client.id),
+    enabled: seesLetters,
+  });
 
   return (
     <>
@@ -495,7 +522,10 @@ function ServicesTab({ client }: { client: ClientDetail }) {
             <Table head={canManage ? ['Service', 'Due Date', 'Status', 'Last Updated', ''] : ['Service', 'Due Date', 'Status', 'Last Updated']}>
               {data.items.map((s) => (
                 <Row key={s.id} status={s.status}>
-                  <Cell className="font-medium">{s.service_name}</Cell>
+                  <Cell className="font-medium">
+                    {s.service_name}
+                    {coverage.data ? <EngagementChip c={coverage.data[s.service_id]} /> : null}
+                  </Cell>
                   <Cell muted>
                     {canManage ? (
                       <input

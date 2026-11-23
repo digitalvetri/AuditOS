@@ -1918,8 +1918,8 @@ model GstNotice {
   /// The date the reply must reach the officer by, and who owns it.
   /// Closed before the reply was sent: the reason (dropped, merged…).
   closedWithoutReplyReason String?
-  responseDueDate    String?
-  assignedEmployeeId String?
+  responseDueDate          String?
+  assignedEmployeeId       String?
 
   // Extracted / entered facts about the notice.
   referenceNo        String?
@@ -3892,49 +3892,49 @@ model AaInvoiceExtraction {
   clientId       String
 
   /// Original PDF filename, sanitised at upload.
-  filename       String
+  filename  String
   /// SHA-256 of the PDF bytes — same-file-twice detection.
-  pdfSha256      String
-  pageCount      Int    @default(1)
+  pdfSha256 String
+  pageCount Int    @default(1)
 
   // ── Extracted fields, each with its own confidence hint ──────────
   // Fields are nullable so a partial extraction still saves and the
   // reviewer fills gaps rather than retyping everything.
 
-  supplierGstin           String?
-  supplierGstinConfidence String  @default("low")
-  recipientGstin          String?
-  recipientGstinConfidence String @default("low")
-  supplierName            String?
-  supplierNameConfidence  String  @default("low")
-  invoiceNumber           String?
-  invoiceNumberConfidence String  @default("low")
+  supplierGstin            String?
+  supplierGstinConfidence  String  @default("low")
+  recipientGstin           String?
+  recipientGstinConfidence String  @default("low")
+  supplierName             String?
+  supplierNameConfidence   String  @default("low")
+  invoiceNumber            String?
+  invoiceNumberConfidence  String  @default("low")
   /// YYYY-MM-DD when a date resolved; null if the extractor couldn't pick one.
-  invoiceDate             String?
-  invoiceDateConfidence   String  @default("low")
+  invoiceDate              String?
+  invoiceDateConfidence    String  @default("low")
 
   /// Money in paise — Int (invoices cap well below BigInt necessity).
-  totalPaise           Int?
-  totalConfidence      String @default("low")
-  taxablePaise         Int?
-  taxableConfidence    String @default("low")
-  cgstPaise            Int?
-  cgstConfidence       String @default("low")
-  sgstPaise            Int?
-  sgstConfidence       String @default("low")
-  igstPaise            Int?
-  igstConfidence       String @default("low")
+  totalPaise        Int?
+  totalConfidence   String @default("low")
+  taxablePaise      Int?
+  taxableConfidence String @default("low")
+  cgstPaise         Int?
+  cgstConfidence    String @default("low")
+  sgstPaise         Int?
+  sgstConfidence    String @default("low")
+  igstPaise         Int?
+  igstConfidence    String @default("low")
 
   /// JSON array of strings — HSN codes the extractor surfaced; the
   /// reviewer picks which apply per line item.
-  hsnCandidatesJson    String?
+  hsnCandidatesJson String?
   /// JSON array of line items the reviewer types: [{ description,
   /// hsn, quantity_centi, unit_rate_paise, taxable_paise, cgst_paise,
   /// sgst_paise, igst_paise }].
-  lineItemsJson        String?
+  lineItemsJson     String?
 
   /// extracted | confirmed | exported
-  status               String @default("extracted")
+  status String @default("extracted")
 
   reviewedByEmployeeId String?
   reviewedAt           DateTime?
@@ -3969,25 +3969,25 @@ model AaTransitExtraction {
   organisationId String
   clientId       String
 
-  filename   String
-  pdfSha256  String
-  pageCount  Int    @default(1)
+  filename  String
+  pdfSha256 String
+  pageCount Int    @default(1)
 
   /// lorry_receipt | delivery_challan | unknown
-  docType             String @default("unknown")
+  docType             String  @default("unknown")
   docNumber           String?
   docNumberConfidence String  @default("low")
   docDate             String?
   docDateConfidence   String  @default("low")
 
-  consignor              String?
-  consignorConfidence    String  @default("low")
-  consignorGstin         String?
-  consignorGstinConfidence String @default("low")
-  consignee              String?
-  consigneeConfidence    String  @default("low")
-  consigneeGstin         String?
-  consigneeGstinConfidence String @default("low")
+  consignor                String?
+  consignorConfidence      String  @default("low")
+  consignorGstin           String?
+  consignorGstinConfidence String  @default("low")
+  consignee                String?
+  consigneeConfidence      String  @default("low")
+  consigneeGstin           String?
+  consigneeGstinConfidence String  @default("low")
 
   /// Compact form, uppercased — 'TN01AB1234'.
   vehicleNumber           String?
@@ -3998,18 +3998,18 @@ model AaTransitExtraction {
   toPlaceConfidence       String  @default("low")
 
   goodsDescription           String?
-  goodsDescriptionConfidence String @default("low")
+  goodsDescriptionConfidence String  @default("low")
   /// Free-form, e.g. '50 bundles' / '12 cartons' / '250 kgs'.
   quantity                   String?
-  quantityConfidence         String @default("low")
+  quantityConfidence         String  @default("low")
   /// Nullable — LRs often omit value entirely.
   valuePaise                 Int?
-  valueConfidence            String @default("low")
+  valueConfidence            String  @default("low")
 
   /// Future: a JSON array if we extract per-package detail. Reserved now.
-  lineItemsJson        String?
+  lineItemsJson String?
 
-  status               String @default("extracted")
+  status               String    @default("extracted")
   reviewedByEmployeeId String?
   reviewedAt           DateTime?
   notes                String?
@@ -7137,6 +7137,13 @@ model EngagementLetter {
 
   preparedById String?
 
+  /// The services picked from the Service master and the activities kept for
+  /// each, as at the last save: [{ code, name, category, billing_frequency,
+  /// service_code, items: [{ kind, content }], extras: {…} }]. The letter's
+  /// printed text lives in blockConfig; this is what lets the app tell which
+  /// of a client's services an accepted letter covers.
+  serviceScopes Json?
+
   sentAt     DateTime?
   acceptedAt DateTime?
 
@@ -7156,6 +7163,56 @@ model EngagementLetter {
   @@index([status])
   @@index([letterDate])
   @@index([createdAt])
+}
+
+/// SERVICE MASTER — the firm's standard services and, for each, its scope of
+/// work as individual selectable activities (JNS_Service_Master_Scope_of_Work).
+/// An engagement letter starts from these: the services are picked, the
+/// activities not in the client's package are unticked, and the result is
+/// written into the letter as ordinary text.
+model ServiceMaster {
+  id               String  @id @default(uuid())
+  organisationId   String
+  code             String  @unique
+  /// Main service group: 'GST', 'TDS / TCS', 'Incorporation' …
+  category         String
+  /// The service itself: 'GST Return Filing & Compliance'.
+  name             String
+  /// 'Monthly' | 'Quarterly' | 'Half-yearly' | 'Yearly' | 'One-time' | free text.
+  billingFrequency String  @default("Monthly")
+  /// Workstation Service.code this corresponds to, when there is one.
+  serviceCode      String?
+  isActive         Boolean @default(true)
+  sortOrder        Int     @default(0)
+
+  items ServiceMasterItem[]
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  createdBy String?
+  updatedBy String?
+  deletedAt DateTime?
+
+  @@index([organisationId, sortOrder])
+}
+
+/// One selectable line of a service's scope.
+model ServiceMasterItem {
+  id              String  @id @default(uuid())
+  masterId        String
+  /// scope | deliverable | responsibility | exclusion | note
+  kind            String
+  content         String
+  /// Ticked by default when the service is added to a letter.
+  defaultSelected Boolean @default(true)
+  sortOrder       Int     @default(0)
+
+  master ServiceMaster @relation(fields: [masterId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([masterId, sortOrder])
 }
 
 /// One priced line in an engagement letter's Fees section.
@@ -7264,25 +7321,25 @@ model WorkstationDoc {
 /// pins the version it was composed against so regenerating it in
 /// November still produces the same paper.
 model DocTemplate {
-  id              String  @id @default(uuid())
-  organisationId  String
+  id             String  @id @default(uuid())
+  organisationId String
   /// 'partnership-deed', 'llp-agreement' — one code per document family.
-  code            String
+  code           String
   /// Which version of this code this row is. 1, 2, 3 … allocated in order.
-  version         Int     @default(1)
-  name            String
+  version        Int     @default(1)
+  name           String
   /// Which rendered formats this version can produce, comma-separated.
   /// 'docx,xlsx,pdf' — docx/xlsx renderers land in §D1 follow-up.
-  outputFormats   String  @default("pdf")
+  outputFormats  String  @default("pdf")
   /// YYYY-MM-DD — the earliest date this version may be CHOSEN for a new
   /// document. A document already pinned to an older version never
   /// re-checks this; it belongs to the version it was created with.
-  effectiveFrom   String
+  effectiveFrom  String
   /// Template-level body with `{{placeholders}}` and `{{#list}}…{{/list}}`
   /// blocks. Clauses slot into named sections of this body.
-  body            String  @default("")
-  description     String?
-  isActive        Boolean @default(true)
+  body           String  @default("")
+  description    String?
+  isActive       Boolean @default(true)
 
   clauses DocTemplateClause[]
 
@@ -7313,7 +7370,7 @@ model DocTemplateClause {
   /// can be finalised. False for optional riders.
   required    Boolean @default(true)
 
-  template DocTemplate                 @relation(fields: [templateId], references: [id], onDelete: Cascade)
+  template DocTemplate                @relation(fields: [templateId], references: [id], onDelete: Cascade)
   variants DocTemplateClauseVariant[]
 
   createdAt DateTime @default(now())
@@ -7378,7 +7435,7 @@ model Invoice {
   /// The quotation this invoice was raised from (convertToInvoice). A
   /// quotation converts once while a non-cancelled invoice stands for it.
   quotationId String?
-  clientId String
+  clientId    String
 
   /// YYYY-MM-DD. The date printed on the document, not the row's createdAt.
   invoiceDate String
@@ -7484,8 +7541,8 @@ model Invoice {
   cancelledAt DateTime?
 
   bankAccountId String?
-  bankAccount   FirmBankAccount? @relation(fields: [bankAccountId], references: [id])
-  client        Client           @relation(fields: [clientId], references: [id])
+  bankAccount   FirmBankAccount?     @relation(fields: [bankAccountId], references: [id])
+  client        Client               @relation(fields: [clientId], references: [id])
   items         InvoiceItem[]
   payments      InvoicePayment[]
   paymentLinks  InvoicePaymentLink[]
@@ -8799,36 +8856,36 @@ model DueDateExtension {
 /// Income-tax, MCA and other notices (GST notices keep GstNotice, which has
 /// the AI drafting; both share the reply-deadline reminders).
 model ClientNotice {
-  id                 String  @id @default(uuid())
-  organisationId     String
-  clientId           String
+  id                       String  @id @default(uuid())
+  organisationId           String
+  clientId                 String
   /// income_tax | mca | gst | tds | labour | other
-  authority          String
+  authority                String
   /// e.g. '143(1)', '143(2)', '148A(b)', '139(9)', '245', '142(1)', 'ASMT-10'
-  section            String
-  referenceNo        String?
+  section                  String
+  referenceNo              String?
   /// Income-tax Document Identification Number
-  din                String?
-  noticeDate         String
-  assessmentYear     String?
+  din                      String?
+  noticeDate               String
+  assessmentYear           String?
   /// The date the reply must reach the department by.
-  responseDueDate    String?
-  hearingDate        String?
-  demandPaise        BigInt?
+  responseDueDate          String?
+  hearingDate              String?
+  demandPaise              BigInt?
   /// received | in_progress | replied | hearing | order_received | appeal | closed
-  status             String  @default("received")
-  assignedEmployeeId String?
-  replyFiledOn       String?
-  replyAckNo         String?
+  status                   String  @default("received")
+  assignedEmployeeId       String?
+  replyFiledOn             String?
+  replyAckNo               String?
   /// Why the notice was closed with no reply on record (dropped by the
   /// department, merged into another proceeding…). Closing needs a reply
   /// (date or acknowledgement) or this.
   closedWithoutReplyReason String?
-  summary            String?
-  outcome            String?
-  fileKey            String?
-  fileName           String?
-  fileMime           String?
+  summary                  String?
+  outcome                  String?
+  fileKey                  String?
+  fileName                 String?
+  fileMime                 String?
 
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt
@@ -8920,33 +8977,33 @@ model CreditNote {
 /// A monthly / quarterly retainer: each run creates a draft invoice (or sends
 /// it when autoSend) from these lines.
 model RecurringInvoiceProfile {
-  id              String    @id @default(uuid())
-  organisationId  String
-  clientId        String
-  name            String
+  id                 String    @id @default(uuid())
+  organisationId     String
+  clientId           String
+  name               String
   /// monthly | quarterly | half_yearly | annual
-  frequency       String
+  frequency          String
   /// Day of the month the invoice is dated (1–28; 31 = month end).
-  dayOfMonth      Int       @default(1)
-  startDate       String
-  endDate         String?
-  nextIssueDate   String
-  terms           String    @default("net_15")
-  placeOfSupply   String?
-  clientServiceId String?
+  dayOfMonth         Int       @default(1)
+  startDate          String
+  endDate            String?
+  nextIssueDate      String
+  terms              String    @default("net_15")
+  placeOfSupply      String?
+  clientServiceId    String?
   /// Invoice items to copy: [{ description, sac_code, quantity_centi,
   /// unit_rate_paise, gst_rate, discount_paise }]
-  linesJson       Json
-  autoSend        Boolean   @default(false)
-  isActive        Boolean   @default(true)
+  linesJson          Json
+  autoSend           Boolean   @default(false)
+  isActive           Boolean   @default(true)
   /// POST-DELIVERY-CHANGES §E2. Mid-month start: when true, the first
   /// invoice bills a prorated stub (startDate → next full-period issue),
   /// and the full-period cadence picks up from the next cycle. When false
   /// (default), the stub is skipped and the firm raises its first full
   /// invoice at the first in-schedule date on or after startDate.
-  prorateFirstPeriod Boolean @default(false)
-  lastGeneratedAt DateTime?
-  lastInvoiceId   String?
+  prorateFirstPeriod Boolean   @default(false)
+  lastGeneratedAt    DateTime?
+  lastInvoiceId      String?
 
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt
