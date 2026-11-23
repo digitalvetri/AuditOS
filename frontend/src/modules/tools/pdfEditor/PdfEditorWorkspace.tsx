@@ -23,7 +23,7 @@ import type { PageInfo } from './model';
 type Opened =
   | { state: 'loading' }
   | { state: 'ready'; doc: PDFDocumentProxy; originals: PageInfo[] }
-  | { state: 'error'; reason: 'password' | 'invalid'; message: string };
+  | { state: 'error'; reason: 'password' | 'invalid' | 'viewer'; message: string };
 
 export default function PdfEditorWorkspace({ tool }: { tool: ToolDefinition }) {
   const ws = useToolWorkspace(tool);

@@ -10,7 +10,9 @@ import { FACE } from './model';
 let lib: Promise<typeof import('pdfjs-dist')> | null = null;
 export function pdfjs() {
   lib ??= import('pdfjs-dist').then((m) => {
-    m.GlobalWorkerOptions.workerSrc = workerUrl;
+    // `?v=2`: browsers that fetched the worker while nginx served it with the
+    // wrong type kept that response (immutable, one year) — a new URL skips it.
+    m.GlobalWorkerOptions.workerSrc = `${workerUrl}?v=2`;
     return m;
   });
   return lib;
@@ -18,7 +20,7 @@ export function pdfjs() {
 
 export type OpenResult =
   | { ok: true; doc: PDFDocumentProxy }
-  | { ok: false; reason: 'password' | 'invalid'; message: string };
+  | { ok: false; reason: 'password' | 'invalid' | 'viewer'; message: string };
 
 export async function openPdf(file: File): Promise<OpenResult> {
   const m = await pdfjs();
@@ -26,11 +28,17 @@ export async function openPdf(file: File): Promise<OpenResult> {
     const doc = await m.getDocument({ data: new Uint8Array(await file.arrayBuffer()), isEvalSupported: false }).promise;
     return { ok: true, doc };
   } catch (err) {
-    const name = (err as { name?: string }).name;
+    const name = (err as { name?: string }).name ?? '';
+    const detail = (err as { message?: string }).message ?? String(err);
+    console.error('[pdf-editor] could not open the PDF', err);
     if (name === 'PasswordException') {
       return { ok: false, reason: 'password', message: 'This PDF is password-protected. Remove the password with Unlock PDF first, then open it here.' };
     }
-    return { ok: false, reason: 'invalid', message: 'This PDF could not be opened. It may be damaged.' };
+    if (name === 'InvalidPDFException' || name === 'MissingPDFException') {
+      return { ok: false, reason: 'invalid', message: `This PDF could not be read — it may be damaged (${detail}).` };
+    }
+    // Anything else is the viewer failing to start, not the file.
+    return { ok: false, reason: 'viewer', message: `The PDF viewer could not start (${detail}). Reload the page with Ctrl+Shift+R and try again.` };
   }
 }
 
