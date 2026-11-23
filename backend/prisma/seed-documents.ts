@@ -245,7 +245,7 @@ async function seedInvoices(): Promise<number> {
     const sent = s.status !== 'draft'
 
     await prisma.$transaction(async (tx) => {
-      const invoiceNumber = await nextInvoiceNumber(tx)
+      const invoiceNumber = await nextInvoiceNumber(tx, invoiceDate)
       await tx.invoice.create({
         data: {
           id: `inv-sample-${s.n}`,

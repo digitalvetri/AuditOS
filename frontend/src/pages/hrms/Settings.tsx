@@ -7,7 +7,7 @@
  */
 import { useSearchParams } from 'react-router-dom';
 import {
-  BadgePercent, Building2, CalendarDays, CalendarRange, KeyRound, Receipt, ShieldCheck, Users,
+  BadgePercent, Building2, CalendarDays, CalendarRange, Hash, KeyRound, Receipt, ShieldCheck, Users,
 } from 'lucide-react';
 import { useAuth } from '@/platform/auth/AuthContext';
 import { can } from '@/platform/rbac/can';
@@ -18,6 +18,7 @@ import { StatutoryRatesSection } from '@/modules/settings/StatutoryRatesSection'
 import { RolesSection } from '@/modules/settings/RolesSection';
 import { UsersSection } from '@/modules/settings/UsersSection';
 import { DataProtectionSection } from '@/modules/settings/DataProtectionSection';
+import { NumberingSection } from '@/modules/settings/NumberingSection';
 import { ListHeader } from '@/modules/workstation/listUi';
 
 type Section =
@@ -25,6 +26,7 @@ type Section =
   | 'leave-types'
   | 'expense-categories'
   | 'statutory-rates'
+  | 'numbering'
   | 'users'
   | 'roles'
   | 'data-protection';
@@ -42,6 +44,7 @@ const SECTIONS: { id: Section; label: string; group: string; icon: typeof Buildi
   { id: 'leave-types', label: 'Leave types', group: 'Time & Leave', icon: CalendarRange },
   { id: 'expense-categories', label: 'Expense categories', group: 'Finance', icon: Receipt },
   { id: 'statutory-rates', label: 'Statutory rates', group: 'Finance', icon: BadgePercent },
+  { id: 'numbering', label: 'Invoice & quotation numbers', group: 'Finance', icon: Hash },
   { id: 'users', label: 'Users', group: 'Access', icon: Users },
   { id: 'roles', label: 'Roles & permissions', group: 'Access', icon: KeyRound },
   { id: 'data-protection', label: 'Data protection', group: 'Access', icon: ShieldCheck },
@@ -71,7 +74,7 @@ export function SettingsPage() {
   // Users is account administration: Super Admin and Admin only.
   const isAdmin = session?.role.code === 'md' || session?.role.code === 'hr_admin';
   // Users and Data protection are account administration: Admins only.
-  const sections = SECTIONS.filter((s) => (s.id !== 'users' && s.id !== 'data-protection') || isAdmin);
+  const sections = SECTIONS.filter((s) => (s.id !== 'users' && s.id !== 'data-protection' && s.id !== 'numbering') || isAdmin);
   const groups = Array.from(new Set(sections.map((s) => s.group)));
 
   return (
@@ -140,6 +143,7 @@ export function SettingsPage() {
           {section === 'users' && isAdmin ? <UsersSection /> : null}
           {section === 'roles' ? <RolesSection /> : null}
           {section === 'data-protection' && isAdmin ? <DataProtectionSection /> : null}
+          {section === 'numbering' && isAdmin ? <NumberingSection /> : null}
         </main>
       </div>
     </div>

@@ -349,8 +349,22 @@ export interface FirmGst {
   state: string | null;
 }
 
+/** Invoice / quotation number series (Settings → Invoice & quotation numbers). */
+export interface NumberSeries {
+  prefix: string;
+  digits: number;
+  resolved_prefix: string;
+  highest_issued: number;
+  next_number: number;
+  next_preview: string;
+}
+export interface Numbering { invoice: NumberSeries; quotation: NumberSeries }
+export interface NumberSeriesInput { prefix: string; digits: number; next_number?: number | null }
+
 export const invoicesApi = {
   firmGst: () => api.get<FirmGst>('/api/invoices/firm-gst'),
+  numbering: () => api.get<Numbering>('/api/invoices/numbering'),
+  setNumbering: (b: { invoice?: NumberSeriesInput; quotation?: NumberSeriesInput }) => api.put<Numbering>('/api/invoices/numbering', b),
   setFirmGst: (gstin: string) => api.put<FirmGst>('/api/invoices/firm-gst', { gstin }),
   list: (f: InvoiceFilters = {}) =>
     api.get<{ items: Invoice[]; total: number }>(`/api/invoices${qs({ ...f })}`),

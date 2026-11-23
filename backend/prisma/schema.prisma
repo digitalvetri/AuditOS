@@ -59,6 +59,11 @@ model Organisation {
   /// digits are the firm's state, which decides IGST vs CGST+SGST. Null =
   /// not set yet, and invoices cannot be sent until it is.
   gstin                 String?
+  /// How invoice and quotation numbers are formed (Settings → Invoice &
+  /// quotation numbers): { invoice?: Series, quotation?: Series } with
+  /// Series = { prefix, digits, start, start_prefix }. Null / missing = the
+  /// built-in INV-000001 and QT-YYYY-0001. See platform/workstation/numbering.ts.
+  numberingConfig       Json?
 
   departments         Department[]
   designations        Designation[]

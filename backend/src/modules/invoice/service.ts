@@ -793,11 +793,11 @@ export async function createInvoiceRecord(
  * series has no gaps and two sends of one draft cannot take two numbers.
  */
 export async function sendInvoiceTx(tx: Prisma.TransactionClient, id: string, userId: string | null): Promise<string> {
-  const inv = await tx.invoice.findFirst({ where: { id, deletedAt: null }, select: { invoiceNumber: true, status: true } })
+  const inv = await tx.invoice.findFirst({ where: { id, deletedAt: null }, select: { invoiceNumber: true, status: true, invoiceDate: true } })
   if (!inv) throw ApiError.notFound('No such invoice.')
   const [blocker] = await invoiceSendBlockers(tx, id)
   if (blocker) throw ApiError.unprocessable(blocker.code, blocker.message)
-  const invoiceNumber = inv.invoiceNumber ?? await nextInvoiceNumber(tx)
+  const invoiceNumber = inv.invoiceNumber ?? await nextInvoiceNumber(tx, inv.invoiceDate)
   // Conditional on still being a draft: a concurrent send that got here
   // first has already numbered it, and this one must not renumber it.
   const r = await tx.invoice.updateMany({

@@ -1,4 +1,6 @@
 import { Router } from 'express'
+import type { Prisma } from '@prisma/client'
+import { istToday } from '../../lib/dates.js'
 import { z } from 'zod'
 import { ApiError, handler, noContent, ok } from '../../lib/http.js'
 import { requireSession } from '../../platform/auth.js'
@@ -17,6 +19,7 @@ import { firmGstin, firmOrgId, firmStateCode, formBool, placeOfSupplySchema, sta
 import { checkInvoiceLink, createInvoiceLink, listInvoiceLinks } from '../integrations/payment-links.js'
 import { isGateway } from '../integrations/gateways.js'
 import { isFy, salesRegister, salesRegisterWorkbook } from './sales-register.js'
+import { highestIssued, peekNext, resolvePrefix, seriesConfig } from '../../platform/workstation/numbering.js'
 
 /**
  * Invoice HTTP surface — mounted at /api/invoices.
@@ -322,6 +325,79 @@ invoicesRouter.put('/firm-gst', handler(async (req, res) => {
   })
   const code = firmStateCode(b.gstin)
   ok(res, { gstin: b.gstin, state_code: code, state: stateNameForCode(code) })
+}))
+
+/**
+ * Invoice and quotation numbers (Settings → Invoice & quotation numbers).
+ * Reading is for anyone who raises invoices; changing is an Admin's call and
+ * audited, like the firm's GSTIN. See platform/workstation/numbering.ts.
+ */
+async function numberingView() {
+  const today = istToday()
+  const out: Record<string, unknown> = {}
+  for (const kind of ['invoice', 'quotation'] as const) {
+    const cfg = await seriesConfig(prisma, kind)
+    const prefix = resolvePrefix(cfg.prefix, today)
+    const next = await peekNext(prisma, kind, today, cfg)
+    out[kind] = {
+      prefix: cfg.prefix,
+      digits: cfg.digits,
+      resolved_prefix: prefix,
+      highest_issued: await highestIssued(prisma, kind, prefix),
+      next_number: Number(next.slice(prefix.length)),
+      next_preview: next,
+    }
+  }
+  return out
+}
+
+invoicesRouter.get('/numbering', handler(async (req, res) => {
+  const session = requireSession(req)
+  requireWorkstation(session, 'workstation.invoice.read')
+  ok(res, await numberingView())
+}))
+
+const PREFIX_RE = /^[A-Za-z0-9/\-_. ]*$/
+const seriesBody = z.object({
+  prefix: z.string().trim().min(1, 'Give a prefix.').max(30)
+    .refine((v) => PREFIX_RE.test(v.replace(/\{(YYYY|FY|FY2)\}/g, '')), 'Letters, digits, / - _ . and {YYYY}, {FY} or {FY2} only.'),
+  digits: z.coerce.number().int().min(1).max(10),
+  next_number: z.coerce.number().int().min(1).max(999_999_999).nullish(),
+})
+
+invoicesRouter.put('/numbering', handler(async (req, res) => {
+  const session = requireSession(req)
+  if (!isAccountAdmin(session)) throw ApiError.forbidden('Only an Admin can change invoice and quotation numbers.')
+  const b = parse(z.object({ invoice: seriesBody.optional(), quotation: seriesBody.optional() }), req.body, 'Check the numbering.')
+  const orgId = await firmOrgId()
+  const org = orgId ? await prisma.organisation.findUnique({ where: { id: orgId }, select: { id: true, numberingConfig: true } }) : null
+  if (!org) throw ApiError.notFound('No firm record.')
+  const today = istToday()
+  const before = (org.numberingConfig ?? {}) as Record<string, unknown>
+  const after: Record<string, unknown> = { ...before }
+  const issues: { path: string; message: string }[] = []
+  for (const kind of ['invoice', 'quotation'] as const) {
+    const s = b[kind]
+    if (!s) continue
+    const prefix = resolvePrefix(s.prefix, today)
+    const highest = await highestIssued(prisma, kind, prefix)
+    // A number at or below one already issued would repeat it.
+    if (s.next_number && s.next_number <= highest) {
+      issues.push({ path: `${kind}.next_number`, message: `${prefix}${String(highest).padStart(s.digits, '0')} is already issued, so the next number must be ${highest + 1} or more.` })
+      continue
+    }
+    after[kind] = {
+      prefix: s.prefix, digits: s.digits,
+      start: s.next_number ?? null, start_prefix: s.next_number ? prefix : null,
+    }
+  }
+  if (issues.length) throw ApiError.badRequest('Check the numbering.', issues)
+  await prisma.organisation.update({ where: { id: org.id }, data: { numberingConfig: after as Prisma.InputJsonValue } })
+  await writeAudit({
+    actorUserId: session.userId, action: 'settings.numbering_changed', entityType: 'Organisation', entityId: org.id,
+    before, after, req,
+  })
+  ok(res, await numberingView())
 }))
 
 invoicesRouter.get('/:id', handler(async (req, res) => {

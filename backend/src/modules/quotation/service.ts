@@ -539,7 +539,7 @@ export const QuotationService = {
 
     const created = await prisma.$transaction(async (tx) => {
       const year = Number(input.quoteDate.slice(0, 4))
-      const code = await nextQuotationCode(tx, year)
+      const code = await nextQuotationCode(tx, year, input.quoteDate)
       const organisationId =
         (await tx.organisation.findFirst({ select: { id: true } }))?.id ?? 'org-audit-os'
 

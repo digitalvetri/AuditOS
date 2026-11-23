@@ -1,5 +1,6 @@
 import type { Prisma } from '@prisma/client'
 import { lockSequence } from '../../lib/sequence.js'
+import { takeNext } from './numbering.js'
 
 /**
  * Human-readable id allocation — 'LD-1001', 'CLI-1001' (§5.2).
@@ -88,24 +89,13 @@ export async function nextRegistrationCode(tx: Tx, year: number): Promise<string
 }
 
 /**
- * 'QT-2026-0001' — per-YEAR sequence, same rule as the two above: read the
- * maximum inside the creating transaction, soft-deleted rows included,
- * because `quotationCode` is @unique and a retired code must never be handed
- * out twice.
+ * The quotation number — 'QT-2026-0001' unless an Admin set another series
+ * in Settings (platform/workstation/numbering.ts). Allocated inside the
+ * creating transaction under the series lock. Pass the quotation's date so a
+ * {FY} prefix lands in the right year; the year alone is the fallback.
  */
-export async function nextQuotationCode(tx: Tx, year: number): Promise<string> {
-  await lockSequence(tx, `code:QT-${year}`)
-  const prefix = `QT-${year}-`
-  const rows = await tx.quotation.findMany({
-    where: { quotationCode: { startsWith: prefix } },
-    select: { quotationCode: true },
-  })
-  let max = 0
-  for (const r of rows) {
-    const n = Number(r.quotationCode.slice(prefix.length))
-    if (Number.isFinite(n) && n > max) max = n
-  }
-  return `${prefix}${String(max + 1).padStart(4, '0')}`
+export async function nextQuotationCode(tx: Tx, year: number, date?: string): Promise<string> {
+  return takeNext(tx, 'quotation', date ?? `${year}-06-01`)
 }
 
 /** 'EL-2026-0001' — per-year, allocated inside the creating transaction. */
@@ -141,32 +131,18 @@ export async function nextWorkstationDocCode(tx: Tx, year: number): Promise<stri
 }
 
 /**
- * 'INV-000001' — a single FLAT sequence, deliberately not per-year.
- *
- * A GST invoice number must be unique and unbroken for the life of the
- * books. Restarting at 0001 each April — which is what the QT-YYYY-NNNN
- * shape does — would reissue numbers that already exist, so the invoice
- * sequence does not take a year at all. Six digits because the reference
- * document is already at INV-000188 and four would not hold a busy decade.
+ * The invoice number — 'INV-000001', a single flat series, unless an Admin
+ * set another in Settings (platform/workstation/numbering.ts): a different
+ * prefix, a {FY} prefix, or a number to continue from (a firm moving in with
+ * 160 invoices already raised sets 161).
  *
  * Allocated when the invoice is SENT (drafts carry no number), inside that
- * transaction, by reading the current maximum — soft-deleted rows included,
- * because `invoiceNumber` is @unique and an older deleted draft may still
- * hold one.
+ * transaction under the series lock, from the highest number already in the
+ * series — soft-deleted rows included, because `invoiceNumber` is @unique
+ * and an older deleted draft may still hold one.
  */
-export async function nextInvoiceNumber(tx: Tx): Promise<string> {
-  await lockSequence(tx, 'code:INV')
-  const prefix = 'INV-'
-  const rows = await tx.invoice.findMany({
-    where: { invoiceNumber: { startsWith: prefix } },
-    select: { invoiceNumber: true },
-  })
-  let max = 0
-  for (const r of rows) {
-    const n = Number((r.invoiceNumber ?? '').slice(prefix.length))
-    if (Number.isFinite(n) && n > max) max = n
-  }
-  return `${prefix}${String(max + 1).padStart(6, '0')}`
+export async function nextInvoiceNumber(tx: Tx, invoiceDate: string): Promise<string> {
+  return takeNext(tx, 'invoice', invoiceDate)
 }
 
 /** 'AUD-2026-0001' — audit files, per-year, allocated inside the creating transaction. */
