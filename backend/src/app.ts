@@ -156,6 +156,8 @@ export function createApp() {
   // so this must come before the JSON / urlencoded parsers and `authenticate`.
   app.use('/api/payments/webhooks', express.raw({ type: '*/*', limit: '1mb' }), paymentWebhooksRouter)
   app.use(cookieParser())
+  // The PDF editor sends its edits (with any images placed) in one save.
+  app.use('/api/tools/pdf-editor/jobs', express.json({ limit: '12mb' }))
   app.use(express.json({ limit: '1mb' }))
   app.use(express.urlencoded({ extended: true }))
 

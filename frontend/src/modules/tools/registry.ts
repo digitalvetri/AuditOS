@@ -12,7 +12,7 @@
  * page moves.
  */
 import type { LucideIcon } from 'lucide-react';
-import { LockOpen, PenLine } from 'lucide-react';
+import { FilePen, LockOpen, PenLine } from 'lucide-react';
 import type { PermissionCode } from '@/platform/rbac/matrix';
 
 export type ToolStatus = 'active' | 'coming_soon';
@@ -141,6 +141,11 @@ export const TOOLS: ToolDefinition[] = [
     badge: { icon: PenLine, tint: 'rose' }, groupId: 'pdf-utilities', route: '/tools/esign-pdf',
     ...PDF, maxFileSizeMB: 25, multiple: false, outputType: 'pdf',
     keywords: ['pdf', 'sign', 'signature', 'esign', 'approve', 'approval'], permission: 'tools.esign_pdf', status: 'active' },
+  { id: 'pdf-editor', name: 'PDF Editor', description: 'Edit text, add text, images, signatures and highlights; rotate, reorder and delete pages',
+    badge: { icon: FilePen, tint: 'indigo' }, groupId: 'pdf-utilities', route: '/tools/pdf-editor',
+    ...PDF, maxFileSizeMB: 50, multiple: false, outputType: 'pdf',
+    keywords: ['pdf', 'edit', 'editor', 'text', 'annotate', 'highlight', 'whiteout', 'redact', 'rotate', 'delete page', 'signature', 'image'],
+    permission: 'tools.pdf_editor', status: 'active' },
   { id: 'ocr-scan', name: 'OCR Scan', description: 'Make scanned docs searchable',
     badge: { text: 'OCR', tint: 'indigo' }, groupId: 'pdf-utilities', route: '/tools/ocr-scan',
     accepts: [MIME.pdf, ...IMAGES.accepts], extensions: ['pdf', ...IMAGES.extensions], maxFileSizeMB: 25, multiple: false, outputType: 'pdf',

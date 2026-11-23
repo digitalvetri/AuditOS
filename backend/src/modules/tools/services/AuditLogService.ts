@@ -23,6 +23,7 @@ export type ToolAuditAction =
   | 'delete'
   | 'unlock_authorised'
   | 'esign_applied'
+  | 'pdf_edited'
 
 export type ToolAuditStatus = 'success' | 'failed' | 'info'
 

@@ -12,6 +12,7 @@ import { WordService } from './services/tools/WordService.js'
 import { ImageService } from './services/tools/ImageService.js'
 import { OCRService } from './services/tools/OCRService.js'
 import { signatureProvider } from './services/tools/SignatureProvider.js'
+import { applyPdfEdits, parseEditSpec } from './services/tools/PdfEditor.js'
 import { ComplianceService } from './services/tools/ComplianceService.js'
 import { fmtDateIST } from './lib/dates.js'
 import { suspectIdentifiers } from './lib/identifiers.js'
@@ -233,6 +234,16 @@ const IMPLEMENTATIONS: Record<string, Implementation> = {
     progress(85)
     await AuditLogService.log({ session, action: 'esign_applied', toolId: 'esign-pdf', documentId: doc.id, jobId, status: 'info', meta: { ...r.meta, filename: doc.originalFilename } })
     return { filename: `${stripExtension(doc.originalFilename)}-signed.pdf`, mime: OUTPUT_MIME.pdf, bytes: r.bytes, meta: { signature: r.meta, page_count: await PDFService.pageCount(r.bytes) } }
+  },
+
+  'pdf-editor': async ({ inputs, options, progress, session, jobId }) => {
+    const { doc, bytes } = inputs[0]
+    const spec = parseEditSpec(options.edits)
+    progress(15)
+    const r = await applyPdfEdits(bytes, spec)
+    progress(90)
+    await AuditLogService.log({ session, action: 'pdf_edited', toolId: 'pdf-editor', documentId: doc.id, jobId, status: 'info', meta: { ...r.meta, filename: doc.originalFilename } })
+    return { filename: `${stripExtension(doc.originalFilename)}-edited.pdf`, mime: OUTPUT_MIME.pdf, bytes: r.bytes, meta: { page_count: r.meta.pages, edits: r.meta.objects } }
   },
 
   'ocr-scan': async ({ inputs, options, progress }) => {

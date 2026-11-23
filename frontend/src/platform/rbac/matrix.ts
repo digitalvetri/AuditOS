@@ -160,6 +160,7 @@ export type PermissionCode =
   | 'tools.compress_pdf'
   | 'tools.unlock_pdf'
   | 'tools.esign_pdf'
+  | 'tools.pdf_editor'
   | 'tools.ocr_scan'
   | 'tools.gst_json_excel'
   | 'tools.bank_statement_to_excel'
@@ -286,6 +287,7 @@ export const MATRIX: Record<RoleCode, Grant[]> = {
     { permission: 'tools.compress_pdf', scope: 'self' },
     { permission: 'tools.unlock_pdf', scope: 'self' },
     { permission: 'tools.esign_pdf', scope: 'self' },
+    { permission: 'tools.pdf_editor', scope: 'self' },
     { permission: 'tools.ocr_scan', scope: 'self' },
     { permission: 'tools.gst_json_excel', scope: 'self' },
     { permission: 'tools.bank_statement_to_excel', scope: 'self' },
@@ -391,6 +393,7 @@ export const MATRIX: Record<RoleCode, Grant[]> = {
     { permission: 'tools.compress_pdf', scope: 'organisation' },
     { permission: 'tools.unlock_pdf', scope: 'organisation' },
     { permission: 'tools.esign_pdf', scope: 'organisation' },
+    { permission: 'tools.pdf_editor', scope: 'organisation' },
     { permission: 'tools.ocr_scan', scope: 'organisation' },
     { permission: 'tools.gst_json_excel', scope: 'organisation' },
     { permission: 'tools.bank_statement_to_excel', scope: 'organisation' },
@@ -580,6 +583,7 @@ export const MATRIX: Record<RoleCode, Grant[]> = {
     { permission: 'tools.compress_pdf', scope: 'organisation' },
     { permission: 'tools.unlock_pdf', scope: 'organisation' },
     { permission: 'tools.esign_pdf', scope: 'organisation' },
+    { permission: 'tools.pdf_editor', scope: 'organisation' },
     { permission: 'tools.ocr_scan', scope: 'organisation' },
     { permission: 'tools.gst_json_excel', scope: 'organisation' },
     { permission: 'tools.bank_statement_to_excel', scope: 'organisation' },

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { lazy, Suspense, useEffect, useMemo, useState } from 'react';
 import { useParams } from 'react-router-dom';
 import { Button } from '@/components/Button';
 import { useAuth } from '@/platform/auth/AuthContext';
@@ -17,6 +17,9 @@ import { ComingSoonState } from '@/modules/tools/workspace/ComingSoonState';
 import { Notice } from '@/modules/tools/workspace/fields';
 import { NotFoundPage } from '@/pages/NotFound';
 
+// The PDF editor is its own screen (pdf.js is large), loaded only when opened.
+const PdfEditorWorkspace = lazy(() => import('@/modules/tools/pdfEditor/PdfEditorWorkspace'));
+
 /**
  * /tools/:toolId — ONE page for all twelve tools (§6). The registry names
  * the tool, TOOL_UI supplies its options form and button label, the hook
@@ -26,8 +29,32 @@ export function ToolWorkspacePage() {
   const { toolId } = useParams();
   const tool = getTool(toolId);
   if (!tool) return <NotFoundPage />;
+  if (tool.id === 'pdf-editor' && tool.status === 'active') return <PdfEditorPage toolId={tool.id} />;
   if (tool.status !== 'active' || !TOOL_UI[tool.id]) return <ComingSoonState tool={tool} />;
   return <ActiveWorkspace key={tool.id} toolId={tool.id} />;
+}
+
+function PdfEditorPage({ toolId }: { toolId: string }) {
+  const tool = getTool(toolId)!;
+  const { session } = useAuth();
+  if (!can(session?.role.code, tool.permission, 'self')) {
+    return (
+      <ToolWorkspaceLayout tool={tool}>
+        <p className="text-13 text-neutral-500">You do not have access to this tool. Ask an administrator to give your role the Tools module in Settings → Roles &amp; permissions.</p>
+      </ToolWorkspaceLayout>
+    );
+  }
+  return (
+    <div className="w-full" data-testid={`tool-workspace-${tool.id}`}>
+      <div className="mb-3">
+        <h1 className="text-20 font-semibold text-neutral-900">{tool.name}</h1>
+        <p className="text-13 text-neutral-500">{tool.description}</p>
+      </div>
+      <Suspense fallback={<p className="text-13 text-neutral-500">Loading the editor…</p>}>
+        <PdfEditorWorkspace tool={tool} />
+      </Suspense>
+    </div>
+  );
 }
 
 function ActiveWorkspace({ toolId }: { toolId: string }) {

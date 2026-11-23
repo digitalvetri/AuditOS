@@ -162,10 +162,15 @@ toolsRouter.post('/:toolId/jobs', handler(async (req, res) => {
   const organisationId = await DocumentService.organisationIdOf(session)
   const options = b.data.options ?? {}
   // Never persist a password or a drawn signature bitmap in the job record.
-  const { password: _pw, signature_png: _sig, ...storable } = options
+  // The PDF editor's edit list (text typed, images pasted) is summarised.
+  const { password: _pw, signature_png: _sig, edits, ...storable } = options
+  const editSummary = edits && typeof edits === 'object'
+    ? { pages: Array.isArray((edits as { pages?: unknown[] }).pages) ? (edits as { pages: unknown[] }).pages.length : 0,
+        objects: Array.isArray((edits as { objects?: unknown[] }).objects) ? (edits as { objects: unknown[] }).objects.length : 0 }
+    : undefined
   const job = await ToolJobService.createJob({
     session, organisationId, toolId: tool.id, inputDocumentId: inputs[0]?.id ?? null,
-    meta: { options: storable, input_document_ids: inputs.map((d) => d.id) },
+    meta: { options: editSummary ? { ...storable, edits: editSummary } : storable, input_document_ids: inputs.map((d) => d.id) },
   })
   enqueue(session, organisationId, job.id, tool, inputs, options)
   ok(res, toolJobToApi(job), 202)
