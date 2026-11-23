@@ -70,14 +70,19 @@ export interface SupecoEntry {
 }
 
 export interface B2csEntry {
+  /** Field order below matches a portal-accepted file
+   *  (R1_<GSTIN>_<MM>_<YYYY>.json produced by a prior successful filing)
+   *  byte-for-byte. JSON key order is not spec-mandated, but the GSTN
+   *  offline tool emits this order and matching it removes the one
+   *  dimension on which a strict validator could still diverge. */
   sply_ty: 'INTRA' | 'INTER'
-  pos: string          // place-of-supply state code
   rt: number           // rate percent (float — "18" or "18.5")
   typ: 'OE'            // "other" category — ecommerce supplies
+  pos: string          // place-of-supply state code
   txval: number        // rupees, 2dp
   iamt: number
-  camt: number
   samt: number
+  camt: number
   csamt: number
 }
 
@@ -260,7 +265,7 @@ export function buildFromRows(
     const key = `${pos}|${ratePct}|${splyTy}`
     let bucket = b2cs.get(key)
     if (!bucket) {
-      bucket = { sply_ty: splyTy, pos, rt: ratePct, typ: 'OE', txval: 0, iamt: 0, camt: 0, samt: 0, csamt: 0 }
+      bucket = { sply_ty: splyTy, rt: ratePct, typ: 'OE', pos, txval: 0, iamt: 0, samt: 0, camt: 0, csamt: 0 }
       b2cs.set(key, bucket)
     }
     bucket.txval = round2(bucket.txval + sign * t.txval)
