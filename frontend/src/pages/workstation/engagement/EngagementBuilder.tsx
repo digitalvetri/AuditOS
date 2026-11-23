@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
+import { useStickyPreview } from '@/lib/useStickyPreview';
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
@@ -570,6 +571,7 @@ export function EngagementBuilderPage() {
   const unsaved = useUnsavedChangesGuard(ready && !frozen ? s : null, { ready });
 
   // Loading / failed / not yet in state: no editor, so nothing can be saved.
+  useStickyPreview(rootRef, ready);
   if (!ready) return <RecordLoadGate query={existingQ} />;
 
   return (
@@ -698,7 +700,7 @@ export function EngagementBuilderPage() {
         </div>
 
         {/* ── RIGHT: the letter itself, editable in place ──────────────── */}
-        <div className={mobileView === 'edit' ? 'hidden md:block' : ''}>
+        <div className={`qb-side ${mobileView === 'edit' ? 'hidden md:flex' : ''}`}>
           <div className="text-13 font-semibold text-neutral-800 mb-2 qdoc-screen-only">
             {frozen ? 'Document (read-only)' : 'Document — click any text to edit it'}
           </div>

@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { useStickyPreview } from '@/lib/useStickyPreview';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
@@ -514,6 +515,7 @@ export function QuotationBuilderPage() {
   const unsaved = useUnsavedChangesGuard(ready && liveEdit ? doc : null, { ready });
 
   // Loading / failed / not yet in state: no editor, so nothing can be saved.
+  useStickyPreview(rootRef, ready);
   if (!ready) return <RecordLoadGate query={existingQ} />;
 
   return (
@@ -616,7 +618,7 @@ export function QuotationBuilderPage() {
         </div>
 
         {/* ── RIGHT: the document ──────────────────────────────────────── */}
-        <div className={mobileView === 'edit' ? 'hidden md:block' : ''}>
+        <div className={`qb-side ${mobileView === 'edit' ? 'hidden md:flex' : ''}`}>
           <div className="text-13 font-semibold text-neutral-800 mb-2 qdoc-screen-only">{liveEdit ? "Document — click any text to edit it" : "Document (read-only)"}</div>
           <PreviewPane doc={doc} edit={liveEdit} />
         </div>

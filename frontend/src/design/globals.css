@@ -1822,6 +1822,19 @@ select[size] option:hover,
 }
 @media (min-width: 768px) { .qb-head { top: -20px; margin: -20px -20px 16px; padding: 16px 20px; } }
 @media (min-width: 1024px) { .qb-head { top: -24px; margin: -24px -24px 16px; padding: 18px 24px; } }
+/* The document column stays pinned under .qb-head and scrolls on its own
+   (useStickyPreview measures the two variables). Stacked on phones. */
+@media (min-width: 768px) {
+  .qb-side {
+    position: sticky; top: var(--qb-side-top, 96px);
+    height: var(--qb-side-h, calc(100dvh - 200px));
+    display: flex; flex-direction: column; min-height: 0;
+  }
+  .qb-side > .qb-preview { flex: 1 1 auto; min-height: 0; max-height: none; }
+}
+@media print {
+  .qb-side { position: static !important; height: auto !important; display: block !important; }
+}
 .cp-scrim-all { background: rgb(8 12 22 / 0.3); backdrop-filter: blur(2px); animation: gs-in 0.2s ease; }
 .cp-panel-slide { animation: cp-in 0.3s cubic-bezier(.2,.7,.2,1); }
 

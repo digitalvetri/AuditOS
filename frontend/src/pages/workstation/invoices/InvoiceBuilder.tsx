@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { useStickyPreview } from '@/lib/useStickyPreview';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { useAuditFileOptions } from '@/modules/audit/pickers';
@@ -408,11 +409,13 @@ export function InvoiceBuilderPage() {
   const serverErrors = fieldErrors(save.error);
   const err = (k: string) => errors[k] ?? serverErrors[k];
 
+  const rootRef = useRef<HTMLDivElement>(null);
+  useStickyPreview(rootRef, ready);
   // Loading / failed / not yet in state: no editor, so nothing can be saved.
   if (!ready) return <RecordLoadGate query={existingQ} />;
 
   return (
-    <>
+    <div className="qb-root" ref={rootRef}>
       <header className="qb-head flex items-start gap-3 flex-wrap mb-4 qdoc-screen-only">
         <div className="flex-1 min-w-[200px]">
           <h1 className="text-[26px] leading-tight font-semibold tracking-[-0.01em] text-neutral-900">Invoice builder</h1>
@@ -539,14 +542,14 @@ export function InvoiceBuilderPage() {
         </div>
 
         {/* RIGHT — the live document. */}
-        <div className={mobileView === 'edit' ? 'hidden md:block' : ''}>
+        <div className={`qb-side ${mobileView === 'edit' ? 'hidden md:flex' : ''}`}>
           <div className="text-13 font-semibold text-neutral-800 mb-2 qdoc-screen-only">
             Live preview
           </div>
           <PreviewPane doc={doc} />
         </div>
       </div>
-    </>
+    </div>
   );
 }
 
