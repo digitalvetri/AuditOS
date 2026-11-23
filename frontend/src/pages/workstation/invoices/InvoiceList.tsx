@@ -111,7 +111,7 @@ export function InvoiceListPage() {
                             : `/workstation/invoices/${inv.id}`);
                         }}
                       >
-                        {draft && mayWrite ? 'Continue building' : 'View'}
+                        {draft && mayWrite ? 'Edit' : 'View'}
                       </button>
                     </TD>
                     <TD last>

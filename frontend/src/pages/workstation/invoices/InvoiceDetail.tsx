@@ -255,6 +255,11 @@ function Body({ inv }: { inv: Invoice }) {
                   ) : null}
                 </span>
               ) : null}
+              {mayWrite && inv.is_editable ? (
+                <Button onClick={() => navigate(`/workstation/invoices/${inv.id}/edit`)}>
+                  <Pencil size={14} className="mr-1.5" />Edit draft
+                </Button>
+              ) : null}
               {mayWrite && inv.stored_status === 'draft' ? (
                 <Button variant="primary" disabled={send.isPending} onClick={() => send.mutate()}>Send</Button>
               ) : null}

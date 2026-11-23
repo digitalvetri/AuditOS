@@ -74,7 +74,7 @@ export function ClientInvoicesTab({ client }: { client: ClientDetail }) {
                           : `/workstation/invoices/${v.id}`);
                       }}
                     >
-                      {editable ? 'Continue building' : 'View'}
+                      {editable ? 'Edit' : 'View'}
                     </button>
                   </Cell>
                 </Row>
