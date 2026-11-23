@@ -315,6 +315,20 @@
   text-align: center;
 }
 
+/* Auto-compact — applied by the page-breaker (`qdoc-body` scope only) when
+   a document that spills onto page 2 can be refitted to one page by
+   closing the gaps between stacked elements. Scoped to the body on
+   purpose: `.qdoc-footer` is its sibling, not a descendant, so the
+   footer's height never changes with the compact flag — if it did the
+   pagination `room` calculation would flip and the layout would
+   oscillate. Typography and page margins are untouched. */
+.qdoc-compact .qdoc-block + .qdoc-block { margin-top: 6px; }
+.qdoc-compact .qdoc-section + .qdoc-section { margin-top: 6px; }
+.qdoc-compact .qdoc-closing { margin-top: 8px; }
+.qdoc-compact .qdoc-signer { margin-top: 4px; }
+.qdoc-compact .qdoc-list li { margin-bottom: 0; }
+.qdoc-compact .qdoc-totals { margin-top: 4px; }
+
 @media print {
   /* The page divs ARE the paper, so the printer must not add its own
      margin on top of theirs — that is what makes print match preview. */

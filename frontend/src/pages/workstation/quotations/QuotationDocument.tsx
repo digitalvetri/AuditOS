@@ -252,7 +252,7 @@ export function QuotationDocument({ doc, scale, edit }: {
               padding: `${geo.marginMm}mm`,
             }}
           >
-            <div className="qdoc-body">
+            <div className={`qdoc-body ${pages.compact ? 'qdoc-compact' : ''}`}>
               {ids.map((id) => {
                 const found = nodes.find((n) => n.id === id);
                 if (!found) return null;
@@ -339,6 +339,7 @@ function usePagination(ids: string[], contentHeightPx: number, doc: DocumentMode
   const measureRef = useRef<HTMLDivElement>(null);
   const pagesRef = useRef<HTMLDivElement>(null);
   const [pages, setPages] = useState<string[][]>([ids]);
+  const [compact, setCompact] = useState(false);
   const restore = useRef<{ editId: string; offset: number } | null>(null);
   // Everything that can change a height is in here — every text, and the
   // spacer sizes, whose whole purpose is to push content onto the next page.
@@ -347,31 +348,55 @@ function usePagination(ids: string[], contentHeightPx: number, doc: DocumentMode
   useLayoutEffect(() => {
     const root = measureRef.current;
     if (!root) return;
-    const heights = unitHeights(root, 'block');
     const room = contentHeightPx - footerReservePx(pagesRef.current);
 
-    const next: string[][] = [];
-    let current: string[] = [];
-    let used = 0;
-    for (const id of ids) {
-      const h = heights.get(id) ?? 0;
-      if (current.length > 0 && used + h > room) {
-        next.push(current);
-        current = [];
-        used = 0;
+    const breakInto = (heights: Map<string, number>): string[][] => {
+      const out: string[][] = [];
+      let current: string[] = [];
+      let used = 0;
+      for (const id of ids) {
+        const h = heights.get(id) ?? 0;
+        if (current.length > 0 && used + h > room) {
+          out.push(current);
+          current = [];
+          used = 0;
+        }
+        current.push(id);
+        used += h;
       }
-      current.push(id);
-      used += h;
-    }
-    if (current.length > 0 || next.length === 0) next.push(current);
+      if (current.length > 0 || out.length === 0) out.push(current);
+      return out;
+    };
 
+    const normalHeights = unitHeights(root, 'block');
+    const normal = breakInto(normalHeights);
+
+    // Auto-compact — only tried when the normal layout spills past one page.
+    // If the compact variant fits the document in fewer pages, use it; else
+    // revert. No silent compact for documents that already fit on one page.
+    let useCompact = false;
+    let result = normal;
+    if (normal.length > 1) {
+      root.classList.add('qdoc-compact');
+      // Force style recompute by reading a dimension before measuring.
+      void root.offsetHeight;
+      const compactHeights = unitHeights(root, 'block');
+      const compactPages = breakInto(compactHeights);
+      root.classList.remove('qdoc-compact');
+      if (compactPages.length < normal.length) {
+        useCompact = true;
+        result = compactPages;
+      }
+    }
+
+    setCompact((prev) => (prev === useCompact ? prev : useCompact));
     setPages((prev) => {
-      if (JSON.stringify(prev) === JSON.stringify(next)) return prev;
+      if (JSON.stringify(prev) === JSON.stringify(result)) return prev;
       const a = document.activeElement as HTMLElement | null;
       if (a?.dataset.editId && pagesRef.current?.contains(a)) {
         restore.current = { editId: a.dataset.editId, offset: caretOffset(a) ?? 0 };
       }
-      return next;
+      return result;
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [signature]);
@@ -386,7 +411,7 @@ function usePagination(ids: string[], contentHeightPx: number, doc: DocumentMode
     if (el) { el.focus(); setCaret(el, r.offset); }
   }, [pages]);
 
-  return { pages, measureRef, pagesRef };
+  return { pages, measureRef, pagesRef, compact };
 }
 
 // ── Editing controls (screen-only, never printed) ─────────────────────────
