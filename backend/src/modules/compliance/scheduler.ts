@@ -16,6 +16,8 @@ import { sendNoticeReminders } from '../notices-register/reminders.js'
 import { sendDscAlerts } from '../dsc/alerts.js'
 import { sendArticleshipFormAlerts } from '../articleship/service.js'
 import { generateGstFilingJobs } from '../gst/filing.js'
+import { generateAnnualFilings } from './annual.js'
+import { enrolTdsClients } from '../tds/enrol.js'
 
 const DAY_MS = 24 * 60 * 60 * 1000
 
@@ -30,6 +32,8 @@ export async function runExclusive<T>(prisma: PrismaClient, name: string, fn: ()
 
 export interface ComplianceJobReport {
   gst_filing_jobs: Awaited<ReturnType<typeof generateGstFilingJobs>> | null
+  annual_filings: Awaited<ReturnType<typeof generateAnnualFilings>> | null
+  tds_enrolled: number | null
   generated: Awaited<ReturnType<typeof generateItems>> | null
   staff_reminders: number | null
   client_reminders: Awaited<ReturnType<typeof sendComplianceClientReminders>> | null
@@ -50,6 +54,10 @@ export async function runComplianceJobs(prisma: PrismaClient, today = istToday()
   return {
     // GST Filing: enrol GST Filing clients and open last month's returns.
     gst_filing_jobs: await step('gst.filing_jobs', () => generateGstFilingJobs(prisma, today)),
+    // IT returns (1 May) and MCA forms (LLP 1 Apr / 1 Sep, company 1 Aug).
+    annual_filings: await step('compliance.annual_filings', () => generateAnnualFilings(prisma, today)),
+    // TDS Filing clients onto the quarterly TDS board.
+    tds_enrolled: await step('tds.enrol', () => enrolTdsClients(prisma)),
     generated: await step('compliance.generate', () => generateItems(prisma, { fys: defaultFys(today), today })),
     staff_reminders: await step('compliance.staff_reminders', () => sendComplianceStaffReminders(prisma, today)),
     client_reminders: await step('compliance.client_reminders', () => sendComplianceClientReminders(prisma, today)),

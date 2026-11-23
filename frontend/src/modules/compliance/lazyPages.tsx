@@ -17,3 +17,6 @@ export const DueDateExtensionsRoute = page(() => import('@/pages/workstation/com
 export const NoticesRegisterRoute = page(() => import('@/pages/workstation/compliance/NoticesRegister'), 'NoticesRegisterPage');
 export const DscRegisterRoute = page(() => import('@/pages/workstation/compliance/DscRegister'), 'DscRegisterPage');
 export const TdsReconRoute = page(() => import('@/pages/workstation/compliance/TdsRecon'), 'TdsReconPage');
+export const ItReturnsRoute = page(() => import('@/pages/workstation/compliance/AnnualFilings'), 'ItReturnsPage');
+export const LlpFormsRoute = page(() => import('@/pages/workstation/compliance/AnnualFilings'), 'LlpFormsPage');
+export const CompanyFormsRoute = page(() => import('@/pages/workstation/compliance/AnnualFilings'), 'CompanyFormsPage');

@@ -17,6 +17,8 @@ import { parseCsv } from '../zpay/invoice-import.js'
 import {
   ENTITY_TYPES, applyRule, dueFor, entityTypeOf, findPeriod, fyOfPeriodKey, isFy, parseMonths,
 } from './engine.js'
+import { annualSchedule, generateAnnualFilings, GROUP_FORMS, type AnnualGroup } from './annual.js'
+import { enrolTdsClients } from '../tds/enrol.js'
 import {
   CLOSED_STATUSES, ITEM_STATUSES, buildContext, defaultFys, extensionToApi, formToApi, generateItems, isIsoDate,
   itemToApi, orgOfUser, suggestedForms, toRule, type ItemApi,
@@ -215,6 +217,32 @@ complianceRouter.post('/generate', handler(async (req, res) => {
   ok(res, { financial_years: fys, ...result })
 }))
 
+// ── annual filings (IT / MCA worklists) ─────────────────────────────────────
+
+complianceRouter.get('/annual/:group', handler(async (req, res) => {
+  await caller(req, READ)
+  const group = req.params.group as AnnualGroup
+  if (!(group in GROUP_FORMS)) throw ApiError.notFound('Unknown filing group.')
+  const forms = await prisma.complianceForm.findMany({ where: { code: { in: [...GROUP_FORMS[group]] } } })
+  const name = new Map(forms.map((f) => [f.code, f.name]))
+  ok(res, {
+    group,
+    form_codes: GROUP_FORMS[group],
+    schedule: annualSchedule(group, istToday()).map((r) => ({ ...r, form_name: r.form_code === 'ITR' ? 'Income-tax return' : name.get(r.form_code) ?? r.form_code })),
+  })
+}))
+
+// Run the annual generator now (it also runs every day by itself).
+complianceRouter.post('/annual/run', handler(async (req, res) => {
+  const { session, organisationId } = await caller(req, MANAGE)
+  requireFirmWide(session)
+  const today = istToday()
+  const result = await generateAnnualFilings(prisma, today, { organisationId })
+  const tds_enrolled = await enrolTdsClients(prisma, { organisationId })
+  await writeAudit({ actorUserId: session.userId, action: 'compliance_item.annual_run', entityType: 'ComplianceItem', entityId: organisationId, after: { ...result, tds_enrolled }, req })
+  ok(res, { ...result, tds_enrolled })
+}))
+
 // ── items ────────────────────────────────────────────────────────────────────
 
 async function visibleIds(session: Session, scope: Scope) {
@@ -235,6 +263,8 @@ async function listItems(session: Session, scope: Scope, organisationId: string,
     ...(q.open_only ? { status: { notIn: [...CLOSED_STATUSES] } } : {}),
     ...(clientId ? { clientId } : ids === 'ALL' ? {} : { clientId: { in: ids } }),
     ...(str(q.form_code) ? { formCode: str(q.form_code)! } : {}),
+    // Several forms at once (IT / MCA worklists): form_codes=LLP11,LLP8
+    ...(str(q.form_codes) ? { formCode: { in: str(q.form_codes)!.split(',').map((s) => s.trim()).filter(Boolean) } } : {}),
     ...(from || to
       ? { OR: [{ dueDate: { ...(from ? { gte: from } : {}), ...(to ? { lte: to } : {}) } }, ...extensions.map((e) => ({ formCode: e.formCode, periodKey: e.periodKey }))] }
       : {}),

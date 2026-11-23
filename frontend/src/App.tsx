@@ -119,7 +119,7 @@ const TdsServicesLanding = lazy(() => import('@/pages/workstation/tds/TdsService
 const TdsServiceHandoff = lazy(() => import('@/pages/workstation/tds/TdsServiceHandoff').then((m) => ({ default: m.TdsServiceHandoff })));
 const TdsRegisterPage = lazy(() => import('@/pages/workstation/tds/TdsRegisterPage').then((m) => ({ default: m.TdsRegisterPage })));
 // Compliance calendar, notices, DSC register, 26AS recon (docs/compliance) — code-split.
-import { ComplianceCalendarRoute, DueDateExtensionsRoute, NoticesRegisterRoute, DscRegisterRoute, TdsReconRoute } from '@/modules/compliance/lazyPages';
+import { ComplianceCalendarRoute, DueDateExtensionsRoute, NoticesRegisterRoute, DscRegisterRoute, TdsReconRoute, ItReturnsRoute, LlpFormsRoute, CompanyFormsRoute } from '@/modules/compliance/lazyPages';
 
 // Books — Tools → Books, an Audit OS UI over Zoho Books (docs/books-zoho).
 const BooksShell = lazy(() => import('@/pages/books/BooksShell').then((m) => ({ default: m.BooksShell })));
@@ -448,7 +448,9 @@ export default function App() {
               <Route path="workstation/dsc" element={<DscRegisterRoute />} />
               <Route path="workstation/tds-recon" element={<TdsReconRoute />} />
               <Route path="workstation/ais-recon" element={<ComingSoonPage title="AIS reconciliation" body="Upload a client's AIS PDF, convert it to Excel and match it against the books. Coming in the next update." />} />
-              <Route path="workstation/it-filing" element={<ComingSoonPage title="IT returns" body="Every income-tax client's return for the year, listed automatically on 1 May. Coming in the next update; 26AS reconciliation is ready in the meantime." />} />
+              <Route path="workstation/it-filing" element={<ItReturnsRoute />} />
+              <Route path="workstation/mca-filing/llp" element={<LlpFormsRoute />} />
+              <Route path="workstation/mca-filing/company" element={<CompanyFormsRoute />} />
               <Route path="workstation/sales-register" element={<ComingSoonPage title="Sales register" body="Every invoice issued, month by month, with the GST split, exportable to Excel. Coming in the next update." />} />
               <Route path="workstation/documents" element={<WorkstationDocumentsPage />} />
 

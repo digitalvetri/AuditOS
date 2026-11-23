@@ -153,6 +153,8 @@ export interface ItemFilters {
   to?: string;
   client_id?: string;
   form_code?: string;
+  /** Several forms: 'LLP11,LLP8' (IT / MCA worklists). */
+  form_codes?: string;
   authority?: string;
   status?: string;
   assigned_to?: string;
@@ -253,6 +255,17 @@ export const complianceApi = {
   }) => api.post<Extension>('/api/compliance/extensions', body),
   deleteExtension: (id: string) => api.delete<void>(`/api/compliance/extensions/${id}`),
   summary: () => api.get<ComplianceSummary>('/api/compliance/summary'),
+  /** IT / MCA worklists: the forms in a group and when each opens and is due. */
+  annual: (group: AnnualGroup) => api.get<AnnualGroupInfo>(`/api/compliance/annual/${group}`),
+  /** Run the yearly generator now (it also runs daily). */
+  runAnnual: () => api.post<{ created: number; by_form: Record<string, number>; tds_enrolled: number }>('/api/compliance/annual/run', {}),
 };
+
+export type AnnualGroup = 'it' | 'llp' | 'company';
+export interface AnnualGroupInfo {
+  group: AnnualGroup;
+  form_codes: string[];
+  schedule: { form_code: string; form_name: string; opens: string; due: string | null; next_opens_on: string; covers_fy: string }[];
+}
 
 export const CSV_TEMPLATE_HEADER = 'client_code,form_code,period_key,acknowledgement_no,filed_on';

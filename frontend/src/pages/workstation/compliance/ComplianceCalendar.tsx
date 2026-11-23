@@ -284,8 +284,8 @@ export function ComplianceCalendarPage() {
 
 // ── Table ─────────────────────────────────────────────────────────────────
 
-const editable = (i: ComplianceItem) => !i.read_only && (!i.source || i.source === 'compliance');
-const isDone = (i: ComplianceItem) => i.status === 'filed' || i.status === 'not_applicable' || i.status === 'completed';
+export const editable = (i: ComplianceItem) => !i.read_only && (!i.source || i.source === 'compliance');
+export const isDone = (i: ComplianceItem) => i.status === 'filed' || i.status === 'not_applicable' || i.status === 'completed';
 
 function sourceLink(i: ComplianceItem): string {
   if (i.source === 'tds') return i.link?.startsWith('/workstation/services/tds') ? i.link : `/workstation/services/tds?client=${i.client_id}`;
@@ -293,7 +293,7 @@ function sourceLink(i: ComplianceItem): string {
   return i.link?.startsWith('/workstation/services/registration/gst') ? i.link : `/workstation/services/registration/gst/clients/${i.client_id}`;
 }
 
-function ItemsTable({
+export function ItemsTable({
   items, today, formByCode, canManage, selected, onToggle, onToggleAll, assignees, onStatus, onAssign, onFiled, onAgm,
 }: {
   items: ComplianceItem[];

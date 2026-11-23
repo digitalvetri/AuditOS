@@ -42,6 +42,8 @@ export interface PageDef {
 
 const SERVICE = ['workstation.service.read', 'workstation.service.manage']
 const INVOICE = ['workstation.invoice.read', 'workstation.invoice.manage']
+// IT / MCA worklists are compliance items.
+const ANNUAL = [...SERVICE, 'workstation.compliance.read', 'workstation.compliance.manage']
 
 export const PAGES: PageDef[] = [
   // Lead & Client
@@ -76,12 +78,12 @@ export const PAGES: PageDef[] = [
   { key: 'gst_filing', block: 'workstation', perms: ['workstation.gst.'], api: ['/api/gstr1', '/api/gstr2b', '/api/gstr3b', '/api/gst-portal'],
     grant: [...SERVICE, 'workstation.gst.read', 'workstation.gst.manage', 'workstation.gst.portal.view'] },
   { key: 'tds_filing', block: 'workstation', perms: ['workstation.tds.'], api: ['/api/tds', '/api/tds-portal'], grant: [...SERVICE, 'workstation.tds.portal.view'] },
-  { key: 'it_filing', block: 'workstation', grant: SERVICE },
+  { key: 'it_filing', block: 'workstation', grant: ANNUAL },
   { key: 'it_26as', block: 'workstation', api: ['/api/tds-recon'], grant: SERVICE },
   { key: 'it_ais', block: 'workstation', grant: SERVICE },
-  // MCA forms are worked on the LLP / company case screens (shared API).
-  { key: 'mca_llp', block: 'workstation', grant: SERVICE },
-  { key: 'mca_company', block: 'workstation', grant: SERVICE },
+  // MCA forms: compliance items on their own worklists (shared API).
+  { key: 'mca_llp', block: 'workstation', grant: ANNUAL },
+  { key: 'mca_company', block: 'workstation', grant: ANNUAL },
   { key: 'eway_bill', block: 'workstation', perms: ['workstation.eway.'] },
   { key: 'notice_reply', block: 'workstation', perms: ['workstation.notice.'] },
   { key: 'dsc_register', block: 'workstation', perms: ['workstation.dsc.'] },
