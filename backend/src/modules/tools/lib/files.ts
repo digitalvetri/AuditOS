@@ -1,6 +1,8 @@
 import JSZip from 'jszip'
 import { MIME } from '../registry.js'
 
+const PDF_HEADER = Buffer.from('%PDF-', 'latin1')
+
 /**
  * File identity helpers. The extension and the browser-supplied MIME are
  * hints; the bytes decide (§11 — validate MIME AND magic bytes server-side).
@@ -9,7 +11,14 @@ import { MIME } from '../registry.js'
 /** Sniff the real type from the leading bytes. `null` = not a type we know. */
 export async function sniffMime(bytes: Buffer, hintExt: string): Promise<string | null> {
   if (bytes.length < 4) return null
-  if (bytes.subarray(0, 4).toString('latin1') === '%PDF') return MIME.pdf
+  // PDF: the spec's Appendix H requires readers to accept `%PDF-` anywhere
+  // in the first 1024 bytes, not only at byte 0. Government PDFs commonly
+  // prefix a UTF-8 BOM or whitespace (an ITR acknowledgment from the
+  // income-tax portal was the case that forced this change), and we were
+  // rejecting them as "not a PDF" while every real reader opened them. The
+  // dash in `%PDF-` is what distinguishes the header from a text file that
+  // happens to contain the substring `%PDF`.
+  if (bytes.subarray(0, Math.min(bytes.length, 1024)).includes(PDF_HEADER)) return MIME.pdf
   if (bytes[0] === 0x89 && bytes[1] === 0x50 && bytes[2] === 0x4e && bytes[3] === 0x47) return MIME.png
   if (bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff) return MIME.jpeg
   if (bytes.length >= 12 && bytes.subarray(0, 4).toString('latin1') === 'RIFF' && bytes.subarray(8, 12).toString('latin1') === 'WEBP') return MIME.webp
