@@ -11,8 +11,9 @@ import { esicAdapter } from './esic/esic-adapter';
 import { einvoiceAdapter } from './einvoice/einvoice-adapter';
 import { ewaybillAdapter } from './ewaybill/ewaybill-adapter';
 import { itdAdapter } from './itd/itd-adapter';
+import { tracesAdapter } from './traces/traces-adapter';
 
-const ADAPTERS: PortalAdapter[] = [gstAdapter, mcaAdapter, tnreginetAdapter, udyamAdapter, labourAdapter, dgftAdapter, epfoAdapter, esicAdapter, einvoiceAdapter, ewaybillAdapter, itdAdapter];
+const ADAPTERS: PortalAdapter[] = [gstAdapter, mcaAdapter, tnreginetAdapter, udyamAdapter, labourAdapter, dgftAdapter, epfoAdapter, esicAdapter, einvoiceAdapter, ewaybillAdapter, itdAdapter, tracesAdapter];
 
 export function adapterFor(portalId: string, registrationId: string): PortalAdapter | null {
   const a = ADAPTERS.find((x) => x.portalId === portalId) ?? null;

@@ -31,6 +31,10 @@ import { tdsApi, type TdsData } from '@/modules/tds/api';
 import { TdsCredentialsCard } from './TdsCredentialsCard';
 import { TdsOverviewBoard } from './TdsOverviewBoard';
 import { tdsPortalApi } from '@/modules/tdsPortal/api';
+// TRACES autofill: binds the TAN + password the extension holds to the tab it
+// opens, so the deductor login fills by itself. With no client selected this
+// is a plain external link (look-around case), same as the other portals.
+import { OpenWithAutofill } from '@/modules/portalAutofill/GovernmentPortals';
 
 const STATUS_TINT: Record<SubServiceStatus['key'], { bg: string; fg: string }> = {
   not_registered:  { bg: '#EEF0F3', fg: '#475569' },
@@ -108,17 +112,21 @@ export function TdsServicesLanding() {
           <div className="text-11 uppercase tracking-[0.06em] text-neutral-500">Workstation · Services</div>
           <h1 className="text-20 font-semibold text-neutral-900 mt-1">TDS</h1>
         </div>
-        <a
-          href={TDS_PORTAL.url}
-          target="_blank"
-          rel="noopener noreferrer"
-          title={TDS_PORTAL.label}
-          aria-label={`Open ${TDS_PORTAL.label} in a new tab`}
-          className="shrink-0 inline-flex items-center gap-2 h-10 px-4 rounded-md bg-primary text-white text-14 font-medium hover:bg-primaryHover transition-colors"
-        >
-          <ExternalLink size={16} strokeWidth={2} />
-          <span className="hidden sm:inline">Visit portal</span>
-        </a>
+        {clientId ? (
+          <OpenWithAutofill clientId={clientId} registrationId="TDS_TRACES" portalId="TRACES" />
+        ) : (
+          <a
+            href={TDS_PORTAL.url}
+            target="_blank"
+            rel="noopener noreferrer"
+            title={TDS_PORTAL.label}
+            aria-label={`Open ${TDS_PORTAL.label} in a new tab`}
+            className="shrink-0 inline-flex items-center gap-2 h-10 px-4 rounded-md bg-primary text-white text-14 font-medium hover:bg-primaryHover transition-colors"
+          >
+            <ExternalLink size={16} strokeWidth={2} />
+            <span className="hidden sm:inline">Visit portal</span>
+          </a>
+        )}
       </header>
 
       {/* Sticky selector strip */}

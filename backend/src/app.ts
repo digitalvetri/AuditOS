@@ -150,7 +150,22 @@ export function createApp() {
   // extension (Origin chrome-extension://…) with no cookies — it is authorised
   // by a signed single-use launch token, so the cookie-CSRF origin guard does
   // not apply to it. Every other route keeps the allow-list.
-  app.use((req, res, next) => (req.path === '/api/extension/credentials/request' ? next() : corsGuard(req, res, next)))
+  //
+  // For the extension path, explicit CORS: the extension sends
+  // credentials:"omit" and no session cookie is involved, so '*' is correct —
+  // the launchToken is the only credential. Chrome preflights the POST because
+  // Content-Type is application/json, so OPTIONS must be answered here.
+  app.use((req, res, next) => {
+    if (req.path === '/api/extension/credentials/request') {
+      res.setHeader('Access-Control-Allow-Origin', '*')
+      res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS')
+      res.setHeader('Access-Control-Allow-Headers', 'Content-Type')
+      res.setHeader('Vary', 'Origin')
+      if (req.method === 'OPTIONS') { res.sendStatus(204); return }
+      return next()
+    }
+    return corsGuard(req, res, next)
+  })
   // Razorpay / Cashfree webhooks: public (the HMAC signature is the
   // authorization) and RAW — the signature covers the exact bytes received,
   // so this must come before the JSON / urlencoded parsers and `authenticate`.

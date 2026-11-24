@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "AuditOS \u2014 Government Portal Autofill",
   "short_name": "AuditOS Autofill",
-  "version": "0.5.0",
+  "version": "0.6.2",
   "description": "AuditOS internal tool: opens a client's government portal from the CRM and fills that client's login. You complete CAPTCHA / OTP / MFA / DSC.",
   "minimum_chrome_version": "116",
   "permissions": ["storage", "webNavigation", "scripting"],
@@ -26,7 +26,8 @@
     "https://*.ewaybillgst.gov.in/*",
     "https://*.epfindia.gov.in/*",
     "https://incometax.gov.in/*",
-    "https://*.incometax.gov.in/*"
+    "https://*.incometax.gov.in/*",
+    "https://*.tdscpc.gov.in/*"
   ],
   "background": {
     "service_worker": "background.js",
@@ -71,7 +72,8 @@
         "https://*.ewaybillgst.gov.in/*",
         "https://*.epfindia.gov.in/*",
         "https://incometax.gov.in/*",
-        "https://*.incometax.gov.in/*"
+        "https://*.incometax.gov.in/*",
+        "https://*.tdscpc.gov.in/*"
       ],
       "js": [
         "portal.js"

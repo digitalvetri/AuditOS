@@ -28,6 +28,7 @@ export const PORTALS: { slug: string; registrationId: string; portalId: string; 
   { slug: 'e-invoice', registrationId: 'E_INVOICE', portalId: 'EINVOICE', label: 'E-Invoice', launchUrl: 'https://einvoice.gst.gov.in/' },
   { slug: 'e-way-bill', registrationId: 'E_WAY_BILL', portalId: 'EWAYBILL', label: 'E-Way Bill', launchUrl: 'https://ewaybillgst.gov.in/' },
   { slug: 'income-tax-efiling', registrationId: 'INCOME_TAX_EFILING', portalId: 'ITD', label: 'Income Tax e-Filing', launchUrl: 'https://www.incometax.gov.in/iec/foportal/' },
+  { slug: 'tds', registrationId: 'TDS_TRACES', portalId: 'TRACES', label: 'TDS / TRACES', launchUrl: 'https://traces.tdscpc.gov.in/' },
 ];
 export const portalForSlug = (slug: string) => PORTALS.find((p) => p.slug === slug) ?? null;
 

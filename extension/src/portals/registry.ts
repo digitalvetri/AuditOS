@@ -33,6 +33,10 @@ export const REGISTRY: PortalEntry[] = [
   { portalId: 'EINVOICE', registrationIds: ['E_INVOICE'], name: 'E-Invoice Portal', launchUrls: ['https://einvoice.gst.gov.in/'], domains: ['einvoice.gst.gov.in', 'services.gst.gov.in'], status: 'SUPPORTED' },
   { portalId: 'EWAYBILL', registrationIds: ['E_WAY_BILL'], name: 'E-Way Bill Portal', launchUrls: ['https://ewaybillgst.gov.in/'], domains: ['ewaybillgst.gov.in'], status: 'SUPPORTED' },
   { portalId: 'ITD', registrationIds: ['INCOME_TAX_EFILING'], name: 'Income Tax e-Filing Portal', launchUrls: ['https://www.incometax.gov.in/iec/foportal/'], domains: ['incometax.gov.in'], status: 'PARTIAL' },
+  // TRACES — NOT_VERIFIED: the real login page is JS-rendered and was not
+  // inspected headlessly. The adapter uses generic password / username
+  // heuristics; the first live use is also the live-verification.
+  { portalId: 'TRACES', registrationIds: ['TDS_TRACES'], name: 'TRACES', launchUrls: ['https://traces.tdscpc.gov.in/'], domains: ['tdscpc.gov.in'], status: 'NOT_VERIFIED' },
 ];
 
 export const entryFor = (portalId: string) => REGISTRY.find((e) => e.portalId === portalId) ?? null;
