@@ -230,21 +230,31 @@ export function RegistrationRunPanel({ service }: { service: RegistrationService
                   picking a client — to check a fee, a form, a threshold.
                   Choosing a client is required to RECORD the outcome (step 3),
                   not to look something up. */}
-              <a
-                href={service.portalUrl!}
-                target="_blank"
-                rel="noopener noreferrer"
-                className={
-                  'inline-flex items-center gap-2 h-10 px-5 text-14 font-medium rounded-lg shadow-card ' +
-                  'text-white bg-primary hover:bg-primaryHover'
-                }
-              >
-                <ExternalLink size={16} strokeWidth={2} />
-                {client ? `Visit portal for ${client.client_id}` : 'Visit portal'}
-              </a>
+              {/* With a client AND an autofillable registration, the extension
+                  opens the tab: the credential it holds is bound to the tab id
+                  it creates. Without that binding (no client picked, or the
+                  registration is not in the autofill registry) a plain new tab
+                  is fine — there is nothing to fill. */}
               {client && portalForSlug(service.slug) ? (
-                <OpenWithAutofill clientId={client.id} registrationId={portalForSlug(service.slug)!.registrationId} portalId={portalForSlug(service.slug)!.portalId} />
-              ) : null}
+                <OpenWithAutofill
+                  clientId={client.id}
+                  registrationId={portalForSlug(service.slug)!.registrationId}
+                  portalId={portalForSlug(service.slug)!.portalId}
+                />
+              ) : (
+                <a
+                  href={service.portalUrl!}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className={
+                    'inline-flex items-center gap-2 h-10 px-5 text-14 font-medium rounded-lg shadow-card ' +
+                    'text-white bg-primary hover:bg-primaryHover'
+                  }
+                >
+                  <ExternalLink size={16} strokeWidth={2} />
+                  {client ? `Visit portal for ${client.client_id}` : 'Visit portal'}
+                </a>
+              )}
               <div className="mt-3 flex flex-wrap items-center gap-2 text-12 text-neutral-500">
                 <span>{service.portalLabel}</span>
                 <span className="inline-flex items-center h-6 px-3 rounded-full bg-[#f1f4f9] text-neutral-700 break-all">{service.portalUrl!.replace(/^https?:\/\//, '')}</span>

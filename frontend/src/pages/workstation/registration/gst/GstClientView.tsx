@@ -16,7 +16,7 @@
 import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link, useNavigate, useParams } from 'react-router-dom';
-import { ChevronLeft, ExternalLink, Check, Circle, AlertTriangle } from 'lucide-react';
+import { ChevronLeft, Check, Circle, AlertTriangle } from 'lucide-react';
 import { Card, PageHeader, QueryState } from '@/modules/workstation/components';
 import {
   gstApi, periodLabel, recentPeriods,
@@ -24,6 +24,7 @@ import {
 } from '@/modules/workstation/gst/api';
 import { SERVICES } from '../partnership/shared';
 import { PortalPanel } from './PortalPanel';
+import { OpenWithAutofill } from '@/modules/portalAutofill/GovernmentPortals';
 import { NoticesPanel } from '@/modules/notices/NoticesPanel';
 import { useToast } from '@/components/Toast';
 import { tasksApi, PRIORITY_LABEL, STATUS_LABEL, type Task } from '@/modules/workstation/tasks/api';
@@ -255,10 +256,14 @@ export function GstClientView() {
                 title={d.client.name}
                 subtitle={`${d.gst_profile.gstin} · ${d.gst_profile.filing_frequency === 'monthly' ? 'Monthly' : 'Quarterly'} · ${d.gst_profile.state ?? ''}`.trim()}
               />
-              <a href="https://www.gst.gov.in" target="_blank" rel="noopener noreferrer"
-                 className="inline-flex items-center gap-1 h-9 px-3 text-13 border border-neutral-300 rounded hover:border-neutral-400 shrink-0">
-                <ExternalLink size={14} /> Visit portal
-              </a>
+              {/* Autofill-aware launcher. The extension owns the tab it opens, so the
+                  credential can only be bound to a tab it created itself — a plain <a>
+                  link would hand the page to a tab the extension cannot attach to. */}
+              <OpenWithAutofill
+                clientId={d.client.id}
+                registrationId="GST_REGISTRATION"
+                portalId="GST"
+              />
             </div>
 
             {/* Portal credentials — the first thing needed when starting work. */}

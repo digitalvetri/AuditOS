@@ -30,9 +30,11 @@ import { burnLaunchToken, issueLaunchToken, verifyLaunchToken, type LaunchClaims
 export const portalAutofillRouter = Router()
 export const extensionCredentialsRouter = Router()
 
-/** Revealing a GST login and a registration login are separate permissions. */
+/** Revealing GST, TDS and registration logins are three separate permissions. */
 const revealPermission = (p: PortalConfig) =>
-  p.slug === 'gst' ? 'workstation.gst.portal.reveal' as const : 'workstation.registration.portal.reveal' as const
+  p.slug === 'gst' ? 'workstation.gst.portal.reveal' as const
+  : p.slug === 'tds' ? 'workstation.tds.portal.reveal' as const
+  : 'workstation.registration.portal.reveal' as const
 
 /** The user may reveal this registration's password for this client. */
 async function authorise(session: Session, entry: PortalConfig, clientId: string) {
@@ -53,6 +55,14 @@ async function credentialFor(entry: PortalConfig, clientId: string): Promise<{ u
     const profile = await prisma.gstProfile.findFirst({ where: { clientId, deletedAt: null }, select: { id: true } })
     const row = profile ? await prisma.gstPortalAccess.findFirst({ where: { gstProfileId: profile.id, deletedAt: null } }) : null
     if (row?.portalUsername) return { username: row.portalUsername, password: decryptPortalSecret(row.portalPasswordCiphertext, 'portal_password') }
+  }
+  if (entry.slug === 'tds') {
+    // TDS has its own credential store (TdsPortalCredential) keyed on clientId —
+    // not a RegistrationCredential. No `mobile`; the ciphertext is tagged
+    // 'tds_portal_password' to match tds-portal/routes.ts's encrypt field.
+    const row = await prisma.tdsPortalCredential.findFirst({ where: { clientId, deletedAt: null } })
+    if (!row?.userId || !row.passwordCiphertext) return null
+    return { username: row.userId, password: decryptPortalSecret(row.passwordCiphertext, 'tds_portal_password') }
   }
   const row = await prisma.registrationCredential.findFirst({ where: { clientId, typeCode: entry.slug, deletedAt: null } })
   if (!row) return null

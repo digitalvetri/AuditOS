@@ -54,6 +54,11 @@ export const PORTAL_REGISTRY: PortalConfig[] = [
   // Inspected 02 Oct 2026 — "Login" goes to eportal.incometax.gov.in/iec/foservices/#/login,
   // a two-step login: #panAdhaarUserId → Continue → password page (step 2 not inspected).
   { registrationId: 'INCOME_TAX_EFILING', slug: 'income-tax-efiling', portalId: 'ITD', name: 'Income Tax e-Filing Registration', portalName: 'Income Tax e-Filing Portal — Income Tax Department', launchUrl: 'https://www.incometax.gov.in/iec/foportal/', allowedDomains: ['incometax.gov.in'], status: 'PARTIAL' },
+  // TRACES deductor login — credential source is TdsPortalCredential, not RegistrationCredential
+  // (see `credentialFor` in routes.ts). Status NOT_VERIFIED: the real login form is JS-rendered
+  // and was not inspectable headlessly; the extension's adapter uses generic password/username
+  // heuristics until a developer inspects the live page and adds exact selectors.
+  { registrationId: 'TDS_TRACES', slug: 'tds', portalId: 'TRACES', name: 'TDS Deductor Login', portalName: 'TRACES — TDS Reconciliation Analysis and Correction Enabling System', launchUrl: 'https://traces.tdscpc.gov.in/', allowedDomains: ['tdscpc.gov.in'], status: 'NOT_VERIFIED' },
 ]
 
 export const byRegistrationId = (id: string) => PORTAL_REGISTRY.find((p) => p.registrationId === id) ?? null
